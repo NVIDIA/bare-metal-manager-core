@@ -10,9 +10,9 @@
  * its affiliates is strictly prohibited.
  */
 
-use carbide_uuid::dpa_interface::DpaInterfaceId;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use hkdf::Hkdf;
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
+use nico_uuid::dpa_interface::DpaInterfaceId;
 use sha2::Sha256;
 use sqlx::PgPool;
 
@@ -111,7 +111,8 @@ async fn build_kdf_context(
     pg_pool: &PgPool,
     dpa_interface_id: DpaInterfaceId,
 ) -> Result<KdfContext, eyre::Report> {
-    let interfaces = db::dpa_interface::find_by_ids(pg_pool, &[dpa_interface_id], false).await?;
+    let interfaces =
+        nico_api_db::dpa_interface::find_by_ids(pg_pool, &[dpa_interface_id], false).await?;
     let dpa_interface = interfaces
         .into_iter()
         .next()

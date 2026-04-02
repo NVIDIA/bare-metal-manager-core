@@ -16,6 +16,7 @@
  */
 
 use clap::Parser;
+use nico_rpc::forge;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -35,7 +36,7 @@ pub struct Args {
     pub id: String,
 }
 
-impl From<Args> for ::rpc::forge::NetworkTopologyRequest {
+impl From<Args> for forge::NetworkTopologyRequest {
     fn from(args: Args) -> Self {
         let id = if args.all || args.id.is_empty() {
             None

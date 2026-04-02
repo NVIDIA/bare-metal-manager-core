@@ -16,7 +16,9 @@
  */
 
 use std::collections::HashMap;
-use std::fs::{self, File};
+use std::fs::{
+    File, {self},
+};
 use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 

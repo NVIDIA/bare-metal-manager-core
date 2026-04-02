@@ -18,9 +18,9 @@
 // lockdown/args.rs
 // Command-line argument definitions for lockdown commands.
 
-use carbide_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::protos::mlx_device as mlx_device_pb;
+use nico_rpc::protos::mlx_device as mlx_device_pb;
+use nico_uuid::machine::MachineId;
 
 // LockdownCommand are the lockdown subcommands.
 #[derive(Parser, Debug)]

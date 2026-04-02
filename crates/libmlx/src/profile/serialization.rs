@@ -23,7 +23,7 @@
 
 use std::collections::HashMap;
 
-use rpc::protos::mlx_device::SerializableMlxConfigProfile as SerializableMlxConfigProfilePb;
+use nico_rpc::protos::mlx_device::SerializableMlxConfigProfile as SerializableMlxConfigProfilePb;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::profile::error::MlxProfileError;

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 
 use super::super::update_metadata;
 use super::args::Args;

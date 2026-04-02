@@ -14,10 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineId;
 use itertools::Itertools;
-use model::machine::LoadSnapshotOptions;
+use nico_api_model::machine::LoadSnapshotOptions;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -33,8 +33,12 @@ pub(crate) async fn reset_host_reprovisioning(
 
     let mut txn = api.txn_begin().await?;
 
-    db::host_machine_update::reset_host_reprovisioning_request(&mut txn, &machine_id, false)
-        .await?;
+    nico_api_db::host_machine_update::reset_host_reprovisioning_request(
+        &mut txn,
+        &machine_id,
+        false,
+    )
+    .await?;
     txn.commit().await?;
 
     Ok(Response::new(()))
@@ -42,9 +46,9 @@ pub(crate) async fn reset_host_reprovisioning(
 
 pub(crate) async fn trigger_host_reprovisioning(
     api: &Api,
-    request: Request<rpc::HostReprovisioningRequest>,
+    request: Request<forge::HostReprovisioningRequest>,
 ) -> Result<Response<()>, Status> {
-    use ::rpc::forge::host_reprovisioning_request::Mode;
+    use nico_rpc::forge::host_reprovisioning_request::Mode;
 
     log_request_data(&request);
     let req = request.into_inner();
@@ -52,13 +56,16 @@ pub(crate) async fn trigger_host_reprovisioning(
 
     let mut txn = api.txn_begin().await?;
 
-    let snapshot =
-        db::managed_host::load_snapshot(&mut txn, &machine_id, LoadSnapshotOptions::default())
-            .await?
-            .ok_or(CarbideError::NotFoundError {
-                kind: "machine",
-                id: machine_id.to_string(),
-            })?;
+    let snapshot = nico_api_db::managed_host::load_snapshot(
+        &mut txn,
+        &machine_id,
+        LoadSnapshotOptions::default(),
+    )
+    .await?
+    .ok_or(CarbideError::NotFoundError {
+        kind: "machine",
+        id: machine_id.to_string(),
+    })?;
 
     if let Some(request) = snapshot.host_snapshot.reprovision_requested
         && request.started_at.is_some()
@@ -71,7 +78,7 @@ pub(crate) async fn trigger_host_reprovisioning(
     match req.mode() {
         Mode::Set => {
             let initiator = req.initiator().as_str_name();
-            db::host_machine_update::trigger_host_reprovisioning_request(
+            nico_api_db::host_machine_update::trigger_host_reprovisioning_request(
                 &mut txn,
                 initiator,
                 &machine_id,
@@ -79,8 +86,11 @@ pub(crate) async fn trigger_host_reprovisioning(
             .await?;
         }
         Mode::Clear => {
-            db::host_machine_update::clear_host_reprovisioning_request(&mut txn, &machine_id)
-                .await?;
+            nico_api_db::host_machine_update::clear_host_reprovisioning_request(
+                &mut txn,
+                &machine_id,
+            )
+            .await?;
         }
     }
 
@@ -91,42 +101,45 @@ pub(crate) async fn trigger_host_reprovisioning(
 
 pub(crate) async fn list_hosts_waiting_for_reprovisioning(
     api: &Api,
-    request: Request<rpc::HostReprovisioningListRequest>,
-) -> Result<Response<rpc::HostReprovisioningListResponse>, Status> {
+    request: Request<forge::HostReprovisioningListRequest>,
+) -> Result<Response<forge::HostReprovisioningListResponse>, Status> {
     log_request_data(&request);
 
-    let hosts =
-        db::machine::list_machines_requested_for_host_reprovisioning(&api.database_connection)
-            .await?
-            .into_iter()
-            .map(
-                |x| rpc::host_reprovisioning_list_response::HostReprovisioningListItem {
-                    id: Some(x.id),
-                    state: x.current_state().to_string(),
-                    requested_at: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|a| a.requested_at.into()),
-                    initiator: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|a| a.initiator.clone())
-                        .unwrap_or_default(),
-                    initiated_at: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|a| a.started_at.map(|x| x.into()))
-                        .unwrap_or_default(),
-                    user_approval_received: x
-                        .reprovision_requested
-                        .as_ref()
-                        .map(|x| x.user_approval_received)
-                        .unwrap_or_default(),
-                },
-            )
-            .collect_vec();
+    let hosts = nico_api_db::machine::list_machines_requested_for_host_reprovisioning(
+        &api.database_connection,
+    )
+    .await?
+    .into_iter()
+    .map(
+        |x| forge::host_reprovisioning_list_response::HostReprovisioningListItem {
+            id: Some(x.id),
+            state: x.current_state().to_string(),
+            requested_at: x
+                .reprovision_requested
+                .as_ref()
+                .map(|a| a.requested_at.into()),
+            initiator: x
+                .reprovision_requested
+                .as_ref()
+                .map(|a| a.initiator.clone())
+                .unwrap_or_default(),
+            initiated_at: x
+                .reprovision_requested
+                .as_ref()
+                .map(|a| a.started_at.map(|x| x.into()))
+                .unwrap_or_default(),
+            user_approval_received: x
+                .reprovision_requested
+                .as_ref()
+                .map(|x| x.user_approval_received)
+                .unwrap_or_default(),
+        },
+    )
+    .collect_vec();
 
-    Ok(Response::new(rpc::HostReprovisioningListResponse { hosts }))
+    Ok(Response::new(forge::HostReprovisioningListResponse {
+        hosts,
+    }))
 }
 
 pub async fn mark_manual_firmware_upgrade_complete(
@@ -138,7 +151,8 @@ pub async fn mark_manual_firmware_upgrade_complete(
 
     let mut txn = api.txn_begin().await?;
 
-    db::host_machine_update::set_manual_firmware_upgrade_completed(&mut txn, &machine_id).await?;
+    nico_api_db::host_machine_update::set_manual_firmware_upgrade_completed(&mut txn, &machine_id)
+        .await?;
 
     txn.commit().await?;
 

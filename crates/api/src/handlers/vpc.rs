@@ -14,16 +14,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::network_security_group::NetworkSecurityGroupId;
-use carbide_uuid::vpc::VpcId;
-use db::resource_pool::ResourcePoolDatabaseError;
-use db::vpc::{self};
-use db::{self, ObjectColumnFilter, network_security_group};
-use model::resource_pool;
-use model::tenant::{InvalidTenantOrg, RoutingProfileType};
-use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, VpcStatus};
+use nico_api_db::resource_pool::ResourcePoolDatabaseError;
+use nico_api_db::vpc::{self};
+use nico_api_db::{
+    ObjectColumnFilter, network_security_group, {self},
+};
+use nico_api_model::resource_pool;
+use nico_api_model::tenant::{InvalidTenantOrg, RoutingProfileType};
+use nico_api_model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, VpcStatus};
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::network_security_group::NetworkSecurityGroupId;
+use nico_uuid::vpc::VpcId;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
@@ -32,8 +34,8 @@ use crate::api::{Api, log_request_data};
 
 pub(crate) async fn create(
     api: &Api,
-    request: Request<rpc::VpcCreationRequest>,
-) -> Result<Response<rpc::Vpc>, Status> {
+    request: Request<forge::VpcCreationRequest>,
+) -> Result<Response<forge::Vpc>, Status> {
     log_request_data(&request);
     let vpc_creation_request = request.get_ref();
 
@@ -55,7 +57,8 @@ pub(crate) async fn create(
     // because those VPCs are going to default to external and force us to deal with the missing,
     // tenant records.
     let tenant =
-        db::tenant::find(&vpc_creation_request.tenant_organization_id, true, &mut txn).await?;
+        nico_api_db::tenant::find(&vpc_creation_request.tenant_organization_id, true, &mut txn)
+            .await?;
 
     // A lot of tests seem to still allow tenant IDs for tenants that don't
     // exist.  We should audit and see if there are still sites with missing tenants
@@ -106,7 +109,7 @@ pub(crate) async fn create(
     let requested_profile_type = match (
         vpc_creation_request
             .routing_profile_type
-            .map(rpc::RoutingProfileType::try_from)
+            .map(forge::RoutingProfileType::try_from)
             .transpose()
             .map_err(|e| {
                 CarbideError::from(RpcDataConversionError::InvalidValue(
@@ -163,9 +166,9 @@ pub(crate) async fn create(
 
     new_vpc.routing_profile_type = requested_profile_type;
 
-    let vpc = db::vpc::persist(new_vpc, VpcStatus { vni }, &mut txn).await?;
+    let vpc = nico_api_db::vpc::persist(new_vpc, VpcStatus { vni }, &mut txn).await?;
 
-    let rpc_out: rpc::Vpc = vpc.into();
+    let rpc_out: forge::Vpc = vpc.into();
 
     txn.commit().await?;
 
@@ -174,8 +177,8 @@ pub(crate) async fn create(
 
 pub(crate) async fn update(
     api: &Api,
-    request: Request<rpc::VpcUpdateRequest>,
-) -> Result<Response<rpc::VpcUpdateResult>, Status> {
+    request: Request<forge::VpcUpdateRequest>,
+) -> Result<Response<forge::VpcUpdateResult>, Status> {
     log_request_data(&request);
 
     let vpc_update_request = request.get_ref();
@@ -196,9 +199,10 @@ pub(crate) async fn update(
 
         // Query for the VPC because we need to do
         // some validation against the request.
-        let Some(vpc) = db::vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
-            .await?
-            .pop()
+        let Some(vpc) =
+            nico_api_db::vpc::find_by(&mut txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
+                .await?
+                .pop()
         else {
             return Err(CarbideError::NotFoundError {
                 kind: "Vpc",
@@ -237,28 +241,29 @@ pub(crate) async fn update(
     // we can't allow VPCs to change routing profiles unless we also release and re-allocate their VNIs.
     // It's better to keep the property immutable.
 
-    let vpc = db::vpc::update(&UpdateVpc::try_from(request.into_inner())?, &mut txn).await?;
+    let vpc =
+        nico_api_db::vpc::update(&UpdateVpc::try_from(request.into_inner())?, &mut txn).await?;
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::VpcUpdateResult {
+    Ok(Response::new(forge::VpcUpdateResult {
         vpc: Some(vpc.into()),
     }))
 }
 
 pub(crate) async fn update_virtualization(
     api: &Api,
-    request: Request<rpc::VpcUpdateVirtualizationRequest>,
-) -> Result<Response<rpc::VpcUpdateVirtualizationResult>, Status> {
+    request: Request<forge::VpcUpdateVirtualizationRequest>,
+) -> Result<Response<forge::VpcUpdateVirtualizationResult>, Status> {
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
 
     let updater = UpdateVpcVirtualization::try_from(request.into_inner())?;
 
-    let instances = db::instance::find_ids(
+    let instances = nico_api_db::instance::find_ids(
         &mut txn,
-        model::instance::InstanceSearchFilter {
+        nico_api_model::instance::InstanceSearchFilter {
             label: None,
             tenant_org_id: None,
             vpc_id: Some(updater.id.to_string()),
@@ -274,17 +279,17 @@ pub(crate) async fn update_virtualization(
         ))
         .into());
     }
-    db::vpc::update_virtualization(&updater, &mut txn).await?;
+    nico_api_db::vpc::update_virtualization(&updater, &mut txn).await?;
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::VpcUpdateVirtualizationResult {}))
+    Ok(Response::new(forge::VpcUpdateVirtualizationResult {}))
 }
 
 pub(crate) async fn delete(
     api: &Api,
-    request: Request<rpc::VpcDeletionRequest>,
-) -> Result<Response<rpc::VpcDeletionResult>, Status> {
+    request: Request<forge::VpcDeletionRequest>,
+) -> Result<Response<forge::VpcDeletionResult>, Status> {
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
@@ -296,7 +301,7 @@ pub(crate) async fn delete(
         .id
         .ok_or(CarbideError::MissingArgument("id"))?;
 
-    let vpc = match db::vpc::try_delete(&mut txn, vpc_id).await? {
+    let vpc = match nico_api_db::vpc::try_delete(&mut txn, vpc_id).await? {
         Some(vpc) => vpc,
         None => {
             // VPC didn't exist or was deleted in the past. We are not allowed
@@ -336,11 +341,15 @@ pub(crate) async fn delete(
                 .unwrap_or_default();
 
         if internal {
-            db::resource_pool::release(&api.common_pools.ethernet.pool_vpc_vni, &mut txn, vni)
-                .await
-                .map_err(CarbideError::from)?;
+            nico_api_db::resource_pool::release(
+                &api.common_pools.ethernet.pool_vpc_vni,
+                &mut txn,
+                vni,
+            )
+            .await
+            .map_err(CarbideError::from)?;
         } else {
-            db::resource_pool::release(
+            nico_api_db::resource_pool::release(
                 &api.common_pools.ethernet.pool_external_vpc_vni,
                 &mut txn,
                 vni,
@@ -351,30 +360,30 @@ pub(crate) async fn delete(
     }
 
     // Delete associated VPC peerings
-    db::vpc_peering::delete_by_vpc_id(&mut txn, vpc_id).await?;
+    nico_api_db::vpc_peering::delete_by_vpc_id(&mut txn, vpc_id).await?;
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::VpcDeletionResult {}))
+    Ok(Response::new(forge::VpcDeletionResult {}))
 }
 
 pub(crate) async fn find_ids(
     api: &Api,
-    request: Request<rpc::VpcSearchFilter>,
-) -> Result<Response<rpc::VpcIdList>, Status> {
+    request: Request<forge::VpcSearchFilter>,
+) -> Result<Response<forge::VpcIdList>, Status> {
     log_request_data(&request);
 
-    let filter: model::vpc::VpcSearchFilter = request.into_inner().into();
+    let filter: nico_api_model::vpc::VpcSearchFilter = request.into_inner().into();
 
-    let vpc_ids = db::vpc::find_ids(&api.database_connection, filter).await?;
+    let vpc_ids = nico_api_db::vpc::find_ids(&api.database_connection, filter).await?;
 
-    Ok(Response::new(rpc::VpcIdList { vpc_ids }))
+    Ok(Response::new(forge::VpcIdList { vpc_ids }))
 }
 
 pub(crate) async fn find_by_ids(
     api: &Api,
-    request: Request<rpc::VpcsByIdsRequest>,
-) -> Result<Response<rpc::VpcList>, Status> {
+    request: Request<forge::VpcsByIdsRequest>,
+) -> Result<Response<forge::VpcList>, Status> {
     log_request_data(&request);
 
     let vpc_ids = request.into_inner().vpc_ids;
@@ -391,15 +400,15 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let db_vpcs = db::vpc::find_by(
+    let db_vpcs = nico_api_db::vpc::find_by(
         &api.database_connection,
         ObjectColumnFilter::List(vpc::IdColumn, &vpc_ids),
     )
     .await;
 
     let result = db_vpcs
-        .map(|vpc| rpc::VpcList {
-            vpcs: vpc.into_iter().map(rpc::Vpc::from).collect(),
+        .map(|vpc| forge::VpcList {
+            vpcs: vpc.into_iter().map(forge::Vpc::from).collect(),
         })
         .map(Response::new)?;
 
@@ -447,7 +456,7 @@ async fn allocate_vpc_vni(
         &api.common_pools.ethernet.pool_external_vpc_vni
     };
 
-    match db::resource_pool::allocate(
+    match nico_api_db::resource_pool::allocate(
         source_pool,
         txn,
         resource_pool::OwnerType::Vpc,
@@ -469,7 +478,7 @@ async fn allocate_vpc_vni(
             )))
         }
         Err(ResourcePoolDatabaseError::Database(e)) if requested_vni.is_some() => Err(match *e {
-            db::DatabaseError::FailedPrecondition(_s) => {
+            nico_api_db::DatabaseError::FailedPrecondition(_s) => {
                 tracing::error!(
                     owner_id,
                     pool = source_pool.name(),

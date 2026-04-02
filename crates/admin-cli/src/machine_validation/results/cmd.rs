@@ -18,8 +18,8 @@
 use std::borrow::Cow;
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
 use prettytable::{Table, row};
 
 use super::args::ShowResultsOptions;
@@ -93,7 +93,7 @@ async fn show_results_details(
     Ok(())
 }
 
-fn convert_results_to_nice_table(results: forgerpc::MachineValidationResultList) -> Box<Table> {
+fn convert_results_to_nice_table(results: forge::MachineValidationResultList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row![
@@ -119,9 +119,7 @@ fn convert_results_to_nice_table(results: forgerpc::MachineValidationResultList)
     table.into()
 }
 
-fn convert_to_nice_format(
-    results: forgerpc::MachineValidationResultList,
-) -> CarbideCliResult<String> {
+fn convert_to_nice_format(results: forge::MachineValidationResultList) -> CarbideCliResult<String> {
     let width = 14;
     let mut lines = String::new();
     if results.results.is_empty() {

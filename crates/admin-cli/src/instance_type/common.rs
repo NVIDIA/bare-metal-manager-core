@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge as forgerpc;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge;
 use prettytable::{Table, row};
 
 /// Produces a table for printing a non-JSON representation of a
@@ -25,7 +25,7 @@ use prettytable::{Table, row};
 /// * `itypes`  - A reference to an active DB transaction
 /// * `verbose` - A bool to select more verbose output (e.g., include full rule details)
 pub fn convert_itypes_to_table(
-    itypes: &[forgerpc::InstanceType],
+    itypes: &[forge::InstanceType],
     verbose: bool,
 ) -> CarbideCliResult<Box<Table>> {
     let mut table = Box::new(Table::new());
@@ -65,7 +65,7 @@ pub fn convert_itypes_to_table(
             })
             .collect::<Vec<_>>();
 
-        let default_attributes = forgerpc::InstanceTypeAttributes {
+        let default_attributes = forge::InstanceTypeAttributes {
             desired_capabilities: vec![],
         };
 

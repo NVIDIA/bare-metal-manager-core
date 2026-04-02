@@ -19,9 +19,9 @@
 
 use std::collections::HashMap;
 
-use model::machine::Machine;
-use model::metadata::Metadata;
-use model::rack::MachineRvLabels;
+use nico_api_model::machine::Machine;
+use nico_api_model::metadata::Metadata;
+use nico_api_model::rack::MachineRvLabels;
 
 use crate::state_controller::state_handler::StateHandlerError;
 

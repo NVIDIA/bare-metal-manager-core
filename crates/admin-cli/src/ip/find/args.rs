@@ -16,6 +16,7 @@
  */
 
 use clap::Parser;
+use nico_rpc::forge;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -23,7 +24,7 @@ pub struct Args {
     pub ip: std::net::IpAddr,
 }
 
-impl From<Args> for ::rpc::forge::FindIpAddressRequest {
+impl From<Args> for forge::FindIpAddressRequest {
     fn from(args: Args) -> Self {
         Self {
             ip: args.ip.to_string(),

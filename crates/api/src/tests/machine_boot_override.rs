@@ -18,7 +18,8 @@
 use common::api_fixtures::create_test_env;
 use common::api_fixtures::dpu::dpu_discover_dhcp;
 use common::mac_address_pool::DPU_OOB_MAC_ADDRESS_POOL;
-use rpc::protos::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::protos::forge::forge_server::Forge;
 
 use crate::DatabaseError;
 use crate::tests::common;
@@ -36,7 +37,7 @@ async fn only_one_custom_pxe_per_interface(
     let expected_pxe = Some("custom_pxe_string".to_string());
     let expected_user_data = Some("custom_user_data_string".to_string());
 
-    db::machine_boot_override::create(
+    nico_api_db::machine_boot_override::create(
         &mut txn,
         new_interface_id,
         expected_pxe.clone(),
@@ -46,7 +47,7 @@ async fn only_one_custom_pxe_per_interface(
     .expect("Could not create custom pxe");
 
     let machine_boot_override =
-        db::machine_boot_override::find_optional(txn.as_mut(), new_interface_id)
+        nico_api_db::machine_boot_override::find_optional(txn.as_mut(), new_interface_id)
             .await
             .expect("Could not load custom boot")
             .unwrap();
@@ -58,7 +59,7 @@ async fn only_one_custom_pxe_per_interface(
 
     let mut txn = env.pool.begin().await?;
 
-    let output = db::machine_boot_override::create(
+    let output = nico_api_db::machine_boot_override::create(
         &mut txn,
         new_interface_id,
         Some("custom_pxe_string".to_string()),
@@ -80,13 +81,13 @@ async fn confirm_null_fields(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
 
     let mut txn = env.pool.begin().await?;
 
-    db::machine_boot_override::create(&mut txn, new_interface_id, None, None)
+    nico_api_db::machine_boot_override::create(&mut txn, new_interface_id, None, None)
         .await?
         .expect("Could not create custom pxe");
 
     // ensure these stay Nones as we have code that will react to them not being None
     let machine_boot_override =
-        db::machine_boot_override::find_optional(txn.as_mut(), new_interface_id)
+        nico_api_db::machine_boot_override::find_optional(txn.as_mut(), new_interface_id)
             .await
             .expect("Could not load custom boot")
             .unwrap();
@@ -109,7 +110,7 @@ async fn api_get(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut txn = env.pool.begin().await?;
 
-    db::machine_boot_override::create(
+    nico_api_db::machine_boot_override::create(
         &mut txn,
         new_interface_id,
         expected_pxe.clone(),
@@ -148,7 +149,7 @@ async fn api_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let machine_interface_id =
         dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await;
 
-    let req = tonic::Request::new(rpc::forge::MachineBootOverride {
+    let req = tonic::Request::new(forge::MachineBootOverride {
         machine_interface_id: Some(machine_interface_id),
         custom_pxe: expected_pxe.clone(),
         custom_user_data: expected_user_data.clone(),
@@ -163,7 +164,7 @@ async fn api_set(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = env.pool.begin().await?;
 
     let machine_boot_override =
-        db::machine_boot_override::find_optional(txn.as_mut(), machine_interface_id)
+        nico_api_db::machine_boot_override::find_optional(txn.as_mut(), machine_interface_id)
             .await
             .expect("Could not load custom boot")
             .unwrap();
@@ -185,7 +186,7 @@ async fn api_clear(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>>
 
     let mut txn = env.pool.begin().await?;
 
-    db::machine_boot_override::create(
+    nico_api_db::machine_boot_override::create(
         &mut txn,
         new_interface_id,
         expected_pxe.clone(),
@@ -206,7 +207,7 @@ async fn api_clear(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>>
 
     // ensure these stay Nones as we have code that will react to them not being None
     let machine_boot_override =
-        db::machine_boot_override::find_optional(txn.as_mut(), new_interface_id)
+        nico_api_db::machine_boot_override::find_optional(txn.as_mut(), new_interface_id)
             .await
             .expect("Could not load custom boot");
 
@@ -223,7 +224,7 @@ async fn api_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let machine_interface_id =
         dpu_discover_dhcp(&env, &DPU_OOB_MAC_ADDRESS_POOL.allocate().to_string()).await;
 
-    let req = tonic::Request::new(rpc::forge::MachineBootOverride {
+    let req = tonic::Request::new(forge::MachineBootOverride {
         machine_interface_id: Some(machine_interface_id),
         custom_pxe: expected_pxe.clone(),
         custom_user_data: None,
@@ -235,7 +236,7 @@ async fn api_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .expect("Failed to set overrides via API")
         .into_inner();
 
-    let req = tonic::Request::new(rpc::forge::MachineBootOverride {
+    let req = tonic::Request::new(forge::MachineBootOverride {
         machine_interface_id: Some(machine_interface_id),
         custom_pxe: None,
         custom_user_data: expected_user_data.clone(),
@@ -250,7 +251,7 @@ async fn api_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let mut txn = env.pool.begin().await?;
 
     let machine_boot_override =
-        db::machine_boot_override::find_optional(txn.as_mut(), machine_interface_id)
+        nico_api_db::machine_boot_override::find_optional(txn.as_mut(), machine_interface_id)
             .await
             .expect("Could not load custom boot")
             .unwrap();

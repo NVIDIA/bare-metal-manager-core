@@ -15,8 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
 use clap::Parser;
+use nico_rpc::forge;
+use nico_uuid::rack::RackId;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -27,12 +28,10 @@ pub struct Args {
     pub rack_id: Option<RackId>,
 }
 
-impl From<&Args> for Option<rpc::forge::ExpectedRackRequest> {
+impl From<&Args> for Option<forge::ExpectedRackRequest> {
     fn from(args: &Args) -> Self {
-        args.rack_id
-            .as_ref()
-            .map(|id| rpc::forge::ExpectedRackRequest {
-                rack_id: id.to_string(),
-            })
+        args.rack_id.as_ref().map(|id| forge::ExpectedRackRequest {
+            rack_id: id.to_string(),
+        })
     }
 }

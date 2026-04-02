@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineId;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 use regex::Regex;
 use tokio::process::Command;
 
@@ -31,10 +31,10 @@ pub(crate) async fn completed(
     machine_validation_error: Option<String>,
 ) -> Result<(), CarbideClientError> {
     let mut client = create_forge_client(config).await?;
-    let request = tonic::Request::new(rpc::MachineValidationCompletedRequest {
+    let request = tonic::Request::new(forge::MachineValidationCompletedRequest {
         machine_id: Some(*machine_id),
         machine_validation_error,
-        validation_id: Some(::rpc::common::Uuid { value: uuid }),
+        validation_id: Some(nico_rpc::common::Uuid { value: uuid }),
     });
     client.machine_validation_completed(request).await?;
     tracing::info!("sending machine validation completed");
@@ -72,16 +72,16 @@ pub(crate) async fn run(
     machine_id: &MachineId,
     uuid: String,
     context: String,
-    machine_validation_filter: machine_validation::MachineValidationFilter,
+    machine_validation_filter: nico_machine_validation::MachineValidationFilter,
 ) -> Result<(), CarbideClientError> {
     let platform_name = get_system_manufacturer_name().await;
-    let options = machine_validation::MachineValidationOptions {
+    let options = nico_machine_validation::MachineValidationOptions {
         api: cmd_config.api.clone(),
         root_ca: cmd_config.root_ca.clone(),
         client_cert: cmd_config.client_cert.clone(),
         client_key: cmd_config.client_key.clone(),
     };
-    machine_validation::MachineValidationManager::run(
+    nico_machine_validation::MachineValidationManager::run(
         machine_id,
         platform_name,
         options,

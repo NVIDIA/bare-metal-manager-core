@@ -17,8 +17,8 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -31,7 +31,7 @@ pub async fn show(
     page_size: usize,
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
-    let identifier: Option<forgerpc::TenantKeysetIdentifier> = (&args).try_into()?;
+    let identifier: Option<forge::TenantKeysetIdentifier> = (&args).try_into()?;
 
     if let Some(identifier) = identifier {
         show_keyset_details(identifier, is_json, api_client).await?;
@@ -61,7 +61,7 @@ async fn show_keysets(
 }
 
 async fn show_keyset_details(
-    identifier: forgerpc::TenantKeysetIdentifier,
+    identifier: forge::TenantKeysetIdentifier,
     json: bool,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
@@ -86,7 +86,7 @@ async fn show_keyset_details(
     Ok(())
 }
 
-fn convert_keysets_to_nice_table(keysets: forgerpc::TenantKeySetList) -> Box<Table> {
+fn convert_keysets_to_nice_table(keysets: forge::TenantKeySetList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row!["Id", "TenantOrg", "Version", "Keys",]);
@@ -116,7 +116,7 @@ fn convert_keysets_to_nice_table(keysets: forgerpc::TenantKeySetList) -> Box<Tab
     table.into()
 }
 
-fn convert_keyset_to_nice_format(keyset: &forgerpc::TenantKeyset) -> CarbideCliResult<String> {
+fn convert_keyset_to_nice_format(keyset: &forge::TenantKeyset) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();
 

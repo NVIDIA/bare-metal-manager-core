@@ -15,19 +15,21 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
-use carbide_uuid::rack::RackId;
-use db::rack as db_rack;
 use mac_address::MacAddress;
-use model::rack::{RackConfig, RackState, RackValidationState};
-use model::rack_type::{
+use nico_api_db::rack as db_rack;
+use nico_api_model::rack::{RackConfig, RackState, RackValidationState};
+use nico_api_model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
     RackTypeConfig,
 };
+use nico_uuid::machine::{MachineId, MachineIdSource, MachineType};
+use nico_uuid::rack::RackId;
 
 use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
-use crate::state_controller::rack::handler::{self, RackStateHandler};
+use crate::state_controller::rack::handler::{
+    RackStateHandler, {self},
+};
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerOutcome,
 };
@@ -658,7 +660,7 @@ async fn test_maintenance_completed_transitions_to_validation(
     };
 
     let maintenance_state = RackState::Maintenance {
-        rack_maintenance: model::rack::RackMaintenanceState::Completed,
+        rack_maintenance: nico_api_model::rack::RackMaintenanceState::Completed,
     };
     let outcome = handler
         .handle_object_state(&rack_id, &mut rack, &maintenance_state, &mut ctx)

@@ -15,8 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
+use nico_rpc::forge;
+use nico_uuid::rack::RackId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -30,6 +31,6 @@ pub struct ExpectedSwitchJson {
     pub nvos_username: Option<String>,
     pub nvos_password: Option<String>,
     #[serde(default)]
-    pub metadata: Option<rpc::forge::Metadata>,
+    pub metadata: Option<forge::Metadata>,
     pub rack_id: Option<RackId>,
 }

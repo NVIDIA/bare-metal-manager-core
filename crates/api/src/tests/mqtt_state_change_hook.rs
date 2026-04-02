@@ -20,9 +20,9 @@
 //! Unit tests for message serialization are in the message module itself.
 //! These tests verify the hook behavior and MQTT topic construction.
 
-use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use chrono::Utc;
-use model::machine::ManagedHostState;
+use nico_api_model::machine::ManagedHostState;
+use nico_uuid::machine::{MachineId, MachineIdSource, MachineType};
 
 use crate::mqtt_state_change_hook::message::ManagedHostStateChangeMessage;
 
@@ -64,7 +64,7 @@ fn test_message_json_structure() {
 /// Tests that complex states include their nested fields
 #[test]
 fn test_complex_state_has_nested_fields() {
-    use model::machine::InstanceState;
+    use nico_api_model::machine::InstanceState;
 
     let machine_id = test_machine_id();
     let state = ManagedHostState::Assigned {

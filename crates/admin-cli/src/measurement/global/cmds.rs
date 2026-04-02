@@ -19,7 +19,7 @@
 //! Global commands at the root of the CLI, as well as some helper
 //! functions used by main.
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 
 use crate::cfg::measurement::GlobalOptions;
 use crate::rpc::ApiClient;

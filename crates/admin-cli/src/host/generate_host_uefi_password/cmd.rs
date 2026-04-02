@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use forge_secrets::credentials::Credentials;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_secrets::credentials::Credentials;
 
 pub fn generate_uefi_password() -> CarbideCliResult<()> {
     let password = Credentials::generate_password_no_special_char();

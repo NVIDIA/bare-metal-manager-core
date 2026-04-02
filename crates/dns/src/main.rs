@@ -16,10 +16,10 @@
  */
 use std::path::PathBuf;
 
-use carbide_dns::config::{Config, ConfigError};
-use carbide_dns::start;
 use clap::Parser;
 use eyre::WrapErr;
+use nico_dns::config::{Config, ConfigError};
+use nico_dns::start;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithExportConfig;
 use tonic::codegen::http;
@@ -91,7 +91,7 @@ async fn main() -> Result<(), eyre::Report> {
                     "Running in LEGACY DNS server mode on {}. This mode is deprecated and will be removed in future releases. Please migrate to PowerDNS backend.",
                     listen_addr
                 );
-                carbide_dns::legacy::LegacyDnsServer::run(config, listen_addr)
+                nico_dns::legacy::LegacyDnsServer::run(config, listen_addr)
                     .await
                     .wrap_err("Failed to start legacy DNS service")?;
             } else {

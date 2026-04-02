@@ -35,7 +35,7 @@ CLI_BIN="$REPO_ROOT/target/debug/carbide-admin-cli"
 
 if [ ! -x "$CLI_BIN" ]; then
   echo "Binary not found at $CLI_BIN — building first..."
-  cargo build -p carbide-admin-cli --manifest-path "$REPO_ROOT/Cargo.toml"
+  cargo build -p nico-admin-cli --manifest-path "$REPO_ROOT/Cargo.toml"
 fi
 
 exec "$CLI_BIN" \

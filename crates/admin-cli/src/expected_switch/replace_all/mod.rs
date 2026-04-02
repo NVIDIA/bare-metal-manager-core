@@ -22,8 +22,8 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 pub use args::Args;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use serde::{Deserialize, Serialize};
 
 use crate::cfg::run::Run;

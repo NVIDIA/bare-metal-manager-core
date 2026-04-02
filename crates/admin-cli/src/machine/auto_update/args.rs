@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
 use clap::{ArgGroup, Parser};
+use nico_uuid::machine::MachineId;
 
 #[derive(Parser, Debug, Clone)]
 #[clap(group(ArgGroup::new("autoupdate_action").required(true).args(&["enable", "disable", "clear"])))]

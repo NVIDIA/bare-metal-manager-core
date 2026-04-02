@@ -17,15 +17,15 @@
 
 use std::net::IpAddr;
 
-use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use futures::StreamExt;
-use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::metadata::Metadata;
-use model::switch::{
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::metadata::Metadata;
+use nico_api_model::switch::{
     FirmwareUpgradeStatus, NewSwitch, Switch, SwitchControllerState, SwitchReprovisionRequest,
 };
+use nico_uuid::switch::SwitchId;
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -169,7 +169,7 @@ pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<SwitchId>> {
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: model::switch::SwitchSearchFilter,
+    filter: nico_api_model::switch::SwitchSearchFilter,
 ) -> Result<Vec<SwitchId>, DatabaseError> {
     if filter.rack_id.is_some() {
         return Err(DatabaseError::InvalidArgument(
@@ -186,9 +186,9 @@ pub async fn find_ids(
     qb.push(" WHERE TRUE");
 
     match filter.deleted {
-        model::DeletedFilter::Exclude => qb.push(" AND s.deleted IS NULL"),
-        model::DeletedFilter::Only => qb.push(" AND s.deleted IS NOT NULL"),
-        model::DeletedFilter::Include => &mut qb,
+        nico_api_model::DeletedFilter::Exclude => qb.push(" AND s.deleted IS NULL"),
+        nico_api_model::DeletedFilter::Only => qb.push(" AND s.deleted IS NOT NULL"),
+        nico_api_model::DeletedFilter::Include => &mut qb,
     };
 
     if let Some(state) = &filter.controller_state {

@@ -18,7 +18,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use db::work_lock_manager::WorkLockManagerHandle;
+use nico_api_db::work_lock_manager::WorkLockManagerHandle;
 use opentelemetry::metrics::Meter;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;

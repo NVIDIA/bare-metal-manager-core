@@ -16,7 +16,8 @@
  */
 
 use common::api_fixtures::{create_managed_host, create_test_env};
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 
 use crate::CarbideError;
 use crate::tests::common;
@@ -30,22 +31,22 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     let version1: config_version::ConfigVersion = host_machine.version.parse().unwrap();
     assert_eq!(version1.version_nr(), 1);
 
-    let expected_metadata = rpc::forge::Metadata {
+    let expected_metadata = forge::Metadata {
         name: host_machine.id.as_ref().unwrap().to_string(),
         description: "".to_string(),
         labels: Vec::new(),
     };
     assert_eq!(host_machine.metadata.as_ref().unwrap(), &expected_metadata);
 
-    let new_metadata = rpc::forge::Metadata {
+    let new_metadata = forge::Metadata {
         name: "ASDF".to_string(),
         description: "LL1".to_string(),
         labels: vec![
-            ::rpc::forge::Label {
+            forge::Label {
                 key: "A".to_string(),
                 value: None,
             },
-            ::rpc::forge::Label {
+            forge::Label {
                 key: "B".to_string(),
                 value: Some("BB".to_string()),
             },
@@ -55,26 +56,22 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     // Update with missing Metadata fails
     let err = env
         .api
-        .update_machine_metadata(tonic::Request::new(
-            ::rpc::forge::MachineMetadataUpdateRequest {
-                machine_id: host_machine.id,
-                if_version_match: None,
-                metadata: None,
-            },
-        ))
+        .update_machine_metadata(tonic::Request::new(forge::MachineMetadataUpdateRequest {
+            machine_id: host_machine.id,
+            if_version_match: None,
+            metadata: None,
+        }))
         .await
         .unwrap_err();
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
 
     // Update succeeds
     env.api
-        .update_machine_metadata(tonic::Request::new(
-            ::rpc::forge::MachineMetadataUpdateRequest {
-                machine_id: host_machine.id,
-                if_version_match: None,
-                metadata: Some(new_metadata.clone()),
-            },
-        ))
+        .update_machine_metadata(tonic::Request::new(forge::MachineMetadataUpdateRequest {
+            machine_id: host_machine.id,
+            if_version_match: None,
+            metadata: Some(new_metadata.clone()),
+        }))
         .await
         .unwrap();
 
@@ -91,10 +88,10 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     assert_eq!(host_machine.metadata.as_ref().unwrap(), &new_metadata);
 
     // Conditional updates
-    let new_metadata = rpc::forge::Metadata {
+    let new_metadata = forge::Metadata {
         name: "CONDITIONAL".to_string(),
         description: "".to_string(),
-        labels: vec![::rpc::forge::Label {
+        labels: vec![forge::Label {
             key: "D".to_string(),
             value: None,
         }],
@@ -102,13 +99,11 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
     let err = env
         .api
-        .update_machine_metadata(tonic::Request::new(
-            ::rpc::forge::MachineMetadataUpdateRequest {
-                machine_id: host_machine.id,
-                if_version_match: Some(version1.to_string()),
-                metadata: Some(new_metadata.clone()),
-            },
-        ))
+        .update_machine_metadata(tonic::Request::new(forge::MachineMetadataUpdateRequest {
+            machine_id: host_machine.id,
+            if_version_match: Some(version1.to_string()),
+            metadata: Some(new_metadata.clone()),
+        }))
         .await
         .unwrap_err();
     assert_eq!(err.code(), tonic::Code::FailedPrecondition);
@@ -118,13 +113,11 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     );
 
     env.api
-        .update_machine_metadata(tonic::Request::new(
-            ::rpc::forge::MachineMetadataUpdateRequest {
-                machine_id: host_machine.id,
-                if_version_match: Some(version2.to_string()),
-                metadata: Some(new_metadata.clone()),
-            },
-        ))
+        .update_machine_metadata(tonic::Request::new(forge::MachineMetadataUpdateRequest {
+            machine_id: host_machine.id,
+            if_version_match: Some(version2.to_string()),
+            metadata: Some(new_metadata.clone()),
+        }))
         .await
         .unwrap();
 
@@ -144,13 +137,11 @@ async fn test_machine_metadata(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     for (invalid_metadata, expected_err) in common::metadata::invalid_metadata_testcases(true) {
         let err = env
             .api
-            .update_machine_metadata(tonic::Request::new(
-                ::rpc::forge::MachineMetadataUpdateRequest {
-                    machine_id: host_machine.id,
-                    if_version_match: None,
-                    metadata: Some(invalid_metadata.clone()),
-                },
-            ))
+            .update_machine_metadata(tonic::Request::new(forge::MachineMetadataUpdateRequest {
+                machine_id: host_machine.id,
+                if_version_match: None,
+                metadata: Some(invalid_metadata.clone()),
+            }))
             .await
             .expect_err(&format!(
                 "Invalid metadata of type should not be accepted: {invalid_metadata:?}"

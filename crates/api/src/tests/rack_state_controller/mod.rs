@@ -20,13 +20,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use carbide_uuid::rack::RackId;
-use db::rack as db_rack;
-use model::rack::{
+use nico_api_db::rack as db_rack;
+use nico_api_model::rack::{
     Rack, RackFirmwareUpgradeState, RackMaintenanceState, RackState, RackValidationState,
 };
-use rpc::forge::RackStateHistoryRecord;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge::RackStateHistoryRecord;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::rack::RackId;
 use tokio_util::sync::CancellationToken;
 
 use crate::state_controller::config::IterationConfig;
@@ -42,6 +42,7 @@ use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 mod fixtures;
 mod handler;
 use fixtures::rack::set_rack_controller_state;
+use nico_rpc::forge;
 
 #[derive(Debug, Default, Clone)]
 pub struct TestRackStateHandler {
@@ -110,7 +111,7 @@ impl StateHandler for TestRackStateHandler {
             RackState::Deleting => {
                 // Rack is being deleted
                 let mut txn = ctx.services.db_pool.begin().await?;
-                db::rack::final_delete(&mut txn, rack_id).await?;
+                nico_api_db::rack::final_delete(&mut txn, rack_id).await?;
                 return Ok(StateHandlerOutcome::deleted().with_txn(txn));
             }
             _ => return Ok(StateHandlerOutcome::do_nothing()),
@@ -184,7 +185,7 @@ async fn test_can_retrieve_rack_state_history(
 
     // get state history
 
-    let state_histories_request = rpc::forge::RackStateHistoriesRequest {
+    let state_histories_request = forge::RackStateHistoriesRequest {
         rack_ids: vec![rack_id.clone()],
     };
 
@@ -440,7 +441,7 @@ async fn test_rack_deletion_with_state_controller(
     controller.run_single_iteration().await;
 
     // Mark the rack as deleted
-    db::rack::mark_as_deleted(&rack_id, pool.acquire().await?.as_mut()).await?;
+    nico_api_db::rack::mark_as_deleted(&rack_id, pool.acquire().await?.as_mut()).await?;
 
     // Let the controller continue to run
     controller.run_single_iteration().await;
@@ -460,7 +461,7 @@ async fn test_rack_deletion_with_state_controller(
     // Verify that the DB object is gone
     let racks = env
         .api
-        .find_racks_by_ids(tonic::Request::new(rpc::forge::RacksByIdsRequest {
+        .find_racks_by_ids(tonic::Request::new(forge::RacksByIdsRequest {
             rack_ids: vec![rack_id],
         }))
         .await?

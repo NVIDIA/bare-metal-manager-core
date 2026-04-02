@@ -18,7 +18,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, NvmeDevice};
+use nico_rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, NvmeDevice};
 use serde_json::json;
 use utils::models::arch::CpuArchitecture;
 

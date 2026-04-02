@@ -18,7 +18,7 @@
 use std::net::SocketAddr;
 use std::{thread, time};
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 
 use crate::grpcurl::grpcurl;
 

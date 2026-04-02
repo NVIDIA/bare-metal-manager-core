@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use prettytable::{Table, row};
 
 use super::args::Args;

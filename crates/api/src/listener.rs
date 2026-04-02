@@ -19,11 +19,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
-use ::rpc::forge as rpc;
 use hyper::server::conn::{http1, http2};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::service::TowerToHyperService;
-use model::ConfigValidationError;
+use nico_api_model::ConfigValidationError;
+use nico_rpc::forge;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
 use rustls::server::WebPkiClientVerifier;
@@ -192,7 +192,7 @@ pub async fn start(
     cancel_token: CancellationToken,
 ) -> eyre::Result<()> {
     let api_reflection_service = Builder::configure()
-        .register_encoded_file_descriptor_set(::rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
+        .register_encoded_file_descriptor_set(nico_rpc::REFLECTION_API_SERVICE_DESCRIPTOR)
         .build_v1alpha()?;
 
     let (tls_config, mut tls_acceptor, serve_plaintext_via_http1) = match listen_mode {
@@ -265,7 +265,7 @@ pub async fn start(
         .route("/", axum::routing::get(root_url))
         .route_service(
             "/forge.Forge/{*rpc}",
-            rpc::forge_server::ForgeServer::from_arc(api_service.clone()),
+            forge::forge_server::ForgeServer::from_arc(api_service.clone()),
         )
         .route_service(
             "/grpc.reflection.v1alpha.ServerReflection/{*r}",
@@ -421,10 +421,10 @@ pub async fn start(
 
 /// Handle the root URL. Health check services often expect a 200 here.
 async fn root_url() -> &'static str {
-    const ROOT_CONTENTS: &str = if carbide_version::literal!(build_version).is_empty() {
+    const ROOT_CONTENTS: &str = if nico_version::literal!(build_version).is_empty() {
         "Forge development build\n"
     } else {
-        concat!("Forge ", carbide_version::literal!(build_version), "\n")
+        concat!("Forge ", nico_version::literal!(build_version), "\n")
     };
     ROOT_CONTENTS
 }

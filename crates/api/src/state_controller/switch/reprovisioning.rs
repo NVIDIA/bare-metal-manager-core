@@ -17,8 +17,10 @@
 
 //! Handler for SwitchControllerState::ReProvisioning.
 
-use carbide_uuid::switch::SwitchId;
-use model::switch::{FirmwareUpgradeStatus, ReProvisioningState, Switch, SwitchControllerState};
+use nico_api_model::switch::{
+    FirmwareUpgradeStatus, ReProvisioningState, Switch, SwitchControllerState,
+};
+use nico_uuid::switch::SwitchId;
 
 use crate::state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,

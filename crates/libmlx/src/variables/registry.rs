@@ -21,8 +21,8 @@
 // as any device filters, as in devices which are allowed to use
 // this registry.
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::protos::mlx_device::MlxVariableRegistry as MlxVariableRegistryPb;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::protos::mlx_device::MlxVariableRegistry as MlxVariableRegistryPb;
 use serde::{Deserialize, Serialize};
 
 use crate::device::filters::{DeviceFilter, DeviceFilterSet};

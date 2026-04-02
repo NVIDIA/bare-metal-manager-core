@@ -15,20 +15,23 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::vpc::VpcId;
-use carbide_uuid::vpc_peering::VpcPeeringId;
-use model::metadata::Metadata;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{
+use nico_api_model::metadata::Metadata;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{
     ManagedHostNetworkConfigRequest, VpcPeeringCreationRequest, VpcPeeringDeletionRequest,
     VpcPeeringList, VpcPeeringSearchFilter, VpcPeeringsByIdsRequest, VpcVirtualizationType,
 };
+use nico_uuid::machine::MachineId;
+use nico_uuid::vpc::VpcId;
+use nico_uuid::vpc_peering::VpcPeeringId;
 use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use super::common::api_fixtures::{self, TestEnv};
+use super::common::api_fixtures::{
+    TestEnv, {self},
+};
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 
@@ -58,7 +61,7 @@ async fn find_vpc_id_by_name(
     env: &TestEnv,
     vpc_name: &str,
 ) -> Result<VpcId, Box<dyn std::error::Error>> {
-    let vpc_id = db::vpc::find_by_name(&env.pool, vpc_name)
+    let vpc_id = nico_api_db::vpc::find_by_name(&env.pool, vpc_name)
         .await?
         .into_iter()
         .next()
@@ -209,7 +212,7 @@ async fn test_vpc_peering_full(pool: PgPool) -> Result<(), Box<dyn std::error::E
 
     let vpc_delete_response = env
         .api
-        .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
+        .delete_vpc(tonic::Request::new(forge::VpcDeletionRequest {
             id: Some(vpc_id_1),
         }))
         .await;
@@ -297,9 +300,9 @@ async fn create_vpc_peering(
     let _ = env.api.create_vpc_peering(vpc_peering_request).await?;
 
     // Add an instance
-    let instance_network = rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
+    let instance_network = forge::InstanceNetworkConfig {
+        interfaces: vec![nico_rpc::InstanceInterfaceConfig {
+            function_type: forge::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some(segment_id),
             network_details: None,
             device: None,
@@ -448,7 +451,7 @@ async fn test_vpc_peering_deletion_upon_vpc_deletion(
 
     let vpc_delete_response = env
         .api
-        .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
+        .delete_vpc(tonic::Request::new(forge::VpcDeletionRequest {
             id: Some(peer_vpc_id),
         }))
         .await;

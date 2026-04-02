@@ -17,9 +17,9 @@
 use std::borrow::Cow;
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::{self as forgerpc};
-use carbide_uuid::vpc::VpcId;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_uuid::vpc::VpcId;
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -97,7 +97,7 @@ async fn show_vpc_details(
     Ok(())
 }
 
-fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
+fn convert_vpcs_to_nice_table(vpcs: forge::VpcList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row![
@@ -114,7 +114,7 @@ fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
 
     for vpc in vpcs.vpcs {
         let metadata = vpc.metadata.as_ref().unwrap_or(&default_metadata);
-        let virt_type = forgerpc::VpcVirtualizationType::try_from(
+        let virt_type = forge::VpcVirtualizationType::try_from(
             vpc.network_virtualization_type.unwrap_or_default(),
         )
         .unwrap_or_default()
@@ -145,7 +145,7 @@ fn convert_vpcs_to_nice_table(vpcs: forgerpc::VpcList) -> Box<Table> {
     table.into()
 }
 
-fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
+fn convert_vpc_to_nice_format(vpc: &forge::Vpc) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();
 
@@ -180,7 +180,7 @@ fn convert_vpc_to_nice_format(vpc: &forgerpc::Vpc) -> CarbideCliResult<String> {
         ),
         (
             "NW VIRTUALIZATION",
-            forgerpc::VpcVirtualizationType::try_from(
+            forge::VpcVirtualizationType::try_from(
                 vpc.network_virtualization_type.unwrap_or_default(),
             )
             .unwrap_or_default()

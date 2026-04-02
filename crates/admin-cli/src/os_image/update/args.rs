@@ -16,7 +16,7 @@
  */
 
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 
 use crate::os_image::common::str_to_rpc_uuid;
 
@@ -48,7 +48,7 @@ pub struct Args {
 
 /// Parsed update request with a validated UUID.
 pub struct UpdateRequest {
-    pub id: ::rpc::common::Uuid,
+    pub id: nico_rpc::common::Uuid,
     pub name: Option<String>,
     pub description: Option<String>,
     pub auth_type: Option<String>,

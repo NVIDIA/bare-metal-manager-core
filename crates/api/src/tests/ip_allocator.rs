@@ -18,9 +18,9 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
 use mac_address::MacAddress;
-use model::address_selection_strategy::AddressSelectionStrategy;
-use model::network_prefix::NewNetworkPrefix;
-use model::network_segment::{
+use nico_api_model::address_selection_strategy::AddressSelectionStrategy;
+use nico_api_model::network_prefix::NewNetworkPrefix;
+use nico_api_model::network_segment::{
     NetworkSegmentControllerState, NetworkSegmentType, NewNetworkSegment,
 };
 
@@ -35,7 +35,7 @@ async fn test_machine_interface_create_with_ipv4_prefix(
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
+    let network_segment = nico_api_db::network_segment::admin(&mut txn).await?;
     let network_prefix = network_segment
         .prefixes
         .first()
@@ -58,7 +58,7 @@ async fn test_machine_interface_create_with_ipv4_prefix(
         _ => panic!("admin segment should have an IPv4 prefix"),
     };
 
-    let interface = db::machine_interface::create(
+    let interface = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
@@ -80,7 +80,7 @@ async fn test_machine_interface_create_with_ipv4_prefix(
     );
 
     // Allocate a second interface and verify it gets a different address
-    let interface2 = db::machine_interface::create(
+    let interface2 = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         &MacAddress::from_str("ff:ff:ff:ff:ff:fe").unwrap(),
@@ -107,7 +107,7 @@ async fn test_machine_interface_create_with_ipv6_prefix(
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let domain = db::dns::domain::find_by_name(&mut txn, "dwrt1.com")
+    let domain = nico_api_db::dns::domain::find_by_name(&mut txn, "dwrt1.com")
         .await?
         .into_iter()
         .next()
@@ -131,10 +131,10 @@ async fn test_machine_interface_create_with_ipv6_prefix(
         can_stretch: None,
     };
     let network_segment =
-        db::network_segment::persist(new_ns, &mut txn, NetworkSegmentControllerState::Ready)
+        nico_api_db::network_segment::persist(new_ns, &mut txn, NetworkSegmentControllerState::Ready)
             .await?;
 
-    let interface = db::machine_interface::create(
+    let interface = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         &MacAddress::from_str("aa:bb:cc:dd:ee:01").unwrap(),
@@ -156,7 +156,7 @@ async fn test_machine_interface_create_with_ipv6_prefix(
     );
 
     // Allocate a second interface to verify sequential allocation works
-    let interface2 = db::machine_interface::create(
+    let interface2 = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         &MacAddress::from_str("aa:bb:cc:dd:ee:02").unwrap(),
@@ -189,7 +189,7 @@ async fn test_machine_interface_create_dual_stack(
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let domain = db::dns::domain::find_by_name(&mut txn, "dwrt1.com")
+    let domain = nico_api_db::dns::domain::find_by_name(&mut txn, "dwrt1.com")
         .await?
         .into_iter()
         .next()
@@ -219,10 +219,10 @@ async fn test_machine_interface_create_dual_stack(
         can_stretch: None,
     };
     let network_segment =
-        db::network_segment::persist(new_ns, &mut txn, NetworkSegmentControllerState::Ready)
+        nico_api_db::network_segment::persist(new_ns, &mut txn, NetworkSegmentControllerState::Ready)
             .await?;
 
-    let interface = db::machine_interface::create(
+    let interface = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         &MacAddress::from_str("aa:bb:cc:00:00:01").unwrap(),
@@ -258,7 +258,7 @@ async fn test_machine_interface_create_dual_stack(
     );
 
     // Allocate a second interface and verify both families get new addresses
-    let interface2 = db::machine_interface::create(
+    let interface2 = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         &MacAddress::from_str("aa:bb:cc:00:00:02").unwrap(),

@@ -17,10 +17,10 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use mac_address::MacAddress;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge::{BmcEndpointRequest, PowerOptions};
 use prettytable::{Cell, Row, Table};
-use rpc::forge::{BmcEndpointRequest, PowerOptions};
 
 use super::args::{ShowPowerOptions, UpdatePowerOptions};
 use crate::rpc::ApiClient;

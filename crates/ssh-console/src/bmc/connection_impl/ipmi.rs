@@ -22,8 +22,8 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 
-use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
+use nico_uuid::machine::MachineId;
 use nix::errno::Errno;
 use nix::pty::OpenptyResult;
 use nix::unistd;
@@ -42,7 +42,7 @@ use crate::bmc::pending_output_line::PendingOutputLine;
 use crate::bmc::vendor::IPMITOOL_ESCAPE_SEQUENCE;
 use crate::config::Config;
 use crate::io_util::{
-    self, PtyAllocError, set_controlling_terminal_on_exec, write_data_to_async_fd,
+    PtyAllocError, set_controlling_terminal_on_exec, write_data_to_async_fd, {self},
 };
 
 /// Spawn ipmitool in the background to connect to the given BMC specified by `connection_details`,

@@ -19,13 +19,14 @@ use std::collections::HashMap;
 use std::convert::Into;
 use std::net::IpAddr;
 
-use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use crate::SerializableMacAddress;
@@ -74,17 +75,17 @@ pub struct InstanceNetworkStatus {
     pub configs_synced: SyncState,
 }
 
-impl TryFrom<InstanceNetworkStatus> for rpc::InstanceNetworkStatus {
+impl TryFrom<InstanceNetworkStatus> for forge::InstanceNetworkStatus {
     type Error = RpcDataConversionError;
 
     fn try_from(status: InstanceNetworkStatus) -> Result<Self, Self::Error> {
         let mut interfaces = Vec::with_capacity(status.interfaces.len());
         for iface in status.interfaces {
-            interfaces.push(rpc::InstanceInterfaceStatus::try_from(iface)?);
+            interfaces.push(forge::InstanceInterfaceStatus::try_from(iface)?);
         }
-        Ok(rpc::InstanceNetworkStatus {
+        Ok(forge::InstanceNetworkStatus {
             interfaces,
-            configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
+            configs_synced: forge::SyncState::try_from(status.configs_synced)? as i32,
         })
     }
 }
@@ -423,11 +424,11 @@ impl InstanceInterfaceStatus {
     }
 }
 
-impl TryFrom<InstanceInterfaceStatus> for rpc::InstanceInterfaceStatus {
+impl TryFrom<InstanceInterfaceStatus> for forge::InstanceInterfaceStatus {
     type Error = RpcDataConversionError;
 
     fn try_from(status: InstanceInterfaceStatus) -> Result<Self, Self::Error> {
-        Ok(rpc::InstanceInterfaceStatus {
+        Ok(forge::InstanceInterfaceStatus {
             virtual_function_id: match status.function_id {
                 InterfaceFunctionId::Physical {} => None,
                 InterfaceFunctionId::Virtual { id } => Some(id as u32),
@@ -549,13 +550,15 @@ pub struct InstanceInterfaceStatusObservation {
     pub internal_uuid: Option<uuid::Uuid>,
 }
 
-impl TryFrom<rpc::InstanceInterfaceStatusObservation> for InstanceInterfaceStatusObservation {
+impl TryFrom<forge::InstanceInterfaceStatusObservation> for InstanceInterfaceStatusObservation {
     type Error = RpcDataConversionError;
 
-    fn try_from(observation: rpc::InstanceInterfaceStatusObservation) -> Result<Self, Self::Error> {
+    fn try_from(
+        observation: forge::InstanceInterfaceStatusObservation,
+    ) -> Result<Self, Self::Error> {
         let function_id = match observation.function_type() {
-            rpc::forge::InterfaceFunctionType::Physical => InterfaceFunctionId::Physical {},
-            rpc::forge::InterfaceFunctionType::Virtual => {
+            forge::InterfaceFunctionType::Physical => InterfaceFunctionId::Physical {},
+            forge::InterfaceFunctionType::Virtual => {
                 InterfaceFunctionId::try_virtual_from(observation.virtual_function_id() as u8)
                     .map_err(|_| {
                         RpcDataConversionError::InvalidVirtualFunctionId(
@@ -624,7 +627,7 @@ mod tests {
     use std::fmt::Write;
     use std::str::FromStr;
 
-    use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+    use nico_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 
     use super::*;
     use crate::instance::config::network::InstanceInterfaceConfig;
@@ -703,7 +706,7 @@ mod tests {
                 gateways: vec!["127.1.2.1".parse().unwrap()],
                 network_security_group: Some(NetworkSecurityGroupStatusObservation {
                     id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
-                    source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
+                    source: forge::NetworkSecurityGroupSource::NsgSourceInstance
                         .try_into()
                         .unwrap(),
                     version: "V1-T1".parse().unwrap(),
@@ -911,7 +914,7 @@ mod tests {
                 gateways,
                 network_security_group: Some(NetworkSecurityGroupStatusObservation {
                     id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
-                    source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
+                    source: forge::NetworkSecurityGroupSource::NsgSourceInstance
                         .try_into()
                         .unwrap(),
                     version: "V1-T1".parse().unwrap(),
@@ -922,7 +925,7 @@ mod tests {
         observations.insert(
             MachineId::from_str(DPU_ID1).unwrap(),
             InstanceNetworkStatusObservation {
-                instance_config_version: None, // Reported by rpc::DpuNetworkStatus not rpc::InstanceNetworkStatusObservation
+                instance_config_version: None, // Reported by forge::DpuNetworkStatus not forge::InstanceNetworkStatusObservation
                 config_version,
                 observed_at: Utc::now(),
                 interfaces: obs,

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -23,7 +23,7 @@ use crate::rpc::ApiClient;
 /// set_network_virtualization_type is the CLI handler for wrapping
 /// a `vpc set-virtualizer` command, taking configuration and doing
 /// necessary prep work before handing off to the actual RPC handler
-/// to send out an RPC (rpc::set_vpc_network_virtualization_type).
+/// to send out an RPC (nico_rpc::set_vpc_network_virtualization_type).
 ///
 /// This is intended for dev use only, and can only be done on a VPC
 /// with 0 instances (an error will be returned otherwise).

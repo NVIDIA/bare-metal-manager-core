@@ -15,7 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use nico_rpc::admin_cli::{CarbideCliError, OutputFormat};
+use nico_rpc::forge;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -25,7 +26,7 @@ pub async fn create(
     format: OutputFormat,
     api_client: &ApiClient,
 ) -> Result<(), CarbideCliError> {
-    let request: rpc::forge::RackFirmwareCreateRequest = opts.try_into()?;
+    let request: forge::RackFirmwareCreateRequest = opts.try_into()?;
     let result = api_client.0.create_rack_firmware(request).await?;
 
     if format == OutputFormat::Json {

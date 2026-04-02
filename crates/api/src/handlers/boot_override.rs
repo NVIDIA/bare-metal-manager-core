@@ -15,33 +15,37 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineInterfaceId;
-use model::machine_boot_override::MachineBootOverride;
+use nico_api_model::machine_boot_override::MachineBootOverride;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineInterfaceId;
 
 use crate::api::Api;
 
 pub(crate) async fn get(
     api: &Api,
     request: tonic::Request<MachineInterfaceId>,
-) -> Result<tonic::Response<rpc::MachineBootOverride>, tonic::Status> {
+) -> Result<tonic::Response<forge::MachineBootOverride>, tonic::Status> {
     crate::api::log_request_data(&request);
 
     let machine_interface_id = request.into_inner();
 
     let mut txn = api.txn_begin().await?;
 
-    let machine_id = match db::machine_interface::find_one(&mut txn, machine_interface_id).await {
-        Ok(interface) => interface.machine_id,
-        Err(_) => None,
-    };
+    let machine_id =
+        match nico_api_db::machine_interface::find_one(&mut txn, machine_interface_id).await {
+            Ok(interface) => interface.machine_id,
+            Err(_) => None,
+        };
 
     if let Some(machine_id) = machine_id {
         crate::api::log_machine_id(&machine_id);
     }
 
-    let mbo = match db::machine_boot_override::find_optional(txn.as_pgconn(), machine_interface_id)
-        .await?
+    let mbo = match nico_api_db::machine_boot_override::find_optional(
+        txn.as_pgconn(),
+        machine_interface_id,
+    )
+    .await?
     {
         Some(mbo) => mbo,
         None => MachineBootOverride {
@@ -58,18 +62,18 @@ pub(crate) async fn get(
 
 pub(crate) async fn set(
     api: &Api,
-    request: tonic::Request<rpc::MachineBootOverride>,
+    request: tonic::Request<forge::MachineBootOverride>,
 ) -> Result<tonic::Response<()>, tonic::Status> {
     crate::api::log_request_data(&request);
 
     let mbo: MachineBootOverride = request.into_inner().try_into()?;
     let mut txn = api.txn_begin().await?;
 
-    let machine_id = match db::machine_interface::find_one(&mut txn, mbo.machine_interface_id).await
-    {
-        Ok(interface) => interface.machine_id,
-        Err(_) => None,
-    };
+    let machine_id =
+        match nico_api_db::machine_interface::find_one(&mut txn, mbo.machine_interface_id).await {
+            Ok(interface) => interface.machine_id,
+            Err(_) => None,
+        };
     match machine_id {
         Some(machine_id) => {
             crate::api::log_machine_id(&machine_id);
@@ -86,7 +90,7 @@ pub(crate) async fn set(
         ),
     }
 
-    db::machine_boot_override::update_or_insert(&mbo, &mut txn).await?;
+    nico_api_db::machine_boot_override::update_or_insert(&mbo, &mut txn).await?;
 
     txn.commit().await?;
 
@@ -103,10 +107,11 @@ pub(crate) async fn clear(
 
     let mut txn = api.txn_begin().await?;
 
-    let machine_id = match db::machine_interface::find_one(&mut txn, machine_interface_id).await {
-        Ok(interface) => interface.machine_id,
-        Err(_) => None,
-    };
+    let machine_id =
+        match nico_api_db::machine_interface::find_one(&mut txn, machine_interface_id).await {
+            Ok(interface) => interface.machine_id,
+            Err(_) => None,
+        };
     match machine_id {
         Some(machine_id) => {
             crate::api::log_machine_id(&machine_id);
@@ -122,7 +127,7 @@ pub(crate) async fn clear(
             "Boot override for machine_interface_id disabled"
         ),
     }
-    db::machine_boot_override::clear(&mut txn, machine_interface_id).await?;
+    nico_api_db::machine_boot_override::clear(&mut txn, machine_interface_id).await?;
 
     txn.commit().await?;
 

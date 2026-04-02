@@ -17,8 +17,9 @@
 
 use std::path::PathBuf;
 
-use ::rpc::admin_cli::CarbideCliError;
 use clap::Parser;
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::forge;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -28,7 +29,7 @@ pub struct Args {
     pub artifactory_token: String,
 }
 
-impl TryFrom<Args> for rpc::forge::RackFirmwareCreateRequest {
+impl TryFrom<Args> for forge::RackFirmwareCreateRequest {
     type Error = CarbideCliError;
 
     fn try_from(args: Args) -> Result<Self, Self::Error> {

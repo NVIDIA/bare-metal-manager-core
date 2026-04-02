@@ -18,10 +18,10 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
-use ::rpc::Machine;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use carbide_uuid::machine::MachineId;
-use health_report::HealthProbeAlert;
+use nico_health_report::HealthProbeAlert;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::{Machine, forge};
+use nico_uuid::machine::MachineId;
 use prettytable::{Cell, Row, Table};
 use serde::Serialize;
 use tracing::warn;
@@ -509,7 +509,7 @@ pub async fn show(
         // Get all machines: DPUs will arrive as part of this request
         api_client
             .get_all_machines(
-                rpc::forge::MachineSearchConfig {
+                forge::MachineSearchConfig {
                     include_dpus: true,
                     only_maintenance: args.fix,
                     only_quarantine: args.quarantine,

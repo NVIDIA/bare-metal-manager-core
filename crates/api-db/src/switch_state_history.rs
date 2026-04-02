@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::switch::SwitchId;
 use config_version::ConfigVersion;
-use model::switch::{SwitchControllerState, SwitchStateHistoryRecord};
+use nico_api_model::switch::{SwitchControllerState, SwitchStateHistoryRecord};
+use nico_uuid::switch::SwitchId;
 use sqlx::{FromRow, PgConnection};
 
 use crate::{DatabaseError, DatabaseResult};

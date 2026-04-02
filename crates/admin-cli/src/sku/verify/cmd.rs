@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use carbide_uuid::machine::MachineId;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_uuid::machine::MachineId;
 
 use crate::rpc::ApiClient;
 

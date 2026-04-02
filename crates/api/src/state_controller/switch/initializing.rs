@@ -17,9 +17,9 @@
 
 //! Handler for SwitchControllerState::Initializing.
 
-use carbide_uuid::switch::SwitchId;
-use model::machine_interface_address::MachineInterfaceAssociation;
-use model::switch::{ConfiguringState, InitializingState, Switch, SwitchControllerState};
+use nico_api_model::machine_interface_address::MachineInterfaceAssociation;
+use nico_api_model::switch::{ConfiguringState, InitializingState, Switch, SwitchControllerState};
+use nico_uuid::switch::SwitchId;
 
 use crate::state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -59,7 +59,7 @@ async fn handle_wait_for_os_machine_interface(
     let mut txn = ctx.services.db_pool.begin().await?;
 
     let expected_switch =
-        db::expected_switch::find_by_bmc_mac_address(&mut txn, bmc_mac_address).await?;
+        nico_api_db::expected_switch::find_by_bmc_mac_address(&mut txn, bmc_mac_address).await?;
 
     let expected_switch = match expected_switch {
         Some(es) => es,
@@ -99,7 +99,8 @@ async fn handle_wait_for_os_machine_interface(
     let total = nvos_mac_addresses.len();
 
     for mac_address in nvos_mac_addresses {
-        let mi = db::machine_interface::find_by_mac_address(&mut *txn, *mac_address).await?;
+        let mi =
+            nico_api_db::machine_interface::find_by_mac_address(&mut *txn, *mac_address).await?;
         let interface = match mi.first() {
             Some(iface) => iface,
             None => continue,
@@ -126,7 +127,7 @@ async fn handle_wait_for_os_machine_interface(
             continue;
         }
 
-        db::machine_interface::associate_interface_with_machine(
+        nico_api_db::machine_interface::associate_interface_with_machine(
             &interface.id,
             MachineInterfaceAssociation::Switch(*switch_id),
             &mut txn,

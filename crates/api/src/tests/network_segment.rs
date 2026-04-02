@@ -20,28 +20,29 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
 
-use carbide_network::virtualization::VpcVirtualizationType;
-use carbide_uuid::network::NetworkSegmentId;
 use common::network_segment::{
     NetworkSegmentHelper, create_network_segment_with_api, get_segment_state, get_segments,
     text_history,
 };
-use db::ObjectColumnFilter;
-use db::network_segment::VpcColumn;
-use db::vpc::IdColumn;
 use mac_address::MacAddress;
-use model::address_selection_strategy::AddressSelectionStrategy;
-use model::network_prefix::NewNetworkPrefix;
-use model::network_segment;
-use model::network_segment::{
+use nico_api_db::ObjectColumnFilter;
+use nico_api_db::network_segment::VpcColumn;
+use nico_api_db::vpc::IdColumn;
+use nico_api_model::address_selection_strategy::AddressSelectionStrategy;
+use nico_api_model::network_prefix::NewNetworkPrefix;
+use nico_api_model::network_segment;
+use nico_api_model::network_segment::{
     NetworkDefinition, NetworkDefinitionSegmentType, NetworkSegment, NetworkSegmentControllerState,
     NetworkSegmentDeletionState, NetworkSegmentType, NewNetworkSegment,
 };
-use model::resource_pool::common::VLANID;
-use model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
-use model::vpc::UpdateVpcVirtualization;
+use nico_api_model::resource_pool::common::VLANID;
+use nico_api_model::resource_pool::{ResourcePool, ResourcePoolStats, ValueType};
+use nico_api_model::vpc::UpdateVpcVirtualization;
+use nico_network::virtualization::VpcVirtualizationType;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::network::NetworkSegmentId;
 use prometheus_text_parser::ParsedPrometheusMetrics;
-use rpc::forge::forge_server::Forge;
 use tonic::Request;
 
 use crate::db_init;
@@ -74,7 +75,7 @@ async fn test_advance_network_prefix_state(
     let vpc_id = vpc.id.unwrap();
 
     let id: NetworkSegmentId = uuid::Uuid::new_v4().into();
-    let segment: NetworkSegment = db::network_segment::persist(
+    let segment: NetworkSegment = nico_api_db::network_segment::persist(
         NewNetworkSegment {
             id,
             name: "integration_test".to_string(),
@@ -107,14 +108,14 @@ async fn test_advance_network_prefix_state(
 
     txn.commit().await?;
     let mut txn = pool.begin().await?;
-    let ns = db::network_segment::find_by_name(&mut txn, "integration_test")
+    let ns = nico_api_db::network_segment::find_by_name(&mut txn, "integration_test")
         .await
         .unwrap();
 
     assert_eq!(ns.id, id);
 
     assert!(
-        db::network_prefix::find(&mut txn, segment.prefixes[0].id)
+        nico_api_db::network_prefix::find(&mut txn, segment.prefixes[0].id)
             .await
             .is_ok()
     );
@@ -133,22 +134,22 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
         false,
         false,
         None,
-        rpc::forge::NetworkSegmentType::Admin as i32,
+        forge::NetworkSegmentType::Admin as i32,
         1,
     )
     .await;
 
     let mut txn = env.pool.begin().await?;
-    let db_segment = db::network_segment::find_by(
+    let db_segment = nico_api_db::network_segment::find_by(
         txn.as_mut(),
-        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment.id.unwrap()),
+        ObjectColumnFilter::One(nico_api_db::network_segment::IdColumn, &segment.id.unwrap()),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
     .unwrap()
     .remove(0);
 
-    db::machine_interface::create(
+    nico_api_db::machine_interface::create(
         &mut txn,
         &db_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
@@ -161,7 +162,7 @@ async fn test_network_segment_delete_fails_with_associated_machine_interface(
 
     let delete_result = env
         .api
-        .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
+        .delete_network_segment(Request::new(forge::NetworkSegmentDeletionRequest {
             id: segment.id,
         }))
         .await;
@@ -186,17 +187,17 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
         false,
         false,
         None,
-        rpc::forge::NetworkSegmentType::Admin as i32,
+        forge::NetworkSegmentType::Admin as i32,
         1,
     )
     .await;
 
     // Now try to create another one with a prefix that is contained within the exising prefix
-    let request = rpc::forge::NetworkSegmentCreationRequest {
+    let request = forge::NetworkSegmentCreationRequest {
         id: None,
         mtu: Some(1500),
         name: "TEST_SEGMENT_2".to_string(),
-        prefixes: vec![rpc::forge::NetworkPrefix {
+        prefixes: vec![forge::NetworkPrefix {
             id: None,
             prefix: "192.0.2.12/30".to_string(), // is inside 192.0.2.0/24
             gateway: Some("192.0.2.13".to_string()),
@@ -206,7 +207,7 @@ async fn test_overlapping_prefix(pool: sqlx::PgPool) -> Result<(), eyre::Report>
         }],
         subdomain_id: None,
         vpc_id: None,
-        segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        segment_type: forge::NetworkSegmentType::Tenant as i32,
     };
     match env.api.create_network_segment(Request::new(request)).await {
         Ok(_) => Err(eyre::eyre!(
@@ -231,7 +232,7 @@ async fn test_network_segment_max_history_length(
         true,
         true,
         None,
-        rpc::forge::NetworkSegmentType::Admin as i32,
+        forge::NetworkSegmentType::Admin as i32,
         1,
     )
     .await;
@@ -242,7 +243,7 @@ async fn test_network_segment_max_history_length(
 
     assert_eq!(
         get_segment_state(&env.api, segment_id).await,
-        rpc::forge::TenantState::Ready
+        forge::TenantState::Ready
     );
 
     assert_eq!(
@@ -268,7 +269,7 @@ async fn test_network_segment_max_history_length(
 
     let segment = get_segments(
         &env.api,
-        rpc::forge::NetworkSegmentsByIdsRequest {
+        forge::NetworkSegmentsByIdsRequest {
             network_segments_ids: vec![segment_id],
             include_history: true,
             include_num_free_ips: false,
@@ -279,7 +280,7 @@ async fn test_network_segment_max_history_length(
 
     let segment = get_segments(
         &env.api,
-        rpc::forge::NetworkSegmentsByIdsRequest {
+        forge::NetworkSegmentsByIdsRequest {
             network_segments_ids: vec![segment_id],
             include_history: false,
             include_num_free_ips: false,
@@ -290,7 +291,7 @@ async fn test_network_segment_max_history_length(
 
     let segment = get_segments(
         &env.api,
-        rpc::forge::NetworkSegmentsByIdsRequest {
+        forge::NetworkSegmentsByIdsRequest {
             network_segments_ids: vec![segment_id],
             include_history: false,
             include_num_free_ips: false,
@@ -303,9 +304,9 @@ async fn test_network_segment_max_history_length(
     const HISTORY_LIMIT: usize = 250;
 
     let mut txn = env.pool.begin().await.unwrap();
-    let mut version = db::network_segment::find_by(
+    let mut version = nico_api_db::network_segment::find_by(
         txn.as_mut(),
-        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
+        ObjectColumnFilter::One(nico_api_db::network_segment::IdColumn, &segment_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
@@ -321,7 +322,7 @@ async fn test_network_segment_max_history_length(
         };
         let next_version = version.increment();
         assert!(
-            db::network_segment::try_update_controller_state(
+            nico_api_db::network_segment::try_update_controller_state(
                 &mut txn,
                 segment_id,
                 version,
@@ -331,12 +332,17 @@ async fn test_network_segment_max_history_length(
             .await
             .unwrap()
         );
-        db::network_segment_state_history::persist(&mut txn, segment_id, &state, next_version)
-            .await
-            .unwrap();
-        version = db::network_segment::find_by(
+        nico_api_db::network_segment_state_history::persist(
+            &mut txn,
+            segment_id,
+            &state,
+            next_version,
+        )
+        .await
+        .unwrap();
+        version = nico_api_db::network_segment::find_by(
             txn.as_mut(),
-            ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
+            ObjectColumnFilter::One(nico_api_db::network_segment::IdColumn, &segment_id),
             network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await
@@ -381,7 +387,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     // Only one vlan-id available
     let mut txn = db_pool.begin().await?;
     let vlan_pool = ResourcePool::new(VLANID.to_string(), ValueType::Integer);
-    db::resource_pool::populate(&vlan_pool, &mut txn, vec!["1".to_string()], true).await?;
+    nico_api_db::resource_pool::populate(&vlan_pool, &mut txn, vec!["1".to_string()], true).await?;
     txn.commit().await?;
 
     // Create a network segment rpc call
@@ -390,7 +396,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         false,
         true,
         None,
-        rpc::forge::NetworkSegmentType::Admin as i32,
+        forge::NetworkSegmentType::Admin as i32,
         1,
     )
     .await;
@@ -398,7 +404,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     // Value is allocated
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, vlan_pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, vlan_pool.name()).await?,
         ResourcePoolStats {
             used: 1,
             free: 0,
@@ -412,7 +418,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 
     // Delete the segment, releasing the VNI back to the pool
     env.api
-        .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
+        .delete_network_segment(Request::new(forge::NetworkSegmentDeletionRequest {
             id: segment.id,
         }))
         .await?;
@@ -430,7 +436,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     // Value is free
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, vlan_pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, vlan_pool.name()).await?,
         ResourcePoolStats {
             used: 0,
             free: 1,
@@ -448,7 +454,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         false,
         true,
         None,
-        rpc::forge::NetworkSegmentType::Admin as i32,
+        forge::NetworkSegmentType::Admin as i32,
         1,
     )
     .await;
@@ -456,7 +462,7 @@ async fn test_vlan_reallocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     // Value allocated again
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, vlan_pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, vlan_pool.name()).await?,
         ResourcePoolStats {
             used: 1,
             free: 0,
@@ -503,22 +509,22 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     crate::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
 
     let mut txn = db_pool.begin().await?;
-    let admin = db::network_segment::find_by_name(&mut txn, "admin").await?;
+    let admin = nico_api_db::network_segment::find_by_name(&mut txn, "admin").await?;
     assert_eq!(admin.mtu, 9000);
     assert_eq!(admin.segment_type, NetworkSegmentType::Admin);
 
-    let underlay = db::network_segment::find_by_name(&mut txn, "DEV1-C09-IPMI-01").await?;
+    let underlay = nico_api_db::network_segment::find_by_name(&mut txn, "DEV1-C09-IPMI-01").await?;
     assert_eq!(underlay.mtu, 1500);
     assert_eq!(underlay.segment_type, NetworkSegmentType::Underlay);
     txn.commit().await?;
 
     // Now create them again. It should succeed but not create any more
-    use model::network_segment::NetworkSegmentSearchConfig; // override global rpc one
+    use nico_api_model::network_segment::NetworkSegmentSearchConfig; // override global rpc one
     let search_cfg = NetworkSegmentSearchConfig::default();
     let mut txn = db_pool.begin().await?;
-    let num_before = db::network_segment::find_by(
+    let num_before = nico_api_db::network_segment::find_by(
         txn.as_mut(),
-        ObjectColumnFilter::<db::network_segment::IdColumn>::All,
+        ObjectColumnFilter::<nico_api_db::network_segment::IdColumn>::All,
         search_cfg,
     )
     .await?
@@ -526,9 +532,9 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     txn.commit().await?;
     crate::db_init::create_initial_networks(&env.api, &env.pool, &networks).await?;
     let mut txn = db_pool.begin().await?;
-    let num_after = db::network_segment::find_by(
+    let num_after = nico_api_db::network_segment::find_by(
         txn.as_mut(),
-        ObjectColumnFilter::<db::network_segment::IdColumn>::All,
+        ObjectColumnFilter::<nico_api_db::network_segment::IdColumn>::All,
         search_cfg,
     )
     .await?
@@ -550,27 +556,32 @@ async fn test_find_segment_ids(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         false,
         false,
         None,
-        rpc::forge::NetworkSegmentType::Admin as i32,
+        forge::NetworkSegmentType::Admin as i32,
         1,
     )
     .await;
     let segment_id: NetworkSegmentId = segment.id.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let mut segments = db::network_segment::list_segment_ids(&mut txn, None).await?;
+    let mut segments = nico_api_db::network_segment::list_segment_ids(&mut txn, None).await?;
     assert_eq!(segments.len(), 1);
     assert_eq!(segments.remove(0), segment_id);
 
     let mut segments =
-        db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Admin)).await?;
+        nico_api_db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Admin))
+            .await?;
     assert_eq!(segments.len(), 1);
     assert_eq!(segments.remove(0), segment_id);
 
-    let segments =
-        db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay)).await?;
+    let segments = nico_api_db::network_segment::list_segment_ids(
+        &mut txn,
+        Some(NetworkSegmentType::Underlay),
+    )
+    .await?;
     assert_eq!(segments.len(), 0);
     let segments =
-        db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Tenant)).await?;
+        nico_api_db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Tenant))
+            .await?;
     assert_eq!(segments.len(), 0);
 
     Ok(())
@@ -586,7 +597,7 @@ async fn test_segment_creation_with_id(pool: sqlx::PgPool) -> Result<(), eyre::R
         false,
         false,
         Some(id),
-        rpc::forge::NetworkSegmentType::Admin as i32,
+        forge::NetworkSegmentType::Admin as i32,
         1,
     )
     .await;
@@ -600,11 +611,11 @@ async fn test_segment_creation_with_id(pool: sqlx::PgPool) -> Result<(), eyre::R
 async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
 
-    let request = rpc::forge::NetworkSegmentCreationRequest {
+    let request = forge::NetworkSegmentCreationRequest {
         id: None,
         mtu: Some(1500),
         name: "TEST_SEGMENT_1".to_string(),
-        prefixes: vec![rpc::forge::NetworkPrefix {
+        prefixes: vec![forge::NetworkPrefix {
             id: None,
             prefix: "192.0.2.12/31".to_string(),
             gateway: Some("192.0.2.13".to_string()),
@@ -614,7 +625,7 @@ async fn test_31_prefix_not_allowed(pool: sqlx::PgPool) -> Result<(), eyre::Repo
         }],
         subdomain_id: None,
         vpc_id: None,
-        segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        segment_type: forge::NetworkSegmentType::Tenant as i32,
     };
 
     for prefix in &[31, 32] {
@@ -693,7 +704,7 @@ async fn test_network_segment_metrics(
 
     assert_eq!(
         get_segment_state(&env.api, segment_id).await,
-        rpc::forge::TenantState::Ready
+        forge::TenantState::Ready
     );
 
     let avail_str = format!(
@@ -762,7 +773,7 @@ async fn test_network_segment_metrics(
 
     // Delete the segment, releasing the VNI back to the pool
     env.api
-        .delete_network_segment(Request::new(rpc::forge::NetworkSegmentDeletionRequest {
+        .delete_network_segment(Request::new(forge::NetworkSegmentDeletionRequest {
             id: segment.id,
         }))
         .await?;
@@ -919,7 +930,7 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let vpc_id = get_vpc_fixture_id(&env).await;
 
     let mut txn = env.pool.begin().await?;
-    let segments = db::network_segment::find_by(
+    let segments = nico_api_db::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(VpcColumn, &vpc_id),
         network_segment::NetworkSegmentSearchConfig::default(),
@@ -937,14 +948,14 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let update_request = UpdateVpcVirtualization {
         id: vpc_id,
         if_version_match: None,
-        network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
+        network_virtualization_type: nico_network::virtualization::VpcVirtualizationType::Fnn,
     };
-    db::vpc::update_virtualization(&update_request, &mut txn).await?;
+    nico_api_db::vpc::update_virtualization(&update_request, &mut txn).await?;
     txn.commit().await?;
 
     // Already created segments must have SVI allocated.
     let mut txn = env.pool.begin().await?;
-    let segments = db::network_segment::find_by(
+    let segments = nico_api_db::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(VpcColumn, &vpc_id),
         network_segment::NetworkSegmentSearchConfig::default(),
@@ -972,7 +983,7 @@ async fn test_update_svi_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     env.run_network_segment_controller_iteration().await;
 
     let mut txn = env.pool.begin().await?;
-    let segments = db::network_segment::find_by(
+    let segments = nico_api_db::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(VpcColumn, &vpc_id),
         network_segment::NetworkSegmentSearchConfig::default(),
@@ -998,9 +1009,9 @@ async fn test_update_svi_ip_admin_segment(
     db_init::create_admin_vpc(&env.pool, Some(10600)).await?;
 
     let mut txn = env.pool.begin().await?;
-    let admin_segment = db::network_segment::admin(&mut txn).await?;
+    let admin_segment = nico_api_db::network_segment::admin(&mut txn).await?;
     assert!(admin_segment.vpc_id.is_some());
-    let admin_vpc = db::vpc::find_by(
+    let admin_vpc = nico_api_db::vpc::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &admin_segment.vpc_id.unwrap()),
     )
@@ -1010,7 +1021,7 @@ async fn test_update_svi_ip_admin_segment(
         VpcVirtualizationType::Fnn
     );
     db_init::update_network_segments_svi_ip(&env.pool).await?;
-    let admin_segment = db::network_segment::admin(&mut txn).await?;
+    let admin_segment = nico_api_db::network_segment::admin(&mut txn).await?;
     for prefix in admin_segment.prefixes {
         assert!(prefix.svi_ip.is_some());
     }
@@ -1027,9 +1038,9 @@ async fn test_update_svi_ip_post_instance_allocation(
     let query = "UPDATE network_prefixes SET num_reserved = 2 WHERE id=$1";
 
     let mut txn = env.pool.begin().await?;
-    let segments = db::network_segment::find_by(
+    let segments = nico_api_db::network_segment::find_by(
         txn.as_mut(),
-        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
+        ObjectColumnFilter::One(nico_api_db::network_segment::IdColumn, &segment_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
@@ -1052,7 +1063,7 @@ async fn test_update_svi_ip_post_instance_allocation(
         .await
         .expect("Unable to create transaction on database pool");
     assert_eq!(
-        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
+        nico_api_db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -1066,9 +1077,9 @@ async fn test_update_svi_ip_post_instance_allocation(
 
     // At this moment, the third IP is taken from the tenant subnet for the instance.
     let mut txn = env.pool.begin().await?;
-    let mut segment = db::network_segment::find_by(
+    let mut segment = nico_api_db::network_segment::find_by(
         txn.as_mut(),
-        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
+        ObjectColumnFilter::One(nico_api_db::network_segment::IdColumn, &segment_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
@@ -1076,15 +1087,15 @@ async fn test_update_svi_ip_post_instance_allocation(
     let update_request = UpdateVpcVirtualization {
         id: segment.vpc_id.unwrap(),
         if_version_match: None,
-        network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
+        network_virtualization_type: nico_network::virtualization::VpcVirtualizationType::Fnn,
     };
-    db::vpc::update_virtualization(&update_request, &mut txn).await?;
+    nico_api_db::vpc::update_virtualization(&update_request, &mut txn).await?;
     txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
-    let mut segment = db::network_segment::find_by(
+    let mut segment = nico_api_db::network_segment::find_by(
         txn.as_mut(),
-        ObjectColumnFilter::One(db::network_segment::IdColumn, &segment_id),
+        ObjectColumnFilter::One(nico_api_db::network_segment::IdColumn, &segment_id),
         network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
@@ -1108,11 +1119,11 @@ async fn test_create_network_segment_with_ipv6_prefix(
 ) -> Result<(), eyre::Report> {
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
 
-    let request = rpc::forge::NetworkSegmentCreationRequest {
+    let request = forge::NetworkSegmentCreationRequest {
         id: None,
         mtu: Some(1500),
         name: "IPV6_SEGMENT".to_string(),
-        prefixes: vec![rpc::forge::NetworkPrefix {
+        prefixes: vec![forge::NetworkPrefix {
             id: None,
             prefix: "2001:db8::/64".to_string(),
             gateway: None,
@@ -1122,7 +1133,7 @@ async fn test_create_network_segment_with_ipv6_prefix(
         }],
         subdomain_id: None,
         vpc_id: None,
-        segment_type: rpc::forge::NetworkSegmentType::Admin as i32,
+        segment_type: forge::NetworkSegmentType::Admin as i32,
     };
 
     let response = env
@@ -1161,18 +1172,18 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
         .api
         .create_vpc(
             VpcCreationRequest::builder("dual-stack vpc", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
-                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .network_virtualization_type(forge::VpcVirtualizationType::Fnn as i32)
                 .tonic_request(),
         )
         .await?
         .into_inner();
 
-    let request = rpc::forge::NetworkSegmentCreationRequest {
+    let request = forge::NetworkSegmentCreationRequest {
         id: None,
         mtu: Some(1500),
         name: "DUAL_STACK_SEGMENT".to_string(),
         prefixes: vec![
-            rpc::forge::NetworkPrefix {
+            forge::NetworkPrefix {
                 id: None,
                 prefix: "192.0.2.0/24".to_string(),
                 gateway: Some("192.0.2.1".to_string()),
@@ -1180,7 +1191,7 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
                 free_ip_count: 0,
                 svi_ip: None,
             },
-            rpc::forge::NetworkPrefix {
+            forge::NetworkPrefix {
                 id: None,
                 prefix: "2001:db8::/64".to_string(),
                 gateway: None,
@@ -1191,7 +1202,7 @@ async fn test_create_dual_stack_tenant_segment(pool: sqlx::PgPool) -> Result<(),
         ],
         subdomain_id: None,
         vpc_id: vpc.id,
-        segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        segment_type: forge::NetworkSegmentType::Tenant as i32,
     };
 
     let response = env
@@ -1245,18 +1256,18 @@ async fn test_ipv6_tenant_prefix_rejected_when_not_in_site_fabric(
                 "uncontained-ipv6-vpc",
                 "2829bbe3-c169-4cd9-8b2a-19a8b1618a93",
             )
-            .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+            .network_virtualization_type(forge::VpcVirtualizationType::Fnn as i32)
             .tonic_request(),
         )
         .await?
         .into_inner();
 
     // fd00:abcd::/48 is NOT contained in our site fabric prefixes
-    let request = rpc::forge::NetworkSegmentCreationRequest {
+    let request = forge::NetworkSegmentCreationRequest {
         id: None,
         mtu: Some(1500),
         name: "UNCONTAINED_V6_SEGMENT".to_string(),
-        prefixes: vec![rpc::forge::NetworkPrefix {
+        prefixes: vec![forge::NetworkPrefix {
             id: None,
             prefix: "fd00:abcd::/48".to_string(),
             gateway: None,
@@ -1266,7 +1277,7 @@ async fn test_ipv6_tenant_prefix_rejected_when_not_in_site_fabric(
         }],
         subdomain_id: None,
         vpc_id: vpc.id,
-        segment_type: rpc::forge::NetworkSegmentType::Tenant as i32,
+        segment_type: forge::NetworkSegmentType::Tenant as i32,
     };
 
     let result = env.api.create_network_segment(Request::new(request)).await;

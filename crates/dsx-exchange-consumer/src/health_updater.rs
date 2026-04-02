@@ -14,9 +14,9 @@
 
 use std::sync::Arc;
 
-use health_report::{HealthAlertClassification, HealthProbeAlert, HealthReport};
 use moka::future::Cache;
 use moka::ops::compute::Op;
+use nico_health_report::{HealthAlertClassification, HealthProbeAlert, HealthReport};
 use opentelemetry::metrics::Meter;
 use tokio::sync::mpsc;
 

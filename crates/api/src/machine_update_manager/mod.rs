@@ -26,15 +26,15 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineId;
-use db::work_lock_manager::WorkLockManagerHandle;
-use db::{DatabaseError, ObjectFilter, Transaction};
 use host_firmware::HostFirmwareUpdate;
 use machine_update_module::MachineUpdateModule;
-use model::dpu_machine_update::DpuMachineUpdate;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
-use model::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE;
+use nico_api_db::work_lock_manager::WorkLockManagerHandle;
+use nico_api_db::{DatabaseError, ObjectFilter, Transaction};
+use nico_api_model::dpu_machine_update::DpuMachineUpdate;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
+use nico_api_model::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE;
+use nico_uuid::machine::MachineId;
 use sqlx::{PgConnection, PgPool};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -159,7 +159,7 @@ impl MachineUpdateManager {
         &self,
         txn: &mut PgConnection,
     ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
-        let machine_ids = db::machine::find_machine_ids(
+        let machine_ids = nico_api_db::machine::find_machine_ids(
             &mut *txn,
             MachineSearchConfig {
                 include_predicted_host: true,
@@ -167,7 +167,7 @@ impl MachineUpdateManager {
             },
         )
         .await?;
-        db::managed_host::load_by_machine_ids(
+        nico_api_db::managed_host::load_by_machine_ids(
             txn,
             &machine_ids,
             LoadSnapshotOptions {
@@ -224,7 +224,7 @@ impl MachineUpdateManager {
         let snapshots = self.get_all_snapshots(&mut txn).await?;
 
         let (all_count, unhealthy_count) =
-            db::machine::count_healthy_unhealthy_host_machines(&snapshots);
+            nico_api_db::machine::count_healthy_unhealthy_host_machines(&snapshots);
         let max_concurrent_updates = self
             .max_concurrent_machine_updates
             .max_concurrent_updates(all_count, unhealthy_count)
@@ -286,10 +286,10 @@ impl MachineUpdateManager {
         txn: &mut PgConnection,
         machine_update: &DpuMachineUpdate,
     ) -> CarbideResult<()> {
-        db::machine::remove_health_report_override(
+        nico_api_db::machine::remove_health_report_override(
             txn,
             &machine_update.host_machine_id,
-            health_report::OverrideMode::Merge,
+            nico_health_report::OverrideMode::Merge,
             HOST_UPDATE_HEALTH_REPORT_SOURCE,
         )
         .await?;
@@ -301,7 +301,7 @@ impl MachineUpdateManager {
     pub async fn get_updating_machines(
         txn: &mut PgConnection,
     ) -> Result<HashSet<MachineId>, DatabaseError> {
-        let machines = db::machine::find(
+        let machines = nico_api_db::machine::find(
             txn,
             ObjectFilter::All,
             MachineSearchConfig {

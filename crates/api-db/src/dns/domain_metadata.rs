@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use model::dns::metadata::DomainMetadata;
+use nico_api_model::dns::metadata::DomainMetadata;
 use sqlx::postgres::PgRow;
 use sqlx::{Error, FromRow, Row};
 

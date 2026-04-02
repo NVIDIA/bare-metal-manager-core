@@ -22,23 +22,26 @@ use std::os::unix::fs::PermissionsExt;
 use std::str::FromStr;
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineId;
 use common::api_fixtures::instance::TestInstance;
 use common::api_fixtures::{
-    self, TestEnv, TestManagedHost, create_test_env_with_overrides, get_config,
+    TestEnv, TestManagedHost, create_test_env_with_overrides, get_config, {self},
 };
-use db::{self, DatabaseError};
-use model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
-use model::instance::status::tenant::TenantState;
-use model::machine::{HostReprovisionState, InstanceState, ManagedHostState};
-use model::machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE;
-use model::site_explorer::{
+use nico_api_db::{
+    DatabaseError, {self},
+};
+use nico_api_model::firmware::{Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry};
+use nico_api_model::instance::status::tenant::TenantState;
+use nico_api_model::machine::{HostReprovisionState, InstanceState, ManagedHostState};
+use nico_api_model::machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE;
+use nico_api_model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
     InitialResetPhase, Inventory, PowerDrainState, PowerState, PreingestionState, Service,
     TimeSyncResetPhase,
 };
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::machine::MachineId;
 use regex::Regex;
-use rpc::forge::forge_server::Forge;
 use sqlx::PgConnection;
 use temp_dir::TempDir;
 use tokio::time::sleep;
@@ -94,19 +97,19 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
     let mut txn = pool.begin().await.unwrap();
     assert!(
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
+        nico_api_db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
             .await?
             .is_empty()
     );
     assert!(
-        db::explored_endpoints::find_all_preingestion_complete(&mut txn)
+        nico_api_db::explored_endpoints::find_all_preingestion_complete(&mut txn)
             .await?
             .len()
             == 1
     );
 
     // Next, one that isn't up to date but it above preingestion limits.
-    db::explored_endpoints::delete(&mut txn, IpAddr::from_str(addr).unwrap()).await?;
+    nico_api_db::explored_endpoints::delete(&mut txn, IpAddr::from_str(addr).unwrap()).await?;
     insert_endpoint_version(&mut txn, addr, "5.1", "1.13.2", false).await?;
     txn.commit().await?;
     let mut txn = pool.begin().await.unwrap();
@@ -114,19 +117,19 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     assert!(
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
+        nico_api_db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
             .await?
             .is_empty()
     );
     assert!(
-        db::explored_endpoints::find_all_preingestion_complete(&mut txn)
+        nico_api_db::explored_endpoints::find_all_preingestion_complete(&mut txn)
             .await?
             .len()
             == 1
     );
 
     // And now, one that's low enough to trigger preingestion upgrades.
-    db::explored_endpoints::delete(&mut txn, IpAddr::from_str(addr).unwrap()).await?;
+    nico_api_db::explored_endpoints::delete(&mut txn, IpAddr::from_str(addr).unwrap()).await?;
     insert_endpoint_version(&mut txn, addr, "4.9", "1.13.2", false).await?;
     txn.commit().await?;
 
@@ -137,7 +140,7 @@ async fn test_preingestion_bmc_upgrade(
     let mut txn = pool.begin().await.unwrap();
 
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        nico_api_db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
@@ -160,7 +163,7 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
+    let endpoints = nico_api_db::explored_endpoints::find_all(txn.as_mut()).await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     if let PreingestionState::UpgradeFirmwareWait {
@@ -177,7 +180,7 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
+    let endpoints = nico_api_db::explored_endpoints::find_all(txn.as_mut()).await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     let PreingestionState::NewFirmwareReportedWait { .. } = endpoint.preingestion_state else {
@@ -189,14 +192,14 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
+    let endpoints = nico_api_db::explored_endpoints::find_all(txn.as_mut()).await?;
     assert!(endpoints.len() == 1);
     let mut endpoint = endpoints.into_iter().next().unwrap();
 
     // Now we simulate site explorer coming through and reading the new updated version
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
     assert!(
-        db::explored_endpoints::try_update(
+        nico_api_db::explored_endpoints::try_update(
             endpoint.address,
             endpoint.report_version,
             &endpoint.report,
@@ -212,7 +215,7 @@ async fn test_preingestion_bmc_upgrade(
     mgr.run_single_iteration().await?;
 
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
+    let endpoints = nico_api_db::explored_endpoints::find_all(txn.as_mut()).await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
@@ -230,12 +233,12 @@ async fn test_preingestion_bmc_upgrade(
 
     let mut txn = pool.begin().await.unwrap();
     assert!(
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
+        nico_api_db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
             .await?
             .is_empty()
     );
     assert!(
-        db::explored_endpoints::find_all_preingestion_complete(&mut txn)
+        nico_api_db::explored_endpoints::find_all_preingestion_complete(&mut txn)
             .await?
             .len()
             == 1
@@ -276,7 +279,7 @@ async fn test_preingestion_upgrade_script(
 
     let addr = response.address.as_str();
     let mut txn = pool.begin().await.unwrap();
-    db::explored_endpoints::delete(&mut txn, IpAddr::from_str(addr).unwrap()).await?;
+    nico_api_db::explored_endpoints::delete(&mut txn, IpAddr::from_str(addr).unwrap()).await?;
     insert_endpoint_version(&mut txn, addr, "0", "0", false).await?;
     txn.commit().await?;
 
@@ -284,7 +287,7 @@ async fn test_preingestion_upgrade_script(
 
     let mut txn = pool.begin().await.unwrap();
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        nico_api_db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
@@ -302,7 +305,7 @@ async fn test_preingestion_upgrade_script(
 
     let mut txn = pool.begin().await.unwrap();
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        nico_api_db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
@@ -350,7 +353,7 @@ async fn insert_endpoint(
     bmc_version: &str,
     uefi_version: &str,
 ) -> Result<(), DatabaseError> {
-    db::explored_endpoints::insert(
+    nico_api_db::explored_endpoints::insert(
         IpAddr::V4(Ipv4Addr::from_str(addr).unwrap()),
         &build_exploration_report(vendor, model, bmc_version, uefi_version, machine_id_str),
         false,
@@ -522,17 +525,19 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     };
 
     // "Site explorer" pass
-    let endpoints =
-        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
-            .await
-            .unwrap();
+    let endpoints = nico_api_db::explored_endpoints::find_by_ips(
+        txn.as_mut(),
+        vec![host.bmc_info.ip_addr().unwrap()],
+    )
+    .await
+    .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
     endpoint
         .report
         .versions
         .insert(FirmwareComponentType::Uefi, "1.13.2".to_string());
-    db::explored_endpoints::try_update(
+    nico_api_db::explored_endpoints::try_update(
         host.bmc_info.ip_addr().unwrap(),
         endpoint.report_version,
         &endpoint.report,
@@ -643,16 +648,18 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     };
 
     // "Site explorer" pass to indicate that we're at the desired version
-    let endpoints =
-        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
-            .await?;
+    let endpoints = nico_api_db::explored_endpoints::find_by_ips(
+        txn.as_mut(),
+        vec![host.bmc_info.ip_addr().unwrap()],
+    )
+    .await?;
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
     endpoint
         .report
         .versions
         .insert(FirmwareComponentType::Bmc, "6.00.30.00".to_string());
-    db::explored_endpoints::try_update(
+    nico_api_db::explored_endpoints::try_update(
         host.bmc_info.ip_addr().unwrap(),
         endpoint.report_version,
         &endpoint.report,
@@ -660,7 +667,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
         &mut txn,
     )
     .await?;
-    db::machine_topology::update_firmware_version_by_bmc_address(
+    nico_api_db::machine_topology::update_firmware_version_by_bmc_address(
         &mut txn,
         &host.bmc_info.ip_addr().unwrap(),
         "6.00.30.00",
@@ -721,7 +728,7 @@ async fn test_postingestion_bmc_upgrade(pool: sqlx::PgPool) -> CarbideResult<()>
     let host = mh.host().db_machine(&mut txn).await;
     assert!(host.host_reprovision_requested.is_none()); // Should be cleared or we'd right back in
     assert!(host.update_complete);
-    let reqs = db::host_machine_update::find_upgrade_needed(&mut txn, true, false).await?;
+    let reqs = nico_api_db::host_machine_update::find_upgrade_needed(&mut txn, true, false).await?;
     assert!(reqs.is_empty());
     txn.commit().await.unwrap();
 
@@ -766,7 +773,7 @@ async fn test_host_fw_upgrade_enabledisable_global_enabled(
 
     // Check that if it's globally enabled but specifically disabled, we don't request updates.
     let mut txn = env.pool.begin().await.unwrap();
-    db::machine::set_firmware_autoupdate(&mut txn, &host_machine_id, Some(false)).await?;
+    nico_api_db::machine::set_firmware_autoupdate(&mut txn, &host_machine_id, Some(false)).await?;
     txn.commit().await.unwrap();
 
     // Create and start an update manager
@@ -783,7 +790,7 @@ async fn test_host_fw_upgrade_enabledisable_global_enabled(
     assert!(host.host_reprovision_requested.is_none());
 
     // Now switch it to unspecified and it should get a request
-    db::machine::set_firmware_autoupdate(&mut txn, &host_machine_id, None).await?;
+    nico_api_db::machine::set_firmware_autoupdate(&mut txn, &host_machine_id, None).await?;
     txn.commit().await.unwrap();
 
     update_manager.run_single_iteration().await?;
@@ -817,7 +824,7 @@ async fn test_host_fw_upgrade_enabledisable_global_disabled(
 
     tracing::info!("setting update");
     // Now specifically enable it, and an update should be requested.
-    db::machine::set_firmware_autoupdate(&mut txn, &host_machine_id, Some(true)).await?;
+    nico_api_db::machine::set_firmware_autoupdate(&mut txn, &host_machine_id, Some(true)).await?;
     txn.commit().await.unwrap();
 
     tracing::info!("run iteration");
@@ -985,7 +992,7 @@ async fn test_preingestion_preupdate_powercycling(
     // Expect "reset" the BMC
     let mut txn = pool.begin().await.unwrap();
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        nico_api_db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
         PreingestionState::InitialReset { phase, .. } => {
@@ -1001,7 +1008,7 @@ async fn test_preingestion_preupdate_powercycling(
     // Expect WaitHostBoot
     let mut txn = pool.begin().await.unwrap();
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        nico_api_db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
         PreingestionState::InitialReset { phase, .. } => {
@@ -1012,7 +1019,7 @@ async fn test_preingestion_preupdate_powercycling(
         }
     }
     // Pretend we waited
-    db::explored_endpoints::pregestion_hostboot_time_test(
+    nico_api_db::explored_endpoints::pregestion_hostboot_time_test(
         IpAddr::V4(Ipv4Addr::from_str(addr).unwrap()),
         &mut txn,
     )
@@ -1023,7 +1030,7 @@ async fn test_preingestion_preupdate_powercycling(
     // Recheck versions
     let mut txn = pool.begin().await.unwrap();
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        nico_api_db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     let endpoint = endpoints.first().unwrap();
     assert_eq!(
         endpoint.preingestion_state,
@@ -1036,7 +1043,7 @@ async fn test_preingestion_preupdate_powercycling(
     let mut txn = pool.begin().await.unwrap();
 
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        nico_api_db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     assert!(endpoints.len() == 1);
     let mut endpoint = endpoints.into_iter().next().unwrap();
     match &endpoint.preingestion_state {
@@ -1057,7 +1064,7 @@ async fn test_preingestion_preupdate_powercycling(
     // Now we simulate site explorer coming through and reading the new updated version
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
     assert!(
-        db::explored_endpoints::try_update(
+        nico_api_db::explored_endpoints::try_update(
             endpoint.address,
             endpoint.report_version,
             &endpoint.report,
@@ -1080,7 +1087,7 @@ async fn test_preingestion_preupdate_powercycling(
         mgr.run_single_iteration().await?;
 
         let mut txn = pool.begin().await.unwrap();
-        let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
+        let endpoints = nico_api_db::explored_endpoints::find_all(txn.as_mut()).await?;
         assert!(endpoints.len() == 1);
         let mut endpoint = endpoints.into_iter().next().unwrap();
         tracing::debug!("State should be {state:?}");
@@ -1102,7 +1109,7 @@ async fn test_preingestion_preupdate_powercycling(
         // At some point in here we would have picked up the new version
         endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
         assert!(
-            db::explored_endpoints::try_update(
+            nico_api_db::explored_endpoints::try_update(
                 endpoint.address,
                 endpoint.report_version,
                 &endpoint.report,
@@ -1117,7 +1124,7 @@ async fn test_preingestion_preupdate_powercycling(
 
     mgr.run_single_iteration().await?;
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
+    let endpoints = nico_api_db::explored_endpoints::find_all(txn.as_mut()).await?;
     txn.commit().await?;
     assert!(endpoints.len() == 1);
     let endpoint = endpoints.first().unwrap();
@@ -1129,12 +1136,12 @@ async fn test_preingestion_preupdate_powercycling(
     mgr.run_single_iteration().await?;
     let mut txn = pool.begin().await.unwrap();
     assert!(
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
+        nico_api_db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut())
             .await?
             .is_empty()
     );
     assert!(
-        db::explored_endpoints::find_all_preingestion_complete(&mut txn)
+        nico_api_db::explored_endpoints::find_all_preingestion_complete(&mut txn)
             .await?
             .len()
             == 1
@@ -1215,10 +1222,10 @@ async fn test_instance_upgrading_actual(
         txn.commit().await.unwrap();
 
         // Simulate a tenant OKing the request
-        let request = rpc::forge::InstancePowerRequest {
+        let request = forge::InstancePowerRequest {
             instance_id: tinstance.id.into(),
             machine_id: None,
-            operation: rpc::forge::instance_power_request::Operation::PowerReset.into(),
+            operation: forge::instance_power_request::Operation::PowerReset.into(),
             boot_with_custom_ipxe: false,
             apply_updates_on_reboot: true,
         };
@@ -1417,17 +1424,19 @@ async fn test_instance_upgrading_actual_part_2(
     };
 
     // "Site explorer" pass
-    let endpoints =
-        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
-            .await
-            .unwrap();
+    let endpoints = nico_api_db::explored_endpoints::find_by_ips(
+        txn.as_mut(),
+        vec![host.bmc_info.ip_addr().unwrap()],
+    )
+    .await
+    .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
     endpoint
         .report
         .versions
         .insert(FirmwareComponentType::Uefi, "1.13.2".to_string());
-    db::explored_endpoints::try_update(
+    nico_api_db::explored_endpoints::try_update(
         host.bmc_info.ip_addr().unwrap(),
         endpoint.report_version,
         &endpoint.report,
@@ -1586,17 +1595,19 @@ async fn test_instance_upgrading_actual_part_2(
     );
 
     // "Site explorer" pass to indicate that we're at the desired version
-    let endpoints =
-        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
-            .await
-            .unwrap();
+    let endpoints = nico_api_db::explored_endpoints::find_by_ips(
+        txn.as_mut(),
+        vec![host.bmc_info.ip_addr().unwrap()],
+    )
+    .await
+    .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
     endpoint
         .report
         .versions
         .insert(FirmwareComponentType::Bmc, "6.00.30.00".to_string());
-    db::explored_endpoints::try_update(
+    nico_api_db::explored_endpoints::try_update(
         host.bmc_info.ip_addr().unwrap(),
         endpoint.report_version,
         &endpoint.report,
@@ -1605,7 +1616,7 @@ async fn test_instance_upgrading_actual_part_2(
     )
     .await
     .unwrap();
-    db::machine_topology::update_firmware_version_by_bmc_address(
+    nico_api_db::machine_topology::update_firmware_version_by_bmc_address(
         &mut txn,
         &host.bmc_info.ip_addr().unwrap(),
         "6.00.30.00",
@@ -1704,7 +1715,7 @@ async fn test_instance_upgrading_actual_part_2(
     update_manager.run_single_iteration().await.unwrap();
 
     assert!(host.host_reprovision_requested.is_none()); // Should be cleared
-    let reqs = db::host_machine_update::find_upgrade_needed(&mut txn, true, false)
+    let reqs = nico_api_db::host_machine_update::find_upgrade_needed(&mut txn, true, false)
         .await
         .unwrap();
     assert!(reqs.is_empty());
@@ -2081,7 +2092,7 @@ async fn test_explicit_update(pool: sqlx::PgPool) -> CarbideResult<()> {
     };
 
     // Start time in the future
-    db::machine::update_firmware_update_time_window_start_end(
+    nico_api_db::machine::update_firmware_update_time_window_start_end(
         &[mh.id],
         chrono::Utc::now()
             .checked_add_signed(chrono::TimeDelta::seconds(100))
@@ -2104,7 +2115,7 @@ async fn test_explicit_update(pool: sqlx::PgPool) -> CarbideResult<()> {
     };
 
     // End time in the past
-    db::machine::update_firmware_update_time_window_start_end(
+    nico_api_db::machine::update_firmware_update_time_window_start_end(
         &[mh.id],
         chrono::Utc::now()
             .checked_add_signed(chrono::TimeDelta::seconds(-100))
@@ -2127,7 +2138,7 @@ async fn test_explicit_update(pool: sqlx::PgPool) -> CarbideResult<()> {
     };
 
     // Now a start and end around us
-    db::machine::update_firmware_update_time_window_start_end(
+    nico_api_db::machine::update_firmware_update_time_window_start_end(
         &[mh.id],
         chrono::Utc::now()
             .checked_add_signed(chrono::TimeDelta::seconds(-100))
@@ -2194,7 +2205,7 @@ async fn test_preingestion_time_sync_ok(
     let mut txn = pool.begin().await.unwrap();
     // Should go directly to complete since time is in sync and firmware is up to date
     assert!(
-        db::explored_endpoints::find_all_preingestion_complete(&mut txn)
+        nico_api_db::explored_endpoints::find_all_preingestion_complete(&mut txn)
             .await?
             .len()
             == 1
@@ -2240,7 +2251,7 @@ async fn test_preingestion_time_sync_reset_flow(
     insert_endpoint_version(&mut txn, addr, "6.00.30.00", "1.13.2", false).await?;
 
     // Set to TimeSyncReset Start phase
-    db::explored_endpoints::set_preingestion_time_sync_reset(
+    nico_api_db::explored_endpoints::set_preingestion_time_sync_reset(
         ip_addr,
         TimeSyncResetPhase::Start,
         &mut txn,
@@ -2264,7 +2275,7 @@ async fn test_preingestion_time_sync_reset_flow(
 
     let mut txn = pool.begin().await.unwrap();
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        nico_api_db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     assert_eq!(endpoints.len(), 1);
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
@@ -2285,7 +2296,7 @@ async fn test_preingestion_time_sync_reset_flow(
 
     let mut txn = pool.begin().await.unwrap();
     let endpoints =
-        db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
+        nico_api_db::explored_endpoints::find_preingest_not_waiting_not_error(txn.as_mut()).await?;
     let endpoint = endpoints.first().unwrap();
     match &endpoint.preingestion_state {
         PreingestionState::TimeSyncReset { phase, .. } => {
@@ -2300,7 +2311,7 @@ async fn test_preingestion_time_sync_reset_flow(
     }
 
     // Simulate time passage for host boot (pretend we waited 20 minutes)
-    db::explored_endpoints::pregestion_hostboot_time_test(ip_addr, &mut txn).await?;
+    nico_api_db::explored_endpoints::pregestion_hostboot_time_test(ip_addr, &mut txn).await?;
     txn.commit().await?;
 
     // Run iteration - should check time sync again, and since mock BMC returns good time,
@@ -2310,7 +2321,7 @@ async fn test_preingestion_time_sync_reset_flow(
     let mut txn = pool.begin().await.unwrap();
     // After time sync reset completes and firmware check runs, endpoint should be in Complete state
     // since the firmware versions are already up-to-date
-    let endpoints = db::explored_endpoints::find_all_by_ip(ip_addr, &mut txn).await?;
+    let endpoints = nico_api_db::explored_endpoints::find_all_by_ip(ip_addr, &mut txn).await?;
     let endpoint = endpoints.first().expect("Endpoint should exist");
     assert_eq!(
         endpoint.preingestion_state,
@@ -2367,7 +2378,7 @@ async fn test_preingestion_time_sync_check_error_fails(
     // The test passes if it doesn't panic - the mock BMC should return valid time
     // and the endpoint should proceed to completion or firmware check
     let mut txn = pool.begin().await.unwrap();
-    let endpoints = db::explored_endpoints::find_all(txn.as_mut()).await?;
+    let endpoints = nico_api_db::explored_endpoints::find_all(txn.as_mut()).await?;
     assert_eq!(endpoints.len(), 1);
     // Just verify we didn't fail - we should be in Complete or some valid state
     let endpoint = &endpoints[0];
@@ -2420,7 +2431,7 @@ async fn test_preingestion_time_sync_retry_logic(
     insert_endpoint_version(&mut txn, addr, "6.00.30.00", "1.13.2", false).await?;
 
     // Manually set to WaitHostBoot phase as if we just finished a reset
-    db::explored_endpoints::set_preingestion_time_sync_reset(
+    nico_api_db::explored_endpoints::set_preingestion_time_sync_reset(
         ip_addr,
         TimeSyncResetPhase::WaitHostBoot,
         &mut txn,
@@ -2428,7 +2439,7 @@ async fn test_preingestion_time_sync_retry_logic(
     .await?;
 
     // Simulate time has passed
-    db::explored_endpoints::pregestion_hostboot_time_test(ip_addr, &mut txn).await?;
+    nico_api_db::explored_endpoints::pregestion_hostboot_time_test(ip_addr, &mut txn).await?;
     txn.commit().await?;
 
     // Run iteration - time check should pass (mock BMC returns valid time)
@@ -2437,7 +2448,7 @@ async fn test_preingestion_time_sync_retry_logic(
 
     let mut txn = pool.begin().await.unwrap();
     // After time sync reset completes and firmware check runs, endpoint should be in Complete state
-    let endpoints = db::explored_endpoints::find_all_by_ip(ip_addr, &mut txn).await?;
+    let endpoints = nico_api_db::explored_endpoints::find_all_by_ip(ip_addr, &mut txn).await?;
     let endpoint = endpoints.first().expect("Endpoint should exist");
 
     // With a working mock BMC, time sync should succeed and firmware check should complete
@@ -2537,7 +2548,11 @@ async fn test_manual_firmware_upgrade_workflow(pool: sqlx::PgPool) -> CarbideRes
     );
 
     // Mark manual upgrade as complete
-    db::host_machine_update::set_manual_firmware_upgrade_completed(&mut txn, &mh.host().id).await?;
+    nico_api_db::host_machine_update::set_manual_firmware_upgrade_completed(
+        &mut txn,
+        &mh.host().id,
+    )
+    .await?;
     txn.commit().await.unwrap();
 
     // state machine iteration
@@ -2576,10 +2591,12 @@ async fn test_manual_firmware_upgrade_workflow(pool: sqlx::PgPool) -> CarbideRes
     env.run_machine_state_controller_iteration().await;
 
     // "Site explorer" pass
-    let endpoints =
-        db::explored_endpoints::find_by_ips(txn.as_mut(), vec![host.bmc_info.ip_addr().unwrap()])
-            .await
-            .unwrap();
+    let endpoints = nico_api_db::explored_endpoints::find_by_ips(
+        txn.as_mut(),
+        vec![host.bmc_info.ip_addr().unwrap()],
+    )
+    .await
+    .unwrap();
     let mut endpoint = endpoints.into_iter().next().unwrap();
     endpoint.report.service[0].inventories[0].version = Some("6.00.30.00".to_string());
     endpoint.report.service[0].inventories[1].version = Some("1.13.2".to_string());
@@ -2591,7 +2608,7 @@ async fn test_manual_firmware_upgrade_workflow(pool: sqlx::PgPool) -> CarbideRes
         .report
         .versions
         .insert(FirmwareComponentType::Bmc, "6.00.30.00".to_string());
-    db::explored_endpoints::try_update(
+    nico_api_db::explored_endpoints::try_update(
         host.bmc_info.ip_addr().unwrap(),
         endpoint.report_version,
         &endpoint.report,

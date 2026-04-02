@@ -18,7 +18,8 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use common::api_fixtures::{create_managed_host_with_config, create_test_env};
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 use sqlx::PgPool;
 
 use crate::tests::common;
@@ -36,17 +37,17 @@ async fn fetch_bmc_credentials(pool: PgPool) {
     let host_bmc_ip = bmc_info.ip.clone().expect("Host BMC IP must be available");
 
     for request in vec![
-        rpc::forge::BmcMetaDataGetRequest {
+        forge::BmcMetaDataGetRequest {
             machine_id: host_machine.id,
-            request_type: rpc::forge::BmcRequestType::Redfish.into(),
-            role: rpc::forge::UserRoles::Administrator.into(),
+            request_type: forge::BmcRequestType::Redfish.into(),
+            role: forge::UserRoles::Administrator.into(),
             bmc_endpoint_request: None,
         },
-        rpc::forge::BmcMetaDataGetRequest {
+        forge::BmcMetaDataGetRequest {
             machine_id: None,
-            request_type: rpc::forge::BmcRequestType::Redfish.into(),
-            role: rpc::forge::UserRoles::Administrator.into(),
-            bmc_endpoint_request: Some(rpc::forge::BmcEndpointRequest {
+            request_type: forge::BmcRequestType::Redfish.into(),
+            role: forge::UserRoles::Administrator.into(),
+            bmc_endpoint_request: Some(forge::BmcEndpointRequest {
                 ip_address: host_bmc_ip.clone(),
                 mac_address: None,
             }),
@@ -83,10 +84,10 @@ async fn test_fetch_ipmi_metadata(pool: PgPool) {
     let host_bmc_ip = bmc_info.ip.clone().expect("Host BMC IP must be available");
     let metadata = env
         .api
-        .get_bmc_meta_data(tonic::Request::new(rpc::forge::BmcMetaDataGetRequest {
+        .get_bmc_meta_data(tonic::Request::new(forge::BmcMetaDataGetRequest {
             machine_id: host_machine.id,
-            request_type: rpc::forge::BmcRequestType::Ipmi.into(),
-            role: rpc::forge::UserRoles::Administrator.into(),
+            request_type: forge::BmcRequestType::Ipmi.into(),
+            role: forge::UserRoles::Administrator.into(),
             bmc_endpoint_request: None,
         }))
         .await
@@ -122,10 +123,10 @@ async fn test_fetch_ipmi_metadata_null_vendor(pool: PgPool) {
 
     let metadata = env
         .api
-        .get_bmc_meta_data(tonic::Request::new(rpc::forge::BmcMetaDataGetRequest {
+        .get_bmc_meta_data(tonic::Request::new(forge::BmcMetaDataGetRequest {
             machine_id: host_machine.id,
-            request_type: rpc::forge::BmcRequestType::Ipmi.into(),
-            role: rpc::forge::UserRoles::Administrator.into(),
+            request_type: forge::BmcRequestType::Ipmi.into(),
+            role: forge::UserRoles::Administrator.into(),
             bmc_endpoint_request: None,
         }))
         .await

@@ -18,11 +18,11 @@
 pub mod measured_boot;
 
 pub mod tpm_ca_cert;
-use carbide_uuid::machine::MachineId;
-use db::{ObjectFilter, Transaction};
 pub use measured_boot::*;
-use model::hardware_info::TpmEkCertificate;
-use model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_db::{ObjectFilter, Transaction};
+use nico_api_model::hardware_info::TpmEkCertificate;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_uuid::machine::MachineId;
 use sqlx::{PgConnection, Pool, Postgres};
 pub use tpm_ca_cert::{extract_ca_fields, match_insert_new_ek_cert_status_against_ca};
 
@@ -33,7 +33,7 @@ pub async fn get_ek_cert_by_machine_id(
     machine_id: &MachineId,
 ) -> CarbideResult<TpmEkCertificate> {
     // fetch machine from the db
-    let machine = db::machine::find_one(
+    let machine = nico_api_db::machine::find_one(
         txn,
         machine_id,
         MachineSearchConfig {
@@ -66,8 +66,8 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
 
     let mut txn = Transaction::begin(db_pool).await?;
 
-    let machines: Vec<::carbide_uuid::machine::MachineId> =
-        db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
+    let machines: Vec<::nico_uuid::machine::MachineId> =
+        nico_api_db::machine::find(&mut txn, ObjectFilter::All, MachineSearchConfig::default())
             .await?
             .iter()
             .map(|machine| machine.id)
@@ -75,7 +75,7 @@ pub async fn backfill_ek_cert_status_for_existing_machines(
 
     if !machines.is_empty() {
         let topologies =
-            db::machine_topology::find_latest_by_machine_ids(&mut txn, &machines).await?;
+            nico_api_db::machine_topology::find_latest_by_machine_ids(&mut txn, &machines).await?;
         for topology in topologies {
             let (machine_id, topology) = topology;
             let tpm_ek_cert = &topology.topology().discovery_data.info.tpm_ek_certificate;

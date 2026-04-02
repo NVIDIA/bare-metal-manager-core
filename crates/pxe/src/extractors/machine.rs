@@ -17,10 +17,10 @@
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum_client_ip::ClientIp;
-use forge_tls::client_config::ClientCert;
-use rpc::forge::CloudInitInstructionsRequest;
-use rpc::forge_tls_client;
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use nico_rpc::forge::CloudInitInstructionsRequest;
+use nico_rpc::forge_tls_client;
+use nico_rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use nico_tls::client_config::ClientCert;
 
 use crate::common::{AppState, Machine};
 use crate::rpc_error::PxeRequestError;

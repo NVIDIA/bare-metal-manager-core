@@ -18,7 +18,7 @@
 use std::cmp;
 use std::time::{Duration, Instant};
 
-use rpc::forge::VersionRequest;
+use nico_rpc::forge::VersionRequest;
 
 use super::Opts;
 use crate::rpc::ApiClient;

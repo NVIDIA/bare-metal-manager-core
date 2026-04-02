@@ -14,10 +14,10 @@
 
 use std::sync::Arc;
 
-use forge_secrets::credentials::CredentialReader;
 use mqttea::QoS;
 use mqttea::client::{ClientOptions, MqtteaClient};
 use mqttea::registry::JsonRegistration;
+use nico_secrets::credentials::CredentialReader;
 use tokio::sync::mpsc;
 
 use crate::config::{MqttAuthMode, MqttConfig};
@@ -136,8 +136,8 @@ async fn build_credentials_provider(
     config: &MqttConfig,
     credential_reader: Arc<dyn CredentialReader>,
 ) -> Result<Option<Arc<dyn mqttea::auth::CredentialsProvider>>, DsxConsumerError> {
-    let credential_key = forge_secrets::credentials::CredentialKey::MqttAuth {
-        credential_type: forge_secrets::credentials::MqttCredentialType::DsxExchangeConsumer,
+    let credential_key = nico_secrets::credentials::CredentialKey::MqttAuth {
+        credential_type: nico_secrets::credentials::MqttCredentialType::DsxExchangeConsumer,
     };
 
     match config.auth.auth_mode {
@@ -153,7 +153,7 @@ async fn build_credentials_provider(
                         credential_key.to_key_str()
                     ))
                 })?;
-            let forge_secrets::credentials::Credentials::UsernamePassword { username, password } =
+            let nico_secrets::credentials::Credentials::UsernamePassword { username, password } =
                 creds;
             Ok(Some(Arc::new(mqttea::auth::StaticCredentials::new(
                 username, password,
@@ -189,7 +189,7 @@ async fn build_credentials_provider(
 }
 
 struct SecretBackedOAuth2Credentials {
-    credential_key: forge_secrets::credentials::CredentialKey,
+    credential_key: nico_secrets::credentials::CredentialKey,
     credential_reader: Arc<dyn CredentialReader>,
 }
 
@@ -209,8 +209,7 @@ impl mqttea::auth::ClientCredentialsProvider for SecretBackedOAuth2Credentials {
                     self.credential_key.to_key_str()
                 ))
             })?;
-        let forge_secrets::credentials::Credentials::UsernamePassword { username, password } =
-            creds;
+        let nico_secrets::credentials::Credentials::UsernamePassword { username, password } = creds;
         Ok((
             mqttea::ClientId::new(username),
             mqttea::ClientSecret::new(password),

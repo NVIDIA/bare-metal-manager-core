@@ -20,10 +20,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use carbide_uuid::switch::SwitchId;
-use db::switch as db_switch;
-use model::switch::{ConfiguringState, Switch, SwitchControllerState};
-use rpc::forge::forge_server::Forge;
+use nico_api_db::switch as db_switch;
+use nico_api_model::switch::{ConfiguringState, Switch, SwitchControllerState};
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::switch::SwitchId;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -41,6 +41,7 @@ use crate::tests::common::api_fixtures::create_test_env;
 
 mod fixtures;
 use fixtures::switch::{mark_switch_as_deleted, set_switch_controller_state};
+use nico_rpc::forge;
 
 #[derive(Debug, Default, Clone)]
 pub struct TestSwitchStateHandler {
@@ -213,7 +214,7 @@ async fn test_switch_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     );
 
     // Delete the switch
-    let delete_request = rpc::forge::SwitchDeletionRequest {
+    let delete_request = forge::SwitchDeletionRequest {
         id: Some(switch_id),
     };
 

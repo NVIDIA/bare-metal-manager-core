@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::forge::dpu_reprovisioning_request::Mode;
-use rpc::forge::{DpuReprovisioningRequest, UpdateInitiator};
+use nico_rpc::forge::dpu_reprovisioning_request::Mode;
+use nico_rpc::forge::{DpuReprovisioningRequest, UpdateInitiator};
+use nico_uuid::machine::MachineId;
 
 #[derive(Parser, Debug)]
 pub enum Args {

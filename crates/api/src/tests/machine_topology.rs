@@ -16,17 +16,20 @@
  */
 use std::str::FromStr;
 
-use carbide_uuid::machine::{MachineId, MachineType};
 use common::api_fixtures::dpu::create_dpu_machine;
 use common::api_fixtures::host::X86_V1_CPU_INFO_JSON;
 use common::api_fixtures::{create_managed_host, create_test_env};
-use db::machine_interface::associate_interface_with_dpu_machine;
-use db::machine_topology::test_helpers::{HardwareInfoV1, TopologyDataV1};
-use db::{self, ObjectColumnFilter, network_segment};
-use model::hardware_info::{Cpu, CpuInfo, HardwareInfo};
-use model::machine::machine_id::from_hardware_info;
-use model::machine::machine_search_config::MachineSearchConfig;
-use rpc::forge::forge_server::Forge;
+use nico_api_db::machine_interface::associate_interface_with_dpu_machine;
+use nico_api_db::machine_topology::test_helpers::{HardwareInfoV1, TopologyDataV1};
+use nico_api_db::{
+    ObjectColumnFilter, network_segment, {self},
+};
+use nico_api_model::hardware_info::{Cpu, CpuInfo, HardwareInfo};
+use nico_api_model::machine::machine_id::from_hardware_info;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::machine::{MachineId, MachineType};
 
 use crate::tests::common;
 
@@ -50,41 +53,41 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .parse::<MachineId>()
         .unwrap();
 
-    let iface = db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id])
+    let iface = nico_api_db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id])
         .await
         .unwrap();
 
     let iface = iface.get(&host_machine_id);
     let iface = iface.unwrap().clone().remove(0);
-    db::machine_interface::delete(&iface.id, &mut txn)
+    nico_api_db::machine_interface::delete(&iface.id, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let segment = db::network_segment::find_by(
+    let segment = nico_api_db::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
-        model::network_segment::NetworkSegmentSearchConfig::default(),
+        nico_api_model::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
     .unwrap()
     .remove(0);
 
-    let iface = db::machine_interface::create(
+    let iface = nico_api_db::machine_interface::create(
         &mut txn,
         &segment,
         &dpu.host_mac_address,
         Some(env.domain.into()),
         true,
-        model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
+        nico_api_model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
     )
     .await
     .unwrap();
 
     let hardware_info = HardwareInfo::from(&host_config);
     let machine_id = from_hardware_info(&hardware_info).unwrap();
-    let machine = db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
+    let machine = nico_api_db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
         .await
         .unwrap();
 
@@ -95,13 +98,13 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = env.pool.begin().await?;
 
-    db::machine_topology::create_or_update(&mut txn, &machine.id, &hardware_info).await?;
+    nico_api_db::machine_topology::create_or_update(&mut txn, &machine.id, &hardware_info).await?;
 
     txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
 
-    let topos = db::machine_topology::find_by_machine_ids(&mut txn, &[machine.id])
+    let topos = nico_api_db::machine_topology::find_by_machine_ids(&mut txn, &[machine.id])
         .await
         .unwrap();
     assert_eq!(topos.len(), 1);
@@ -115,7 +118,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // Hardware info is available on the machine
     let rpc_machine = env
         .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(tonic::Request::new(forge::MachinesByIdsRequest {
             machine_ids: vec![machine.id],
             ..Default::default()
         }))
@@ -136,9 +139,10 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut new_info = hardware_info.clone();
     new_info.cpu_info[0].model = "SnailSpeedCpu".to_string();
 
-    let topology = db::machine_topology::create_or_update(&mut txn, &machine.id, &new_info)
-        .await
-        .unwrap();
+    let topology =
+        nico_api_db::machine_topology::create_or_update(&mut txn, &machine.id, &new_info)
+            .await
+            .unwrap();
     //
     // Value should NOT be updated.
     assert_ne!(
@@ -146,12 +150,13 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         topology.topology().discovery_data.info.cpu_info[0].model
     );
 
-    db::machine_topology::set_topology_update_needed(&mut txn, &machine.id, true)
+    nico_api_db::machine_topology::set_topology_update_needed(&mut txn, &machine.id, true)
         .await
         .unwrap();
-    let topology = db::machine_topology::create_or_update(&mut txn, &machine.id, &new_info)
-        .await
-        .unwrap();
+    let topology =
+        nico_api_db::machine_topology::create_or_update(&mut txn, &machine.id, &new_info)
+            .await
+            .unwrap();
 
     // Value should be updated.
     assert_eq!(
@@ -164,7 +169,7 @@ async fn test_crud_machine_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let rpc_machine = env
         .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(tonic::Request::new(forge::MachinesByIdsRequest {
             machine_ids: vec![machine.id],
             ..Default::default()
         }))
@@ -202,41 +207,41 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
         .parse::<MachineId>()
         .unwrap();
 
-    let iface = db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id])
+    let iface = nico_api_db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id])
         .await
         .unwrap();
 
     let iface = iface.get(&host_machine_id);
     let iface = iface.unwrap().clone().remove(0);
-    db::machine_interface::delete(&iface.id, &mut txn)
+    nico_api_db::machine_interface::delete(&iface.id, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let segment = db::network_segment::find_by(
+    let segment = nico_api_db::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
-        model::network_segment::NetworkSegmentSearchConfig::default(),
+        nico_api_model::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await
     .unwrap()
     .remove(0);
 
-    let iface = db::machine_interface::create(
+    let iface = nico_api_db::machine_interface::create(
         &mut txn,
         &segment,
         &dpu.host_mac_address,
         Some(env.domain.into()),
         true,
-        model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
+        nico_api_model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
     )
     .await
     .unwrap();
 
     let hardware_info = HardwareInfo::from(&host_config);
     let machine_id = from_hardware_info(&hardware_info).unwrap();
-    let machine = db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
+    let machine = nico_api_db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
         .await
         .unwrap();
 
@@ -262,7 +267,7 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
         memory_devices: hardware_info.memory_devices,
     };
 
-    db::machine_topology::test_helpers::create_or_update_v1(
+    nico_api_db::machine_topology::test_helpers::create_or_update_v1(
         &mut txn,
         &machine.id,
         &hardware_info_v1,
@@ -288,7 +293,7 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
 
     let mut txn = env.pool.begin().await?;
 
-    let topos = db::machine_topology::find_by_machine_ids(&mut txn, &[machine.id])
+    let topos = nico_api_db::machine_topology::find_by_machine_ids(&mut txn, &[machine.id])
         .await
         .unwrap();
     assert_eq!(topos.len(), 1);
@@ -356,7 +361,7 @@ async fn test_v1_cpu_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
 
     // Read the topology back from the database as the expected type.
     let mut txn = env.pool.begin().await?;
-    let topos = db::machine_topology::find_by_machine_ids(&mut txn, &[machine.id])
+    let topos = nico_api_db::machine_topology::find_by_machine_ids(&mut txn, &[machine.id])
         .await
         .unwrap();
     assert_eq!(topos.len(), 1);
@@ -378,7 +383,7 @@ async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
     let (host_machine_id, _dpu_machine_id) =
         common::api_fixtures::create_managed_host(&env).await.into();
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(
+    let host = nico_api_db::machine::find_one(
         txn.as_mut(),
         &host_machine_id,
         MachineSearchConfig::default(),
@@ -404,7 +409,7 @@ async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
     let m_id =
         MachineId::from_str("fm100hsag07peffp850l14kvmhrqjf9h6jslilfahaknhvb6sq786c0g3jg").unwrap();
     let mut txn = env.pool.begin().await.unwrap();
-    let host = db::machine::find_one(
+    let host = nico_api_db::machine::find_one(
         txn.as_mut(),
         &host_machine_id,
         MachineSearchConfig::default(),
@@ -413,7 +418,7 @@ async fn test_topology_update_on_machineid_update(pool: sqlx::PgPool) {
     .unwrap();
     assert!(host.is_none());
 
-    let host = db::machine::find_one(txn.as_mut(), &m_id, MachineSearchConfig::default())
+    let host = nico_api_db::machine::find_one(txn.as_mut(), &m_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();
@@ -429,7 +434,7 @@ async fn test_find_machine_ids_by_bmc_ips(db_pool: sqlx::PgPool) -> Result<(), e
     let host_machine = env.find_machine(host_machine_id).await.remove(0);
 
     let bmc_ip = host_machine.bmc_info.as_ref().unwrap().ip();
-    let req = tonic::Request::new(rpc::forge::BmcIpList {
+    let req = tonic::Request::new(forge::BmcIpList {
         bmc_ips: vec![bmc_ip.to_string()],
     });
     let res = env.api.find_machine_ids_by_bmc_ips(req).await?.into_inner();

@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-use carbide_uuid::power_shelf::PowerShelfId;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::power_shelf::PowerShelfId;
 
 use crate::tests::common::api_fixtures::create_test_env;
 use crate::tests::common::api_fixtures::site_explorer::new_power_shelf;
@@ -32,7 +32,7 @@ async fn test_find_power_shelf_ids_and_by_ids(
     // FindPowerShelfIds should return both power shelves
     let power_shelf_ids = env
         .api
-        .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
+        .find_power_shelf_ids(tonic::Request::new(forge::PowerShelfSearchFilter {
             ..Default::default()
         }))
         .await?
@@ -44,7 +44,7 @@ async fn test_find_power_shelf_ids_and_by_ids(
     // FindPowerShelvesByIds should return the requested power shelf
     let power_shelves = env
         .api
-        .find_power_shelves_by_ids(tonic::Request::new(rpc::forge::PowerShelvesByIdsRequest {
+        .find_power_shelves_by_ids(tonic::Request::new(forge::PowerShelvesByIdsRequest {
             power_shelf_ids: vec![ps_id1],
         }))
         .await?
@@ -56,7 +56,7 @@ async fn test_find_power_shelf_ids_and_by_ids(
     // FindPowerShelvesByIds should return both when requested
     let power_shelves = env
         .api
-        .find_power_shelves_by_ids(tonic::Request::new(rpc::forge::PowerShelvesByIdsRequest {
+        .find_power_shelves_by_ids(tonic::Request::new(forge::PowerShelvesByIdsRequest {
             power_shelf_ids: vec![ps_id1, ps_id2],
         }))
         .await?
@@ -75,7 +75,7 @@ async fn test_find_power_shelves_by_ids_empty_returns_error(
 
     let result = env
         .api
-        .find_power_shelves_by_ids(tonic::Request::new(rpc::forge::PowerShelvesByIdsRequest {
+        .find_power_shelves_by_ids(tonic::Request::new(forge::PowerShelvesByIdsRequest {
             power_shelf_ids: vec![],
         }))
         .await;
@@ -101,7 +101,7 @@ async fn test_find_power_shelves_by_ids_over_max(
 
     let result = env
         .api
-        .find_power_shelves_by_ids(tonic::Request::new(rpc::forge::PowerShelvesByIdsRequest {
+        .find_power_shelves_by_ids(tonic::Request::new(forge::PowerShelvesByIdsRequest {
             power_shelf_ids,
         }))
         .await;
@@ -127,7 +127,7 @@ async fn test_find_power_shelf_ids_excludes_deleted(
 
     // Delete ps2
     env.api
-        .delete_power_shelf(tonic::Request::new(rpc::forge::PowerShelfDeletionRequest {
+        .delete_power_shelf(tonic::Request::new(forge::PowerShelfDeletionRequest {
             id: Some(ps_id2),
         }))
         .await?;
@@ -135,7 +135,7 @@ async fn test_find_power_shelf_ids_excludes_deleted(
     // FindPowerShelfIds should only return the non-deleted power shelf
     let power_shelf_ids = env
         .api
-        .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
+        .find_power_shelf_ids(tonic::Request::new(forge::PowerShelfSearchFilter {
             ..Default::default()
         }))
         .await?
@@ -156,7 +156,7 @@ async fn test_find_power_shelf_ids_deleted_only(
     let ps_id2 = new_power_shelf(&env, Some("PS2".to_string()), None, None, None).await?;
 
     env.api
-        .delete_power_shelf(tonic::Request::new(rpc::forge::PowerShelfDeletionRequest {
+        .delete_power_shelf(tonic::Request::new(forge::PowerShelfDeletionRequest {
             id: Some(ps_id2),
         }))
         .await?;
@@ -164,7 +164,7 @@ async fn test_find_power_shelf_ids_deleted_only(
     // DELETED_FILTER_ONLY (1) should return only the deleted power shelf
     let power_shelf_ids = env
         .api
-        .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
+        .find_power_shelf_ids(tonic::Request::new(forge::PowerShelfSearchFilter {
             deleted: 1,
             ..Default::default()
         }))
@@ -177,7 +177,7 @@ async fn test_find_power_shelf_ids_deleted_only(
     // DELETED_FILTER_INCLUDE (2) should return both
     let power_shelf_ids = env
         .api
-        .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
+        .find_power_shelf_ids(tonic::Request::new(forge::PowerShelfSearchFilter {
             deleted: 2,
             ..Default::default()
         }))
@@ -200,7 +200,7 @@ async fn test_find_power_shelf_ids_by_controller_state(
     // New power shelves start in "initializing" state
     let power_shelf_ids = env
         .api
-        .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
+        .find_power_shelf_ids(tonic::Request::new(forge::PowerShelfSearchFilter {
             controller_state: Some("initializing".to_string()),
             ..Default::default()
         }))
@@ -212,7 +212,7 @@ async fn test_find_power_shelf_ids_by_controller_state(
     // Filter for a state that doesn't match
     let power_shelf_ids = env
         .api
-        .find_power_shelf_ids(tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
+        .find_power_shelf_ids(tonic::Request::new(forge::PowerShelfSearchFilter {
             controller_state: Some("ready".to_string()),
             ..Default::default()
         }))
@@ -233,7 +233,7 @@ async fn test_find_power_shelves_by_ids_response_fields(
 
     let power_shelves = env
         .api
-        .find_power_shelves_by_ids(tonic::Request::new(rpc::forge::PowerShelvesByIdsRequest {
+        .find_power_shelves_by_ids(tonic::Request::new(forge::PowerShelvesByIdsRequest {
             power_shelf_ids: vec![ps_id],
         }))
         .await?

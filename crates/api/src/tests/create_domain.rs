@@ -14,8 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use db::ObjectColumnFilter;
-use model::dns::NewDomain;
+use nico_api_db::ObjectColumnFilter;
+use nico_api_model::dns::NewDomain;
 
 use crate::DatabaseError;
 
@@ -28,17 +28,17 @@ async fn create_delete_valid_domain(pool: sqlx::PgPool) {
 
     let test_name = "nv.metal.net".to_string();
 
-    let domain = db::dns::domain::persist(NewDomain::new(test_name), &mut txn).await;
+    let domain = nico_api_db::dns::domain::persist(NewDomain::new(test_name), &mut txn).await;
 
     assert!(domain.is_ok());
 
-    let delete_result = db::dns::domain::delete(domain.unwrap(), &mut txn).await;
+    let delete_result = nico_api_db::dns::domain::delete(domain.unwrap(), &mut txn).await;
 
     assert!(delete_result.is_ok());
 
-    let domains = db::dns::domain::find_by(
+    let domains = nico_api_db::dns::domain::find_by(
         txn.as_mut(),
-        ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
+        ObjectColumnFilter::<nico_api_db::dns::domain::IdColumn>::All,
     )
     .await
     .unwrap();
@@ -57,7 +57,7 @@ async fn create_invalid_domain_case(pool: sqlx::PgPool) {
 
     let test_name = "DwRt".to_string();
 
-    let domain = db::dns::domain::persist(NewDomain::new(test_name), &mut txn).await;
+    let domain = nico_api_db::dns::domain::persist(NewDomain::new(test_name), &mut txn).await;
 
     txn.commit().await.unwrap();
 
@@ -72,7 +72,8 @@ async fn create_invalid_domain_regex(pool: sqlx::PgPool) {
         .expect("Unable to create transaction on database pool");
 
     let domain =
-        db::dns::domain::persist(NewDomain::new("ihaveaspace.com ".to_string()), &mut txn).await;
+        nico_api_db::dns::domain::persist(NewDomain::new("ihaveaspace.com ".to_string()), &mut txn)
+            .await;
 
     txn.commit().await.unwrap();
 
@@ -88,7 +89,7 @@ async fn find_domain(pool: sqlx::PgPool) {
 
     let test_name = "nvfind.metal.net".to_string();
 
-    let domain = db::dns::domain::persist(NewDomain::new(test_name), &mut txn).await;
+    let domain = nico_api_db::dns::domain::persist(NewDomain::new(test_name), &mut txn).await;
 
     txn.commit().await.unwrap();
 
@@ -99,9 +100,9 @@ async fn find_domain(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let domains = db::dns::domain::find_by(
+    let domains = nico_api_db::dns::domain::find_by(
         txn.as_mut(),
-        ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
+        ObjectColumnFilter::<nico_api_db::dns::domain::IdColumn>::All,
     )
     .await
     .unwrap();
@@ -118,7 +119,7 @@ async fn update_domain(pool: sqlx::PgPool) {
 
     let test_name = "nv.metal.net".to_string();
 
-    let domain = db::dns::domain::persist(NewDomain::new(test_name), &mut txn).await;
+    let domain = nico_api_db::dns::domain::persist(NewDomain::new(test_name), &mut txn).await;
 
     txn.commit().await.unwrap();
 
@@ -136,7 +137,7 @@ async fn update_domain(pool: sqlx::PgPool) {
         .await
         .expect("Unable to create transaction on database pool");
 
-    let update_result = db::dns::domain::update(&mut updated_domain, &mut txn).await;
+    let update_result = nico_api_db::dns::domain::update(&mut updated_domain, &mut txn).await;
 
     txn.commit().await.unwrap();
 

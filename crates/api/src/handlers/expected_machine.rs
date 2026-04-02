@@ -14,12 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
-use carbide_uuid::rack::RackId;
-use db::rack as db_rack;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
-use model::expected_machine::{ExpectedMachine, ExpectedMachineData, ExpectedMachineRequest};
+use nico_api_db::rack as db_rack;
+use nico_api_model::expected_machine::{
+    ExpectedMachine, ExpectedMachineData, ExpectedMachineRequest,
+};
+use nico_rpc::forge;
+use nico_uuid::rack::RackId;
 use regex::Regex;
 use uuid::Uuid;
 
@@ -33,8 +35,8 @@ lazy_static! {
 
 pub(crate) async fn get(
     api: &Api,
-    request: tonic::Request<rpc::ExpectedMachineRequest>,
-) -> Result<tonic::Response<rpc::ExpectedMachine>, tonic::Status> {
+    request: tonic::Request<forge::ExpectedMachineRequest>,
+) -> Result<tonic::Response<forge::ExpectedMachine>, tonic::Status> {
     log_request_data(&request);
 
     let req: ExpectedMachineRequest = request
@@ -48,7 +50,7 @@ pub(crate) async fn get(
         .or(req.bmc_mac_address.map(|m| m.to_string()))
         .unwrap_or_default();
 
-    let expected_machine = db::expected_machine::find(&api.database_connection, &req)
+    let expected_machine = nico_api_db::expected_machine::find(&api.database_connection, &req)
         .await
         .map_err(CarbideError::from)?
         .ok_or(CarbideError::NotFoundError {
@@ -56,13 +58,13 @@ pub(crate) async fn get(
             id: target_id,
         })?;
 
-    let response = rpc::ExpectedMachine::from(expected_machine);
+    let response = forge::ExpectedMachine::from(expected_machine);
     Ok(tonic::Response::new(response))
 }
 
 pub(crate) async fn add(
     api: &Api,
-    request: tonic::Request<rpc::ExpectedMachine>,
+    request: tonic::Request<forge::ExpectedMachine>,
 ) -> Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
 
@@ -106,7 +108,7 @@ pub(crate) async fn add(
 
     let mut txn = api.txn_begin().await?;
 
-    db::expected_machine::create(&mut txn, machine).await?;
+    nico_api_db::expected_machine::create(&mut txn, machine).await?;
 
     if let Some(ref rack_id) = request_rack_id {
         let adopted = db_rack::adopt_expected_machine(&mut txn, rack_id, parsed_mac)
@@ -128,7 +130,7 @@ pub(crate) async fn add(
 
 pub(crate) async fn delete(
     api: &Api,
-    request: tonic::Request<rpc::ExpectedMachineRequest>,
+    request: tonic::Request<forge::ExpectedMachineRequest>,
 ) -> Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
 
@@ -139,7 +141,7 @@ pub(crate) async fn delete(
 
     let mut txn = api.txn_begin().await?;
 
-    db::expected_machine::delete(&mut txn, &req)
+    nico_api_db::expected_machine::delete(&mut txn, &req)
         .await
         .map_err(CarbideError::from)?;
 
@@ -150,7 +152,7 @@ pub(crate) async fn delete(
 
 pub(crate) async fn update(
     api: &Api,
-    request: tonic::Request<rpc::ExpectedMachine>,
+    request: tonic::Request<forge::ExpectedMachine>,
 ) -> Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
 
@@ -185,7 +187,7 @@ pub(crate) async fn update(
 
     let mut txn = api.txn_begin().await?;
 
-    db::expected_machine::update(&mut txn, &machine)
+    nico_api_db::expected_machine::update(&mut txn, &machine)
         .await
         .map_err(CarbideError::from)?;
 
@@ -209,14 +211,14 @@ pub(crate) async fn update(
 
 pub(crate) async fn replace_all(
     api: &Api,
-    request: tonic::Request<rpc::ExpectedMachineList>,
+    request: tonic::Request<forge::ExpectedMachineList>,
 ) -> Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
     let request = request.into_inner();
 
     let mut txn = api.txn_begin().await?;
 
-    db::expected_machine::clear(&mut txn).await?;
+    nico_api_db::expected_machine::clear(&mut txn).await?;
 
     txn.commit().await?;
 
@@ -229,13 +231,13 @@ pub(crate) async fn replace_all(
 pub(crate) async fn get_all(
     api: &Api,
     request: tonic::Request<()>,
-) -> Result<tonic::Response<rpc::ExpectedMachineList>, tonic::Status> {
+) -> Result<tonic::Response<forge::ExpectedMachineList>, tonic::Status> {
     log_request_data(&request);
 
     let expected_machine_list: Vec<ExpectedMachine> =
-        db::expected_machine::find_all(&api.database_connection).await?;
+        nico_api_db::expected_machine::find_all(&api.database_connection).await?;
 
-    Ok(tonic::Response::new(rpc::ExpectedMachineList {
+    Ok(tonic::Response::new(forge::ExpectedMachineList {
         expected_machines: expected_machine_list.into_iter().map(Into::into).collect(),
     }))
 }
@@ -243,11 +245,11 @@ pub(crate) async fn get_all(
 pub(crate) async fn get_linked(
     api: &Api,
     request: tonic::Request<()>,
-) -> Result<tonic::Response<rpc::LinkedExpectedMachineList>, tonic::Status> {
+) -> Result<tonic::Response<forge::LinkedExpectedMachineList>, tonic::Status> {
     log_request_data(&request);
 
-    let out = db::expected_machine::find_all_linked(&api.database_connection).await?;
-    let list = rpc::LinkedExpectedMachineList {
+    let out = nico_api_db::expected_machine::find_all_linked(&api.database_connection).await?;
+    let list = forge::LinkedExpectedMachineList {
         expected_machines: out.into_iter().map(|m| m.into()).collect(),
     };
     Ok(tonic::Response::new(list))
@@ -261,7 +263,7 @@ pub(crate) async fn delete_all(
 
     let mut txn = api.txn_begin().await?;
 
-    db::expected_machine::clear(&mut txn).await?;
+    nico_api_db::expected_machine::clear(&mut txn).await?;
 
     txn.commit().await?;
 
@@ -271,7 +273,7 @@ pub(crate) async fn delete_all(
 /// Helper function to sanitize expected machine and return parsed IDs (ID+MAC)
 fn sanitize_expected_machine_and_get_ids(
     _api: &Api,
-    request: rpc::ExpectedMachine,
+    request: forge::ExpectedMachine,
     _is_update: bool,
 ) -> Result<(Uuid, MacAddress), CarbideError> {
     // Validate id is present
@@ -338,7 +340,7 @@ async fn process_rack_association(
 /// Helper function to create a single expected machine within a transaction
 async fn create_expected_machine(
     txn: &mut sqlx::PgConnection,
-    machine: rpc::ExpectedMachine,
+    machine: forge::ExpectedMachine,
     id: Uuid,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
@@ -351,7 +353,7 @@ async fn create_expected_machine(
         data: db_data,
     };
 
-    db::expected_machine::create(txn, expected_machine).await?;
+    nico_api_db::expected_machine::create(txn, expected_machine).await?;
 
     // Handle rack association
     if let Some(ref rack_id) = request_rack_id {
@@ -364,7 +366,7 @@ async fn create_expected_machine(
 /// Helper function to update a single expected machine within a transaction
 async fn update_expected_machine(
     txn: &mut sqlx::PgConnection,
-    machine: rpc::ExpectedMachine,
+    machine: forge::ExpectedMachine,
     id: Uuid,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
@@ -377,7 +379,7 @@ async fn update_expected_machine(
         data,
     };
 
-    db::expected_machine::update(txn, &expected_machine).await?;
+    nico_api_db::expected_machine::update(txn, &expected_machine).await?;
 
     // Handle rack association
     if let Some(ref rack_id) = request_rack_id {
@@ -399,15 +401,15 @@ impl BatchOperation {
     }
 }
 
-fn build_success_result(machine: rpc::ExpectedMachine) -> rpc::ExpectedMachineOperationResult {
+fn build_success_result(machine: forge::ExpectedMachine) -> forge::ExpectedMachineOperationResult {
     // Ensure the id is set in the returned machine payload.
     let id = machine
         .id
         .as_ref()
         .and_then(|u| Uuid::parse_str(&u.value).ok());
 
-    rpc::ExpectedMachineOperationResult {
-        id: id.map(|value| ::rpc::common::Uuid {
+    forge::ExpectedMachineOperationResult {
+        id: id.map(|value| nico_rpc::common::Uuid {
             value: value.to_string(),
         }),
         success: true,
@@ -416,9 +418,9 @@ fn build_success_result(machine: rpc::ExpectedMachine) -> rpc::ExpectedMachineOp
     }
 }
 
-fn build_failure_result(id: Uuid, error_message: String) -> rpc::ExpectedMachineOperationResult {
-    rpc::ExpectedMachineOperationResult {
-        id: Some(::rpc::common::Uuid {
+fn build_failure_result(id: Uuid, error_message: String) -> forge::ExpectedMachineOperationResult {
+    forge::ExpectedMachineOperationResult {
+        id: Some(nico_rpc::common::Uuid {
             value: id.to_string(),
         }),
         success: false,
@@ -430,7 +432,7 @@ fn build_failure_result(id: Uuid, error_message: String) -> rpc::ExpectedMachine
 async fn apply_operation(
     op: BatchOperation,
     txn: &mut sqlx::PgConnection,
-    machine: rpc::ExpectedMachine,
+    machine: forge::ExpectedMachine,
     id: Uuid,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
@@ -442,10 +444,10 @@ async fn apply_operation(
 
 async fn process_batch_operations(
     api: &Api,
-    machines: Vec<rpc::ExpectedMachine>,
+    machines: Vec<forge::ExpectedMachine>,
     accept_partial: bool,
     op: BatchOperation,
-) -> Result<Vec<rpc::ExpectedMachineOperationResult>, CarbideError> {
+) -> Result<Vec<forge::ExpectedMachineOperationResult>, CarbideError> {
     let mut results = Vec::new();
 
     if accept_partial {
@@ -469,7 +471,7 @@ async fn process_batch_operations(
                 };
 
             let mut machine_for_result = machine.clone();
-            machine_for_result.id = Some(::rpc::common::Uuid {
+            machine_for_result.id = Some(nico_rpc::common::Uuid {
                 value: id.to_string(),
             });
 
@@ -512,7 +514,7 @@ async fn process_batch_operations(
 
     for (machine, id, parsed_mac) in prepared {
         let mut machine_for_result = machine.clone();
-        machine_for_result.id = Some(::rpc::common::Uuid {
+        machine_for_result.id = Some(nico_rpc::common::Uuid {
             value: id.to_string(),
         });
 
@@ -530,8 +532,8 @@ async fn process_batch_operations(
 
 pub(crate) async fn create_expected_machines(
     api: &Api,
-    request: tonic::Request<rpc::BatchExpectedMachineOperationRequest>,
-) -> Result<tonic::Response<rpc::BatchExpectedMachineOperationResponse>, tonic::Status> {
+    request: tonic::Request<forge::BatchExpectedMachineOperationRequest>,
+) -> Result<tonic::Response<forge::BatchExpectedMachineOperationResponse>, tonic::Status> {
     log_request_data(&request);
 
     let request = request.into_inner();
@@ -545,14 +547,14 @@ pub(crate) async fn create_expected_machines(
         process_batch_operations(api, machines, accept_partial, BatchOperation::Create).await?;
 
     Ok(tonic::Response::new(
-        rpc::BatchExpectedMachineOperationResponse { results },
+        forge::BatchExpectedMachineOperationResponse { results },
     ))
 }
 
 pub(crate) async fn update_expected_machines(
     api: &Api,
-    request: tonic::Request<rpc::BatchExpectedMachineOperationRequest>,
-) -> Result<tonic::Response<rpc::BatchExpectedMachineOperationResponse>, tonic::Status> {
+    request: tonic::Request<forge::BatchExpectedMachineOperationRequest>,
+) -> Result<tonic::Response<forge::BatchExpectedMachineOperationResponse>, tonic::Status> {
     log_request_data(&request);
 
     let request = request.into_inner();
@@ -566,7 +568,7 @@ pub(crate) async fn update_expected_machines(
         process_batch_operations(api, machines, accept_partial, BatchOperation::Update).await?;
 
     Ok(tonic::Response::new(
-        rpc::BatchExpectedMachineOperationResponse { results },
+        forge::BatchExpectedMachineOperationResponse { results },
     ))
 }
 
@@ -577,7 +579,8 @@ pub(crate) async fn query(
 ) -> Result<Option<ExpectedMachine>, CarbideError> {
     let mut txn = api.txn_begin().await?;
 
-    let mut expected = db::expected_machine::find_many_by_bmc_mac_address(&mut txn, &[mac]).await?;
+    let mut expected =
+        nico_api_db::expected_machine::find_many_by_bmc_mac_address(&mut txn, &[mac]).await?;
 
     txn.commit().await?;
 

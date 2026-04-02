@@ -22,13 +22,13 @@
 
 use std::collections::HashMap;
 
-use carbide_uuid::DbTable;
-use carbide_uuid::machine::{MachineId, MachineType};
 use chrono::Utc;
-use measured_boot::journal::MeasurementJournal;
-use measured_boot::machine::CandidateMachine;
-use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
-use model::machine::topology::TopologyData;
+use nico_api_model::machine::topology::TopologyData;
+use nico_measured_boot::journal::MeasurementJournal;
+use nico_measured_boot::machine::CandidateMachine;
+use nico_measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+use nico_uuid::DbTable;
+use nico_uuid::machine::{MachineId, MachineType};
 use serde::Serialize;
 use sqlx::{FromRow, PgConnection};
 

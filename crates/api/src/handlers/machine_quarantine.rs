@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use health_report::HealthReport;
-use model::machine::network::ManagedHostQuarantineState;
+use nico_api_model::machine::network::ManagedHostQuarantineState;
+use nico_health_report::HealthReport;
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -26,10 +26,10 @@ use crate::handlers::utils::convert_and_log_machine_id;
 
 pub(crate) async fn set_managed_host_quarantine_state(
     api: &Api,
-    request: Request<rpc::SetManagedHostQuarantineStateRequest>,
-) -> Result<Response<rpc::SetManagedHostQuarantineStateResponse>, Status> {
+    request: Request<forge::SetManagedHostQuarantineStateRequest>,
+) -> Result<Response<forge::SetManagedHostQuarantineStateResponse>, Status> {
     log_request_data(&request);
-    let rpc::SetManagedHostQuarantineStateRequest {
+    let forge::SetManagedHostQuarantineStateRequest {
         quarantine_state,
         machine_id,
     } = request.into_inner();
@@ -45,14 +45,14 @@ pub(crate) async fn set_managed_host_quarantine_state(
     let mut txn = api.txn_begin().await?;
 
     let prior_quarantine_state =
-        db::machine::set_quarantine_state(&mut txn, &machine_id, quarantine_state)
+        nico_api_db::machine::set_quarantine_state(&mut txn, &machine_id, quarantine_state)
             .await?
             .map(Into::into);
 
-    match db::machine::remove_health_report_override(
+    match nico_api_db::machine::remove_health_report_override(
         &mut txn,
         &machine_id,
-        health_report::OverrideMode::Merge,
+        nico_health_report::OverrideMode::Merge,
         HealthReport::QUARANTINE_SOURCE,
     )
     .await
@@ -63,10 +63,10 @@ pub(crate) async fn set_managed_host_quarantine_state(
     };
 
     let report = HealthReport::quarantine_report(message);
-    db::machine::insert_health_report_override(
+    nico_api_db::machine::insert_health_report_override(
         &mut txn,
         &machine_id,
-        health_report::OverrideMode::Merge,
+        nico_health_report::OverrideMode::Merge,
         &report,
         false,
     )
@@ -74,47 +74,51 @@ pub(crate) async fn set_managed_host_quarantine_state(
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::SetManagedHostQuarantineStateResponse {
-        prior_quarantine_state,
-    }))
+    Ok(Response::new(
+        forge::SetManagedHostQuarantineStateResponse {
+            prior_quarantine_state,
+        },
+    ))
 }
 
 pub(crate) async fn get_managed_host_quarantine_state(
     api: &Api,
-    request: Request<rpc::GetManagedHostQuarantineStateRequest>,
-) -> Result<Response<rpc::GetManagedHostQuarantineStateResponse>, Status> {
+    request: Request<forge::GetManagedHostQuarantineStateRequest>,
+) -> Result<Response<forge::GetManagedHostQuarantineStateResponse>, Status> {
     log_request_data(&request);
-    let rpc::GetManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
+    let forge::GetManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
 
-    let quarantine_state = db::machine::get_quarantine_state(&api.database_connection, &machine_id)
-        .await?
-        .map(Into::into);
+    let quarantine_state =
+        nico_api_db::machine::get_quarantine_state(&api.database_connection, &machine_id)
+            .await?
+            .map(Into::into);
 
-    Ok(Response::new(rpc::GetManagedHostQuarantineStateResponse {
-        quarantine_state,
-    }))
+    Ok(Response::new(
+        forge::GetManagedHostQuarantineStateResponse { quarantine_state },
+    ))
 }
 
 pub(crate) async fn clear_managed_host_quarantine_state(
     api: &Api,
-    request: Request<rpc::ClearManagedHostQuarantineStateRequest>,
-) -> Result<Response<rpc::ClearManagedHostQuarantineStateResponse>, Status> {
+    request: Request<forge::ClearManagedHostQuarantineStateRequest>,
+) -> Result<Response<forge::ClearManagedHostQuarantineStateResponse>, Status> {
     log_request_data(&request);
 
-    let rpc::ClearManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
+    let forge::ClearManagedHostQuarantineStateRequest { machine_id } = request.into_inner();
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
 
     let mut txn = api.txn_begin().await?;
 
-    let prior_quarantine_state = db::machine::clear_quarantine_state(&mut txn, &machine_id)
-        .await?
-        .map(Into::into);
+    let prior_quarantine_state =
+        nico_api_db::machine::clear_quarantine_state(&mut txn, &machine_id)
+            .await?
+            .map(Into::into);
 
-    match db::machine::remove_health_report_override(
+    match nico_api_db::machine::remove_health_report_override(
         &mut txn,
         &machine_id,
-        health_report::OverrideMode::Merge,
+        nico_health_report::OverrideMode::Merge,
         HealthReport::QUARANTINE_SOURCE,
     )
     .await
@@ -128,7 +132,7 @@ pub(crate) async fn clear_managed_host_quarantine_state(
     txn.commit().await?;
 
     Ok(tonic::Response::new(
-        rpc::ClearManagedHostQuarantineStateResponse {
+        forge::ClearManagedHostQuarantineStateResponse {
             prior_quarantine_state,
         },
     ))

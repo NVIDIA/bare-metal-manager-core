@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::power_shelf::PowerShelfId;
 use config_version::ConfigVersion;
-use model::power_shelf::{PowerShelfControllerState, PowerShelfStateHistoryRecord};
+use nico_api_model::power_shelf::{PowerShelfControllerState, PowerShelfStateHistoryRecord};
+use nico_uuid::power_shelf::PowerShelfId;
 use sqlx::{FromRow, PgConnection};
 
 use crate::{DatabaseError, DatabaseResult};

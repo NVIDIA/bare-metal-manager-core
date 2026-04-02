@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 use chrono::{DateTime, Utc};
-use model::storage::{OsImage, OsImageAttributes, OsImageStatus};
-use model::tenant::TenantOrganizationId;
+use nico_api_model::storage::{OsImage, OsImageAttributes, OsImageStatus};
+use nico_api_model::tenant::TenantOrganizationId;
 use sqlx::PgConnection;
 use uuid::Uuid;
 

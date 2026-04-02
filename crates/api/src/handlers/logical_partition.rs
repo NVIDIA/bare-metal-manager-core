@@ -14,11 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
-use db::{self, ObjectColumnFilter, WithTransaction, instance, nvl_logical_partition};
 use futures_util::FutureExt;
-use model::nvl_logical_partition::NewLogicalPartition;
+use nico_api_db::{
+    ObjectColumnFilter, WithTransaction, instance, nvl_logical_partition, {self},
+};
+use nico_api_model::nvl_logical_partition::NewLogicalPartition;
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -26,8 +28,8 @@ use crate::api::{Api, log_request_data, log_tenant_organization_id};
 
 pub(crate) async fn create(
     api: &Api,
-    request: Request<rpc::NvLinkLogicalPartitionCreationRequest>,
-) -> Result<Response<rpc::NvLinkLogicalPartition>, Status> {
+    request: Request<forge::NvLinkLogicalPartitionCreationRequest>,
+) -> Result<Response<forge::NvLinkLogicalPartition>, Status> {
     log_request_data(&request);
 
     let request_inner = request.into_inner();
@@ -47,7 +49,7 @@ pub(crate) async fn create(
     let resp = nvl_logical_partition::create(&req, &mut txn)
         .await
         .map_err(CarbideError::from)?;
-    let resp = rpc::NvLinkLogicalPartition::try_from(resp).map(Response::new)?;
+    let resp = forge::NvLinkLogicalPartition::try_from(resp).map(Response::new)?;
     txn.commit().await?;
 
     Ok(resp)
@@ -55,28 +57,28 @@ pub(crate) async fn create(
 
 pub(crate) async fn find_ids(
     api: &Api,
-    request: Request<rpc::NvLinkLogicalPartitionSearchFilter>,
-) -> Result<Response<rpc::NvLinkLogicalPartitionIdList>, Status> {
+    request: Request<forge::NvLinkLogicalPartitionSearchFilter>,
+) -> Result<Response<forge::NvLinkLogicalPartitionIdList>, Status> {
     log_request_data(&request);
 
-    let filter: model::nvl_logical_partition::NvLinkLogicalPartitionSearchFilter =
+    let filter: nico_api_model::nvl_logical_partition::NvLinkLogicalPartitionSearchFilter =
         request.into_inner().into();
 
     let partition_ids =
-        db::nvl_logical_partition::find_ids(&api.database_connection, filter).await?;
+        nico_api_db::nvl_logical_partition::find_ids(&api.database_connection, filter).await?;
 
-    Ok(Response::new(rpc::NvLinkLogicalPartitionIdList {
+    Ok(Response::new(forge::NvLinkLogicalPartitionIdList {
         partition_ids,
     }))
 }
 
 pub(crate) async fn find_by_ids(
     api: &Api,
-    request: Request<rpc::NvLinkLogicalPartitionsByIdsRequest>,
-) -> Result<Response<rpc::NvLinkLogicalPartitionList>, Status> {
+    request: Request<forge::NvLinkLogicalPartitionsByIdsRequest>,
+) -> Result<Response<forge::NvLinkLogicalPartitionList>, Status> {
     log_request_data(&request);
 
-    let rpc::NvLinkLogicalPartitionsByIdsRequest { partition_ids, .. } = request.into_inner();
+    let forge::NvLinkLogicalPartitionsByIdsRequest { partition_ids, .. } = request.into_inner();
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if partition_ids.len() > max_find_by_ids {
@@ -90,7 +92,7 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let partitions = db::nvl_logical_partition::find_by(
+    let partitions = nico_api_db::nvl_logical_partition::find_by(
         &api.database_connection,
         ObjectColumnFilter::List(nvl_logical_partition::IdColumn, &partition_ids),
     )
@@ -102,15 +104,15 @@ pub(crate) async fn find_by_ids(
         result.push(lp.try_into()?);
     }
 
-    Ok(Response::new(rpc::NvLinkLogicalPartitionList {
+    Ok(Response::new(forge::NvLinkLogicalPartitionList {
         partitions: result,
     }))
 }
 
 pub(crate) async fn delete(
     api: &Api,
-    request: Request<rpc::NvLinkLogicalPartitionDeletionRequest>,
-) -> Result<Response<rpc::NvLinkLogicalPartitionDeletionResult>, Status> {
+    request: Request<forge::NvLinkLogicalPartitionDeletionRequest>,
+) -> Result<Response<forge::NvLinkLogicalPartitionDeletionResult>, Status> {
     log_request_data(&request);
 
     let id = request
@@ -118,7 +120,7 @@ pub(crate) async fn delete(
         .id
         .ok_or_else(|| CarbideError::MissingArgument("id"))?;
 
-    let mut partitions = db::nvl_logical_partition::find_by(
+    let mut partitions = nico_api_db::nvl_logical_partition::find_by(
         &api.database_connection,
         ObjectColumnFilter::One(nvl_logical_partition::IdColumn, &id),
     )
@@ -148,9 +150,11 @@ pub(crate) async fn delete(
     }
 
     let resp = api
-        .with_txn(|txn| db::nvl_logical_partition::mark_as_deleted(&partition, txn).boxed())
+        .with_txn(|txn| {
+            nico_api_db::nvl_logical_partition::mark_as_deleted(&partition, txn).boxed()
+        })
         .await?
-        .map(|_| rpc::NvLinkLogicalPartitionDeletionResult {})
+        .map(|_| forge::NvLinkLogicalPartitionDeletionResult {})
         .map(Response::new)?;
 
     Ok(resp)
@@ -158,11 +162,11 @@ pub(crate) async fn delete(
 
 pub(crate) async fn for_tenant(
     api: &Api,
-    request: Request<rpc::TenantSearchQuery>,
-) -> Result<Response<rpc::NvLinkLogicalPartitionList>, Status> {
+    request: Request<forge::TenantSearchQuery>,
+) -> Result<Response<forge::NvLinkLogicalPartitionList>, Status> {
     log_request_data(&request);
 
-    let rpc::TenantSearchQuery {
+    let forge::TenantSearchQuery {
         tenant_organization_id,
     } = request.into_inner();
 
@@ -176,7 +180,7 @@ pub(crate) async fn for_tenant(
     log_tenant_organization_id(&tenant_org_id_str);
 
     let results =
-        db::nvl_logical_partition::for_tenant(&api.database_connection, tenant_org_id_str)
+        nico_api_db::nvl_logical_partition::for_tenant(&api.database_connection, tenant_org_id_str)
             .await
             .map_err(CarbideError::from)?;
 
@@ -186,15 +190,15 @@ pub(crate) async fn for_tenant(
         partitions.push(result.try_into()?);
     }
 
-    Ok(Response::new(rpc::NvLinkLogicalPartitionList {
+    Ok(Response::new(forge::NvLinkLogicalPartitionList {
         partitions,
     }))
 }
 
 pub(crate) async fn update(
     api: &Api,
-    request: Request<rpc::NvLinkLogicalPartitionUpdateRequest>,
-) -> Result<Response<rpc::NvLinkLogicalPartitionUpdateResult>, Status> {
+    request: Request<forge::NvLinkLogicalPartitionUpdateRequest>,
+) -> Result<Response<forge::NvLinkLogicalPartitionUpdateResult>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -206,7 +210,7 @@ pub(crate) async fn update(
         .config
         .ok_or_else(|| CarbideError::InvalidArgument("Config must be provided".to_string()))?;
 
-    let metadata: model::metadata::Metadata = config
+    let metadata: nico_api_model::metadata::Metadata = config
         .metadata
         .clone()
         .ok_or_else(|| CarbideError::InvalidArgument("Metadata must be provided".to_string()))?
@@ -215,7 +219,7 @@ pub(crate) async fn update(
 
     let mut txn = api.txn_begin().await?;
 
-    let mut partitions = db::nvl_logical_partition::find_by(
+    let mut partitions = nico_api_db::nvl_logical_partition::find_by(
         &mut txn,
         ObjectColumnFilter::One(nvl_logical_partition::IdColumn, &id),
     )
@@ -257,9 +261,9 @@ pub(crate) async fn update(
     };
 
     let name = metadata.name;
-    let resp = db::nvl_logical_partition::update(&partition, name, &mut txn)
+    let resp = nico_api_db::nvl_logical_partition::update(&partition, name, &mut txn)
         .await
-        .map(|_| rpc::NvLinkLogicalPartitionUpdateResult {})
+        .map(|_| forge::NvLinkLogicalPartitionUpdateResult {})
         .map(Response::new)?;
 
     txn.commit().await?;

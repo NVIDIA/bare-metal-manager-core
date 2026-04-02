@@ -17,9 +17,10 @@
 
 use std::borrow::Cow;
 
-use ::rpc::admin_cli::output::{FormattedOutput, IntoTable, OutputFormat};
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::forge::{PrefixMatchType, VpcPrefix};
+use nico_rpc::admin_cli::output::{FormattedOutput, IntoTable, OutputFormat};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge;
+use nico_rpc::forge::{PrefixMatchType, VpcPrefix};
 use serde::Serialize;
 
 use super::args::Args;
@@ -36,14 +37,14 @@ pub async fn show(
     let output = fetch(api_client, batch_size, show_method).await?;
 
     output
-        .write_output(output_format, ::rpc::admin_cli::Destination::Stdout())
+        .write_output(output_format, nico_rpc::admin_cli::Destination::Stdout())
         .map_err(CarbideCliError::from)
 }
 
 #[derive(Debug)]
 enum ShowMethod {
     Get(VpcPrefixSelector),
-    Search(rpc::forge::VpcPrefixSearchQuery),
+    Search(forge::VpcPrefixSearchQuery),
 }
 
 pub enum ShowOutput {

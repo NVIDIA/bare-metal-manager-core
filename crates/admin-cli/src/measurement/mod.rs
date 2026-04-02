@@ -27,8 +27,8 @@ pub mod profile;
 pub mod report;
 pub mod site;
 
-use ::rpc::admin_cli::{CarbideCliResult, ToTable, set_summary};
-use carbide_uuid::machine::MachineId;
+use nico_rpc::admin_cli::{CarbideCliResult, ToTable, set_summary};
+use nico_uuid::machine::MachineId;
 use serde::Serialize;
 
 use crate::cfg::dispatch::Dispatch;

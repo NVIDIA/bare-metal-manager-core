@@ -19,7 +19,8 @@ pub mod proto {
     tonic::include_proto!("dhcp_server_control");
 }
 
-use carbide_uuid::machine::MachineInterfaceId;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineInterfaceId;
 use proto::dhcp_server_control_client::DhcpServerControlClient;
 use utils::models::dhcp::{
     DhcpConfig as ModelDhcpConfig, HostConfig as ModelHostConfig,
@@ -86,9 +87,7 @@ impl From<ModelHostConfig> for proto::HostConfig {
 /// the host interface UUID and the timestamp of the last DHCP request seen for
 /// that interface.  Returns an empty `Vec` (with a warning) if the call fails,
 /// so the caller can degrade gracefully.
-pub async fn get_dhcp_timestamps(
-    grpc_addr: &str,
-) -> eyre::Result<Vec<::rpc::forge::LastDhcpRequest>> {
+pub async fn get_dhcp_timestamps(grpc_addr: &str) -> eyre::Result<Vec<forge::LastDhcpRequest>> {
     let channel = tonic::transport::Endpoint::new(grpc_addr.to_string())?
         .connect()
         .await?;
@@ -109,7 +108,7 @@ pub async fn get_dhcp_timestamps(
                 .parse::<MachineInterfaceId>()
                 .map_err(|err| tracing::warn!("Skipping unparseable host_interface_id: {err}"))
                 .ok()?;
-            Some(::rpc::forge::LastDhcpRequest {
+            Some(forge::LastDhcpRequest {
                 host_interface_id: Some(id),
                 timestamp: e.timestamp,
             })

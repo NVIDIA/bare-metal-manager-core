@@ -14,16 +14,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
-use db::{self};
 use mac_address::MacAddress;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{
+use nico_api_db::{self};
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::{
     DpuInitState, FailureCause, FailureDetails, HostReprovisionState, InstanceState,
     ManagedHostState, MeasuringState, ReprovisionState, ValidationState,
 };
-use model::pxe::PxeInstructionRequest;
+use nico_api_model::pxe::PxeInstructionRequest;
+use nico_rpc::forge;
+use nico_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
 use sqlx::PgConnection;
 
 use crate::CarbideError;
@@ -66,7 +66,7 @@ boot ||
 
 impl PxeInstructions {
     fn get_pxe_instruction_for_arch(
-        arch: rpc::MachineArchitecture,
+        arch: forge::MachineArchitecture,
         machine_interface_id: MachineInterfaceId,
         mac_address: MacAddress,
         console: &str,
@@ -76,7 +76,7 @@ impl PxeInstructions {
             "machine_type: {machine_type}; machine interface ID: {machine_interface_id}; mac address: {mac_address}"
         );
         match arch {
-            rpc::MachineArchitecture::Arm => {
+            forge::MachineArchitecture::Arm => {
                 if machine_type == MachineType::Host || machine_type == MachineType::PredictedHost {
                     InstructionGenerator {
                         kernel: "${base-url}/internal/aarch64/scout.efi".to_string(),
@@ -93,7 +93,7 @@ impl PxeInstructions {
                     }
                 }
             }
-            rpc::MachineArchitecture::X86 => {
+            forge::MachineArchitecture::X86 => {
                 InstructionGenerator {
                     kernel: "${base-url}/internal/x86_64/scout.efi".to_string(),
                     command_line: format!("mac={mac_address} console=tty0 console={console},115200 pci=realloc=off iommu=off cli_cmd=auto-detect machine_id={machine_interface_id} server_uri=[api_url] "),
@@ -147,14 +147,16 @@ exit ||
 
         let mut console = "ttyS0";
         let mut qcow_imager_url = "chain ${base-url}/internal/x86_64/qcow-imager.efi loglevel=7 console=tty0 pci=realloc=off ";
-        let interface = db::machine_interface::find_one(&mut *txn, target.interface_id).await?;
+        let interface =
+            nico_api_db::machine_interface::find_one(&mut *txn, target.interface_id).await?;
 
         // This custom pxe is different from a customer instance of pxe. It is more for testing one off
         // changes until a real dev env is established and we can just override our existing code to test
         // It is possible for the pxe to be null if we are only trying to test the user data, and this will
         // follow the same code path and retrieve the non customer pxe
         if let Some(machine_boot_override) =
-            db::machine_boot_override::find_optional(&mut *txn, target.interface_id).await?
+            nico_api_db::machine_boot_override::find_optional(&mut *txn, target.interface_id)
+                .await?
             && let Some(custom_pxe) = machine_boot_override.custom_pxe
         {
             return Ok(custom_pxe);
@@ -166,7 +168,7 @@ exit ||
             if let Some(product) = target.product
                 && product.to_ascii_lowercase().contains("bluefield")
             {
-                if target.arch == rpc::MachineArchitecture::Arm {
+                if target.arch == forge::MachineArchitecture::Arm {
                     return Ok(PxeInstructions::get_pxe_instruction_for_arch(
                         target.arch,
                         target.interface_id,
@@ -189,12 +191,13 @@ exit ||
             // - If it's X86 and we have an exploration report, assume it's a Host.
             // - If it's ARM and we have an exploration report, check if the report is a bluefield
             //   model.
-            let Some(endpoint) =
-                db::explored_endpoints::find_by_mac_address(&mut *txn, interface.mac_address)
-                    .await?
-                    .into_iter()
-                    .next()
-            else {
+            let Some(endpoint) = nico_api_db::explored_endpoints::find_by_mac_address(
+                &mut *txn,
+                interface.mac_address,
+            )
+            .await?
+            .into_iter()
+            .next() else {
                 // This only happens if someone powered on a host manually before we ingested it,
                 // which is unlikely but possible.
                 tracing::info!(interface = ?interface, "Request for PXE instructions for unknown interface, skipping PXE boot");
@@ -202,8 +205,8 @@ exit ||
             };
 
             let (machine_type, console) = match target.arch {
-                rpc::MachineArchitecture::X86 => (MachineType::PredictedHost, console),
-                rpc::MachineArchitecture::Arm => {
+                forge::MachineArchitecture::X86 => (MachineType::PredictedHost, console),
+                forge::MachineArchitecture::Arm => {
                     if endpoint.is_bluefield_model() {
                         (MachineType::Dpu, console)
                     } else {
@@ -221,12 +224,15 @@ exit ||
             ));
         };
 
-        let machine = db::machine::find_one(&mut *txn, &machine_id, MachineSearchConfig::default())
-            .await
-            .map_err(|e| CarbideError::InvalidArgument(format!("Get machine failed, Error: {e}")))?
-            .ok_or(CarbideError::InvalidArgument(
-                "Invalid machine id. Not found in db.".to_string(),
-            ))?;
+        let machine =
+            nico_api_db::machine::find_one(&mut *txn, &machine_id, MachineSearchConfig::default())
+                .await
+                .map_err(|e| {
+                    CarbideError::InvalidArgument(format!("Get machine failed, Error: {e}"))
+                })?
+                .ok_or(CarbideError::InvalidArgument(
+                    "Invalid machine id. Not found in db.".to_string(),
+                ))?;
 
         tracing::info!(machine_id = %machine.id, interface_id = %target.interface_id, state=%machine.current_state(), "Found existing machine for pxe instructions");
         // DPUs need to boot twice during initial discovery. Both reboots require
@@ -288,7 +294,7 @@ exit ||
             }
         }
 
-        if target.arch == rpc::MachineArchitecture::Arm {
+        if target.arch == forge::MachineArchitecture::Arm {
             console = "ttyAMA0";
             qcow_imager_url = "chain ${base-url}/internal/aarch64/qcow-imager.efi loglevel=7 console=tty0 pci=realloc=off ";
         } else if let Some(hardware_info) = machine.hardware_info.as_ref()
@@ -341,7 +347,7 @@ exit ||
             ),
             ManagedHostState::Assigned { instance_state } => match instance_state {
                 InstanceState::Ready => {
-                    let instance = db::instance::find_by_machine_id(txn, &machine_id)
+                    let instance = nico_api_db::instance::find_by_machine_id(txn, &machine_id)
                         .await?
                         .ok_or(CarbideError::NotFoundError {
                             kind: "machine",
@@ -358,12 +364,16 @@ exit ||
                         // now that we're serving the script. Always-PXE instances don't use
                         // this flag (they rely on run_provisioning_instructions_on_every_boot).
                         if instance.use_custom_pxe_on_boot {
-                            db::instance::use_custom_ipxe_on_next_boot(&machine_id, false, txn)
-                                .await?;
+                            nico_api_db::instance::use_custom_ipxe_on_next_boot(
+                                &machine_id,
+                                false,
+                                txn,
+                            )
+                            .await?;
                         }
 
                         match instance.config.os.variant {
-                            model::os::OperatingSystemVariant::Ipxe(ipxe) => {
+                            nico_api_model::os::OperatingSystemVariant::Ipxe(ipxe) => {
                                 let mut tenant_ipxe = ipxe.ipxe_script;
                                 let vendor_serial_console = format!(" console={console}");
                                 if !tenant_ipxe.contains(&vendor_serial_console) {
@@ -377,8 +387,8 @@ exit ||
                                 }
                                 tenant_ipxe
                             }
-                            model::os::OperatingSystemVariant::OsImage(id) => {
-                                let os_image = db::os_image::get(txn, id).await?;
+                            nico_api_model::os::OperatingSystemVariant::OsImage(id) => {
+                                let os_image = nico_api_db::os_image::get(txn, id).await?;
                                 if os_image.attributes.create_volume {
                                     // this is a block storage os image
                                     // boot will be via the block storage snapshot volume

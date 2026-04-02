@@ -38,7 +38,7 @@ This SDK provides a Rust interface for Carbide to interact with the DPF operator
 The `carbide-dpf-api-harness` binary exercises the DPF SDK (same surface as Carbide API) against a real DPF operator for integration testing. Build with the `driver` feature:
 
 ```bash
-cargo build -p carbide-dpf --features driver --bin carbide-dpf-api-harness
+cargo build -p nico-dpf --features driver --bin carbide-dpf-api-harness
 ```
 
 **Main flows:**

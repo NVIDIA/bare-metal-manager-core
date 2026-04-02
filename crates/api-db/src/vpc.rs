@@ -16,10 +16,10 @@
  */
 use std::ops::DerefMut;
 
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
-use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc, VpcStatus};
+use nico_api_model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, Vpc, VpcStatus};
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcId;
 use sqlx::{PgConnection, PgTransaction};
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter, network_segment, vpc};
@@ -87,7 +87,7 @@ pub async fn persist(
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: model::vpc::VpcSearchFilter,
+    filter: nico_api_model::vpc::VpcSearchFilter,
 ) -> Result<Vec<VpcId>, DatabaseError> {
     // build query
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM vpcs WHERE ");
@@ -327,7 +327,7 @@ pub async fn update_virtualization(
     let network_segments = crate::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(network_segment::VpcColumn, &vpc.id),
-        model::network_segment::NetworkSegmentSearchConfig::default(),
+        nico_api_model::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
 

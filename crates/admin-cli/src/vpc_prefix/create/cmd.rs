@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::output::{FormattedOutput, OutputFormat};
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::admin_cli::output::{FormattedOutput, OutputFormat};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -34,6 +34,6 @@ pub async fn create(
         .map(ShowOutput::One)?;
 
     output
-        .write_output(output_format, ::rpc::admin_cli::Destination::Stdout())
+        .write_output(output_format, nico_rpc::admin_cli::Destination::Stdout())
         .map_err(CarbideCliError::from)
 }

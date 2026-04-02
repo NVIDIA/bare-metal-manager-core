@@ -25,16 +25,8 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-use carbide_network::sanitized_mac;
-use carbide_uuid::machine::MachineType;
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
 use chrono::Utc;
 use config_version::ConfigVersion;
-use db::{
-    self, DatabaseError, ObjectFilter, Transaction, machine, network_segment as db_network_segment,
-    power_shelf as db_power_shelf,
-};
 use futures_util::stream::FuturesUnordered;
 use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
@@ -42,17 +34,25 @@ use libredfish::model::oem::nvidia_dpu::NicMode;
 use librms::RmsApi;
 use librms::protos::rack_manager::{NewNodeInfo, NodeType as RmsNodeType};
 use mac_address::MacAddress;
-use model::expected_power_shelf::ExpectedPowerShelf;
-use model::expected_switch::ExpectedSwitch;
-use model::machine::MachineInterfaceSnapshot;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
-use model::resource_pool::common::CommonPools;
-use model::site_explorer::{
+use nico_api_db::{
+    DatabaseError, ObjectFilter, Transaction, machine, network_segment as db_network_segment,
+    power_shelf as db_power_shelf, {self},
+};
+use nico_api_model::expected_power_shelf::ExpectedPowerShelf;
+use nico_api_model::expected_switch::ExpectedSwitch;
+use nico_api_model::machine::MachineInterfaceSnapshot;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::power_shelf::{NewPowerShelf, PowerShelfConfig};
+use nico_api_model::resource_pool::common::CommonPools;
+use nico_api_model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, EndpointType, ExploredDpu,
     ExploredEndpoint, ExploredManagedHost, ExploredManagedSwitch, MachineExpectation, PowerState,
     PreingestionState, Service, is_bf3_dpu, is_bf3_supernic, is_bluefield_model,
 };
+use nico_network::sanitized_mac;
+use nico_uuid::machine::MachineType;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
 use sqlx::PgPool;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -80,13 +80,13 @@ pub use machine_creator::MachineCreator;
 pub mod explored_endpoint_index;
 mod managed_host;
 
-use db::ObjectColumnFilter;
-use db::work_lock_manager::WorkLockManagerHandle;
 pub use managed_host::is_endpoint_in_managed_host;
-use model::expected_machine::ExpectedMachine;
-use model::firmware::FirmwareComponentType;
-use model::machine_interface_address::MachineInterfaceAssociation;
-use model::network_segment::NetworkSegmentType;
+use nico_api_db::ObjectColumnFilter;
+use nico_api_db::work_lock_manager::WorkLockManagerHandle;
+use nico_api_model::expected_machine::ExpectedMachine;
+use nico_api_model::firmware::FirmwareComponentType;
+use nico_api_model::machine_interface_address::MachineInterfaceAssociation;
+use nico_api_model::network_segment::NetworkSegmentType;
 mod switch_creator;
 pub use switch_creator::SwitchCreator;
 
@@ -228,9 +228,10 @@ impl SiteExplorer {
     // https://github.com/rust-lang/rust/issues/110011 will be
     // implemented
     #[track_caller]
-    fn txn_begin(&self) -> impl Future<Output = CarbideResult<db::Transaction<'_>>> {
+    fn txn_begin(&self) -> impl Future<Output = CarbideResult<nico_api_db::Transaction<'_>>> {
         let loc = Location::caller();
-        db::Transaction::begin_with_location(&self.database_connection, loc).map_err(Into::into)
+        nico_api_db::Transaction::begin_with_location(&self.database_connection, loc)
+            .map_err(Into::into)
     }
 
     pub async fn run_single_iteration(&self) -> CarbideResult<SiteIdentifiedHosts> {
@@ -332,8 +333,9 @@ impl SiteExplorer {
 
         // Grab them all because we care about everything,
         // not just the subset in the current run.
-        let explored_endpoints = db::explored_endpoints::find_all(txn.as_pgconn()).await?;
-        let explored_managed_hosts = db::explored_managed_host::find_all(txn.as_pgconn()).await?;
+        let explored_endpoints = nico_api_db::explored_endpoints::find_all(txn.as_pgconn()).await?;
+        let explored_managed_hosts =
+            nico_api_db::explored_managed_host::find_all(txn.as_pgconn()).await?;
 
         txn.rollback().await?;
 
@@ -347,9 +349,9 @@ impl SiteExplorer {
 
             // We need to find the last health report for the endpoint in order to update it with latest health data
             let mut txn = self.txn_begin().await?;
-            let machine_id = db::machine::find_id_by_bmc_ip(&mut txn, &ep.address).await?;
+            let machine_id = nico_api_db::machine::find_id_by_bmc_ip(&mut txn, &ep.address).await?;
             let machine = match machine_id.as_ref() {
-                Some(id) => db::machine::find(
+                Some(id) => nico_api_db::machine::find(
                     &mut txn,
                     ObjectFilter::One(*id),
                     MachineSearchConfig {
@@ -367,8 +369,8 @@ impl SiteExplorer {
             let previous_health_report = machine
                 .as_ref()
                 .and_then(|machine| machine.site_explorer_health_report.as_ref());
-            let mut new_health_report: health_report::HealthReport =
-                health_report::HealthReport::empty("site-explorer".to_string());
+            let mut new_health_report: nico_health_report::HealthReport =
+                nico_health_report::HealthReport::empty("site-explorer".to_string());
 
             if let Some(ref e) = ep.report.last_exploration_error {
                 metrics.increment_endpoint_explorations_failures_overall_count(
@@ -382,14 +384,14 @@ impl SiteExplorer {
                 // exhibit different alerts
                 new_health_report
                     .alerts
-                    .push(health_report::HealthProbeAlert {
+                    .push(nico_health_report::HealthProbeAlert {
                         id: "BmcExplorationFailure".parse().unwrap(),
                         target: Some(ep.address.to_string()),
                         in_alert_since: None,
                         message: format!("Endpoint exploration failed: {e}"),
                         tenant_message: None,
                         classifications: vec![
-                            health_report::HealthAlertClassification::prevent_allocations(),
+                            nico_health_report::HealthAlertClassification::prevent_allocations(),
                         ],
                     });
             }
@@ -398,7 +400,7 @@ impl SiteExplorer {
                 if system.power_state != PowerState::On {
                     new_health_report
                         .alerts
-                        .push(health_report::HealthProbeAlert {
+                        .push(nico_health_report::HealthProbeAlert {
                             id: "PoweredOff".parse().unwrap(),
                             target: Some(ep.address.to_string()),
                             in_alert_since: None,
@@ -408,7 +410,8 @@ impl SiteExplorer {
                             ),
                             tenant_message: None,
                             classifications: vec![
-                                health_report::HealthAlertClassification::prevent_allocations(),
+                                nico_health_report::HealthAlertClassification::prevent_allocations(
+                                ),
                             ],
                         });
                     break;
@@ -460,7 +463,7 @@ impl SiteExplorer {
 
                     new_health_report
                         .alerts
-                        .push(health_report::HealthProbeAlert {
+                        .push(nico_health_report::HealthProbeAlert {
                             id: "SerialNumberMismatch".parse().unwrap(),
                             target: Some(ep.address.to_string()),
                             in_alert_since: None,
@@ -469,7 +472,8 @@ impl SiteExplorer {
                             ),
                             tenant_message: None,
                             classifications: vec![
-                                health_report::HealthAlertClassification::prevent_allocations(),
+                                nico_health_report::HealthAlertClassification::prevent_allocations(
+                                ),
                             ],
                         });
                 }
@@ -477,8 +481,12 @@ impl SiteExplorer {
 
             new_health_report.update_in_alert_since(previous_health_report);
             if let Some(id) = machine_id.as_ref() {
-                db::machine::update_site_explorer_health_report(&mut txn, id, &new_health_report)
-                    .await?;
+                nico_api_db::machine::update_site_explorer_health_report(
+                    &mut txn,
+                    id,
+                    &new_health_report,
+                )
+                .await?;
             }
 
             txn.commit().await?;
@@ -636,7 +644,7 @@ impl SiteExplorer {
         if !expected_shelf.metadata.name.is_empty() {
             let existing_power_shelves = db_power_shelf::find_by(
                 &mut txn,
-                ObjectColumnFilter::All::<db::power_shelf::NameColumn>,
+                ObjectColumnFilter::All::<nico_api_db::power_shelf::NameColumn>,
                 db_power_shelf::PowerShelfSearchConfig::default(),
             )
             .await?;
@@ -667,7 +675,7 @@ impl SiteExplorer {
         // TODO: Fetch power shelf location from chassis metadata or configuration
         // NOTE: Metadata does not have a 'location' field, so use a default for now.
 
-        let power_shelf_id = match model::power_shelf::power_shelf_id::from_hardware_info(
+        let power_shelf_id = match nico_api_model::power_shelf::power_shelf_id::from_hardware_info(
             power_shelf_serial,
             power_shelf_vendor,
             power_shelf_model,
@@ -700,9 +708,10 @@ impl SiteExplorer {
 
         let mac_addresses = report.all_mac_addresses();
         for mac_address in mac_addresses {
-            let mi = db::machine_interface::find_by_mac_address(&mut *txn, mac_address).await?;
+            let mi =
+                nico_api_db::machine_interface::find_by_mac_address(&mut *txn, mac_address).await?;
             if let Some(interface) = mi.first() {
-                db::machine_interface::associate_interface_with_machine(
+                nico_api_db::machine_interface::associate_interface_with_machine(
                     &interface.id,
                     MachineInterfaceAssociation::PowerShelf(power_shelf_id),
                     &mut txn,
@@ -713,9 +722,10 @@ impl SiteExplorer {
 
         let mac_addresses = report.all_mac_addresses();
         for mac_address in mac_addresses {
-            let mi = db::machine_interface::find_by_mac_address(&mut *txn, mac_address).await?;
+            let mi =
+                nico_api_db::machine_interface::find_by_mac_address(&mut *txn, mac_address).await?;
             if let Some(interface) = mi.first() {
-                db::machine_interface::associate_interface_with_machine(
+                nico_api_db::machine_interface::associate_interface_with_machine(
                     &interface.id,
                     MachineInterfaceAssociation::PowerShelf(power_shelf_id),
                     &mut txn,
@@ -725,16 +735,16 @@ impl SiteExplorer {
         }
 
         if let Some(ref rack_id) = expected_shelf.rack_id {
-            let rack = match db::rack::get(txn.as_mut(), rack_id).await {
+            let rack = match nico_api_db::rack::get(txn.as_mut(), rack_id).await {
                 Ok(rack) => rack,
                 Err(_) => {
                     let expected_rack_metadata =
-                        db::expected_rack::find_by_rack_id(txn.as_mut(), rack_id)
+                        nico_api_db::expected_rack::find_by_rack_id(txn.as_mut(), rack_id)
                             .await
                             .ok()
                             .flatten()
                             .map(|er| er.metadata);
-                    db::rack::create(
+                    nico_api_db::rack::create(
                         &mut txn,
                         rack_id,
                         vec![],
@@ -748,7 +758,7 @@ impl SiteExplorer {
             };
             let mut config = rack.config.clone();
             config.power_shelves.push(power_shelf_id);
-            db::rack::update(&mut txn, rack_id, &config)
+            nico_api_db::rack::update(&mut txn, rack_id, &config)
                 .await
                 .map_err(CarbideError::from)?;
         }
@@ -820,7 +830,7 @@ impl SiteExplorer {
         // Could optimize this by keeping it in memory. But since the manipulations
         // are quite complicated in the previous step, this makes things much easier
         let explored_endpoints =
-            db::explored_endpoints::find_all_preingestion_complete(&mut txn).await?;
+            nico_api_db::explored_endpoints::find_all_preingestion_complete(&mut txn).await?;
 
         txn.commit().await?;
 
@@ -1189,7 +1199,7 @@ impl SiteExplorer {
 
         let mut txn = self.txn_begin().await?;
 
-        db::explored_managed_host::update(
+        nico_api_db::explored_managed_host::update(
             &mut txn,
             managed_hosts
                 .iter()
@@ -1201,7 +1211,8 @@ impl SiteExplorer {
 
         // Persist boot interface MACs for host endpoints
         for (address, mac) in &boot_interface_macs {
-            db::explored_endpoints::set_boot_interface_mac(*address, *mac, &mut txn).await?;
+            nico_api_db::explored_endpoints::set_boot_interface_mac(*address, *mac, &mut txn)
+                .await?;
         }
 
         txn.commit().await?;
@@ -1219,7 +1230,7 @@ impl SiteExplorer {
             .map_err(|e| DatabaseError::new("load find_all_preingestion_complete data", e))?;
 
         let explored_endpoints =
-            db::explored_endpoints::find_all_preingestion_complete(&mut txn).await?;
+            nico_api_db::explored_endpoints::find_all_preingestion_complete(&mut txn).await?;
 
         txn.commit()
             .await
@@ -1247,7 +1258,7 @@ impl SiteExplorer {
             .map_err(|e| DatabaseError::new("load find_all_preingestion_complete data", e))?;
 
         let explored_endpoints =
-            db::explored_endpoints::find_all_preingestion_complete(&mut txn).await?;
+            nico_api_db::explored_endpoints::find_all_preingestion_complete(&mut txn).await?;
 
         txn.commit()
             .await
@@ -1282,14 +1293,16 @@ impl SiteExplorer {
     ) -> CarbideResult<ExploredEndpointIndex> {
         let mut txn = self.txn_begin().await?;
 
-        let underlay_segments =
-            db::network_segment::list_segment_ids(&mut txn, Some(NetworkSegmentType::Underlay))
-                .await?;
-        let interfaces = db::machine_interface::find_all(&mut txn).await?;
-        let explored_endpoints = db::explored_endpoints::find_all(txn.as_pgconn()).await?;
-        let expected_switches = db::expected_switch::find_all(&mut txn).await?;
-        let expected_machines = db::expected_machine::find_all(&mut txn).await?;
-        let expected_power_shelves = db::expected_power_shelf::find_all(&mut txn).await?;
+        let underlay_segments = nico_api_db::network_segment::list_segment_ids(
+            &mut txn,
+            Some(NetworkSegmentType::Underlay),
+        )
+        .await?;
+        let interfaces = nico_api_db::machine_interface::find_all(&mut txn).await?;
+        let explored_endpoints = nico_api_db::explored_endpoints::find_all(txn.as_pgconn()).await?;
+        let expected_switches = nico_api_db::expected_switch::find_all(&mut txn).await?;
+        let expected_machines = nico_api_db::expected_machine::find_all(&mut txn).await?;
+        let expected_power_shelves = nico_api_db::expected_power_shelf::find_all(&mut txn).await?;
 
         let explore_power_shelves_from_static_ip = self
             .config
@@ -1301,7 +1314,7 @@ impl SiteExplorer {
             .iter()
             .filter_map(|em| em.data.sku_id.as_deref())
             .collect();
-        let skus = db::sku::find(&mut txn, &sku_ids).await?;
+        let skus = nico_api_db::sku::find(&mut txn, &sku_ids).await?;
 
         txn.commit().await?;
 
@@ -1404,7 +1417,7 @@ impl SiteExplorer {
         // The unknown endpoints can quickly be cleaned up
         if !delete_endpoints.is_empty() {
             let mut txn = self.txn_begin().await?;
-            db::explored_endpoints::delete_many(&mut txn, &delete_endpoints).await?;
+            nico_api_db::explored_endpoints::delete_many(&mut txn, &delete_endpoints).await?;
             txn.commit().await?;
         }
 
@@ -1625,7 +1638,7 @@ impl SiteExplorer {
                 && let Some(bmc_version) = report.versions.get(&FirmwareComponentType::Bmc)
                 && let Some(uefi_version) = report.versions.get(&FirmwareComponentType::Uefi)
             {
-                db::machine_topology::update_firmware_version_by_bmc_address(
+                nico_api_db::machine_topology::update_firmware_version_by_bmc_address(
                     &mut txn,
                     &address,
                     bmc_version,
@@ -1646,7 +1659,7 @@ impl SiteExplorer {
                                     "Initial exploration of endpoint"
                                 );
                             }
-                            db::explored_endpoints::try_update(
+                            nico_api_db::explored_endpoints::try_update(
                                 address,
                                 old_version,
                                 &report,
@@ -1661,7 +1674,7 @@ impl SiteExplorer {
                             let mut old_report = old_report.clone();
                             old_report.last_exploration_error = Some(e);
                             old_report.last_exploration_latency = Some(exploration_duration);
-                            db::explored_endpoints::try_update(
+                            nico_api_db::explored_endpoints::try_update(
                                 address,
                                 old_version,
                                 &old_report,
@@ -1685,7 +1698,7 @@ impl SiteExplorer {
                                 exploration_report = ?report,
                                 "Initial exploration of endpoint"
                             );
-                            db::explored_endpoints::insert(
+                            nico_api_db::explored_endpoints::insert(
                                 address,
                                 &report,
                                 should_pause_ingestion_and_poweron,
@@ -1698,7 +1711,7 @@ impl SiteExplorer {
                             // That will avoid immmediatly retrying the exploration in the next run
                             let mut report = EndpointExplorationReport::new_with_error(e);
                             report.last_exploration_latency = Some(exploration_duration);
-                            db::explored_endpoints::insert(
+                            nico_api_db::explored_endpoints::insert(
                                 address,
                                 &report,
                                 should_pause_ingestion_and_poweron,
@@ -1715,7 +1728,10 @@ impl SiteExplorer {
                         || power_shelf_manual_ingestion
                     {
                         // We're using manual ingestion, making preingestion updates risky.  Go ahead and skip them.
-                        db::explored_endpoints::set_preingestion_complete(address, &mut txn).await?
+                        nico_api_db::explored_endpoints::set_preingestion_complete(
+                            address, &mut txn,
+                        )
+                        .await?
                     }
                 }
             }
@@ -1941,8 +1957,11 @@ impl SiteExplorer {
             Ok(_) => {
                 let mut txn = self.txn_begin().await?;
 
-                db::explored_endpoints::set_last_ipmitool_bmc_reset(endpoint.address, &mut txn)
-                    .await?;
+                nico_api_db::explored_endpoints::set_last_ipmitool_bmc_reset(
+                    endpoint.address,
+                    &mut txn,
+                )
+                .await?;
 
                 txn.commit().await?;
 
@@ -1970,8 +1989,11 @@ impl SiteExplorer {
             Ok(_) => {
                 let mut txn = self.txn_begin().await?;
 
-                db::explored_endpoints::set_last_redfish_bmc_reset(endpoint.address, &mut txn)
-                    .await?;
+                nico_api_db::explored_endpoints::set_last_redfish_bmc_reset(
+                    endpoint.address,
+                    &mut txn,
+                )
+                .await?;
 
                 txn.commit().await?;
 
@@ -2039,7 +2061,11 @@ impl SiteExplorer {
             Ok(()) => {
                 let mut txn = self.txn_begin().await?;
 
-                db::explored_endpoints::set_last_redfish_reboot(endpoint.address, &mut txn).await?;
+                nico_api_db::explored_endpoints::set_last_redfish_reboot(
+                    endpoint.address,
+                    &mut txn,
+                )
+                .await?;
 
                 txn.commit().await?;
 
@@ -2168,7 +2194,8 @@ impl SiteExplorer {
 
         let mut txn = self.txn_begin().await?;
 
-        db::explored_endpoints::set_last_redfish_powercycle(bmc_ip_address, &mut txn).await?;
+        nico_api_db::explored_endpoints::set_last_redfish_powercycle(bmc_ip_address, &mut txn)
+            .await?;
 
         Ok(txn.commit().await?)
     }
@@ -2179,7 +2206,8 @@ impl SiteExplorer {
     ) -> CarbideResult<MachineInterfaceSnapshot> {
         let mut txn = self.txn_begin().await?;
 
-        let machine_interface = db::machine_interface::find_by_ip(&mut txn, ip_address).await?;
+        let machine_interface =
+            nico_api_db::machine_interface::find_by_ip(&mut txn, ip_address).await?;
 
         txn.commit().await?;
 
@@ -2558,17 +2586,20 @@ pub async fn get_machine_state_by_bmc_ip(
 ) -> Result<String, DatabaseError> {
     let mut txn = Transaction::begin(database_connection).await?;
 
-    let state = match db::machine_topology::find_machine_id_by_bmc_ip(txn.as_pgconn(), bmc_ip)
-        .await?
-    {
-        Some(machine_id) => {
-            match machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await? {
-                Some(machine) => machine.current_state().to_string(),
-                None => String::new(),
+    let state =
+        match nico_api_db::machine_topology::find_machine_id_by_bmc_ip(txn.as_pgconn(), bmc_ip)
+            .await?
+        {
+            Some(machine_id) => {
+                match machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+                    .await?
+                {
+                    Some(machine) => machine.current_state().to_string(),
+                    None => String::new(),
+                }
             }
-        }
-        None => String::new(),
-    };
+            None => String::new(),
+        };
 
     txn.commit().await?;
 
@@ -2591,7 +2622,7 @@ fn pause_ingestion_and_poweron(
 
 #[cfg(test)]
 mod tests {
-    use model::site_explorer::PreingestionState;
+    use nico_api_model::site_explorer::PreingestionState;
 
     use super::*;
 

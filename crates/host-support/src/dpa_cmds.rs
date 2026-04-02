@@ -17,8 +17,8 @@
 
 use std::borrow::Cow;
 
-use libmlx::firmware::config::FirmwareFlasherProfile;
-use libmlx::profile::serialization::SerializableProfile;
+use nico_libmlx::firmware::config::FirmwareFlasherProfile;
+use nico_libmlx::profile::serialization::SerializableProfile;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]

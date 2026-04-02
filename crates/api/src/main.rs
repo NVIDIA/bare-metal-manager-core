@@ -18,9 +18,9 @@
 use std::path::Path;
 use std::str::FromStr;
 
-use carbide::{Command, Options};
 use clap::CommandFactory;
-use forge_secrets::CredentialConfig;
+use nico_api::{Command, Options};
+use nico_secrets::CredentialConfig;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgSslMode};
 use tokio_util::sync::CancellationToken;
@@ -29,7 +29,7 @@ use tokio_util::sync::CancellationToken;
 async fn main() -> eyre::Result<()> {
     let config = Options::load();
     if config.version {
-        println!("{}", carbide_version::version!());
+        println!("{}", nico_version::version!());
         return Ok(());
     }
     let debug = config.debug;
@@ -53,7 +53,7 @@ async fn main() -> eyre::Result<()> {
             }
 
             let pool = PgPool::connect_with(pg_connection_options).await?;
-            db::migrations::migrate(&pool).await?;
+            nico_api_db::migrations::migrate(&pool).await?;
         }
         Command::Run(config) => {
             // THIS SECTION HAS BEEN INTENTIONALLY KEPT SMALL.
@@ -67,7 +67,7 @@ async fn main() -> eyre::Result<()> {
             };
 
             let (ready_tx, _ready_rx) = tokio::sync::oneshot::channel();
-            carbide::run(
+            nico_api::run(
                 debug,
                 config_str,
                 site_config_str,

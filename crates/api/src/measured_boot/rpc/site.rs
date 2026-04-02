@@ -21,20 +21,18 @@
 
 use std::str::FromStr;
 
-use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::TrustedMachineId;
-use db::measured_boot::interface::site::{
+use nico_api_db::measured_boot::interface::site::{
     get_approved_machines, get_approved_profiles, insert_into_approved_machines,
     insert_into_approved_profiles, list_attestation_summary,
     remove_from_approved_machines_by_approval_id, remove_from_approved_machines_by_machine_id,
     remove_from_approved_profiles_by_approval_id, remove_from_approved_profiles_by_profile_id,
 };
-use measured_boot::records::{
+use nico_measured_boot::records::{
     MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
 };
-use measured_boot::site::{MachineAttestationSummaryList, SiteModel};
-use rpc::protos::measured_boot::{
+use nico_measured_boot::site::{MachineAttestationSummaryList, SiteModel};
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::protos::measured_boot::{
     AddMeasurementTrustedMachineRequest, AddMeasurementTrustedMachineResponse,
     AddMeasurementTrustedProfileRequest, AddMeasurementTrustedProfileResponse,
     ExportSiteMeasurementsRequest, ExportSiteMeasurementsResponse, ImportSiteMeasurementsRequest,
@@ -47,6 +45,8 @@ use rpc::protos::measured_boot::{
     RemoveMeasurementTrustedProfileResponse, remove_measurement_trusted_machine_request,
     remove_measurement_trusted_profile_request,
 };
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::TrustedMachineId;
 use tonic::Status;
 
 use crate::CarbideError;
@@ -74,7 +74,7 @@ pub async fn handle_import_site_measurements(
     };
 
     // And now import it!
-    let result = db::measured_boot::site::import(&mut txn, &site_model)
+    let result = nico_api_db::measured_boot::site::import(&mut txn, &site_model)
         .await
         .map_err(|e| CarbideError::Internal {
             message: format!("site import failed: {e}"),
@@ -93,7 +93,7 @@ pub async fn handle_export_site_measurements(
     api: &Api,
     _req: ExportSiteMeasurementsRequest,
 ) -> Result<ExportSiteMeasurementsResponse, Status> {
-    let site_model = db::measured_boot::site::export(&mut api.db_reader())
+    let site_model = nico_api_db::measured_boot::site::export(&mut api.db_reader())
         .await
         .map_err(|e| CarbideError::Internal {
             message: format!("export failed: {e}"),

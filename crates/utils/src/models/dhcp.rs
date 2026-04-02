@@ -19,12 +19,12 @@ use std::fs;
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 
-use carbide_uuid::UuidConversionError;
-use carbide_uuid::machine::MachineInterfaceId;
 use ipnetwork::Ipv4Network;
-use rpc::InterfaceFunctionType;
-use rpc::errors::RpcDataConversionError;
-use rpc::forge::ManagedHostNetworkConfigResponse;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge::ManagedHostNetworkConfigResponse;
+use nico_rpc::{InterfaceFunctionType, forge};
+use nico_uuid::UuidConversionError;
+use nico_uuid::machine::MachineInterfaceId;
 use serde::{Deserialize, Serialize};
 
 /// This structure is used in dhcp-server and dpu-agent. dpu-agent passes these information to
@@ -55,7 +55,7 @@ pub enum DhcpDataError {
     #[error("DhcpDataError: UuidConversionError: {0}")]
     UuidConversion(#[from] UuidConversionError),
     #[error("DhcpDataError: UuidParseError: {0}")]
-    UuidParseError(#[from] carbide_uuid::typed_uuids::UuidError),
+    UuidParseError(#[from] nico_uuid::typed_uuids::UuidError),
 }
 
 impl Default for DhcpConfig {
@@ -146,7 +146,7 @@ impl HostConfig {
         };
 
         for interface in interface_configs {
-            let interface_name = if virtualization_type == ::rpc::forge::VpcVirtualizationType::Fnn
+            let interface_name = if virtualization_type == forge::VpcVirtualizationType::Fnn
                 && !interface.is_l2_segment
             {
                 if interface.function_type() == InterfaceFunctionType::Physical {
@@ -177,9 +177,9 @@ impl HostConfig {
     }
 }
 
-impl TryFrom<::rpc::forge::FlatInterfaceConfig> for InterfaceInfo {
+impl TryFrom<forge::FlatInterfaceConfig> for InterfaceInfo {
     type Error = DhcpDataError;
-    fn try_from(value: ::rpc::forge::FlatInterfaceConfig) -> Result<Self, Self::Error> {
+    fn try_from(value: forge::FlatInterfaceConfig) -> Result<Self, Self::Error> {
         let gateway = Ipv4Network::from_str(&value.gateway)?.ip();
 
         Ok(InterfaceInfo {

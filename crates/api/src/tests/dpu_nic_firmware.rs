@@ -18,8 +18,8 @@ use std::collections::HashSet;
 use std::string::ToString;
 
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
-use model::machine::LoadSnapshotOptions;
-use model::machine_update_module::{
+use nico_api_model::machine::LoadSnapshotOptions;
+use nico_api_model::machine_update_module::{
     AutomaticFirmwareUpdateReference, HOST_UPDATE_HEALTH_REPORT_SOURCE,
 };
 
@@ -281,10 +281,10 @@ async fn test_clear_completed_updates(
 
     let health_override = crate::machine_update_manager::machine_update_module::create_host_update_health_report_dpufw();
     // Mark the Host as in update.
-    db::machine::insert_health_report_override(
+    nico_api_db::machine::insert_health_report_override(
         &mut txn,
         &mh.id,
-        health_report::OverrideMode::Merge,
+        nico_health_report::OverrideMode::Merge,
         &health_override,
         false,
     )

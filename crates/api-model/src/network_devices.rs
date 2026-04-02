@@ -19,11 +19,11 @@ use core::fmt;
 use std::fmt::Display;
 use std::net::IpAddr;
 
-use carbide_uuid::machine::MachineId;
 use itertools::Itertools;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
-
 // When topology data is received,
 //  -> If corresponding Switch entry does not exist, create one.
 //  -> Create Switch <-> DPU association.
@@ -138,14 +138,14 @@ impl NetworkDevice {
     }
 }
 
-impl From<NetworkTopologyData> for rpc::forge::NetworkTopologyData {
+impl From<NetworkTopologyData> for forge::NetworkTopologyData {
     fn from(value: NetworkTopologyData) -> Self {
         let mut network_devices = vec![];
 
         for network_device in value.network_devices {
             let devices = network_device.dpus.into_iter().map_into().collect_vec();
 
-            network_devices.push(rpc::forge::NetworkDevice {
+            network_devices.push(forge::NetworkDevice {
                 id: network_device.id,
                 name: network_device.name,
                 description: network_device.description,
@@ -160,11 +160,11 @@ impl From<NetworkTopologyData> for rpc::forge::NetworkTopologyData {
             });
         }
 
-        rpc::forge::NetworkTopologyData { network_devices }
+        forge::NetworkTopologyData { network_devices }
     }
 }
 
-impl From<DpuToNetworkDeviceMap> for rpc::forge::ConnectedDevice {
+impl From<DpuToNetworkDeviceMap> for forge::ConnectedDevice {
     fn from(value: DpuToNetworkDeviceMap) -> Self {
         Self {
             id: value.dpu_id.into(),
@@ -175,7 +175,7 @@ impl From<DpuToNetworkDeviceMap> for rpc::forge::ConnectedDevice {
     }
 }
 
-impl From<NetworkDevice> for rpc::forge::NetworkDevice {
+impl From<NetworkDevice> for forge::NetworkDevice {
     fn from(value: NetworkDevice) -> Self {
         Self {
             id: value.id.clone(),

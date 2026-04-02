@@ -16,6 +16,7 @@
  */
 
 use clap::Parser;
+use nico_rpc::forge;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -26,7 +27,7 @@ pub struct Args {
     pub rack_id: Vec<String>,
 }
 
-impl From<Args> for rpc::forge::RackFirmwareHistoryRequest {
+impl From<Args> for forge::RackFirmwareHistoryRequest {
     fn from(args: Args) -> Self {
         Self {
             firmware_id: args.firmware_id.unwrap_or_default(),

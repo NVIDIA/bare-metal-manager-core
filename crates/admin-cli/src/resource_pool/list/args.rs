@@ -16,11 +16,12 @@
  */
 
 use clap::Parser;
+use nico_rpc::forge;
 
 #[derive(Parser, Debug, Default)]
 pub struct Args;
 
-impl From<Args> for ::rpc::forge::ListResourcePoolsRequest {
+impl From<Args> for forge::ListResourcePoolsRequest {
     fn from(_args: Args) -> Self {
         Self {
             auto_assignable: None,

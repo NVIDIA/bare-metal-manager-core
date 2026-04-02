@@ -30,8 +30,9 @@
 
 use std::str::FromStr;
 
-use ::rpc::admin_cli::CarbideCliError;
-use ::rpc::protos::measured_boot::{
+use clap::Parser;
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::protos::measured_boot::{
     CreateMeasurementSystemProfileRequest, DeleteMeasurementSystemProfileRequest, KvPair,
     ListMeasurementSystemProfileBundlesRequest, ListMeasurementSystemProfileMachinesRequest,
     RenameMeasurementSystemProfileRequest, ShowMeasurementSystemProfileRequest,
@@ -39,8 +40,7 @@ use ::rpc::protos::measured_boot::{
     list_measurement_system_profile_machines_request, rename_measurement_system_profile_request,
     show_measurement_system_profile_request,
 };
-use carbide_uuid::measured_boot::MeasurementSystemProfileId;
-use clap::Parser;
+use nico_uuid::measured_boot::MeasurementSystemProfileId;
 
 use crate::cfg::measurement::{KvPair as CfgKvPair, parse_colon_pairs};
 use crate::measurement::global::cmds::{IdNameIdentifier, IdentifierType, get_identifier};

@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use db::{DatabaseError, expected_switch as db_expected_switch, rack as db_rack};
 use mac_address::MacAddress;
-use model::expected_switch::{ExpectedSwitch, ExpectedSwitchRequest};
+use nico_api_db::{DatabaseError, expected_switch as db_expected_switch, rack as db_rack};
+use nico_api_model::expected_switch::{ExpectedSwitch, ExpectedSwitchRequest};
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -26,15 +26,11 @@ use crate::api::Api;
 
 pub async fn add_expected_switch(
     api: &Api,
-    request: Request<rpc::ExpectedSwitch>,
+    request: Request<forge::ExpectedSwitch>,
 ) -> Result<Response<()>, Status> {
-    let switch: ExpectedSwitch =
-        request
-            .into_inner()
-            .try_into()
-            .map_err(|e: ::rpc::errors::RpcDataConversionError| {
-                CarbideError::InvalidArgument(e.to_string())
-            })?;
+    let switch: ExpectedSwitch = request.into_inner().try_into().map_err(
+        |e: nico_rpc::errors::RpcDataConversionError| CarbideError::InvalidArgument(e.to_string()),
+    )?;
 
     let rack_id = switch.rack_id.clone();
     let bmc_mac_address = switch.bmc_mac_address;
@@ -73,15 +69,11 @@ pub async fn add_expected_switch(
 
 pub async fn delete_expected_switch(
     api: &Api,
-    request: Request<rpc::ExpectedSwitchRequest>,
+    request: Request<forge::ExpectedSwitchRequest>,
 ) -> Result<Response<()>, Status> {
-    let req: ExpectedSwitchRequest =
-        request
-            .into_inner()
-            .try_into()
-            .map_err(|e: ::rpc::errors::RpcDataConversionError| {
-                CarbideError::InvalidArgument(e.to_string())
-            })?;
+    let req: ExpectedSwitchRequest = request.into_inner().try_into().map_err(
+        |e: nico_rpc::errors::RpcDataConversionError| CarbideError::InvalidArgument(e.to_string()),
+    )?;
 
     let mut txn = api
         .database_connection
@@ -104,15 +96,11 @@ pub async fn delete_expected_switch(
 
 pub async fn update_expected_switch(
     api: &Api,
-    request: Request<rpc::ExpectedSwitch>,
+    request: Request<forge::ExpectedSwitch>,
 ) -> Result<Response<()>, Status> {
-    let switch: ExpectedSwitch =
-        request
-            .into_inner()
-            .try_into()
-            .map_err(|e: ::rpc::errors::RpcDataConversionError| {
-                CarbideError::InvalidArgument(e.to_string())
-            })?;
+    let switch: ExpectedSwitch = request.into_inner().try_into().map_err(
+        |e: nico_rpc::errors::RpcDataConversionError| CarbideError::InvalidArgument(e.to_string()),
+    )?;
 
     let mut txn = api
         .database_connection
@@ -135,15 +123,11 @@ pub async fn update_expected_switch(
 
 pub async fn get_expected_switch(
     api: &Api,
-    request: Request<rpc::ExpectedSwitchRequest>,
-) -> Result<Response<rpc::ExpectedSwitch>, Status> {
-    let req: ExpectedSwitchRequest =
-        request
-            .into_inner()
-            .try_into()
-            .map_err(|e: ::rpc::errors::RpcDataConversionError| {
-                CarbideError::InvalidArgument(e.to_string())
-            })?;
+    request: Request<forge::ExpectedSwitchRequest>,
+) -> Result<Response<forge::ExpectedSwitch>, Status> {
+    let req: ExpectedSwitchRequest = request.into_inner().try_into().map_err(
+        |e: nico_rpc::errors::RpcDataConversionError| CarbideError::InvalidArgument(e.to_string()),
+    )?;
 
     let mut txn = api
         .database_connection
@@ -169,14 +153,14 @@ pub async fn get_expected_switch(
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
-    let response = rpc::ExpectedSwitch::from(expected_switch);
+    let response = forge::ExpectedSwitch::from(expected_switch);
     Ok(Response::new(response))
 }
 
 pub async fn get_all_expected_switches(
     api: &Api,
     _request: Request<()>,
-) -> Result<Response<rpc::ExpectedSwitchList>, Status> {
+) -> Result<Response<forge::ExpectedSwitchList>, Status> {
     let mut txn = api
         .database_connection
         .begin()
@@ -193,17 +177,19 @@ pub async fn get_all_expected_switches(
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
-    let expected_switches: Vec<rpc::ExpectedSwitch> = expected_switches
+    let expected_switches: Vec<forge::ExpectedSwitch> = expected_switches
         .into_iter()
-        .map(rpc::ExpectedSwitch::from)
+        .map(forge::ExpectedSwitch::from)
         .collect();
 
-    Ok(Response::new(rpc::ExpectedSwitchList { expected_switches }))
+    Ok(Response::new(forge::ExpectedSwitchList {
+        expected_switches,
+    }))
 }
 
 pub async fn replace_all_expected_switches(
     api: &Api,
-    request: Request<rpc::ExpectedSwitchList>,
+    request: Request<forge::ExpectedSwitchList>,
 ) -> Result<Response<()>, Status> {
     let req = request.into_inner();
 
@@ -225,7 +211,7 @@ pub async fn replace_all_expected_switches(
         let switch: ExpectedSwitch =
             expected_switch
                 .try_into()
-                .map_err(|e: ::rpc::errors::RpcDataConversionError| {
+                .map_err(|e: nico_rpc::errors::RpcDataConversionError| {
                     CarbideError::InvalidArgument(e.to_string())
                 })?;
         db_expected_switch::create(&mut txn, switch)
@@ -268,7 +254,7 @@ pub async fn delete_all_expected_switches(
 pub async fn get_all_expected_switches_linked(
     api: &Api,
     _request: Request<()>,
-) -> Result<Response<rpc::LinkedExpectedSwitchList>, Status> {
+) -> Result<Response<forge::LinkedExpectedSwitchList>, Status> {
     let mut txn = api
         .database_connection
         .begin()
@@ -285,12 +271,12 @@ pub async fn get_all_expected_switches_linked(
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
-    let linked_expected_switches: Vec<rpc::LinkedExpectedSwitch> = linked_expected_switches
+    let linked_expected_switches: Vec<forge::LinkedExpectedSwitch> = linked_expected_switches
         .into_iter()
-        .map(rpc::LinkedExpectedSwitch::from)
+        .map(forge::LinkedExpectedSwitch::from)
         .collect();
 
-    Ok(Response::new(rpc::LinkedExpectedSwitchList {
+    Ok(Response::new(forge::LinkedExpectedSwitchList {
         expected_switches: linked_expected_switches,
     }))
 }
@@ -300,7 +286,7 @@ pub async fn get_all_expected_switches_linked(
 pub(crate) async fn query(
     api: &Api,
     mac: MacAddress,
-) -> Result<Option<model::expected_switch::ExpectedSwitch>, CarbideError> {
+) -> Result<Option<nico_api_model::expected_switch::ExpectedSwitch>, CarbideError> {
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new("begin find_many_by_bmc_mac_address", e))
     })?;

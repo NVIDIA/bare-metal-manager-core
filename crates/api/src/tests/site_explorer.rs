@@ -20,31 +20,33 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::TestEnv;
 use common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use config_version::ConfigVersion;
-use db::sku::CURRENT_SKU_VERSION;
-use db::{self, ObjectColumnFilter, ObjectFilter, explored_endpoints as db_explored_endpoints};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
-use model::hardware_info::HardwareInfo;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
-use model::metadata::Metadata;
-use model::power_shelf::PowerShelfControllerState;
-use model::site_explorer::{
+use nico_api_db::sku::CURRENT_SKU_VERSION;
+use nico_api_db::{
+    ObjectColumnFilter, ObjectFilter, explored_endpoints as db_explored_endpoints, {self},
+};
+use nico_api_model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+use nico_api_model::hardware_info::HardwareInfo;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
+use nico_api_model::metadata::Metadata;
+use nico_api_model::power_shelf::PowerShelfControllerState;
+use nico_api_model::site_explorer::{
     Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
     ExploredDpu, ExploredEndpoint, ExploredManagedHost, PreingestionState, UefiDevicePath,
 };
-use rpc::forge::GetSiteExplorationRequest;
-use rpc::forge::forge_server::Forge;
-use rpc::site_explorer::{
+use nico_rpc::forge::GetSiteExplorationRequest;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::site_explorer::{
     ExploredDpu as RpcExploredDpu, ExploredManagedHost as RpcExploredManagedHost,
 };
-use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
+use nico_rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo, forge};
+use nico_uuid::network::NetworkSegmentId;
 use tonic::Request;
 
 use crate::cfg::file::{SiteExplorerConfig, SiteExplorerExploreMode};
@@ -169,8 +171,8 @@ impl FakePowerShelf {
         }
     }
 
-    fn as_expected_power_shelf(&self) -> model::expected_power_shelf::ExpectedPowerShelf {
-        model::expected_power_shelf::ExpectedPowerShelf {
+    fn as_expected_power_shelf(&self) -> nico_api_model::expected_power_shelf::ExpectedPowerShelf {
+        nico_api_model::expected_power_shelf::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: self.bmc_mac_address,
             bmc_username: self.bmc_username.clone(),
@@ -202,9 +204,12 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
-            .await
-            .unwrap(),
+        nico_api_db::machine_interface::count_by_segment_id(
+            &mut txn,
+            &env.underlay_segment.unwrap()
+        )
+        .await
+        .unwrap(),
         1
     );
 
@@ -240,13 +245,13 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
     // check the ingestion state of the machine
     let response = env
         .api
-        .determine_machine_ingestion_state(tonic::Request::new(rpc::forge::BmcEndpointRequest {
+        .determine_machine_ingestion_state(tonic::Request::new(forge::BmcEndpointRequest {
             mac_address: Some("6a:6b:6c:6d:6e:6f".to_string()),
             ip_address: "".to_string(),
         }))
         .await?;
     assert_eq!(
-        rpc::forge::MachineIngestionState::NotDiscovered,
+        forge::MachineIngestionState::NotDiscovered,
         response.into_inner().machine_ingestion_state()
     );
 
@@ -254,7 +259,7 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
     explorer.run_single_iteration().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = nico_api_db::explored_endpoints::find_all(txn.as_mut())
         .await
         .unwrap();
     assert_eq!(explored.len(), 1);
@@ -263,18 +268,18 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
     // make sure the machine has not been ingested
     let response = env
         .api
-        .determine_machine_ingestion_state(tonic::Request::new(rpc::forge::BmcEndpointRequest {
+        .determine_machine_ingestion_state(tonic::Request::new(forge::BmcEndpointRequest {
             mac_address: Some("6a:6b:6c:6d:6e:6f".to_string()),
             ip_address: "".to_string(),
         }))
         .await?;
     assert_eq!(
-        rpc::forge::MachineIngestionState::WaitingForIngestion,
+        forge::MachineIngestionState::WaitingForIngestion,
         response.into_inner().machine_ingestion_state()
     );
 
     // now that the explored endpoint has been added to the DB, mark it as preingestion complete
-    db::explored_endpoints::set_preingestion_complete(explored[0].address, &mut txn)
+    nico_api_db::explored_endpoints::set_preingestion_complete(explored[0].address, &mut txn)
         .await
         .unwrap();
     txn.commit().await?;
@@ -285,26 +290,26 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
     // make sure the machie still has not been ingested
     let response = env
         .api
-        .determine_machine_ingestion_state(tonic::Request::new(rpc::forge::BmcEndpointRequest {
+        .determine_machine_ingestion_state(tonic::Request::new(forge::BmcEndpointRequest {
             mac_address: Some("6a:6b:6c:6d:6e:6f".to_string()),
             ip_address: "".to_string(),
         }))
         .await?;
     assert_eq!(
-        rpc::forge::MachineIngestionState::WaitingForIngestion,
+        forge::MachineIngestionState::WaitingForIngestion,
         response.into_inner().machine_ingestion_state()
     );
 
     let machine_snapshots =
-        db::managed_host::load_all(&env.pool, LoadSnapshotOptions::default()).await?;
+        nico_api_db::managed_host::load_all(&env.pool, LoadSnapshotOptions::default()).await?;
     assert_eq!(machine_snapshots.len(), 0);
-    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
+    let explored_managed_hosts = nico_api_db::explored_managed_host::find_all(&env.pool).await?;
     assert_eq!(explored_managed_hosts.len(), 0);
 
     // now flip the flag and run another interation
     let _ = env
         .api
-        .allow_ingestion_and_power_on(tonic::Request::new(rpc::forge::BmcEndpointRequest {
+        .allow_ingestion_and_power_on(tonic::Request::new(forge::BmcEndpointRequest {
             mac_address: Some("6a:6b:6c:6d:6e:6f".to_string()),
             ip_address: "".to_string(),
         }))
@@ -320,20 +325,20 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
     // iteration
     let response = env
         .api
-        .determine_machine_ingestion_state(tonic::Request::new(rpc::forge::BmcEndpointRequest {
+        .determine_machine_ingestion_state(tonic::Request::new(forge::BmcEndpointRequest {
             mac_address: Some("6a:6b:6c:6d:6e:6f".to_string()),
             ip_address: "".to_string(),
         }))
         .await?;
     assert_eq!(
-        rpc::forge::MachineIngestionState::IngestionMachineCreated,
+        forge::MachineIngestionState::IngestionMachineCreated,
         response.into_inner().machine_ingestion_state()
     );
 
-    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
+    let explored_managed_hosts = nico_api_db::explored_managed_host::find_all(&env.pool).await?;
     assert_eq!(explored_managed_hosts.len(), 1);
     let machine_snapshots =
-        db::managed_host::load_all(&env.pool, LoadSnapshotOptions::default()).await?;
+        nico_api_db::managed_host::load_all(&env.pool, LoadSnapshotOptions::default()).await?;
     assert_eq!(machine_snapshots.len(), 1);
 
     Ok(())
@@ -365,13 +370,16 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
-            .await
-            .unwrap(),
+        nico_api_db::machine_interface::count_by_segment_id(
+            &mut txn,
+            &env.underlay_segment.unwrap()
+        )
+        .await
+        .unwrap(),
         3
     );
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
+        nico_api_db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
             .await
             .unwrap(),
         1
@@ -450,7 +458,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = nico_api_db::explored_endpoints::find_all(txn.as_mut())
         .await
         .unwrap();
     txn.commit().await?;
@@ -515,7 +523,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = nico_api_db::explored_endpoints::find_all(txn.as_mut())
         .await
         .unwrap();
     txn.commit().await?;
@@ -595,7 +603,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     // We don't want to test the preingestion stuff here, so fake that it all completed successfully.
     let mut txn = pool.begin().await?;
     for addr in ["192.0.1.3", "192.0.1.4", "192.0.1.5"] {
-        db::explored_endpoints::set_preingestion_complete(
+        nico_api_db::explored_endpoints::set_preingestion_complete(
             std::net::IpAddr::from_str(addr).unwrap(),
             &mut txn,
         )
@@ -607,7 +615,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     explorer.run_single_iteration().await.unwrap();
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = nico_api_db::explored_endpoints::find_all(txn.as_mut())
         .await
         .unwrap();
     assert_eq!(explored.len(), 3);
@@ -737,9 +745,12 @@ async fn test_site_explorer_audit_exploration_results(
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
-            .await
-            .unwrap(),
+        nico_api_db::machine_interface::count_by_segment_id(
+            &mut txn,
+            &env.underlay_segment.unwrap()
+        )
+        .await
+        .unwrap(),
         7
     );
     txn.commit().await.unwrap();
@@ -938,7 +949,7 @@ async fn test_site_explorer_audit_exploration_results(
 
     let mut txn = pool.begin().await?;
     for final_octet in 2..10 {
-        db::explored_endpoints::set_preingestion_complete(
+        nico_api_db::explored_endpoints::set_preingestion_complete(
             std::net::IpAddr::from(std::net::Ipv4Addr::new(192, 0, 1, final_octet)),
             &mut txn,
         )
@@ -949,7 +960,7 @@ async fn test_site_explorer_audit_exploration_results(
     explorer.run_single_iteration().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = nico_api_db::explored_endpoints::find_all(txn.as_mut())
         .await
         .unwrap();
     txn.commit().await?;
@@ -1070,9 +1081,12 @@ async fn test_site_explorer_reexplore(
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
-            .await
-            .unwrap(),
+        nico_api_db::machine_interface::count_by_segment_id(
+            &mut txn,
+            &env.underlay_segment.unwrap()
+        )
+        .await
+        .unwrap(),
         2
     );
     txn.commit().await.unwrap();
@@ -1122,7 +1136,7 @@ async fn test_site_explorer_reexplore(
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 1 entries, we should have 1 results now
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = nico_api_db::explored_endpoints::find_all(txn.as_mut())
         .await
         .unwrap();
     txn.commit().await?;
@@ -1136,7 +1150,7 @@ async fn test_site_explorer_reexplore(
 
     // Re-exploring the first endpoint should prioritize it over exploring another endpoint
     env.api
-        .re_explore_endpoint(tonic::Request::new(rpc::forge::ReExploreEndpointRequest {
+        .re_explore_endpoint(tonic::Request::new(forge::ReExploreEndpointRequest {
             ip_address: explored_ip.to_string(),
             if_version_match: None,
         }))
@@ -1145,7 +1159,7 @@ async fn test_site_explorer_reexplore(
 
     // Calling the API should set the `exploration_requested` flag on the endpoint
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = nico_api_db::explored_endpoints::find_all(txn.as_mut())
         .await
         .unwrap();
     txn.commit().await?;
@@ -1157,7 +1171,7 @@ async fn test_site_explorer_reexplore(
     // endpoint - but not find anything new
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = nico_api_db::explored_endpoints::find_all(txn.as_mut())
         .await
         .unwrap();
     txn.commit().await?;
@@ -1174,7 +1188,7 @@ async fn test_site_explorer_reexplore(
     let unexpected_version = current_version.increment();
     let e = env
         .api
-        .re_explore_endpoint(tonic::Request::new(rpc::forge::ReExploreEndpointRequest {
+        .re_explore_endpoint(tonic::Request::new(forge::ReExploreEndpointRequest {
             ip_address: explored_ip.to_string(),
             if_version_match: Some(unexpected_version.version_string()),
         }))
@@ -1190,7 +1204,7 @@ async fn test_site_explorer_reexplore(
     );
 
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = nico_api_db::explored_endpoints::find_all(txn.as_mut())
         .await
         .unwrap();
     txn.commit().await?;
@@ -1200,7 +1214,7 @@ async fn test_site_explorer_reexplore(
 
     // Using if_version_match with correct version string does flag the endpoint again
     env.api
-        .re_explore_endpoint(tonic::Request::new(rpc::forge::ReExploreEndpointRequest {
+        .re_explore_endpoint(tonic::Request::new(forge::ReExploreEndpointRequest {
             ip_address: explored_ip.to_string(),
             if_version_match: Some(current_version.version_string()),
         }))
@@ -1209,7 +1223,7 @@ async fn test_site_explorer_reexplore(
         .into_inner();
 
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = nico_api_db::explored_endpoints::find_all(txn.as_mut())
         .await
         .unwrap();
     txn.commit().await?;
@@ -1220,7 +1234,7 @@ async fn test_site_explorer_reexplore(
     // 3rd iteration still yields 1 result
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = nico_api_db::explored_endpoints::find_all(txn.as_mut())
         .await
         .unwrap();
     txn.commit().await?;
@@ -1234,7 +1248,7 @@ async fn test_site_explorer_clear_last_known_error(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = common::api_fixtures::create_test_env(pool).await;
-    let mut txn = db::Transaction::begin(&env.pool).await?;
+    let mut txn = nico_api_db::Transaction::begin(&env.pool).await?;
     let ip_address = "192.168.1.1";
     let bmc_ip: IpAddr = IpAddr::from_str(ip_address)?;
     let last_error = Some(EndpointExplorationError::Unreachable {
@@ -1248,24 +1262,24 @@ async fn test_site_explorer_clear_last_known_error(
     .into();
     dpu_report1.generate_machine_id(false)?;
 
-    db::explored_endpoints::insert(bmc_ip, &dpu_report1, false, &mut txn).await?;
+    nico_api_db::explored_endpoints::insert(bmc_ip, &dpu_report1, false, &mut txn).await?;
     txn.commit().await?;
 
-    txn = db::Transaction::begin(&env.pool).await?;
-    let nodes = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
+    txn = nico_api_db::Transaction::begin(&env.pool).await?;
+    let nodes = nico_api_db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
     assert_eq!(nodes.len(), 1);
     let node = nodes.first();
     assert_eq!(node.unwrap().report.last_exploration_error, last_error);
 
     env.api
-        .clear_site_exploration_error(Request::new(rpc::forge::ClearSiteExplorationErrorRequest {
+        .clear_site_exploration_error(Request::new(forge::ClearSiteExplorationErrorRequest {
             ip_address: ip_address.to_string(),
         }))
         .await
         .unwrap()
         .into_inner();
 
-    let nodes = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
+    let nodes = nico_api_db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
     assert_eq!(nodes.len(), 1);
     let node = nodes.first();
     assert_eq!(node.unwrap().report.last_exploration_error, None);
@@ -1390,13 +1404,13 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     let mut txn = env.pool.begin().await?;
 
     // Create the SKU record first
-    let test_sku = model::sku::Sku {
+    let test_sku = nico_api_model::sku::Sku {
         schema_version: CURRENT_SKU_VERSION,
         id: "Sku1".to_string(),
         description: "Test SKU for site explorer test".to_string(),
         created: chrono::Utc::now(),
-        components: model::sku::SkuComponents {
-            chassis: model::sku::SkuComponentChassis {
+        components: nico_api_model::sku::SkuComponents {
+            chassis: nico_api_model::sku::SkuComponentChassis {
                 vendor: "Vendor1".to_string(),
                 model: "Chassis1".to_string(),
                 architecture: "x86_64".to_string(),
@@ -1410,9 +1424,9 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         },
         device_type: None, // This will result in "unknown" device type
     };
-    db::sku::create(&mut txn, &test_sku).await?;
+    nico_api_db::sku::create(&mut txn, &test_sku).await?;
 
-    db::expected_machine::create(
+    nico_api_db::expected_machine::create(
         &mut txn,
         ExpectedMachine {
             id: None,
@@ -1437,21 +1451,22 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     // Run site explorer
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
-    let explored_endpoints = db::explored_endpoints::find_all(txn.as_mut())
+    let explored_endpoints = nico_api_db::explored_endpoints::find_all(txn.as_mut())
         .await
         .unwrap();
 
     // Mark explored endpoints as pre-ingestion_complete
     for ee in &explored_endpoints {
-        db::explored_endpoints::set_preingestion_complete(ee.address, &mut txn).await?;
+        nico_api_db::explored_endpoints::set_preingestion_complete(ee.address, &mut txn).await?;
     }
     txn.commit().await?;
 
     assert_eq!(explored_endpoints.len(), 2);
 
-    let mut explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
+    let mut explored_managed_hosts =
+        nico_api_db::explored_managed_host::find_all(&env.pool).await?;
     let mut machines =
-        db::machine::find(&env.pool, ObjectFilter::All, MachineSearchConfig::default())
+        nico_api_db::machine::find(&env.pool, ObjectFilter::All, MachineSearchConfig::default())
             .await
             .unwrap();
 
@@ -1461,10 +1476,12 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
 
     // Now update expected_machine entry with fallback_dpu_serial
     let mut txn = env.pool.begin().await?;
-    let mut host1_expected_machine =
-        db::expected_machine::find_by_bmc_mac_address(txn.as_mut(), HOST1_MAC.parse().unwrap())
-            .await?
-            .expect("Expected machine not found");
+    let mut host1_expected_machine = nico_api_db::expected_machine::find_by_bmc_mac_address(
+        txn.as_mut(),
+        HOST1_MAC.parse().unwrap(),
+    )
+    .await?
+    .expect("Expected machine not found");
     host1_expected_machine.data = ExpectedMachineData {
         bmc_username: "user1".to_string(),
         bmc_password: "pw".to_string(),
@@ -1477,14 +1494,15 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         rack_id: None,
         dpf_enabled: Some(true),
     };
-    db::expected_machine::update(&mut txn, &host1_expected_machine).await?;
+    nico_api_db::expected_machine::update(&mut txn, &host1_expected_machine).await?;
     txn.commit().await?;
 
     explorer.run_single_iteration().await.unwrap();
-    explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
-    machines = db::machine::find(&env.pool, ObjectFilter::All, MachineSearchConfig::default())
-        .await
-        .unwrap();
+    explored_managed_hosts = nico_api_db::explored_managed_host::find_all(&env.pool).await?;
+    machines =
+        nico_api_db::machine::find(&env.pool, ObjectFilter::All, MachineSearchConfig::default())
+            .await
+            .unwrap();
 
     // We should see one explored_managed host && 2 machines
     assert_eq!(
@@ -1636,7 +1654,7 @@ async fn test_site_explorer_health_report(
         .sort_by(|alert1, alert2| (&alert1.id, &alert1.target).cmp(&(&alert2.id, &alert2.target)));
     assert_eq!(
         alerts,
-        vec![rpc::health::HealthProbeAlert {
+        vec![nico_rpc::health::HealthProbeAlert {
             id: "BmcExplorationFailure".to_string(),
             target: Some(bmc_ip.to_string()),
             in_alert_since: None,
@@ -1650,7 +1668,7 @@ async fn test_site_explorer_health_report(
     Ok(())
 }
 
-async fn fetch_exploration_report(env: &TestEnv) -> rpc::site_explorer::SiteExplorationReport {
+async fn fetch_exploration_report(env: &TestEnv) -> nico_rpc::site_explorer::SiteExplorationReport {
     env.api
         .get_site_exploration_report(tonic::Request::new(GetSiteExplorationRequest::default()))
         .await
@@ -1700,7 +1718,7 @@ async fn test_fetch_host_primary_interface_mac(
 
         assert!(!response.address.is_empty());
         let oob_interface =
-            db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
+            nico_api_db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
         assert!(oob_interface[0].primary_interface);
         oob_interfaces.push(oob_interface[0].clone());
 
@@ -1818,7 +1836,7 @@ async fn test_site_explorer_fixtures_singledpu(
             // Get the managed host snapshot from the database
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
-                db::managed_host::load_snapshot(
+                nico_api_db::managed_host::load_snapshot(
                     &mut mock.test_env.db_reader(),
                     &machine_id,
                     Default::default(),
@@ -1894,7 +1912,7 @@ async fn test_site_explorer_fixtures_multidpu(
             // Get the managed host snapshot from the database
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
-                db::managed_host::load_snapshot(
+                nico_api_db::managed_host::load_snapshot(
                     &mut mock.test_env.db_reader(),
                     &machine_id,
                     Default::default(),
@@ -1979,7 +1997,7 @@ async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
             // Get the managed host snapshot from the database
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
-                db::managed_host::load_snapshot(
+                nico_api_db::managed_host::load_snapshot(
                     &mut mock.test_env.db_reader(),
                     &machine_id,
                     Default::default(),
@@ -2055,7 +2073,8 @@ async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
             async move {
                 let mut txn = pool.begin().await?;
                 let interfaces =
-                    db::machine_interface::find_by_mac_address(txn.as_mut(), mac_address).await?;
+                    nico_api_db::machine_interface::find_by_mac_address(txn.as_mut(), mac_address)
+                        .await?;
                 assert_eq!(interfaces.len(), 1);
                 // There should be no machine_id yet as site-explorer has not run
                 assert!(interfaces[0].machine_id.is_none());
@@ -2076,11 +2095,14 @@ async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
             let pool = mock.test_env.pool.clone();
             async move {
                 let mut txn = pool.begin().await?;
-                let predicted_interfaces = db::predicted_machine_interface::find_by(
-                    &mut txn,
-                    ObjectColumnFilter::<db::predicted_machine_interface::MachineIdColumn>::All,
-                )
-                .await?;
+                let predicted_interfaces =
+                    nico_api_db::predicted_machine_interface::find_by(
+                        &mut txn,
+                        ObjectColumnFilter::<
+                            nico_api_db::predicted_machine_interface::MachineIdColumn,
+                        >::All,
+                    )
+                    .await?;
                 // We should not have minted a predicted_machine_interface for this, since DHCP
                 // happened first, which should have created a real interface for it (which we would
                 // then migrate to the new host.)
@@ -2106,7 +2128,7 @@ async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
             // Get the managed host snapshot from the database
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
-                db::managed_host::load_snapshot(
+                nico_api_db::managed_host::load_snapshot(
                     &mut mock.test_env.db_reader(),
                     &machine_id,
                     Default::default(),
@@ -2134,9 +2156,12 @@ async fn test_site_explorer_unknown_vendor(
 
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.underlay_segment.unwrap())
-            .await
-            .unwrap(),
+        nico_api_db::machine_interface::count_by_segment_id(
+            &mut txn,
+            &env.underlay_segment.unwrap()
+        )
+        .await
+        .unwrap(),
         1
     );
     txn.commit().await.unwrap();
@@ -2180,7 +2205,7 @@ async fn test_site_explorer_unknown_vendor(
     explorer.run_single_iteration().await.unwrap();
     // Since we configured a limit of 2 entries, we should have those 2 results now
     let mut txn = env.pool.begin().await?;
-    let explored = db::explored_endpoints::find_all(txn.as_mut())
+    let explored = nico_api_db::explored_endpoints::find_all(txn.as_mut())
         .await
         .unwrap();
     txn.commit().await?;
@@ -2215,7 +2240,7 @@ async fn test_delete_explored_endpoint(
     let non_existent_ip = "192.168.1.100";
     let response = env
         .api
-        .delete_explored_endpoint(Request::new(rpc::forge::DeleteExploredEndpointRequest {
+        .delete_explored_endpoint(Request::new(forge::DeleteExploredEndpointRequest {
             ip_address: non_existent_ip.to_string(),
         }))
         .await?
@@ -2233,7 +2258,7 @@ async fn test_delete_explored_endpoint(
     let standalone_endpoint_ip = "192.168.1.50";
     let mut txn = env.pool.begin().await?;
 
-    db::explored_endpoints::insert(
+    nico_api_db::explored_endpoints::insert(
         IpAddr::from_str(standalone_endpoint_ip)?,
         &EndpointExplorationReport::default(),
         false,
@@ -2244,16 +2269,18 @@ async fn test_delete_explored_endpoint(
 
     // Verify the endpoint exists
     let mut txn = env.pool.begin().await?;
-    let endpoints =
-        db::explored_endpoints::find_all_by_ip(IpAddr::from_str(standalone_endpoint_ip)?, &mut txn)
-            .await?;
+    let endpoints = nico_api_db::explored_endpoints::find_all_by_ip(
+        IpAddr::from_str(standalone_endpoint_ip)?,
+        &mut txn,
+    )
+    .await?;
     assert_eq!(endpoints.len(), 1);
     txn.commit().await?;
 
     // Delete the standalone endpoint - should succeed
     let response = env
         .api
-        .delete_explored_endpoint(Request::new(rpc::forge::DeleteExploredEndpointRequest {
+        .delete_explored_endpoint(Request::new(forge::DeleteExploredEndpointRequest {
             ip_address: standalone_endpoint_ip.to_string(),
         }))
         .await?
@@ -2269,9 +2296,11 @@ async fn test_delete_explored_endpoint(
 
     // Verify the endpoint was deleted
     let mut txn = env.pool.begin().await?;
-    let endpoints =
-        db::explored_endpoints::find_all_by_ip(IpAddr::from_str(standalone_endpoint_ip)?, &mut txn)
-            .await?;
+    let endpoints = nico_api_db::explored_endpoints::find_all_by_ip(
+        IpAddr::from_str(standalone_endpoint_ip)?,
+        &mut txn,
+    )
+    .await?;
     assert_eq!(endpoints.len(), 0);
     txn.commit().await?;
 
@@ -2290,7 +2319,7 @@ async fn test_delete_explored_endpoint(
     // Now try to delete the host endpoint - should fail because it's part of a machine
     let error = env
         .api
-        .delete_explored_endpoint(Request::new(rpc::forge::DeleteExploredEndpointRequest {
+        .delete_explored_endpoint(Request::new(forge::DeleteExploredEndpointRequest {
             ip_address: host_ip.to_string(),
         }))
         .await
@@ -2307,7 +2336,7 @@ async fn test_delete_explored_endpoint(
     // Try to delete the DPU endpoint - should also fail
     let error = env
         .api
-        .delete_explored_endpoint(Request::new(rpc::forge::DeleteExploredEndpointRequest {
+        .delete_explored_endpoint(Request::new(forge::DeleteExploredEndpointRequest {
             ip_address: dpu_ip.to_string(),
         }))
         .await
@@ -2324,11 +2353,13 @@ async fn test_delete_explored_endpoint(
     // Verify both endpoints still exist
     let mut txn = env.pool.begin().await?;
     let host_endpoints =
-        db::explored_endpoints::find_all_by_ip(IpAddr::from_str(host_ip)?, &mut txn).await?;
+        nico_api_db::explored_endpoints::find_all_by_ip(IpAddr::from_str(host_ip)?, &mut txn)
+            .await?;
     assert_eq!(host_endpoints.len(), 1);
 
     let dpu_endpoints =
-        db::explored_endpoints::find_all_by_ip(IpAddr::from_str(dpu_ip)?, &mut txn).await?;
+        nico_api_db::explored_endpoints::find_all_by_ip(IpAddr::from_str(dpu_ip)?, &mut txn)
+            .await?;
     assert_eq!(dpu_endpoints.len(), 1);
     txn.commit().await?;
 
@@ -2397,13 +2428,13 @@ async fn test_machine_creation_with_sku(
     let mut txn = env.pool.begin().await?;
 
     // Create the SKU record first
-    let test_sku = model::sku::Sku {
+    let test_sku = nico_api_model::sku::Sku {
         schema_version: CURRENT_SKU_VERSION,
         id: "Sku1".to_string(),
         description: "Test SKU for site explorer test".to_string(),
         created: chrono::Utc::now(),
-        components: model::sku::SkuComponents {
-            chassis: model::sku::SkuComponentChassis {
+        components: nico_api_model::sku::SkuComponents {
+            chassis: nico_api_model::sku::SkuComponentChassis {
                 vendor: "Vendor1".to_string(),
                 model: "Chassis1".to_string(),
                 architecture: "x86_64".to_string(),
@@ -2417,9 +2448,9 @@ async fn test_machine_creation_with_sku(
         },
         device_type: None, // This will result in "unknown" device type
     };
-    db::sku::create(&mut txn, &test_sku).await?;
+    nico_api_db::sku::create(&mut txn, &test_sku).await?;
 
-    db::expected_machine::create(
+    nico_api_db::expected_machine::create(
         &mut txn,
         ExpectedMachine {
             id: None,
@@ -2444,21 +2475,22 @@ async fn test_machine_creation_with_sku(
     // Run site explorer
     explorer.run_single_iteration().await.unwrap();
     let mut txn = env.pool.begin().await?;
-    let explored_endpoints = db::explored_endpoints::find_all(txn.as_mut())
+    let explored_endpoints = nico_api_db::explored_endpoints::find_all(txn.as_mut())
         .await
         .unwrap();
 
     // Mark explored endpoints as pre-ingestion_complete
     for ee in &explored_endpoints {
-        db::explored_endpoints::set_preingestion_complete(ee.address, &mut txn).await?;
+        nico_api_db::explored_endpoints::set_preingestion_complete(ee.address, &mut txn).await?;
     }
     txn.commit().await?;
 
     assert_eq!(explored_endpoints.len(), 2);
 
-    let machines = db::machine::find(&env.pool, ObjectFilter::All, MachineSearchConfig::default())
-        .await
-        .unwrap();
+    let machines =
+        nico_api_db::machine::find(&env.pool, ObjectFilter::All, MachineSearchConfig::default())
+            .await
+            .unwrap();
 
     for m in machines {
         if m.is_dpu() {
@@ -2506,13 +2538,13 @@ async fn test_expected_machine_device_type_metrics(
     // Create test SKUs in database
     let mut txn = env.pool.begin().await?;
 
-    let test_sku_with_device_type = model::sku::Sku {
+    let test_sku_with_device_type = nico_api_model::sku::Sku {
         schema_version: CURRENT_SKU_VERSION,
         id: test_sku_gpu_id.clone(),
         description: "Test GPU SKU".to_string(),
         created: chrono::Utc::now(),
-        components: model::sku::SkuComponents {
-            chassis: model::sku::SkuComponentChassis {
+        components: nico_api_model::sku::SkuComponents {
+            chassis: nico_api_model::sku::SkuComponentChassis {
                 vendor: format!("test_vendor_gpu_{}", uuid::Uuid::new_v4()),
                 model: format!("test_model_gpu_{}", uuid::Uuid::new_v4()),
                 architecture: "x86_64".to_string(),
@@ -2527,13 +2559,13 @@ async fn test_expected_machine_device_type_metrics(
         device_type: Some("gpu".to_string()),
     };
 
-    let test_sku_without_device_type = model::sku::Sku {
+    let test_sku_without_device_type = nico_api_model::sku::Sku {
         schema_version: CURRENT_SKU_VERSION,
         id: test_sku_no_type_id.clone(),
         description: "Test SKU without device type".to_string(),
         created: chrono::Utc::now(),
-        components: model::sku::SkuComponents {
-            chassis: model::sku::SkuComponentChassis {
+        components: nico_api_model::sku::SkuComponents {
+            chassis: nico_api_model::sku::SkuComponentChassis {
                 vendor: format!("test_vendor_no_type_{}", uuid::Uuid::new_v4()),
                 model: format!("test_model_no_type_{}", uuid::Uuid::new_v4()),
                 architecture: "x86_64".to_string(),
@@ -2548,11 +2580,11 @@ async fn test_expected_machine_device_type_metrics(
         device_type: None,
     };
 
-    db::sku::create(&mut txn, &test_sku_with_device_type).await?;
-    db::sku::create(&mut txn, &test_sku_without_device_type).await?;
+    nico_api_db::sku::create(&mut txn, &test_sku_with_device_type).await?;
+    nico_api_db::sku::create(&mut txn, &test_sku_without_device_type).await?;
 
     // Create expected machines with different SKU configurations
-    db::expected_machine::create(
+    nico_api_db::expected_machine::create(
         &mut txn,
         ExpectedMachine {
             id: None,
@@ -2573,7 +2605,7 @@ async fn test_expected_machine_device_type_metrics(
     )
     .await?;
 
-    db::expected_machine::create(
+    nico_api_db::expected_machine::create(
         &mut txn,
         ExpectedMachine {
             id: None,
@@ -2594,7 +2626,7 @@ async fn test_expected_machine_device_type_metrics(
     )
     .await?;
 
-    db::expected_machine::create(
+    nico_api_db::expected_machine::create(
         &mut txn,
         ExpectedMachine {
             id: None,
@@ -2808,7 +2840,7 @@ async fn test_site_explorer_power_shelf_discovery(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
+    nico_api_db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -2946,7 +2978,7 @@ async fn test_site_explorer_switch_discovery(
     let switch_ip = response.address.clone();
 
     let mut txn = env.pool.begin().await?;
-    let expected_switch = model::expected_switch::ExpectedSwitch {
+    let expected_switch = nico_api_model::expected_switch::ExpectedSwitch {
         expected_switch_id: None,
         bmc_mac_address: bmc_mac,
         nvos_mac_addresses: vec![bmc_mac],
@@ -2962,7 +2994,7 @@ async fn test_site_explorer_switch_discovery(
         },
         rack_id: None,
     };
-    db::expected_switch::create(&mut txn, expected_switch).await?;
+    nico_api_db::expected_switch::create(&mut txn, expected_switch).await?;
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -3060,7 +3092,7 @@ async fn test_site_explorer_switch_discovery(
     );
 
     let mut txn = env.pool.begin().await?;
-    let switches = db::switch::find_all(txn.as_mut()).await?;
+    let switches = nico_api_db::switch::find_all(txn.as_mut()).await?;
     println!("switches: {:?}", switches);
     txn.commit().await?;
     assert_eq!(switches.len(), 1, "Expected one switch to be created");
@@ -3109,7 +3141,7 @@ async fn test_site_explorer_power_shelf_with_expected_config(
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
 
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
+    nico_api_db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -3184,10 +3216,10 @@ async fn test_site_explorer_power_shelf_with_expected_config(
 
     // Verify power shelf was created with expected metadata
     let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
+    let power_shelves = nico_api_db::power_shelf::find_by(
         &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig {},
+        ObjectColumnFilter::<nico_api_db::power_shelf::IdColumn>::All,
+        nico_api_db::power_shelf::PowerShelfSearchConfig {},
     )
     .await?;
     txn.commit().await?;
@@ -3261,7 +3293,7 @@ async fn test_site_explorer_power_shelf_creation_limit(
     let mut txn = env.pool.begin().await?;
     for power_shelf in &power_shelves {
         let expected_power_shelf = power_shelf.as_expected_power_shelf();
-        db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
+        nico_api_db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     }
     txn.commit().await?;
 
@@ -3402,7 +3434,7 @@ async fn test_site_explorer_power_shelf_disabled(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
+    nico_api_db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -3476,10 +3508,10 @@ async fn test_site_explorer_power_shelf_disabled(
 
     // Verify no power shelves exist in database
     let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
+    let power_shelves = nico_api_db::power_shelf::find_by(
         &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig {},
+        ObjectColumnFilter::<nico_api_db::power_shelf::IdColumn>::All,
+        nico_api_db::power_shelf::PowerShelfSearchConfig {},
     )
     .await?;
     txn.commit().await?;
@@ -3529,7 +3561,7 @@ async fn test_site_explorer_power_shelf_error_handling(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
+    nico_api_db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -3668,7 +3700,7 @@ async fn test_site_explorer_creates_power_shelf(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
+    nico_api_db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     // Create exploration report for power shelf
@@ -3731,10 +3763,10 @@ async fn test_site_explorer_creates_power_shelf(
 
     // Verify power shelf was created in database
     let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
+    let power_shelves = nico_api_db::power_shelf::find_by(
         &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
+        ObjectColumnFilter::<nico_api_db::power_shelf::IdColumn>::All,
+        nico_api_db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3760,10 +3792,10 @@ async fn test_site_explorer_creates_power_shelf(
 
     // Verify only one power shelf exists (no duplicate created)
     let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
+    let power_shelves = nico_api_db::power_shelf::find_by(
         &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
+        ObjectColumnFilter::<nico_api_db::power_shelf::IdColumn>::All,
+        nico_api_db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3780,10 +3812,10 @@ async fn test_site_explorer_creates_power_shelf(
 
     // Verify power shelf state transitions
     let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
+    let power_shelves = nico_api_db::power_shelf::find_by(
         &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
+        ObjectColumnFilter::<nico_api_db::power_shelf::IdColumn>::All,
+        nico_api_db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3806,10 +3838,10 @@ async fn test_site_explorer_creates_power_shelf(
 
     // Verify final state
     let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
+    let power_shelves = nico_api_db::power_shelf::find_by(
         &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
+        ObjectColumnFilter::<nico_api_db::power_shelf::IdColumn>::All,
+        nico_api_db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3873,7 +3905,7 @@ async fn test_power_shelf_state_history(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
+    nico_api_db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     // Create exploration report for power shelf
@@ -3961,10 +3993,10 @@ async fn test_power_shelf_state_history(
 
     // Find the created power shelf
     let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
+    let power_shelves = nico_api_db::power_shelf::find_by(
         &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
+        ObjectColumnFilter::<nico_api_db::power_shelf::IdColumn>::All,
+        nico_api_db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3977,7 +4009,7 @@ async fn test_power_shelf_state_history(
     // Test initial state
     let mut txn = env.pool.begin().await?;
     let initial_state =
-        db::power_shelf_state_history::for_power_shelf(&mut txn, &power_shelf_id).await?;
+        nico_api_db::power_shelf_state_history::for_power_shelf(&mut txn, &power_shelf_id).await?;
     txn.commit().await?;
 
     // Initial state should be empty since no state transitions have occurred yet
@@ -3993,7 +4025,7 @@ async fn test_power_shelf_state_history(
     // Verify state was persisted
     let mut txn = env.pool.begin().await?;
     let updated_state =
-        db::power_shelf_state_history::for_power_shelf(&mut txn, &power_shelf_id).await?;
+        nico_api_db::power_shelf_state_history::for_power_shelf(&mut txn, &power_shelf_id).await?;
     txn.commit().await?;
 
     // Should have at least one state entry now
@@ -4004,8 +4036,11 @@ async fn test_power_shelf_state_history(
 
     // Test finding history by multiple power shelf IDs
     let mut txn = env.pool.begin().await?;
-    let history_by_ids =
-        db::power_shelf_state_history::find_by_power_shelf_ids(&mut txn, &[power_shelf_id]).await?;
+    let history_by_ids = nico_api_db::power_shelf_state_history::find_by_power_shelf_ids(
+        &mut txn,
+        &[power_shelf_id],
+    )
+    .await?;
     txn.commit().await?;
 
     assert!(history_by_ids.contains_key(&power_shelf_id));
@@ -4024,7 +4059,7 @@ async fn test_power_shelf_state_history(
     // Verify final state history
     let mut txn = env.pool.begin().await?;
     let final_state =
-        db::power_shelf_state_history::for_power_shelf(&mut txn, &power_shelf_id).await?;
+        nico_api_db::power_shelf_state_history::for_power_shelf(&mut txn, &power_shelf_id).await?;
     txn.commit().await?;
 
     // Should have multiple state entries now
@@ -4087,8 +4122,8 @@ async fn test_power_shelf_state_history_multiple(
     let expected_power_shelf1 = power_shelf1.as_expected_power_shelf();
     let expected_power_shelf2 = power_shelf2.as_expected_power_shelf();
 
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf1.clone()).await?;
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf2.clone()).await?;
+    nico_api_db::expected_power_shelf::create(&mut txn, expected_power_shelf1.clone()).await?;
+    nico_api_db::expected_power_shelf::create(&mut txn, expected_power_shelf2.clone()).await?;
     txn.commit().await?;
 
     // Create exploration reports for power shelves
@@ -4231,10 +4266,10 @@ async fn test_power_shelf_state_history_multiple(
     );
     // Find the created power shelves
     let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
+    let power_shelves = nico_api_db::power_shelf::find_by(
         &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
+        ObjectColumnFilter::<nico_api_db::power_shelf::IdColumn>::All,
+        nico_api_db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -4245,7 +4280,7 @@ async fn test_power_shelf_state_history_multiple(
 
     // Test state history for multiple power shelves
     let mut txn = env.pool.begin().await?;
-    let _history_by_ids = db::power_shelf_state_history::find_by_power_shelf_ids(
+    let _history_by_ids = nico_api_db::power_shelf_state_history::find_by_power_shelf_ids(
         &mut txn,
         &[power_shelf1_id, power_shelf2_id],
     )
@@ -4259,9 +4294,9 @@ async fn test_power_shelf_state_history_multiple(
     // Test individual power shelf state history
     let mut txn = env.pool.begin().await?;
     let power_shelf1_history =
-        db::power_shelf_state_history::for_power_shelf(&mut txn, &power_shelf1_id).await?;
+        nico_api_db::power_shelf_state_history::for_power_shelf(&mut txn, &power_shelf1_id).await?;
     let power_shelf2_history =
-        db::power_shelf_state_history::for_power_shelf(&mut txn, &power_shelf2_id).await?;
+        nico_api_db::power_shelf_state_history::for_power_shelf(&mut txn, &power_shelf2_id).await?;
     txn.commit().await?;
 
     // Both should start with empty state history
@@ -4280,9 +4315,9 @@ async fn test_power_shelf_state_history_multiple(
     // Verify state history has been updated for both power shelves
     let mut txn = env.pool.begin().await?;
     let updated_history1 =
-        db::power_shelf_state_history::for_power_shelf(&mut txn, &power_shelf1_id).await?;
+        nico_api_db::power_shelf_state_history::for_power_shelf(&mut txn, &power_shelf1_id).await?;
     let updated_history2 =
-        db::power_shelf_state_history::for_power_shelf(&mut txn, &power_shelf2_id).await?;
+        nico_api_db::power_shelf_state_history::for_power_shelf(&mut txn, &power_shelf2_id).await?;
     txn.commit().await?;
 
     // Both should have state entries now
@@ -4291,7 +4326,7 @@ async fn test_power_shelf_state_history_multiple(
 
     // Test finding history by multiple power shelf IDs again
     let mut txn = env.pool.begin().await?;
-    let final_history_by_ids = db::power_shelf_state_history::find_by_power_shelf_ids(
+    let final_history_by_ids = nico_api_db::power_shelf_state_history::find_by_power_shelf_ids(
         &mut txn,
         &[power_shelf1_id, power_shelf2_id],
     )
@@ -4357,7 +4392,7 @@ async fn test_power_shelf_state_history_error_handling(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
+    nico_api_db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     // Create exploration report for power shelf
@@ -4445,10 +4480,10 @@ async fn test_power_shelf_state_history_error_handling(
 
     // Get the created power shelf
     let mut txn = env.pool.begin().await?;
-    let power_shelves = db::power_shelf::find_by(
+    let power_shelves = nico_api_db::power_shelf::find_by(
         &mut txn,
-        ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
+        ObjectColumnFilter::<nico_api_db::power_shelf::IdColumn>::All,
+        nico_api_db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -4470,9 +4505,13 @@ async fn test_power_shelf_state_history_error_handling(
     for state in test_states.iter() {
         let version = ConfigVersion::initial();
 
-        let history_entry =
-            db::power_shelf_state_history::persist(&mut txn, &power_shelf_id, state, version)
-                .await?;
+        let history_entry = nico_api_db::power_shelf_state_history::persist(
+            &mut txn,
+            &power_shelf_id,
+            state,
+            version,
+        )
+        .await?;
 
         assert_eq!(
             history_entry.state.replace(" ", ""),
@@ -4482,7 +4521,8 @@ async fn test_power_shelf_state_history_error_handling(
 
         // Verify the entry can be retrieved
         let retrieved_history =
-            db::power_shelf_state_history::for_power_shelf(&mut txn, &power_shelf_id).await?;
+            nico_api_db::power_shelf_state_history::for_power_shelf(&mut txn, &power_shelf_id)
+                .await?;
         let found_entry = retrieved_history
             .iter()
             .find(|entry| entry.state_version == version);
@@ -4497,13 +4537,13 @@ async fn test_power_shelf_state_history_error_handling(
 
     // Test finding history for non-existent power shelf
     let mut txn = env.pool.begin().await?;
-    let non_existent_id = carbide_uuid::power_shelf::PowerShelfId::new(
-        carbide_uuid::power_shelf::PowerShelfIdSource::ProductBoardChassisSerial,
+    let non_existent_id = nico_uuid::power_shelf::PowerShelfId::new(
+        nico_uuid::power_shelf::PowerShelfIdSource::ProductBoardChassisSerial,
         [0; 32],
-        carbide_uuid::power_shelf::PowerShelfType::Host,
+        nico_uuid::power_shelf::PowerShelfType::Host,
     );
     let empty_history =
-        db::power_shelf_state_history::for_power_shelf(&mut txn, &non_existent_id).await?;
+        nico_api_db::power_shelf_state_history::for_power_shelf(&mut txn, &non_existent_id).await?;
     txn.commit().await?;
 
     assert!(empty_history.is_empty());
@@ -4511,7 +4551,7 @@ async fn test_power_shelf_state_history_error_handling(
     // Test finding history for empty list of power shelf IDs
     let mut txn = env.pool.begin().await?;
     let empty_history_map =
-        db::power_shelf_state_history::find_by_power_shelf_ids(&mut txn, &[]).await?;
+        nico_api_db::power_shelf_state_history::find_by_power_shelf_ids(&mut txn, &[]).await?;
     txn.commit().await?;
 
     assert!(empty_history_map.is_empty());
@@ -4543,7 +4583,7 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
     // Create expected power shelf entry in the database
     let mut txn = env.pool.begin().await?;
     let expected_power_shelf = power_shelf.as_expected_power_shelf();
-    db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
+    nico_api_db::expected_power_shelf::create(&mut txn, expected_power_shelf.clone()).await?;
     txn.commit().await?;
 
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
@@ -4652,7 +4692,7 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
 async fn test_get_machine_position_info(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use rpc::forge::forge_server::Forge;
+    use nico_rpc::forge::forge_server::Forge;
 
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let (_host_machine_id, dpu_machine_id) =
@@ -4663,7 +4703,7 @@ async fn test_get_machine_position_info(
 
     // Get the existing explored endpoint (created by create_managed_host) and update it with position info
     let mut txn = env.pool.begin().await?;
-    let existing = db::explored_endpoints::find_by_ips(txn.as_mut(), vec![bmc_ip])
+    let existing = nico_api_db::explored_endpoints::find_by_ips(txn.as_mut(), vec![bmc_ip])
         .await?
         .pop()
         .unwrap();
@@ -4680,14 +4720,20 @@ async fn test_get_machine_position_info(
     report.compute_tray_index = Some(2);
     report.topology_id = Some(10);
     report.revision_id = Some(3);
-    db::explored_endpoints::try_update(bmc_ip, existing.report_version, &report, false, &mut txn)
-        .await?;
+    nico_api_db::explored_endpoints::try_update(
+        bmc_ip,
+        existing.report_version,
+        &report,
+        false,
+        &mut txn,
+    )
+    .await?;
     txn.commit().await?;
 
     // Call the API
     let response = env
         .api
-        .get_machine_position_info(tonic::Request::new(rpc::forge::MachinePositionQuery {
+        .get_machine_position_info(tonic::Request::new(forge::MachinePositionQuery {
             machine_ids: vec![dpu_machine_id],
         }))
         .await?
@@ -4710,7 +4756,7 @@ async fn test_get_machine_position_info(
 async fn test_get_machine_position_info_no_endpoint(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use rpc::forge::forge_server::Forge;
+    use nico_rpc::forge::forge_server::Forge;
 
     let env = common::api_fixtures::create_test_env(pool.clone()).await;
     let (_host_machine_id, dpu_machine_id) =
@@ -4721,7 +4767,7 @@ async fn test_get_machine_position_info_no_endpoint(
     // Call the API
     let response = env
         .api
-        .get_machine_position_info(tonic::Request::new(rpc::forge::MachinePositionQuery {
+        .get_machine_position_info(tonic::Request::new(forge::MachinePositionQuery {
             machine_ids: vec![dpu_machine_id],
         }))
         .await?

@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use libmlx::lockdown::error::MlxError;
-use libmlx::lockdown::runner::FlintRunner;
+use nico_libmlx::lockdown::error::MlxError;
+use nico_libmlx::lockdown::runner::FlintRunner;
 
 #[test]
 fn test_runner_creation_with_path() {

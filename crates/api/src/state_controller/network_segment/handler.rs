@@ -19,12 +19,12 @@
 
 use std::sync::Arc;
 
-use carbide_uuid::network::NetworkSegmentId;
-use db::{self};
-use model::network_segment::{
+use nico_api_db::{self};
+use nico_api_model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentDeletionState, NetworkSegmentType,
 };
-use model::resource_pool::ResourcePool;
+use nico_api_model::resource_pool::ResourcePool;
+use nico_uuid::network::NetworkSegmentId;
 
 use crate::state_controller::network_segment::context::NetworkSegmentStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
@@ -131,9 +131,13 @@ impl StateHandler for NetworkSegmentStateHandler {
                         // update the `delete_at` timestamp.
                         let mut txn = ctx.services.db_pool.begin().await?;
                         let num_machine_interfaces =
-                            db::machine_interface::count_by_segment_id(&mut txn, &state.id).await?;
+                            nico_api_db::machine_interface::count_by_segment_id(
+                                &mut txn, &state.id,
+                            )
+                            .await?;
                         let num_instance_addresses =
-                            db::instance_address::count_by_segment_id(&mut txn, &state.id).await?;
+                            nico_api_db::instance_address::count_by_segment_id(&mut txn, &state.id)
+                                .await?;
                         if num_machine_interfaces + num_instance_addresses > 0 {
                             let delete_at = chrono::Utc::now()
                                 .checked_add_signed(self.drain_period)
@@ -170,17 +174,22 @@ impl StateHandler for NetworkSegmentStateHandler {
                     NetworkSegmentDeletionState::DBDelete => {
                         let mut txn = ctx.services.db_pool.begin().await?;
                         if let Some(vni) = state.vni.take() {
-                            db::resource_pool::release(&self.pool_vni, &mut txn, vni).await?;
+                            nico_api_db::resource_pool::release(&self.pool_vni, &mut txn, vni)
+                                .await?;
                         }
                         if let Some(vlan_id) = state.vlan_id.take() {
-                            db::resource_pool::release(&self.pool_vlan_id, &mut txn, vlan_id)
-                                .await?;
+                            nico_api_db::resource_pool::release(
+                                &self.pool_vlan_id,
+                                &mut txn,
+                                vlan_id,
+                            )
+                            .await?;
                         }
                         tracing::info!(
                             %segment_id,
                             "Network Segment getting removed from the database",
                         );
-                        db::network_segment::final_delete(*segment_id, &mut txn).await?;
+                        nico_api_db::network_segment::final_delete(*segment_id, &mut txn).await?;
                         Ok(StateHandlerOutcome::deleted().with_txn(txn))
                     }
                 }

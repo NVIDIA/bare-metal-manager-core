@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use model::resource_pool::ResourcePoolStats;
+use nico_api_model::resource_pool::ResourcePoolStats;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
 
@@ -46,20 +46,14 @@ pub fn start_export_service_health_metrics(health_context: ServiceHealthContext)
             observer.observe(
                 1,
                 &[
-                    KeyValue::new(
-                        "build_version",
-                        carbide_version::v!(build_version).to_string(),
-                    ),
-                    KeyValue::new("build_date", carbide_version::v!(build_date).to_string()),
-                    KeyValue::new("git_sha", carbide_version::v!(git_sha).to_string()),
-                    KeyValue::new(
-                        "rust_version",
-                        carbide_version::v!(rust_version).to_string(),
-                    ),
-                    KeyValue::new("build_user", carbide_version::v!(build_user).to_string()),
+                    KeyValue::new("build_version", nico_version::v!(build_version).to_string()),
+                    KeyValue::new("build_date", nico_version::v!(build_date).to_string()),
+                    KeyValue::new("git_sha", nico_version::v!(git_sha).to_string()),
+                    KeyValue::new("rust_version", nico_version::v!(rust_version).to_string()),
+                    KeyValue::new("build_user", nico_version::v!(build_user).to_string()),
                     KeyValue::new(
                         "build_hostname",
-                        carbide_version::v!(build_hostname).to_string(),
+                        nico_version::v!(build_hostname).to_string(),
                     ),
                 ],
             );

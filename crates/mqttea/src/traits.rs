@@ -17,11 +17,11 @@
 
 // src/mqttea/traits.rs
 // Core traits for MQTT message handling
+// Import the client type for the trait signature
 use std::sync::Arc;
 
 use async_trait::async_trait;
 
-// Import the client type for the trait signature
 use crate::client::MqtteaClient;
 
 // MqttRecipient enables any type to specify where messages should be sent

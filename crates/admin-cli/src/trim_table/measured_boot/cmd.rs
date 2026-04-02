@@ -15,14 +15,15 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::forge;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn trim_measured_boot(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let request = ::rpc::forge::TrimTableRequest {
-        target: ::rpc::forge::TrimTableTarget::MeasuredBoot.into(),
+    let request = forge::TrimTableRequest {
+        target: forge::TrimTableTarget::MeasuredBoot.into(),
         keep_entries: args.keep_entries,
     };
 

@@ -17,14 +17,15 @@
 
 use std::time::SystemTime;
 
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
-use model::instance::config::network::DeviceLocator;
-use model::metadata::Metadata;
-use rpc::forge::forge_server::Forge;
-use rpc::health::HealthReport;
+use nico_api_model::instance::config::network::DeviceLocator;
+use nico_api_model::metadata::Metadata;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::health::HealthReport;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::vpc::VpcId;
 use tonic::Code;
 use uuid::uuid;
 
@@ -47,22 +48,22 @@ async fn update_network_status_observation(
     good_network_security_group_id: &str,
     security_version: &str,
     dpu_machine_id: &MachineId,
-    source: rpc::forge::NetworkSecurityGroupSource,
-    internal_uuid: &rpc::Uuid,
+    source: forge::NetworkSecurityGroupSource,
+    internal_uuid: &nico_rpc::Uuid,
 ) {
     let _ = env
         .api
-        .record_dpu_network_status(tonic::Request::new(rpc::forge::DpuNetworkStatus {
+        .record_dpu_network_status(tonic::Request::new(forge::DpuNetworkStatus {
             instance_id: Some(*instance_id),
             observed_at: Some(SystemTime::now().into()),
-            interfaces: vec![rpc::forge::InstanceInterfaceStatusObservation {
+            interfaces: vec![forge::InstanceInterfaceStatusObservation {
                 gateways: vec!["10.180.125.1/27".to_string()],
                 prefixes: vec![],
                 addresses: vec!["10.180.125.5".to_string()],
-                function_type: rpc::forge::InterfaceFunctionType::Physical.into(),
+                function_type: forge::InterfaceFunctionType::Physical.into(),
                 mac_address: Some("A0:88:C2:4E:9B:78".to_string()),
                 virtual_function_id: None,
-                network_security_group: Some(rpc::forge::NetworkSecurityGroupStatus {
+                network_security_group: Some(forge::NetworkSecurityGroupStatus {
                     id: good_network_security_group_id.to_string(),
                     source: source.into(),
                     version: security_version.to_string(),
@@ -104,10 +105,10 @@ async fn test_network_security_group_create(
     let default_tenant_org = "Tenant1";
     let _ = env
         .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(forge::CreateTenantRequest {
             organization_id: default_tenant_org.to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: default_tenant_org.to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -119,10 +120,10 @@ async fn test_network_security_group_create(
     let tenant_org2 = "create_nsg_tenant2";
     let _ = env
         .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(forge::CreateTenantRequest {
             organization_id: tenant_org2.to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: tenant_org2.to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -132,167 +133,165 @@ async fn test_network_security_group_create(
         .unwrap();
 
     // Prepare some bad attributes for testing NSG size limits
-    let too_many_src_ports = Some(rpc::forge::NetworkSecurityGroupAttributes {
+    let too_many_src_ports = Some(forge::NetworkSecurityGroupAttributes {
         stateful_egress: false,
-        rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
+        rules: vec![forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
-            direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
-                .into(),
+            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
             ipv6: false,
             src_port_start: Some(80),
             src_port_end: Some(32768),
             dst_port_start: None,
             dst_port_end: None,
-            protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-            action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
             priority: 9001,
             source_net: Some(
-                rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                     "0.0.0.0/0".to_string(),
                 ),
             ),
             destination_net: Some(
-                rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                     "0.0.0.0/0".to_string(),
                 ),
             ),
         }],
     });
 
-    let too_many_dst_ports = Some(rpc::forge::NetworkSecurityGroupAttributes {
+    let too_many_dst_ports = Some(forge::NetworkSecurityGroupAttributes {
         stateful_egress: false,
-        rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
+        rules: vec![forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
-            direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
-                .into(),
+            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
             ipv6: false,
             src_port_start: None,
             src_port_end: None,
             dst_port_start: Some(80),
             dst_port_end: Some(32768),
-            protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-            action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
             priority: 9001,
             source_net: Some(
-                rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                     "0.0.0.0/0".to_string(),
                 ),
             ),
             destination_net: Some(
-                rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                     "0.0.0.0/0".to_string(),
                 ),
             ),
         }],
     });
 
-    let too_many_rules =
-        Some(rpc::forge::NetworkSecurityGroupAttributes {
-            stateful_egress: false,
-            rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
-            id: Some("anything".to_string()),
-            direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
-                .into(),
-            ipv6: false,
-            src_port_start: Some(80),
-            src_port_end: Some(80),
-            dst_port_start: Some(80),
-            dst_port_end: Some(80),
-            protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-            action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
-            priority: 9001,
-            source_net: Some(
-                rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
-                    "0.0.0.0/0".to_string(),
+    let too_many_rules = Some(forge::NetworkSecurityGroupAttributes {
+        stateful_egress: false,
+        rules: vec![
+            forge::NetworkSecurityGroupRuleAttributes {
+                id: Some("anything".to_string()),
+                direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+                ipv6: false,
+                src_port_start: Some(80),
+                src_port_end: Some(80),
+                dst_port_start: Some(80),
+                dst_port_end: Some(80),
+                protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                priority: 9001,
+                source_net: Some(
+                    forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                        "0.0.0.0/0".to_string(),
+                    ),
                 ),
-            ),
-            destination_net: Some(
-                rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
-                    "0.0.0.0/0".to_string(),
+                destination_net: Some(
+                    forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        "0.0.0.0/0".to_string(),
+                    ),
                 ),
-            ),
-        }; (default_max_network_security_group_size()+1) as usize],
-        });
+            };
+            (default_max_network_security_group_size() + 1) as usize
+        ],
+    });
 
-    let duplicate_rule_ids =
-        Some(rpc::forge::NetworkSecurityGroupAttributes {
-            stateful_egress: false,
-            rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
+    let duplicate_rule_ids = Some(forge::NetworkSecurityGroupAttributes {
+        stateful_egress: false,
+        rules: vec![
+            forge::NetworkSecurityGroupRuleAttributes {
                 id: Some("anything".to_string()),
-                direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
-                    .into(),
+                direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
                 ipv6: false,
                 src_port_start: Some(80),
                 src_port_end: Some(80),
                 dst_port_start: Some(80),
                 dst_port_end: Some(80),
-                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                 priority: 9001,
                 source_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                         "0.0.0.0/0".to_string(),
                     ),
                 ),
                 destination_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                         "0.0.0.0/0".to_string(),
                     ),
                 ),
-            },rpc::forge::NetworkSecurityGroupRuleAttributes {
+            },
+            forge::NetworkSecurityGroupRuleAttributes {
                 id: Some("anything".to_string()),
-                direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
-                    .into(),
+                direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
                 ipv6: false,
                 src_port_start: Some(80),
                 src_port_end: Some(80),
                 dst_port_start: Some(80),
                 dst_port_end: Some(80),
-                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                 priority: 9001,
                 source_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                         "0.0.0.0/0".to_string(),
                     ),
                 ),
                 destination_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                         "0.0.0.0/0".to_string(),
                     ),
                 ),
-            }],
-        });
+            },
+        ],
+    });
 
     // Prepare some attributes for creation and comparison later
-    let network_security_group_attributes = Some(rpc::forge::NetworkSecurityGroupAttributes {
+    let network_security_group_attributes = Some(forge::NetworkSecurityGroupAttributes {
         stateful_egress: true,
-        rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
+        rules: vec![forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
-            direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
-                .into(),
+            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
             ipv6: false,
             src_port_start: Some(80),
             src_port_end: Some(80),
             dst_port_start: Some(90),
             dst_port_end: Some(90),
-            protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-            action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
             priority: 9001,
             source_net: Some(
-                rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                     "0.0.0.0/0".to_string(),
                 ),
             ),
             destination_net: Some(
-                rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                     "0.0.0.0/0".to_string(),
                 ),
             ),
         }],
     });
 
-    let metadata = Some(rpc::forge::Metadata {
+    let metadata = Some(forge::Metadata {
         name: "the best NSG".to_string(),
         description: "".to_string(),
         labels: vec![],
@@ -303,7 +302,7 @@ async fn test_network_security_group_create(
     let _ = env
         .api
         .create_network_security_group(tonic::Request::new(
-            rpc::forge::CreateNetworkSecurityGroupRequest {
+            forge::CreateNetworkSecurityGroupRequest {
                 id: Some(id.to_string()),
                 tenant_organization_id: default_tenant_org.to_string(),
                 metadata: metadata.clone(),
@@ -316,7 +315,7 @@ async fn test_network_security_group_create(
     let _ = env
         .api
         .create_network_security_group(tonic::Request::new(
-            rpc::forge::CreateNetworkSecurityGroupRequest {
+            forge::CreateNetworkSecurityGroupRequest {
                 id: Some(id.to_string()),
                 tenant_organization_id: default_tenant_org.to_string(),
                 metadata: metadata.clone(),
@@ -331,7 +330,7 @@ async fn test_network_security_group_create(
     let _ = env
         .api
         .create_network_security_group(tonic::Request::new(
-            rpc::forge::CreateNetworkSecurityGroupRequest {
+            forge::CreateNetworkSecurityGroupRequest {
                 id: Some(id.to_string()),
                 tenant_organization_id: default_tenant_org.to_string(),
                 metadata: metadata.clone(),
@@ -346,7 +345,7 @@ async fn test_network_security_group_create(
     let _ = env
         .api
         .create_network_security_group(tonic::Request::new(
-            rpc::forge::CreateNetworkSecurityGroupRequest {
+            forge::CreateNetworkSecurityGroupRequest {
                 id: Some(id.to_string()),
                 tenant_organization_id: default_tenant_org.to_string(),
                 metadata: metadata.clone(),
@@ -360,7 +359,7 @@ async fn test_network_security_group_create(
     let forge_network_security_group = env
         .api
         .create_network_security_group(tonic::Request::new(
-            rpc::forge::CreateNetworkSecurityGroupRequest {
+            forge::CreateNetworkSecurityGroupRequest {
                 id: Some(id.to_string()),
                 tenant_organization_id: default_tenant_org.to_string(),
                 metadata: metadata.clone(),
@@ -391,7 +390,7 @@ async fn test_network_security_group_create(
     let _ = env
         .api
         .create_network_security_group(tonic::Request::new(
-            rpc::forge::CreateNetworkSecurityGroupRequest {
+            forge::CreateNetworkSecurityGroupRequest {
                 id: Some("any_other_id".to_string()),
                 tenant_organization_id: default_tenant_org.to_string(),
                 metadata: metadata.clone(),
@@ -407,7 +406,7 @@ async fn test_network_security_group_create(
     let _ = env
         .api
         .create_network_security_group(tonic::Request::new(
-            rpc::forge::CreateNetworkSecurityGroupRequest {
+            forge::CreateNetworkSecurityGroupRequest {
                 id: Some("any_other_id".to_string()),
                 tenant_organization_id: tenant_org2.to_string(),
                 metadata: metadata.clone(),
@@ -422,7 +421,7 @@ async fn test_network_security_group_create(
     let forge_network_security_group_ids = env
         .api
         .find_network_security_group_ids(tonic::Request::new(
-            rpc::forge::FindNetworkSecurityGroupIdsRequest {
+            forge::FindNetworkSecurityGroupIdsRequest {
                 name: None,
                 tenant_organization_id: None,
             },
@@ -440,7 +439,7 @@ async fn test_network_security_group_create(
     let forge_network_security_group_ids = env
         .api
         .find_network_security_group_ids(tonic::Request::new(
-            rpc::forge::FindNetworkSecurityGroupIdsRequest {
+            forge::FindNetworkSecurityGroupIdsRequest {
                 name: Some("the best NSG".to_string()),
                 tenant_organization_id: Some(default_tenant_org.to_string()),
             },
@@ -458,7 +457,7 @@ async fn test_network_security_group_create(
     let forge_network_security_groups = env
         .api
         .find_network_security_groups_by_ids(tonic::Request::new(
-            rpc::forge::FindNetworkSecurityGroupsByIdsRequest {
+            forge::FindNetworkSecurityGroupsByIdsRequest {
                 network_security_group_ids: vec![id.to_string()],
                 tenant_organization_id: None,
             },
@@ -499,7 +498,7 @@ async fn test_network_security_group_update(
     let existing_network_security_groups = env
         .api
         .find_network_security_groups_by_ids(tonic::Request::new(
-            rpc::forge::FindNetworkSecurityGroupsByIdsRequest {
+            forge::FindNetworkSecurityGroupsByIdsRequest {
                 // Provided by fixtures
                 network_security_group_ids: vec![
                     "fd3ab096-d811-11ef-8fe9-7be4b2483448".to_string(),
@@ -520,140 +519,138 @@ async fn test_network_security_group_update(
     let default_tenant_org = "Tenant1";
 
     // Prepare some bad attributes for testing NSG size limits
-    let too_many_ports = Some(rpc::forge::NetworkSecurityGroupAttributes {
+    let too_many_ports = Some(forge::NetworkSecurityGroupAttributes {
         stateful_egress: false,
-        rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
+        rules: vec![forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
-            direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
-                .into(),
+            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
             ipv6: false,
             src_port_start: Some(80),
             src_port_end: Some(32768),
             dst_port_start: Some(80),
             dst_port_end: Some(32768),
-            protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-            action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
             priority: 9001,
             source_net: Some(
-                rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                     "0.0.0.0/0".to_string(),
                 ),
             ),
             destination_net: Some(
-                rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                     "0.0.0.0/0".to_string(),
                 ),
             ),
         }],
     });
 
-    let too_many_rules =
-        Some(rpc::forge::NetworkSecurityGroupAttributes {
-            stateful_egress: false,
-            rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
+    let too_many_rules = Some(forge::NetworkSecurityGroupAttributes {
+        stateful_egress: false,
+        rules: vec![
+            forge::NetworkSecurityGroupRuleAttributes {
                 id: Some("anything".to_string()),
-                direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
-                    .into(),
+                direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
                 ipv6: false,
                 src_port_start: Some(80),
                 src_port_end: Some(80),
                 dst_port_start: Some(80),
                 dst_port_end: Some(80),
-                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                 priority: 9001,
                 source_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                         "0.0.0.0/0".to_string(),
                     ),
                 ),
                 destination_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                         "0.0.0.0/0".to_string(),
                     ),
                 ),
-            }; (default_max_network_security_group_size()+1) as usize],
-        });
+            };
+            (default_max_network_security_group_size() + 1) as usize
+        ],
+    });
 
-    let duplicate_rule_ids =
-        Some(rpc::forge::NetworkSecurityGroupAttributes {
-            stateful_egress: false,
-            rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
+    let duplicate_rule_ids = Some(forge::NetworkSecurityGroupAttributes {
+        stateful_egress: false,
+        rules: vec![
+            forge::NetworkSecurityGroupRuleAttributes {
                 id: Some("anything".to_string()),
-                direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
-                    .into(),
+                direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
                 ipv6: false,
                 src_port_start: Some(80),
                 src_port_end: Some(80),
                 dst_port_start: Some(80),
                 dst_port_end: Some(80),
-                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                 priority: 9001,
                 source_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                         "0.0.0.0/0".to_string(),
                     ),
                 ),
                 destination_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                         "0.0.0.0/0".to_string(),
                     ),
                 ),
-            },rpc::forge::NetworkSecurityGroupRuleAttributes {
+            },
+            forge::NetworkSecurityGroupRuleAttributes {
                 id: Some("anything".to_string()),
-                direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
-                    .into(),
+                direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
                 ipv6: false,
                 src_port_start: Some(80),
                 src_port_end: Some(80),
                 dst_port_start: Some(80),
                 dst_port_end: Some(80),
-                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                 priority: 9001,
                 source_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                         "0.0.0.0/0".to_string(),
                     ),
                 ),
                 destination_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                         "0.0.0.0/0".to_string(),
                     ),
                 ),
-            }],
-        });
+            },
+        ],
+    });
 
-    let update_network_security_group_attributes =
-        Some(rpc::forge::NetworkSecurityGroupAttributes {
-            stateful_egress: false,
-            rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
-                id: Some("anything".to_string()),
-                direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
-                    .into(),
-                ipv6: false,
-                src_port_start: None,
-                src_port_end: None,
-                dst_port_start: Some(800),
-                dst_port_end: Some(900),
-                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionPermit.into(),
-                priority: 9002,
-                source_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
-                        "1.1.1.1/1".to_string(),
-                    ),
+    let update_network_security_group_attributes = Some(forge::NetworkSecurityGroupAttributes {
+        stateful_egress: false,
+        rules: vec![forge::NetworkSecurityGroupRuleAttributes {
+            id: Some("anything".to_string()),
+            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            ipv6: false,
+            src_port_start: None,
+            src_port_end: None,
+            dst_port_start: Some(800),
+            dst_port_end: Some(900),
+            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionPermit.into(),
+            priority: 9002,
+            source_net: Some(
+                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    "1.1.1.1/1".to_string(),
                 ),
-                destination_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
-                        "2.2.2.2/2".to_string(),
-                    ),
+            ),
+            destination_net: Some(
+                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    "2.2.2.2/2".to_string(),
                 ),
-            }],
-        });
+            ),
+        }],
+    });
 
-    let metadata = Some(rpc::forge::Metadata {
+    let metadata = Some(forge::Metadata {
         name: "fixture_test_network_security_group_1".to_string(),
         description: "".to_string(),
         labels: vec![],
@@ -663,7 +660,7 @@ async fn test_network_security_group_update(
     let _ = env
         .api
         .update_network_security_group(tonic::Request::new(
-            rpc::forge::UpdateNetworkSecurityGroupRequest {
+            forge::UpdateNetworkSecurityGroupRequest {
                 id: id.to_string(),
                 tenant_organization_id: "this_is_a_bad_org".to_string(),
                 metadata: metadata.clone(),
@@ -679,7 +676,7 @@ async fn test_network_security_group_update(
     let _ = env
         .api
         .update_network_security_group(tonic::Request::new(
-            rpc::forge::UpdateNetworkSecurityGroupRequest {
+            forge::UpdateNetworkSecurityGroupRequest {
                 id: id.to_string(),
                 tenant_organization_id: default_tenant_org.to_string(),
                 metadata: metadata.clone(),
@@ -695,7 +692,7 @@ async fn test_network_security_group_update(
     let _ = env
         .api
         .update_network_security_group(tonic::Request::new(
-            rpc::forge::UpdateNetworkSecurityGroupRequest {
+            forge::UpdateNetworkSecurityGroupRequest {
                 id: id.to_string(),
                 tenant_organization_id: default_tenant_org.to_string(),
                 metadata: metadata.clone(),
@@ -712,7 +709,7 @@ async fn test_network_security_group_update(
     let _ = env
         .api
         .update_network_security_group(tonic::Request::new(
-            rpc::forge::UpdateNetworkSecurityGroupRequest {
+            forge::UpdateNetworkSecurityGroupRequest {
                 id: id.to_string(),
                 tenant_organization_id: default_tenant_org.to_string(),
                 metadata: metadata.clone(),
@@ -729,7 +726,7 @@ async fn test_network_security_group_update(
     let forge_network_security_group = env
         .api
         .update_network_security_group(tonic::Request::new(
-            rpc::forge::UpdateNetworkSecurityGroupRequest {
+            forge::UpdateNetworkSecurityGroupRequest {
                 id: id.to_string(),
                 tenant_organization_id: default_tenant_org.to_string(),
                 metadata: metadata.clone(),
@@ -764,7 +761,7 @@ async fn test_network_security_group_update(
     let _ = env
         .api
         .update_network_security_group(tonic::Request::new(
-            rpc::forge::UpdateNetworkSecurityGroupRequest {
+            forge::UpdateNetworkSecurityGroupRequest {
                 id: id.to_string(),
                 tenant_organization_id: default_tenant_org.to_string(),
                 metadata: metadata.clone(),
@@ -780,7 +777,7 @@ async fn test_network_security_group_update(
     let forge_network_security_group = env
         .api
         .update_network_security_group(tonic::Request::new(
-            rpc::forge::UpdateNetworkSecurityGroupRequest {
+            forge::UpdateNetworkSecurityGroupRequest {
                 id: id.to_string(),
                 tenant_organization_id: default_tenant_org.to_string(),
                 metadata: metadata.clone(),
@@ -816,7 +813,7 @@ async fn test_network_security_group_update(
     let forge_network_security_groups = env
         .api
         .find_network_security_groups_by_ids(tonic::Request::new(
-            rpc::forge::FindNetworkSecurityGroupsByIdsRequest {
+            forge::FindNetworkSecurityGroupsByIdsRequest {
                 network_security_group_ids: vec![forge_network_security_group.id.to_string()],
                 tenant_organization_id: Some(default_tenant_org.to_string()),
             },
@@ -848,10 +845,10 @@ async fn test_network_security_group_update(
     let _ = env
         .api
         .update_network_security_group(tonic::Request::new(
-            rpc::forge::UpdateNetworkSecurityGroupRequest {
+            forge::UpdateNetworkSecurityGroupRequest {
                 id: id.to_string(),
                 tenant_organization_id: default_tenant_org.to_string(),
-                metadata: Some(rpc::forge::Metadata {
+                metadata: Some(forge::Metadata {
                     name: existing_network_security_groups[1]
                         .metadata
                         .clone()
@@ -908,9 +905,9 @@ async fn test_network_security_group_delete(
     // Create an Instance
     let instance = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+        .allocate_instance(tonic::Request::new(forge::InstanceAllocationRequest {
             machine_id: mh.host_snapshot.id.into(),
-            config: Some(rpc::InstanceConfig {
+            config: Some(forge::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
                 network: Some(single_interface_network_config(segment_id)),
@@ -921,7 +918,7 @@ async fn test_network_security_group_delete(
             }),
             instance_id: None,
             instance_type_id: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "newinstance".to_string(),
                 description: "desc".to_string(),
                 labels: vec![],
@@ -937,7 +934,7 @@ async fn test_network_security_group_delete(
     let _ = env
         .api
         .delete_network_security_group(tonic::Request::new(
-            rpc::forge::DeleteNetworkSecurityGroupRequest {
+            forge::DeleteNetworkSecurityGroupRequest {
                 id: good_network_security_group_id.to_string(),
                 tenant_organization_id: default_tenant_org.to_string(),
             },
@@ -948,7 +945,7 @@ async fn test_network_security_group_delete(
     // Delete the VPC and Instance
     let _ = env
         .api
-        .release_instance(tonic::Request::new(rpc::forge::InstanceReleaseRequest {
+        .release_instance(tonic::Request::new(forge::InstanceReleaseRequest {
             id: instance.id,
             issue: None,
             is_repair_tenant: None,
@@ -958,7 +955,7 @@ async fn test_network_security_group_delete(
 
     let _ = env
         .api
-        .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
+        .delete_vpc(tonic::Request::new(forge::VpcDeletionRequest {
             id: vpc.id,
         }))
         .await
@@ -970,7 +967,7 @@ async fn test_network_security_group_delete(
     let _ = env
         .api
         .delete_network_security_group(tonic::Request::new(
-            rpc::forge::DeleteNetworkSecurityGroupRequest {
+            forge::DeleteNetworkSecurityGroupRequest {
                 id: good_network_security_group_id.to_string(),
                 tenant_organization_id: default_tenant_org.to_string(),
             },
@@ -982,7 +979,7 @@ async fn test_network_security_group_delete(
     let forge_network_security_groups = env
         .api
         .find_network_security_groups_by_ids(tonic::Request::new(
-            rpc::forge::FindNetworkSecurityGroupsByIdsRequest {
+            forge::FindNetworkSecurityGroupsByIdsRequest {
                 network_security_group_ids: vec![good_network_security_group_id.to_string()],
                 tenant_organization_id: None,
             },
@@ -1000,7 +997,7 @@ async fn test_network_security_group_delete(
     assert_eq!(
         env.api
             .delete_network_security_group(tonic::Request::new(
-                rpc::forge::DeleteNetworkSecurityGroupRequest {
+                forge::DeleteNetworkSecurityGroupRequest {
                     id: good_network_security_group_id.to_string(),
                     tenant_organization_id: default_tenant_org.to_string(),
                 },
@@ -1015,7 +1012,7 @@ async fn test_network_security_group_delete(
     let _ = env
         .api
         .delete_network_security_group(tonic::Request::new(
-            rpc::forge::DeleteNetworkSecurityGroupRequest {
+            forge::DeleteNetworkSecurityGroupRequest {
                 id: "".to_string(),
                 tenant_organization_id: default_tenant_org.to_string(),
             },
@@ -1028,7 +1025,7 @@ async fn test_network_security_group_delete(
     let _ = env
         .api
         .delete_network_security_group(tonic::Request::new(
-            rpc::forge::DeleteNetworkSecurityGroupRequest {
+            forge::DeleteNetworkSecurityGroupRequest {
                 id: bad_network_security_group_id.to_string(),
                 tenant_organization_id: default_tenant_org.to_string(),
             },
@@ -1100,7 +1097,7 @@ async fn test_network_security_group_propagation_impl(
     let good_network_security_group = env
         .api
         .find_network_security_groups_by_ids(tonic::Request::new(
-            rpc::forge::FindNetworkSecurityGroupsByIdsRequest {
+            forge::FindNetworkSecurityGroupsByIdsRequest {
                 // Provided by fixtures
                 network_security_group_ids: vec![good_network_security_group_id.to_string()],
                 tenant_organization_id: None,
@@ -1118,7 +1115,7 @@ async fn test_network_security_group_propagation_impl(
     let err = env
         .api
         .get_network_security_group_propagation_status(tonic::Request::new(
-            rpc::forge::GetNetworkSecurityGroupPropagationStatusRequest {
+            forge::GetNetworkSecurityGroupPropagationStatusRequest {
                 network_security_group_ids: None,
                 vpc_ids: vec![],
                 instance_ids: vec![],
@@ -1138,7 +1135,7 @@ async fn test_network_security_group_propagation_impl(
     let prop_status = env
         .api
         .get_network_security_group_propagation_status(tonic::Request::new(
-            rpc::forge::GetNetworkSecurityGroupPropagationStatusRequest {
+            forge::GetNetworkSecurityGroupPropagationStatusRequest {
                 network_security_group_ids: None,
                 vpc_ids: vec![vpc_id.to_string()],
                 instance_ids: vec![instance_id.to_string()],
@@ -1148,7 +1145,7 @@ async fn test_network_security_group_propagation_impl(
         .unwrap()
         .into_inner();
 
-    let expected_results = rpc::forge::GetNetworkSecurityGroupPropagationStatusResponse {
+    let expected_results = forge::GetNetworkSecurityGroupPropagationStatusResponse {
         vpcs: vec![],
         instances: vec![],
     };
@@ -1206,9 +1203,9 @@ async fn test_network_security_group_propagation_impl(
     // Create an Instance
     let _ = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+        .allocate_instance(tonic::Request::new(forge::InstanceAllocationRequest {
             machine_id: mh.host_snapshot.id.into(),
-            config: Some(rpc::InstanceConfig {
+            config: Some(forge::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
                 network: Some(interface_network_config_with_devices(
@@ -1222,7 +1219,7 @@ async fn test_network_security_group_propagation_impl(
             }),
             instance_id: Some(instance_id),
             instance_type_id: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "newinstance".to_string(),
                 description: "desc".to_string(),
                 labels: vec![],
@@ -1235,7 +1232,7 @@ async fn test_network_security_group_propagation_impl(
     let prop_status = env
         .api
         .get_network_security_group_propagation_status(tonic::Request::new(
-            rpc::forge::GetNetworkSecurityGroupPropagationStatusRequest {
+            forge::GetNetworkSecurityGroupPropagationStatusRequest {
                 network_security_group_ids: None,
                 vpc_ids: vec![vpc_id.to_string()],
                 instance_ids: vec![instance_id.to_string()],
@@ -1247,11 +1244,11 @@ async fn test_network_security_group_propagation_impl(
 
     // No status should have been reported yet, so we
     // should see the instance as having no propagation.
-    let expected_results = rpc::forge::GetNetworkSecurityGroupPropagationStatusResponse {
+    let expected_results = forge::GetNetworkSecurityGroupPropagationStatusResponse {
         vpcs: vec![],
-        instances: vec![rpc::forge::NetworkSecurityGroupPropagationObjectStatus {
+        instances: vec![forge::NetworkSecurityGroupPropagationObjectStatus {
             id: instance_id.to_string(),
-            status: rpc::forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone.into(),
+            status: forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone.into(),
             details: None,
             related_instance_ids: vec![instance_id.to_string()],
             unpropagated_instance_ids: vec![instance_id.to_string()],
@@ -1262,7 +1259,7 @@ async fn test_network_security_group_propagation_impl(
 
     // peek into the db to get the internal id.  note that the state machine has not processed the instance yet
     // so getting the network via the api will not work.
-    let instance = db::instance::find_by_id(&pool, instance_id)
+    let instance = nico_api_db::instance::find_by_id(&pool, instance_id)
         .await
         .unwrap()
         .unwrap();
@@ -1287,7 +1284,7 @@ async fn test_network_security_group_propagation_impl(
             good_network_security_group_id,
             &good_network_security_group.version,
             &dpu_machine_id,
-            rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance,
+            forge::NetworkSecurityGroupSource::NsgSourceInstance,
             internal_id,
         )
         .await;
@@ -1297,7 +1294,7 @@ async fn test_network_security_group_propagation_impl(
     let prop_status = env
         .api
         .get_network_security_group_propagation_status(tonic::Request::new(
-            rpc::forge::GetNetworkSecurityGroupPropagationStatusRequest {
+            forge::GetNetworkSecurityGroupPropagationStatusRequest {
                 network_security_group_ids: None,
                 vpc_ids: vec![vpc_id.to_string()],
                 instance_ids: vec![instance_id.to_string()],
@@ -1310,11 +1307,11 @@ async fn test_network_security_group_propagation_impl(
     // Up to now, the VPC and instance both have an NSG configured.
     // The instance should take precedence, so we should only see
     // that in the list, and the VPC has no children who need propagation.
-    let expected_results = rpc::forge::GetNetworkSecurityGroupPropagationStatusResponse {
+    let expected_results = forge::GetNetworkSecurityGroupPropagationStatusResponse {
         vpcs: vec![],
-        instances: vec![rpc::forge::NetworkSecurityGroupPropagationObjectStatus {
+        instances: vec![forge::NetworkSecurityGroupPropagationObjectStatus {
             id: instance_id.to_string(),
-            status: rpc::forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull.into(),
+            status: forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull.into(),
             details: None,
             related_instance_ids: vec![instance_id.to_string()],
             unpropagated_instance_ids: vec![],
@@ -1326,29 +1323,27 @@ async fn test_network_security_group_propagation_impl(
     // Now update the instance to remove the NSG attachment
     let instance = env
         .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                if_version_match: None,
-                config: Some(rpc::InstanceConfig {
-                    tenant: Some(default_tenant_config()),
-                    os: Some(default_os_config()),
-                    network: Some(interface_network_config_with_devices(
-                        &segment_ids,
-                        &device_locators,
-                    )),
-                    infiniband: None,
-                    nvlink: None,
-                    network_security_group_id: None,
-                    dpu_extension_services: None,
-                }),
-                instance_id: Some(instance_id),
-                metadata: Some(rpc::forge::Metadata {
-                    name: "newinstance".to_string(),
-                    description: "desc".to_string(),
-                    labels: vec![],
-                }),
-            },
-        ))
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            if_version_match: None,
+            config: Some(forge::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(interface_network_config_with_devices(
+                    &segment_ids,
+                    &device_locators,
+                )),
+                infiniband: None,
+                nvlink: None,
+                network_security_group_id: None,
+                dpu_extension_services: None,
+            }),
+            instance_id: Some(instance_id),
+            metadata: Some(forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
         .await
         .unwrap()
         .into_inner();
@@ -1361,7 +1356,7 @@ async fn test_network_security_group_propagation_impl(
     let prop_status = env
         .api
         .get_network_security_group_propagation_status(tonic::Request::new(
-            rpc::forge::GetNetworkSecurityGroupPropagationStatusRequest {
+            forge::GetNetworkSecurityGroupPropagationStatusRequest {
                 network_security_group_ids: None,
                 vpc_ids: vec![vpc_id.to_string()],
                 instance_ids: vec![],
@@ -1371,10 +1366,10 @@ async fn test_network_security_group_propagation_impl(
         .unwrap()
         .into_inner();
 
-    let expected_results = rpc::forge::GetNetworkSecurityGroupPropagationStatusResponse {
-        vpcs: vec![rpc::forge::NetworkSecurityGroupPropagationObjectStatus {
+    let expected_results = forge::GetNetworkSecurityGroupPropagationStatusResponse {
+        vpcs: vec![forge::NetworkSecurityGroupPropagationObjectStatus {
             id: vpc_id.to_string(),
-            status: rpc::forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone.into(),
+            status: forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone.into(),
             details: None,
             related_instance_ids: vec![instance_id.to_string()],
             unpropagated_instance_ids: vec![instance_id.to_string()],
@@ -1396,7 +1391,7 @@ async fn test_network_security_group_propagation_impl(
             good_network_security_group_id,
             &good_network_security_group.version,
             &dpu_machine_id,
-            rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc,
+            forge::NetworkSecurityGroupSource::NsgSourceVpc,
             internal_id,
         )
         .await;
@@ -1406,7 +1401,7 @@ async fn test_network_security_group_propagation_impl(
     let prop_status = env
         .api
         .get_network_security_group_propagation_status(tonic::Request::new(
-            rpc::forge::GetNetworkSecurityGroupPropagationStatusRequest {
+            forge::GetNetworkSecurityGroupPropagationStatusRequest {
                 network_security_group_ids: None,
                 vpc_ids: vec![vpc_id.to_string()],
                 instance_ids: vec![],
@@ -1416,10 +1411,10 @@ async fn test_network_security_group_propagation_impl(
         .unwrap()
         .into_inner();
 
-    let expected_results = rpc::forge::GetNetworkSecurityGroupPropagationStatusResponse {
-        vpcs: vec![rpc::forge::NetworkSecurityGroupPropagationObjectStatus {
+    let expected_results = forge::GetNetworkSecurityGroupPropagationStatusResponse {
+        vpcs: vec![forge::NetworkSecurityGroupPropagationObjectStatus {
             id: vpc_id.to_string(),
-            status: rpc::forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull.into(),
+            status: forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull.into(),
             details: None,
             related_instance_ids: vec![instance_id.to_string()],
             unpropagated_instance_ids: vec![],
@@ -1439,9 +1434,9 @@ async fn test_network_security_group_propagation_impl(
     // Create an Instance
     let _ = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+        .allocate_instance(tonic::Request::new(forge::InstanceAllocationRequest {
             machine_id: mh2.host_snapshot.id.into(),
-            config: Some(rpc::InstanceConfig {
+            config: Some(forge::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
                 network: Some(single_interface_network_config(
@@ -1454,7 +1449,7 @@ async fn test_network_security_group_propagation_impl(
             }),
             instance_id: Some(instance_id2),
             instance_type_id: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "newinstance2".to_string(),
                 description: "desc2".to_string(),
                 labels: vec![],
@@ -1466,7 +1461,7 @@ async fn test_network_security_group_propagation_impl(
 
     // peek into the db to get the internal id.  note that the state machine has not processed the instance yet
     // so getting the network via the api will not work.
-    let instance = db::instance::find_by_id(&pool, instance_id2)
+    let instance = nico_api_db::instance::find_by_id(&pool, instance_id2)
         .await
         .unwrap()
         .unwrap();
@@ -1483,7 +1478,7 @@ async fn test_network_security_group_propagation_impl(
     let mut prop_status = env
         .api
         .get_network_security_group_propagation_status(tonic::Request::new(
-            rpc::forge::GetNetworkSecurityGroupPropagationStatusRequest {
+            forge::GetNetworkSecurityGroupPropagationStatusRequest {
                 network_security_group_ids: None,
                 vpc_ids: vec![vpc_id.to_string()],
                 instance_ids: vec![],
@@ -1496,10 +1491,10 @@ async fn test_network_security_group_propagation_impl(
     let mut both_instances_sorted = vec![instance_id.to_string(), instance_id2.to_string()];
     both_instances_sorted.sort();
 
-    let expected_results = rpc::forge::GetNetworkSecurityGroupPropagationStatusResponse {
-        vpcs: vec![rpc::forge::NetworkSecurityGroupPropagationObjectStatus {
+    let expected_results = forge::GetNetworkSecurityGroupPropagationStatusResponse {
+        vpcs: vec![forge::NetworkSecurityGroupPropagationObjectStatus {
             id: vpc_id.to_string(),
-            status: rpc::forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusPartial.into(),
+            status: forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusPartial.into(),
             details: None,
             related_instance_ids: both_instances_sorted.clone(),
             unpropagated_instance_ids: vec![instance_id2.to_string()],
@@ -1525,7 +1520,7 @@ async fn test_network_security_group_propagation_impl(
             good_network_security_group_id,
             &good_network_security_group.version,
             &dpu_machine_id,
-            rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc,
+            forge::NetworkSecurityGroupSource::NsgSourceVpc,
             internal_id,
         )
         .await;
@@ -1535,7 +1530,7 @@ async fn test_network_security_group_propagation_impl(
     let mut prop_status = env
         .api
         .get_network_security_group_propagation_status(tonic::Request::new(
-            rpc::forge::GetNetworkSecurityGroupPropagationStatusRequest {
+            forge::GetNetworkSecurityGroupPropagationStatusRequest {
                 network_security_group_ids: None,
                 vpc_ids: vec![vpc_id.to_string()],
                 instance_ids: vec![],
@@ -1548,10 +1543,10 @@ async fn test_network_security_group_propagation_impl(
     prop_status.vpcs[0].related_instance_ids.sort();
     prop_status.vpcs[0].unpropagated_instance_ids.sort();
 
-    let expected_results = rpc::forge::GetNetworkSecurityGroupPropagationStatusResponse {
-        vpcs: vec![rpc::forge::NetworkSecurityGroupPropagationObjectStatus {
+    let expected_results = forge::GetNetworkSecurityGroupPropagationStatusResponse {
+        vpcs: vec![forge::NetworkSecurityGroupPropagationObjectStatus {
             id: vpc_id.to_string(),
-            status: rpc::forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull.into(),
+            status: forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull.into(),
             details: None,
             related_instance_ids: both_instances_sorted.clone(),
             unpropagated_instance_ids: vec![],
@@ -1567,43 +1562,41 @@ async fn test_network_security_group_propagation_impl(
     let nsg_version = env
         .api
         .update_network_security_group(tonic::Request::new(
-            rpc::forge::UpdateNetworkSecurityGroupRequest {
+            forge::UpdateNetworkSecurityGroupRequest {
                 id: good_network_security_group_id.to_string(),
                 if_version_match: None,
                 tenant_organization_id: default_tenant_org.to_string(),
-                metadata: Some(rpc::forge::Metadata {
+                metadata: Some(forge::Metadata {
                     name: "irrelevant".to_string(),
                     description: String::new(),
                     labels: vec![],
                 }),
-                network_security_group_attributes: Some(
-                    rpc::forge::NetworkSecurityGroupAttributes {
-                        stateful_egress: false,
-                        rules: vec![rpc::forge::NetworkSecurityGroupRuleAttributes {
+                network_security_group_attributes: Some(forge::NetworkSecurityGroupAttributes {
+                    stateful_egress: false,
+                    rules: vec![forge::NetworkSecurityGroupRuleAttributes {
                 id: Some("anything".to_string()),
-                direction: rpc::forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
                     .into(),
                 ipv6: false,
                 src_port_start: None,
                 src_port_end: None,
                 dst_port_start: Some(800),
                 dst_port_end: Some(900),
-                protocol: rpc::forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                action: rpc::forge::NetworkSecurityGroupRuleAction::NsgRuleActionPermit.into(),
+                protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionPermit.into(),
                 priority: 9002,
                 source_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                    forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                         "1.1.1.1/1".to_string(),
                     ),
                 ),
                 destination_net: Some(
-                    rpc::forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                    forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                         "2.2.2.2/2".to_string(),
                     ),
                 ),
             }],
-                    },
-                ),
+                }),
             },
         ))
         .await
@@ -1617,7 +1610,7 @@ async fn test_network_security_group_propagation_impl(
     let mut prop_status = env
         .api
         .get_network_security_group_propagation_status(tonic::Request::new(
-            rpc::forge::GetNetworkSecurityGroupPropagationStatusRequest {
+            forge::GetNetworkSecurityGroupPropagationStatusRequest {
                 network_security_group_ids: None,
                 vpc_ids: vec![vpc_id.to_string()],
                 instance_ids: vec![],
@@ -1630,10 +1623,10 @@ async fn test_network_security_group_propagation_impl(
     prop_status.vpcs[0].related_instance_ids.sort();
     prop_status.vpcs[0].unpropagated_instance_ids.sort();
 
-    let expected_results = rpc::forge::GetNetworkSecurityGroupPropagationStatusResponse {
-        vpcs: vec![rpc::forge::NetworkSecurityGroupPropagationObjectStatus {
+    let expected_results = forge::GetNetworkSecurityGroupPropagationStatusResponse {
+        vpcs: vec![forge::NetworkSecurityGroupPropagationObjectStatus {
             id: vpc_id.to_string(),
-            status: rpc::forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone.into(),
+            status: forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone.into(),
             details: None,
             related_instance_ids: both_instances_sorted.clone(),
             unpropagated_instance_ids: both_instances_sorted.clone(),
@@ -1654,7 +1647,7 @@ async fn test_network_security_group_propagation_impl(
             good_network_security_group_id,
             &nsg_version,
             &dpu_machine_id,
-            rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc,
+            forge::NetworkSecurityGroupSource::NsgSourceVpc,
             internal_id,
         )
         .await;
@@ -1664,7 +1657,7 @@ async fn test_network_security_group_propagation_impl(
     let mut prop_status = env
         .api
         .get_network_security_group_propagation_status(tonic::Request::new(
-            rpc::forge::GetNetworkSecurityGroupPropagationStatusRequest {
+            forge::GetNetworkSecurityGroupPropagationStatusRequest {
                 network_security_group_ids: None,
                 vpc_ids: vec![vpc_id.to_string()],
                 instance_ids: vec![],
@@ -1677,10 +1670,10 @@ async fn test_network_security_group_propagation_impl(
     prop_status.vpcs[0].related_instance_ids.sort();
     prop_status.vpcs[0].unpropagated_instance_ids.sort();
 
-    let expected_results = rpc::forge::GetNetworkSecurityGroupPropagationStatusResponse {
-        vpcs: vec![rpc::forge::NetworkSecurityGroupPropagationObjectStatus {
+    let expected_results = forge::GetNetworkSecurityGroupPropagationStatusResponse {
+        vpcs: vec![forge::NetworkSecurityGroupPropagationObjectStatus {
             id: vpc_id.to_string(),
-            status: rpc::forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusPartial.into(),
+            status: forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusPartial.into(),
             details: None,
             related_instance_ids: both_instances_sorted.clone(),
             unpropagated_instance_ids: vec![instance_id2.to_string()],
@@ -1701,7 +1694,7 @@ async fn test_network_security_group_propagation_impl(
             good_network_security_group_id,
             &nsg_version,
             &dpu_machine_id,
-            rpc::forge::NetworkSecurityGroupSource::NsgSourceVpc,
+            forge::NetworkSecurityGroupSource::NsgSourceVpc,
             internal_id,
         )
         .await;
@@ -1711,7 +1704,7 @@ async fn test_network_security_group_propagation_impl(
     let mut prop_status = env
         .api
         .get_network_security_group_propagation_status(tonic::Request::new(
-            rpc::forge::GetNetworkSecurityGroupPropagationStatusRequest {
+            forge::GetNetworkSecurityGroupPropagationStatusRequest {
                 network_security_group_ids: None,
                 vpc_ids: vec![vpc_id.to_string()],
                 instance_ids: vec![],
@@ -1724,10 +1717,10 @@ async fn test_network_security_group_propagation_impl(
     prop_status.vpcs[0].related_instance_ids.sort();
     prop_status.vpcs[0].unpropagated_instance_ids.sort();
 
-    let expected_results = rpc::forge::GetNetworkSecurityGroupPropagationStatusResponse {
-        vpcs: vec![rpc::forge::NetworkSecurityGroupPropagationObjectStatus {
+    let expected_results = forge::GetNetworkSecurityGroupPropagationStatusResponse {
+        vpcs: vec![forge::NetworkSecurityGroupPropagationObjectStatus {
             id: vpc_id.to_string(),
-            status: rpc::forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull.into(),
+            status: forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull.into(),
             details: None,
             related_instance_ids: both_instances_sorted.clone(),
             unpropagated_instance_ids: vec![],
@@ -1762,7 +1755,7 @@ async fn test_network_security_group_get_attachments(
     let prop_status = env
         .api
         .get_network_security_group_attachments(tonic::Request::new(
-            rpc::forge::GetNetworkSecurityGroupAttachmentsRequest {
+            forge::GetNetworkSecurityGroupAttachmentsRequest {
                 network_security_group_ids: vec![good_network_security_group_id.to_string()],
             },
         ))
@@ -1770,8 +1763,8 @@ async fn test_network_security_group_get_attachments(
         .unwrap()
         .into_inner();
 
-    let expected_results = rpc::forge::GetNetworkSecurityGroupAttachmentsResponse {
-        attachments: vec![rpc::forge::NetworkSecurityGroupAttachments {
+    let expected_results = forge::GetNetworkSecurityGroupAttachmentsResponse {
+        attachments: vec![forge::NetworkSecurityGroupAttachments {
             network_security_group_id: good_network_security_group_id.to_string(),
             vpc_ids: vec![],
             instance_ids: vec![],
@@ -1800,9 +1793,9 @@ async fn test_network_security_group_get_attachments(
     // Create an Instance
     let _ = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+        .allocate_instance(tonic::Request::new(forge::InstanceAllocationRequest {
             machine_id: mh.host_snapshot.id.into(),
-            config: Some(rpc::InstanceConfig {
+            config: Some(forge::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
                 network: Some(single_interface_network_config(segment_id)),
@@ -1813,7 +1806,7 @@ async fn test_network_security_group_get_attachments(
             }),
             instance_id: Some(instance_id),
             instance_type_id: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "newinstance".to_string(),
                 description: "desc".to_string(),
                 labels: vec![],
@@ -1827,7 +1820,7 @@ async fn test_network_security_group_get_attachments(
     let prop_status = env
         .api
         .get_network_security_group_attachments(tonic::Request::new(
-            rpc::forge::GetNetworkSecurityGroupAttachmentsRequest {
+            forge::GetNetworkSecurityGroupAttachmentsRequest {
                 network_security_group_ids: vec![good_network_security_group_id.to_string()],
             },
         ))
@@ -1835,8 +1828,8 @@ async fn test_network_security_group_get_attachments(
         .unwrap()
         .into_inner();
 
-    let expected_results = rpc::forge::GetNetworkSecurityGroupAttachmentsResponse {
-        attachments: vec![rpc::forge::NetworkSecurityGroupAttachments {
+    let expected_results = forge::GetNetworkSecurityGroupAttachmentsResponse {
+        attachments: vec![forge::NetworkSecurityGroupAttachments {
             network_security_group_id: good_network_security_group_id.to_string(),
             vpc_ids: vec![vpc_id.to_string()],
             instance_ids: vec![instance_id.to_string()],
@@ -1847,7 +1840,7 @@ async fn test_network_security_group_get_attachments(
 
     // Delete the instance
     env.api
-        .release_instance(tonic::Request::new(rpc::forge::InstanceReleaseRequest {
+        .release_instance(tonic::Request::new(forge::InstanceReleaseRequest {
             id: Some(instance_id),
             issue: None,
             is_repair_tenant: None,
@@ -1856,7 +1849,7 @@ async fn test_network_security_group_get_attachments(
         .unwrap();
     // Delete the VPC
     env.api
-        .delete_vpc(tonic::Request::new(rpc::forge::VpcDeletionRequest {
+        .delete_vpc(tonic::Request::new(forge::VpcDeletionRequest {
             id: Some(vpc_id),
         }))
         .await
@@ -1866,7 +1859,7 @@ async fn test_network_security_group_get_attachments(
     let prop_status = env
         .api
         .get_network_security_group_attachments(tonic::Request::new(
-            rpc::forge::GetNetworkSecurityGroupAttachmentsRequest {
+            forge::GetNetworkSecurityGroupAttachmentsRequest {
                 network_security_group_ids: vec![good_network_security_group_id.to_string()],
             },
         ))
@@ -1874,8 +1867,8 @@ async fn test_network_security_group_get_attachments(
         .unwrap()
         .into_inner();
 
-    let expected_results = rpc::forge::GetNetworkSecurityGroupAttachmentsResponse {
-        attachments: vec![rpc::forge::NetworkSecurityGroupAttachments {
+    let expected_results = forge::GetNetworkSecurityGroupAttachmentsResponse {
+        attachments: vec![forge::NetworkSecurityGroupAttachments {
             network_security_group_id: good_network_security_group_id.to_string(),
             vpc_ids: vec![],
             instance_ids: vec![],

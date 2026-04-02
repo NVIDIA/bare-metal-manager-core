@@ -18,8 +18,9 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::forge::{self as rpc, IsBmcInManagedHostResponse};
 use config_version::ConfigVersion;
+use nico_rpc::forge;
+use nico_rpc::forge::IsBmcInManagedHostResponse;
 use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
 
@@ -28,16 +29,18 @@ use crate::api::{Api, log_request_data};
 
 pub(crate) async fn find_explored_endpoint_ids(
     api: &Api,
-    request: Request<::rpc::site_explorer::ExploredEndpointSearchFilter>,
-) -> Result<Response<::rpc::site_explorer::ExploredEndpointIdList>, Status> {
+    request: Request<nico_rpc::site_explorer::ExploredEndpointSearchFilter>,
+) -> Result<Response<nico_rpc::site_explorer::ExploredEndpointIdList>, Status> {
     log_request_data(&request);
 
-    let filter: model::site_explorer::ExploredEndpointSearchFilter = request.into_inner().into();
+    let filter: nico_api_model::site_explorer::ExploredEndpointSearchFilter =
+        request.into_inner().into();
 
-    let endpoint_ips = db::explored_endpoints::find_ips(&api.database_connection, filter).await?;
+    let endpoint_ips =
+        nico_api_db::explored_endpoints::find_ips(&api.database_connection, filter).await?;
 
     Ok(Response::new(
-        ::rpc::site_explorer::ExploredEndpointIdList {
+        nico_rpc::site_explorer::ExploredEndpointIdList {
             endpoint_ids: endpoint_ips.iter().map(|ip| ip.to_string()).collect(),
         },
     ))
@@ -45,8 +48,8 @@ pub(crate) async fn find_explored_endpoint_ids(
 
 pub(crate) async fn find_explored_endpoints_by_ids(
     api: &Api,
-    request: Request<::rpc::site_explorer::ExploredEndpointsByIdsRequest>,
-) -> Result<Response<::rpc::site_explorer::ExploredEndpointList>, Status> {
+    request: Request<nico_rpc::site_explorer::ExploredEndpointsByIdsRequest>,
+) -> Result<Response<nico_rpc::site_explorer::ExploredEndpointList>, Status> {
     log_request_data(&request);
 
     let ips: Vec<IpAddr> = request
@@ -69,12 +72,12 @@ pub(crate) async fn find_explored_endpoints_by_ids(
         );
     }
 
-    let result = db::explored_endpoints::find_by_ips(&api.database_connection, ips)
+    let result = nico_api_db::explored_endpoints::find_by_ips(&api.database_connection, ips)
         .await
-        .map(|ep| ::rpc::site_explorer::ExploredEndpointList {
+        .map(|ep| nico_rpc::site_explorer::ExploredEndpointList {
             endpoints: ep
                 .into_iter()
-                .map(::rpc::site_explorer::ExploredEndpoint::from)
+                .map(nico_rpc::site_explorer::ExploredEndpoint::from)
                 .collect(),
         })
         .map(Response::new)?;
@@ -83,16 +86,18 @@ pub(crate) async fn find_explored_endpoints_by_ids(
 
 pub(crate) async fn find_explored_managed_host_ids(
     api: &Api,
-    request: Request<::rpc::site_explorer::ExploredManagedHostSearchFilter>,
-) -> Result<Response<::rpc::site_explorer::ExploredManagedHostIdList>, Status> {
+    request: Request<nico_rpc::site_explorer::ExploredManagedHostSearchFilter>,
+) -> Result<Response<nico_rpc::site_explorer::ExploredManagedHostIdList>, Status> {
     log_request_data(&request);
 
-    let filter: model::site_explorer::ExploredManagedHostSearchFilter = request.into_inner().into();
+    let filter: nico_api_model::site_explorer::ExploredManagedHostSearchFilter =
+        request.into_inner().into();
 
-    let host_ips = db::explored_managed_host::find_ips(&api.database_connection, filter).await?;
+    let host_ips =
+        nico_api_db::explored_managed_host::find_ips(&api.database_connection, filter).await?;
 
     Ok(Response::new(
-        ::rpc::site_explorer::ExploredManagedHostIdList {
+        nico_rpc::site_explorer::ExploredManagedHostIdList {
             host_ids: host_ips.iter().map(|ip| ip.to_string()).collect(),
         },
     ))
@@ -100,8 +105,8 @@ pub(crate) async fn find_explored_managed_host_ids(
 
 pub(crate) async fn find_explored_managed_hosts_by_ids(
     api: &Api,
-    request: Request<::rpc::site_explorer::ExploredManagedHostsByIdsRequest>,
-) -> Result<Response<::rpc::site_explorer::ExploredManagedHostList>, Status> {
+    request: Request<nico_rpc::site_explorer::ExploredManagedHostsByIdsRequest>,
+) -> Result<Response<nico_rpc::site_explorer::ExploredManagedHostList>, Status> {
     log_request_data(&request);
 
     let ips: Vec<IpAddr> = request
@@ -124,12 +129,12 @@ pub(crate) async fn find_explored_managed_hosts_by_ids(
         );
     }
 
-    let result = db::explored_managed_host::find_by_ips(&api.database_connection, ips)
+    let result = nico_api_db::explored_managed_host::find_by_ips(&api.database_connection, ips)
         .await
-        .map(|ep| ::rpc::site_explorer::ExploredManagedHostList {
+        .map(|ep| nico_rpc::site_explorer::ExploredManagedHostList {
             managed_hosts: ep
                 .into_iter()
-                .map(::rpc::site_explorer::ExploredManagedHost::from)
+                .map(nico_rpc::site_explorer::ExploredManagedHost::from)
                 .collect(),
         })
         .map(Response::new)?;
@@ -139,18 +144,18 @@ pub(crate) async fn find_explored_managed_hosts_by_ids(
 
 pub(crate) async fn get_site_exploration_report(
     api: &Api,
-    request: tonic::Request<::rpc::forge::GetSiteExplorationRequest>,
-) -> Result<Response<::rpc::site_explorer::SiteExplorationReport>, Status> {
+    request: tonic::Request<forge::GetSiteExplorationRequest>,
+) -> Result<Response<nico_rpc::site_explorer::SiteExplorationReport>, Status> {
     log_request_data(&request);
 
-    let report = db::site_exploration_report::fetch(&mut api.db_reader()).await?;
+    let report = nico_api_db::site_exploration_report::fetch(&mut api.db_reader()).await?;
 
     Ok(tonic::Response::new(report.into()))
 }
 
 pub(crate) async fn clear_site_exploration_error(
     api: &Api,
-    request: Request<rpc::ClearSiteExplorationErrorRequest>,
+    request: Request<forge::ClearSiteExplorationErrorRequest>,
 ) -> Result<Response<()>, tonic::Status> {
     log_request_data(&request);
     let req = request.into_inner();
@@ -159,7 +164,7 @@ pub(crate) async fn clear_site_exploration_error(
 
     let mut txn = api.txn_begin().await?;
 
-    db::explored_endpoints::clear_last_known_error(bmc_ip, &mut txn).await?;
+    nico_api_db::explored_endpoints::clear_last_known_error(bmc_ip, &mut txn).await?;
 
     txn.commit().await?;
 
@@ -168,7 +173,7 @@ pub(crate) async fn clear_site_exploration_error(
 
 pub(crate) async fn re_explore_endpoint(
     api: &Api,
-    request: Request<rpc::ReExploreEndpointRequest>,
+    request: Request<forge::ReExploreEndpointRequest>,
 ) -> Result<Response<()>, tonic::Status> {
     log_request_data(&request);
     let req = request.into_inner();
@@ -182,7 +187,7 @@ pub(crate) async fn re_explore_endpoint(
 
     let mut txn = api.txn_begin().await?;
 
-    let eps = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
+    let eps = nico_api_db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
     if eps.is_empty() {
         return Err(CarbideError::NotFoundError {
             kind: "explored_endpoint",
@@ -196,7 +201,7 @@ pub(crate) async fn re_explore_endpoint(
             Some(v) => v,
             None => ep.report_version,
         };
-        match db::explored_endpoints::re_explore_if_version_matches(
+        match nico_api_db::explored_endpoints::re_explore_if_version_matches(
             bmc_ip,
             expected_version,
             &mut txn,
@@ -222,7 +227,7 @@ pub(crate) async fn re_explore_endpoint(
 
 pub(crate) async fn pause_explored_endpoint_remediation(
     api: &Api,
-    request: Request<rpc::PauseExploredEndpointRemediationRequest>,
+    request: Request<forge::PauseExploredEndpointRemediationRequest>,
 ) -> Result<Response<()>, tonic::Status> {
     log_request_data(&request);
     let req = request.into_inner();
@@ -231,7 +236,7 @@ pub(crate) async fn pause_explored_endpoint_remediation(
 
     let mut txn = api.txn_begin().await?;
 
-    let eps = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
+    let eps = nico_api_db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
     if eps.is_empty() {
         return Err(CarbideError::NotFoundError {
             kind: "explored_endpoint",
@@ -253,7 +258,7 @@ pub(crate) async fn pause_explored_endpoint_remediation(
         .into());
     }
 
-    db::explored_endpoints::set_pause_remediation(bmc_ip, req.pause, &mut txn).await?;
+    nico_api_db::explored_endpoints::set_pause_remediation(bmc_ip, req.pause, &mut txn).await?;
 
     txn.commit().await?;
 
@@ -262,7 +267,7 @@ pub(crate) async fn pause_explored_endpoint_remediation(
 
 pub(crate) async fn is_bmc_in_managed_host(
     api: &Api,
-    request: tonic::Request<::rpc::forge::BmcEndpointRequest>,
+    request: tonic::Request<forge::BmcEndpointRequest>,
 ) -> Result<Response<IsBmcInManagedHostResponse>, tonic::Status> {
     log_request_data(&request);
     let req = request.into_inner();
@@ -293,8 +298,8 @@ pub(crate) async fn is_bmc_in_managed_host(
 
 pub(crate) async fn delete_explored_endpoint(
     api: &Api,
-    request: Request<rpc::DeleteExploredEndpointRequest>,
-) -> Result<Response<rpc::DeleteExploredEndpointResponse>, tonic::Status> {
+    request: Request<forge::DeleteExploredEndpointRequest>,
+) -> Result<Response<forge::DeleteExploredEndpointResponse>, tonic::Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -303,10 +308,10 @@ pub(crate) async fn delete_explored_endpoint(
     let mut txn = api.txn_begin().await?;
 
     // Check if the endpoint exists
-    let endpoints = db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
+    let endpoints = nico_api_db::explored_endpoints::find_all_by_ip(bmc_ip, &mut txn).await?;
 
     if endpoints.is_empty() {
-        return Ok(Response::new(rpc::DeleteExploredEndpointResponse {
+        return Ok(Response::new(forge::DeleteExploredEndpointResponse {
             deleted: false,
             message: Some(format!("No explored endpoint found with IP {bmc_ip}")),
         }));
@@ -326,11 +331,11 @@ pub(crate) async fn delete_explored_endpoint(
     }
 
     // Delete the endpoint
-    db::explored_endpoints::delete(&mut txn, bmc_ip).await?;
+    nico_api_db::explored_endpoints::delete(&mut txn, bmc_ip).await?;
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::DeleteExploredEndpointResponse {
+    Ok(Response::new(forge::DeleteExploredEndpointResponse {
         deleted: true,
         message: Some(format!(
             "Successfully deleted explored endpoint with IP {bmc_ip}"

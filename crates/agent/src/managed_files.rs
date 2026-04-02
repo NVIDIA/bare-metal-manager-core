@@ -17,9 +17,11 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 
-use crate::duppet::{self, FileEnsure, SyncOptions};
+use crate::duppet::{
+    FileEnsure, SyncOptions, {self},
+};
 
 pub fn main_sync(sync_options: SyncOptions, machine_id: &MachineId, host_machine_id: &MachineId) {
     // Sync out all duppet-managed config files. This can be called as part of

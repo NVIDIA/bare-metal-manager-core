@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::dpu_extension_service_credential::Type;
 use clap::Parser;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge;
+use nico_rpc::forge::dpu_extension_service_credential::Type;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -67,7 +68,7 @@ pub struct Args {
     pub observability: Option<String>,
 }
 
-impl TryFrom<Args> for ::rpc::forge::UpdateDpuExtensionServiceRequest {
+impl TryFrom<Args> for forge::UpdateDpuExtensionServiceRequest {
     type Error = CarbideCliError;
 
     fn try_from(args: Args) -> CarbideCliResult<Self> {
@@ -81,9 +82,9 @@ impl TryFrom<Args> for ::rpc::forge::UpdateDpuExtensionServiceRequest {
                 ));
                 }
 
-                Some(::rpc::forge::DpuExtensionServiceCredential {
+                Some(forge::DpuExtensionServiceCredential {
                     registry_url: args.registry_url.unwrap(),
-                    r#type: Some(Type::UsernamePassword(rpc::forge::UsernamePassword {
+                    r#type: Some(Type::UsernamePassword(forge::UsernamePassword {
                         username: args.username.unwrap(),
                         password: args.password.unwrap(),
                     })),
@@ -92,7 +93,7 @@ impl TryFrom<Args> for ::rpc::forge::UpdateDpuExtensionServiceRequest {
                 None
             };
 
-        let observability: Vec<::rpc::forge::DpuExtensionServiceObservabilityConfig> =
+        let observability: Vec<forge::DpuExtensionServiceObservabilityConfig> =
             if let Some(r) = args.observability {
                 serde_json::from_str(&r)?
             } else {
@@ -106,7 +107,7 @@ impl TryFrom<Args> for ::rpc::forge::UpdateDpuExtensionServiceRequest {
             data: args.data,
             credential,
             if_version_ctr_match: args.if_version_ctr_match,
-            observability: Some(::rpc::forge::DpuExtensionServiceObservability {
+            observability: Some(forge::DpuExtensionServiceObservability {
                 configs: observability,
             }),
         })

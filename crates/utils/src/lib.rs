@@ -27,6 +27,8 @@ pub mod sku;
 
 pub use host_port_pair::{HostPortPair, HostPortParseError};
 pub use managed_host_display::{ManagedHostMetadata, ManagedHostOutput, get_managed_host_output};
+use nico_rpc::forge;
+
 pub const DEFAULT_DPU_DMI_BOARD_SERIAL_NUMBER: &str = "Unspecified Base Board Serial Number";
 pub const DEFAULT_DPU_DMI_CHASSIS_SERIAL_NUMBER: &str = "Unspecified Chassis Board Serial Number";
 pub const DEFAULT_DMI_SYSTEM_MANUFACTURER: &str = "Unspecified System Manufacturer";
@@ -35,10 +37,10 @@ pub const BF2_PRODUCT_NAME: &str = "BlueField SoC";
 pub const BF3_PRODUCT_NAME: &str = "BlueField-3 SmartNIC Main Card";
 
 /// A string to display to the user. Either the 'reason' or 'err' field, or None.
-pub fn reason_to_user_string(p: &rpc::forge::ControllerStateReason) -> Option<String> {
-    use rpc::forge::ControllerStateOutcome::*;
-    let Ok(outcome) = rpc::forge::ControllerStateOutcome::try_from(p.outcome) else {
-        tracing::error!("Invalid rpc::forge::ControllerStateOutcome i32, should be impossible.");
+pub fn reason_to_user_string(p: &forge::ControllerStateReason) -> Option<String> {
+    use nico_rpc::forge::ControllerStateOutcome::*;
+    let Ok(outcome) = forge::ControllerStateOutcome::try_from(p.outcome) else {
+        tracing::error!("Invalid forge::ControllerStateOutcome i32, should be impossible.");
         return None;
     };
     match outcome {

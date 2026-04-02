@@ -28,9 +28,10 @@
 use std::fmt;
 use std::ops::{Deref, DerefMut};
 
-use carbide_uuid::network::NetworkSegmentId;
 use instance::config::network::InterfaceFunctionId;
 use mac_address::MacAddress;
+use nico_rpc::forge;
+use nico_uuid::network::NetworkSegmentId;
 use serde::{Deserialize, Serialize};
 
 pub mod address_selection_strategy;
@@ -292,9 +293,9 @@ impl StateSla {
     }
 }
 
-impl From<StateSla> for rpc::forge::StateSla {
+impl From<StateSla> for forge::StateSla {
     fn from(value: StateSla) -> Self {
-        rpc::forge::StateSla {
+        forge::StateSla {
             sla: value.sla.map(|sla| sla.into()),
             time_in_state_above_sla: value.time_in_state_above_sla,
         }

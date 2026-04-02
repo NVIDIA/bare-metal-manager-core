@@ -26,7 +26,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::vec::Vec;
 
-use rpc::protos::measured_boot::PcrRegisterValuePb;
+use nico_rpc::protos::measured_boot::PcrRegisterValuePb;
 
 // PcrRange is a small struct used when parsing
 // --pcr-register values from the CLI as part of

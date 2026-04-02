@@ -22,8 +22,8 @@ use axum::Json;
 use axum::extract::State as AxumState;
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 
 use crate::api::Api;
 
@@ -41,8 +41,8 @@ struct ResourcePoolDisplay {
     allocated: String,
 }
 
-impl From<forgerpc::ResourcePool> for ResourcePoolDisplay {
-    fn from(pool: forgerpc::ResourcePool) -> Self {
+impl From<forge::ResourcePool> for ResourcePoolDisplay {
+    fn from(pool: forge::ResourcePool) -> Self {
         Self {
             name: pool.name,
             min: pool.min,
@@ -93,8 +93,8 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(out)).into_response()
 }
 
-async fn fetch_resource_pools(api: Arc<Api>) -> Result<Vec<forgerpc::ResourcePool>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::ListResourcePoolsRequest {
+async fn fetch_resource_pools(api: Arc<Api>) -> Result<Vec<forge::ResourcePool>, tonic::Status> {
+    let request = tonic::Request::new(forge::ListResourcePoolsRequest {
         auto_assignable: None,
     });
     let mut out = api

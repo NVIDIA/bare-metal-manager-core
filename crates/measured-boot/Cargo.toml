@@ -15,23 +15,23 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-measured-boot"
+name = "nico-measured-boot"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [lib]
-name = "measured_boot"
+name = "nico_measured_boot"
 
 [features]
-sqlx = ["dep:sqlx", "carbide-uuid/sqlx"]
-cli = ["dep:prettytable-rs", "dep:eyre", "dep:clap", "carbide-rpc/cli"]
+sqlx = ["dep:sqlx", "nico-uuid/sqlx"]
+cli = ["dep:prettytable-rs", "dep:eyre", "dep:clap", "nico-rpc/cli"]
 
 [dependencies]
 # workspace dependencies
-carbide-uuid = { path = "../uuid" }
-carbide-rpc = { path = "../rpc" }
+nico-uuid = { path = "../uuid" }
+nico-rpc = { path = "../rpc" }
 
 thiserror = { workspace = true }
 sqlx = { workspace = true, optional = true }

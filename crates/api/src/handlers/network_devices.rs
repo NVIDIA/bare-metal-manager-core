@@ -14,18 +14,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
-use db::ObjectFilter;
-use db::network_devices::NetworkDeviceSearchConfig;
 use itertools::Itertools;
+use nico_api_db::ObjectFilter;
+use nico_api_db::network_devices::NetworkDeviceSearchConfig;
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
 
 pub(crate) async fn get_network_topology(
     api: &Api,
-    request: Request<rpc::NetworkTopologyRequest>,
-) -> Result<Response<rpc::NetworkTopologyData>, Status> {
+    request: Request<forge::NetworkTopologyRequest>,
+) -> Result<Response<forge::NetworkTopologyData>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -36,7 +36,7 @@ pub(crate) async fn get_network_topology(
         None => ObjectFilter::All,
     };
 
-    let data = db::network_devices::get_topology(&mut txn, query).await?;
+    let data = nico_api_db::network_devices::get_topology(&mut txn, query).await?;
 
     txn.commit().await?;
 
@@ -45,8 +45,8 @@ pub(crate) async fn get_network_topology(
 
 pub(crate) async fn find_network_devices_by_device_ids(
     api: &Api,
-    request: Request<rpc::NetworkDeviceIdList>,
-) -> Result<Response<rpc::NetworkTopologyData>, Status> {
+    request: Request<forge::NetworkDeviceIdList>,
+) -> Result<Response<forge::NetworkTopologyData>, Status> {
     log_request_data(&request);
 
     let request = request.into_inner(); // keep lifetime for this scope
@@ -56,33 +56,34 @@ pub(crate) async fn find_network_devices_by_device_ids(
         .map(|d| d.as_str())
         .collect();
     let search_config = NetworkDeviceSearchConfig::new(false);
-    let network_devices = db::network_devices::find(
+    let network_devices = nico_api_db::network_devices::find(
         &mut api.db_reader(),
         ObjectFilter::List(&network_device_ids),
         &search_config,
     )
     .await?;
 
-    Ok(Response::new(rpc::NetworkTopologyData {
+    Ok(Response::new(forge::NetworkTopologyData {
         network_devices: network_devices.into_iter().map_into().collect(),
     }))
 }
 
 pub(crate) async fn find_connected_devices_by_dpu_machine_ids(
     api: &Api,
-    request: Request<::rpc::common::MachineIdList>,
-) -> Result<Response<rpc::ConnectedDeviceList>, Status> {
+    request: Request<nico_rpc::common::MachineIdList>,
+) -> Result<Response<forge::ConnectedDeviceList>, Status> {
     log_request_data(&request);
 
     let dpu_ids = request.into_inner().machine_ids;
 
-    let connected_devices = db::network_devices::dpu_to_network_device_map::find_by_dpu_ids(
-        &api.database_connection,
-        &dpu_ids,
-    )
-    .await?;
+    let connected_devices =
+        nico_api_db::network_devices::dpu_to_network_device_map::find_by_dpu_ids(
+            &api.database_connection,
+            &dpu_ids,
+        )
+        .await?;
 
-    Ok(Response::new(rpc::ConnectedDeviceList {
+    Ok(Response::new(forge::ConnectedDeviceList {
         connected_devices: connected_devices.into_iter().map_into().collect(),
     }))
 }

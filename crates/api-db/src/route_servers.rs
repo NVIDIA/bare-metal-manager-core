@@ -16,7 +16,7 @@
  */
 use std::net::IpAddr;
 
-use model::route_server::{RouteServer, RouteServerSourceType};
+use nico_api_model::route_server::{RouteServer, RouteServerSourceType};
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;

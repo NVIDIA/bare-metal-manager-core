@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::{TestEnv, TestManagedHost, create_test_env};
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::network::NetworkSegmentId;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_managed_host;
@@ -35,7 +36,7 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     let mut txn = env.pool.begin().await.unwrap();
     let host_interface = mh.host().first_interface(&mut txn).await;
     txn.rollback().await.unwrap();
-    let host_arch = rpc::forge::MachineArchitecture::X86;
+    let host_arch = forge::MachineArchitecture::X86;
 
     let tinstance = create_instance(&env, &mh, false, segment_id).await;
     assert!(
@@ -80,10 +81,10 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration_until_state_condition(&mh.id, 5, |machine| {
         matches!(
             machine.current_state(),
-            model::machine::ManagedHostState::Assigned {
-                instance_state: model::machine::InstanceState::HostPlatformConfiguration {
+            nico_api_model::machine::ManagedHostState::Assigned {
+                instance_state: nico_api_model::machine::InstanceState::HostPlatformConfiguration {
                     platform_config_state:
-                        model::machine::HostPlatformConfigurationState::CheckHostConfig
+                        nico_api_model::machine::HostPlatformConfigurationState::CheckHostConfig
                 }
             }
         )
@@ -93,8 +94,8 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration_until_state_condition(&mh.id, 5, |machine| {
         matches!(
             machine.current_state(),
-            model::machine::ManagedHostState::Assigned {
-                instance_state: model::machine::InstanceState::WaitingForDpusToUp
+            nico_api_model::machine::ManagedHostState::Assigned {
+                instance_state: nico_api_model::machine::InstanceState::WaitingForDpusToUp
             }
         )
     })
@@ -103,8 +104,8 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     env.run_machine_state_controller_iteration_until_state_condition(&mh.id, 5, |machine| {
         matches!(
             machine.current_state(),
-            model::machine::ManagedHostState::Assigned {
-                instance_state: model::machine::InstanceState::Ready
+            nico_api_model::machine::ManagedHostState::Assigned {
+                instance_state: nico_api_model::machine::InstanceState::Ready
             }
         )
     })
@@ -128,10 +129,10 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     // A reboot should also be possible with just MachineId
     // TODO: Remove these assertions after the `machine_id` based reboots are removed.
     env.api
-        .invoke_instance_power(tonic::Request::new(rpc::forge::InstancePowerRequest {
+        .invoke_instance_power(tonic::Request::new(forge::InstancePowerRequest {
             instance_id: None,
             machine_id: Some(mh.id),
-            operation: rpc::forge::instance_power_request::Operation::PowerReset as _,
+            operation: forge::instance_power_request::Operation::PowerReset as _,
             boot_with_custom_ipxe: false,
             apply_updates_on_reboot: false,
         }))
@@ -141,10 +142,10 @@ async fn test_instance_uses_custom_ipxe_only_once(pool: sqlx::PgPool) {
     // A request with mismatching Machine and InstanceId should fail
     let err = env
         .api
-        .invoke_instance_power(tonic::Request::new(rpc::forge::InstancePowerRequest {
+        .invoke_instance_power(tonic::Request::new(forge::InstancePowerRequest {
             instance_id: Some(tinstance.id),
             machine_id: Some(mh.dpu_ids[0]),
-            operation: rpc::forge::instance_power_request::Operation::PowerReset as _,
+            operation: forge::instance_power_request::Operation::PowerReset as _,
             boot_with_custom_ipxe: false,
             apply_updates_on_reboot: false,
         }))
@@ -162,7 +163,7 @@ async fn test_instance_always_boot_with_custom_ipxe(pool: sqlx::PgPool) {
     let mut txn = env.pool.begin().await.unwrap();
     let host_interface = mh.host().first_interface(&mut txn).await;
     txn.rollback().await.unwrap();
-    let host_arch = rpc::forge::MachineArchitecture::X86;
+    let host_arch = forge::MachineArchitecture::X86;
 
     let tinstance = create_instance(&env, &mh, true, segment_id).await;
     assert!(
@@ -199,10 +200,10 @@ async fn invoke_instance_power(
     boot_with_custom_ipxe: bool,
 ) {
     env.api
-        .invoke_instance_power(tonic::Request::new(rpc::forge::InstancePowerRequest {
+        .invoke_instance_power(tonic::Request::new(forge::InstancePowerRequest {
             instance_id: Some(instance_id),
             machine_id: None,
-            operation: rpc::forge::instance_power_request::Operation::PowerReset as _,
+            operation: forge::instance_power_request::Operation::PowerReset as _,
             boot_with_custom_ipxe,
             apply_updates_on_reboot: false,
         }))
@@ -216,10 +217,10 @@ pub async fn create_instance<'a, 'b>(
     run_provisioning_instructions_on_every_boot: bool,
     segment_id: NetworkSegmentId,
 ) -> TestInstance<'a, 'b> {
-    let mut os: rpc::forge::OperatingSystem = default_os_config();
+    let mut os: forge::OperatingSystem = default_os_config();
     os.run_provisioning_instructions_on_every_boot = run_provisioning_instructions_on_every_boot;
 
-    let config = rpc::InstanceConfig {
+    let config = forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(os),
         network: Some(single_interface_network_config(segment_id)),

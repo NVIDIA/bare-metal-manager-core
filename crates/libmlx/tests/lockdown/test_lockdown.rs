@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use libmlx::lockdown::error::MlxError;
-use libmlx::lockdown::lockdown::{LockStatus, LockdownManager, StatusReport};
-use libmlx::lockdown::runner::FlintRunner;
+use nico_libmlx::lockdown::error::MlxError;
+use nico_libmlx::lockdown::lockdown::{LockStatus, LockdownManager, StatusReport};
+use nico_libmlx::lockdown::runner::FlintRunner;
 
 #[test]
 fn test_lock_status_display() {

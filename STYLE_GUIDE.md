@@ -143,7 +143,7 @@ would be `CarbideError::Internal`.
 // Avoid — constructing Status directly, bypassing `CarbideError` error mapping
 pub async fn create_resource(
     api: &Api,
-    request: Request<rpc::Resource>,
+    request: Request<nico_rpc::Resource>,
 ) -> Result<Response<()>, Status> {
     let resource = request.into_inner();
     let id = resource
@@ -154,7 +154,7 @@ pub async fn create_resource(
 // Prefer — uses `CarbideError::InvalidArgument`
 pub async fn create_resource(
     api: &Api,
-    request: Request<rpc::Resource>,
+    request: Request<nico_rpc::Resource>,
 ) -> Result<Response<()>, Status> {
     let resource = request.into_inner();
     let id = resource
@@ -172,7 +172,7 @@ checks for each meaningful combination of feature flags we support, which scales
 
 Cases where features *are* warranted:
 
-- For shared crates when only a subset of dependents need certain code: For example, the `carbide_uuid` is used by
+- For shared crates when only a subset of dependents need certain code: For example, the `nico_uuid` is used by
   several dependents, but only the `carbide_api` crate needs the sqlx conversions. We don't want e.g.
   `carbide_admin_cli` to take a dependency on `sqlx`, so the sqlx conversions are behind a `sqlx` crate feature. But
   this is covered by CI tests, since CI builds both the admin-cli and the api crate, both sets of features are

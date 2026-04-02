@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
-use rpc::errors::RpcDataConversionError;
-use rpc::forge as rpc_forge;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::{forge as rpc_forge, forge};
+use nico_uuid::nvlink::NvLinkLogicalPartitionId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -156,7 +156,7 @@ impl TryFrom<LogicalPartition> for rpc_forge::NvLinkLogicalPartition {
         });
 
         let config = rpc_forge::NvLinkLogicalPartitionConfig {
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: src.name,
                 description: src.description,
                 ..Default::default()

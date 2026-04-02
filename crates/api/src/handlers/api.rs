@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use ::rpc::forge as rpc;
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 use utils::HostPortPair;
 
@@ -28,18 +28,18 @@ use crate::api::{Api, log_request_data};
 
 pub(crate) fn version(
     api: &Api,
-    request: Request<rpc::VersionRequest>,
-) -> Result<Response<rpc::BuildInfo>, Status> {
+    request: Request<forge::VersionRequest>,
+) -> Result<Response<forge::BuildInfo>, Status> {
     log_request_data(&request);
     let version_request = request.into_inner();
 
-    let v = rpc::BuildInfo {
-        build_version: carbide_version::v!(build_version).to_string(),
-        build_date: carbide_version::v!(build_date).to_string(),
-        git_sha: carbide_version::v!(git_sha).to_string(),
-        rust_version: carbide_version::v!(rust_version).to_string(),
-        build_user: carbide_version::v!(build_user).to_string(),
-        build_hostname: carbide_version::v!(build_hostname).to_string(),
+    let v = forge::BuildInfo {
+        build_version: nico_version::v!(build_version).to_string(),
+        build_date: nico_version::v!(build_date).to_string(),
+        git_sha: nico_version::v!(git_sha).to_string(),
+        rust_version: nico_version::v!(rust_version).to_string(),
+        build_user: nico_version::v!(build_user).to_string(),
+        build_hostname: nico_version::v!(build_hostname).to_string(),
 
         runtime_config: if version_request.display_config {
             Some(api.runtime_config.redacted().into())
@@ -52,11 +52,11 @@ pub(crate) fn version(
 
 pub(crate) fn echo(
     _api: &Api,
-    request: Request<rpc::EchoRequest>,
-) -> Result<Response<rpc::EchoResponse>, Status> {
+    request: Request<forge::EchoRequest>,
+) -> Result<Response<forge::EchoResponse>, Status> {
     log_request_data(&request);
 
-    let reply = rpc::EchoResponse {
+    let reply = forge::EchoResponse {
         message: request.into_inner().message,
     };
 
@@ -66,7 +66,7 @@ pub(crate) fn echo(
 // Override RUST_LOG or site-explorer create_machines
 pub(crate) fn set_dynamic_config(
     api: &Api,
-    request: Request<rpc::SetDynamicConfigRequest>,
+    request: Request<forge::SetDynamicConfigRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
@@ -84,7 +84,7 @@ pub(crate) fn set_dynamic_config(
     }
     let expire_at = chrono::Utc::now() + expiry;
 
-    let Ok(requested_setting) = rpc::ConfigSetting::try_from(req.setting) else {
+    let Ok(requested_setting) = forge::ConfigSetting::try_from(req.setting) else {
         return Err(CarbideError::InvalidArgument(format!(
             "Not a supported dynamic config setting: {}",
             req.setting
@@ -92,12 +92,12 @@ pub(crate) fn set_dynamic_config(
         .into());
     };
 
-    if req.value.is_empty() && !matches!(requested_setting, rpc::ConfigSetting::BmcProxy) {
+    if req.value.is_empty() && !matches!(requested_setting, forge::ConfigSetting::BmcProxy) {
         return Err(CarbideError::InvalidArgument("'value' cannot be empty".to_string()).into());
     }
 
     match requested_setting {
-        rpc::ConfigSetting::LogFilter => {
+        forge::ConfigSetting::LogFilter => {
             let level = &api.dynamic_settings.log_filter;
             level.update(&req.value, Some(expire_at)).map_err(|err| {
                 CarbideError::InvalidArgument(format!(
@@ -111,7 +111,7 @@ pub(crate) fn set_dynamic_config(
                 tracing_subscriber::filter::LevelFilter::current()
             );
         }
-        rpc::ConfigSetting::CreateMachines => {
+        forge::ConfigSetting::CreateMachines => {
             let is_enabled = req.value.parse::<bool>().map_err(|err| {
                 CarbideError::InvalidArgument(format!(
                     "Invalid create_machines string '{}'. {err}",
@@ -123,7 +123,7 @@ pub(crate) fn set_dynamic_config(
                 .store(is_enabled, Ordering::Relaxed);
             tracing::info!("site-explorer create_machines updated to '{}'", req.value);
         }
-        rpc::ConfigSetting::BmcProxy => {
+        forge::ConfigSetting::BmcProxy => {
             let Some(true) = api.runtime_config.site_explorer.allow_changing_bmc_proxy else {
                 return Err(CarbideError::PermissionDeniedError(
                     "site-explorer.bmc_proxy is not allowed to be changed on this server".into(),
@@ -147,7 +147,7 @@ pub(crate) fn set_dynamic_config(
             }
             tracing::info!("site-explorer create_machines updated to '{}'", req.value);
         }
-        rpc::ConfigSetting::TracingEnabled => {
+        forge::ConfigSetting::TracingEnabled => {
             let enable = req.value.parse().map_err(|_| {
                 CarbideError::InvalidArgument(format!(
                     "Expected bool for TracingEnabled, got {}",

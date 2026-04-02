@@ -20,10 +20,6 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_network::BaseMac;
-use carbide_uuid::machine::{MachineId, MachineType};
-use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
-use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use itertools::Itertools;
@@ -31,6 +27,10 @@ use lazy_static::lazy_static;
 use libredfish::RedfishError;
 pub use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
+use nico_network::BaseMac;
+use nico_uuid::machine::{MachineId, MachineType};
+use nico_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
+use nico_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use utils::models::arch::CpuArchitecture;
@@ -48,8 +48,8 @@ use crate::switch::switch_id;
 #[derive(Clone, Debug, Default)]
 pub struct ExploredEndpointSearchFilter {}
 
-impl From<rpc::site_explorer::ExploredEndpointSearchFilter> for ExploredEndpointSearchFilter {
-    fn from(_filter: rpc::site_explorer::ExploredEndpointSearchFilter) -> Self {
+impl From<nico_rpc::site_explorer::ExploredEndpointSearchFilter> for ExploredEndpointSearchFilter {
+    fn from(_filter: nico_rpc::site_explorer::ExploredEndpointSearchFilter) -> Self {
         ExploredEndpointSearchFilter {}
     }
 }
@@ -57,8 +57,10 @@ impl From<rpc::site_explorer::ExploredEndpointSearchFilter> for ExploredEndpoint
 #[derive(Clone, Debug, Default)]
 pub struct ExploredManagedHostSearchFilter {}
 
-impl From<rpc::site_explorer::ExploredManagedHostSearchFilter> for ExploredManagedHostSearchFilter {
-    fn from(_filter: rpc::site_explorer::ExploredManagedHostSearchFilter) -> Self {
+impl From<nico_rpc::site_explorer::ExploredManagedHostSearchFilter>
+    for ExploredManagedHostSearchFilter
+{
+    fn from(_filter: nico_rpc::site_explorer::ExploredManagedHostSearchFilter) -> Self {
         ExploredManagedHostSearchFilter {}
     }
 }
@@ -176,9 +178,9 @@ impl EndpointExplorationReport {
     }
 }
 
-impl From<EndpointExplorationReport> for rpc::site_explorer::EndpointExplorationReport {
+impl From<EndpointExplorationReport> for nico_rpc::site_explorer::EndpointExplorationReport {
     fn from(report: EndpointExplorationReport) -> Self {
-        rpc::site_explorer::EndpointExplorationReport {
+        nico_rpc::site_explorer::EndpointExplorationReport {
             endpoint_type: format!("{:?}", report.endpoint_type),
             last_exploration_error: report.last_exploration_error.map(|error| {
                 serde_json::to_string(&error).unwrap_or_else(|_| "Unserializable error".to_string())
@@ -466,9 +468,9 @@ pub struct SystemStatus {
     pub state: String,
 }
 
-impl From<SystemStatus> for rpc::site_explorer::SystemStatus {
+impl From<SystemStatus> for nico_rpc::site_explorer::SystemStatus {
     fn from(status: SystemStatus) -> Self {
-        rpc::site_explorer::SystemStatus {
+        nico_rpc::site_explorer::SystemStatus {
             health: status.health,
             health_rollup: status.health_rollup,
             state: status.state,
@@ -476,9 +478,9 @@ impl From<SystemStatus> for rpc::site_explorer::SystemStatus {
     }
 }
 
-impl From<PCIeDevice> for rpc::site_explorer::PcIeDevice {
+impl From<PCIeDevice> for nico_rpc::site_explorer::PcIeDevice {
     fn from(device: PCIeDevice) -> Self {
-        rpc::site_explorer::PcIeDevice {
+        nico_rpc::site_explorer::PcIeDevice {
             description: device.description,
             firmware_version: device.firmware_version,
             gpu_vendor: device.gpu_vendor,
@@ -492,9 +494,9 @@ impl From<PCIeDevice> for rpc::site_explorer::PcIeDevice {
     }
 }
 
-impl From<ExploredEndpoint> for rpc::site_explorer::ExploredEndpoint {
+impl From<ExploredEndpoint> for nico_rpc::site_explorer::ExploredEndpoint {
     fn from(endpoint: ExploredEndpoint) -> Self {
-        rpc::site_explorer::ExploredEndpoint {
+        nico_rpc::site_explorer::ExploredEndpoint {
             address: endpoint.address.to_string(),
             report: Some(endpoint.report.into()),
             report_version: endpoint.report_version.to_string(),
@@ -534,9 +536,9 @@ pub struct ExploredDpu {
     pub report: Arc<EndpointExplorationReport>,
 }
 
-impl From<&ExploredDpu> for rpc::site_explorer::ExploredDpu {
+impl From<&ExploredDpu> for nico_rpc::site_explorer::ExploredDpu {
     fn from(dpu: &ExploredDpu) -> Self {
-        rpc::site_explorer::ExploredDpu {
+        nico_rpc::site_explorer::ExploredDpu {
             bmc_ip: dpu.bmc_ip.to_string(),
             host_pf_mac_address: dpu.host_pf_mac_address.map(|m| m.to_string()),
         }
@@ -719,14 +721,14 @@ mod serialize_option_display {
     }
 }
 
-impl From<ExploredManagedHost> for rpc::site_explorer::ExploredManagedHost {
+impl From<ExploredManagedHost> for nico_rpc::site_explorer::ExploredManagedHost {
     fn from(host: ExploredManagedHost) -> Self {
-        rpc::site_explorer::ExploredManagedHost {
+        nico_rpc::site_explorer::ExploredManagedHost {
             host_bmc_ip: host.host_bmc_ip.to_string(),
             dpus: host
                 .dpus
                 .iter()
-                .map(rpc::site_explorer::ExploredDpu::from)
+                .map(nico_rpc::site_explorer::ExploredDpu::from)
                 .collect(),
             dpu_bmc_ip: host
                 .dpus
@@ -1048,9 +1050,9 @@ impl EndpointExplorationReport {
     }
 }
 
-impl From<SiteExplorationReport> for rpc::site_explorer::SiteExplorationReport {
+impl From<SiteExplorationReport> for nico_rpc::site_explorer::SiteExplorationReport {
     fn from(report: SiteExplorationReport) -> Self {
-        rpc::site_explorer::SiteExplorationReport {
+        nico_rpc::site_explorer::SiteExplorationReport {
             endpoints: report.endpoints.into_iter().map(Into::into).collect(),
             managed_hosts: report.managed_hosts.into_iter().map(Into::into).collect(),
         }
@@ -1220,12 +1222,12 @@ pub struct ComputerSystemAttributes {
     pub is_infinite_boot_enabled: Option<bool>,
 }
 
-impl From<ComputerSystemAttributes> for rpc::site_explorer::ComputerSystemAttributes {
+impl From<ComputerSystemAttributes> for nico_rpc::site_explorer::ComputerSystemAttributes {
     fn from(attributes: ComputerSystemAttributes) -> Self {
-        rpc::site_explorer::ComputerSystemAttributes {
+        nico_rpc::site_explorer::ComputerSystemAttributes {
             nic_mode: attributes.nic_mode.map(|a| match a {
-                NicMode::Nic => rpc::site_explorer::NicMode::Nic.into(),
-                NicMode::Dpu => rpc::site_explorer::NicMode::Dpu.into(),
+                NicMode::Nic => nico_rpc::site_explorer::NicMode::Nic.into(),
+                NicMode::Dpu => nico_rpc::site_explorer::NicMode::Dpu.into(),
             }),
         }
     }
@@ -1269,9 +1271,9 @@ impl ComputerSystem {
     }
 }
 
-impl From<ComputerSystem> for rpc::site_explorer::ComputerSystem {
+impl From<ComputerSystem> for nico_rpc::site_explorer::ComputerSystem {
     fn from(system: ComputerSystem) -> Self {
-        rpc::site_explorer::ComputerSystem {
+        nico_rpc::site_explorer::ComputerSystem {
             id: system.id,
             manufacturer: system.manufacturer,
             model: system.model,
@@ -1281,24 +1283,24 @@ impl From<ComputerSystem> for rpc::site_explorer::ComputerSystem {
                 .into_iter()
                 .map(Into::into)
                 .collect(),
-            attributes: Some(rpc::site_explorer::ComputerSystemAttributes::from(
+            attributes: Some(nico_rpc::site_explorer::ComputerSystemAttributes::from(
                 system.attributes,
             )),
             pcie_devices: system.pcie_devices.into_iter().map(Into::into).collect(),
-            power_state: rpc::site_explorer::PowerState::from(system.power_state) as _,
+            power_state: nico_rpc::site_explorer::PowerState::from(system.power_state) as _,
             boot_order: system.boot_order.map(|order| order.into()),
         }
     }
 }
 
-impl From<PowerState> for rpc::site_explorer::PowerState {
+impl From<PowerState> for nico_rpc::site_explorer::PowerState {
     fn from(state: PowerState) -> Self {
         match state {
-            PowerState::Off => rpc::site_explorer::PowerState::Off,
-            PowerState::On => rpc::site_explorer::PowerState::On,
-            PowerState::PoweringOff => rpc::site_explorer::PowerState::PoweringOff,
-            PowerState::PoweringOn => rpc::site_explorer::PowerState::PoweringOn,
-            PowerState::Paused => rpc::site_explorer::PowerState::Paused,
+            PowerState::Off => nico_rpc::site_explorer::PowerState::Off,
+            PowerState::On => nico_rpc::site_explorer::PowerState::On,
+            PowerState::PoweringOff => nico_rpc::site_explorer::PowerState::PoweringOff,
+            PowerState::PoweringOn => nico_rpc::site_explorer::PowerState::PoweringOn,
+            PowerState::Paused => nico_rpc::site_explorer::PowerState::Paused,
         }
     }
 }
@@ -1322,9 +1324,9 @@ pub struct Manager {
     pub id: String,
 }
 
-impl From<Manager> for rpc::site_explorer::Manager {
+impl From<Manager> for nico_rpc::site_explorer::Manager {
     fn from(manager: Manager) -> Self {
-        rpc::site_explorer::Manager {
+        nico_rpc::site_explorer::Manager {
             id: manager.id,
             ethernet_interfaces: manager
                 .ethernet_interfaces
@@ -1349,7 +1351,7 @@ pub struct EthernetInterface {
     #[serde(
         rename = "MACAddress",
         alias = "MacAddress",
-        deserialize_with = "carbide_network::deserialize_optional_mlx_mac"
+        deserialize_with = "nico_network::deserialize_optional_mlx_mac"
     )]
     pub mac_address: Option<MacAddress>,
 
@@ -1406,9 +1408,9 @@ impl FromStr for UefiDevicePath {
     }
 }
 
-impl From<EthernetInterface> for rpc::site_explorer::EthernetInterface {
+impl From<EthernetInterface> for nico_rpc::site_explorer::EthernetInterface {
     fn from(interface: EthernetInterface) -> Self {
-        rpc::site_explorer::EthernetInterface {
+        nico_rpc::site_explorer::EthernetInterface {
             id: interface.id,
             description: interface.description,
             interface_enabled: interface.interface_enabled,
@@ -1438,9 +1440,9 @@ pub struct Chassis {
     pub revision_id: Option<i32>,
 }
 
-impl From<Chassis> for rpc::site_explorer::Chassis {
+impl From<Chassis> for nico_rpc::site_explorer::Chassis {
     fn from(chassis: Chassis) -> Self {
-        rpc::site_explorer::Chassis {
+        nico_rpc::site_explorer::Chassis {
             id: chassis.id,
             manufacturer: chassis.manufacturer,
             model: chassis.model,
@@ -1468,9 +1470,9 @@ pub struct NetworkAdapter {
     pub serial_number: Option<String>,
 }
 
-impl From<NetworkAdapter> for rpc::site_explorer::NetworkAdapter {
+impl From<NetworkAdapter> for nico_rpc::site_explorer::NetworkAdapter {
     fn from(adapter: NetworkAdapter) -> Self {
-        rpc::site_explorer::NetworkAdapter {
+        nico_rpc::site_explorer::NetworkAdapter {
             id: adapter.id,
             manufacturer: adapter.manufacturer,
             model: adapter.model,
@@ -1487,9 +1489,9 @@ pub struct SecureBootStatus {
     pub is_enabled: bool,
 }
 
-impl From<SecureBootStatus> for rpc::site_explorer::SecureBootStatus {
+impl From<SecureBootStatus> for nico_rpc::site_explorer::SecureBootStatus {
     fn from(secure_boot_status: SecureBootStatus) -> Self {
-        rpc::site_explorer::SecureBootStatus {
+        nico_rpc::site_explorer::SecureBootStatus {
             is_enabled: secure_boot_status.is_enabled,
         }
     }
@@ -1503,10 +1505,11 @@ pub struct LockdownStatus {
     pub message: String,
 }
 
-impl From<LockdownStatus> for rpc::site_explorer::LockdownStatus {
+impl From<LockdownStatus> for nico_rpc::site_explorer::LockdownStatus {
     fn from(lockdown_status: LockdownStatus) -> Self {
-        rpc::site_explorer::LockdownStatus {
-            status: rpc::site_explorer::InternalLockdownStatus::from(lockdown_status.status) as _,
+        nico_rpc::site_explorer::LockdownStatus {
+            status: nico_rpc::site_explorer::InternalLockdownStatus::from(lockdown_status.status)
+                as _,
             message: lockdown_status.message,
         }
     }
@@ -1520,13 +1523,17 @@ pub enum InternalLockdownStatus {
     Disabled,
 }
 
-impl From<InternalLockdownStatus> for rpc::site_explorer::InternalLockdownStatus {
+impl From<InternalLockdownStatus> for nico_rpc::site_explorer::InternalLockdownStatus {
     fn from(state: InternalLockdownStatus) -> Self {
         match state {
-            InternalLockdownStatus::Enabled => rpc::site_explorer::InternalLockdownStatus::Enabled,
-            InternalLockdownStatus::Partial => rpc::site_explorer::InternalLockdownStatus::Partial,
+            InternalLockdownStatus::Enabled => {
+                nico_rpc::site_explorer::InternalLockdownStatus::Enabled
+            }
+            InternalLockdownStatus::Partial => {
+                nico_rpc::site_explorer::InternalLockdownStatus::Partial
+            }
             InternalLockdownStatus::Disabled => {
-                rpc::site_explorer::InternalLockdownStatus::Disabled
+                nico_rpc::site_explorer::InternalLockdownStatus::Disabled
             }
         }
     }
@@ -1541,9 +1548,9 @@ pub struct Service {
     pub inventories: Vec<Inventory>,
 }
 
-impl From<Service> for rpc::site_explorer::Service {
+impl From<Service> for nico_rpc::site_explorer::Service {
     fn from(service: Service) -> Self {
-        rpc::site_explorer::Service {
+        nico_rpc::site_explorer::Service {
             id: service.id,
             inventories: service.inventories.into_iter().map(Into::into).collect(),
         }
@@ -1560,9 +1567,9 @@ pub struct Inventory {
     pub release_date: Option<String>,
 }
 
-impl From<Inventory> for rpc::site_explorer::Inventory {
+impl From<Inventory> for nico_rpc::site_explorer::Inventory {
     fn from(inventory: Inventory) -> Self {
-        rpc::site_explorer::Inventory {
+        nico_rpc::site_explorer::Inventory {
             id: inventory.id,
             description: inventory.description,
             version: inventory.version,
@@ -1579,9 +1586,9 @@ pub struct MachineSetupStatus {
     pub diffs: Vec<MachineSetupDiff>,
 }
 
-impl From<MachineSetupStatus> for rpc::site_explorer::MachineSetupStatus {
+impl From<MachineSetupStatus> for nico_rpc::site_explorer::MachineSetupStatus {
     fn from(machine_setup_status: MachineSetupStatus) -> Self {
-        rpc::site_explorer::MachineSetupStatus {
+        nico_rpc::site_explorer::MachineSetupStatus {
             is_done: machine_setup_status.is_done,
             diffs: machine_setup_status
                 .diffs
@@ -1599,9 +1606,9 @@ pub struct BootOrder {
     pub boot_order: Vec<BootOption>,
 }
 
-impl From<BootOrder> for rpc::site_explorer::BootOrder {
+impl From<BootOrder> for nico_rpc::site_explorer::BootOrder {
     fn from(order: BootOrder) -> Self {
-        rpc::site_explorer::BootOrder {
+        nico_rpc::site_explorer::BootOrder {
             boot_order: order.boot_order.into_iter().map(Into::into).collect(),
         }
     }
@@ -1616,9 +1623,9 @@ pub struct MachineSetupDiff {
     pub actual: String,
 }
 
-impl From<MachineSetupDiff> for rpc::site_explorer::MachineSetupDiff {
+impl From<MachineSetupDiff> for nico_rpc::site_explorer::MachineSetupDiff {
     fn from(machine_setup_diff: MachineSetupDiff) -> Self {
-        rpc::site_explorer::MachineSetupDiff {
+        nico_rpc::site_explorer::MachineSetupDiff {
             key: machine_setup_diff.key,
             expected: machine_setup_diff.expected,
             actual: machine_setup_diff.actual,
@@ -1636,9 +1643,9 @@ pub struct BootOption {
     pub uefi_device_path: Option<String>,
 }
 
-impl From<BootOption> for rpc::site_explorer::BootOption {
+impl From<BootOption> for nico_rpc::site_explorer::BootOption {
     fn from(boot_option: BootOption) -> Self {
-        rpc::site_explorer::BootOption {
+        nico_rpc::site_explorer::BootOption {
             display_name: boot_option.display_name,
             id: boot_option.id,
             boot_option_enabled: boot_option.boot_option_enabled,

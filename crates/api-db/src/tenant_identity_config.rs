@@ -18,7 +18,9 @@
 //! Tenant identity config for SPIFFE JWT-SVID machine identity.
 //! Stores per-org identity config and signing keys in `tenant_identity_config` table.
 
-use model::tenant::{IdentityConfig, TenantIdentityConfig, TenantOrganizationId, TokenDelegation};
+use nico_api_model::tenant::{
+    IdentityConfig, TenantIdentityConfig, TenantOrganizationId, TokenDelegation,
+};
 use sqlx::PgConnection;
 use sqlx::types::Json;
 
@@ -196,8 +198,8 @@ pub async fn delete_token_delegation(
 mod tests {
     use std::collections::HashMap;
 
-    use model::metadata::Metadata;
-    use model::tenant::{
+    use nico_api_model::metadata::Metadata;
+    use nico_api_model::tenant::{
         IdentityConfig, TokenDelegation, TokenDelegationAuthMethod, TokenDelegationAuthMethodConfig,
     };
 

@@ -17,8 +17,9 @@
 
 use std::collections::HashMap;
 
-use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
+use nico_rpc::forge;
+use nico_uuid::rack::RackId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -31,10 +32,10 @@ pub struct ExpectedMachineJson {
     pub chassis_serial_number: String,
     pub fallback_dpu_serial_numbers: Option<Vec<String>>,
     #[serde(default)]
-    pub metadata: Option<rpc::forge::Metadata>,
+    pub metadata: Option<forge::Metadata>,
     pub sku_id: Option<String>,
     #[serde(default)]
-    pub host_nics: Vec<rpc::forge::ExpectedHostNic>,
+    pub host_nics: Vec<forge::ExpectedHostNic>,
     pub rack_id: Option<RackId>,
     pub default_pause_ingestion_and_poweron: Option<bool>,
     pub dpf_enabled: Option<bool>,

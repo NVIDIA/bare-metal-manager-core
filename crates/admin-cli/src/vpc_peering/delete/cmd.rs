@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::admin_cli::output::OutputFormat;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::admin_cli::output::OutputFormat;
 
 use super::args::Args;
 use crate::rpc::ApiClient;

@@ -20,16 +20,16 @@
 
 use std::str::FromStr;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
-use ::rpc::protos::measured_boot::{
+use nico_measured_boot::profile::MeasurementSystemProfile;
+use nico_measured_boot::records::MeasurementSystemProfileRecord;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
+use nico_rpc::protos::measured_boot::{
     DeleteMeasurementSystemProfileRequest, ListMeasurementSystemProfileBundlesRequest,
     ListMeasurementSystemProfileMachinesRequest, RenameMeasurementSystemProfileRequest,
     ShowMeasurementSystemProfileRequest,
 };
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::MeasurementBundleId;
-use measured_boot::profile::MeasurementSystemProfile;
-use measured_boot::records::MeasurementSystemProfileRecord;
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::MeasurementBundleId;
 use serde::Serialize;
 
 use crate::measurement::profile::args::{
@@ -49,21 +49,21 @@ pub async fn dispatch(
             cli_output(
                 create(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdProfile::Delete(local_args) => {
             cli_output(
                 delete(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdProfile::Rename(local_args) => {
             cli_output(
                 rename(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdProfile::Show(local_args) => {
@@ -71,13 +71,13 @@ pub async fn dispatch(
                 cli_output(
                     show_by_id_or_name(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             } else {
                 cli_output(
                     show_all(cli.grpc_conn).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
         }
@@ -86,21 +86,21 @@ pub async fn dispatch(
                 cli_output(
                     list_bundles_for_id_or_name(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
             List::Machines(local_args) => {
                 cli_output(
                     list_machines_for_id_or_name(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
             List::All(_) => {
                 cli_output(
                     list_all(cli.grpc_conn).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
         },

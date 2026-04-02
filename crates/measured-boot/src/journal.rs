@@ -22,19 +22,19 @@
 
 use std::str::FromStr;
 
-use carbide_uuid::UuidEmptyStringError;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::{
+use chrono::Utc;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::protos::measured_boot::{MeasurementJournalPb, MeasurementMachineStatePb};
+use nico_uuid::UuidEmptyStringError;
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::{
     MeasurementBundleId, MeasurementJournalId, MeasurementReportId, MeasurementSystemProfileId,
 };
-use chrono::Utc;
-use rpc::errors::RpcDataConversionError;
-use rpc::protos::measured_boot::{MeasurementJournalPb, MeasurementMachineStatePb};
 use serde::Serialize;
 #[cfg(feature = "cli")]
 use {
-    rpc::admin_cli::ToTable,
-    rpc::admin_cli::{just_print_summary, serde_just_print_summary},
+    nico_rpc::admin_cli::ToTable, nico_rpc::admin_cli::just_print_summary,
+    nico_rpc::admin_cli::serde_just_print_summary,
 };
 
 use super::records::MeasurementMachineState;

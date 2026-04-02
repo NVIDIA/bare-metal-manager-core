@@ -16,7 +16,7 @@
  */
 
 use clap::Parser;
-use libmlx::embedded::cmd::{Cli, LogLevel, run_cli};
+use nico_libmlx::embedded::cmd::{Cli, LogLevel, run_cli};
 
 #[tokio::main]
 async fn main() {

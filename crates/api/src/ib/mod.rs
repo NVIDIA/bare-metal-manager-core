@@ -19,8 +19,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
-pub use model::ib::{IBMtu, IBRateLimit, IBServiceLevel};
+pub use nico_api_model::ib::{IBMtu, IBRateLimit, IBServiceLevel};
+use nico_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 
 #[cfg(test)]
 pub use self::iface::Filter;

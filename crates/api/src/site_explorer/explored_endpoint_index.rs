@@ -18,11 +18,11 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use mac_address::MacAddress;
-use model::expected_machine::ExpectedMachine;
-use model::expected_power_shelf::ExpectedPowerShelf;
-use model::expected_switch::ExpectedSwitch;
-use model::machine::MachineInterfaceSnapshot;
-use model::site_explorer::ExploredEndpoint;
+use nico_api_model::expected_machine::ExpectedMachine;
+use nico_api_model::expected_power_shelf::ExpectedPowerShelf;
+use nico_api_model::expected_switch::ExpectedSwitch;
+use nico_api_model::machine::MachineInterfaceSnapshot;
+use nico_api_model::site_explorer::ExploredEndpoint;
 
 /// An index into explored endpoints, allowing looking up expected endpoints by their MAC address,
 /// and by the IP address of the explored endpoint, if one was found.

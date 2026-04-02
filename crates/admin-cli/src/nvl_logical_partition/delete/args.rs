@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
-use ::rpc::forge as forgerpc;
-use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
 use clap::Parser;
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::forge;
+use nico_uuid::nvlink::NvLinkLogicalPartitionId;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -26,7 +26,7 @@ pub struct Args {
     pub name: String,
 }
 
-impl TryFrom<Args> for forgerpc::NvLinkLogicalPartitionDeletionRequest {
+impl TryFrom<Args> for forge::NvLinkLogicalPartitionDeletionRequest {
     type Error = CarbideCliError;
 
     fn try_from(args: Args) -> Result<Self, Self::Error> {

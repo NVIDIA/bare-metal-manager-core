@@ -14,11 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::machine::MachineId;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{BomValidating, ManagedHostState};
-use model::sku::Sku;
-use rpc::forge::{RemoveSkuRequest, SkuIdList};
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::{BomValidating, ManagedHostState};
+use nico_api_model::sku::Sku;
+use nico_rpc::forge;
+use nico_rpc::forge::{RemoveSkuRequest, SkuIdList};
+use nico_uuid::machine::MachineId;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -27,8 +28,8 @@ use crate::handlers::utils::convert_and_log_machine_id;
 
 pub(crate) async fn create(
     api: &Api,
-    request: Request<::rpc::forge::SkuList>,
-) -> Result<Response<::rpc::forge::SkuIdList>, Status> {
+    request: Request<forge::SkuList>,
+) -> Result<Response<forge::SkuIdList>, Status> {
     log_request_data(&request);
     let mut txn = api.txn_begin().await?;
 
@@ -38,7 +39,7 @@ pub(crate) async fn create(
 
     for sku in sku_list.skus {
         let sku: Sku = sku.into();
-        db::sku::create(&mut txn, &sku).await?;
+        nico_api_db::sku::create(&mut txn, &sku).await?;
         sku_ids.ids.push(sku.id);
     }
 
@@ -52,7 +53,7 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> Result<Res
     let mut txn = api.txn_begin().await?;
 
     let sku_id_list = request.into_inner().ids;
-    let mut skus = db::sku::find(&mut txn, &sku_id_list).await?;
+    let mut skus = nico_api_db::sku::find(&mut txn, &sku_id_list).await?;
 
     let Some(sku) = skus.pop() else {
         return Err(CarbideError::InvalidArgument(format!(
@@ -69,7 +70,8 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> Result<Res
     }
 
     let machine_ids =
-        db::machine::find_machine_ids_by_sku_ids(&mut txn, std::slice::from_ref(&sku.id)).await?;
+        nico_api_db::machine::find_machine_ids_by_sku_ids(&mut txn, std::slice::from_ref(&sku.id))
+            .await?;
     if machine_ids
         .get(&sku.id)
         .is_some_and(|machine_ids| !machine_ids.is_empty())
@@ -81,7 +83,7 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> Result<Res
         .into());
     }
 
-    db::sku::delete(&mut txn, &sku.id).await?;
+    nico_api_db::sku::delete(&mut txn, &sku.id).await?;
 
     txn.commit().await?;
 
@@ -91,18 +93,19 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> Result<Res
 pub(crate) async fn generate_from_machine(
     api: &Api,
     request: Request<MachineId>,
-) -> Result<Response<::rpc::forge::Sku>, Status> {
+) -> Result<Response<forge::Sku>, Status> {
     log_request_data(&request);
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
-    let sku = db::sku::generate_sku_from_machine(&api.database_connection, &machine_id).await?;
+    let sku =
+        nico_api_db::sku::generate_sku_from_machine(&api.database_connection, &machine_id).await?;
 
     Ok(Response::new(sku.into()))
 }
 
 pub(crate) async fn assign_to_machine(
     api: &Api,
-    request: Request<::rpc::forge::SkuMachinePair>,
+    request: Request<forge::SkuMachinePair>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
     let mut txn = api.txn_begin().await?;
@@ -111,7 +114,8 @@ pub(crate) async fn assign_to_machine(
     let machine_id = convert_and_log_machine_id(sku_machine_pair.machine_id.as_ref())?;
 
     let machine =
-        db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
+        nico_api_db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+            .await?;
 
     let machine = machine.ok_or(CarbideError::NotFoundError {
         kind: "machine",
@@ -146,7 +150,8 @@ pub(crate) async fn assign_to_machine(
         }
     }
 
-    let mut skus = db::sku::find(&mut txn, std::slice::from_ref(&sku_machine_pair.sku_id)).await?;
+    let mut skus =
+        nico_api_db::sku::find(&mut txn, std::slice::from_ref(&sku_machine_pair.sku_id)).await?;
 
     let sku = skus.pop().ok_or(CarbideError::NotFoundError {
         kind: "SKU ID",
@@ -161,9 +166,9 @@ pub(crate) async fn assign_to_machine(
         .into());
     }
 
-    db::machine::assign_sku(&mut txn, &machine_id, &sku.id).await?;
+    nico_api_db::machine::assign_sku(&mut txn, &machine_id, &sku.id).await?;
 
-    db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
+    nico_api_db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
     txn.commit().await?;
 
@@ -180,7 +185,8 @@ pub(crate) async fn verify_for_machine(
     let mut txn = api.txn_begin().await?;
 
     let machine =
-        db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
+        nico_api_db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+            .await?;
 
     let machine = machine.ok_or(CarbideError::NotFoundError {
         kind: "machine",
@@ -201,7 +207,7 @@ pub(crate) async fn verify_for_machine(
         }
     }
 
-    db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
+    nico_api_db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
     txn.commit().await?;
 
@@ -219,7 +225,8 @@ pub(crate) async fn remove_sku_association(
     let mut txn = api.txn_begin().await?;
 
     let machine =
-        db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
+        nico_api_db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+            .await?;
 
     let machine = machine.ok_or(CarbideError::NotFoundError {
         kind: "machine",
@@ -241,7 +248,7 @@ pub(crate) async fn remove_sku_association(
             }
         }
     }
-    db::machine::unassign_sku(&mut txn, &machine_id).await?;
+    nico_api_db::machine::unassign_sku(&mut txn, &machine_id).await?;
 
     txn.commit().await?;
 
@@ -251,19 +258,19 @@ pub(crate) async fn remove_sku_association(
 pub(crate) async fn get_all_ids(
     api: &Api,
     request: Request<()>,
-) -> Result<Response<::rpc::forge::SkuIdList>, Status> {
+) -> Result<Response<forge::SkuIdList>, Status> {
     log_request_data(&request);
-    let sku_ids = db::sku::get_sku_ids(&api.database_connection).await?;
+    let sku_ids = nico_api_db::sku::get_sku_ids(&api.database_connection).await?;
 
-    Ok(Response::new(::rpc::forge::SkuIdList {
+    Ok(Response::new(forge::SkuIdList {
         ids: sku_ids.into_iter().collect(),
     }))
 }
 
 pub(crate) async fn find_skus_by_ids(
     api: &Api,
-    request: Request<::rpc::forge::SkusByIdsRequest>,
-) -> Result<Response<::rpc::forge::SkuList>, Status> {
+    request: Request<forge::SkusByIdsRequest>,
+) -> Result<Response<forge::SkuList>, Status> {
     log_request_data(&request);
 
     let sku_ids = request.into_inner().ids;
@@ -281,13 +288,12 @@ pub(crate) async fn find_skus_by_ids(
 
     let mut txn = api.txn_begin().await?;
 
-    let skus = db::sku::find(&mut txn, &sku_ids).await?;
+    let skus = nico_api_db::sku::find(&mut txn, &sku_ids).await?;
 
-    let mut rpc_skus: Vec<rpc::forge::Sku> =
-        skus.into_iter().map(std::convert::Into::into).collect();
+    let mut rpc_skus: Vec<forge::Sku> = skus.into_iter().map(std::convert::Into::into).collect();
 
     let mut machine_ids_by_sku_ids =
-        db::machine::find_machine_ids_by_sku_ids(&mut txn, &sku_ids).await?;
+        nico_api_db::machine::find_machine_ids_by_sku_ids(&mut txn, &sku_ids).await?;
     txn.commit().await?;
 
     for rpc_sku in rpc_skus.iter_mut() {
@@ -296,12 +302,12 @@ pub(crate) async fn find_skus_by_ids(
         }
     }
 
-    Ok(Response::new(rpc::forge::SkuList { skus: rpc_skus }))
+    Ok(Response::new(forge::SkuList { skus: rpc_skus }))
 }
 
 pub(crate) async fn update_sku_metadata(
     api: &Api,
-    request: Request<::rpc::forge::SkuUpdateMetadataRequest>,
+    request: Request<forge::SkuUpdateMetadataRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
@@ -309,7 +315,7 @@ pub(crate) async fn update_sku_metadata(
 
     let mut txn = api.txn_begin().await?;
 
-    db::sku::update_metadata(
+    nico_api_db::sku::update_metadata(
         &mut txn,
         request.sku_id,
         request.description,
@@ -324,12 +330,12 @@ pub(crate) async fn update_sku_metadata(
 
 pub(crate) async fn replace_sku(
     api: &Api,
-    request: Request<::rpc::forge::Sku>,
-) -> Result<Response<rpc::forge::Sku>, Status> {
+    request: Request<forge::Sku>,
+) -> Result<Response<forge::Sku>, Status> {
     let request = request.into_inner().into();
     let mut txn = api.txn_begin().await?;
 
-    let sku = db::sku::replace(&mut txn, &request).await?;
+    let sku = nico_api_db::sku::replace(&mut txn, &request).await?;
 
     txn.commit().await?;
 

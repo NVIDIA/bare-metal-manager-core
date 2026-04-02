@@ -18,10 +18,10 @@
 use std::fmt;
 use std::str::FromStr;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
 #[cfg(feature = "ipnetwork")]
 use ipnetwork::IpNetwork;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
 
 /// DEFAULT_NETWORK_VIRTUALIZATION_TYPE is what to default to if the Cloud API
 /// doesn't send it to Carbide (which it never does), or if the Carbide API
@@ -158,13 +158,13 @@ impl TryFrom<i32> for VpcVirtualizationType {
     type Error = RpcDataConversionError;
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         Ok(match value {
-            x if x == rpc::VpcVirtualizationType::EthernetVirtualizer as i32 => {
+            x if x == forge::VpcVirtualizationType::EthernetVirtualizer as i32 => {
                 Self::EthernetVirtualizer
             }
-            x if x == rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue as i32 => {
+            x if x == forge::VpcVirtualizationType::EthernetVirtualizerWithNvue as i32 => {
                 Self::EthernetVirtualizerWithNvue
             }
-            x if x == rpc::VpcVirtualizationType::Fnn as i32 => Self::Fnn,
+            x if x == forge::VpcVirtualizationType::Fnn as i32 => Self::Fnn,
             _ => {
                 return Err(RpcDataConversionError::InvalidVpcVirtualizationType(value));
             }
@@ -172,31 +172,31 @@ impl TryFrom<i32> for VpcVirtualizationType {
     }
 }
 
-impl From<rpc::VpcVirtualizationType> for VpcVirtualizationType {
-    fn from(v: rpc::VpcVirtualizationType) -> Self {
+impl From<forge::VpcVirtualizationType> for VpcVirtualizationType {
+    fn from(v: forge::VpcVirtualizationType) -> Self {
         match v {
-            rpc::VpcVirtualizationType::EthernetVirtualizer => Self::EthernetVirtualizer,
-            rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+            forge::VpcVirtualizationType::EthernetVirtualizer => Self::EthernetVirtualizer,
+            forge::VpcVirtualizationType::EthernetVirtualizerWithNvue => {
                 Self::EthernetVirtualizerWithNvue
             }
-            rpc::VpcVirtualizationType::Fnn => Self::Fnn,
+            forge::VpcVirtualizationType::Fnn => Self::Fnn,
             // Following are deprecated.
-            rpc::VpcVirtualizationType::FnnClassic => Self::Fnn,
-            rpc::VpcVirtualizationType::FnnL3 => Self::Fnn,
+            forge::VpcVirtualizationType::FnnClassic => Self::Fnn,
+            forge::VpcVirtualizationType::FnnL3 => Self::Fnn,
         }
     }
 }
 
-impl From<VpcVirtualizationType> for rpc::VpcVirtualizationType {
+impl From<VpcVirtualizationType> for forge::VpcVirtualizationType {
     fn from(nvt: VpcVirtualizationType) -> Self {
         match nvt {
             VpcVirtualizationType::EthernetVirtualizer => {
-                rpc::VpcVirtualizationType::EthernetVirtualizer
+                forge::VpcVirtualizationType::EthernetVirtualizer
             }
             VpcVirtualizationType::EthernetVirtualizerWithNvue => {
-                rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue
+                forge::VpcVirtualizationType::EthernetVirtualizerWithNvue
             }
-            VpcVirtualizationType::Fnn => rpc::VpcVirtualizationType::Fnn,
+            VpcVirtualizationType::Fnn => forge::VpcVirtualizationType::Fnn,
         }
     }
 }

@@ -17,8 +17,8 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport};
 use prettytable::{Cell, Row, Table, format, row};
 
 use super::args::Args;
@@ -180,7 +180,7 @@ async fn get_exploration_report_for_bmc_address(
 
     let endpoints = api_client.get_explored_endpoints_by_ids(&ips).await?;
 
-    Ok(::rpc::site_explorer::SiteExplorationReport {
+    Ok(nico_rpc::site_explorer::SiteExplorationReport {
         endpoints: endpoints.endpoints,
         managed_hosts: managed_host,
     })

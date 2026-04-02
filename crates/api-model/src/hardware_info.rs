@@ -21,12 +21,13 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use ::rpc::errors::RpcDataConversionError;
 use base64::prelude::*;
-use carbide_host_support::cpu::aggregate_cpus;
-use carbide_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
-use carbide_uuid::nvlink::NvLinkDomainId;
 use mac_address::{MacAddress, MacParseError};
+use nico_host_support::cpu::aggregate_cpus;
+use nico_network::{MELLANOX_SF_VF_MAC_ADDRESS_IN, MELLANOX_SF_VF_MAC_ADDRESS_OUT};
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::nvlink::NvLinkDomainId;
 use serde::{Deserialize, Serialize};
 use utils::models::arch::CpuArchitecture;
 
@@ -95,7 +96,7 @@ pub struct HardwareInfo {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetworkInterface {
-    #[serde(deserialize_with = "carbide_network::deserialize_mlx_mac")]
+    #[serde(deserialize_with = "nico_network::deserialize_mlx_mac")]
     pub mac_address: MacAddress,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pci_properties: Option<PciDeviceProperties>,
@@ -319,8 +320,8 @@ pub struct TpmDescription {
     pub tpm_spec: String,
 }
 
-impl From<rpc::machine_discovery::TpmDescription> for TpmDescription {
-    fn from(value: rpc::machine_discovery::TpmDescription) -> Self {
+impl From<nico_rpc::machine_discovery::TpmDescription> for TpmDescription {
+    fn from(value: nico_rpc::machine_discovery::TpmDescription) -> Self {
         TpmDescription {
             vendor: value.vendor.trim_matches('\0').to_string(),
             firmware_version: value.firmware_version.trim_matches('\0').to_string(),
@@ -329,9 +330,9 @@ impl From<rpc::machine_discovery::TpmDescription> for TpmDescription {
     }
 }
 
-impl From<TpmDescription> for rpc::machine_discovery::TpmDescription {
+impl From<TpmDescription> for nico_rpc::machine_discovery::TpmDescription {
     fn from(value: TpmDescription) -> Self {
-        rpc::machine_discovery::TpmDescription {
+        nico_rpc::machine_discovery::TpmDescription {
             vendor: value.vendor,
             firmware_version: value.firmware_version,
             tpm_spec: value.tpm_spec,
@@ -347,13 +348,13 @@ impl From<TpmDescription> for rpc::machine_discovery::TpmDescription {
 // separate crate).
 //
 
-// The reverse, rpc::machine_discovery::Cpu -> Cpu, isn't needed going forward because
-// rpc::machine_discovery::Cpu instances parsed from /proc/cpuinfo are now aggregated directly into
+// The reverse, nico_rpc::machine_discovery::Cpu -> Cpu, isn't needed going forward because
+// nico_rpc::machine_discovery::Cpu instances parsed from /proc/cpuinfo are now aggregated directly into
 // CpuInfo rather than converted to Cpu. Only when reading the old format back from the
 // machine_topologies table in the database do we need this conversion to leverage that same
 // aggregation logic as if parsing from /proc/cpuinfo.
 // TODO: Remove when there's no longer a need to handle the old topology format
-impl TryFrom<&Cpu> for rpc::machine_discovery::Cpu {
+impl TryFrom<&Cpu> for nico_rpc::machine_discovery::Cpu {
     type Error = RpcDataConversionError;
 
     fn try_from(cpu: &Cpu) -> Result<Self, Self::Error> {
@@ -369,10 +370,10 @@ impl TryFrom<&Cpu> for rpc::machine_discovery::Cpu {
     }
 }
 
-impl TryFrom<rpc::machine_discovery::CpuInfo> for CpuInfo {
+impl TryFrom<nico_rpc::machine_discovery::CpuInfo> for CpuInfo {
     type Error = RpcDataConversionError;
 
-    fn try_from(cpu_info: rpc::machine_discovery::CpuInfo) -> Result<Self, Self::Error> {
+    fn try_from(cpu_info: nico_rpc::machine_discovery::CpuInfo) -> Result<Self, Self::Error> {
         Ok(Self {
             model: cpu_info.model,
             vendor: cpu_info.vendor,
@@ -383,7 +384,7 @@ impl TryFrom<rpc::machine_discovery::CpuInfo> for CpuInfo {
     }
 }
 
-impl TryFrom<CpuInfo> for rpc::machine_discovery::CpuInfo {
+impl TryFrom<CpuInfo> for nico_rpc::machine_discovery::CpuInfo {
     type Error = RpcDataConversionError;
 
     fn try_from(cpu_info: CpuInfo) -> Result<Self, Self::Error> {
@@ -397,10 +398,10 @@ impl TryFrom<CpuInfo> for rpc::machine_discovery::CpuInfo {
     }
 }
 
-impl TryFrom<rpc::machine_discovery::BlockDevice> for BlockDevice {
+impl TryFrom<nico_rpc::machine_discovery::BlockDevice> for BlockDevice {
     type Error = RpcDataConversionError;
 
-    fn try_from(dev: rpc::machine_discovery::BlockDevice) -> Result<Self, Self::Error> {
+    fn try_from(dev: nico_rpc::machine_discovery::BlockDevice) -> Result<Self, Self::Error> {
         Ok(Self {
             model: dev.model,
             revision: dev.revision,
@@ -410,7 +411,7 @@ impl TryFrom<rpc::machine_discovery::BlockDevice> for BlockDevice {
     }
 }
 
-impl TryFrom<BlockDevice> for rpc::machine_discovery::BlockDevice {
+impl TryFrom<BlockDevice> for nico_rpc::machine_discovery::BlockDevice {
     type Error = RpcDataConversionError;
 
     fn try_from(dev: BlockDevice) -> Result<Self, Self::Error> {
@@ -423,10 +424,10 @@ impl TryFrom<BlockDevice> for rpc::machine_discovery::BlockDevice {
     }
 }
 
-impl TryFrom<rpc::machine_discovery::NvmeDevice> for NvmeDevice {
+impl TryFrom<nico_rpc::machine_discovery::NvmeDevice> for NvmeDevice {
     type Error = RpcDataConversionError;
 
-    fn try_from(dev: rpc::machine_discovery::NvmeDevice) -> Result<Self, Self::Error> {
+    fn try_from(dev: nico_rpc::machine_discovery::NvmeDevice) -> Result<Self, Self::Error> {
         Ok(Self {
             model: dev.model,
             firmware_rev: dev.firmware_rev,
@@ -435,7 +436,7 @@ impl TryFrom<rpc::machine_discovery::NvmeDevice> for NvmeDevice {
     }
 }
 
-impl TryFrom<NvmeDevice> for rpc::machine_discovery::NvmeDevice {
+impl TryFrom<NvmeDevice> for nico_rpc::machine_discovery::NvmeDevice {
     type Error = RpcDataConversionError;
 
     fn try_from(dev: NvmeDevice) -> Result<Self, Self::Error> {
@@ -447,10 +448,10 @@ impl TryFrom<NvmeDevice> for rpc::machine_discovery::NvmeDevice {
     }
 }
 
-impl TryFrom<rpc::machine_discovery::DmiData> for DmiData {
+impl TryFrom<nico_rpc::machine_discovery::DmiData> for DmiData {
     type Error = RpcDataConversionError;
 
-    fn try_from(data: rpc::machine_discovery::DmiData) -> Result<Self, Self::Error> {
+    fn try_from(data: nico_rpc::machine_discovery::DmiData) -> Result<Self, Self::Error> {
         Ok(Self {
             board_name: data.board_name,
             board_version: data.board_version,
@@ -465,7 +466,7 @@ impl TryFrom<rpc::machine_discovery::DmiData> for DmiData {
     }
 }
 
-impl TryFrom<DmiData> for rpc::machine_discovery::DmiData {
+impl TryFrom<DmiData> for nico_rpc::machine_discovery::DmiData {
     type Error = RpcDataConversionError;
 
     fn try_from(data: DmiData) -> Result<Self, Self::Error> {
@@ -483,10 +484,10 @@ impl TryFrom<DmiData> for rpc::machine_discovery::DmiData {
     }
 }
 
-impl TryFrom<rpc::machine_discovery::LldpSwitchData> for LldpSwitchData {
+impl TryFrom<nico_rpc::machine_discovery::LldpSwitchData> for LldpSwitchData {
     type Error = RpcDataConversionError;
 
-    fn try_from(data: rpc::machine_discovery::LldpSwitchData) -> Result<Self, Self::Error> {
+    fn try_from(data: nico_rpc::machine_discovery::LldpSwitchData) -> Result<Self, Self::Error> {
         Ok(Self {
             name: data.name,
             id: data.id,
@@ -498,7 +499,7 @@ impl TryFrom<rpc::machine_discovery::LldpSwitchData> for LldpSwitchData {
     }
 }
 
-impl TryFrom<LldpSwitchData> for rpc::machine_discovery::LldpSwitchData {
+impl TryFrom<LldpSwitchData> for nico_rpc::machine_discovery::LldpSwitchData {
     type Error = RpcDataConversionError;
 
     fn try_from(data: LldpSwitchData) -> Result<Self, Self::Error> {
@@ -513,10 +514,10 @@ impl TryFrom<LldpSwitchData> for rpc::machine_discovery::LldpSwitchData {
     }
 }
 
-impl TryFrom<rpc::machine_discovery::DpuData> for DpuData {
+impl TryFrom<nico_rpc::machine_discovery::DpuData> for DpuData {
     type Error = RpcDataConversionError;
 
-    fn try_from(data: rpc::machine_discovery::DpuData) -> Result<Self, Self::Error> {
+    fn try_from(data: nico_rpc::machine_discovery::DpuData) -> Result<Self, Self::Error> {
         Ok(Self {
             part_number: data.part_number,
             part_description: data.part_description,
@@ -529,7 +530,7 @@ impl TryFrom<rpc::machine_discovery::DpuData> for DpuData {
     }
 }
 
-impl TryFrom<DpuData> for rpc::machine_discovery::DpuData {
+impl TryFrom<DpuData> for nico_rpc::machine_discovery::DpuData {
     type Error = RpcDataConversionError;
 
     fn try_from(data: DpuData) -> Result<Self, Self::Error> {
@@ -545,10 +546,10 @@ impl TryFrom<DpuData> for rpc::machine_discovery::DpuData {
     }
 }
 
-impl TryFrom<rpc::machine_discovery::NetworkInterface> for NetworkInterface {
+impl TryFrom<nico_rpc::machine_discovery::NetworkInterface> for NetworkInterface {
     type Error = RpcDataConversionError;
 
-    fn try_from(iface: rpc::machine_discovery::NetworkInterface) -> Result<Self, Self::Error> {
+    fn try_from(iface: nico_rpc::machine_discovery::NetworkInterface) -> Result<Self, Self::Error> {
         let pci_properties = match iface.pci_properties.map(PciDeviceProperties::try_from) {
             Some(Err(e)) => return Err(e),
             Some(Ok(props)) => Some(props),
@@ -573,13 +574,13 @@ impl TryFrom<rpc::machine_discovery::NetworkInterface> for NetworkInterface {
     }
 }
 
-impl TryFrom<NetworkInterface> for rpc::machine_discovery::NetworkInterface {
+impl TryFrom<NetworkInterface> for nico_rpc::machine_discovery::NetworkInterface {
     type Error = RpcDataConversionError;
 
     fn try_from(iface: NetworkInterface) -> Result<Self, Self::Error> {
         let pci_properties = match iface
             .pci_properties
-            .map(rpc::machine_discovery::PciDeviceProperties::try_from)
+            .map(nico_rpc::machine_discovery::PciDeviceProperties::try_from)
         {
             Some(Err(e)) => return Err(e),
             Some(Ok(props)) => Some(props),
@@ -593,10 +594,12 @@ impl TryFrom<NetworkInterface> for rpc::machine_discovery::NetworkInterface {
     }
 }
 
-impl TryFrom<rpc::machine_discovery::InfinibandInterface> for InfinibandInterface {
+impl TryFrom<nico_rpc::machine_discovery::InfinibandInterface> for InfinibandInterface {
     type Error = RpcDataConversionError;
 
-    fn try_from(ibface: rpc::machine_discovery::InfinibandInterface) -> Result<Self, Self::Error> {
+    fn try_from(
+        ibface: nico_rpc::machine_discovery::InfinibandInterface,
+    ) -> Result<Self, Self::Error> {
         let pci_properties = match ibface.pci_properties.map(PciDeviceProperties::try_from) {
             Some(Err(e)) => return Err(e),
             Some(Ok(props)) => Some(props),
@@ -610,13 +613,13 @@ impl TryFrom<rpc::machine_discovery::InfinibandInterface> for InfinibandInterfac
     }
 }
 
-impl TryFrom<InfinibandInterface> for rpc::machine_discovery::InfinibandInterface {
+impl TryFrom<InfinibandInterface> for nico_rpc::machine_discovery::InfinibandInterface {
     type Error = RpcDataConversionError;
 
     fn try_from(ibface: InfinibandInterface) -> Result<Self, Self::Error> {
         let pci_properties = match ibface
             .pci_properties
-            .map(rpc::machine_discovery::PciDeviceProperties::try_from)
+            .map(nico_rpc::machine_discovery::PciDeviceProperties::try_from)
         {
             Some(Err(e)) => return Err(e),
             Some(Ok(props)) => Some(props),
@@ -630,10 +633,12 @@ impl TryFrom<InfinibandInterface> for rpc::machine_discovery::InfinibandInterfac
     }
 }
 
-impl TryFrom<rpc::machine_discovery::PciDeviceProperties> for PciDeviceProperties {
+impl TryFrom<nico_rpc::machine_discovery::PciDeviceProperties> for PciDeviceProperties {
     type Error = RpcDataConversionError;
 
-    fn try_from(props: rpc::machine_discovery::PciDeviceProperties) -> Result<Self, Self::Error> {
+    fn try_from(
+        props: nico_rpc::machine_discovery::PciDeviceProperties,
+    ) -> Result<Self, Self::Error> {
         Ok(Self {
             vendor: props.vendor,
             device: props.device,
@@ -645,7 +650,7 @@ impl TryFrom<rpc::machine_discovery::PciDeviceProperties> for PciDevicePropertie
     }
 }
 
-impl TryFrom<PciDeviceProperties> for rpc::machine_discovery::PciDeviceProperties {
+impl TryFrom<PciDeviceProperties> for nico_rpc::machine_discovery::PciDeviceProperties {
     type Error = RpcDataConversionError;
 
     fn try_from(props: PciDeviceProperties) -> Result<Self, Self::Error> {
@@ -660,7 +665,7 @@ impl TryFrom<PciDeviceProperties> for rpc::machine_discovery::PciDevicePropertie
     }
 }
 
-impl TryFrom<GpuPlatformInfo> for rpc::machine_discovery::GpuPlatformInfo {
+impl TryFrom<GpuPlatformInfo> for nico_rpc::machine_discovery::GpuPlatformInfo {
     type Error = RpcDataConversionError;
 
     fn try_from(info: GpuPlatformInfo) -> Result<Self, Self::Error> {
@@ -675,10 +680,10 @@ impl TryFrom<GpuPlatformInfo> for rpc::machine_discovery::GpuPlatformInfo {
     }
 }
 
-impl TryFrom<rpc::machine_discovery::GpuPlatformInfo> for GpuPlatformInfo {
+impl TryFrom<nico_rpc::machine_discovery::GpuPlatformInfo> for GpuPlatformInfo {
     type Error = RpcDataConversionError;
 
-    fn try_from(info: rpc::machine_discovery::GpuPlatformInfo) -> Result<Self, Self::Error> {
+    fn try_from(info: nico_rpc::machine_discovery::GpuPlatformInfo) -> Result<Self, Self::Error> {
         Ok(Self {
             chassis_serial: info.chassis_serial,
             slot_number: info.slot_number,
@@ -690,13 +695,13 @@ impl TryFrom<rpc::machine_discovery::GpuPlatformInfo> for GpuPlatformInfo {
     }
 }
 
-impl TryFrom<Gpu> for rpc::machine_discovery::Gpu {
+impl TryFrom<Gpu> for nico_rpc::machine_discovery::Gpu {
     type Error = RpcDataConversionError;
 
     fn try_from(gpu: Gpu) -> Result<Self, Self::Error> {
         let platform_info = match gpu
             .platform_info
-            .map(rpc::machine_discovery::GpuPlatformInfo::try_from)
+            .map(nico_rpc::machine_discovery::GpuPlatformInfo::try_from)
         {
             Some(Err(e)) => return Err(e),
             Some(Ok(info)) => Some(info),
@@ -717,10 +722,10 @@ impl TryFrom<Gpu> for rpc::machine_discovery::Gpu {
     }
 }
 
-impl TryFrom<rpc::machine_discovery::Gpu> for Gpu {
+impl TryFrom<nico_rpc::machine_discovery::Gpu> for Gpu {
     type Error = RpcDataConversionError;
 
-    fn try_from(gpu: rpc::machine_discovery::Gpu) -> Result<Self, Self::Error> {
+    fn try_from(gpu: nico_rpc::machine_discovery::Gpu) -> Result<Self, Self::Error> {
         let platform_info = match gpu.platform_info.map(GpuPlatformInfo::try_from) {
             Some(Err(e)) => return Err(e),
             Some(Ok(info)) => Some(info),
@@ -741,8 +746,8 @@ impl TryFrom<rpc::machine_discovery::Gpu> for Gpu {
     }
 }
 
-impl From<rpc::machine_discovery::MemoryDevice> for MemoryDevice {
-    fn from(value: rpc::machine_discovery::MemoryDevice) -> Self {
+impl From<nico_rpc::machine_discovery::MemoryDevice> for MemoryDevice {
+    fn from(value: nico_rpc::machine_discovery::MemoryDevice) -> Self {
         MemoryDevice {
             size_mb: value.size_mb,
             mem_type: value.mem_type,
@@ -750,9 +755,9 @@ impl From<rpc::machine_discovery::MemoryDevice> for MemoryDevice {
     }
 }
 
-impl From<MemoryDevice> for rpc::machine_discovery::MemoryDevice {
+impl From<MemoryDevice> for nico_rpc::machine_discovery::MemoryDevice {
     fn from(value: MemoryDevice) -> Self {
-        rpc::machine_discovery::MemoryDevice {
+        nico_rpc::machine_discovery::MemoryDevice {
             size_mb: value.size_mb,
             mem_type: value.mem_type,
         }
@@ -766,10 +771,10 @@ impl TryFrom<HardwareInfoDeserialized> for HardwareInfo {
     fn try_from(info: HardwareInfoDeserialized) -> Result<Self, Self::Error> {
         let cpu_info: Vec<CpuInfo> = if info.cpu_info.is_empty() {
             // Convert V1 -> V2 format
-            let cpus: Vec<rpc::machine_discovery::Cpu> = info
+            let cpus: Vec<nico_rpc::machine_discovery::Cpu> = info
                 .cpus
                 .iter()
-                .map(rpc::machine_discovery::Cpu::try_from)
+                .map(nico_rpc::machine_discovery::Cpu::try_from)
                 .collect::<Result<Vec<_>, _>>()?;
             aggregate_cpus(&cpus)
                 .into_iter()
@@ -796,11 +801,11 @@ impl TryFrom<HardwareInfoDeserialized> for HardwareInfo {
     }
 }
 
-impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
+impl TryFrom<nico_rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
     type Error = RpcDataConversionError;
 
     #[allow(deprecated)]
-    fn try_from(info: rpc::machine_discovery::DiscoveryInfo) -> Result<Self, Self::Error> {
+    fn try_from(info: nico_rpc::machine_discovery::DiscoveryInfo) -> Result<Self, Self::Error> {
         let tpm_ek_certificate = info
             .tpm_ek_certificate
             .map(|base64| {
@@ -858,7 +863,7 @@ impl TryFrom<rpc::machine_discovery::DiscoveryInfo> for HardwareInfo {
     }
 }
 
-impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
+impl TryFrom<HardwareInfo> for nico_rpc::machine_discovery::DiscoveryInfo {
     type Error = RpcDataConversionError;
 
     // TODO: Remove this directive when there's no longer a need to handle the old topology format
@@ -874,20 +879,20 @@ impl TryFrom<HardwareInfo> for rpc::machine_discovery::DiscoveryInfo {
             nvme_devices: try_convert_vec(info.nvme_devices)?,
             dmi_data: info
                 .dmi_data
-                .map(rpc::machine_discovery::DmiData::try_from)
+                .map(nico_rpc::machine_discovery::DmiData::try_from)
                 .transpose()?,
             tpm_ek_certificate: info
                 .tpm_ek_certificate
                 .map(|cert| BASE64_STANDARD.encode(cert.into_bytes())),
             dpu_info: info
                 .dpu_info
-                .map(rpc::machine_discovery::DpuData::try_from)
+                .map(nico_rpc::machine_discovery::DpuData::try_from)
                 .transpose()?,
             gpus: try_convert_vec(info.gpus)?,
             memory_devices: info
                 .memory_devices
                 .into_iter()
-                .map(rpc::machine_discovery::MemoryDevice::from)
+                .map(nico_rpc::machine_discovery::MemoryDevice::from)
                 .collect(),
             tpm_description: info.tpm_description.map(std::convert::Into::into),
             attest_key_info: None,
@@ -969,10 +974,10 @@ impl Display for MachineInventorySoftwareComponent {
     }
 }
 
-impl TryFrom<::rpc::forge::MachineInventory> for MachineInventory {
+impl TryFrom<forge::MachineInventory> for MachineInventory {
     type Error = RpcDataConversionError;
 
-    fn try_from(value: rpc::forge::MachineInventory) -> Result<Self, Self::Error> {
+    fn try_from(value: forge::MachineInventory) -> Result<Self, Self::Error> {
         Ok(MachineInventory {
             components: value
                 .components
@@ -983,12 +988,10 @@ impl TryFrom<::rpc::forge::MachineInventory> for MachineInventory {
     }
 }
 
-impl TryFrom<::rpc::forge::MachineInventorySoftwareComponent>
-    for MachineInventorySoftwareComponent
-{
+impl TryFrom<forge::MachineInventorySoftwareComponent> for MachineInventorySoftwareComponent {
     type Error = RpcDataConversionError;
 
-    fn try_from(value: rpc::forge::MachineInventorySoftwareComponent) -> Result<Self, Self::Error> {
+    fn try_from(value: forge::MachineInventorySoftwareComponent) -> Result<Self, Self::Error> {
         Ok(MachineInventorySoftwareComponent {
             name: value.name,
             version: value.version,
@@ -997,13 +1000,13 @@ impl TryFrom<::rpc::forge::MachineInventorySoftwareComponent>
     }
 }
 
-impl From<MachineInventory> for rpc::forge::MachineInventory {
+impl From<MachineInventory> for forge::MachineInventory {
     fn from(value: MachineInventory) -> Self {
-        rpc::forge::MachineInventory {
+        forge::MachineInventory {
             components: value
                 .components
                 .into_iter()
-                .map(|c| rpc::forge::MachineInventorySoftwareComponent {
+                .map(|c| forge::MachineInventorySoftwareComponent {
                     name: c.name,
                     version: c.version,
                     url: c.url,
@@ -1019,22 +1022,18 @@ pub struct MachineNvLinkInfo {
     pub gpus: Vec<NvLinkGpu>,
 }
 
-impl From<MachineNvLinkInfo> for rpc::forge::MachineNvLinkInfo {
+impl From<MachineNvLinkInfo> for forge::MachineNvLinkInfo {
     fn from(value: MachineNvLinkInfo) -> Self {
-        rpc::forge::MachineNvLinkInfo {
+        forge::MachineNvLinkInfo {
             domain_uuid: Some(value.domain_uuid),
-            gpus: value
-                .gpus
-                .into_iter()
-                .map(rpc::forge::NvLinkGpu::from)
-                .collect(),
+            gpus: value.gpus.into_iter().map(forge::NvLinkGpu::from).collect(),
         }
     }
 }
 
-impl From<NvLinkGpu> for rpc::forge::NvLinkGpu {
+impl From<NvLinkGpu> for forge::NvLinkGpu {
     fn from(value: NvLinkGpu) -> Self {
-        rpc::forge::NvLinkGpu {
+        forge::NvLinkGpu {
             nmx_m_id: value.nmx_m_id,
             tray_index: value.tray_index,
             slot_id: value.slot_id,
@@ -1044,21 +1043,21 @@ impl From<NvLinkGpu> for rpc::forge::NvLinkGpu {
     }
 }
 
-impl TryFrom<rpc::forge::MachineNvLinkInfo> for MachineNvLinkInfo {
-    type Error = rpc::errors::RpcDataConversionError;
+impl TryFrom<forge::MachineNvLinkInfo> for MachineNvLinkInfo {
+    type Error = nico_rpc::errors::RpcDataConversionError;
 
-    fn try_from(value: rpc::forge::MachineNvLinkInfo) -> Result<Self, Self::Error> {
+    fn try_from(value: forge::MachineNvLinkInfo) -> Result<Self, Self::Error> {
         Ok(MachineNvLinkInfo {
             domain_uuid: value.domain_uuid.ok_or(
-                rpc::errors::RpcDataConversionError::MissingArgument("domain_uuid"),
+                nico_rpc::errors::RpcDataConversionError::MissingArgument("domain_uuid"),
             )?,
             gpus: value.gpus.into_iter().map(NvLinkGpu::from).collect(),
         })
     }
 }
 
-impl From<rpc::forge::NvLinkGpu> for NvLinkGpu {
-    fn from(value: rpc::forge::NvLinkGpu) -> Self {
+impl From<forge::NvLinkGpu> for NvLinkGpu {
+    fn from(value: forge::NvLinkGpu) -> Self {
         NvLinkGpu {
             nmx_m_id: value.nmx_m_id,
             tray_index: value.tray_index,
@@ -1312,16 +1311,16 @@ mod tests {
     fn test_v1_discovery_info_decode() -> Result<(), Box<dyn std::error::Error>> {
         let hardware_info = serde_json::from_slice::<HardwareInfo>(X86_INFO_JSON).unwrap();
         let mut info =
-            rpc::machine_discovery::DiscoveryInfo::try_from(hardware_info.clone()).unwrap();
+            nico_rpc::machine_discovery::DiscoveryInfo::try_from(hardware_info.clone()).unwrap();
         info.cpus = serde_json::from_slice::<Vec<Cpu>>(X86_V1_CPU_INFO_JSON)
             .unwrap()
             .iter()
-            .map(rpc::machine_discovery::Cpu::try_from)
+            .map(nico_rpc::machine_discovery::Cpu::try_from)
             .collect::<Result<Vec<_>, _>>()?;
         info.cpu_info = Vec::new();
 
         let bytes = info.encode_to_vec();
-        let decoded = rpc::machine_discovery::DiscoveryInfo::decode(&*bytes).unwrap();
+        let decoded = nico_rpc::machine_discovery::DiscoveryInfo::decode(&*bytes).unwrap();
         let decoded_hardware_info = HardwareInfo::try_from(decoded).unwrap();
 
         assert_eq!(decoded_hardware_info, hardware_info);

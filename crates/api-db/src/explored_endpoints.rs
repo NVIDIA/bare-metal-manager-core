@@ -19,8 +19,8 @@ use std::net::IpAddr;
 use chrono::Utc;
 use config_version::ConfigVersion;
 use mac_address::MacAddress;
-use model::firmware::FirmwareComponentType;
-use model::site_explorer::{
+use nico_api_model::firmware::FirmwareComponentType;
+use nico_api_model::site_explorer::{
     EndpointExplorationReport, ExploredEndpoint, InitialResetPhase, PowerDrainState,
     PreingestionState, TimeSyncResetPhase,
 };
@@ -117,7 +117,7 @@ impl From<DbExploredEndpoint> for ExploredEndpoint {
 pub async fn find_ips(
     txn: impl DbReader<'_>,
     // filter is currently is empty, so it is a placeholder for the future
-    _filter: model::site_explorer::ExploredEndpointSearchFilter,
+    _filter: nico_api_model::site_explorer::ExploredEndpointSearchFilter,
 ) -> Result<Vec<IpAddr>, DatabaseError> {
     #[derive(Debug, Clone, Copy, FromRow)]
     pub struct ExploredEndpointIp(IpAddr);

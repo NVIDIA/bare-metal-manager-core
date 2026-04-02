@@ -15,8 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
 use clap::{Parser, ValueEnum};
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::forge;
 
 pub const DEFAULT_IB_FABRIC_NAME: &str = "default";
 
@@ -30,9 +31,9 @@ pub enum BmcCredentialType {
     BmcForgeAdmin,
 }
 
-impl From<BmcCredentialType> for rpc::forge::CredentialType {
+impl From<BmcCredentialType> for forge::CredentialType {
     fn from(c_type: BmcCredentialType) -> Self {
-        use rpc::forge::CredentialType::*;
+        use nico_rpc::forge::CredentialType::*;
         match c_type {
             BmcCredentialType::SiteWideRoot => SiteWideBmcRoot,
             BmcCredentialType::BmcRoot => RootBmcByMacAddress,
@@ -47,9 +48,9 @@ pub enum UefiCredentialType {
     Host,
 }
 
-impl From<UefiCredentialType> for rpc::forge::CredentialType {
+impl From<UefiCredentialType> for forge::CredentialType {
     fn from(c_type: UefiCredentialType) -> Self {
-        use rpc::forge::CredentialType::*;
+        use nico_rpc::forge::CredentialType::*;
         match c_type {
             UefiCredentialType::Dpu => DpuUefi,
             UefiCredentialType::Host => HostUefi,

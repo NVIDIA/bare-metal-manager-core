@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use libmlx::firmware::credentials::Credentials;
+use nico_libmlx::firmware::credentials::Credentials;
 
 // -- validate_http --
 

@@ -17,9 +17,9 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
-use carbide_uuid::nvlink::NvLinkPartitionId;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_uuid::nvlink::NvLinkPartitionId;
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -88,9 +88,7 @@ async fn show_nvl_partition_details(
     Ok(())
 }
 
-fn convert_nvl_partitions_to_nice_table(
-    nvl_partitions: forgerpc::NvLinkPartitionList,
-) -> Box<Table> {
+fn convert_nvl_partitions_to_nice_table(nvl_partitions: forge::NvLinkPartitionList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row!["Id", "Name", "TenantOrg"]);
@@ -106,7 +104,7 @@ fn convert_nvl_partitions_to_nice_table(
 }
 
 fn convert_nvl_partition_to_nice_format(
-    nvl_partition: forgerpc::NvLinkPartition,
+    nvl_partition: forge::NvLinkPartition,
 ) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();

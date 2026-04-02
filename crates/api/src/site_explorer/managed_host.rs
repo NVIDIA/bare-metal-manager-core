@@ -16,10 +16,10 @@
  */
 use std::net::IpAddr;
 
-use carbide_uuid::machine::MachineId;
-use db::DatabaseError;
-use db::db_read::DbReader;
-use model::site_explorer::ExploredManagedHost;
+use nico_api_db::DatabaseError;
+use nico_api_db::db_read::DbReader;
+use nico_api_model::site_explorer::ExploredManagedHost;
+use nico_uuid::machine::MachineId;
 
 /// ManagedHost wraps an ExploredManagedHost along with a machine id.
 /// This helper structure is used by the create_managed_host to create a managed host
@@ -60,6 +60,7 @@ pub async fn is_endpoint_in_managed_host(
     txn: impl DbReader<'_>,
 ) -> Result<bool, DatabaseError> {
     let machine_id =
-        db::machine_topology::find_machine_id_by_bmc_ip(txn, &bmc_ip_address.to_string()).await?;
+        nico_api_db::machine_topology::find_machine_id_by_bmc_ip(txn, &bmc_ip_address.to_string())
+            .await?;
     Ok(machine_id.is_some())
 }

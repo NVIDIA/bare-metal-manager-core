@@ -17,12 +17,12 @@
 
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::extension_service::ExtensionServiceId;
-use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use rpc::forge as rpc;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::extension_service::ExtensionServiceId;
+use nico_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use crate::extension_service::ExtensionServiceType;
@@ -40,17 +40,17 @@ pub struct InstanceExtensionServicesStatus {
     pub configs_synced: SyncState,
 }
 
-impl TryFrom<InstanceExtensionServicesStatus> for rpc::InstanceDpuExtensionServicesStatus {
+impl TryFrom<InstanceExtensionServicesStatus> for forge::InstanceDpuExtensionServicesStatus {
     type Error = RpcDataConversionError;
 
     fn try_from(status: InstanceExtensionServicesStatus) -> Result<Self, Self::Error> {
         let mut extension_services = Vec::with_capacity(status.extension_services.len());
         for service in status.extension_services {
-            extension_services.push(rpc::InstanceDpuExtensionServiceStatus::try_from(service)?);
+            extension_services.push(forge::InstanceDpuExtensionServiceStatus::try_from(service)?);
         }
-        Ok(rpc::InstanceDpuExtensionServicesStatus {
+        Ok(forge::InstanceDpuExtensionServicesStatus {
             dpu_extension_services: extension_services,
-            configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
+            configs_synced: forge::SyncState::try_from(status.configs_synced)? as i32,
         })
     }
 }
@@ -310,25 +310,25 @@ pub enum ExtensionServiceDeploymentStatus {
     Error,
 }
 
-impl From<rpc::DpuExtensionServiceDeploymentStatus> for ExtensionServiceDeploymentStatus {
-    fn from(status: rpc::DpuExtensionServiceDeploymentStatus) -> Self {
+impl From<forge::DpuExtensionServiceDeploymentStatus> for ExtensionServiceDeploymentStatus {
+    fn from(status: forge::DpuExtensionServiceDeploymentStatus) -> Self {
         match status {
-            rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceUnknown => Self::Unknown,
-            rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending => Self::Pending,
-            rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning => Self::Running,
-            rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminating => {
+            forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceUnknown => Self::Unknown,
+            forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending => Self::Pending,
+            forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning => Self::Running,
+            forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminating => {
                 Self::Terminating
             }
-            rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated => {
+            forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated => {
                 Self::Terminated
             }
-            rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceFailed => Self::Failed,
-            rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceError => Self::Error,
+            forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceFailed => Self::Failed,
+            forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceError => Self::Error,
         }
     }
 }
 
-impl From<ExtensionServiceDeploymentStatus> for rpc::DpuExtensionServiceDeploymentStatus {
+impl From<ExtensionServiceDeploymentStatus> for forge::DpuExtensionServiceDeploymentStatus {
     fn from(status: ExtensionServiceDeploymentStatus) -> Self {
         match status {
             ExtensionServiceDeploymentStatus::Unknown => Self::DpuExtensionServiceUnknown,
@@ -350,10 +350,10 @@ pub struct ExtensionServiceComponent {
     pub status: String,
 }
 
-impl TryFrom<rpc::DpuExtensionServiceComponent> for ExtensionServiceComponent {
+impl TryFrom<forge::DpuExtensionServiceComponent> for ExtensionServiceComponent {
     type Error = RpcDataConversionError;
 
-    fn try_from(component: rpc::DpuExtensionServiceComponent) -> Result<Self, Self::Error> {
+    fn try_from(component: forge::DpuExtensionServiceComponent) -> Result<Self, Self::Error> {
         Ok(Self {
             name: component.name,
             version: component.version,
@@ -363,7 +363,7 @@ impl TryFrom<rpc::DpuExtensionServiceComponent> for ExtensionServiceComponent {
     }
 }
 
-impl From<ExtensionServiceComponent> for rpc::DpuExtensionServiceComponent {
+impl From<ExtensionServiceComponent> for forge::DpuExtensionServiceComponent {
     fn from(component: ExtensionServiceComponent) -> Self {
         Self {
             name: component.name,
@@ -374,37 +374,37 @@ impl From<ExtensionServiceComponent> for rpc::DpuExtensionServiceComponent {
     }
 }
 
-impl TryFrom<MachineExtensionServiceStatus> for rpc::DpuExtensionServiceStatus {
+impl TryFrom<MachineExtensionServiceStatus> for forge::DpuExtensionServiceStatus {
     type Error = RpcDataConversionError;
 
     fn try_from(status: MachineExtensionServiceStatus) -> Result<Self, Self::Error> {
         Ok(Self {
             dpu_machine_id: Some(status.machine_id),
-            status: rpc::DpuExtensionServiceDeploymentStatus::from(status.status).into(),
+            status: forge::DpuExtensionServiceDeploymentStatus::from(status.status).into(),
             error_message: status.error_message,
             components: status
                 .components
                 .into_iter()
-                .map(rpc::DpuExtensionServiceComponent::from)
+                .map(forge::DpuExtensionServiceComponent::from)
                 .collect(),
         })
     }
 }
 
-impl TryFrom<InstanceExtensionServiceStatus> for rpc::InstanceDpuExtensionServiceStatus {
+impl TryFrom<InstanceExtensionServiceStatus> for forge::InstanceDpuExtensionServiceStatus {
     type Error = RpcDataConversionError;
 
     fn try_from(status: InstanceExtensionServiceStatus) -> Result<Self, Self::Error> {
         let dpu_statuses = status
             .dpu_statuses
             .into_iter()
-            .map(rpc::DpuExtensionServiceStatus::try_from)
+            .map(forge::DpuExtensionServiceStatus::try_from)
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(Self {
             service_id: status.service_id.into(),
             version: status.version.to_string(),
-            deployment_status: rpc::DpuExtensionServiceDeploymentStatus::from(
+            deployment_status: forge::DpuExtensionServiceDeploymentStatus::from(
                 status.overall_status,
             )
             .into(),
@@ -427,11 +427,11 @@ pub struct ExtensionServiceStatusObservation {
     pub message: String,
 }
 
-impl TryFrom<rpc::DpuExtensionServiceStatusObservation> for ExtensionServiceStatusObservation {
+impl TryFrom<forge::DpuExtensionServiceStatusObservation> for ExtensionServiceStatusObservation {
     type Error = RpcDataConversionError;
 
     fn try_from(
-        observation: rpc::DpuExtensionServiceStatusObservation,
+        observation: forge::DpuExtensionServiceStatusObservation,
     ) -> Result<Self, Self::Error> {
         let service_id = observation
             .service_id
@@ -440,7 +440,7 @@ impl TryFrom<rpc::DpuExtensionServiceStatusObservation> for ExtensionServiceStat
                 RpcDataConversionError::InvalidUuid("ExtensionServiceId", e.to_string())
             })?;
 
-        let service_type = rpc::DpuExtensionServiceType::try_from(observation.service_type)
+        let service_type = forge::DpuExtensionServiceType::try_from(observation.service_type)
             .map_err(|_| {
                 RpcDataConversionError::InvalidValue(
                     observation.service_type.to_string(),
@@ -449,7 +449,7 @@ impl TryFrom<rpc::DpuExtensionServiceStatusObservation> for ExtensionServiceStat
             })?
             .into();
 
-        let overall_state = rpc::DpuExtensionServiceDeploymentStatus::try_from(observation.state)
+        let overall_state = forge::DpuExtensionServiceDeploymentStatus::try_from(observation.state)
             .map_err(|_| {
                 RpcDataConversionError::InvalidValue(
                     observation.state.to_string(),
@@ -484,19 +484,20 @@ impl TryFrom<rpc::DpuExtensionServiceStatusObservation> for ExtensionServiceStat
     }
 }
 
-impl From<ExtensionServiceStatusObservation> for rpc::DpuExtensionServiceStatusObservation {
+impl From<ExtensionServiceStatusObservation> for forge::DpuExtensionServiceStatusObservation {
     fn from(observation: ExtensionServiceStatusObservation) -> Self {
         Self {
             service_id: observation.service_id.into(),
-            service_type: rpc::DpuExtensionServiceType::from(observation.service_type).into(),
+            service_type: forge::DpuExtensionServiceType::from(observation.service_type).into(),
             service_name: observation.service_name,
             version: observation.version.to_string(),
             removed: observation.removed,
-            state: rpc::DpuExtensionServiceDeploymentStatus::from(observation.overall_state).into(),
+            state: forge::DpuExtensionServiceDeploymentStatus::from(observation.overall_state)
+                .into(),
             components: observation
                 .components
                 .into_iter()
-                .map(|c| rpc::DpuExtensionServiceComponent {
+                .map(|c| forge::DpuExtensionServiceComponent {
                     name: c.name,
                     version: c.version,
                     url: c.url,

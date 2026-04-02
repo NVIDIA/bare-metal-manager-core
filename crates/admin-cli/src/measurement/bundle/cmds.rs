@@ -20,14 +20,14 @@
 
 use std::str::FromStr;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
-use ::rpc::protos::measured_boot::{
+use nico_measured_boot::bundle::MeasurementBundle;
+use nico_measured_boot::records::MeasurementBundleRecord;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
+use nico_rpc::protos::measured_boot::{
     ListMeasurementBundleMachinesRequest, RenameMeasurementBundleRequest,
     ShowMeasurementBundleRequest, UpdateMeasurementBundleRequest,
 };
-use carbide_uuid::machine::MachineId;
-use measured_boot::bundle::MeasurementBundle;
-use measured_boot::records::MeasurementBundleRecord;
+use nico_uuid::machine::MachineId;
 use serde::Serialize;
 
 use crate::measurement::bundle::args::{
@@ -47,28 +47,28 @@ pub async fn dispatch(
             cli_output(
                 create_for_id(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdBundle::Delete(local_args) => {
             cli_output(
                 delete(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdBundle::Rename(local_args) => {
             cli_output(
                 rename(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdBundle::SetState(local_args) => {
             cli_output(
                 set_state(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdBundle::Show(local_args) => {
@@ -76,13 +76,13 @@ pub async fn dispatch(
                 cli_output(
                     show_by_id_or_name(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             } else {
                 cli_output(
                     show_all(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
         }
@@ -91,7 +91,7 @@ pub async fn dispatch(
                 Some(measurement_bundle) => cli_output(
                     measurement_bundle,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?,
                 None => tracing::info!("No partially matching bundle found"),
             };
@@ -101,14 +101,14 @@ pub async fn dispatch(
                 cli_output(
                     list_machines(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
             List::All(_) => {
                 cli_output(
                     list(cli.grpc_conn).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
         },

@@ -14,9 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::rack::RackId;
-use rpc::errors::RpcDataConversionError;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::instance_type::InstanceTypeId;
+use nico_uuid::rack::RackId;
 
 /// MachineSearchConfig: Search parameters
 #[derive(Default, Debug, Clone)]
@@ -49,10 +50,10 @@ pub struct MachineSearchConfig {
     pub rack_id: Option<RackId>,
 }
 
-impl TryFrom<rpc::forge::MachineSearchConfig> for MachineSearchConfig {
+impl TryFrom<forge::MachineSearchConfig> for MachineSearchConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(value: rpc::forge::MachineSearchConfig) -> Result<Self, Self::Error> {
+    fn try_from(value: forge::MachineSearchConfig) -> Result<Self, Self::Error> {
         Ok(MachineSearchConfig {
             include_dpus: value.include_dpus,
             include_history: value.include_history,

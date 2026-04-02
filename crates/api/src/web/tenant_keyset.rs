@@ -22,8 +22,8 @@ use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 
 use super::filters;
 use crate::api::Api;
@@ -39,12 +39,12 @@ struct KeysetDisplay {
     keyset_id: String,
     version: String,
     num_keys: usize,
-    keys: Vec<rpc::forge::TenantPublicKey>,
+    keys: Vec<forge::TenantPublicKey>,
 }
 
-impl From<forgerpc::TenantKeyset> for KeysetDisplay {
-    fn from(ks: forgerpc::TenantKeyset) -> Self {
-        let default_keyset_content = rpc::forge::TenantKeysetContent {
+impl From<forge::TenantKeyset> for KeysetDisplay {
+    fn from(ks: forge::TenantKeyset) -> Self {
+        let default_keyset_content = forge::TenantKeysetContent {
             public_keys: Vec::new(),
         };
         let content = ks.keyset_content.unwrap_or(default_keyset_content);
@@ -84,7 +84,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
 }
 
 pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
-    let out: forgerpc::TenantKeySetList = match fetch_keysets(state).await {
+    let out: forge::TenantKeySetList = match fetch_keysets(state).await {
         Ok(ks) => ks,
         Err(err) => {
             tracing::error!(%err, "fetch_keysets");
@@ -94,8 +94,8 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(out)).into_response()
 }
 
-async fn fetch_keysets(api: Arc<Api>) -> Result<forgerpc::TenantKeySetList, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::TenantKeysetSearchFilter {
+async fn fetch_keysets(api: Arc<Api>) -> Result<forge::TenantKeySetList, tonic::Status> {
+    let request = tonic::Request::new(forge::TenantKeysetSearchFilter {
         tenant_org_id: None,
     });
 
@@ -112,7 +112,7 @@ async fn fetch_keysets(api: Arc<Api>) -> Result<forgerpc::TenantKeySetList, toni
         let page_size = PAGE_SIZE.min(keyset_ids.len() - offset);
         let next_ids = &keyset_ids[offset..offset + page_size];
         let next_keysets = api
-            .find_tenant_keysets_by_ids(tonic::Request::new(forgerpc::TenantKeysetsByIdsRequest {
+            .find_tenant_keysets_by_ids(tonic::Request::new(forge::TenantKeysetsByIdsRequest {
                 keyset_ids: next_ids.to_vec(),
                 include_key_data: true,
             }))
@@ -124,7 +124,7 @@ async fn fetch_keysets(api: Arc<Api>) -> Result<forgerpc::TenantKeySetList, toni
     }
 
     keyset.sort_unstable_by(|ks1, ks2| {
-        let default_keyset_id = rpc::forge::TenantKeysetIdentifier {
+        let default_keyset_id = forge::TenantKeysetIdentifier {
             organization_id: String::new(),
             keyset_id: String::new(),
         };
@@ -141,7 +141,7 @@ async fn fetch_keysets(api: Arc<Api>) -> Result<forgerpc::TenantKeySetList, toni
         id1.keyset_id.cmp(&id2.keyset_id)
     });
 
-    Ok(forgerpc::TenantKeySetList { keyset })
+    Ok(forge::TenantKeySetList { keyset })
 }
 
 #[derive(Template)]
@@ -150,8 +150,8 @@ struct TenantKeysetDetail {
     keyset: KeysetDisplay,
 }
 
-impl From<forgerpc::TenantKeyset> for TenantKeysetDetail {
-    fn from(keyset: forgerpc::TenantKeyset) -> Self {
+impl From<forge::TenantKeyset> for TenantKeysetDetail {
+    fn from(keyset: forge::TenantKeyset) -> Self {
         Self {
             keyset: keyset.into(),
         }
@@ -168,8 +168,8 @@ pub async fn detail(
         None => (false, keyset_id),
     };
 
-    let request = tonic::Request::new(forgerpc::TenantKeysetsByIdsRequest {
-        keyset_ids: vec![forgerpc::TenantKeysetIdentifier {
+    let request = tonic::Request::new(forge::TenantKeysetsByIdsRequest {
+        keyset_ids: vec![forge::TenantKeysetIdentifier {
             organization_id: organization_id.clone(),
             keyset_id: keyset_id.clone(),
         }],

@@ -17,10 +17,10 @@
 
 use std::cmp::{max, min};
 
-use carbide_network::virtualization::VpcVirtualizationType;
-use carbide_uuid::vpc::VpcId;
-use carbide_uuid::vpc_peering::VpcPeeringId;
-use model::vpc::VpcPeering;
+use nico_api_model::vpc::VpcPeering;
+use nico_network::virtualization::VpcVirtualizationType;
+use nico_uuid::vpc::VpcId;
+use nico_uuid::vpc_peering::VpcPeeringId;
 use sqlx::PgConnection;
 use uuid::Uuid;
 

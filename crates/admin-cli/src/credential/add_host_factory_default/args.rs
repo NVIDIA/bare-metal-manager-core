@@ -16,7 +16,7 @@
  */
 
 use clap::Parser;
-use rpc::{CredentialType, forge as forgerpc};
+use nico_rpc::{CredentialType, forge};
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -28,7 +28,7 @@ pub struct Args {
     pub vendor: bmc_vendor::BMCVendor,
 }
 
-impl From<Args> for forgerpc::CredentialCreationRequest {
+impl From<Args> for forge::CredentialCreationRequest {
     fn from(args: Args) -> Self {
         Self {
             credential_type: CredentialType::HostBmcFactoryDefault.into(),

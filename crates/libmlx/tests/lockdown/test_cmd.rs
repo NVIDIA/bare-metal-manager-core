@@ -16,8 +16,8 @@
  */
 
 use clap::Parser;
-use libmlx::lockdown::cmd::args::{Cli, Commands, LockdownAction, OutputFormat};
-use libmlx::lockdown::cmd::cmds::run_cli;
+use nico_libmlx::lockdown::cmd::args::{Cli, Commands, LockdownAction, OutputFormat};
+use nico_libmlx::lockdown::cmd::cmds::run_cli;
 
 #[test]
 fn test_cli_parsing() {

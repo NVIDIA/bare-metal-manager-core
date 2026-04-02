@@ -22,7 +22,7 @@ REPO_ROOT = { script = [
 
 [tasks.build-component-local]
 category = "Build"
-description = "compile carbide package"
+description = "compile NICo package"
 workspace = false
 script = '''
 
@@ -39,7 +39,7 @@ cargo build ${profile_arg} --target=${CARBIDE_ARCH}-unknown-linux-gnu ${pkg_args
 
 [tasks.build-component-in-container]
 category = "Build"
-description = "compile carbide package x86_64"
+description = "compile NICo package x86_64"
 workspace = false
 script = '''
 

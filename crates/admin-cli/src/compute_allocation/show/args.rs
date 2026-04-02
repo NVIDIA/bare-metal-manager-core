@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::forge::FindComputeAllocationIdsRequest;
-use carbide_uuid::compute_allocation::ComputeAllocationId;
 use clap::Parser;
+use nico_rpc::forge::FindComputeAllocationIdsRequest;
+use nico_uuid::compute_allocation::ComputeAllocationId;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {

@@ -16,10 +16,11 @@
  */
 use std::collections::HashMap;
 
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
-use rpc::errors::RpcDataConversionError;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
+use nico_uuid::rack::RackId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -34,10 +35,10 @@ pub struct ExpectedMachineRequest {
     pub bmc_mac_address: Option<MacAddress>,
 }
 
-impl TryFrom<rpc::forge::ExpectedMachineRequest> for ExpectedMachineRequest {
+impl TryFrom<forge::ExpectedMachineRequest> for ExpectedMachineRequest {
     type Error = RpcDataConversionError;
 
-    fn try_from(rpc: rpc::forge::ExpectedMachineRequest) -> Result<Self, Self::Error> {
+    fn try_from(rpc: forge::ExpectedMachineRequest) -> Result<Self, Self::Error> {
         let id = rpc
             .id
             .map(|u| {
@@ -136,9 +137,9 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
     }
 }
 
-impl From<ExpectedHostNic> for rpc::forge::ExpectedHostNic {
+impl From<ExpectedHostNic> for forge::ExpectedHostNic {
     fn from(expected_host_nic: ExpectedHostNic) -> Self {
-        rpc::forge::ExpectedHostNic {
+        forge::ExpectedHostNic {
             mac_address: expected_host_nic.mac_address.to_string(),
             nic_type: expected_host_nic.nic_type,
             fixed_ip: expected_host_nic.fixed_ip,
@@ -148,8 +149,8 @@ impl From<ExpectedHostNic> for rpc::forge::ExpectedHostNic {
     }
 }
 
-impl From<rpc::forge::ExpectedHostNic> for ExpectedHostNic {
-    fn from(expected_host_nic: rpc::forge::ExpectedHostNic) -> Self {
+impl From<forge::ExpectedHostNic> for ExpectedHostNic {
+    fn from(expected_host_nic: forge::ExpectedHostNic) -> Self {
         ExpectedHostNic {
             mac_address: expected_host_nic.mac_address.parse().unwrap_or_default(),
             nic_type: expected_host_nic.nic_type,
@@ -160,7 +161,7 @@ impl From<rpc::forge::ExpectedHostNic> for ExpectedHostNic {
     }
 }
 
-impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
+impl From<ExpectedMachine> for forge::ExpectedMachine {
     fn from(expected_machine: ExpectedMachine) -> Self {
         let host_nics = expected_machine
             .data
@@ -168,8 +169,8 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
             .iter()
             .map(|x| x.clone().into())
             .collect();
-        rpc::forge::ExpectedMachine {
-            id: expected_machine.id.map(|u| ::rpc::common::Uuid {
+        forge::ExpectedMachine {
+            id: expected_machine.id.map(|u| nico_rpc::common::Uuid {
                 value: u.to_string(),
             }),
             bmc_mac_address: expected_machine.bmc_mac_address.to_string(),
@@ -202,25 +203,25 @@ pub struct LinkedExpectedMachine {
     pub expected_machine_id: Option<Uuid>, // The expected machine ID
 }
 
-impl From<LinkedExpectedMachine> for rpc::forge::LinkedExpectedMachine {
-    fn from(m: LinkedExpectedMachine) -> rpc::forge::LinkedExpectedMachine {
-        rpc::forge::LinkedExpectedMachine {
+impl From<LinkedExpectedMachine> for forge::LinkedExpectedMachine {
+    fn from(m: LinkedExpectedMachine) -> forge::LinkedExpectedMachine {
+        forge::LinkedExpectedMachine {
             chassis_serial_number: m.serial_number,
             bmc_mac_address: m.bmc_mac_address.to_string(),
             interface_id: m.interface_id.map(|u| u.to_string()),
             explored_endpoint_address: m.address,
             machine_id: m.machine_id,
-            expected_machine_id: m.expected_machine_id.map(|id| ::rpc::common::Uuid {
+            expected_machine_id: m.expected_machine_id.map(|id| nico_rpc::common::Uuid {
                 value: id.to_string(),
             }),
         }
     }
 }
 
-impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
+impl TryFrom<forge::ExpectedMachine> for ExpectedMachineData {
     type Error = RpcDataConversionError;
 
-    fn try_from(em: rpc::forge::ExpectedMachine) -> Result<Self, Self::Error> {
+    fn try_from(em: forge::ExpectedMachine) -> Result<Self, Self::Error> {
         Ok(Self {
             bmc_username: em.bmc_username,
             bmc_password: em.bmc_password,
@@ -239,7 +240,7 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
 /// If Metadata is retrieved as part of the ExpectedMachine creation, validate and use the Metadata
 /// Otherwise assume empty Metadata
 fn metadata_from_request(
-    opt_metadata: Option<::rpc::forge::Metadata>,
+    opt_metadata: Option<forge::Metadata>,
 ) -> Result<Metadata, RpcDataConversionError> {
     Ok(match opt_metadata {
         None => Metadata {

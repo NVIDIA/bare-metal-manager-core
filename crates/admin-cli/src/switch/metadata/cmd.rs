@@ -15,8 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use mac_address::MacAddress;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
 
 use super::args::{
     Args, SwitchMetadataCommandAddLabel, SwitchMetadataCommandFromExpectedSwitch,
@@ -42,11 +43,11 @@ pub async fn metadata(
 
 async fn fetch_switch(
     api_client: &ApiClient,
-    switch_id: carbide_uuid::switch::SwitchId,
-) -> CarbideCliResult<rpc::forge::Switch> {
+    switch_id: nico_uuid::switch::SwitchId,
+) -> CarbideCliResult<forge::Switch> {
     let response = api_client
         .0
-        .find_switches(rpc::forge::SwitchQuery {
+        .find_switches(forge::SwitchQuery {
             name: None,
             switch_id: Some(switch_id),
         })

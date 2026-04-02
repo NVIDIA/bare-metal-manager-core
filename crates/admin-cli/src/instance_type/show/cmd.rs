@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::FindInstanceTypesByIdsRequest;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge::FindInstanceTypesByIdsRequest;
 
 use super::args::Args;
 use crate::instance_type::common::convert_itypes_to_table;

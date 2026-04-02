@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
-use model::attestation::EkCertVerificationStatus;
+use nico_api_model::attestation::EkCertVerificationStatus;
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;

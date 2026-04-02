@@ -17,11 +17,12 @@
 
 use std::str::FromStr;
 
-use carbide_uuid::power_shelf::PowerShelfId;
 use color_eyre::Result;
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_rpc::forge::PowerShelf;
+use nico_uuid::power_shelf::PowerShelfId;
 use prettytable::{Table, row};
-use rpc::admin_cli::{CarbideCliResult, OutputFormat};
-use rpc::forge::PowerShelf;
 
 use super::args::Args;
 use crate::cfg::runtime::RuntimeConfig;
@@ -133,7 +134,7 @@ pub async fn handle_show(
             }
             Err(_) => {
                 // Fall back to name-based lookup
-                let query = rpc::forge::PowerShelfQuery {
+                let query = forge::PowerShelfQuery {
                     name: Some(id),
                     power_shelf_id: None,
                 };
@@ -141,7 +142,7 @@ pub async fn handle_show(
             }
         },
         _ => {
-            let filter = rpc::forge::PowerShelfSearchFilter::default();
+            let filter = forge::PowerShelfSearchFilter::default();
             api_client
                 .get_all_power_shelves(filter, config.page_size)
                 .await?

@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::power_shelf::PowerShelfId;
-use db::power_shelf as db_power_shelf;
-use model::power_shelf::{PowerShelf, PowerShelfControllerState};
+use nico_api_db::power_shelf as db_power_shelf;
+use nico_api_model::power_shelf::{PowerShelf, PowerShelfControllerState};
+use nico_uuid::power_shelf::PowerShelfId;
 
 use crate::state_controller::power_shelf::context::PowerShelfStateHandlerContextObjects;
 use crate::state_controller::state_handler::{

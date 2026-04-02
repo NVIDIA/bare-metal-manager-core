@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use ::rpc::forge as rpc;
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -25,8 +25,8 @@ use crate::api::Api;
 
 pub(crate) async fn grow(
     api: &Api,
-    request: Request<rpc::GrowResourcePoolRequest>,
-) -> Result<Response<rpc::GrowResourcePoolResponse>, Status> {
+    request: Request<forge::GrowResourcePoolRequest>,
+) -> Result<Response<forge::GrowResourcePoolResponse>, Status> {
     crate::api::log_request_data(&request);
 
     let toml_text = request.into_inner().text;
@@ -38,16 +38,16 @@ pub(crate) async fn grow(
         .parse()
         .map_err(|e: toml::de::Error| CarbideError::InvalidArgument(e.to_string()))?;
     for (name, def) in table {
-        let d: model::resource_pool::ResourcePoolDef = def
+        let d: nico_api_model::resource_pool::ResourcePoolDef = def
             .try_into()
             .map_err(|e: toml::de::Error| CarbideError::InvalidArgument(e.to_string()))?;
         pools.insert(name, d);
     }
-    use db::resource_pool::DefineResourcePoolError as DE;
-    match db::resource_pool::define_all_from(&mut txn, &pools).await {
+    use nico_api_db::resource_pool::DefineResourcePoolError as DE;
+    match nico_api_db::resource_pool::define_all_from(&mut txn, &pools).await {
         Ok(()) => {
             txn.commit().await?;
-            Ok(Response::new(rpc::GrowResourcePoolResponse {}))
+            Ok(Response::new(forge::GrowResourcePoolResponse {}))
         }
         Err(DE::InvalidArgument(msg)) => Err(CarbideError::InvalidArgument(msg).into()),
         Err(DE::InvalidToml(err)) => Err(CarbideError::InvalidArgument(err.to_string()).into()),
@@ -65,19 +65,19 @@ pub(crate) async fn grow(
 
 pub(crate) async fn list(
     api: &Api,
-    request: Request<rpc::ListResourcePoolsRequest>,
-) -> Result<tonic::Response<rpc::ResourcePools>, tonic::Status> {
+    request: Request<forge::ListResourcePoolsRequest>,
+) -> Result<tonic::Response<forge::ResourcePools>, tonic::Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
 
-    let snapshot = db::resource_pool::all(&mut txn)
+    let snapshot = nico_api_db::resource_pool::all(&mut txn)
         .await
         .map_err(CarbideError::from)?;
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::ResourcePools {
+    Ok(Response::new(forge::ResourcePools {
         pools: snapshot.into_iter().map(|s| s.into()).collect(),
     }))
 }

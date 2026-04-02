@@ -17,13 +17,13 @@
 
 use std::collections::HashMap;
 
-use carbide_uuid::extension_service::ExtensionServiceId;
 use config_version::{ConfigVersion, ConfigVersionChange};
-use model::extension_service::{
+use nico_api_model::extension_service::{
     ExtensionService, ExtensionServiceObservability, ExtensionServiceSnapshot,
     ExtensionServiceType, ExtensionServiceVersionInfo,
 };
-use model::tenant::TenantOrganizationId;
+use nico_api_model::tenant::TenantOrganizationId;
+use nico_uuid::extension_service::ExtensionServiceId;
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;

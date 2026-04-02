@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::db::{ObjectColumnFilter, vpc, vpc_peering as db};
-use ::rpc::forge as rpc;
-use carbide_network::virtualization::VpcVirtualizationType;
-use carbide_uuid::vpc_peering::VpcPeeringId;
+use nico_api_db::{ObjectColumnFilter, vpc, vpc_peering as db};
+use nico_network::virtualization::VpcVirtualizationType;
+use nico_rpc::forge;
+use nico_uuid::vpc_peering::VpcPeeringId;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -28,11 +28,11 @@ use crate::cfg::file::VpcPeeringPolicy;
 
 pub async fn create(
     api: &Api,
-    request: Request<rpc::VpcPeeringCreationRequest>,
-) -> Result<Response<rpc::VpcPeering>, Status> {
+    request: Request<forge::VpcPeeringCreationRequest>,
+) -> Result<Response<forge::VpcPeering>, Status> {
     log_request_data(&request);
 
-    let rpc::VpcPeeringCreationRequest {
+    let forge::VpcPeeringCreationRequest {
         vpc_id,
         peer_vpc_id,
         id,
@@ -96,11 +96,11 @@ pub async fn create(
 
 pub async fn find_ids(
     api: &Api,
-    request: Request<rpc::VpcPeeringSearchFilter>,
-) -> Result<Response<rpc::VpcPeeringIdList>, Status> {
+    request: Request<forge::VpcPeeringSearchFilter>,
+) -> Result<Response<forge::VpcPeeringIdList>, Status> {
     log_request_data(&request);
 
-    let rpc::VpcPeeringSearchFilter { vpc_id } = request.into_inner();
+    let forge::VpcPeeringSearchFilter { vpc_id } = request.into_inner();
 
     let mut txn = api.txn_begin().await?;
 
@@ -108,18 +108,18 @@ pub async fn find_ids(
 
     txn.commit().await?;
 
-    Ok(tonic::Response::new(rpc::VpcPeeringIdList {
+    Ok(tonic::Response::new(forge::VpcPeeringIdList {
         vpc_peering_ids,
     }))
 }
 
 pub async fn find_by_ids(
     api: &Api,
-    request: Request<rpc::VpcPeeringsByIdsRequest>,
-) -> Result<Response<rpc::VpcPeeringList>, Status> {
+    request: Request<forge::VpcPeeringsByIdsRequest>,
+) -> Result<Response<forge::VpcPeeringList>, Status> {
     log_request_data(&request);
 
-    let rpc::VpcPeeringsByIdsRequest { vpc_peering_ids } = request.into_inner();
+    let forge::VpcPeeringsByIdsRequest { vpc_peering_ids } = request.into_inner();
 
     let mut txn = api.txn_begin().await?;
 
@@ -129,16 +129,16 @@ pub async fn find_by_ids(
 
     let vpc_peerings = vpc_peerings.into_iter().map(Into::into).collect();
 
-    Ok(tonic::Response::new(rpc::VpcPeeringList { vpc_peerings }))
+    Ok(tonic::Response::new(forge::VpcPeeringList { vpc_peerings }))
 }
 
 pub async fn delete(
     api: &Api,
-    request: Request<rpc::VpcPeeringDeletionRequest>,
-) -> Result<Response<rpc::VpcPeeringDeletionResult>, Status> {
+    request: Request<forge::VpcPeeringDeletionRequest>,
+) -> Result<Response<forge::VpcPeeringDeletionResult>, Status> {
     log_request_data(&request);
 
-    let rpc::VpcPeeringDeletionRequest { id } = request.into_inner();
+    let forge::VpcPeeringDeletionRequest { id } = request.into_inner();
 
     let id = id.ok_or_else(|| CarbideError::MissingArgument("id cannot be null"))?;
 
@@ -148,5 +148,5 @@ pub async fn delete(
 
     txn.commit().await?;
 
-    Ok(tonic::Response::new(rpc::VpcPeeringDeletionResult {}))
+    Ok(tonic::Response::new(forge::VpcPeeringDeletionResult {}))
 }

@@ -16,8 +16,8 @@
  */
 
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::forge as forgerpc;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge;
 
 use crate::os_image::common::str_to_rpc_uuid;
 
@@ -79,12 +79,12 @@ pub struct Args {
     pub efifs_id: Option<String>,
 }
 
-impl TryFrom<Args> for forgerpc::OsImageAttributes {
+impl TryFrom<Args> for forge::OsImageAttributes {
     type Error = CarbideCliError;
 
     fn try_from(args: Args) -> CarbideCliResult<Self> {
         let id = str_to_rpc_uuid(&args.id)?;
-        Ok(forgerpc::OsImageAttributes {
+        Ok(forge::OsImageAttributes {
             id: Some(id),
             source_url: args.url,
             digest: args.digest,

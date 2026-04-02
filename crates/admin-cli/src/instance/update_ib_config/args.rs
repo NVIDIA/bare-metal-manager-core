@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::instance::InstanceId;
 use clap::Parser;
-use rpc::InstanceInfinibandConfig;
+use nico_rpc::InstanceInfinibandConfig;
+use nico_uuid::instance::InstanceId;
 
 #[derive(Parser, Debug)]
 pub struct Args {

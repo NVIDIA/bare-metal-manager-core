@@ -18,19 +18,19 @@ pub mod tests {
 
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
     use common::api_fixtures::dpu::create_dpu_machine;
     use common::api_fixtures::host::host_discover_dhcp;
     use common::api_fixtures::tpm_attestation::{
         CA_CERT_SERIALIZED, CA2_CERT_SERIALIZED, EK_CERT_SERIALIZED, EK2_CERT_SERIALIZED,
     };
     use common::api_fixtures::{TestEnv, create_test_env};
-    use db::ObjectColumnFilter;
-    use model::hardware_info::{HardwareInfo, TpmEkCertificate};
-    use model::machine::machine_id::from_hardware_info;
-    use model::network_segment;
-    use rpc::forge::forge_server::Forge;
-    use rpc::forge::{TpmCaCert, TpmCaCertDetail, TpmCaCertId, TpmEkCertStatus};
+    use nico_api_db::ObjectColumnFilter;
+    use nico_api_model::hardware_info::{HardwareInfo, TpmEkCertificate};
+    use nico_api_model::machine::machine_id::from_hardware_info;
+    use nico_api_model::network_segment;
+    use nico_rpc::forge::forge_server::Forge;
+    use nico_rpc::forge::{TpmCaCert, TpmCaCertDetail, TpmCaCertId, TpmEkCertStatus};
+    use nico_uuid::machine::MachineId;
     use sha2::{Digest, Sha256};
 
     use crate::attestation::get_ek_cert_by_machine_id;
@@ -67,30 +67,33 @@ pub mod tests {
 
         let mut txn = env.pool.begin().await?;
 
-        let segment = db::network_segment::find_by(
+        let segment = nico_api_db::network_segment::find_by(
             txn.as_mut(),
-            ObjectColumnFilter::One(db::network_segment::IdColumn, &env.admin_segment.unwrap()),
+            ObjectColumnFilter::One(
+                nico_api_db::network_segment::IdColumn,
+                &env.admin_segment.unwrap(),
+            ),
             network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await
         .unwrap()
         .remove(0);
 
-        let iface = db::machine_interface::create(
+        let iface = nico_api_db::machine_interface::create(
             &mut txn,
             &segment,
             &dpu.host_mac_address,
             Some(env.domain.into()),
             true,
-            model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
+            nico_api_model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
         )
         .await
         .unwrap();
 
-        // hardware_info is never inserted via db::machine_topology::create_or_update thus triggering an error
+        // hardware_info is never inserted via nico_api_db::machine_topology::create_or_update thus triggering an error
         let hardware_info = HardwareInfo::from(&host_config);
         let machine_id = from_hardware_info(&hardware_info).unwrap();
-        let _machine = db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
+        let _machine = nico_api_db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
             .await
             .unwrap();
 
@@ -118,28 +121,31 @@ pub mod tests {
 
         let mut txn = env.pool.begin().await?;
 
-        let segment = db::network_segment::find_by(
+        let segment = nico_api_db::network_segment::find_by(
             txn.as_mut(),
-            ObjectColumnFilter::One(db::network_segment::IdColumn, &env.admin_segment.unwrap()),
+            ObjectColumnFilter::One(
+                nico_api_db::network_segment::IdColumn,
+                &env.admin_segment.unwrap(),
+            ),
             network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await
         .unwrap()
         .remove(0);
 
-        let iface = db::machine_interface::create(
+        let iface = nico_api_db::machine_interface::create(
             &mut txn,
             &segment,
             &dpu.host_mac_address,
             Some(env.domain.into()),
             true,
-            model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
+            nico_api_model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
         )
         .await
         .unwrap();
         let mut hardware_info = HardwareInfo::from(&host_config);
         let machine_id = from_hardware_info(&hardware_info).unwrap();
-        let machine = db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
+        let machine = nico_api_db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
             .await
             .unwrap();
 
@@ -149,7 +155,8 @@ pub mod tests {
 
         // set ek cert to None to trigger an error
         hardware_info.tpm_ek_certificate = None;
-        db::machine_topology::create_or_update(&mut txn, &machine.id, &hardware_info).await?;
+        nico_api_db::machine_topology::create_or_update(&mut txn, &machine.id, &hardware_info)
+            .await?;
 
         txn.commit().await?;
 
@@ -180,7 +187,8 @@ pub mod tests {
         }
     }
 
-    use db::attestation::ek_cert_verification_status;
+    use nico_api_db::attestation::ek_cert_verification_status;
+    use nico_rpc::forge;
 
     use crate::attestation::match_insert_new_ek_cert_status_against_ca;
 
@@ -469,7 +477,7 @@ pub mod tests {
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status;";
         let all_ek_cert_statuses =
-            sqlx::query_as::<_, model::attestation::EkCertVerificationStatus>(query)
+            sqlx::query_as::<_, nico_api_model::attestation::EkCertVerificationStatus>(query)
                 .fetch_all(&mut *txn)
                 .await?;
 
@@ -509,7 +517,7 @@ pub mod tests {
         // verify
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from tpm_ca_certs;";
-        let all_ca_certs = sqlx::query_as::<_, model::attestation::TpmCaCert>(query)
+        let all_ca_certs = sqlx::query_as::<_, nico_api_model::attestation::TpmCaCert>(query)
             .fetch_all(&mut *txn)
             .await?;
 
@@ -565,7 +573,7 @@ pub mod tests {
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status ORDER BY serial_num;";
         let all_ek_cert_statuses =
-            sqlx::query_as::<_, model::attestation::EkCertVerificationStatus>(query)
+            sqlx::query_as::<_, nico_api_model::attestation::EkCertVerificationStatus>(query)
                 .fetch_all(&mut *txn)
                 .await?;
 
@@ -1005,10 +1013,10 @@ pub mod tests {
         // execute
         let response = env
             .api
-            .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
+            .discover_machine(tonic::Request::new(forge::MachineDiscoveryInfo {
                 machine_interface_id: Some(host_machine_interface_id),
-                discovery_data: Some(rpc::DiscoveryData::Info(
-                    rpc::DiscoveryInfo::try_from(hardware_info).unwrap(),
+                discovery_data: Some(nico_rpc::DiscoveryData::Info(
+                    nico_rpc::DiscoveryInfo::try_from(hardware_info).unwrap(),
                 )),
                 create_machine: true,
             }))
@@ -1020,7 +1028,7 @@ pub mod tests {
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status;";
         let all_ek_cert_statuses =
-            sqlx::query_as::<_, model::attestation::EkCertVerificationStatus>(query)
+            sqlx::query_as::<_, nico_api_model::attestation::EkCertVerificationStatus>(query)
                 .fetch_all(&mut *txn)
                 .await?;
 
@@ -1050,10 +1058,10 @@ pub mod tests {
         // execute
         let response = env
             .api
-            .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
+            .discover_machine(tonic::Request::new(forge::MachineDiscoveryInfo {
                 machine_interface_id: Some(host_machine_interface_id),
-                discovery_data: Some(rpc::DiscoveryData::Info(
-                    rpc::DiscoveryInfo::try_from(hardware_info).unwrap(),
+                discovery_data: Some(nico_rpc::DiscoveryData::Info(
+                    nico_rpc::DiscoveryInfo::try_from(hardware_info).unwrap(),
                 )),
                 create_machine: true,
             }))
@@ -1065,7 +1073,7 @@ pub mod tests {
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status;";
         let all_ek_cert_statuses =
-            sqlx::query_as::<_, model::attestation::EkCertVerificationStatus>(query)
+            sqlx::query_as::<_, nico_api_model::attestation::EkCertVerificationStatus>(query)
                 .fetch_all(&mut *txn)
                 .await?;
 
@@ -1109,10 +1117,10 @@ pub mod tests {
 
         let response = env
             .api
-            .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
+            .discover_machine(tonic::Request::new(forge::MachineDiscoveryInfo {
                 machine_interface_id: Some(host_machine_interface_id),
-                discovery_data: Some(rpc::DiscoveryData::Info(
-                    rpc::DiscoveryInfo::try_from(hardware_info.clone()).unwrap(),
+                discovery_data: Some(nico_rpc::DiscoveryData::Info(
+                    nico_rpc::DiscoveryInfo::try_from(hardware_info.clone()).unwrap(),
                 )),
                 create_machine: true,
             }))
@@ -1133,7 +1141,7 @@ pub mod tests {
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status;";
         let all_ek_cert_statuses =
-            sqlx::query_as::<_, model::attestation::EkCertVerificationStatus>(query)
+            sqlx::query_as::<_, nico_api_model::attestation::EkCertVerificationStatus>(query)
                 .fetch_all(&mut *txn)
                 .await?;
 
@@ -1144,10 +1152,10 @@ pub mod tests {
         // execute
         let response = env
             .api
-            .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
+            .discover_machine(tonic::Request::new(forge::MachineDiscoveryInfo {
                 machine_interface_id: Some(host_machine_interface_id),
-                discovery_data: Some(rpc::DiscoveryData::Info(
-                    rpc::DiscoveryInfo::try_from(hardware_info).unwrap(),
+                discovery_data: Some(nico_rpc::DiscoveryData::Info(
+                    nico_rpc::DiscoveryInfo::try_from(hardware_info).unwrap(),
                 )),
                 create_machine: true,
             }))
@@ -1159,7 +1167,7 @@ pub mod tests {
         let mut txn: sqlx::Transaction<'_, sqlx::Postgres> = env.pool.begin().await.unwrap();
         let query = "SELECT * from ek_cert_verification_status;";
         let all_ek_cert_statuses =
-            sqlx::query_as::<_, model::attestation::EkCertVerificationStatus>(query)
+            sqlx::query_as::<_, nico_api_model::attestation::EkCertVerificationStatus>(query)
                 .fetch_all(&mut *txn)
                 .await?;
 
@@ -1181,28 +1189,31 @@ pub mod tests {
 
         let mut txn = env.pool.begin().await?;
 
-        let segment = db::network_segment::find_by(
+        let segment = nico_api_db::network_segment::find_by(
             txn.as_mut(),
-            ObjectColumnFilter::One(db::network_segment::IdColumn, &env.admin_segment.unwrap()),
+            ObjectColumnFilter::One(
+                nico_api_db::network_segment::IdColumn,
+                &env.admin_segment.unwrap(),
+            ),
             network_segment::NetworkSegmentSearchConfig::default(),
         )
         .await
         .unwrap()
         .remove(0);
 
-        let iface = db::machine_interface::create(
+        let iface = nico_api_db::machine_interface::create(
             &mut txn,
             &segment,
             &dpu.host_mac_address,
             Some(env.domain.into()),
             true,
-            model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
+            nico_api_model::address_selection_strategy::AddressSelectionStrategy::NextAvailableIp,
         )
         .await
         .unwrap();
         let hardware_info = HardwareInfo::from(&host_config);
         let machine_id = from_hardware_info(&hardware_info).unwrap();
-        let machine = db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
+        let machine = nico_api_db::machine::get_or_create(&mut txn, None, &machine_id, &iface)
             .await
             .unwrap();
 
@@ -1210,7 +1221,8 @@ pub mod tests {
 
         let mut txn = env.pool.begin().await?;
 
-        db::machine_topology::create_or_update(&mut txn, &machine.id, &hardware_info).await?;
+        nico_api_db::machine_topology::create_or_update(&mut txn, &machine.id, &hardware_info)
+            .await?;
 
         txn.commit().await?;
 

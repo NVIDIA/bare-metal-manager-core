@@ -18,6 +18,7 @@
 use std::fmt::{Debug, Display};
 use std::panic::Location;
 
+use nico_rpc::forge;
 use serde::{Deserialize, Serialize};
 
 /// DB storage of the result of a state handler iteration
@@ -76,18 +77,18 @@ impl From<&&'static Location<'static>> for PersistentSourceReference {
     }
 }
 
-impl From<PersistentSourceReference> for rpc::forge::ControllerStateSourceReference {
+impl From<PersistentSourceReference> for forge::ControllerStateSourceReference {
     fn from(source_ref: PersistentSourceReference) -> Self {
-        rpc::forge::ControllerStateSourceReference {
+        forge::ControllerStateSourceReference {
             file: source_ref.file,
             line: source_ref.line.try_into().unwrap_or_default(),
         }
     }
 }
 
-impl From<PersistentStateHandlerOutcome> for rpc::forge::ControllerStateReason {
-    fn from(p: PersistentStateHandlerOutcome) -> rpc::forge::ControllerStateReason {
-        use rpc::forge::ControllerStateOutcome::*;
+impl From<PersistentStateHandlerOutcome> for forge::ControllerStateReason {
+    fn from(p: PersistentStateHandlerOutcome) -> forge::ControllerStateReason {
+        use nico_rpc::forge::ControllerStateOutcome::*;
         let (outcome, outcome_msg, source_ref) = match p {
             PersistentStateHandlerOutcome::Wait { reason, source_ref } => {
                 (Wait, Some(reason), source_ref)
@@ -103,7 +104,7 @@ impl From<PersistentStateHandlerOutcome> for rpc::forge::ControllerStateReason {
             }
             PersistentStateHandlerOutcome::DoNothingWithDetails => (DoNothing, None, None),
         };
-        rpc::forge::ControllerStateReason {
+        forge::ControllerStateReason {
             outcome: outcome.into(), // into converts it to i32
             outcome_msg,
             source_ref: source_ref.map(Into::into),

@@ -18,9 +18,10 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_uuid::machine::MachineId;
-use model::machine::{Machine, ManagedHostState};
-use rpc::forge::forge_server::Forge;
+use nico_api_model::machine::{Machine, ManagedHostState};
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::machine::MachineId;
 use tonic::Request;
 
 use crate::tests::common::api_fixtures::{Api, TestEnv};
@@ -41,9 +42,9 @@ impl TestMachine {
         Self { id, api }
     }
 
-    pub async fn rpc_machine(&self) -> rpc::Machine {
+    pub async fn rpc_machine(&self) -> forge::Machine {
         self.api
-            .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            .find_machines_by_ids(tonic::Request::new(forge::MachinesByIdsRequest {
                 machine_ids: vec![self.id],
                 include_history: true,
             }))
@@ -63,7 +64,7 @@ impl TestMachine {
     }
 
     pub async fn db_machine(&self, txn: &mut Txn<'_>) -> Machine {
-        db::machine::find_one(txn.as_mut(), &self.id, Default::default())
+        nico_api_db::machine::find_one(txn.as_mut(), &self.id, Default::default())
             .await
             .unwrap()
             .unwrap()
@@ -71,7 +72,7 @@ impl TestMachine {
 
     pub async fn first_interface(&self, txn: &mut Txn<'_>) -> TestMachineInterface {
         TestMachineInterface::new(
-            db::machine_interface::find_by_machine_ids(txn, &[self.id])
+            nico_api_db::machine_interface::find_by_machine_ids(txn, &[self.id])
                 .await
                 .unwrap()
                 .get(&self.id)
@@ -81,10 +82,10 @@ impl TestMachine {
         )
     }
 
-    pub async fn reboot_completed(&self) -> rpc::forge::MachineRebootCompletedResponse {
+    pub async fn reboot_completed(&self) -> forge::MachineRebootCompletedResponse {
         tracing::info!("Machine ={} rebooted", self.id);
         self.api
-            .reboot_completed(Request::new(rpc::forge::MachineRebootCompletedRequest {
+            .reboot_completed(Request::new(forge::MachineRebootCompletedRequest {
                 machine_id: self.id.into(),
             }))
             .await
@@ -92,10 +93,10 @@ impl TestMachine {
             .into_inner()
     }
 
-    pub async fn forge_agent_control(&self) -> rpc::forge::ForgeAgentControlResponse {
+    pub async fn forge_agent_control(&self) -> forge::ForgeAgentControlResponse {
         self.reboot_completed().await;
         self.api
-            .forge_agent_control(Request::new(rpc::forge::ForgeAgentControlRequest {
+            .forge_agent_control(Request::new(forge::ForgeAgentControlRequest {
                 machine_id: self.id.into(),
             }))
             .await
@@ -105,7 +106,7 @@ impl TestMachine {
 
     pub async fn discovery_completed(&self) {
         self.api
-            .discovery_completed(Request::new(rpc::forge::MachineDiscoveryCompletedRequest {
+            .discovery_completed(Request::new(forge::MachineDiscoveryCompletedRequest {
                 machine_id: self.id.into(),
             }))
             .await
@@ -115,19 +116,17 @@ impl TestMachine {
 
     pub async fn trigger_dpu_reprovisioning(
         &self,
-        mode: rpc::forge::dpu_reprovisioning_request::Mode,
+        mode: forge::dpu_reprovisioning_request::Mode,
         update_firmware: bool,
     ) {
         self.api
-            .trigger_dpu_reprovisioning(tonic::Request::new(
-                ::rpc::forge::DpuReprovisioningRequest {
-                    dpu_id: None,
-                    machine_id: self.id.into(),
-                    mode: mode as i32,
-                    initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                    update_firmware,
-                },
-            ))
+            .trigger_dpu_reprovisioning(tonic::Request::new(forge::DpuReprovisioningRequest {
+                dpu_id: None,
+                machine_id: self.id.into(),
+                mode: mode as i32,
+                initiator: forge::UpdateInitiator::AdminCli as i32,
+                update_firmware,
+            }))
             .await
             .unwrap();
     }

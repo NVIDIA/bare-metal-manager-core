@@ -19,8 +19,8 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use mac_address::MacAddress;
-use rpc::Timestamp;
-use rpc::protos::mlx_device::{
+use nico_rpc::Timestamp;
+use nico_rpc::protos::mlx_device::{
     DeviceField as DeviceFieldPb, DeviceFilter as DeviceFilterPb,
     DeviceFilterSet as DeviceFilterSetPb, MatchMode as MatchModePb,
     MlxDeviceInfo as MlxDeviceInfoPb, MlxDeviceReport as MlxDeviceReportPb,

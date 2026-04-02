@@ -16,6 +16,7 @@
  */
 use std::net::IpAddr;
 
+use nico_rpc::forge;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -47,7 +48,7 @@ pub struct RouteServer {
 // Impl to allow us to convert RouteServer instances
 // into gRPC RouteServer messages for returning
 // API responses.
-impl From<RouteServer> for rpc::forge::RouteServer {
+impl From<RouteServer> for forge::RouteServer {
     fn from(rs: RouteServer) -> Self {
         Self {
             address: rs.address.to_string(),
@@ -59,20 +60,20 @@ impl From<RouteServer> for rpc::forge::RouteServer {
 // Impl to allow us to convert RouteServerSourceType instances
 // into gRPC RouteServerSourceType messages for returning
 // API responses.
-impl From<RouteServerSourceType> for rpc::forge::RouteServerSourceType {
+impl From<RouteServerSourceType> for forge::RouteServerSourceType {
     fn from(source_type: RouteServerSourceType) -> Self {
         match source_type {
-            RouteServerSourceType::ConfigFile => rpc::forge::RouteServerSourceType::ConfigFile,
-            RouteServerSourceType::AdminApi => rpc::forge::RouteServerSourceType::AdminApi,
+            RouteServerSourceType::ConfigFile => forge::RouteServerSourceType::ConfigFile,
+            RouteServerSourceType::AdminApi => forge::RouteServerSourceType::AdminApi,
         }
     }
 }
 
-impl From<rpc::forge::RouteServerSourceType> for RouteServerSourceType {
-    fn from(source_type: rpc::forge::RouteServerSourceType) -> Self {
+impl From<forge::RouteServerSourceType> for RouteServerSourceType {
+    fn from(source_type: forge::RouteServerSourceType) -> Self {
         match source_type {
-            rpc::forge::RouteServerSourceType::ConfigFile => RouteServerSourceType::ConfigFile,
-            rpc::forge::RouteServerSourceType::AdminApi => RouteServerSourceType::AdminApi,
+            forge::RouteServerSourceType::ConfigFile => RouteServerSourceType::ConfigFile,
+            forge::RouteServerSourceType::AdminApi => RouteServerSourceType::AdminApi,
         }
     }
 }

@@ -18,15 +18,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
-use db::db_read::PgPoolReader;
-use model::machine::{
+use nico_api_db::db_read::PgPoolReader;
+use nico_api_model::machine::{
     InstanceState, LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot,
     ReprovisionState,
 };
-use rpc::forge::forge_agent_control_response::Action;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_agent_control_response::Action;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
 use tonic::Request;
 
 use crate::tests::common::api_fixtures::instance::TestInstanceBuilder;
@@ -61,21 +62,21 @@ impl TestManagedHost {
     }
 
     pub async fn snapshot(&self, txn: &mut Txn<'_>) -> ManagedHostStateSnapshot {
-        db::managed_host::load_snapshot(txn.as_mut(), &self.id, Default::default())
+        nico_api_db::managed_host::load_snapshot(txn.as_mut(), &self.id, Default::default())
             .await
             .unwrap()
             .unwrap()
     }
 
     pub async fn dpu_db_machines(&self, txn: &mut Txn<'_>) -> Vec<Machine> {
-        db::machine::find_dpus_by_host_machine_id(txn, &self.id)
+        nico_api_db::machine::find_dpus_by_host_machine_id(txn, &self.id)
             .await
             .unwrap()
     }
 
     pub fn new_dpu_reprovision_state(&self, state: ReprovisionState) -> ManagedHostState {
         ManagedHostState::DPUReprovision {
-            dpu_states: model::machine::DpuReprovisionStates {
+            dpu_states: nico_api_model::machine::DpuReprovisionStates {
                 states: HashMap::from([(self.dpu().id, state)]),
             },
         }
@@ -84,7 +85,7 @@ impl TestManagedHost {
     pub fn new_dpus_reprovision_state(&self, states: &[&ReprovisionState]) -> ManagedHostState {
         assert_eq!(states.len(), self.dpu_ids.len());
         ManagedHostState::DPUReprovision {
-            dpu_states: model::machine::DpuReprovisionStates {
+            dpu_states: nico_api_model::machine::DpuReprovisionStates {
                 states: self
                     .dpu_ids
                     .iter()
@@ -98,7 +99,7 @@ impl TestManagedHost {
     pub fn new_dpu_assigned_reprovision_state(&self, state: ReprovisionState) -> ManagedHostState {
         ManagedHostState::Assigned {
             instance_state: InstanceState::DPUReprovision {
-                dpu_states: model::machine::DpuReprovisionStates {
+                dpu_states: nico_api_model::machine::DpuReprovisionStates {
                     states: HashMap::from([(self.dpu().id, state)]),
                 },
             },
@@ -114,15 +115,13 @@ impl TestManagedHost {
         assert_eq!(response.action, Action::MachineValidation as i32);
         let uuid = &response.data.unwrap().pair[1].value;
         self.api
-            .machine_validation_completed(Request::new(
-                rpc::forge::MachineValidationCompletedRequest {
-                    machine_id: self.id.into(),
-                    machine_validation_error: None,
-                    validation_id: Some(rpc::Uuid {
-                        value: uuid.to_owned(),
-                    }),
-                },
-            ))
+            .machine_validation_completed(Request::new(forge::MachineValidationCompletedRequest {
+                machine_id: self.id.into(),
+                machine_validation_error: None,
+                validation_id: Some(nico_rpc::Uuid {
+                    value: uuid.to_owned(),
+                }),
+            }))
             .await
             .unwrap()
             .into_inner();
@@ -151,7 +150,7 @@ impl TestManagedHostSnapshots for Vec<TestManagedHost> {
         txn: &mut PgPoolReader,
         load_options: LoadSnapshotOptions,
     ) -> HashMap<MachineId, ManagedHostStateSnapshot> {
-        db::managed_host::load_by_machine_ids(
+        nico_api_db::managed_host::load_by_machine_ids(
             txn,
             &self.iter().map(|m| m.id).collect::<Vec<_>>(),
             load_options,

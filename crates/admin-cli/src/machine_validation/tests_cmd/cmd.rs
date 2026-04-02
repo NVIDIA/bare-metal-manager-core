@@ -17,10 +17,10 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
-use ::rpc::forge::{
-    self as forgerpc, MachineValidationTestEnableDisableTestRequest,
-    MachineValidationTestUpdateRequest, MachineValidationTestVerfiedRequest,
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::forge::{
+    self, MachineValidationTestEnableDisableTestRequest, MachineValidationTestUpdateRequest,
+    MachineValidationTestVerfiedRequest,
 };
 use prettytable::{Table, row};
 
@@ -54,7 +54,7 @@ pub async fn show_tests(
 
 fn show_tests_details(
     is_json: bool,
-    test: forgerpc::MachineValidationTestsGetResponse,
+    test: forge::MachineValidationTestsGetResponse,
 ) -> CarbideCliResult<()> {
     if is_json {
         for test in test.tests {
@@ -69,7 +69,7 @@ fn show_tests_details(
     Ok(())
 }
 
-fn convert_tests_to_nice_table(tests: Vec<forgerpc::MachineValidationTest>) -> Box<Table> {
+fn convert_tests_to_nice_table(tests: Vec<forge::MachineValidationTest>) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row![
@@ -98,7 +98,7 @@ fn convert_tests_to_nice_table(tests: Vec<forgerpc::MachineValidationTest>) -> B
 }
 
 fn convert_tests_to_nice_format(
-    tests: Vec<forgerpc::MachineValidationTest>,
+    tests: Vec<forge::MachineValidationTest>,
 ) -> CarbideCliResult<String> {
     let width = 14;
     let mut lines = String::new();
@@ -226,7 +226,7 @@ pub async fn machine_validation_test_update(
     api_client: &ApiClient,
     options: UpdateTestOptions,
 ) -> CarbideCliResult<()> {
-    let payload = forgerpc::machine_validation_test_update_request::Payload {
+    let payload = forge::machine_validation_test_update_request::Payload {
         contexts: options.contexts,
         img_name: options.img_name,
         execute_in_host: options.execute_in_host,
@@ -274,7 +274,7 @@ pub async fn machine_validation_test_add(
     if options.description.is_some() {
         description = options.description;
     }
-    let request = forgerpc::MachineValidationTestAddRequest {
+    let request = forge::MachineValidationTestAddRequest {
         name: options.name,
         description,
         contexts,

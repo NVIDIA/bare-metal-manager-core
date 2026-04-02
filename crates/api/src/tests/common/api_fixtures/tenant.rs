@@ -15,26 +15,26 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use rpc::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 
 use super::TestEnv;
 
 pub async fn create_tenant_keyset(
     env: &TestEnv,
     organization_id: String,
-) -> (String, rpc::TenantKeyset) {
+) -> (String, forge::TenantKeyset) {
     let keyset_id = uuid::Uuid::new_v4().to_string();
-    let public_keys = vec![rpc::TenantPublicKey {
+    let public_keys = vec![forge::TenantPublicKey {
         public_key: "public key".to_string(),
         comment: Some("key comment".to_string()),
     }];
-    let request = rpc::CreateTenantKeysetRequest {
-        keyset_identifier: Some(rpc::TenantKeysetIdentifier {
+    let request = forge::CreateTenantKeysetRequest {
+        keyset_identifier: Some(forge::TenantKeysetIdentifier {
             organization_id,
             keyset_id: keyset_id.clone(),
         }),
-        keyset_content: Some(rpc::TenantKeysetContent { public_keys }),
+        keyset_content: Some(forge::TenantKeysetContent { public_keys }),
         version: uuid::Uuid::new_v4().to_string(),
     };
 

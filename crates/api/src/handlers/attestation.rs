@@ -14,14 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::common::MachineIdList;
-use ::rpc::forge::{self as rpc, AttestationResponse};
 use config_version::ConfigVersion;
-use db::attestation::spdm::{
+use itertools::Itertools;
+use nico_api_db::attestation::spdm::{
     insert_or_update_machine_attestation_request, load_details_for_machine_ids,
 };
-use itertools::Itertools;
-use model::attestation::spdm::SpdmMachineAttestation;
+use nico_api_model::attestation::spdm::SpdmMachineAttestation;
+use nico_rpc::common::MachineIdList;
+use nico_rpc::forge;
+use nico_rpc::forge::AttestationResponse;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -30,7 +31,7 @@ use crate::handlers::utils::convert_and_log_machine_id;
 
 pub(crate) async fn trigger_machine_attestation(
     api: &Api,
-    request: Request<rpc::AttestationData>,
+    request: Request<forge::AttestationData>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
     let request = request.get_ref();
@@ -50,10 +51,10 @@ pub(crate) async fn trigger_machine_attestation(
         requested_at: chrono::Utc::now(),
         started_at: None,
         canceled_at: None,
-        state: model::attestation::spdm::AttestationState::CheckIfAttestationSupported,
+        state: nico_api_model::attestation::spdm::AttestationState::CheckIfAttestationSupported,
         state_version,
         state_outcome: None,
-        attestation_status: model::attestation::spdm::SpdmAttestationStatus::NotStarted,
+        attestation_status: nico_api_model::attestation::spdm::SpdmAttestationStatus::NotStarted,
     };
     insert_or_update_machine_attestation_request(&mut txn, &attestation_request).await?;
     txn.commit().await?;
@@ -63,14 +64,14 @@ pub(crate) async fn trigger_machine_attestation(
 
 pub(crate) async fn cancel_machine_attestation(
     api: &Api,
-    request: Request<rpc::AttestationData>,
+    request: Request<forge::AttestationData>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
     let request = request.get_ref();
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
 
     let mut txn = api.txn_begin().await?;
-    db::attestation::spdm::cancel_machine_attestation(&mut txn, &machine_id).await?;
+    nico_api_db::attestation::spdm::cancel_machine_attestation(&mut txn, &machine_id).await?;
     txn.commit().await?;
 
     Ok(Response::new(()))
@@ -78,12 +79,12 @@ pub(crate) async fn cancel_machine_attestation(
 
 pub(crate) async fn list_machine_ids_under_attestation(
     api: &Api,
-    _request: Request<rpc::AttestationIdsRequest>,
+    _request: Request<forge::AttestationIdsRequest>,
 ) -> Result<Response<MachineIdList>, Status> {
     log_request_data(&_request);
 
     let mut txn = api.txn_begin().await?;
-    let machine_ids = db::attestation::spdm::find_machine_ids(&mut txn).await?;
+    let machine_ids = nico_api_db::attestation::spdm::find_machine_ids(&mut txn).await?;
     txn.commit().await?;
 
     Ok(Response::new(MachineIdList { machine_ids }))
@@ -91,14 +92,17 @@ pub(crate) async fn list_machine_ids_under_attestation(
 
 pub(crate) async fn list_machines_under_attestation(
     api: &Api,
-    request: Request<rpc::AttestationMachineList>,
+    request: Request<forge::AttestationMachineList>,
 ) -> Result<Response<AttestationResponse>, Status> {
     log_request_data(&request);
     let request = request.get_ref();
 
     let mut txn = api.txn_begin().await?;
-    let details =
-        db::attestation::spdm::load_details_for_machine_ids(&mut txn, &request.machine_ids).await?;
+    let details = nico_api_db::attestation::spdm::load_details_for_machine_ids(
+        &mut txn,
+        &request.machine_ids,
+    )
+    .await?;
     txn.commit().await?;
 
     Ok(Response::new(AttestationResponse {
@@ -108,8 +112,8 @@ pub(crate) async fn list_machines_under_attestation(
 
 pub(crate) async fn attest_quote(
     api: &Api,
-    request: Request<rpc::AttestQuoteRequest>,
-) -> std::result::Result<Response<rpc::AttestQuoteResponse>, Status> {
+    request: Request<forge::AttestQuoteRequest>,
+) -> std::result::Result<Response<forge::AttestQuoteResponse>, Status> {
     log_request_data(&request);
 
     let mut request = request.into_inner();
@@ -121,7 +125,9 @@ pub(crate) async fn attest_quote(
     let mut txn = api.txn_begin().await?;
 
     let ak_pub_bytes =
-        match db::attestation::secret_ak_pub::get_by_secret(&mut txn, &request.credential).await? {
+        match nico_api_db::attestation::secret_ak_pub::get_by_secret(&mut txn, &request.credential)
+            .await?
+        {
             Some(entry) => entry.ak_pub,
             None => {
                 return Err(CarbideError::AttestQuoteError(
@@ -167,9 +173,9 @@ pub(crate) async fn attest_quote(
     // If we've reached this point, we can now clean up
     // now ephemeral secret data from the database, and send
     // off the PCR values as a MeasurementReport.
-    db::attestation::secret_ak_pub::delete(&mut txn, &request.credential).await?;
+    nico_api_db::attestation::secret_ak_pub::delete(&mut txn, &request.credential).await?;
 
-    let pcr_values: ::measured_boot::pcr::PcrRegisterValueVec = request
+    let pcr_values: nico_measured_boot::pcr::PcrRegisterValueVec = request
         .pcr_values
         .drain(..)
         .map(hex::encode)
@@ -179,15 +185,18 @@ pub(crate) async fn attest_quote(
     // In this case, we're not doing anything with
     // the resulting report (at least not yet), so just
     // throw it away.
-    let report =
-        db::measured_boot::report::new(&mut txn, machine_id, pcr_values.into_inner().as_slice())
-            .await
-            .map_err(|e| CarbideError::Internal {
-                message: format!(
-                    "Failed storing measurement report: (machine_id: {}, err: {})",
-                    &machine_id, e
-                ),
-            })?;
+    let report = nico_api_db::measured_boot::report::new(
+        &mut txn,
+        machine_id,
+        pcr_values.into_inner().as_slice(),
+    )
+    .await
+    .map_err(|e| CarbideError::Internal {
+        message: format!(
+            "Failed storing measurement report: (machine_id: {}, err: {})",
+            &machine_id, e
+        ),
+    })?;
 
     // if the attestation was successful and enabled, we can now vend the certs
     // - get attestation result
@@ -207,7 +216,7 @@ pub(crate) async fn attest_quote(
             "Attestation failed for machine with id {} - not vending any certs",
             machine_id
         );
-        return Ok(Response::new(rpc::AttestQuoteResponse {
+        return Ok(Response::new(forge::AttestQuoteResponse {
             success: false,
             machine_certificate: None,
         }));
@@ -215,7 +224,7 @@ pub(crate) async fn attest_quote(
 
     let id_str = machine_id.to_string();
     let certificate = if std::env::var("UNSUPPORTED_CERTIFICATE_PROVIDER").is_ok() {
-        forge_secrets::certificates::Certificate::default()
+        nico_secrets::certificates::Certificate::default()
     } else {
         api.certificate_provider
             .get_certificate(id_str.as_str(), None, None)
@@ -228,7 +237,7 @@ pub(crate) async fn attest_quote(
         machine_id,
         api.runtime_config.attestation_enabled
     );
-    Ok(Response::new(rpc::AttestQuoteResponse {
+    Ok(Response::new(forge::AttestQuoteResponse {
         success: true,
         machine_certificate: Some(certificate.into()),
     }))

@@ -19,16 +19,18 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineId;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use itertools::Itertools;
 use libredfish::SystemPowerControl;
-use model::hardware_info::MachineNvLinkInfo;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot};
-use model::metadata::Metadata;
+use nico_api_model::hardware_info::MachineNvLinkInfo;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::{
+    LoadSnapshotOptions, Machine, ManagedHostState, ManagedHostStateSnapshot,
+};
+use nico_api_model::metadata::Metadata;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey};
+use nico_uuid::machine::MachineId;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -38,35 +40,35 @@ use crate::redfish::RedfishAuth;
 
 pub(crate) async fn find_machine_ids(
     api: &Api,
-    request: Request<rpc::MachineSearchConfig>,
-) -> Result<Response<::rpc::common::MachineIdList>, Status> {
+    request: Request<forge::MachineSearchConfig>,
+) -> Result<Response<nico_rpc::common::MachineIdList>, Status> {
     log_request_data(&request);
 
     let search_config = request.into_inner().try_into()?;
 
     let machine_ids =
-        db::machine::find_machine_ids(&api.database_connection, search_config).await?;
+        nico_api_db::machine::find_machine_ids(&api.database_connection, search_config).await?;
 
-    Ok(Response::new(::rpc::common::MachineIdList {
+    Ok(Response::new(nico_rpc::common::MachineIdList {
         machine_ids: machine_ids.into_iter().collect(),
     }))
 }
 
 pub(crate) async fn find_machine_ids_by_bmc_ips(
     api: &Api,
-    request: Request<rpc::BmcIpList>,
-) -> Result<Response<rpc::MachineIdBmcIpPairs>, Status> {
+    request: Request<forge::BmcIpList>,
+) -> Result<Response<forge::MachineIdBmcIpPairs>, Status> {
     log_request_data(&request);
 
-    let pairs = db::machine_topology::find_machine_bmc_pairs(
+    let pairs = nico_api_db::machine_topology::find_machine_bmc_pairs(
         &api.database_connection,
         request.into_inner().bmc_ips,
     )
     .await?;
-    let rpc_pairs = rpc::MachineIdBmcIpPairs {
+    let rpc_pairs = forge::MachineIdBmcIpPairs {
         pairs: pairs
             .into_iter()
-            .map(|(machine_id, bmc_ip)| rpc::MachineIdBmcIp {
+            .map(|(machine_id, bmc_ip)| forge::MachineIdBmcIp {
                 machine_id: Some(machine_id),
                 bmc_ip,
             })
@@ -78,8 +80,8 @@ pub(crate) async fn find_machine_ids_by_bmc_ips(
 
 pub(crate) async fn find_machines_by_ids(
     api: &Api,
-    request: Request<::rpc::forge::MachinesByIdsRequest>,
-) -> Result<Response<::rpc::MachineList>, Status> {
+    request: Request<forge::MachinesByIdsRequest>,
+) -> Result<Response<forge::MachineList>, Status> {
     log_request_data(&request);
     let request = request.into_inner();
 
@@ -99,7 +101,7 @@ pub(crate) async fn find_machines_by_ids(
         );
     }
 
-    let snapshots = db::managed_host::load_by_machine_ids(
+    let snapshots = nico_api_db::managed_host::load_by_machine_ids(
         &mut txn,
         &machine_ids,
         LoadSnapshotOptions {
@@ -117,8 +119,8 @@ pub(crate) async fn find_machines_by_ids(
 
 pub(crate) async fn find_machine_state_histories(
     api: &Api,
-    request: Request<rpc::MachineStateHistoriesRequest>,
-) -> Result<Response<rpc::MachineStateHistories>, Status> {
+    request: Request<forge::MachineStateHistoriesRequest>,
+) -> Result<Response<forge::MachineStateHistories>, Status> {
     log_request_data(&request);
     let request = request.into_inner();
 
@@ -138,13 +140,14 @@ pub(crate) async fn find_machine_state_histories(
 
     let mut txn = api.txn_begin().await?;
 
-    let results = db::machine_state_history::find_by_machine_ids(&mut txn, &machine_ids).await?;
+    let results =
+        nico_api_db::machine_state_history::find_by_machine_ids(&mut txn, &machine_ids).await?;
 
-    let mut response = rpc::MachineStateHistories::default();
+    let mut response = forge::MachineStateHistories::default();
     for (machine_id, records) in results {
         response.histories.insert(
             machine_id.to_string(),
-            ::rpc::forge::MachineStateHistoryRecords {
+            forge::MachineStateHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
         );
@@ -157,8 +160,8 @@ pub(crate) async fn find_machine_state_histories(
 
 pub(crate) async fn find_machine_health_histories(
     api: &Api,
-    request: Request<rpc::MachineHealthHistoriesRequest>,
-) -> Result<Response<rpc::HealthHistories>, Status> {
+    request: Request<forge::MachineHealthHistoriesRequest>,
+) -> Result<Response<forge::HealthHistories>, Status> {
     log_request_data(&request);
     let request = request.into_inner();
 
@@ -190,20 +193,20 @@ pub(crate) async fn find_machine_health_histories(
 
     let mut txn = api.txn_begin().await?;
 
-    let results = db::health_history::find_by_object_ids(
+    let results = nico_api_db::health_history::find_by_object_ids(
         &mut txn,
-        db::health_history::HealthHistoryTableId::Machine,
+        nico_api_db::health_history::HealthHistoryTableId::Machine,
         &machine_ids,
         start_time,
         end_time,
     )
     .await?;
 
-    let mut response = rpc::HealthHistories::default();
+    let mut response = forge::HealthHistories::default();
     for (machine_id, records) in results {
         response.histories.insert(
             machine_id.to_string(),
-            ::rpc::forge::HealthHistoryRecords {
+            forge::HealthHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
         );
@@ -216,8 +219,8 @@ pub(crate) async fn find_machine_health_histories(
 
 pub(crate) async fn machine_set_auto_update(
     api: &Api,
-    request: Request<rpc::MachineSetAutoUpdateRequest>,
-) -> Result<Response<rpc::MachineSetAutoUpdateResponse>, Status> {
+    request: Request<forge::MachineSetAutoUpdateRequest>,
+) -> Result<Response<forge::MachineSetAutoUpdateResponse>, Status> {
     log_request_data(&request);
 
     let request = request.into_inner();
@@ -226,7 +229,8 @@ pub(crate) async fn machine_set_auto_update(
 
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
     let Some(_machine) =
-        db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?
+        nico_api_db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+            .await?
     else {
         return Err(CarbideError::NotFoundError {
             kind: "machine",
@@ -236,20 +240,20 @@ pub(crate) async fn machine_set_auto_update(
     };
 
     let state = match request.action() {
-        rpc::machine_set_auto_update_request::SetAutoupdateAction::Enable => Some(true),
-        rpc::machine_set_auto_update_request::SetAutoupdateAction::Disable => Some(false),
-        rpc::machine_set_auto_update_request::SetAutoupdateAction::Clear => None,
+        forge::machine_set_auto_update_request::SetAutoupdateAction::Enable => Some(true),
+        forge::machine_set_auto_update_request::SetAutoupdateAction::Disable => Some(false),
+        forge::machine_set_auto_update_request::SetAutoupdateAction::Clear => None,
     };
-    db::machine::set_firmware_autoupdate(&mut txn, &machine_id, state).await?;
+    nico_api_db::machine::set_firmware_autoupdate(&mut txn, &machine_id, state).await?;
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::MachineSetAutoUpdateResponse {}))
+    Ok(Response::new(forge::MachineSetAutoUpdateResponse {}))
 }
 
 pub(crate) async fn update_machine_metadata(
     api: &Api,
-    request: Request<rpc::MachineMetadataUpdateRequest>,
+    request: Request<forge::MachineMetadataUpdateRequest>,
 ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
     let request = request.into_inner();
@@ -282,7 +286,8 @@ pub(crate) async fn update_machine_metadata(
         None => machine.version,
     };
 
-    db::machine::update_metadata(&mut txn, &machine_id, expected_version, metadata).await?;
+    nico_api_db::machine::update_metadata(&mut txn, &machine_id, expected_version, metadata)
+        .await?;
 
     txn.commit().await?;
 
@@ -291,14 +296,14 @@ pub(crate) async fn update_machine_metadata(
 
 pub(crate) async fn admin_force_delete_machine(
     api: &Api,
-    request: Request<rpc::AdminForceDeleteMachineRequest>,
-) -> Result<Response<rpc::AdminForceDeleteMachineResponse>, Status> {
+    request: Request<forge::AdminForceDeleteMachineRequest>,
+) -> Result<Response<forge::AdminForceDeleteMachineResponse>, Status> {
     log_request_data(&request);
 
     let request = request.into_inner();
     let query = request.host_query;
 
-    let mut response = rpc::AdminForceDeleteMachineResponse {
+    let mut response = forge::AdminForceDeleteMachineResponse {
         all_done: true,
         ..Default::default()
     };
@@ -312,7 +317,7 @@ pub(crate) async fn admin_force_delete_machine(
 
     let mut txn = api.txn_begin().await?;
 
-    let machine = match db::machine::find_by_query(&mut txn, &query).await? {
+    let machine = match nico_api_db::machine::find_by_query(&mut txn, &query).await? {
         Some(machine) => machine,
         None => {
             // If the machine was already deleted, then there is nothing to do
@@ -335,17 +340,21 @@ pub(crate) async fn admin_force_delete_machine(
     let host_machine;
     let dpu_machines;
     if machine.is_dpu() {
-        if let Some(host) = db::machine::find_host_by_dpu_machine_id(&mut txn, &machine.id).await? {
+        if let Some(host) =
+            nico_api_db::machine::find_host_by_dpu_machine_id(&mut txn, &machine.id).await?
+        {
             tracing::info!("Found host Machine {:?}", machine.id.to_string());
             // Get all DPUs attached to this host, in case there are more than one.
-            dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &host.id).await?;
+            dpu_machines =
+                nico_api_db::machine::find_dpus_by_host_machine_id(&mut txn, &host.id).await?;
             host_machine = Some(host);
         } else {
             host_machine = None;
             dpu_machines = vec![machine];
         }
     } else {
-        dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine.id).await?;
+        dpu_machines =
+            nico_api_db::machine::find_dpus_by_host_machine_id(&mut txn, &machine.id).await?;
         tracing::info!(
             "Found dpu Machines {:?}",
             dpu_machines.iter().map(|m| m.id.to_string()).join(", ")
@@ -355,7 +364,8 @@ pub(crate) async fn admin_force_delete_machine(
 
     let mut instance_id = None;
     if let Some(host_machine) = &host_machine {
-        instance_id = db::instance::find_id_by_machine_id(&mut txn, &host_machine.id).await?;
+        instance_id =
+            nico_api_db::instance::find_id_by_machine_id(&mut txn, &host_machine.id).await?;
     }
 
     if let Some(host_machine) = &host_machine {
@@ -393,7 +403,7 @@ pub(crate) async fn admin_force_delete_machine(
     // So far we only inspected state - now we start the deletion process
     // TODO: In the new model we might just need to move one Machine to this state
     if let Some(host_machine) = &host_machine {
-        db::machine::advance(
+        nico_api_db::machine::advance(
             host_machine,
             &mut txn,
             &ManagedHostState::ForceDeletion,
@@ -402,7 +412,7 @@ pub(crate) async fn admin_force_delete_machine(
         .await?;
     }
     for dpu_machine in dpu_machines.iter() {
-        db::machine::advance(
+        nico_api_db::machine::advance(
             dpu_machine,
             &mut txn,
             &ManagedHostState::ForceDeletion,
@@ -521,7 +531,7 @@ pub(crate) async fn admin_force_delete_machine(
             let host_dpf_id = machine
                 .dpf_id()
                 .ok_or_else(|| CarbideError::internal("BMC MAC not set for host".to_string()))?;
-            let node_name = carbide_dpf::dpu_node_cr_name(&host_dpf_id);
+            let node_name = nico_dpf::dpu_node_cr_name(&host_dpf_id);
             let dpu_device_names: Vec<String> = dpu_machines
                 .iter()
                 .map(|d| {
@@ -545,18 +555,18 @@ pub(crate) async fn admin_force_delete_machine(
         {
             response.host_bmc_interface_associated = true;
             if let Ok(ip_addr) = IpAddr::from_str(bmc_ip)
-                && db::machine_interface::delete_by_ip(&mut txn, ip_addr)
+                && nico_api_db::machine_interface::delete_by_ip(&mut txn, ip_addr)
                     .await?
                     .is_some()
             {
                 response.host_bmc_interface_deleted = true;
             }
         }
-        db::machine::force_cleanup(&mut txn, &machine.id).await?;
+        nico_api_db::machine::force_cleanup(&mut txn, &machine.id).await?;
 
         if request.delete_interfaces {
             for interface in &machine.interfaces {
-                db::machine_interface::delete(&interface.id, &mut txn).await?;
+                nico_api_db::machine_interface::delete(&interface.id, &mut txn).await?;
             }
             response.host_interfaces_deleted = true;
         }
@@ -566,9 +576,9 @@ pub(crate) async fn admin_force_delete_machine(
         {
             tracing::info!("Cleaning up explored endpoint at {addr} {}", machine.id);
 
-            db::explored_endpoints::delete(&mut txn, addr).await?;
+            nico_api_db::explored_endpoints::delete(&mut txn, addr).await?;
 
-            db::explored_managed_host::delete_by_host_bmc_addr(&mut txn, addr).await?;
+            nico_api_db::explored_managed_host::delete_by_host_bmc_addr(&mut txn, addr).await?;
         }
 
         if request.delete_bmc_credentials {
@@ -576,7 +586,7 @@ pub(crate) async fn admin_force_delete_machine(
         }
 
         if let Err(e) =
-            db::attestation::ek_cert_verification_status::delete_ca_verification_status_by_machine_id(
+            nico_api_db::attestation::ek_cert_verification_status::delete_ca_verification_status_by_machine_id(
                 &mut txn,
                 &machine.id,
             )
@@ -593,7 +603,7 @@ pub(crate) async fn admin_force_delete_machine(
 
     for dpu_machine in dpu_machines.iter() {
         // Free up all loopback IPs allocated for this DPU.
-        db::vpc_dpu_loopback::delete_and_deallocate(
+        nico_api_db::vpc_dpu_loopback::delete_and_deallocate(
             &api.common_pools,
             &dpu_machine.id,
             &mut txn,
@@ -602,7 +612,7 @@ pub(crate) async fn admin_force_delete_machine(
         .await?;
 
         if let Some(loopback_ip) = dpu_machine.network_config.loopback_ip {
-            db::resource_pool::release(
+            nico_api_db::resource_pool::release(
                 &api.common_pools.ethernet.pool_loopback_ip,
                 &mut txn,
                 loopback_ip,
@@ -613,7 +623,7 @@ pub(crate) async fn admin_force_delete_machine(
         if let Some(secondary_overlay_vtep_ip) =
             dpu_machine.network_config.secondary_overlay_vtep_ip
         {
-            db::resource_pool::release(
+            nico_api_db::resource_pool::release(
                 &api.common_pools.ethernet.pool_secondary_vtep_ip,
                 &mut txn,
                 secondary_overlay_vtep_ip,
@@ -622,14 +632,15 @@ pub(crate) async fn admin_force_delete_machine(
             .map_err(CarbideError::from)?
         }
 
-        db::network_devices::dpu_to_network_device_map::delete(&mut txn, &dpu_machine.id).await?;
+        nico_api_db::network_devices::dpu_to_network_device_map::delete(&mut txn, &dpu_machine.id)
+            .await?;
 
         if request.delete_bmc_interfaces
             && let Some(bmc_ip) = &dpu_machine.bmc_info.ip
         {
             response.dpu_bmc_interface_associated = true;
             if let Ok(ip_addr) = IpAddr::from_str(bmc_ip)
-                && db::machine_interface::delete_by_ip(&mut txn, ip_addr)
+                && nico_api_db::machine_interface::delete_by_ip(&mut txn, ip_addr)
                     .await?
                     .is_some()
             {
@@ -637,14 +648,18 @@ pub(crate) async fn admin_force_delete_machine(
             }
         }
         if let Some(asn) = dpu_machine.asn {
-            db::resource_pool::release(&api.common_pools.ethernet.pool_fnn_asn, &mut txn, asn)
-                .await?;
+            nico_api_db::resource_pool::release(
+                &api.common_pools.ethernet.pool_fnn_asn,
+                &mut txn,
+                asn,
+            )
+            .await?;
         }
-        db::machine::force_cleanup(&mut txn, &dpu_machine.id).await?;
+        nico_api_db::machine::force_cleanup(&mut txn, &dpu_machine.id).await?;
 
         if request.delete_interfaces {
             for interface in &dpu_machine.interfaces {
-                db::machine_interface::delete(&interface.id, &mut txn).await?;
+                nico_api_db::machine_interface::delete(&interface.id, &mut txn).await?;
             }
             response.dpu_interfaces_deleted = true;
         }
@@ -654,7 +669,7 @@ pub(crate) async fn admin_force_delete_machine(
         {
             tracing::info!("Cleaning up explored endpoint at {addr} {}", dpu_machine.id);
 
-            db::explored_endpoints::delete(&mut txn, addr).await?;
+            nico_api_db::explored_endpoints::delete(&mut txn, addr).await?;
         }
 
         if request.delete_bmc_credentials {
@@ -675,26 +690,26 @@ pub(crate) async fn admin_force_delete_machine(
 /// Retrieves all DPU information including id and loopback IP
 pub(crate) async fn get_dpu_info_list(
     api: &Api,
-    request: Request<rpc::GetDpuInfoListRequest>,
-) -> Result<Response<rpc::GetDpuInfoListResponse>, Status> {
+    request: Request<forge::GetDpuInfoListRequest>,
+) -> Result<Response<forge::GetDpuInfoListResponse>, Status> {
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
 
-    let dpu_list = db::machine::find_dpu_ids_and_loopback_ips(&mut txn).await?;
+    let dpu_list = nico_api_db::machine::find_dpu_ids_and_loopback_ips(&mut txn).await?;
 
     txn.commit().await?;
 
-    let response = rpc::GetDpuInfoListResponse {
-        dpu_list: dpu_list.into_iter().map(rpc::DpuInfo::from).collect(),
+    let response = forge::GetDpuInfoListResponse {
+        dpu_list: dpu_list.into_iter().map(forge::DpuInfo::from).collect(),
     };
     Ok(Response::new(response))
 }
 
 fn snapshot_map_to_rpc_machines(
     snapshots: HashMap<MachineId, ManagedHostStateSnapshot>,
-) -> rpc::MachineList {
-    let mut result = rpc::MachineList {
+) -> forge::MachineList {
+    let mut result = forge::MachineList {
         machines: Vec::with_capacity(snapshots.len()),
     };
 
@@ -729,8 +744,8 @@ async fn clear_bmc_credentials(api: &Api, machine: &Machine) -> Result<(), Carbi
 
 pub async fn get_machine_position_info(
     api: &Api,
-    request: Request<rpc::MachinePositionQuery>,
-) -> Result<Response<rpc::MachinePositionInfoList>, Status> {
+    request: Request<forge::MachinePositionQuery>,
+) -> Result<Response<forge::MachinePositionInfoList>, Status> {
     let request = request.into_inner();
 
     if request.machine_ids.is_empty() {
@@ -744,12 +759,14 @@ pub async fn get_machine_position_info(
     // Translate the machine IDs to BMC IPs.
     // Note: Machines without topology records will be silently omitted from the result,
     // consistent with how find_machines_by_ids handles missing machines.
-    let pairs =
-        db::machine_topology::find_machine_bmc_pairs_by_machine_id(&mut txn, request.machine_ids)
-            .await?;
+    let pairs = nico_api_db::machine_topology::find_machine_bmc_pairs_by_machine_id(
+        &mut txn,
+        request.machine_ids,
+    )
+    .await?;
 
     // Find the explored endpoints for those BMC IPs
-    let explored_endpoints = db::explored_endpoints::find_by_ips(
+    let explored_endpoints = nico_api_db::explored_endpoints::find_by_ips(
         &mut txn,
         pairs
             .iter()
@@ -779,15 +796,15 @@ pub async fn get_machine_position_info(
     let as_hashmap = explored_endpoints
         .into_iter()
         .map(|x| (x.address.to_string(), x))
-        .collect::<HashMap<String, model::site_explorer::ExploredEndpoint>>();
+        .collect::<HashMap<String, nico_api_model::site_explorer::ExploredEndpoint>>();
 
     // Build the response, looking up explored endpoints by BMC IP
-    let ret = rpc::MachinePositionInfoList {
+    let ret = forge::MachinePositionInfoList {
         machine_position_info: pairs
             .iter()
             .map(|(machine_id, ip_opt)| {
                 let endpoint = ip_opt.as_ref().and_then(|ip| as_hashmap.get(ip));
-                rpc::MachinePositionInfo {
+                forge::MachinePositionInfo {
                     machine_id: Some(*machine_id),
                     physical_slot_number: endpoint.and_then(|ep| ep.report.physical_slot_number),
                     compute_tray_index: endpoint.and_then(|ep| ep.report.compute_tray_index),
@@ -805,7 +822,7 @@ pub async fn get_machine_position_info(
 
 pub(crate) async fn update_machine_nv_link_info(
     api: &Api,
-    request: Request<rpc::UpdateMachineNvLinkInfoRequest>,
+    request: Request<forge::UpdateMachineNvLinkInfoRequest>,
 ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
     let request = request.into_inner();
@@ -819,7 +836,7 @@ pub(crate) async fn update_machine_nv_link_info(
 
     let mut txn = api.txn_begin().await?;
 
-    db::machine::update_nvlink_info(&mut txn, &machine_id, nvlink_info).await?;
+    nico_api_db::machine::update_nvlink_info(&mut txn, &machine_id, nvlink_info).await?;
 
     txn.commit().await?;
 

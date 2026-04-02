@@ -21,10 +21,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
-use carbide_uuid::machine::MachineId;
-use db::{self, desired_firmware};
-use model::machine::ManagedHostStateSnapshot;
-use model::machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE;
+use nico_api_db::{
+    desired_firmware, {self},
+};
+use nico_api_model::machine::ManagedHostStateSnapshot;
+use nico_api_model::machine_update_module::HOST_FW_UPDATE_HEALTH_REPORT_SOURCE;
+use nico_uuid::machine::MachineId;
 use opentelemetry::metrics::Meter;
 use sqlx::PgConnection;
 use tokio::sync::Mutex;
@@ -46,7 +48,8 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         &self,
         txn: &mut PgConnection,
     ) -> CarbideResult<HashSet<MachineId>> {
-        let current_updating_machines = db::machine::get_host_reprovisioning_machines(txn).await?;
+        let current_updating_machines =
+            nico_api_db::machine::get_host_reprovisioning_machines(txn).await?;
 
         Ok(current_updating_machines.iter().map(|m| m.id).collect())
     }
@@ -87,7 +90,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
 
             tracing::info!("Moving {} to host reprovision", machine_update);
 
-            db::host_machine_update::trigger_host_reprovisioning_request(
+            nico_api_db::host_machine_update::trigger_host_reprovisioning_request(
                 txn,
                 "Automated",
                 machine_update,
@@ -101,19 +104,19 @@ impl MachineUpdateModule for HostFirmwareUpdate {
     }
 
     async fn clear_completed_updates(&self, txn: &mut PgConnection) -> CarbideResult<()> {
-        let completed = db::host_machine_update::find_completed_updates(txn).await?;
+        let completed = nico_api_db::host_machine_update::find_completed_updates(txn).await?;
 
         if !completed.is_empty() {
             tracing::info!("Completed host firmware updates: {completed:?}");
             for machine in completed {
-                db::machine::remove_health_report_override(
+                nico_api_db::machine::remove_health_report_override(
                     txn,
                     &machine,
-                    health_report::OverrideMode::Merge,
+                    nico_health_report::OverrideMode::Merge,
                     HOST_FW_UPDATE_HEALTH_REPORT_SOURCE,
                 )
                 .await?;
-                db::machine::update_update_complete(&machine, true, txn).await?;
+                nico_api_db::machine::update_update_complete(&machine, true, txn).await?;
             }
         }
         Ok(())
@@ -124,7 +127,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         txn: &mut PgConnection,
         _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) {
-        match db::host_machine_update::find_upgrade_needed(
+        match nico_api_db::host_machine_update::find_upgrade_needed(
             txn,
             self.config.firmware_global.autoupdate,
             self.config.firmware_global.instance_updates_manual_tagging,
@@ -138,7 +141,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
             }
             Err(e) => tracing::warn!(error=%e, "Error geting host upgrade needed for metrics"),
         };
-        match db::host_machine_update::find_upgrade_in_progress(txn).await {
+        match nico_api_db::host_machine_update::find_upgrade_in_progress(txn).await {
             Ok(upgrade_in_progress) => {
                 self.metrics
                     .active_firmware_updates
@@ -178,7 +181,7 @@ impl HostFirmwareUpdate {
             return Ok(machines);
         };
         // find_upgrade_needed filters for just things that need upgrades
-        for update_needed in db::host_machine_update::find_upgrade_needed(
+        for update_needed in nico_api_db::host_machine_update::find_upgrade_needed(
             txn,
             self.config.firmware_global.autoupdate,
             self.config.firmware_global.instance_updates_manual_tagging,

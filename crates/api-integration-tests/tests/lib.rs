@@ -19,25 +19,29 @@ use std::future::Future;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{self, Duration};
-
-use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig};
-use ::utils::HostPortPair;
-use api_test_helper::{
-    IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
+use std::time::{
+    Duration, {self},
 };
+
+use ::nico_machine_a_tron::{
+    BmcMockRegistry, HostMachineHandle, MachineATronConfig, MachineConfig,
+};
+use ::utils::HostPortPair;
 use bmc_mock::{HostHardwareType, ListenerOrAddress};
 use eyre::ContextCompat;
 use futures::FutureExt;
 use futures::future::join_all;
 use itertools::Itertools;
+use nico_api_test_helper::{
+    IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
+};
 use sqlx::{Postgres, Row};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
 
 #[ctor::ctor]
 fn setup() {
-    api_test_helper::setup_logging()
+    nico_api_test_helper::setup_logging()
 }
 
 /// Run multiple machine-a-tron integration tests in parallel against a shared carbide API instance.
@@ -655,7 +659,7 @@ where
         mock_bmc_ssh_port: None,
     };
 
-    let (machine_handles, _mat_handle) = api_test_helper::machine_a_tron::run_local(
+    let (machine_handles, _mat_handle) = nico_api_test_helper::machine_a_tron::run_local(
         mat_config,
         additional_api_urls,
         &test_env.root_dir,

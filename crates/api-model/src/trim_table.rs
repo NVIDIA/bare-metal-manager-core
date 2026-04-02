@@ -14,16 +14,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use nico_rpc::forge;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrimTableTarget {
     MeasuredBoot,
 }
 
-impl From<rpc::forge::TrimTableTarget> for TrimTableTarget {
-    fn from(target: rpc::forge::TrimTableTarget) -> Self {
+impl From<forge::TrimTableTarget> for TrimTableTarget {
+    fn from(target: forge::TrimTableTarget) -> Self {
         match target {
-            rpc::forge::TrimTableTarget::MeasuredBoot => TrimTableTarget::MeasuredBoot,
+            forge::TrimTableTarget::MeasuredBoot => TrimTableTarget::MeasuredBoot,
         }
     }
 }

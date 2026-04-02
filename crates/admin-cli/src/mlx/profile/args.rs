@@ -18,9 +18,9 @@
 // profile/args.rs
 // Command-line argument definitions for profile commands.
 
-use carbide_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::protos::mlx_device as mlx_device_pb;
+use nico_rpc::protos::mlx_device as mlx_device_pb;
+use nico_uuid::machine::MachineId;
 
 // ProfileCommand are the profile subcommands.
 #[derive(Parser, Debug)]

@@ -18,10 +18,11 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use carbide_uuid::switch::SwitchId;
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_rpc::forge::{LinkedExpectedSwitch, MachineInterface, Switch};
+use nico_uuid::switch::SwitchId;
 use prettytable::{Table, row};
-use rpc::admin_cli::{CarbideCliResult, OutputFormat};
-use rpc::forge::{LinkedExpectedSwitch, MachineInterface, Switch};
 use serde::Serialize;
 
 use super::args::Args;
@@ -354,7 +355,7 @@ pub async fn handle_show(
     let (switch_id, name) = args.parse_identifier();
     let is_single = switch_id.is_some() || name.is_some();
 
-    let query = rpc::forge::SwitchQuery { name, switch_id };
+    let query = forge::SwitchQuery { name, switch_id };
     let switches = api_client.0.find_switches(query).await?.switches;
     let linked = api_client
         .0

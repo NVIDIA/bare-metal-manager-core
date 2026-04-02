@@ -19,8 +19,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use model::hardware_info::MachineInventorySoftwareComponent;
-use model::tenant::TenantOrganizationId;
+use nico_api_model::hardware_info::MachineInventorySoftwareComponent;
+use nico_api_model::tenant::TenantOrganizationId;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
 
@@ -35,7 +35,8 @@ pub struct MachineMetrics {
     pub dpus_healthy: usize,
     /// DPU probe alerts by Probe ID and Target
     /// For Multi-DPU, the same host could experience failures on multiple DPUs
-    pub dpu_health_probe_alerts: HashMap<(health_report::HealthProbeId, Option<String>), usize>,
+    pub dpu_health_probe_alerts:
+        HashMap<(nico_health_report::HealthProbeId, Option<String>), usize>,
     pub dpu_firmware_versions: HashMap<String, usize>,
     pub machine_inventory_component_versions: HashMap<MachineInventorySoftwareComponent, usize>,
     pub client_certificate_expiry: HashMap<String, Option<i64>>,
@@ -44,8 +45,8 @@ pub struct MachineMetrics {
     pub num_gpus: usize,
     pub in_use_by_tenant: Option<TenantOrganizationId>,
     /// Health probe alerts for the aggregate host by Probe ID and Target
-    pub health_probe_alerts: HashSet<(health_report::HealthProbeId, Option<String>)>,
-    pub health_alert_classifications: HashSet<health_report::HealthAlertClassification>,
+    pub health_probe_alerts: HashSet<(nico_health_report::HealthProbeId, Option<String>)>,
+    pub health_alert_classifications: HashSet<nico_health_report::HealthAlertClassification>,
     pub machine_id: String,
     /// The amount of configured `merge` overrides
     pub num_merge_overrides: usize,

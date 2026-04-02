@@ -22,8 +22,8 @@ use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 
 use crate::api::Api;
 use crate::web::filters;
@@ -46,8 +46,8 @@ struct SkuRowDisplay {
     associated_machine_count: usize,
 }
 
-impl From<forgerpc::Sku> for SkuRowDisplay {
-    fn from(sku: forgerpc::Sku) -> Self {
+impl From<forge::Sku> for SkuRowDisplay {
+    fn from(sku: forge::Sku) -> Self {
         let components = sku.components.as_ref();
         let chassis = components.and_then(|c| c.chassis.as_ref());
         Self {
@@ -110,7 +110,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(skus)).into_response()
 }
 
-async fn fetch_skus(api: Arc<Api>) -> Result<Vec<forgerpc::Sku>, tonic::Status> {
+async fn fetch_skus(api: Arc<Api>) -> Result<Vec<forge::Sku>, tonic::Status> {
     let request = tonic::Request::new(());
 
     let sku_ids = api.get_all_sku_ids(request).await?.into_inner().ids;
@@ -121,7 +121,7 @@ async fn fetch_skus(api: Arc<Api>) -> Result<Vec<forgerpc::Sku>, tonic::Status> 
         const PAGE_SIZE: usize = 100;
         let page_size = PAGE_SIZE.min(sku_ids.len() - offset);
         let next_ids = &sku_ids[offset..offset + page_size];
-        let request = tonic::Request::new(forgerpc::SkusByIdsRequest {
+        let request = tonic::Request::new(forge::SkusByIdsRequest {
             ids: next_ids.to_vec(),
         });
         let next_skus = api
@@ -148,8 +148,8 @@ struct SkuDetail {
     associated_machines: Vec<String>,
 }
 
-impl From<forgerpc::Sku> for SkuDetail {
-    fn from(sku: forgerpc::Sku) -> Self {
+impl From<forge::Sku> for SkuDetail {
+    fn from(sku: forge::Sku) -> Self {
         Self {
             id: sku.id,
             description: sku.description.unwrap_or_default(),
@@ -179,7 +179,7 @@ pub async fn detail(
         None => (false, sku_id),
     };
 
-    let request = tonic::Request::new(forgerpc::SkusByIdsRequest {
+    let request = tonic::Request::new(forge::SkusByIdsRequest {
         ids: vec![sku_id.clone()],
     });
     let sku = match state

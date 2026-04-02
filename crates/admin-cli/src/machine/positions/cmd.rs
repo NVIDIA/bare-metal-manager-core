@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge as forgerpc;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::forge;
 use prettytable::{Row, Table, row};
 
 use super::args::Args;
@@ -27,7 +27,7 @@ pub async fn positions(args: Args, api_client: &ApiClient) -> CarbideCliResult<(
         // Query all machines if none specified
         api_client
             .0
-            .find_machine_ids(forgerpc::MachineSearchConfig {
+            .find_machine_ids(forge::MachineSearchConfig {
                 include_dpus: true,
                 include_predicted_host: true,
                 ..Default::default()
@@ -38,7 +38,7 @@ pub async fn positions(args: Args, api_client: &ApiClient) -> CarbideCliResult<(
         args.machine
     };
 
-    let req = forgerpc::MachinePositionQuery { machine_ids };
+    let req = forge::MachinePositionQuery { machine_ids };
     let info = api_client.0.get_machine_position_info(req).await?;
     let mut table = Table::new();
     table.set_titles(Row::from(vec![

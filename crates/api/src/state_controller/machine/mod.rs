@@ -17,16 +17,18 @@
 
 //! State Controller implementation for Machines
 
-use carbide_uuid::machine::MachineId;
-use db::attestation::ek_cert_verification_status;
-use db::db_read::DbReader;
-use db::measured_boot::machine::{get_measurement_bundle_state, get_measurement_machine_state};
 use eyre::eyre;
-use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
-use model::attestation::EkCertVerificationStatus;
-use model::machine::{
+use nico_api_db::attestation::ek_cert_verification_status;
+use nico_api_db::db_read::DbReader;
+use nico_api_db::measured_boot::machine::{
+    get_measurement_bundle_state, get_measurement_machine_state,
+};
+use nico_api_model::attestation::EkCertVerificationStatus;
+use nico_api_model::machine::{
     FailureCause, FailureDetails, FailureSource, MeasuringState, StateMachineArea,
 };
+use nico_measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+use nico_uuid::machine::MachineId;
 
 use super::state_handler::StateHandlerError;
 

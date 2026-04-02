@@ -15,11 +15,13 @@
  * limitations under the License.
  */
 
-pub use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use model::network_prefix::NetworkPrefix;
-use model::vpc_prefix::{DeleteVpcPrefix, NewVpcPrefix, PrefixMatch, UpdateVpcPrefix, VpcPrefix};
+use nico_api_model::network_prefix::NetworkPrefix;
+use nico_api_model::vpc_prefix::{
+    DeleteVpcPrefix, NewVpcPrefix, PrefixMatch, UpdateVpcPrefix, VpcPrefix,
+};
+pub use nico_uuid::vpc::{VpcId, VpcPrefixId};
 use sqlx::{FromRow, PgConnection, QueryBuilder, Row};
 
 use super::{ColumnInfo, DatabaseError, ObjectColumnFilter};
@@ -40,7 +42,7 @@ async fn update_stats(
         if let IpNetwork::V4(ipv4_network) = vpc_prefix.config.prefix
             && let Some(used_prefixes) = used_prefixes
         {
-            let ip_net = carbide_network::ip::prefix::Ipv4Net::new(
+            let ip_net = nico_network::ip::prefix::Ipv4Net::new(
                 ipv4_network.network(),
                 ipv4_network.prefix(),
             )
@@ -59,7 +61,7 @@ async fn update_stats(
                         sqlx::Error::Protocol(err.to_string()),
                     )
                 })?
-                .collect::<Vec<carbide_network::ip::prefix::Ipv4Net>>();
+                .collect::<Vec<nico_network::ip::prefix::Ipv4Net>>();
             vpc_prefix.status.total_31_segments = total_31_segments.len() as u32;
             vpc_prefix.status.available_31_segments =
                 vpc_prefix.status.total_31_segments - used_prefixes.len() as u32;
@@ -197,7 +199,7 @@ pub async fn search(
     }
 
     if let Some(prefix_match) = prefix_match {
-        use model::vpc_prefix::PrefixMatch::*;
+        use nico_api_model::vpc_prefix::PrefixMatch::*;
         match prefix_match {
             Exact(prefix) => {
                 query.push(" AND prefix=");

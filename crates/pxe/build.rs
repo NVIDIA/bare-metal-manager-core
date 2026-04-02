@@ -16,5 +16,5 @@
  */
 
 fn main() {
-    carbide_version::build();
+    nico_version::build();
 }

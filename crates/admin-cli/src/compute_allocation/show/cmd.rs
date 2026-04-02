@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::FindComputeAllocationsByIdsRequest;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge::FindComputeAllocationsByIdsRequest;
 
 use super::args::Args;
 use crate::compute_allocation::common::convert_compute_allocations_to_table;

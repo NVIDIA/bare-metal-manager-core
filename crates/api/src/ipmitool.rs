@@ -20,9 +20,9 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use carbide_uuid::machine::MachineId;
 use eyre::eyre;
-use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
+use nico_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
+use nico_uuid::machine::MachineId;
 use utils::HostPortPair;
 use utils::cmd::{CmdError, CmdResult, TokioCmd};
 
@@ -303,7 +303,7 @@ impl IPMITool for IPMIToolHttpImpl {
 mod test {
     use std::sync::Arc;
 
-    use forge_secrets::credentials::{Credentials, TestCredentialManager};
+    use nico_secrets::credentials::{Credentials, TestCredentialManager};
 
     #[test]
     pub fn test_ipmitool_new() {

@@ -33,11 +33,11 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use ::rpc::protos::dpa_rpc::SetVni;
 use chrono::Local;
 use clap::Parser;
 use mqttea::client::{ClientOptions, MqtteaClient};
 use mqttea::registry::traits::ProtobufRegistration;
+use nico_rpc::protos::dpa_rpc::SetVni;
 use rumqttc::QoS;
 use tokio::time::{Duration, sleep};
 

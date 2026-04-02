@@ -20,11 +20,13 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use std::{env, fs};
 
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use carbide_uuid::machine::MachineId;
 use data_encoding::BASE64;
 use eyre::WrapErr;
+use nico_rpc::forge;
+use nico_rpc::forge_tls_client::{
+    ApiConfig, ForgeClientConfig, {self},
+};
+use nico_uuid::machine::MachineId;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
@@ -118,11 +120,11 @@ pub async fn upgrade(
         .map(|s| s.to_string())
         .unwrap_or_else(|| make_upgrade_cmd(&resp.package_version));
     tracing::info!(
-        local_build = carbide_version::v!(build_version),
+        local_build = nico_version::v!(build_version),
         remote_build = resp.server_version,
         to_package_version = resp.package_version,
         upgrade_cmd,
-        version = carbide_version::v!(build_version),
+        version = nico_version::v!(build_version),
         "Upgrading myself, goodbye.",
     );
     if let Err(err) = clear_apt_metadata_cache() {
@@ -211,8 +213,8 @@ async fn network_upgrade_check(
     binary_mtime: SystemTime,
     binary_hash: String,
 ) -> eyre::Result<UpgradeCheckResult> {
-    let local_build = carbide_version::v!(build_version);
-    let req = rpc::DpuAgentUpgradeCheckRequest {
+    let local_build = nico_version::v!(build_version);
+    let req = forge::DpuAgentUpgradeCheckRequest {
         machine_id: machine_id.to_string(),
         current_agent_version: local_build.to_string(),
         binary_mtime: Some(binary_mtime.into()),

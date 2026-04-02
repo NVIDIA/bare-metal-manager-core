@@ -20,9 +20,9 @@ use std::process::Command;
 use std::str::FromStr;
 use std::vec::Vec;
 
-use ::rpc::machine_discovery::TpmDescription;
-use ::rpc::{forge as rpc, machine_discovery as rpc_md};
-use carbide_uuid::machine::MachineId;
+use nico_rpc::machine_discovery::TpmDescription;
+use nico_rpc::{forge, machine_discovery as rpc_md};
+use nico_uuid::machine::MachineId;
 use tss_esapi::abstraction::{ak, ek};
 use tss_esapi::attributes::session::SessionAttributesBuilder;
 use tss_esapi::constants::{CapabilityType, PropertyTag, SessionType};
@@ -323,8 +323,8 @@ pub(crate) fn create_quote_request(
     credential: &Digest,
     machine_id: &MachineId,
     tpm_eventlog: &Option<Vec<u8>>,
-) -> Result<rpc::AttestQuoteRequest, Box<dyn std::error::Error>> {
-    let request = rpc::AttestQuoteRequest {
+) -> Result<forge::AttestQuoteRequest, Box<dyn std::error::Error>> {
+    let request = forge::AttestQuoteRequest {
         attestation: attestation.marshall()?,
         signature: signature.marshall()?,
         credential: Vec::from(credential.value()),

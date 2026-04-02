@@ -22,8 +22,8 @@ use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 
 use super::filters;
 use crate::api::Api;
@@ -36,15 +36,15 @@ struct VpcShow {
 
 struct VpcRowDisplay {
     id: String,
-    metadata: rpc::forge::Metadata,
+    metadata: forge::Metadata,
     tenant_organization_id: String,
     tenant_keyset_id: String,
     network_virtualization_type: String,
     vni: String,
 }
 
-impl From<forgerpc::Vpc> for VpcRowDisplay {
-    fn from(vpc: forgerpc::Vpc) -> Self {
+impl From<forge::Vpc> for VpcRowDisplay {
+    fn from(vpc: forge::Vpc) -> Self {
         Self {
             network_virtualization_type: format!("{:?}", vpc.network_virtualization_type()),
             id: vpc.id.unwrap_or_default().to_string(),
@@ -80,13 +80,13 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
             return (StatusCode::INTERNAL_SERVER_ERROR, "Error loading VPCs").into_response();
         }
     };
-    let list = forgerpc::VpcList { vpcs };
+    let list = forge::VpcList { vpcs };
     serde_json::to_string(&list).unwrap();
     (StatusCode::OK, Json(list)).into_response()
 }
 
-async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<forgerpc::Vpc>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::VpcSearchFilter::default());
+async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<forge::Vpc>, tonic::Status> {
+    let request = tonic::Request::new(forge::VpcSearchFilter::default());
 
     let vpc_ids = api.find_vpc_ids(request).await?.into_inner().vpc_ids;
 
@@ -97,7 +97,7 @@ async fn fetch_vpcs(api: Arc<Api>) -> Result<Vec<forgerpc::Vpc>, tonic::Status> 
         let page_size = PAGE_SIZE.min(vpc_ids.len() - offset);
         let next_ids = &vpc_ids[offset..offset + page_size];
         let next_vpcs = api
-            .find_vpcs_by_ids(tonic::Request::new(forgerpc::VpcsByIdsRequest {
+            .find_vpcs_by_ids(tonic::Request::new(forge::VpcsByIdsRequest {
                 vpc_ids: next_ids.to_vec(),
             }))
             .await?
@@ -131,11 +131,11 @@ struct VpcDetail {
     network_virtualization_type: String,
     vni: String,
     version: String,
-    metadata: rpc::forge::Metadata,
+    metadata: forge::Metadata,
 }
 
-impl From<forgerpc::Vpc> for VpcDetail {
-    fn from(vpc: forgerpc::Vpc) -> Self {
+impl From<forge::Vpc> for VpcDetail {
+    fn from(vpc: forge::Vpc) -> Self {
         Self {
             network_virtualization_type: format!("{:?}", vpc.network_virtualization_type()),
             id: vpc.id.unwrap_or_default().to_string(),
@@ -169,7 +169,7 @@ pub async fn detail(
         }
     };
 
-    let request = tonic::Request::new(forgerpc::VpcsByIdsRequest {
+    let request = tonic::Request::new(forge::VpcsByIdsRequest {
         vpc_ids: vec![vpc_id],
     });
     let vpc = match state

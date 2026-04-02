@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::db::DatabaseError;
-use ::db::work_lock_manager::WorkLock;
 use chrono::{DateTime, Utc};
+use nico_api_db::DatabaseError;
+use nico_api_db::work_lock_manager::WorkLock;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 

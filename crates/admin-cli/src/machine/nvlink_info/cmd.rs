@@ -17,8 +17,8 @@
 
 use std::collections::HashMap;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
 
 use super::args::{NvlinkInfoArgs, NvlinkInfoPopulateArgs};
 use crate::rpc::ApiClient;
@@ -194,7 +194,7 @@ pub async fn handle_nvlink_info_populate(
     }
 
     // Fetch GPU details from nmx-m for each GPU in the list
-    let mut gpus: Vec<forgerpc::NvLinkGpu> = Vec::new();
+    let mut gpus: Vec<forge::NvLinkGpu> = Vec::new();
     for gpu_id in &gpu_id_list {
         let gpu_path = format!("nmx/v1/gpus/{}", gpu_id);
         let gpu_response = api_client
@@ -244,7 +244,7 @@ pub async fn handle_nvlink_info_populate(
             .and_then(|v| v.as_i64())
             .unwrap_or(0) as i32;
 
-        gpus.push(forgerpc::NvLinkGpu {
+        gpus.push(forge::NvLinkGpu {
             nmx_m_id: gpu_nmx_m_id,
             device_id: gpu_device_id,
             guid: gpu_device_uid,
@@ -259,10 +259,8 @@ pub async fn handle_nvlink_info_populate(
     })?;
 
     // Build the nvlink_info structure for RPC
-    let nvlink_info_rpc = forgerpc::MachineNvLinkInfo {
-        domain_uuid: Some(carbide_uuid::nvlink::NvLinkDomainId::from(
-            domain_uuid_parsed,
-        )),
+    let nvlink_info_rpc = forge::MachineNvLinkInfo {
+        domain_uuid: Some(nico_uuid::nvlink::NvLinkDomainId::from(domain_uuid_parsed)),
         gpus: gpus.clone(),
     };
 

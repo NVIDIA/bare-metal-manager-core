@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::output::OutputFormat;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::forge::{VpcPeeringIdList, VpcPeeringSearchFilter, VpcPeeringsByIdsRequest};
+use nico_rpc::admin_cli::output::OutputFormat;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge::{VpcPeeringIdList, VpcPeeringSearchFilter, VpcPeeringsByIdsRequest};
 
 use super::args::Args;
 use crate::rpc::ApiClient;

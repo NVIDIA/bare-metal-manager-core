@@ -14,13 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
 use config_version::ConfigVersion;
-use db::resource_pool::ResourcePoolDatabaseError;
-use db::{ObjectColumnFilter, ib_partition};
-use model::ib::DEFAULT_IB_FABRIC_NAME;
-use model::ib_partition::{IBPartitionStatus, NewIBPartition, PartitionKey};
-use model::resource_pool;
+use nico_api_db::resource_pool::ResourcePoolDatabaseError;
+use nico_api_db::{ObjectColumnFilter, ib_partition};
+use nico_api_model::ib::DEFAULT_IB_FABRIC_NAME;
+use nico_api_model::ib_partition::{IBPartitionStatus, NewIBPartition, PartitionKey};
+use nico_api_model::resource_pool;
+use nico_rpc::forge;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
@@ -29,8 +29,8 @@ use crate::api::{Api, log_request_data};
 
 pub(crate) async fn create(
     api: &Api,
-    request: Request<rpc::IbPartitionCreationRequest>,
-) -> Result<Response<rpc::IbPartition>, Status> {
+    request: Request<forge::IbPartitionCreationRequest>,
+) -> Result<Response<forge::IbPartition>, Status> {
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
@@ -59,7 +59,7 @@ pub(crate) async fn create(
         resp.config.pkey = allocated_pkey;
     }
 
-    let resp = db::ib_partition::create(
+    let resp = nico_api_db::ib_partition::create(
         resp,
         &mut txn,
         fabric_config.max_partition_per_tenant,
@@ -85,7 +85,7 @@ pub(crate) async fn create(
             CarbideError::from(e)
         }
     })?;
-    let resp = rpc::IbPartition::try_from(resp).map(Response::new)?;
+    let resp = forge::IbPartition::try_from(resp).map(Response::new)?;
 
     txn.commit().await?;
 
@@ -94,8 +94,8 @@ pub(crate) async fn create(
 
 pub(crate) async fn update(
     api: &Api,
-    request: Request<rpc::IbPartitionUpdateRequest>,
-) -> Result<Response<rpc::IbPartition>, Status> {
+    request: Request<forge::IbPartitionUpdateRequest>,
+) -> Result<Response<forge::IbPartition>, Status> {
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
@@ -107,7 +107,7 @@ pub(crate) async fn update(
         .metadata
         .ok_or(CarbideError::MissingArgument("metadata"))?;
 
-    let mut partitions = db::ib_partition::find_by(
+    let mut partitions = nico_api_db::ib_partition::find_by(
         &mut txn,
         ObjectColumnFilter::One(ib_partition::IdColumn, &id),
     )
@@ -163,32 +163,33 @@ pub(crate) async fn update(
     // Update the metadata of the partition
     partition.metadata = metadata.try_into().map_err(CarbideError::from)?;
 
-    let resp = db::ib_partition::update(&partition, &mut txn).await?;
+    let resp = nico_api_db::ib_partition::update(&partition, &mut txn).await?;
     txn.commit().await?;
 
-    Ok(Response::new(rpc::IbPartition::try_from(resp)?))
+    Ok(Response::new(forge::IbPartition::try_from(resp)?))
 }
 
 pub(crate) async fn find_ids(
     api: &Api,
-    request: Request<rpc::IbPartitionSearchFilter>,
-) -> Result<Response<rpc::IbPartitionIdList>, Status> {
+    request: Request<forge::IbPartitionSearchFilter>,
+) -> Result<Response<forge::IbPartitionIdList>, Status> {
     log_request_data(&request);
 
-    let filter: model::ib_partition::IbPartitionSearchFilter = request.into_inner().into();
+    let filter: nico_api_model::ib_partition::IbPartitionSearchFilter = request.into_inner().into();
 
-    let ib_partition_ids = db::ib_partition::find_ids(&api.database_connection, filter).await?;
+    let ib_partition_ids =
+        nico_api_db::ib_partition::find_ids(&api.database_connection, filter).await?;
 
-    Ok(Response::new(rpc::IbPartitionIdList { ib_partition_ids }))
+    Ok(Response::new(forge::IbPartitionIdList { ib_partition_ids }))
 }
 
 pub(crate) async fn find_by_ids(
     api: &Api,
-    request: Request<rpc::IbPartitionsByIdsRequest>,
-) -> Result<Response<rpc::IbPartitionList>, Status> {
+    request: Request<forge::IbPartitionsByIdsRequest>,
+) -> Result<Response<forge::IbPartitionList>, Status> {
     log_request_data(&request);
 
-    let rpc::IbPartitionsByIdsRequest {
+    let forge::IbPartitionsByIdsRequest {
         ib_partition_ids, ..
     } = request.into_inner();
 
@@ -204,7 +205,7 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let partitions = db::ib_partition::find_by(
+    let partitions = nico_api_db::ib_partition::find_by(
         &api.database_connection,
         ObjectColumnFilter::List(ib_partition::IdColumn, &ib_partition_ids),
     )
@@ -214,24 +215,24 @@ pub(crate) async fn find_by_ids(
     for ibp in partitions {
         result.push(ibp.try_into()?);
     }
-    Ok(Response::new(rpc::IbPartitionList {
+    Ok(Response::new(forge::IbPartitionList {
         ib_partitions: result,
     }))
 }
 
 pub(crate) async fn delete(
     api: &Api,
-    request: Request<rpc::IbPartitionDeletionRequest>,
-) -> Result<Response<rpc::IbPartitionDeletionResult>, Status> {
+    request: Request<forge::IbPartitionDeletionRequest>,
+) -> Result<Response<forge::IbPartitionDeletionResult>, Status> {
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
 
-    let rpc::IbPartitionDeletionRequest { id, .. } = request.into_inner();
+    let forge::IbPartitionDeletionRequest { id, .. } = request.into_inner();
 
     let uuid = id.ok_or(CarbideError::MissingArgument("id"))?;
 
-    let mut segments = db::ib_partition::find_by(
+    let mut segments = nico_api_db::ib_partition::find_by(
         &mut txn,
         ObjectColumnFilter::One(ib_partition::IdColumn, &uuid),
     )
@@ -248,9 +249,9 @@ pub(crate) async fn delete(
         }
     };
 
-    let resp = db::ib_partition::mark_as_deleted(&segment, &mut txn)
+    let resp = nico_api_db::ib_partition::mark_as_deleted(&segment, &mut txn)
         .await
-        .map(|_| rpc::IbPartitionDeletionResult {})
+        .map(|_| forge::IbPartitionDeletionResult {})
         .map(Response::new)?;
 
     txn.commit().await?;
@@ -260,11 +261,11 @@ pub(crate) async fn delete(
 
 pub(crate) async fn for_tenant(
     api: &Api,
-    request: Request<rpc::TenantSearchQuery>,
-) -> Result<Response<rpc::IbPartitionList>, Status> {
+    request: Request<forge::TenantSearchQuery>,
+) -> Result<Response<forge::IbPartitionList>, Status> {
     log_request_data(&request);
 
-    let rpc::TenantSearchQuery {
+    let forge::TenantSearchQuery {
         tenant_organization_id,
     } = request.into_inner();
 
@@ -276,7 +277,8 @@ pub(crate) async fn for_tenant(
     };
 
     let results =
-        db::ib_partition::for_tenant(&api.database_connection, _tenant_organization_id).await?;
+        nico_api_db::ib_partition::for_tenant(&api.database_connection, _tenant_organization_id)
+            .await?;
 
     let mut ib_partitions = Vec::with_capacity(results.len());
 
@@ -284,7 +286,7 @@ pub(crate) async fn for_tenant(
         ib_partitions.push(result.try_into()?);
     }
 
-    Ok(Response::new(rpc::IbPartitionList { ib_partitions }))
+    Ok(Response::new(forge::IbPartitionList { ib_partitions }))
 }
 
 /// Allocate a value from the pkey resource pool.
@@ -297,7 +299,7 @@ async fn allocate_pkey(
     owner_id: &str,
     requested_pkey: Option<u16>,
 ) -> Result<Option<PartitionKey>, CarbideError> {
-    match db::resource_pool::allocate(api
+    match nico_api_db::resource_pool::allocate(api
             .common_pools
             .infiniband
             .pkey_pools

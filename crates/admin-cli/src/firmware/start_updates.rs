@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
-use ::rpc::forge as forgerpc;
 use chrono::TimeZone;
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::forge;
 
 use crate::managed_host::StartUpdates;
 use crate::rpc::ApiClient;
@@ -60,7 +60,7 @@ pub async fn start_updates(
         };
         (start, end)
     };
-    let request = forgerpc::SetFirmwareUpdateTimeWindowRequest {
+    let request = forge::SetFirmwareUpdateTimeWindowRequest {
         machine_ids: options.machines,
         start_timestamp: Some(start_timestamp.into()),
         end_timestamp: Some(end_timestamp.into()),

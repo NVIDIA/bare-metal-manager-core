@@ -17,10 +17,10 @@
 use std::fmt::Write;
 use std::str::FromStr as _;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
-use carbide_uuid::domain::DomainId;
-use carbide_uuid::network::NetworkSegmentId;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_uuid::domain::DomainId;
+use nico_uuid::network::NetworkSegmentId;
 use prettytable::{Table, row};
 use serde::Deserialize;
 
@@ -33,7 +33,7 @@ struct NetworkState {
 }
 
 async fn convert_network_to_nice_format(
-    segment: forgerpc::NetworkSegment,
+    segment: forge::NetworkSegment,
     api_client: &ApiClient,
 ) -> CarbideCliResult<String> {
     let width = 10;
@@ -58,7 +58,7 @@ async fn convert_network_to_nice_format(
             "STATE",
             format!(
                 "{:?}",
-                forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
+                forge::TenantState::try_from(segment.state).unwrap_or_default()
             ),
         ),
         ("VPC", segment.vpc_id.unwrap_or_default().to_string()),
@@ -74,7 +74,7 @@ async fn convert_network_to_nice_format(
             "TYPE",
             format!(
                 "{:?}",
-                forgerpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
+                forge::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
             ),
         ),
     ];
@@ -156,7 +156,7 @@ async fn get_domain_name(domain_id: Option<DomainId>, api_client: &ApiClient) ->
     }
 }
 
-fn convert_network_to_nice_table(segments: forgerpc::NetworkSegmentList) -> Box<Table> {
+fn convert_network_to_nice_table(segments: forge::NetworkSegmentList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row![
@@ -174,7 +174,7 @@ fn convert_network_to_nice_table(segments: forgerpc::NetworkSegmentList) -> Box<
             segment.created.unwrap_or_default(),
             format!(
                 "{:?}",
-                forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
+                forge::TenantState::try_from(segment.state).unwrap_or_default()
             ),
             segment.vpc_id.unwrap_or_default(),
             segment.mtu.unwrap_or(-1),
@@ -188,7 +188,7 @@ fn convert_network_to_nice_table(segments: forgerpc::NetworkSegmentList) -> Box<
             segment.version,
             format!(
                 "{:?}",
-                forgerpc::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
+                forge::NetworkSegmentType::try_from(segment.segment_type).unwrap_or_default()
             ),
         ]);
     }

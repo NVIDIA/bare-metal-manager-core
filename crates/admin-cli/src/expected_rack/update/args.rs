@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
-use carbide_uuid::rack::RackId;
 use clap::Parser;
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::forge;
+use nico_uuid::rack::RackId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Parser, Debug, Serialize, Deserialize)]
@@ -50,7 +51,7 @@ pub struct Args {
     pub labels: Option<Vec<String>>,
 }
 
-impl TryFrom<Args> for rpc::forge::ExpectedRack {
+impl TryFrom<Args> for forge::ExpectedRack {
     type Error = CarbideCliError;
 
     fn try_from(args: Args) -> Result<Self, Self::Error> {
@@ -58,10 +59,10 @@ impl TryFrom<Args> for rpc::forge::ExpectedRack {
         let rack_type = args
             .rack_type
             .ok_or_else(|| CarbideCliError::GenericError("rack_type is required".to_string()))?;
-        Ok(rpc::forge::ExpectedRack {
+        Ok(forge::ExpectedRack {
             rack_id: Some(args.rack_id),
             rack_type,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: args.meta_name.unwrap_or_default(),
                 description: args.meta_description.unwrap_or_default(),
                 labels: crate::metadata::parse_rpc_labels(args.labels.unwrap_or_default()),

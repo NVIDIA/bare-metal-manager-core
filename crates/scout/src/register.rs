@@ -17,10 +17,10 @@
 
 use std::process;
 
-use carbide_host_support::hardware_enumeration::enumerate_hardware;
-use carbide_host_support::registration;
-use carbide_host_support::registration::RegistrationError;
-use carbide_uuid::machine::MachineId;
+use nico_host_support::hardware_enumeration::enumerate_hardware;
+use nico_host_support::registration;
+use nico_host_support::registration::RegistrationError;
+use nico_uuid::machine::MachineId;
 use tracing::{error, info};
 use tss_esapi::Context;
 use tss_esapi::handles::KeyHandle;

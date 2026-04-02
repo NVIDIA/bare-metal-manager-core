@@ -36,12 +36,14 @@ use serde::ser::Error;
 use serde_json::{Value, json};
 use tokio_stream::Stream;
 
-pub use crate::protos::common::{self, Uuid};
+pub use crate::protos::common::{
+    Uuid, {self},
+};
 pub use crate::protos::dns::{self};
 pub use crate::protos::forge::machine_credentials_update_request::CredentialPurpose;
 pub use crate::protos::forge::machine_discovery_info::DiscoveryData;
 pub use crate::protos::forge::{
-    self, CredentialType, Domain, DomainList, ForgeScoutErrorReport, ForgeScoutErrorReportResult,
+    CredentialType, Domain, DomainList, ForgeScoutErrorReport, ForgeScoutErrorReportResult,
     IbPartition, IbPartitionCreationRequest, IbPartitionDeletionRequest, IbPartitionDeletionResult,
     IbPartitionList, Instance, InstanceAllocationRequest, InstanceConfig,
     InstanceIbInterfaceConfig, InstanceIbInterfaceStatus, InstanceInfinibandConfig,
@@ -51,11 +53,11 @@ pub use crate::protos::forge::{
     InterfaceFunctionType, Machine, MachineCleanupInfo, MachineDiscoveryInfo, MachineEvent,
     MachineInterface, MachineList, Metadata, NetworkSegment, NetworkSegmentList, NvLinkPartition,
     NvLinkPartitionList, NvLinkPartitionQuery, ResourcePoolType, SyncState, TenantConfig,
-    TenantState, forge_agent_control_response,
+    TenantState, forge_agent_control_response, {self},
 };
 pub use crate::protos::machine_discovery::{
-    self, BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice,
-    PciDeviceProperties,
+    BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice, PciDeviceProperties,
+    {self},
 };
 pub use crate::protos::{fmds, health, site_explorer};
 
@@ -387,8 +389,8 @@ impl MachineInterface {
     }
 }
 
-impl From<health_report::HealthProbeSuccess> for health::HealthProbeSuccess {
-    fn from(success: health_report::HealthProbeSuccess) -> Self {
+impl From<nico_health_report::HealthProbeSuccess> for health::HealthProbeSuccess {
+    fn from(success: nico_health_report::HealthProbeSuccess) -> Self {
         Self {
             id: success.id.to_string(),
             target: success.target,
@@ -396,8 +398,8 @@ impl From<health_report::HealthProbeSuccess> for health::HealthProbeSuccess {
     }
 }
 
-impl TryFrom<health::HealthProbeSuccess> for health_report::HealthProbeSuccess {
-    type Error = health_report::HealthReportConversionError;
+impl TryFrom<health::HealthProbeSuccess> for nico_health_report::HealthProbeSuccess {
+    type Error = nico_health_report::HealthReportConversionError;
     fn try_from(success: health::HealthProbeSuccess) -> Result<Self, Self::Error> {
         Ok(Self {
             id: success.id.parse()?,
@@ -406,8 +408,8 @@ impl TryFrom<health::HealthProbeSuccess> for health_report::HealthProbeSuccess {
     }
 }
 
-impl From<health_report::HealthProbeAlert> for health::HealthProbeAlert {
-    fn from(alert: health_report::HealthProbeAlert) -> Self {
+impl From<nico_health_report::HealthProbeAlert> for health::HealthProbeAlert {
+    fn from(alert: nico_health_report::HealthProbeAlert) -> Self {
         Self {
             id: alert.id.to_string(),
             target: alert.target.clone(),
@@ -423,8 +425,8 @@ impl From<health_report::HealthProbeAlert> for health::HealthProbeAlert {
     }
 }
 
-impl TryFrom<health::HealthProbeAlert> for health_report::HealthProbeAlert {
-    type Error = health_report::HealthReportConversionError;
+impl TryFrom<health::HealthProbeAlert> for nico_health_report::HealthProbeAlert {
+    type Error = nico_health_report::HealthReportConversionError;
     fn try_from(alert: health::HealthProbeAlert) -> Result<Self, Self::Error> {
         let classifications = alert
             .classifications
@@ -442,7 +444,9 @@ impl TryFrom<health::HealthProbeAlert> for health_report::HealthProbeAlert {
                 .in_alert_since
                 .map(TryInto::try_into)
                 .transpose()
-                .map_err(|_| health_report::HealthReportConversionError::TimestampParseError)?,
+                .map_err(|_| {
+                    nico_health_report::HealthReportConversionError::TimestampParseError
+                })?,
             message: alert.message,
             tenant_message: alert.tenant_message,
             classifications,
@@ -450,8 +454,8 @@ impl TryFrom<health::HealthProbeAlert> for health_report::HealthProbeAlert {
     }
 }
 
-impl From<health_report::HealthReport> for health::HealthReport {
-    fn from(report: health_report::HealthReport) -> Self {
+impl From<nico_health_report::HealthReport> for health::HealthReport {
+    fn from(report: nico_health_report::HealthReport) -> Self {
         Self {
             source: report.source,
             triggered_by: report.triggered_by,
@@ -462,11 +466,11 @@ impl From<health_report::HealthReport> for health::HealthReport {
     }
 }
 
-impl TryFrom<health::HealthReport> for health_report::HealthReport {
-    type Error = health_report::HealthReportConversionError;
+impl TryFrom<health::HealthReport> for nico_health_report::HealthReport {
+    type Error = nico_health_report::HealthReportConversionError;
     fn try_from(report: health::HealthReport) -> Result<Self, Self::Error> {
         if report.source.is_empty() {
-            return Err(health_report::HealthReportConversionError::MissingSource);
+            return Err(nico_health_report::HealthReportConversionError::MissingSource);
         }
         let mut successes = Vec::new();
         let mut alerts = Vec::new();
@@ -483,7 +487,9 @@ impl TryFrom<health::HealthReport> for health_report::HealthReport {
                 .observed_at
                 .map(DateTime::<Utc>::try_from)
                 .transpose()
-                .map_err(|_| health_report::HealthReportConversionError::TimestampParseError)?,
+                .map_err(|_| {
+                    nico_health_report::HealthReportConversionError::TimestampParseError
+                })?,
             successes,
             alerts,
             triggered_by: report.triggered_by,
@@ -491,11 +497,11 @@ impl TryFrom<health::HealthReport> for health_report::HealthReport {
     }
 }
 
-impl From<forge::OverrideMode> for health_report::OverrideMode {
+impl From<forge::OverrideMode> for nico_health_report::OverrideMode {
     fn from(value: forge::OverrideMode) -> Self {
         match value {
-            forge::OverrideMode::Merge => health_report::OverrideMode::Merge,
-            forge::OverrideMode::Replace => health_report::OverrideMode::Replace,
+            forge::OverrideMode::Merge => nico_health_report::OverrideMode::Merge,
+            forge::OverrideMode::Replace => nico_health_report::OverrideMode::Replace,
         }
     }
 }
@@ -805,7 +811,7 @@ impl clap::ValueEnum for forge::RouteServerSourceType {
 mod tests {
     use std::time::Duration;
 
-    use carbide_uuid::machine::MachineId;
+    use nico_uuid::machine::MachineId;
 
     use self::forge::operating_system::Variant;
     use self::forge::{InlineIpxe, OperatingSystem};
@@ -865,7 +871,7 @@ mod tests {
     /// Test to check that serializing a type with a custom Timestamp implementation works
     #[test]
     fn test_serialize_domain() {
-        let uuid = carbide_uuid::domain::DomainId::from(::uuid::uuid!(
+        let uuid = nico_uuid::domain::DomainId::from(::uuid::uuid!(
             "91609f10-c91d-470d-a260-1234560c0000"
         ));
         let ts = std::time::SystemTime::now();
@@ -887,7 +893,7 @@ mod tests {
         let encoded = domain.encode_to_vec();
         let decoded = Domain::decode(&encoded[..]).unwrap();
 
-        let deserialized_uuid: carbide_uuid::domain::DomainId = decoded.id.unwrap();
+        let deserialized_uuid: nico_uuid::domain::DomainId = decoded.id.unwrap();
         let created_system_time: std::time::SystemTime =
             decoded.created.unwrap().try_into().unwrap();
         let updated_system_time: std::time::SystemTime =

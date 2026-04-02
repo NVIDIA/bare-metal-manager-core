@@ -17,18 +17,18 @@
 
 use std::num::TryFromIntError;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use ::rpc::forge::InstanceTypeAllocationStats;
-use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersion;
-use db::{ObjectFilter, compute_allocation, instance, instance_type};
-use model::instance_type::InstanceTypeMachineCapabilityFilter;
-use model::machine::LoadSnapshotOptions;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::metadata::Metadata;
-use model::tenant::InvalidTenantOrg;
+use nico_api_db::{ObjectFilter, compute_allocation, instance, instance_type};
+use nico_api_model::instance_type::InstanceTypeMachineCapabilityFilter;
+use nico_api_model::machine::LoadSnapshotOptions;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::metadata::Metadata;
+use nico_api_model::tenant::InvalidTenantOrg;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_rpc::forge::InstanceTypeAllocationStats;
+use nico_uuid::instance_type::InstanceTypeId;
+use nico_uuid::machine::MachineId;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -38,8 +38,8 @@ use crate::cfg::file::ComputeAllocationEnforcement;
 
 pub(crate) async fn create(
     api: &Api,
-    request: Request<rpc::CreateInstanceTypeRequest>,
-) -> Result<Response<rpc::CreateInstanceTypeResponse>, Status> {
+    request: Request<forge::CreateInstanceTypeRequest>,
+) -> Result<Response<forge::CreateInstanceTypeResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -69,7 +69,7 @@ pub(crate) async fn create(
 
     for cap in req
         .instance_type_attributes
-        .unwrap_or(rpc::InstanceTypeAttributes {
+        .unwrap_or(forge::InstanceTypeAttributes {
             ..Default::default()
         })
         .desired_capabilities
@@ -86,7 +86,7 @@ pub(crate) async fn create(
         instance_type::create(&mut txn, &id, &metadata, &desired_capabilities).await?;
 
     // Prepare the response to send back
-    let rpc_out = rpc::CreateInstanceTypeResponse {
+    let rpc_out = forge::CreateInstanceTypeResponse {
         instance_type: Some(instance_type.try_into()?),
     };
 
@@ -99,15 +99,15 @@ pub(crate) async fn create(
 
 pub(crate) async fn find_ids(
     api: &Api,
-    request: Request<rpc::FindInstanceTypeIdsRequest>,
-) -> Result<Response<rpc::FindInstanceTypeIdsResponse>, Status> {
+    request: Request<forge::FindInstanceTypeIdsRequest>,
+) -> Result<Response<forge::FindInstanceTypeIdsResponse>, Status> {
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
 
     let instance_type_ids = instance_type::find_ids(&mut txn, false).await?;
 
-    let rpc_out = rpc::FindInstanceTypeIdsResponse {
+    let rpc_out = forge::FindInstanceTypeIdsResponse {
         instance_type_ids: instance_type_ids.iter().map(|i| i.to_string()).collect(),
     };
 
@@ -118,8 +118,8 @@ pub(crate) async fn find_ids(
 
 pub(crate) async fn find_by_ids(
     api: &Api,
-    request: Request<rpc::FindInstanceTypesByIdsRequest>,
-) -> Result<Response<rpc::FindInstanceTypesByIdsResponse>, Status> {
+    request: Request<forge::FindInstanceTypesByIdsRequest>,
+) -> Result<Response<forge::FindInstanceTypesByIdsResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -158,7 +158,7 @@ pub(crate) async fn find_by_ids(
         instance_types
             .into_iter()
             .map(|i| i.try_into())
-            .collect::<Result<Vec<rpc::InstanceType>, _>>()?
+            .collect::<Result<Vec<forge::InstanceType>, _>>()?
     } else {
         // Get the machine and instance details for the instance types
         let instance_type_association_details =
@@ -180,11 +180,11 @@ pub(crate) async fn find_by_ids(
         )
         .await?;
 
-        let mut rpc_instance_types = Vec::<rpc::InstanceType>::new();
+        let mut rpc_instance_types = Vec::<forge::InstanceType>::new();
 
         for itype in instance_types {
             let instance_type_id = itype.id.clone();
-            let mut rpc_out: rpc::InstanceType = itype.try_into()?;
+            let mut rpc_out: forge::InstanceType = itype.try_into()?;
 
             if let Some(instance_type_assoc_details) =
                 instance_type_association_details.get(&instance_type_id)
@@ -195,7 +195,7 @@ pub(crate) async fn find_by_ids(
                     .unwrap_or_default();
 
                 // Grab the count of machines in a good state.
-                let good_machine_count: u32 = db::managed_host::load_by_machine_ids(
+                let good_machine_count: u32 = nico_api_db::managed_host::load_by_machine_ids(
                     &mut txn,
                     &instance_type_assoc_details.machine_ids,
                     LoadSnapshotOptions {
@@ -238,7 +238,7 @@ pub(crate) async fn find_by_ids(
     };
 
     // Prepare the response message
-    let rpc_out = rpc::FindInstanceTypesByIdsResponse {
+    let rpc_out = forge::FindInstanceTypesByIdsResponse {
         instance_types: rpc_instance_types,
     };
 
@@ -251,8 +251,8 @@ pub(crate) async fn find_by_ids(
 
 pub(crate) async fn update(
     api: &Api,
-    request: Request<rpc::UpdateInstanceTypeRequest>,
-) -> Result<Response<rpc::UpdateInstanceTypeResponse>, Status> {
+    request: Request<forge::UpdateInstanceTypeRequest>,
+) -> Result<Response<forge::UpdateInstanceTypeResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -279,7 +279,7 @@ pub(crate) async fn update(
 
     for cap in req
         .instance_type_attributes
-        .unwrap_or(rpc::InstanceTypeAttributes {
+        .unwrap_or(forge::InstanceTypeAttributes {
             ..Default::default()
         })
         .desired_capabilities
@@ -339,7 +339,7 @@ pub(crate) async fn update(
     // should not be updated.  This is another one that could be a subquery, but
     // we want the caller to know the actual reason for failure.
     let existing_associated_machines =
-        db::machine::find_ids_by_instance_type_id(&mut txn, &id, true).await?;
+        nico_api_db::machine::find_ids_by_instance_type_id(&mut txn, &id, true).await?;
 
     // Forge-cloud allows users to change metadata changes (name, description, and label),
     // so we'll need to allow the same here.
@@ -366,7 +366,7 @@ pub(crate) async fn update(
     .await?;
 
     // Prepare the response to send back
-    let rpc_out = rpc::UpdateInstanceTypeResponse {
+    let rpc_out = forge::UpdateInstanceTypeResponse {
         instance_type: Some(instance_type.try_into()?),
     };
 
@@ -379,8 +379,8 @@ pub(crate) async fn update(
 
 pub(crate) async fn delete(
     api: &Api,
-    request: Request<rpc::DeleteInstanceTypeRequest>,
-) -> Result<Response<rpc::DeleteInstanceTypeResponse>, Status> {
+    request: Request<forge::DeleteInstanceTypeRequest>,
+) -> Result<Response<forge::DeleteInstanceTypeResponse>, Status> {
     log_request_data(&request);
 
     let id = request
@@ -402,7 +402,7 @@ pub(crate) async fn delete(
     //  This will also grab a row lock on the requested machines so we can
     // coordinate with the instance allocation handler.
     let existing_associated_machines =
-        db::machine::find_ids_by_instance_type_id(&mut txn, &id, true).await?;
+        nico_api_db::machine::find_ids_by_instance_type_id(&mut txn, &id, true).await?;
 
     // Check that there are no associated instances for the machines.
     let instances = instance::find_by_machine_ids(
@@ -422,7 +422,7 @@ pub(crate) async fn delete(
     }
 
     // Make our DB query to remove the machine associations.
-    db::machine::remove_instance_type_associations(
+    nico_api_db::machine::remove_instance_type_associations(
         &mut txn,
         &existing_associated_machines
             .iter()
@@ -435,7 +435,7 @@ pub(crate) async fn delete(
     instance_type::soft_delete(&mut txn, &id).await?;
 
     // Prepare the response message
-    let rpc_out = rpc::DeleteInstanceTypeResponse {};
+    let rpc_out = forge::DeleteInstanceTypeResponse {};
 
     // Commit if nothing has gone wrong up to now
     txn.commit().await?;
@@ -446,8 +446,8 @@ pub(crate) async fn delete(
 
 pub(crate) async fn associate_machines(
     api: &Api,
-    request: Request<rpc::AssociateMachinesWithInstanceTypeRequest>,
-) -> Result<Response<rpc::AssociateMachinesWithInstanceTypeResponse>, Status> {
+    request: Request<forge::AssociateMachinesWithInstanceTypeRequest>,
+) -> Result<Response<forge::AssociateMachinesWithInstanceTypeResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -540,7 +540,7 @@ pub(crate) async fn associate_machines(
     // Grab the requested machines so we can row-lock and
     // also get their most recent snapshots so we can check
     // their capabilities.
-    let machines = db::machine::find(
+    let machines = nico_api_db::machine::find(
         &mut txn,
         ObjectFilter::List(&machine_ids),
         MachineSearchConfig {
@@ -587,7 +587,7 @@ pub(crate) async fn associate_machines(
     }
 
     // Make our DB query for the association
-    let ids = db::machine::associate_machines_with_instance_type(
+    let ids = nico_api_db::machine::associate_machines_with_instance_type(
         &mut txn,
         &instance_type_id,
         &machine_versions,
@@ -601,7 +601,7 @@ pub(crate) async fn associate_machines(
     }
 
     // Prepare the response message
-    let rpc_out = rpc::AssociateMachinesWithInstanceTypeResponse {};
+    let rpc_out = forge::AssociateMachinesWithInstanceTypeResponse {};
 
     // Commit if nothing has gone wrong up to now
     txn.commit().await?;
@@ -612,8 +612,8 @@ pub(crate) async fn associate_machines(
 
 pub(crate) async fn remove_machine_association(
     api: &Api,
-    request: Request<rpc::RemoveMachineInstanceTypeAssociationRequest>,
-) -> Result<Response<rpc::RemoveMachineInstanceTypeAssociationResponse>, Status> {
+    request: Request<forge::RemoveMachineInstanceTypeAssociationRequest>,
+) -> Result<Response<forge::RemoveMachineInstanceTypeAssociationResponse>, Status> {
     log_request_data(&request);
 
     let machine_id = request
@@ -628,7 +628,7 @@ pub(crate) async fn remove_machine_association(
     // Grab a row lock on the requested machine so we can
     // coordinate with the instance allocation handler and
     // check for the existence of instances.
-    let mut machines = db::machine::find(
+    let mut machines = nico_api_db::machine::find(
         &mut txn,
         ObjectFilter::List(&[machine_id]),
         MachineSearchConfig {
@@ -725,7 +725,7 @@ pub(crate) async fn remove_machine_association(
         }
 
         // Make our DB query to remove the association
-        db::machine::remove_instance_type_associations(
+        nico_api_db::machine::remove_instance_type_associations(
             &mut txn,
             &[(&machine.id, &machine.version)],
         )
@@ -733,7 +733,7 @@ pub(crate) async fn remove_machine_association(
     }
 
     // Prepare the response message
-    let rpc_out = rpc::RemoveMachineInstanceTypeAssociationResponse {};
+    let rpc_out = forge::RemoveMachineInstanceTypeAssociationResponse {};
 
     // Commit if nothing has gone wrong up to now
     txn.commit().await?;

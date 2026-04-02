@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use libmlx::device::discovery::{convert_pci_name_to_address, parse_mlxfwmanager_xml};
+use nico_libmlx::device::discovery::{convert_pci_name_to_address, parse_mlxfwmanager_xml};
 
 // Test XML to use for a single DPU with failed access due to lockdown.
 const DPU_FAILED_XML: &str = r#"

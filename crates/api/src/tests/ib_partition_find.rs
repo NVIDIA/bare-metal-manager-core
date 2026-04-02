@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use carbide_uuid::infiniband::IBPartitionId;
-use rpc::forge_server::Forge;
+use forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_uuid::infiniband::IBPartitionId;
 
 use crate::cfg::file::IBFabricConfig;
 use crate::tests::common;
@@ -38,7 +38,7 @@ async fn test_find_ib_partition_ids(pool: sqlx::PgPool) {
     }
 
     // test getting all ids
-    let request_all = tonic::Request::new(rpc::IbPartitionSearchFilter {
+    let request_all = tonic::Request::new(forge::IbPartitionSearchFilter {
         name: None,
         tenant_org_id: None,
     });
@@ -52,7 +52,7 @@ async fn test_find_ib_partition_ids(pool: sqlx::PgPool) {
     assert_eq!(ids_all.ib_partition_ids.len(), 6);
 
     // test getting ids based on name
-    let request_name = tonic::Request::new(rpc::IbPartitionSearchFilter {
+    let request_name = tonic::Request::new(forge::IbPartitionSearchFilter {
         name: Some("partition_5".to_string()),
         tenant_org_id: None,
     });
@@ -66,7 +66,7 @@ async fn test_find_ib_partition_ids(pool: sqlx::PgPool) {
     assert_eq!(ids_name.ib_partition_ids.len(), 1);
 
     // test search by tenant_org_id
-    let request_tenant = tonic::Request::new(rpc::IbPartitionSearchFilter {
+    let request_tenant = tonic::Request::new(forge::IbPartitionSearchFilter {
         name: None,
         tenant_org_id: Some("tenant_org_2".to_string()),
     });
@@ -80,7 +80,7 @@ async fn test_find_ib_partition_ids(pool: sqlx::PgPool) {
     assert_eq!(ids_tenant.ib_partition_ids.len(), 3);
 
     // test search by tenant_org_id and name
-    let request_tenant_name = tonic::Request::new(rpc::IbPartitionSearchFilter {
+    let request_tenant_name = tonic::Request::new(forge::IbPartitionSearchFilter {
         name: Some("partition_4".to_string()),
         tenant_org_id: Some("tenant_org_1".to_string()),
     });
@@ -108,7 +108,7 @@ async fn test_find_ib_partitions_by_ids(pool: sqlx::PgPool) {
     )
     .await;
 
-    let mut partition3 = rpc::IbPartition::default();
+    let mut partition3 = forge::IbPartition::default();
     for i in 0..6 {
         let mut tenant_org_id = "tenant_org_1";
         if i % 2 != 0 {
@@ -121,7 +121,7 @@ async fn test_find_ib_partitions_by_ids(pool: sqlx::PgPool) {
         }
     }
 
-    let request_ids = tonic::Request::new(rpc::IbPartitionSearchFilter {
+    let request_ids = tonic::Request::new(forge::IbPartitionSearchFilter {
         name: Some("partition_3".to_string()),
         tenant_org_id: None,
     });
@@ -134,7 +134,7 @@ async fn test_find_ib_partitions_by_ids(pool: sqlx::PgPool) {
         .unwrap();
     assert_eq!(ids_list.ib_partition_ids.len(), 1);
 
-    let request_partitions = tonic::Request::new(rpc::IbPartitionsByIdsRequest {
+    let request_partitions = tonic::Request::new(forge::IbPartitionsByIdsRequest {
         ib_partition_ids: ids_list.ib_partition_ids,
         include_history: false,
     });
@@ -181,7 +181,7 @@ async fn test_find_ib_partitions_by_ids_over_max(pool: sqlx::PgPool) {
         .map(|_| uuid::Uuid::new_v4().into())
         .collect();
 
-    let request = tonic::Request::new(rpc::IbPartitionsByIdsRequest {
+    let request = tonic::Request::new(forge::IbPartitionsByIdsRequest {
         ib_partition_ids,
         include_history: false,
     });
@@ -215,7 +215,7 @@ async fn test_find_ib_partitions_by_ids_none(pool: sqlx::PgPool) {
     )
     .await;
 
-    let request_none = tonic::Request::new(rpc::IbPartitionsByIdsRequest {
+    let request_none = tonic::Request::new(forge::IbPartitionsByIdsRequest {
         ib_partition_ids: Vec::new(),
         include_history: false,
     });

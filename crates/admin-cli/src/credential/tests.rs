@@ -169,7 +169,7 @@ fn parse_add_uefi() {
 // converts to protobuf CredentialType.
 #[test]
 fn bmc_credential_type_to_proto() {
-    use rpc::forge::CredentialType;
+    use nico_rpc::forge::CredentialType;
 
     assert!(matches!(
         CredentialType::from(BmcCredentialType::SiteWideRoot),
@@ -189,7 +189,7 @@ fn bmc_credential_type_to_proto() {
 // UefiCredentialType converts to protobuf CredentialType.
 #[test]
 fn uefi_credential_type_to_proto() {
-    use rpc::forge::CredentialType;
+    use nico_rpc::forge::CredentialType;
 
     assert!(matches!(
         CredentialType::from(UefiCredentialType::Dpu),

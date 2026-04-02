@@ -17,13 +17,13 @@
 
 //! State Controller IO implementation for PowerShelves
 
-use carbide_uuid::power_shelf::PowerShelfId;
 use config_version::{ConfigVersion, Versioned};
-use db::power_shelf::PowerShelfSearchConfig;
-use db::{DatabaseError, ObjectColumnFilter, power_shelf as db_power_shelf};
-use model::StateSla;
-use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::power_shelf::{PowerShelf, PowerShelfControllerState, state_sla};
+use nico_api_db::power_shelf::PowerShelfSearchConfig;
+use nico_api_db::{DatabaseError, ObjectColumnFilter, power_shelf as db_power_shelf};
+use nico_api_model::StateSla;
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::power_shelf::{PowerShelf, PowerShelfControllerState, state_sla};
+use nico_uuid::power_shelf::PowerShelfId;
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
@@ -62,7 +62,7 @@ impl StateControllerIO for PowerShelfStateControllerIO {
     ) -> Result<Option<Self::State>, DatabaseError> {
         let mut power_shelves = db_power_shelf::find_by(
             txn,
-            ObjectColumnFilter::One(db::power_shelf::IdColumn, power_shelf_id),
+            ObjectColumnFilter::One(nico_api_db::power_shelf::IdColumn, power_shelf_id),
             PowerShelfSearchConfig::default(),
         )
         .await?;
@@ -118,7 +118,8 @@ impl StateControllerIO for PowerShelfStateControllerIO {
         new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::power_shelf_state_history::persist(txn, object_id, new_state, new_version).await?;
+        nico_api_db::power_shelf_state_history::persist(txn, object_id, new_state, new_version)
+            .await?;
         Ok(())
     }
 

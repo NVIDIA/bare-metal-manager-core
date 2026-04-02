@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use model::attestation::SecretAkPub;
+use nico_api_model::attestation::SecretAkPub;
 use sqlx::PgConnection;
 
 use crate::{DatabaseError, DatabaseResult};

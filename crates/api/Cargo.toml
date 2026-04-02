@@ -15,17 +15,18 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-api"
+name = "nico-api"
 version = "0.0.1"
 edition.workspace = true
-description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
+description = "NICo is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
 license.workspace = true
 authors.workspace = true
 
 [lib]
-name = "carbide"
+name = "nico_api"
 
 [[bin]]
+# TODO: rename to nico-api
 name = "carbide-api"
 path = "src/main.rs"
 
@@ -35,27 +36,27 @@ path = "src/main.rs"
 bmc-vendor = { path = "../bmc-vendor" }
 bmc-explorer = { path = "../bmc-explorer" }
 config-version = { path = "../config-version", features = ["sqlx"] }
-carbide-host-support = { path = "../host-support", default-features = false }
-carbide-network = { path = "../network", features = ["sqlx"] }
-carbide-secrets = { path = "../secrets" }
-carbide-version = { path = "../version" }
-carbide-health-report = { path = "../health-report" }
+nico-host-support = { path = "../host-support", default-features = false }
+nico-network = { path = "../network", features = ["sqlx"] }
+nico-secrets = { path = "../secrets" }
+nico-version = { path = "../version" }
+nico-health-report = { path = "../health-report" }
 dns-record = { path = "../dns-record" }
 libnmxm = { path = "../libnmxm" }
 logfmt = { path = "../logfmt" }
 mqttea = { path = "../mqttea" }
-carbide-rpc = { path = "../rpc", features = ["sqlx"] }
-carbide-utils = { path = "../utils", features = ["sqlx"] }
-carbide-ssh = { path = "../ssh" }
-carbide-tls = { path = "../tls" }
-carbide-uuid = { path = "../uuid", features = ["sqlx"] }
-carbide-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
-carbide-libmlx = { path = "../libmlx" }
-carbide-api-model = { path = "../api-model", default-features = false }
-carbide-api-db = { path = "../api-db", default-features = false }
+nico-rpc = { path = "../rpc", features = ["sqlx"] }
+nico-utils = { path = "../utils", features = ["sqlx"] }
+nico-ssh = { path = "../ssh" }
+nico-tls = { path = "../tls" }
+nico-uuid = { path = "../uuid", features = ["sqlx"] }
+nico-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
+nico-libmlx = { path = "../libmlx" }
+nico-api-model = { path = "../api-model", default-features = false }
+nico-api-db = { path = "../api-db", default-features = false }
 spancounter = { path = "../spancounter" }
 nras = { path = "../nras" }
-carbide-dpf = { path = "../dpf" }
+nico-dpf = { path = "../dpf" }
 component-manager = { path = "../component-manager" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
@@ -190,7 +191,7 @@ default = ["linux-build"]
 linux-build = ["tss-esapi"]
 
 [build-dependencies]
-carbide-version = { path = "../version" }
+nico-version = { path = "../version" }
 
 [dev-dependencies]
 figment = { features = ["env", "test", "toml"], workspace = true }
@@ -199,9 +200,9 @@ lazy_static = { workspace = true }
 const_format = { workspace = true }
 mockall = { workspace = true }
 rcgen = { workspace = true }
-carbide-macros = { path = "../macros" }
-carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
-carbide-prost-builder = { path = "../prost-builder" }
+nico-macros = { path = "../macros" }
+nico-sqlx-testing = { path = "../sqlx-testing", default-features = false }
+nico-prost-builder = { path = "../prost-builder" }
 prometheus-text-parser = { path = "../prometheus-text-parser" }
 prost = { workspace = true }
 tower-test = { workspace = true }

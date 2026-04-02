@@ -24,9 +24,10 @@ use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{self as forgerpc, BmcEndpointRequest, admin_power_control_request};
-use rpc::site_explorer::{
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{BmcEndpointRequest, admin_power_control_request};
+use nico_rpc::site_explorer::{
     ExploredEndpoint, InternalLockdownStatus, LockdownStatus, MachineSetupStatus, SecureBootStatus,
     SiteExplorationReport,
 };
@@ -34,7 +35,9 @@ use serde::Deserialize;
 
 use super::filters;
 use crate::api::Api;
-use crate::web::action_status::{self, ActionStatus};
+use crate::web::action_status::{
+    ActionStatus, {self},
+};
 
 #[derive(Template)]
 #[template(path = "explored_endpoints_show.html")]
@@ -292,7 +295,7 @@ pub async fn show_html_unpaired(
     // We have filtered out the ones Site Explorer paired. Now filter the pre-site-explorer ones.
     // Once we are 100% site explorer everywhere we can remove this part
     let bmc_ips: Vec<String> = endpoints.iter().map(|ep| ep.address.clone()).collect();
-    let req = tonic::Request::new(forgerpc::BmcIpList { bmc_ips });
+    let req = tonic::Request::new(forge::BmcIpList { bmc_ips });
     let legacy_paired_bmcs: HashSet<String> = match state.find_machine_ids_by_bmc_ips(req).await {
         Ok(res) => res
             .into_inner()
@@ -351,7 +354,7 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
 }
 
 async fn fetch_explored_endpoints(api: &Api) -> Result<SiteExplorationReport, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::GetSiteExplorationRequest {});
+    let request = tonic::Request::new(forge::GetSiteExplorationRequest {});
     api.get_site_exploration_report(request)
         .await
         .map(|response| response.into_inner())
@@ -488,7 +491,7 @@ pub async fn detail(
 
     // Check if this endpoint has a machine
     let has_machine = match state
-        .is_bmc_in_managed_host(tonic::Request::new(rpc::forge::BmcEndpointRequest {
+        .is_bmc_in_managed_host(tonic::Request::new(forge::BmcEndpointRequest {
             ip_address: endpoint_ip.clone(),
             mac_address: None,
         }))
@@ -507,7 +510,7 @@ pub async fn detail(
     if let Some(ref mut report) = endpoint.report
         && report.machine_id.is_none()
     {
-        let req = tonic::Request::new(forgerpc::BmcIpList {
+        let req = tonic::Request::new(forge::BmcIpList {
             bmc_ips: vec![endpoint.address.clone()],
         });
         match state.find_machine_ids_by_bmc_ips(req).await {
@@ -531,7 +534,7 @@ pub async fn detail(
         }
     }
 
-    let req = tonic::Request::new(forgerpc::BmcIp {
+    let req = tonic::Request::new(forge::BmcIp {
         bmc_ip: endpoint_ip.clone(),
     });
     let mac_address = state
@@ -544,7 +547,7 @@ pub async fn detail(
         "Not Configured".to_string()
     } else {
         match state
-            .bmc_credential_status(tonic::Request::new(rpc::forge::BmcEndpointRequest {
+            .bmc_credential_status(tonic::Request::new(forge::BmcEndpointRequest {
                 ip_address: endpoint_ip.clone(),
                 mac_address: Some(mac_address),
             }))
@@ -586,7 +589,7 @@ pub async fn re_explore(
     let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
 
     if let Err(err) = state
-        .re_explore_endpoint(tonic::Request::new(rpc::forge::ReExploreEndpointRequest {
+        .re_explore_endpoint(tonic::Request::new(forge::ReExploreEndpointRequest {
             ip_address: endpoint_ip.clone(),
             if_version_match: form.if_version_match,
         }))
@@ -609,7 +612,7 @@ pub async fn pause_remediation(
 
     if let Err(err) = state
         .pause_explored_endpoint_remediation(tonic::Request::new(
-            rpc::forge::PauseExploredEndpointRemediationRequest {
+            forge::PauseExploredEndpointRemediationRequest {
                 ip_address: endpoint_ip.clone(),
                 pause: form.pause,
             },
@@ -692,7 +695,7 @@ pub async fn power_control(
     };
 
     match state
-        .admin_power_control(tonic::Request::new(rpc::forge::AdminPowerControlRequest {
+        .admin_power_control(tonic::Request::new(forge::AdminPowerControlRequest {
             machine_id: None,
             bmc_endpoint_request: Some(BmcEndpointRequest {
                 ip_address: endpoint_ip.clone(),
@@ -755,7 +758,7 @@ pub async fn bmc_reset(
     };
 
     match state
-        .admin_bmc_reset(tonic::Request::new(rpc::forge::AdminBmcResetRequest {
+        .admin_bmc_reset(tonic::Request::new(forge::AdminBmcResetRequest {
             machine_id: None,
             bmc_endpoint_request: Some(BmcEndpointRequest {
                 ip_address: endpoint_ip.clone(),
@@ -812,7 +815,7 @@ pub async fn clear_last_exploration_error(
 
     if let Err(err) = state
         .clear_site_exploration_error(tonic::Request::new(
-            rpc::forge::ClearSiteExplorationErrorRequest {
+            forge::ClearSiteExplorationErrorRequest {
                 ip_address: endpoint_ip.clone(),
             },
         ))
@@ -832,7 +835,7 @@ pub async fn clear_bmc_credentials(
 ) -> Response {
     let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
 
-    let req = tonic::Request::new(forgerpc::BmcIp {
+    let req = tonic::Request::new(forge::BmcIp {
         bmc_ip: endpoint_ip.clone(),
     });
     let mac_address = match state.find_mac_address_by_bmc_ip(req).await {
@@ -848,8 +851,8 @@ pub async fn clear_bmc_credentials(
     };
 
     if let Err(err) = state
-        .delete_credential(tonic::Request::new(rpc::forge::CredentialDeletionRequest {
-            credential_type: rpc::CredentialType::RootBmcByMacAddress.into(),
+        .delete_credential(tonic::Request::new(forge::CredentialDeletionRequest {
+            credential_type: forge::CredentialType::RootBmcByMacAddress.into(),
             username: None,
             mac_address: Some(mac_address),
         }))
@@ -870,7 +873,7 @@ pub async fn disable_secure_boot(
     let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
 
     if let Err(err) = state
-        .disable_secure_boot(tonic::Request::new(rpc::forge::BmcEndpointRequest {
+        .disable_secure_boot(tonic::Request::new(forge::BmcEndpointRequest {
             ip_address: endpoint_ip.clone(),
             mac_address: None,
         }))
@@ -891,13 +894,13 @@ pub async fn disable_lockdown(
     let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
 
     if let Err(err) = state
-        .lockdown(tonic::Request::new(rpc::forge::LockdownRequest {
+        .lockdown(tonic::Request::new(forge::LockdownRequest {
             bmc_endpoint_request: Some(BmcEndpointRequest {
                 ip_address: endpoint_ip.clone(),
                 mac_address: None,
             }),
             machine_id: None,
-            action: Some(rpc::forge::LockdownAction::Disable as i32),
+            action: Some(forge::LockdownAction::Disable as i32),
         }))
         .await
         .map(|response| response.into_inner())
@@ -916,13 +919,13 @@ pub async fn enable_lockdown(
     let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
 
     if let Err(err) = state
-        .lockdown(tonic::Request::new(rpc::forge::LockdownRequest {
+        .lockdown(tonic::Request::new(forge::LockdownRequest {
             bmc_endpoint_request: Some(BmcEndpointRequest {
                 ip_address: endpoint_ip.clone(),
                 mac_address: None,
             }),
             machine_id: None,
-            action: Some(rpc::forge::LockdownAction::Enable as i32),
+            action: Some(forge::LockdownAction::Enable as i32),
         }))
         .await
         .map(|response| response.into_inner())
@@ -960,7 +963,7 @@ pub async fn machine_setup(
     }
 
     let redirect_url = match state
-        .machine_setup(tonic::Request::new(rpc::forge::MachineSetupRequest {
+        .machine_setup(tonic::Request::new(forge::MachineSetupRequest {
             machine_id: None,
             bmc_endpoint_request: Some(BmcEndpointRequest {
                 ip_address: endpoint_ip.clone(),
@@ -1017,16 +1020,14 @@ pub async fn set_dpu_first_boot_order(
     }
 
     if let Err(err) = state
-        .set_dpu_first_boot_order(tonic::Request::new(
-            rpc::forge::SetDpuFirstBootOrderRequest {
-                machine_id: None,
-                bmc_endpoint_request: Some(BmcEndpointRequest {
-                    ip_address: endpoint_ip.clone(),
-                    mac_address: None,
-                }),
-                boot_interface_mac,
-            },
-        ))
+        .set_dpu_first_boot_order(tonic::Request::new(forge::SetDpuFirstBootOrderRequest {
+            machine_id: None,
+            bmc_endpoint_request: Some(BmcEndpointRequest {
+                ip_address: endpoint_ip.clone(),
+                mac_address: None,
+            }),
+            boot_interface_mac,
+        }))
         .await
         .map(|response| response.into_inner())
     {
@@ -1044,11 +1045,9 @@ pub async fn delete_endpoint(
     let list_url = "/admin/explored-endpoint";
 
     match state
-        .delete_explored_endpoint(tonic::Request::new(
-            rpc::forge::DeleteExploredEndpointRequest {
-                ip_address: endpoint_ip.clone(),
-            },
-        ))
+        .delete_explored_endpoint(tonic::Request::new(forge::DeleteExploredEndpointRequest {
+            ip_address: endpoint_ip.clone(),
+        }))
         .await
         .map(|response| response.into_inner())
     {

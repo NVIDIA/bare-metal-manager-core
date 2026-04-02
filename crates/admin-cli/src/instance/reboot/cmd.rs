@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::{self as forgerpc, InstancePowerRequest};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge::{self, InstancePowerRequest};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -38,7 +38,7 @@ pub async fn handle_reboot(args: Args, api_client: &ApiClient) -> CarbideCliResu
         .invoke_instance_power(InstancePowerRequest {
             instance_id: Some(args.instance),
             machine_id: Some(machine_id),
-            operation: forgerpc::instance_power_request::Operation::PowerReset as i32,
+            operation: forge::instance_power_request::Operation::PowerReset as i32,
             boot_with_custom_ipxe: args.custom_pxe,
             apply_updates_on_reboot: args.apply_updates_on_reboot,
         })

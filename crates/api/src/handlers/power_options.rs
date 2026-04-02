@@ -17,10 +17,10 @@
 
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
-use db::DatabaseError;
 use mac_address::MacAddress;
-use model::machine::LoadSnapshotOptions;
+use nico_api_db::DatabaseError;
+use nico_api_model::machine::LoadSnapshotOptions;
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -28,32 +28,32 @@ use crate::api::{Api, log_machine_id, log_request_data};
 
 pub(crate) async fn get_power_options(
     api: &Api,
-    request: Request<rpc::PowerOptionRequest>,
-) -> Result<Response<rpc::PowerOptionResponse>, Status> {
+    request: Request<forge::PowerOptionRequest>,
+) -> Result<Response<forge::PowerOptionResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
     let mut txn = api.txn_begin().await?;
     let power_options = if req.machine_id.is_empty() {
-        db::power_options::get_all(&mut txn).await
+        nico_api_db::power_options::get_all(&mut txn).await
     } else {
-        db::power_options::get_by_ids(&req.machine_id, &mut txn).await
+        nico_api_db::power_options::get_by_ids(&req.machine_id, &mut txn).await
     }?;
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::PowerOptionResponse {
+    Ok(Response::new(forge::PowerOptionResponse {
         response: power_options
             .into_iter()
             .map(|x| x.into())
-            .collect::<Vec<rpc::PowerOptions>>(),
+            .collect::<Vec<forge::PowerOptions>>(),
     }))
 }
 
 pub(crate) async fn update_power_option(
     api: &Api,
-    request: Request<rpc::PowerOptionUpdateRequest>,
-) -> Result<Response<rpc::PowerOptionResponse>, Status> {
+    request: Request<forge::PowerOptionUpdateRequest>,
+) -> Result<Response<forge::PowerOptionResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -69,7 +69,8 @@ pub(crate) async fn update_power_option(
 
     let mut txn = api.txn_begin().await?;
 
-    let current_power_state = db::power_options::get_by_ids(&[machine_id], &mut txn).await?;
+    let current_power_state =
+        nico_api_db::power_options::get_by_ids(&[machine_id], &mut txn).await?;
 
     // This should never happen until machine is not forced-deleted or does not exist.
     let Some(current_power_options) = current_power_state.first() else {
@@ -79,8 +80,8 @@ pub(crate) async fn update_power_option(
     let desired_power_state = req.power_state();
 
     // if desired_state == Off, maintenance must be set.
-    if matches!(desired_power_state, rpc::PowerState::Off) {
-        let snapshot = db::managed_host::load_snapshot(
+    if matches!(desired_power_state, forge::PowerState::Off) {
+        let snapshot = nico_api_db::managed_host::load_snapshot(
             &mut txn,
             &machine_id,
             LoadSnapshotOptions {
@@ -100,11 +101,11 @@ pub(crate) async fn update_power_option(
             .aggregate_health
             .alerts
             .iter()
-            .find(|a| a.id == health_report::HealthProbeId::internal_maintenance());
+            .find(|a| a.id == nico_health_report::HealthProbeId::internal_maintenance());
         if !update_alert.is_some_and(|alert| {
-            alert
-                .classifications
-                .contains(&health_report::HealthAlertClassification::suppress_external_alerting())
+            alert.classifications.contains(
+                &nico_health_report::HealthAlertClassification::suppress_external_alerting(),
+            )
         }) {
             return Err(CarbideError::InvalidArgument(
                 "Machine must have a 'Maintenance' Health Alert with 'SupressExternalAlerting' classification.".into(),
@@ -122,7 +123,7 @@ pub(crate) async fn update_power_option(
         .into());
     }
 
-    let updated_value = db::power_options::update_desired_state(
+    let updated_value = nico_api_db::power_options::update_desired_state(
         &machine_id,
         desired_power_state,
         &current_power_options.desired_power_state_version,
@@ -132,7 +133,7 @@ pub(crate) async fn update_power_option(
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::PowerOptionResponse {
+    Ok(Response::new(forge::PowerOptionResponse {
         response: vec![updated_value.into()],
     }))
 }
@@ -146,8 +147,8 @@ pub(crate) async fn update_power_option(
 #[allow(txn_without_commit)]
 pub(crate) async fn determine_machine_ingestion_state(
     api: &Api,
-    request: &rpc::BmcEndpointRequest,
-) -> Result<tonic::Response<rpc::MachineIngestionStateResponse>, tonic::Status> {
+    request: &forge::BmcEndpointRequest,
+) -> Result<tonic::Response<forge::MachineIngestionStateResponse>, tonic::Status> {
     // 1. Has it been ingested at all?
     //.   Look up machine interface by mac address, then find explored endpoint by ip
     //.   No explored endpoint -> NotDisovered
@@ -172,8 +173,8 @@ pub(crate) async fn determine_machine_ingestion_state(
     let explored_endpoint = match find_explored_endpoint(&mut txn, &mac_address).await? {
         FindExploredEndpoint::Found(explored_endpoint) => *explored_endpoint,
         FindExploredEndpoint::NotFound => {
-            return Ok(tonic::Response::new(rpc::MachineIngestionStateResponse {
-                machine_ingestion_state: rpc::MachineIngestionState::NotDiscovered.into(),
+            return Ok(tonic::Response::new(forge::MachineIngestionStateResponse {
+                machine_ingestion_state: forge::MachineIngestionState::NotDiscovered.into(),
             }));
         }
         FindExploredEndpoint::MoreThanOneEndpoint => {
@@ -188,35 +189,39 @@ pub(crate) async fn determine_machine_ingestion_state(
     };
 
     // now check if we have an entry in explored_managed_hosts
-    let explored_managed_hosts =
-        db::explored_managed_host::find_by_ips(txn.as_mut(), vec![explored_endpoint.address])
-            .await?;
+    let explored_managed_hosts = nico_api_db::explored_managed_host::find_by_ips(
+        txn.as_mut(),
+        vec![explored_endpoint.address],
+    )
+    .await?;
 
     if !explored_managed_hosts.is_empty() {
-        let machine_created = db::machine::find_id_by_bmc_ip(&mut txn, &explored_endpoint.address)
-            .await
-            .map_err(|e| CarbideError::internal(e.to_string()))?
-            .is_some();
+        let machine_created =
+            nico_api_db::machine::find_id_by_bmc_ip(&mut txn, &explored_endpoint.address)
+                .await
+                .map_err(|e| CarbideError::internal(e.to_string()))?
+                .is_some();
         if machine_created {
-            Ok(tonic::Response::new(rpc::MachineIngestionStateResponse {
-                machine_ingestion_state: rpc::MachineIngestionState::IngestionMachineCreated.into(),
+            Ok(tonic::Response::new(forge::MachineIngestionStateResponse {
+                machine_ingestion_state: forge::MachineIngestionState::IngestionMachineCreated
+                    .into(),
             }))
         } else {
-            Ok(tonic::Response::new(rpc::MachineIngestionStateResponse {
-                machine_ingestion_state: rpc::MachineIngestionState::IngestionMachineNotCreated
+            Ok(tonic::Response::new(forge::MachineIngestionStateResponse {
+                machine_ingestion_state: forge::MachineIngestionState::IngestionMachineNotCreated
                     .into(),
             }))
         }
     } else {
-        Ok(tonic::Response::new(rpc::MachineIngestionStateResponse {
-            machine_ingestion_state: rpc::MachineIngestionState::WaitingForIngestion.into(),
+        Ok(tonic::Response::new(forge::MachineIngestionStateResponse {
+            machine_ingestion_state: forge::MachineIngestionState::WaitingForIngestion.into(),
         }))
     }
 }
 
 pub(crate) async fn allow_ingestion_and_power_on(
     api: &Api,
-    request: &rpc::BmcEndpointRequest,
+    request: &forge::BmcEndpointRequest,
 ) -> Result<tonic::Response<()>, tonic::Status> {
     // flip a flag in explored_endpoints and allow a power on
     let mac_address = MacAddress::from_str(&request.mac_address.clone().ok_or(
@@ -247,7 +252,7 @@ pub(crate) async fn allow_ingestion_and_power_on(
     };
 
     // flip the flag now
-    db::explored_endpoints::set_pause_ingestion_and_poweron(
+    nico_api_db::explored_endpoints::set_pause_ingestion_and_poweron(
         explored_endpoint.address,
         false,
         &mut txn,
@@ -260,7 +265,7 @@ pub(crate) async fn allow_ingestion_and_power_on(
 }
 
 enum FindExploredEndpoint {
-    Found(Box<model::site_explorer::ExploredEndpoint>),
+    Found(Box<nico_api_model::site_explorer::ExploredEndpoint>),
     NotFound,
     MoreThanOneEndpoint,
 }
@@ -269,7 +274,8 @@ async fn find_explored_endpoint(
     txn: &mut sqlx::PgConnection,
     mac_address: &MacAddress,
 ) -> Result<FindExploredEndpoint, CarbideError> {
-    let explored_endpoints = db::explored_endpoints::find_by_mac_address(txn, *mac_address).await?;
+    let explored_endpoints =
+        nico_api_db::explored_endpoints::find_by_mac_address(txn, *mac_address).await?;
 
     let explored_endpoint = match explored_endpoints.len() {
         0 => return Ok(FindExploredEndpoint::NotFound),

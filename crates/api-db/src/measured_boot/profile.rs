@@ -22,10 +22,12 @@
 
 use std::collections::HashMap;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::MeasurementSystemProfileId;
-use measured_boot::profile::MeasurementSystemProfile;
-use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord};
+use nico_measured_boot::profile::MeasurementSystemProfile;
+use nico_measured_boot::records::{
+    MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord,
+};
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::MeasurementSystemProfileId;
 use sqlx::{PgConnection, PgTransaction};
 
 use crate::db_read::DbReader;
@@ -435,8 +437,8 @@ pub async fn match_from_attrs(
 mod tests {
     use std::str::FromStr;
 
-    use carbide_uuid::measured_boot::MeasurementSystemProfileAttrId;
     use chrono::Utc;
+    use nico_uuid::measured_boot::MeasurementSystemProfileAttrId;
 
     use super::*;
 

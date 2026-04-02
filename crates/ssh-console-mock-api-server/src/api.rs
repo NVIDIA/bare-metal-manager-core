@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_version::v;
+use nico_version::v;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 

@@ -15,11 +15,12 @@
  * limitations under the License.
  */
 
-use carbide_uuid::power_shelf::PowerShelfId;
-use db::power_shelf as db_power_shelf;
-use model::power_shelf::{NewPowerShelf, PowerShelfConfig, PowerShelfStatus};
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{PowerShelfDeletionRequest, PowerShelfQuery};
+use nico_api_db::power_shelf as db_power_shelf;
+use nico_api_model::power_shelf::{NewPowerShelf, PowerShelfConfig, PowerShelfStatus};
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{PowerShelfDeletionRequest, PowerShelfQuery};
+use nico_uuid::power_shelf::PowerShelfId;
 use tonic::Code;
 
 use crate::tests::common::api_fixtures::create_test_env;
@@ -144,7 +145,7 @@ async fn test_delete_power_shelf_success(
     let env = create_test_env(pool).await;
 
     // First create a power shelf
-    let power_shelf_config = rpc::forge::PowerShelfConfig {
+    let power_shelf_config = forge::PowerShelfConfig {
         name: "Delete Test Power Shelf".to_string(),
         capacity: Some(5000),
         voltage: Some(240),
@@ -252,8 +253,8 @@ async fn test_power_shelf_database_operations(
     // Test finding the power shelf
     let found_power_shelves = db_power_shelf::find_by(
         &mut txn,
-        db::ObjectColumnFilter::One(db::power_shelf::IdColumn, &power_shelf_id),
-        db::power_shelf::PowerShelfSearchConfig::default(),
+        nico_api_db::ObjectColumnFilter::One(nico_api_db::power_shelf::IdColumn, &power_shelf_id),
+        nico_api_db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
 
@@ -344,11 +345,11 @@ async fn test_power_shelf_controller_state_transitions(
     let initial_state = &power_shelf.controller_state.value;
     assert!(matches!(
         initial_state,
-        model::power_shelf::PowerShelfControllerState::Initializing
+        nico_api_model::power_shelf::PowerShelfControllerState::Initializing
     ));
 
     // Test updating controller state
-    let new_state = model::power_shelf::PowerShelfControllerState::Ready;
+    let new_state = nico_api_model::power_shelf::PowerShelfControllerState::Ready;
     let current_version = power_shelf.controller_state.version;
 
     let next_version = current_version.increment();
@@ -365,8 +366,8 @@ async fn test_power_shelf_controller_state_transitions(
     // Verify the state was updated
     let updated_power_shelves = db_power_shelf::find_by(
         &mut txn,
-        db::ObjectColumnFilter::One(db::power_shelf::IdColumn, &power_shelf_id),
-        db::power_shelf::PowerShelfSearchConfig::default(),
+        nico_api_db::ObjectColumnFilter::One(nico_api_db::power_shelf::IdColumn, &power_shelf_id),
+        nico_api_db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
 
@@ -374,7 +375,7 @@ async fn test_power_shelf_controller_state_transitions(
     let updated_power_shelf = &updated_power_shelves[0];
     assert!(matches!(
         updated_power_shelf.controller_state.value,
-        model::power_shelf::PowerShelfControllerState::Ready
+        nico_api_model::power_shelf::PowerShelfControllerState::Ready
     ));
 
     // Version should have been incremented
@@ -390,7 +391,7 @@ async fn test_power_shelf_controller_state_transitions(
         power_shelf_id,
         current_version,
         current_version.increment(),
-        &model::power_shelf::PowerShelfControllerState::Initializing,
+        &nico_api_model::power_shelf::PowerShelfControllerState::Initializing,
     )
     .await?;
     assert!(
@@ -405,7 +406,7 @@ async fn test_power_shelf_controller_state_transitions(
         power_shelf_id,
         new_version,
         new_version.increment(),
-        &model::power_shelf::PowerShelfControllerState::Initializing,
+        &nico_api_model::power_shelf::PowerShelfControllerState::Initializing,
     )
     .await?;
     assert!(updated_again, "update with current version should succeed");
@@ -449,7 +450,7 @@ async fn test_power_shelf_conversion_roundtrip(
     db_power_shelf::update(&power_shelf, &mut txn).await?;
 
     // Test conversion to RPC format
-    let rpc_power_shelf = rpc::forge::PowerShelf::try_from(power_shelf.clone())?;
+    let rpc_power_shelf = forge::PowerShelf::try_from(power_shelf.clone())?;
 
     assert_eq!(
         rpc_power_shelf.id.unwrap().to_string(),
@@ -553,16 +554,17 @@ async fn test_power_shelf_controller_state_outcome(
     let _power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf).await?;
 
     // Test updating controller state outcome
-    let outcome =
-        model::controller_outcome::PersistentStateHandlerOutcome::Transition { source_ref: None };
+    let outcome = nico_api_model::controller_outcome::PersistentStateHandlerOutcome::Transition {
+        source_ref: None,
+    };
 
     db_power_shelf::update_controller_state_outcome(&mut txn, power_shelf_id, outcome).await?;
 
     // Verify the outcome was updated
     let updated_power_shelves = db_power_shelf::find_by(
         &mut txn,
-        db::ObjectColumnFilter::One(db::power_shelf::IdColumn, &power_shelf_id),
-        db::power_shelf::PowerShelfSearchConfig::default(),
+        nico_api_db::ObjectColumnFilter::One(nico_api_db::power_shelf::IdColumn, &power_shelf_id),
+        nico_api_db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
 
@@ -576,7 +578,7 @@ async fn test_power_shelf_controller_state_outcome(
         .unwrap();
     assert!(matches!(
         updated_outcome,
-        model::controller_outcome::PersistentStateHandlerOutcome::Transition { .. }
+        nico_api_model::controller_outcome::PersistentStateHandlerOutcome::Transition { .. }
     ));
 
     txn.rollback().await?;

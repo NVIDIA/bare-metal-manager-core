@@ -17,9 +17,9 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::{self as forgerpc};
-use carbide_uuid::dpa_interface::DpaInterfaceId;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_uuid::dpa_interface::DpaInterfaceId;
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -76,7 +76,7 @@ async fn show_dpa_details(
     Ok(())
 }
 
-fn convert_dpas_to_nice_table(dpas: forgerpc::DpaInterfaceList) -> Box<Table> {
+fn convert_dpas_to_nice_table(dpas: forge::DpaInterfaceList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row!["Id", "Machine", "state", "Created",]);
@@ -93,7 +93,7 @@ fn convert_dpas_to_nice_table(dpas: forgerpc::DpaInterfaceList) -> Box<Table> {
     table.into()
 }
 
-fn convert_dpa_to_nice_format(dpa: &forgerpc::DpaInterface) -> CarbideCliResult<String> {
+fn convert_dpa_to_nice_format(dpa: &forge::DpaInterface) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();
 

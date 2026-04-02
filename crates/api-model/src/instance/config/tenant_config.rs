@@ -17,7 +17,8 @@
 
 use std::collections::HashSet;
 
-use ::rpc::errors::RpcDataConversionError;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -40,10 +41,10 @@ pub struct TenantConfig {
 pub static HOSTNAME_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$").unwrap());
 
-impl TryFrom<rpc::forge::TenantConfig> for TenantConfig {
+impl TryFrom<forge::TenantConfig> for TenantConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: rpc::forge::TenantConfig) -> Result<Self, Self::Error> {
+    fn try_from(config: forge::TenantConfig) -> Result<Self, Self::Error> {
         let truncated_hostname = config.hostname.map(|mut name| {
             if name.len() > 63 {
                 name.truncate(63);
@@ -63,10 +64,10 @@ impl TryFrom<rpc::forge::TenantConfig> for TenantConfig {
     }
 }
 
-impl TryFrom<TenantConfig> for rpc::forge::TenantConfig {
+impl TryFrom<TenantConfig> for forge::TenantConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: TenantConfig) -> Result<rpc::forge::TenantConfig, Self::Error> {
+    fn try_from(config: TenantConfig) -> Result<forge::TenantConfig, Self::Error> {
         Ok(Self {
             tenant_organization_id: config.tenant_organization_id.to_string(),
             tenant_keyset_ids: config.tenant_keyset_ids,

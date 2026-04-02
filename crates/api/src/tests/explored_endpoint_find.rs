@@ -16,8 +16,8 @@
  */
 use std::ops::DerefMut;
 
-use ::rpc::forge as rpc;
-use rpc::forge_server::Forge;
+use forge::forge_server::Forge;
+use nico_rpc::forge;
 use tonic::Code;
 
 use crate::tests::common;
@@ -43,7 +43,7 @@ async fn test_find_explored_endpoint_ids(
     let id_list = env
         .api
         .find_explored_endpoint_ids(tonic::Request::new(
-            ::rpc::site_explorer::ExploredEndpointSearchFilter {},
+            nico_rpc::site_explorer::ExploredEndpointSearchFilter {},
         ))
         .await
         .map(|response| response.into_inner())
@@ -73,14 +73,14 @@ async fn test_find_explored_endpoints_by_ids(
     let id_list = env
         .api
         .find_explored_endpoint_ids(tonic::Request::new(
-            ::rpc::site_explorer::ExploredEndpointSearchFilter {},
+            nico_rpc::site_explorer::ExploredEndpointSearchFilter {},
         ))
         .await
         .map(|response| response.into_inner())
         .unwrap();
     assert_eq!(id_list.endpoint_ids.len(), 5);
 
-    let request = tonic::Request::new(::rpc::site_explorer::ExploredEndpointsByIdsRequest {
+    let request = tonic::Request::new(nico_rpc::site_explorer::ExploredEndpointsByIdsRequest {
         endpoint_ids: id_list.endpoint_ids.clone(),
     });
 
@@ -112,8 +112,9 @@ async fn test_find_explored_endpoints_by_ids_over_max(pool: sqlx::PgPool) {
     let end_index: u32 = env.config.max_find_by_ids + 1;
     let endpoint_ids: Vec<String> = (1..=end_index).map(|i| format!("141.219.24.{i}")).collect();
 
-    let request =
-        tonic::Request::new(::rpc::site_explorer::ExploredEndpointsByIdsRequest { endpoint_ids });
+    let request = tonic::Request::new(nico_rpc::site_explorer::ExploredEndpointsByIdsRequest {
+        endpoint_ids,
+    });
 
     let response = env.api.find_explored_endpoints_by_ids(request).await;
     // validate
@@ -135,7 +136,7 @@ async fn test_find_explored_endpoints_by_ids_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
     let request =
-        tonic::Request::new(::rpc::site_explorer::ExploredEndpointsByIdsRequest::default());
+        tonic::Request::new(nico_rpc::site_explorer::ExploredEndpointsByIdsRequest::default());
 
     let response = env.api.find_explored_endpoints_by_ids(request).await;
     // validate
@@ -156,8 +157,8 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     let bmc_ip = host_machine.bmc_info.as_ref().unwrap().ip();
 
     // Check that we find full BMC details based only on BMC IP
-    let req = tonic::Request::new(rpc::AdminBmcResetRequest {
-        bmc_endpoint_request: Some(rpc::BmcEndpointRequest {
+    let req = tonic::Request::new(forge::AdminBmcResetRequest {
+        bmc_endpoint_request: Some(forge::BmcEndpointRequest {
             ip_address: bmc_ip.to_string(),
             mac_address: None,
         }),
@@ -168,7 +169,7 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     assert!(api_result.is_ok());
 
     // Check that we find full BMC details based only on machine_id
-    let req = tonic::Request::new(rpc::AdminBmcResetRequest {
+    let req = tonic::Request::new(forge::AdminBmcResetRequest {
         bmc_endpoint_request: None,
         machine_id: Some(host_machine_id.to_string()),
         use_ipmitool: false,
@@ -177,8 +178,8 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     assert!(api_result.is_ok());
 
     // Check that we find BMC details but things fail because actual and expected BMC MAC are different
-    let req = tonic::Request::new(rpc::AdminBmcResetRequest {
-        bmc_endpoint_request: Some(rpc::BmcEndpointRequest {
+    let req = tonic::Request::new(forge::AdminBmcResetRequest {
+        bmc_endpoint_request: Some(forge::BmcEndpointRequest {
             ip_address: bmc_ip.to_string(),
             mac_address: Some("00:DE:AD:BE:EF:00".to_string()),
         }),
@@ -193,8 +194,8 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     assert!(e.message().contains(" not 00:DE:AD:BE:EF:00"));
 
     // Check that we don't find what we're looking for.
-    let req = tonic::Request::new(rpc::AdminBmcResetRequest {
-        bmc_endpoint_request: Some(rpc::BmcEndpointRequest {
+    let req = tonic::Request::new(forge::AdminBmcResetRequest {
+        bmc_endpoint_request: Some(forge::BmcEndpointRequest {
             ip_address: "0.0.0.0".to_string(),
             mac_address: None,
         }),
@@ -217,7 +218,7 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         .await?;
     txn.commit().await?;
 
-    let req = tonic::Request::new(rpc::AdminBmcResetRequest {
+    let req = tonic::Request::new(forge::AdminBmcResetRequest {
         bmc_endpoint_request: None,
         machine_id: Some(host_machine_id.to_string()),
         use_ipmitool: false,
@@ -237,7 +238,7 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
         .await?;
     txn.commit().await?;
 
-    let req = tonic::Request::new(rpc::AdminBmcResetRequest {
+    let req = tonic::Request::new(forge::AdminBmcResetRequest {
         bmc_endpoint_request: None,
         machine_id: Some(host_machine_id.to_string()),
         use_ipmitool: false,

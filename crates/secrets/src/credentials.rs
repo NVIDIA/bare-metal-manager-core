@@ -21,8 +21,8 @@ use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, atomic};
 
 use async_trait::async_trait;
-use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
+use nico_uuid::machine::MachineId;
 use rand::Rng;
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};

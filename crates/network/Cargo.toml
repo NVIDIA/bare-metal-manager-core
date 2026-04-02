@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-network"
+name = "nico-network"
 version = "0.0.0"
 edition.workspace = true
 description = "Common networking code for Forge components."
@@ -23,7 +23,7 @@ license.workspace = true
 authors.workspace = true
 
 [lib]
-name = "carbide_network"
+name = "nico_network"
 
 [features]
 default = ["ipnetwork"]
@@ -49,7 +49,7 @@ sqlx = { workspace = true, features = [
 ], optional = true }
 thiserror = { workspace = true }
 
-carbide-rpc = { path = "../rpc" }
+nico-rpc = { path = "../rpc" }
 
 [dev-dependencies]
 serde_json = { workspace = true }

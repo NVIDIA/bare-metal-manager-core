@@ -14,8 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::protos::forge::MachineCertificate;
 use async_trait::async_trait;
+use nico_rpc::protos::forge::MachineCertificate;
 
 use crate::SecretsError;
 

@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use nico_rpc::forge;
+
 #[derive(Debug, Clone, clap::ValueEnum)]
 pub enum TenantRoutingProfileType {
     // Admin variant is an implicit profile of the admin network VPC
@@ -25,15 +27,15 @@ pub enum TenantRoutingProfileType {
     Maintenance,
 }
 
-impl From<TenantRoutingProfileType> for rpc::forge::RoutingProfileType {
+impl From<TenantRoutingProfileType> for forge::RoutingProfileType {
     fn from(p: TenantRoutingProfileType) -> Self {
         match p {
-            TenantRoutingProfileType::Internal => rpc::forge::RoutingProfileType::Internal,
+            TenantRoutingProfileType::Internal => forge::RoutingProfileType::Internal,
             TenantRoutingProfileType::PrivilegedInternal => {
-                rpc::forge::RoutingProfileType::PrivilegedInternal
+                forge::RoutingProfileType::PrivilegedInternal
             }
-            TenantRoutingProfileType::External => rpc::forge::RoutingProfileType::External,
-            TenantRoutingProfileType::Maintenance => rpc::forge::RoutingProfileType::Maintenance,
+            TenantRoutingProfileType::External => forge::RoutingProfileType::External,
+            TenantRoutingProfileType::Maintenance => forge::RoutingProfileType::Maintenance,
         }
     }
 }

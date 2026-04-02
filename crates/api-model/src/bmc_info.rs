@@ -18,10 +18,10 @@ use std::fmt::{Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
 use eyre::{Report, eyre};
 use mac_address::MacAddress;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -60,9 +60,9 @@ impl<'r> FromRow<'r, PgRow> for BmcInfo {
     }
 }
 
-impl TryFrom<rpc::BmcInfo> for BmcInfo {
+impl TryFrom<forge::BmcInfo> for BmcInfo {
     type Error = RpcDataConversionError;
-    fn try_from(value: rpc::BmcInfo) -> Result<Self, RpcDataConversionError> {
+    fn try_from(value: forge::BmcInfo) -> Result<Self, RpcDataConversionError> {
         let mac: Option<MacAddress> = if let Some(mac_address) = value.mac {
             Some(
                 mac_address
@@ -95,9 +95,9 @@ impl BmcInfo {
     }
 }
 
-impl From<BmcInfo> for rpc::BmcInfo {
+impl From<BmcInfo> for forge::BmcInfo {
     fn from(value: BmcInfo) -> Self {
-        rpc::BmcInfo {
+        forge::BmcInfo {
             ip: value.ip,
             port: value.port.map(|p| p as u32),
             mac: value.mac.map(|mac| mac.to_string()),
@@ -130,24 +130,24 @@ impl Display for UserRoles {
     }
 }
 
-impl From<rpc::UserRoles> for UserRoles {
-    fn from(action: rpc::UserRoles) -> Self {
+impl From<forge::UserRoles> for UserRoles {
+    fn from(action: forge::UserRoles) -> Self {
         match action {
-            rpc::UserRoles::User => UserRoles::User,
-            rpc::UserRoles::Administrator => UserRoles::Administrator,
-            rpc::UserRoles::Operator => UserRoles::Operator,
-            rpc::UserRoles::Noaccess => UserRoles::Noaccess,
+            forge::UserRoles::User => UserRoles::User,
+            forge::UserRoles::Administrator => UserRoles::Administrator,
+            forge::UserRoles::Operator => UserRoles::Operator,
+            forge::UserRoles::Noaccess => UserRoles::Noaccess,
         }
     }
 }
 
-impl From<UserRoles> for rpc::UserRoles {
+impl From<UserRoles> for forge::UserRoles {
     fn from(action: UserRoles) -> Self {
         match action {
-            UserRoles::User => rpc::UserRoles::User,
-            UserRoles::Administrator => rpc::UserRoles::Administrator,
-            UserRoles::Operator => rpc::UserRoles::Operator,
-            UserRoles::Noaccess => rpc::UserRoles::Noaccess,
+            UserRoles::User => forge::UserRoles::User,
+            UserRoles::Administrator => forge::UserRoles::Administrator,
+            UserRoles::Operator => forge::UserRoles::Operator,
+            UserRoles::Noaccess => forge::UserRoles::Noaccess,
         }
     }
 }

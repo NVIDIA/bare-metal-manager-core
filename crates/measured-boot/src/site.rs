@@ -26,15 +26,15 @@ use std::convert::{From, Into};
 use std::str::FromStr;
 use std::vec::Vec;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::MeasurementBundleId;
 use chrono::Utc;
 #[cfg(feature = "cli")]
-use rpc::admin_cli::ToTable;
-use rpc::protos::measured_boot::{
+use nico_rpc::admin_cli::ToTable;
+use nico_rpc::protos::measured_boot::{
     ImportSiteMeasurementsResponse, ListAttestationSummaryResponse, MachineAttestationSummaryPb,
     SiteModelPb,
 };
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::MeasurementBundleId;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlx")]
 use sqlx::FromRow;

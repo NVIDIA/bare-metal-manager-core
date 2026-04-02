@@ -17,16 +17,16 @@
 
 use std::sync::Arc;
 
-use forge_secrets::credentials::{
+use mac_address::MacAddress;
+use nico_api_model::site_explorer::EndpointExplorationError;
+use nico_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
 };
-use mac_address::MacAddress;
-use model::site_explorer::EndpointExplorationError;
 
 use super::metrics::SiteExplorationMetrics;
 
 const SITEWIDE_BMC_ROOT_CREDENTIAL_KEY: CredentialKey = CredentialKey::BmcCredentials {
-    credential_type: forge_secrets::credentials::BmcCredentialType::SiteWideRoot,
+    credential_type: nico_secrets::credentials::BmcCredentialType::SiteWideRoot,
 };
 
 pub fn get_bmc_root_credential_key(bmc_mac_address: MacAddress) -> CredentialKey {

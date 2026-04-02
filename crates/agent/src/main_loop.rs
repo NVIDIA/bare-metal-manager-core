@@ -24,18 +24,18 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use ::rpc::forge::ManagedHostNetworkConfigResponse;
-use ::rpc::forge_tls_client::ForgeClientConfig;
-use ::rpc::{forge as rpc, forge_tls_client};
-use carbide_host_support::agent_config::AgentConfig;
-use carbide_network::virtualization::VpcVirtualizationType;
-use carbide_systemd::systemd;
-use carbide_uuid::machine::MachineId;
 use eyre::WrapErr;
-use forge_certs::cert_renewal::ClientCertRenewer;
-use forge_dpu_remediation::remediation::{MachineInfo, RemediationExecutor};
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
+use nico_certs::cert_renewal::ClientCertRenewer;
+use nico_dpu_remediation::remediation::{MachineInfo, RemediationExecutor};
+use nico_host_support::agent_config::AgentConfig;
+use nico_network::virtualization::VpcVirtualizationType;
+use nico_rpc::forge::ManagedHostNetworkConfigResponse;
+use nico_rpc::forge_tls_client::ForgeClientConfig;
+use nico_rpc::{forge, forge_tls_client};
+use nico_systemd::systemd;
+use nico_uuid::machine::MachineId;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -53,7 +53,9 @@ use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
 use crate::instrumentation::{create_metrics, get_dpu_agent_meter};
 use crate::machine_inventory_updater::MachineInventoryUpdaterConfig;
-use crate::network_monitor::{self, NetworkPingerType};
+use crate::network_monitor::{
+    NetworkPingerType, {self},
+};
 use crate::util::{UrlResolver, get_host_boot_timestamp};
 use crate::{
     FMDS_MINIMUM_HBN_VERSION, HBNDeviceNames, NVUE_MINIMUM_HBN_VERSION, RunOptions, command_line,
@@ -79,7 +81,7 @@ pub async fn setup_and_run(
 ) -> eyre::Result<()> {
     systemd::notify_start().await?;
     tracing::info!(
-        version = carbide_version::version!(),
+        version = nico_version::version!(),
         "Started forge-dpu-agent"
     );
 
@@ -193,7 +195,7 @@ pub async fn setup_and_run(
         // We have eight cores. Letting ovs_vswitchd have one is OK.
     };
 
-    let build_version = carbide_version::v!(build_version).to_string();
+    let build_version = nico_version::v!(build_version).to_string();
 
     let periodic_config_fetcher = periodic_config_fetcher::PeriodicConfigFetcher::new(
         periodic_config_fetcher::PeriodicConfigFetcherConfig {
@@ -407,7 +409,7 @@ struct IterationResult {
 ///
 /// Errors on either path are logged as warnings and an empty list is returned
 /// so the caller can degrade gracefully.
-async fn fetch_last_dhcp_requests(dhcp_grpc_server: Option<&str>) -> Vec<rpc::LastDhcpRequest> {
+async fn fetch_last_dhcp_requests(dhcp_grpc_server: Option<&str>) -> Vec<forge::LastDhcpRequest> {
     if let Some(addr) = dhcp_grpc_server {
         return match crate::dhcp_server_grpc_client::get_dhcp_timestamps(addr).await {
             Ok(requests) => requests,
@@ -427,7 +429,7 @@ async fn fetch_last_dhcp_requests(dhcp_grpc_server: Option<&str>) -> Vec<rpc::La
     }
     dhcp_timestamps
         .into_iter()
-        .map(|(host_interface_id, timestamp)| rpc::LastDhcpRequest {
+        .map(|(host_interface_id, timestamp)| forge::LastDhcpRequest {
             host_interface_id: Some(host_interface_id),
             timestamp,
         })
@@ -454,7 +456,7 @@ impl MainLoop {
                     if let Some(handle) = self.network_monitor_handle.take() {
                         let _ = handle.await;
                     }
-                    tracing::info!(version=carbide_version::v!(build_version), "TERM signal received, clean exit");
+                    tracing::info!(version=nico_version::v!(build_version), "TERM signal received, clean exit");
                     return Ok(());
                 }
                 _ = hup_signal.recv() => {
@@ -496,7 +498,7 @@ impl MainLoop {
             vec![]
         });
 
-        let mut status_out = rpc::DpuNetworkStatus {
+        let mut status_out = forge::DpuNetworkStatus {
             dpu_machine_id: Some(self.machine_id),
             dpu_health: None,
             dpu_agent_version: Some(self.build_version.clone()),
@@ -992,7 +994,7 @@ fn effective_virtualization_type(
     // EthernetVirtualizerWithNvue.
     let virtualization_type_from_remote = conf
         .network_virtualization_type
-        .map(rpc::VpcVirtualizationType::try_from)
+        .map(forge::VpcVirtualizationType::try_from)
         .transpose()?
         .map(|v| v.into());
 
@@ -1056,7 +1058,7 @@ async fn plan_fmds_armos_routing(
     }
 }
 pub async fn record_network_status(
-    status: rpc::DpuNetworkStatus,
+    status: forge::DpuNetworkStatus,
     forge_api: &str,
     forge_client_config: &forge_tls_client::ForgeClientConfig,
 ) {
@@ -1092,7 +1094,7 @@ pub async fn record_network_status(
 // 3. The Ethernet MAC address is in the unicast+universal range (last two bits
 //    of the first OUI byte are both set to 0).
 async fn get_fabric_interfaces_data()
--> Result<Vec<rpc::FabricInterfaceData>, Box<dyn std::error::Error>> {
+-> Result<Vec<forge::FabricInterfaceData>, Box<dyn std::error::Error>> {
     let pci_network_devices: HashSet<_> = {
         let net_devices = sysfs::get_net_devices()?;
         // let net_devices = net_devices.into_iter();
@@ -1134,10 +1136,10 @@ async fn get_fabric_interfaces_data()
                 });
 
             (is_ethernet && is_pci && is_universal_unicast).then(|| {
-                let link_data: rpc::LinkData = (&interface_data).into();
+                let link_data: forge::LinkData = (&interface_data).into();
 
                 let link_data = Some(link_data);
-                rpc::FabricInterfaceData {
+                forge::FabricInterfaceData {
                     interface_name,
                     link_data,
                 }

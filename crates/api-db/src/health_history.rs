@@ -17,7 +17,7 @@
 use std::hash::Hasher;
 
 use chrono::{DateTime, Utc};
-use model::health::HealthHistoryRecord;
+use nico_api_model::health::HealthHistoryRecord;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 
@@ -30,7 +30,7 @@ struct DbHealthHistoryRecord {
     pub object_id: String,
 
     /// The observed health of the object
-    pub health: health_report::HealthReport,
+    pub health: nico_health_report::HealthReport,
 
     /// The time when the health was observed
     pub time: DateTime<Utc>,
@@ -41,14 +41,14 @@ impl<'r> FromRow<'r, PgRow> for DbHealthHistoryRecord {
         Ok(DbHealthHistoryRecord {
             object_id: row.try_get("object_id")?,
             health: row
-                .try_get::<sqlx::types::Json<health_report::HealthReport>, _>("health")?
+                .try_get::<sqlx::types::Json<nico_health_report::HealthReport>, _>("health")?
                 .0,
             time: row.try_get("time")?,
         })
     }
 }
 
-impl From<DbHealthHistoryRecord> for model::health::HealthHistoryRecord {
+impl From<DbHealthHistoryRecord> for nico_api_model::health::HealthHistoryRecord {
     fn from(record: DbHealthHistoryRecord) -> Self {
         Self {
             health: record.health,
@@ -126,7 +126,7 @@ pub async fn persist(
     txn: &mut PgConnection,
     table_id: HealthHistoryTableId,
     object_id: &impl std::fmt::Display,
-    health: &health_report::HealthReport,
+    health: &nico_health_report::HealthReport,
 ) -> Result<(), DatabaseError> {
     // Calculate a hash value of the Report, that we can compare to the latest
     // health value written.

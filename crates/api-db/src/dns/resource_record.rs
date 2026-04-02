@@ -16,8 +16,8 @@
  */
 use std::net::IpAddr;
 
-use carbide_uuid::domain::DomainId;
 use dns_record::SoaRecord;
+use nico_uuid::domain::DomainId;
 use sqlx::postgres::PgRow;
 use sqlx::{Error, FromRow, Row};
 
@@ -33,7 +33,7 @@ pub struct DbResourceRecord {
     pub domain_id: DomainId,
 }
 
-impl From<DbResourceRecord> for model::dns::ResourceRecord {
+impl From<DbResourceRecord> for nico_api_model::dns::ResourceRecord {
     fn from(r: DbResourceRecord) -> Self {
         Self {
             q_type: r.q_type,

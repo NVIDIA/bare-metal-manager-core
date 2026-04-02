@@ -78,7 +78,7 @@ handler in `cmd.rs`.
 pub mod args;
 pub mod cmd;
 
-use ::rpc::admin_cli::CarbideCliResult;
+use nico_rpc::admin_cli::CarbideCliResult;
 pub use args::Args;
 
 use crate::cfg::run::Run;
@@ -114,7 +114,7 @@ Contains the actual command handler. Receives parsed arguments and
 only the specific dependencies it needs (not the full RuntimeContext):
 
 ```rust
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -289,7 +289,7 @@ Create `src/my_command/show/cmd.rs`:
  * ..etc etc.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use nico_rpc::admin_cli::CarbideCliResult;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -312,7 +312,7 @@ Create `src/my_command/show/mod.rs`:
 pub mod args;
 pub mod cmd;
 
-use ::rpc::admin_cli::CarbideCliResult;
+use nico_rpc::admin_cli::CarbideCliResult;
 pub use args::Args;
 
 use crate::cfg::run::Run;

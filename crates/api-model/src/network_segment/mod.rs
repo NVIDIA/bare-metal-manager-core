@@ -17,14 +17,14 @@
 use std::fmt;
 use std::str::FromStr;
 
-use carbide_uuid::domain::DomainId;
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use itertools::Itertools;
-use rpc::TenantState;
-use rpc::errors::RpcDataConversionError;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::{TenantState, forge};
+use nico_uuid::domain::DomainId;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Column, FromRow, Row};
@@ -43,8 +43,8 @@ pub struct NetworkSegmentSearchFilter {
     pub tenant_org_id: Option<String>,
 }
 
-impl From<rpc::forge::NetworkSegmentSearchFilter> for NetworkSegmentSearchFilter {
-    fn from(filter: rpc::forge::NetworkSegmentSearchFilter) -> Self {
+impl From<forge::NetworkSegmentSearchFilter> for NetworkSegmentSearchFilter {
+    fn from(filter: forge::NetworkSegmentSearchFilter) -> Self {
         NetworkSegmentSearchFilter {
             name: filter.name,
             tenant_org_id: filter.tenant_org_id,
@@ -169,10 +169,10 @@ mod tests {
     }
 
     fn make_test_creation_request(
-        prefixes: Vec<rpc::forge::NetworkPrefix>,
+        prefixes: Vec<forge::NetworkPrefix>,
         segment_type: NetworkSegmentType,
-    ) -> rpc::forge::NetworkSegmentCreationRequest {
-        rpc::forge::NetworkSegmentCreationRequest {
+    ) -> forge::NetworkSegmentCreationRequest {
+        forge::NetworkSegmentCreationRequest {
             id: None,
             mtu: Some(1500),
             name: "TEST_SEGMENT".to_string(),
@@ -180,16 +180,16 @@ mod tests {
             subdomain_id: None,
             vpc_id: None,
             segment_type: match segment_type {
-                NetworkSegmentType::Admin => rpc::forge::NetworkSegmentType::Admin as i32,
-                NetworkSegmentType::Tenant => rpc::forge::NetworkSegmentType::Tenant as i32,
-                NetworkSegmentType::Underlay => rpc::forge::NetworkSegmentType::Underlay as i32,
-                NetworkSegmentType::HostInband => rpc::forge::NetworkSegmentType::HostInband as i32,
+                NetworkSegmentType::Admin => forge::NetworkSegmentType::Admin as i32,
+                NetworkSegmentType::Tenant => forge::NetworkSegmentType::Tenant as i32,
+                NetworkSegmentType::Underlay => forge::NetworkSegmentType::Underlay as i32,
+                NetworkSegmentType::HostInband => forge::NetworkSegmentType::HostInband as i32,
             },
         }
     }
 
-    fn ipv4_prefix(prefix: &str, gateway: Option<&str>) -> rpc::forge::NetworkPrefix {
-        rpc::forge::NetworkPrefix {
+    fn ipv4_prefix(prefix: &str, gateway: Option<&str>) -> forge::NetworkPrefix {
+        forge::NetworkPrefix {
             id: None,
             prefix: prefix.to_string(),
             gateway: gateway.map(|g| g.to_string()),
@@ -199,8 +199,8 @@ mod tests {
         }
     }
 
-    fn ipv6_prefix(prefix: &str) -> rpc::forge::NetworkPrefix {
-        rpc::forge::NetworkPrefix {
+    fn ipv6_prefix(prefix: &str) -> forge::NetworkPrefix {
+        forge::NetworkPrefix {
             id: None,
             prefix: prefix.to_string(),
             gateway: None,
@@ -305,8 +305,8 @@ pub struct NetworkSegmentSearchConfig {
     pub include_num_free_ips: bool,
 }
 
-impl From<rpc::forge::NetworkSegmentSearchConfig> for NetworkSegmentSearchConfig {
-    fn from(value: rpc::forge::NetworkSegmentSearchConfig) -> Self {
+impl From<forge::NetworkSegmentSearchConfig> for NetworkSegmentSearchConfig {
+    fn from(value: forge::NetworkSegmentSearchConfig) -> Self {
         NetworkSegmentSearchConfig {
             include_history: value.include_history,
             include_num_free_ips: value.include_num_free_ips,
@@ -389,12 +389,10 @@ impl TryFrom<i32> for NetworkSegmentType {
     type Error = RpcDataConversionError;
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         Ok(match value {
-            x if x == rpc::forge::NetworkSegmentType::Tenant as i32 => NetworkSegmentType::Tenant,
-            x if x == rpc::forge::NetworkSegmentType::Admin as i32 => NetworkSegmentType::Admin,
-            x if x == rpc::forge::NetworkSegmentType::Underlay as i32 => {
-                NetworkSegmentType::Underlay
-            }
-            x if x == rpc::forge::NetworkSegmentType::HostInband as i32 => {
+            x if x == forge::NetworkSegmentType::Tenant as i32 => NetworkSegmentType::Tenant,
+            x if x == forge::NetworkSegmentType::Admin as i32 => NetworkSegmentType::Admin,
+            x if x == forge::NetworkSegmentType::Underlay as i32 => NetworkSegmentType::Underlay,
+            x if x == forge::NetworkSegmentType::HostInband as i32 => {
                 NetworkSegmentType::HostInband
             }
             _ => {
@@ -483,10 +481,10 @@ impl<'r> FromRow<'r, PgRow> for NetworkSegment {
 /// subdomain_id - Converting from Protobuf UUID(String) to Rust UUID type can fail.
 /// Use try_from in order to return a Result where Result is an error if the conversion
 /// from String -> UUID fails
-impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
+impl TryFrom<forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
     type Error = RpcDataConversionError;
 
-    fn try_from(value: rpc::forge::NetworkSegmentCreationRequest) -> Result<Self, Self::Error> {
+    fn try_from(value: forge::NetworkSegmentCreationRequest) -> Result<Self, Self::Error> {
         if value.prefixes.is_empty() {
             return Err(RpcDataConversionError::InvalidArgument(
                 "Prefixes are empty.".to_string(),
@@ -540,7 +538,7 @@ impl TryFrom<rpc::forge::NetworkSegmentCreationRequest> for NewNetworkSegment {
 /// Marshal a Data Object (NetworkSegment) into an RPC NetworkSegment
 ///
 /// subdomain_id - Rust UUID -> ProtoBuf UUID(String) cannot fail, so convert it or return None
-impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
+impl TryFrom<NetworkSegment> for forge::NetworkSegment {
     type Error = RpcDataConversionError;
     fn try_from(src: NetworkSegment) -> Result<Self, Self::Error> {
         // Note that even thought the segment might already be ready,
@@ -562,11 +560,11 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
         let mut history = Vec::with_capacity(src.history.len());
 
         for state in src.history {
-            history.push(rpc::forge::NetworkSegmentStateHistory::try_from(state)?);
+            history.push(forge::NetworkSegmentStateHistory::try_from(state)?);
         }
 
         let flags: Vec<i32> = {
-            use rpc::forge::NetworkSegmentFlag::*;
+            use nico_rpc::forge::NetworkSegmentFlag::*;
 
             let mut flags = vec![];
 
@@ -590,7 +588,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
             flags.into_iter().map(|flag| flag as i32).collect()
         };
 
-        Ok(rpc::NetworkSegment {
+        Ok(forge::NetworkSegment {
             id: Some(src.id),
             version: src.version.version_string(),
             name: src.name,
@@ -602,7 +600,7 @@ impl TryFrom<NetworkSegment> for rpc::NetworkSegment {
             prefixes: src
                 .prefixes
                 .into_iter()
-                .map(rpc::forge::NetworkPrefix::from)
+                .map(forge::NetworkPrefix::from)
                 .collect_vec(),
             vpc_id: src.vpc_id,
             state: state as i32,

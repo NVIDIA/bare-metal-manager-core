@@ -23,7 +23,8 @@ use axum::Json;
 use axum::extract::{Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 
 use crate::api::Api;
 use crate::web::filters;
@@ -49,8 +50,8 @@ struct ExpectedMachineRow {
     machine_id: String, // The machine
 }
 
-impl From<rpc::forge::LinkedExpectedMachine> for ExpectedMachineRow {
-    fn from(l: rpc::forge::LinkedExpectedMachine) -> ExpectedMachineRow {
+impl From<forge::LinkedExpectedMachine> for ExpectedMachineRow {
+    fn from(l: forge::LinkedExpectedMachine) -> ExpectedMachineRow {
         ExpectedMachineRow {
             bmc_mac_address: l.bmc_mac_address,
             interface_id: l.interface_id.unwrap_or_default(),

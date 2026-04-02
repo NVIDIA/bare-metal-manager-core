@@ -15,15 +15,15 @@
 use std::str::FromStr;
 
 use async_trait::async_trait;
-use carbide_uuid::rack::RackId;
-use forge_tls::client_config::ClientCert;
-use health_report::HealthReport;
-use rpc::forge::{
+use nico_health_report::HealthReport;
+use nico_rpc::forge::{
     HealthReportOverride, InsertRackHealthReportOverrideRequest, OverrideMode,
     RemoveRackHealthReportOverrideRequest,
 };
-use rpc::forge_api_client::ForgeApiClient;
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use nico_rpc::forge_api_client::ForgeApiClient;
+use nico_rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use nico_tls::client_config::ClientCert;
+use nico_uuid::rack::RackId;
 use url::Url;
 
 use crate::DsxConsumerError;

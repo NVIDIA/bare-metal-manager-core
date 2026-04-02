@@ -24,9 +24,9 @@
 mod tests {
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
-    use carbide_uuid::measured_boot::{MeasurementReportId, MeasurementSystemProfileId};
-    use measured_boot::records::MeasurementMachineState;
+    use nico_measured_boot::records::MeasurementMachineState;
+    use nico_uuid::machine::MachineId;
+    use nico_uuid::measured_boot::{MeasurementReportId, MeasurementSystemProfileId};
 
     // test_journal_crudl makes sure database constraints
     // are honored for inserting new journal entries.
@@ -37,7 +37,7 @@ mod tests {
             MachineId::from_str("fm100hseddco33hvlofuqvg543p6p9aj60g76q5cq491g9m9tgtf2dk0530")?;
         let report_id = MeasurementReportId::new();
         let profile_id = MeasurementSystemProfileId::new();
-        let journal = db::measured_boot::journal::new(
+        let journal = nico_api_db::measured_boot::journal::new(
             &mut txn,
             machine_id,
             report_id,

@@ -20,7 +20,7 @@
 
 use std::time::Duration;
 
-use libmlx::runner::exec_options::{ExecOptions, is_destructive_variable};
+use nico_libmlx::runner::exec_options::{ExecOptions, is_destructive_variable};
 
 #[test]
 fn test_default_exec_options() {

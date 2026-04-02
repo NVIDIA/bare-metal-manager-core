@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::nvlink::NvLinkPartitionId;
-use model::nvl_partition::{NewNvlPartition, NvlPartition, NvlPartitionSnapshotPgJson};
+use nico_api_model::nvl_partition::{NewNvlPartition, NvlPartition, NvlPartitionSnapshotPgJson};
+use nico_uuid::nvlink::NvLinkPartitionId;
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -89,7 +89,7 @@ pub async fn for_tenant(
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: model::nvl_partition::NvLinkPartitionSearchFilter,
+    filter: nico_api_model::nvl_partition::NvLinkPartitionSearchFilter,
 ) -> Result<Vec<NvLinkPartitionId>, DatabaseError> {
     // build query
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM nvlink_partitions");

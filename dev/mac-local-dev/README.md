@@ -170,7 +170,7 @@ echo "VAULT_TOKEN=$(cat /tmp/carbide-localdev-vault-root-token)"
 Cargo run parameters:
 
 ```
-run --package carbide-api --no-default-features -- run
+run --package nico-api --no-default-features -- run
 --config-path <absolute-path-to-repo>/dev/mac-local-dev/carbide-api-config.toml
 ```
 

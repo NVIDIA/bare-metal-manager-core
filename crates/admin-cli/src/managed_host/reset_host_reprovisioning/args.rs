@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
 use clap::Parser;
+use nico_uuid::machine::MachineId;
 
 /// Reset host reprovisioning state
 #[derive(Parser, Debug)]

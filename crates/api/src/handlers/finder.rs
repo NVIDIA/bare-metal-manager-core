@@ -19,26 +19,27 @@ use std::fmt;
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::protos::{common as rpc_common, forge as rpc};
-use carbide_network::ip::IdentifyAddressFamily;
-use carbide_uuid::domain::DomainId;
-use carbide_uuid::dpa_interface::DpaInterfaceId;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineInterfaceId;
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
-use db::{DatabaseError, ObjectColumnFilter, instance, network_segment, vpc};
-use model::network_segment::NetworkSegmentSearchConfig;
-use model::resource_pool::ResourcePoolEntryState;
-use model::route_server::RouteServerSourceType;
+use nico_api_db::{DatabaseError, ObjectColumnFilter, instance, network_segment, vpc};
+use nico_api_model::network_segment::NetworkSegmentSearchConfig;
+use nico_api_model::resource_pool::ResourcePoolEntryState;
+use nico_api_model::route_server::RouteServerSourceType;
+use nico_network::ip::IdentifyAddressFamily;
+use nico_rpc::forge;
+use nico_rpc::protos::common as rpc_common;
+use nico_uuid::domain::DomainId;
+use nico_uuid::dpa_interface::DpaInterfaceId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineInterfaceId;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcId;
 
 use crate::CarbideError;
 use crate::api::Api;
 
 pub(crate) async fn find_ip_address(
     api: &Api,
-    request: tonic::Request<rpc::FindIpAddressRequest>,
-) -> Result<tonic::Response<rpc::FindIpAddressResponse>, tonic::Status> {
+    request: tonic::Request<forge::FindIpAddressRequest>,
+) -> Result<tonic::Response<forge::FindIpAddressResponse>, tonic::Status> {
     crate::api::log_request_data(&request);
 
     let req = request.into_inner();
@@ -52,7 +53,7 @@ pub(crate) async fn find_ip_address(
         }
         .into());
     }
-    Ok(tonic::Response::new(rpc::FindIpAddressResponse {
+    Ok(tonic::Response::new(forge::FindIpAddressResponse {
         matches,
         errors: errors.into_iter().map(|err| err.to_string()).collect(),
     }))
@@ -60,8 +61,8 @@ pub(crate) async fn find_ip_address(
 
 pub(crate) async fn identify_uuid(
     api: &Api,
-    request: tonic::Request<rpc::IdentifyUuidRequest>,
-) -> Result<tonic::Response<rpc::IdentifyUuidResponse>, tonic::Status> {
+    request: tonic::Request<forge::IdentifyUuidRequest>,
+) -> Result<tonic::Response<forge::IdentifyUuidResponse>, tonic::Status> {
     crate::api::log_request_data(&request);
     let req = request.into_inner();
 
@@ -69,7 +70,7 @@ pub(crate) async fn identify_uuid(
         return Err(CarbideError::InvalidArgument("UUID missing from query".to_string()).into());
     };
     match by_uuid(api, &u).await {
-        Ok(Some(object_type)) => Ok(tonic::Response::new(rpc::IdentifyUuidResponse {
+        Ok(Some(object_type)) => Ok(tonic::Response::new(forge::IdentifyUuidResponse {
             uuid: Some(u),
             object_type: object_type.into(),
         })),
@@ -84,8 +85,8 @@ pub(crate) async fn identify_uuid(
 
 pub(crate) async fn identify_mac(
     api: &Api,
-    request: tonic::Request<rpc::IdentifyMacRequest>,
-) -> Result<tonic::Response<rpc::IdentifyMacResponse>, tonic::Status> {
+    request: tonic::Request<forge::IdentifyMacRequest>,
+) -> Result<tonic::Response<forge::IdentifyMacResponse>, tonic::Status> {
     crate::api::log_request_data(&request);
     let req = request.into_inner();
 
@@ -99,7 +100,7 @@ pub(crate) async fn identify_mac(
     };
     match by_mac(api, mac).await {
         Ok(Some((primary_key, object_type))) => {
-            Ok(tonic::Response::new(rpc::IdentifyMacResponse {
+            Ok(tonic::Response::new(forge::IdentifyMacResponse {
                 mac_address: req.mac_address,
                 primary_key,
                 object_type: object_type.into(),
@@ -116,15 +117,17 @@ pub(crate) async fn identify_mac(
 
 pub(crate) async fn identify_serial(
     api: &Api,
-    request: tonic::Request<rpc::IdentifySerialRequest>,
-) -> Result<tonic::Response<rpc::IdentifySerialResponse>, tonic::Status> {
+    request: tonic::Request<forge::IdentifySerialRequest>,
+) -> Result<tonic::Response<forge::IdentifySerialResponse>, tonic::Status> {
     crate::api::log_request_data(&request);
     let req = request.into_inner();
 
     let machine_ids = if req.exact {
-        db::machine_topology::find_by_serial(&api.database_connection, &req.serial_number).await?
+        nico_api_db::machine_topology::find_by_serial(&api.database_connection, &req.serial_number)
+            .await?
     } else {
-        db::machine_topology::find_freetext(&api.database_connection, &req.serial_number).await?
+        nico_api_db::machine_topology::find_freetext(&api.database_connection, &req.serial_number)
+            .await?
     };
 
     if machine_ids.len() > 1 {
@@ -135,7 +138,7 @@ pub(crate) async fn identify_serial(
         );
     }
 
-    Ok(tonic::Response::new(rpc::IdentifySerialResponse {
+    Ok(tonic::Response::new(forge::IdentifySerialResponse {
         serial_number: req.serial_number,
         machine_id: machine_ids.into_iter().next(),
     }))
@@ -165,7 +168,7 @@ impl fmt::Display for Finder {
     }
 }
 
-async fn by_ip(api: &Api, ip: &str) -> (Vec<rpc::IpAddressMatch>, Vec<CarbideError>) {
+async fn by_ip(api: &Api, ip: &str) -> (Vec<forge::IpAddressMatch>, Vec<CarbideError>) {
     use Finder::*;
     let futures = vec![
         search(StaticData, api, ip),
@@ -200,7 +203,7 @@ async fn search(
     finder: Finder,
     api: &Api,
     ip: &str,
-) -> Result<Option<rpc::IpAddressMatch>, CarbideError> {
+) -> Result<Option<forge::IpAddressMatch>, CarbideError> {
     let addr: IpAddr = ip.parse()?;
 
     let db = &api.database_connection;
@@ -213,8 +216,8 @@ async fn search(
                 .dhcp_servers
                 .iter()
                 .find(|&dhcp| ip == *dhcp)
-                .map(|ip| rpc::IpAddressMatch {
-                    ip_type: rpc::IpType::StaticDataDhcpServer as i32,
+                .map(|ip| forge::IpAddressMatch {
+                    ip_type: forge::IpType::StaticDataDhcpServer as i32,
                     owner_id: None,
                     message: format!("{ip} is a static DHCP server"),
                 })
@@ -222,7 +225,7 @@ async fn search(
 
         // Look for IP address in resource pools
         ResourcePools => {
-            let mut vec_out = db::resource_pool::find_value(db, ip).await?;
+            let mut vec_out = nico_api_db::resource_pool::find_value(db, ip).await?;
             let entry = match vec_out.len() {
                 0 => return Ok(None),
                 1 => vec_out.remove(0),
@@ -250,8 +253,8 @@ async fn search(
                     maybe_owner = Some(owner);
                 }
             }
-            Some(rpc::IpAddressMatch {
-                ip_type: rpc::IpType::ResourcePool as i32,
+            Some(forge::IpAddressMatch {
+                ip_type: forge::IpType::ResourcePool as i32,
                 owner_id: maybe_owner,
                 message: msg,
             })
@@ -259,15 +262,15 @@ async fn search(
 
         // Look in instance_addresses
         InstanceAddresses => {
-            let instance_address = db::instance_address::find_by_address(db, addr).await?;
+            let instance_address = nico_api_db::instance_address::find_by_address(db, addr).await?;
 
             instance_address.map(|e| {
                 let message = format!(
                     "{ip} belongs to instance {} on segment {}",
                     e.instance_id, e.segment_id
                 );
-                rpc::IpAddressMatch {
-                    ip_type: rpc::IpType::InstanceAddress as i32,
+                forge::IpAddressMatch {
+                    ip_type: forge::IpType::InstanceAddress as i32,
                     owner_id: Some(e.instance_id.to_string()),
                     message,
                 }
@@ -276,7 +279,7 @@ async fn search(
 
         // Look in machine_interface_addresses
         MachineAddresses => {
-            let out = db::machine_interface_address::find_by_address(db, addr).await?;
+            let out = nico_api_db::machine_interface_address::find_by_address(db, addr).await?;
             out.map(|e| {
                 let message = match e.machine_id.as_ref() {
                     Some(machine_id) => format!(
@@ -288,8 +291,8 @@ async fn search(
                         e.id, e.name, e.network_segment_type,
                         ),
                 };
-                rpc::IpAddressMatch {
-                    ip_type: rpc::IpType::MachineAddress as i32,
+                forge::IpAddressMatch {
+                    ip_type: forge::IpType::MachineAddress as i32,
                     owner_id: e.machine_id.map(|id| id.to_string()),
                     message,
                 }
@@ -298,17 +301,17 @@ async fn search(
 
         // BMC IP of the host
         BmcIp => {
-            let out = db::machine_topology::find_machine_id_by_bmc_ip(db, ip).await?;
-            out.map(|machine_id| rpc::IpAddressMatch {
-                ip_type: rpc::IpType::BmcIp as i32,
+            let out = nico_api_db::machine_topology::find_machine_id_by_bmc_ip(db, ip).await?;
+            out.map(|machine_id| forge::IpAddressMatch {
+                ip_type: forge::IpType::BmcIp as i32,
                 owner_id: Some(machine_id.to_string()),
                 message: format!("{ip} is the BMC IP of {machine_id}"),
             })
         }
         ExploredEndpoint => {
-            let out = db::explored_endpoints::find_by_ips(db, vec![addr]).await?;
-            out.first().map(|ee| rpc::IpAddressMatch {
-                ip_type: rpc::IpType::ExploredEndpoint as i32,
+            let out = nico_api_db::explored_endpoints::find_by_ips(db, vec![addr]).await?;
+            out.first().map(|ee| forge::IpAddressMatch {
+                ip_type: forge::IpType::ExploredEndpoint as i32,
                 owner_id: Some(ee.address.to_string()),
                 message: format!("{ip}'s Redfish was explored by site explorer"),
             })
@@ -316,9 +319,9 @@ async fn search(
 
         // Loopback IP of a DPU
         LoopbackIp => {
-            let out = db::machine::find_by_loopback_ip(db, ip).await?;
-            out.map(|machine| rpc::IpAddressMatch {
-                ip_type: rpc::IpType::LoopbackIp as i32,
+            let out = nico_api_db::machine::find_by_loopback_ip(db, ip).await?;
+            out.map(|machine| forge::IpAddressMatch {
+                ip_type: forge::IpType::LoopbackIp as i32,
                 owner_id: Some(machine.id.to_string()),
                 message: format!("{ip} is the loopback for {}", &machine.id),
             })
@@ -328,7 +331,8 @@ async fn search(
         NetworkSegment => {
             let host_prefix = addr.address_family().interface_prefix_len();
             let out =
-                db::network_prefix::containing_prefix(db, &format!("{ip}/{host_prefix}")).await?;
+                nico_api_db::network_prefix::containing_prefix(db, &format!("{ip}/{host_prefix}"))
+                    .await?;
             out.first().map(|prefix| {
                 let message = format!(
                     "{ip} is in prefix {} of segment {}, gateway {}",
@@ -339,8 +343,8 @@ async fn search(
                         .map(|g| g.to_string())
                         .unwrap_or("(no gateway)".to_string()),
                 );
-                rpc::IpAddressMatch {
-                    ip_type: rpc::IpType::NetworkSegment as i32,
+                forge::IpAddressMatch {
+                    ip_type: forge::IpType::NetworkSegment as i32,
                     owner_id: Some(prefix.segment_id.to_string()),
                     message,
                 }
@@ -351,11 +355,11 @@ async fn search(
         // source (via the config TOML), or an "admin" source (via
         // forge-admin-cli).
         RouteServers => {
-            let out = db::route_servers::find_by_address(db, addr).await?;
-            out.map(|route_server| rpc::IpAddressMatch {
+            let out = nico_api_db::route_servers::find_by_address(db, addr).await?;
+            out.map(|route_server| forge::IpAddressMatch {
                 ip_type: match route_server.source_type {
-                    RouteServerSourceType::AdminApi => rpc::IpType::RouteServerFromAdminApi,
-                    RouteServerSourceType::ConfigFile => rpc::IpType::RouteServerFromConfigFile,
+                    RouteServerSourceType::AdminApi => forge::IpType::RouteServerFromAdminApi,
+                    RouteServerSourceType::ConfigFile => forge::IpType::RouteServerFromConfigFile,
                 } as i32,
                 owner_id: None,
                 message: format!(
@@ -366,10 +370,10 @@ async fn search(
         }
 
         DpaAddresses => {
-            let out = db::dpa_interface::find_by_ip(db, addr).await?;
+            let out = nico_api_db::dpa_interface::find_by_ip(db, addr).await?;
 
-            out.first().map(|dpa| rpc::IpAddressMatch {
-                ip_type: rpc::IpType::DpaInterface as i32,
+            out.first().map(|dpa| forge::IpAddressMatch {
+                ip_type: forge::IpType::DpaInterface as i32,
                 owner_id: Some(dpa.id.to_string()),
                 message: format!("{ip} is underlay or overlay IP of DPA {0}", dpa.id),
             })
@@ -379,12 +383,12 @@ async fn search(
     Ok(match_result)
 }
 
-async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType>, CarbideError> {
+async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<forge::UuidType>, CarbideError> {
     let db = &api.database_connection;
     let mut db_reader = api.db_reader();
 
     if let Ok(ns_id) = NetworkSegmentId::from_str(&u.value) {
-        let segments = db::network_segment::find_by(
+        let segments = nico_api_db::network_segment::find_by(
             &mut db_reader,
             ObjectColumnFilter::List(network_segment::IdColumn, &[ns_id]),
             NetworkSegmentSearchConfig {
@@ -394,49 +398,52 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
         )
         .await?;
         if segments.len() == 1 {
-            return Ok(Some(rpc::UuidType::NetworkSegment));
+            return Ok(Some(forge::UuidType::NetworkSegment));
         }
     }
 
     if let Ok(instance_id) = InstanceId::from_str(&u.value) {
-        let instances = db::instance::find(
+        let instances = nico_api_db::instance::find(
             db,
             ObjectColumnFilter::One(instance::IdColumn, &instance_id),
         )
         .await?;
         if instances.len() == 1 {
-            return Ok(Some(rpc::UuidType::Instance));
+            return Ok(Some(forge::UuidType::Instance));
         }
     }
 
     if let Ok(mi_id) = MachineInterfaceId::from_str(&u.value)
-        && db::machine_interface::find_one(db, mi_id).await.is_ok()
+        && nico_api_db::machine_interface::find_one(db, mi_id)
+            .await
+            .is_ok()
     {
-        return Ok(Some(rpc::UuidType::MachineInterface));
+        return Ok(Some(forge::UuidType::MachineInterface));
     }
 
     if let Ok(vpc_id) = VpcId::from_str(&u.value) {
-        let vpcs = db::vpc::find_by(db, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
+        let vpcs =
+            nico_api_db::vpc::find_by(db, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id)).await?;
         if vpcs.len() == 1 {
-            return Ok(Some(rpc::UuidType::Vpc));
+            return Ok(Some(forge::UuidType::Vpc));
         }
     }
 
     if let Ok(id) = DpaInterfaceId::from_str(&u.value) {
-        let dpas = db::dpa_interface::find_by_ids(db, &[id], false).await?;
+        let dpas = nico_api_db::dpa_interface::find_by_ids(db, &[id], false).await?;
         if dpas.len() == 1 {
-            return Ok(Some(rpc::UuidType::DpaInterfaceId));
+            return Ok(Some(forge::UuidType::DpaInterfaceId));
         }
     }
 
     if let Ok(domain_id) = DomainId::from_str(&u.value) {
-        let domains = db::dns::domain::find_by(
+        let domains = nico_api_db::dns::domain::find_by(
             db,
-            ObjectColumnFilter::One(db::dns::domain::IdColumn, &domain_id),
+            ObjectColumnFilter::One(nico_api_db::dns::domain::IdColumn, &domain_id),
         )
         .await?;
         if domains.len() == 1 {
-            return Ok(Some(rpc::UuidType::Domain));
+            return Ok(Some(forge::UuidType::Domain));
         }
     }
 
@@ -446,14 +453,14 @@ async fn by_uuid(api: &Api, u: &rpc_common::Uuid) -> Result<Option<rpc::UuidType
 async fn by_mac(
     api: &Api,
     mac: mac_address::MacAddress,
-) -> Result<Option<(String, rpc::MacOwner)>, DatabaseError> {
+) -> Result<Option<(String, forge::MacOwner)>, DatabaseError> {
     let db = &api.database_connection;
 
-    match db::machine_interface::find_by_mac_address(db, mac).await {
+    match nico_api_db::machine_interface::find_by_mac_address(db, mac).await {
         Ok(interfaces) if interfaces.len() == 1 => {
             return Ok(Some((
                 interfaces[0].id.to_string(),
-                rpc::MacOwner::MachineInterface,
+                forge::MacOwner::MachineInterface,
             )));
         }
         Ok(interfaces) if interfaces.is_empty() => {
@@ -466,29 +473,31 @@ async fn by_mac(
             );
         }
         Err(err) => {
-            tracing::error!(%err, %mac, "DB error db::machine_interface::find_by_mac_address");
+            tracing::error!(%err, %mac, "DB error nico_api_db::machine_interface::find_by_mac_address");
         }
     }
 
-    let endpoints = db::explored_endpoints::find_by_mac_address(db, mac).await?;
+    let endpoints = nico_api_db::explored_endpoints::find_by_mac_address(db, mac).await?;
     if endpoints.len() == 1 {
         return Ok(Some((
             endpoints[0].address.to_string(),
-            rpc::MacOwner::ExploredEndpoint,
+            forge::MacOwner::ExploredEndpoint,
         )));
     }
 
-    let expected = db::expected_machine::find_by_bmc_mac_address(db, mac).await?;
+    let expected = nico_api_db::expected_machine::find_by_bmc_mac_address(db, mac).await?;
     if let Some(em) = expected {
         return Ok(Some((
             em.data.serial_number,
-            rpc::MacOwner::ExpectedMachine,
+            forge::MacOwner::ExpectedMachine,
         )));
     }
 
-    match db::dpa_interface::find_by_mac_addr(db, &mac).await {
+    match nico_api_db::dpa_interface::find_by_mac_addr(db, &mac).await {
         Ok(ifs) => match ifs.as_slice() {
-            [iface] => return Ok(Some((iface.id.to_string(), rpc::MacOwner::DpaInterface))),
+            [iface] => {
+                return Ok(Some((iface.id.to_string(), forge::MacOwner::DpaInterface)));
+            }
             [] => {} // expected, continue to search other object types
             _ => tracing::error!(
                 "Found {} DpaInterfaces entries for MAC address {mac}. Should be impossible",

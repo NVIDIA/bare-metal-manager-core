@@ -16,21 +16,22 @@
  */
 
 use chrono::{DateTime, Utc};
+use nico_rpc::forge;
 use serde::{Deserialize, Serialize};
 
 /// History of health for a single Object
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthHistoryRecord {
     /// The observed health of the Object
-    pub health: health_report::HealthReport,
+    pub health: nico_health_report::HealthReport,
 
     /// The time when the health was observed
     pub time: DateTime<Utc>,
 }
 
-impl From<HealthHistoryRecord> for rpc::forge::HealthHistoryRecord {
-    fn from(record: HealthHistoryRecord) -> rpc::forge::HealthHistoryRecord {
-        rpc::forge::HealthHistoryRecord {
+impl From<HealthHistoryRecord> for forge::HealthHistoryRecord {
+    fn from(record: HealthHistoryRecord) -> forge::HealthHistoryRecord {
+        forge::HealthHistoryRecord {
             health: Some(record.health.into()),
             time: Some(record.time.into()),
         }

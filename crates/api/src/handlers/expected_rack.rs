@@ -17,10 +17,10 @@
 
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
-use carbide_uuid::rack::RackId;
-use db::{expected_rack as db_expected_rack, rack as db_rack};
-use model::expected_rack::ExpectedRack;
+use nico_api_db::{expected_rack as db_expected_rack, rack as db_rack};
+use nico_api_model::expected_rack::ExpectedRack;
+use nico_rpc::forge;
+use nico_uuid::rack::RackId;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -31,7 +31,7 @@ use crate::api::Api;
 /// AlreadyExists if the expected rack record already exists.
 pub async fn add_expected_rack(
     api: &Api,
-    request: Request<rpc::ExpectedRack>,
+    request: Request<forge::ExpectedRack>,
 ) -> Result<Response<()>, Status> {
     let rack: ExpectedRack = request
         .into_inner()
@@ -99,7 +99,7 @@ pub async fn add_expected_rack(
 /// delete_expected_rack deletes an expected rack by its rack_id.
 pub async fn delete_expected_rack(
     api: &Api,
-    request: Request<rpc::ExpectedRackRequest>,
+    request: Request<forge::ExpectedRackRequest>,
 ) -> Result<Response<()>, Status> {
     let req = request.into_inner();
     let rack_id = RackId::from_str(&req.rack_id)
@@ -115,7 +115,7 @@ pub async fn delete_expected_rack(
 /// update_expected_rack updates an existing expected rack's rack_type and metadata.
 pub async fn update_expected_rack(
     api: &Api,
-    request: Request<rpc::ExpectedRack>,
+    request: Request<forge::ExpectedRack>,
 ) -> Result<Response<()>, Status> {
     let rack: ExpectedRack = request
         .into_inner()
@@ -166,8 +166,8 @@ pub async fn update_expected_rack(
 /// get_expected_rack returns a specific expected rack by its rack_id.
 pub async fn get_expected_rack(
     api: &Api,
-    request: Request<rpc::ExpectedRackRequest>,
-) -> Result<Response<rpc::ExpectedRack>, Status> {
+    request: Request<forge::ExpectedRackRequest>,
+) -> Result<Response<forge::ExpectedRack>, Status> {
     let req = request.into_inner();
     let rack_id = RackId::from_str(&req.rack_id)
         .map_err(|e| CarbideError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
@@ -180,30 +180,30 @@ pub async fn get_expected_rack(
             id: rack_id.to_string(),
         })?;
     txn.commit().await?;
-    Ok(Response::new(rpc::ExpectedRack::from(expected_rack)))
+    Ok(Response::new(forge::ExpectedRack::from(expected_rack)))
 }
 
 /// get_all_expected_racks returns all expected racks.
 pub async fn get_all_expected_racks(
     api: &Api,
     _request: Request<()>,
-) -> Result<Response<rpc::ExpectedRackList>, Status> {
+) -> Result<Response<forge::ExpectedRackList>, Status> {
     let mut txn = api.txn_begin().await?;
     let expected_racks = db_expected_rack::find_all(&mut txn)
         .await
         .map_err(CarbideError::from)?;
     txn.commit().await?;
-    let expected_racks: Vec<rpc::ExpectedRack> = expected_racks
+    let expected_racks: Vec<forge::ExpectedRack> = expected_racks
         .into_iter()
-        .map(rpc::ExpectedRack::from)
+        .map(forge::ExpectedRack::from)
         .collect();
-    Ok(Response::new(rpc::ExpectedRackList { expected_racks }))
+    Ok(Response::new(forge::ExpectedRackList { expected_racks }))
 }
 
 /// replace_all_expected_racks clears all expected racks and creates new ones from the request.
 pub async fn replace_all_expected_racks(
     api: &Api,
-    request: Request<rpc::ExpectedRackList>,
+    request: Request<forge::ExpectedRackList>,
 ) -> Result<Response<()>, Status> {
     let req = request.into_inner();
     let mut txn = api.txn_begin().await?;

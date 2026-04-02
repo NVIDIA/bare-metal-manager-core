@@ -16,9 +16,10 @@
  */
 use std::collections::HashMap;
 
-use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
-use rpc::errors::RpcDataConversionError;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::vpc::{VpcId, VpcPrefixId};
 use sqlx::Row;
 use sqlx::postgres::PgRow;
 
@@ -105,11 +106,11 @@ pub struct DeleteVpcPrefix {
     pub id: VpcPrefixId,
 }
 
-impl TryFrom<rpc::forge::VpcPrefixCreationRequest> for NewVpcPrefix {
+impl TryFrom<forge::VpcPrefixCreationRequest> for NewVpcPrefix {
     type Error = RpcDataConversionError;
 
-    fn try_from(value: rpc::forge::VpcPrefixCreationRequest) -> Result<Self, Self::Error> {
-        let rpc::forge::VpcPrefixCreationRequest {
+    fn try_from(value: forge::VpcPrefixCreationRequest) -> Result<Self, Self::Error> {
+        let forge::VpcPrefixCreationRequest {
             id,
             prefix,
             name,
@@ -144,11 +145,11 @@ impl TryFrom<rpc::forge::VpcPrefixCreationRequest> for NewVpcPrefix {
     }
 }
 
-impl TryFrom<rpc::forge::VpcPrefixConfig> for VpcPrefixConfig {
+impl TryFrom<forge::VpcPrefixConfig> for VpcPrefixConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(rpc_config: rpc::forge::VpcPrefixConfig) -> Result<Self, Self::Error> {
-        let rpc::forge::VpcPrefixConfig { prefix } = rpc_config;
+    fn try_from(rpc_config: forge::VpcPrefixConfig) -> Result<Self, Self::Error> {
+        let forge::VpcPrefixConfig { prefix } = rpc_config;
 
         Ok(Self {
             prefix: IpNetwork::try_from(prefix.as_str())?,
@@ -156,13 +157,11 @@ impl TryFrom<rpc::forge::VpcPrefixConfig> for VpcPrefixConfig {
     }
 }
 
-impl TryFrom<rpc::forge::VpcPrefixUpdateRequest> for UpdateVpcPrefix {
+impl TryFrom<forge::VpcPrefixUpdateRequest> for UpdateVpcPrefix {
     type Error = RpcDataConversionError;
 
-    fn try_from(
-        rpc_update_prefix: rpc::forge::VpcPrefixUpdateRequest,
-    ) -> Result<Self, Self::Error> {
-        let rpc::forge::VpcPrefixUpdateRequest {
+    fn try_from(rpc_update_prefix: forge::VpcPrefixUpdateRequest) -> Result<Self, Self::Error> {
+        let forge::VpcPrefixUpdateRequest {
             id,
             prefix,
             name,
@@ -203,12 +202,10 @@ impl TryFrom<rpc::forge::VpcPrefixUpdateRequest> for UpdateVpcPrefix {
     }
 }
 
-impl TryFrom<rpc::forge::VpcPrefixDeletionRequest> for DeleteVpcPrefix {
+impl TryFrom<forge::VpcPrefixDeletionRequest> for DeleteVpcPrefix {
     type Error = RpcDataConversionError;
 
-    fn try_from(
-        rpc_delete_prefix: rpc::forge::VpcPrefixDeletionRequest,
-    ) -> Result<Self, Self::Error> {
+    fn try_from(rpc_delete_prefix: forge::VpcPrefixDeletionRequest) -> Result<Self, Self::Error> {
         let id = rpc_delete_prefix
             .id
             .ok_or(RpcDataConversionError::MissingArgument("id"))?;
@@ -216,7 +213,7 @@ impl TryFrom<rpc::forge::VpcPrefixDeletionRequest> for DeleteVpcPrefix {
     }
 }
 
-impl From<VpcPrefixStatus> for rpc::forge::VpcPrefixStatus {
+impl From<VpcPrefixStatus> for forge::VpcPrefixStatus {
     fn from(db_status: VpcPrefixStatus) -> Self {
         let VpcPrefixStatus {
             total_31_segments,
@@ -235,7 +232,7 @@ impl From<VpcPrefixStatus> for rpc::forge::VpcPrefixStatus {
     }
 }
 
-impl From<VpcPrefix> for rpc::forge::VpcPrefix {
+impl From<VpcPrefix> for forge::VpcPrefix {
     fn from(db_vpc_prefix: VpcPrefix) -> Self {
         let VpcPrefix {
             id,
@@ -259,7 +256,7 @@ impl From<VpcPrefix> for rpc::forge::VpcPrefix {
             available_31_segments: status.available_31_segments, // Deprecated
             status: Some(status.into()),
             metadata: Some(metadata.into()),
-            config: Some(rpc::forge::VpcPrefixConfig { prefix }),
+            config: Some(forge::VpcPrefixConfig { prefix }),
         }
     }
 }

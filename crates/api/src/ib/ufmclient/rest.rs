@@ -29,7 +29,7 @@ use hyper_timeout::TimeoutConnector;
 use hyper_util::client::legacy::Client as HyperClient;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioExecutor;
-use rpc::forge_tls_client::DummyTlsVerifier;
+use nico_rpc::forge_tls_client::DummyTlsVerifier;
 use rustls::{ClientConfig, ConfigBuilder, RootCertStore, WantsVerifier};
 use thiserror::Error;
 

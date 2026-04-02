@@ -17,20 +17,21 @@
 
 use std::borrow::Cow;
 
-use ::rpc::protos::mlx_device as mlx_device_pb;
-use carbide_host_support::dpa_cmds::{DpaCommand, OpCode};
-use carbide_uuid::machine::MachineId;
-use db::dpa_interface;
 use eyre::eyre;
-use libmlx::device::report::MlxDeviceReport;
-use libmlx::profile::serialization::SerializableProfile;
-use model::dpa_interface::{
+use nico_api_db::dpa_interface;
+use nico_api_model::dpa_interface::{
     CardState, DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkStatusObservation,
     DpaLockMode, NewDpaInterface,
 };
-use rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
-use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
-use rpc::protos::mlx_device::MlxDeviceInfo;
+use nico_host_support::dpa_cmds::{DpaCommand, OpCode};
+use nico_libmlx::device::report::MlxDeviceReport;
+use nico_libmlx::profile::serialization::SerializableProfile;
+use nico_rpc::forge;
+use nico_rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
+use nico_rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
+use nico_rpc::protos::mlx_device as mlx_device_pb;
+use nico_rpc::protos::mlx_device::MlxDeviceInfo;
+use nico_uuid::machine::MachineId;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
@@ -39,8 +40,8 @@ use crate::{CarbideError, CarbideResult};
 // This is called from the grpc interface and is mainly for debugging purposes.
 pub(crate) async fn create(
     api: &Api,
-    request: Request<::rpc::forge::DpaInterfaceCreationRequest>,
-) -> Result<Response<::rpc::forge::DpaInterface>, Status> {
+    request: Request<forge::DpaInterfaceCreationRequest>,
+) -> Result<Response<forge::DpaInterface>, Status> {
     if !api.runtime_config.is_dpa_enabled() {
         return Err(CarbideError::InvalidArgument(
             "CreateDpaInterface cannot be done as dpa_enabled is false".to_string(),
@@ -51,11 +52,13 @@ pub(crate) async fn create(
 
     let mut txn = api.txn_begin().await?;
 
-    let new_dpa =
-        db::dpa_interface::persist(NewDpaInterface::try_from(request.into_inner())?, &mut txn)
-            .await?;
+    let new_dpa = nico_api_db::dpa_interface::persist(
+        NewDpaInterface::try_from(request.into_inner())?,
+        &mut txn,
+    )
+    .await?;
 
-    let dpa_out: rpc::forge::DpaInterface = new_dpa.into();
+    let dpa_out: forge::DpaInterface = new_dpa.into();
 
     txn.commit().await?;
 
@@ -66,8 +69,8 @@ pub(crate) async fn create(
 /// (machine_id, mac_address), or returns the existing one. Idempotent.
 pub(crate) async fn ensure(
     api: &Api,
-    request: Request<::rpc::forge::DpaInterfaceCreationRequest>,
-) -> Result<Response<::rpc::forge::DpaInterface>, Status> {
+    request: Request<forge::DpaInterfaceCreationRequest>,
+) -> Result<Response<forge::DpaInterface>, Status> {
     if !api.runtime_config.is_dpa_enabled() {
         return Err(CarbideError::InvalidArgument(
             "EnsureDpaInterface cannot be done as dpa_enabled is false".to_string(),
@@ -78,7 +81,7 @@ pub(crate) async fn ensure(
 
     let new_interface = NewDpaInterface::try_from(request.into_inner())?;
     let interface = ensure_interface(api, new_interface).await?;
-    let response: rpc::forge::DpaInterface = interface.into();
+    let response: forge::DpaInterface = interface.into();
     Ok(Response::new(response))
 }
 
@@ -89,15 +92,15 @@ async fn ensure_interface(
     new_interface: NewDpaInterface,
 ) -> CarbideResult<DpaInterface> {
     let mut txn = api.txn_begin().await?;
-    let interface = db::dpa_interface::ensure(new_interface, &mut txn).await?;
+    let interface = nico_api_db::dpa_interface::ensure(new_interface, &mut txn).await?;
     txn.commit().await?;
     Ok(interface)
 }
 
 pub(crate) async fn delete(
     api: &Api,
-    request: Request<::rpc::forge::DpaInterfaceDeletionRequest>,
-) -> Result<Response<::rpc::forge::DpaInterfaceDeletionResult>, Status> {
+    request: Request<forge::DpaInterfaceDeletionRequest>,
+) -> Result<Response<forge::DpaInterfaceDeletionResult>, Status> {
     if !api.runtime_config.is_dpa_enabled() {
         return Err(CarbideError::InvalidArgument(
             "DeleteDpaInterface cannot be done as dpa_enabled is false".to_string(),
@@ -115,7 +118,7 @@ pub(crate) async fn delete(
     // Prepare our txn to grab the NetworkSecurityGroups from the DB
     let mut txn = api.txn_begin().await?;
 
-    let dpa_ifs_int = db::dpa_interface::find_by_ids(&mut txn, &[id], false).await?;
+    let dpa_ifs_int = nico_api_db::dpa_interface::find_by_ids(&mut txn, &[id], false).await?;
 
     let dpa_if_int = match dpa_ifs_int.len() {
         1 => dpa_ifs_int[0].clone(),
@@ -127,28 +130,28 @@ pub(crate) async fn delete(
         }
     };
 
-    db::dpa_interface::delete(dpa_if_int, &mut txn).await?;
+    nico_api_db::dpa_interface::delete(dpa_if_int, &mut txn).await?;
 
     txn.commit().await?;
 
-    Ok(Response::new(::rpc::forge::DpaInterfaceDeletionResult {}))
+    Ok(Response::new(forge::DpaInterfaceDeletionResult {}))
 }
 
 pub(crate) async fn get_all_ids(
     api: &Api,
     request: Request<()>,
-) -> Result<Response<::rpc::forge::DpaInterfaceIdList>, Status> {
+) -> Result<Response<forge::DpaInterfaceIdList>, Status> {
     log_request_data(&request);
 
-    let ids = db::dpa_interface::find_ids(&api.database_connection).await?;
+    let ids = nico_api_db::dpa_interface::find_ids(&api.database_connection).await?;
 
-    Ok(Response::new(::rpc::forge::DpaInterfaceIdList { ids }))
+    Ok(Response::new(forge::DpaInterfaceIdList { ids }))
 }
 
 pub(crate) async fn find_dpa_interfaces_by_ids(
     api: &Api,
-    request: Request<::rpc::forge::DpaInterfacesByIdsRequest>,
-) -> Result<Response<::rpc::forge::DpaInterfaceList>, Status> {
+    request: Request<forge::DpaInterfacesByIdsRequest>,
+) -> Result<Response<forge::DpaInterfaceList>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -168,16 +171,19 @@ pub(crate) async fn find_dpa_interfaces_by_ids(
         .into());
     }
 
-    let dpa_ifs_int =
-        db::dpa_interface::find_by_ids(&api.database_connection, &req.ids, req.include_history)
-            .await?;
+    let dpa_ifs_int = nico_api_db::dpa_interface::find_by_ids(
+        &api.database_connection,
+        &req.ids,
+        req.include_history,
+    )
+    .await?;
 
     let rpc_dpa_ifs = dpa_ifs_int
         .into_iter()
         .map(|i| i.into())
-        .collect::<Vec<rpc::forge::DpaInterface>>();
+        .collect::<Vec<forge::DpaInterface>>();
 
-    Ok(Response::new(rpc::forge::DpaInterfaceList {
+    Ok(Response::new(forge::DpaInterfaceList {
         interfaces: rpc_dpa_ifs,
     }))
 }
@@ -187,8 +193,8 @@ pub(crate) async fn find_dpa_interfaces_by_ids(
 // XXX TODO XXX
 pub(crate) async fn set_dpa_network_observation_status(
     api: &Api,
-    request: Request<::rpc::forge::DpaNetworkObservationSetRequest>,
-) -> Result<Response<::rpc::forge::DpaInterface>, Status> {
+    request: Request<forge::DpaNetworkObservationSetRequest>,
+) -> Result<Response<forge::DpaInterface>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -200,7 +206,7 @@ pub(crate) async fn set_dpa_network_observation_status(
     // Prepare our txn to grab the dpa interfaces from the DB
     let mut txn = api.txn_begin().await?;
 
-    let dpa_ifs_int = db::dpa_interface::find_by_ids(&mut txn, &[id], false).await?;
+    let dpa_ifs_int = nico_api_db::dpa_interface::find_by_ids(&mut txn, &[id], false).await?;
 
     if dpa_ifs_int.len() != 1 {
         return Err(CarbideError::InvalidArgument(
@@ -216,7 +222,8 @@ pub(crate) async fn set_dpa_network_observation_status(
         network_config_version: Some(dpa_if_int.network_config.version),
     };
 
-    db::dpa_interface::update_network_observation(&dpa_if_int, &mut txn, &observation).await?;
+    nico_api_db::dpa_interface::update_network_observation(&dpa_if_int, &mut txn, &observation)
+        .await?;
 
     txn.commit().await?;
 
@@ -236,7 +243,8 @@ pub(crate) async fn process_scout_req(
         return Ok((Action::Noop, None));
     }
     let dpa_snapshots =
-        db::dpa_interface::find_by_machine_id(&api.database_connection, machine_id).await?;
+        nico_api_db::dpa_interface::find_by_machine_id(&api.database_connection, machine_id)
+            .await?;
 
     if dpa_snapshots.is_empty() {
         tracing::error!(
@@ -518,7 +526,8 @@ async fn process_mlx_observation(
         )));
     };
 
-    let dpa_snapshots = db::dpa_interface::find_by_machine_id(&mut txn, machine_id).await?;
+    let dpa_snapshots =
+        nico_api_db::dpa_interface::find_by_machine_id(&mut txn, machine_id).await?;
 
     if dpa_snapshots.is_empty() {
         tracing::error!(

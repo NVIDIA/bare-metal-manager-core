@@ -17,8 +17,8 @@
 
 use std::str::FromStr;
 
-use carbide_uuid::switch::SwitchId;
 use clap::Parser;
+use nico_uuid::switch::SwitchId;
 
 #[derive(Parser, Debug)]
 pub struct Args {

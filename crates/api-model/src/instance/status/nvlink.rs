@@ -17,10 +17,10 @@
 
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId};
 use config_version::Versioned;
-use rpc::forge as rpc;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId};
 use serde::{Deserialize, Serialize};
 
 use crate::instance::config::nvlink::InstanceNvLinkConfig;
@@ -35,18 +35,18 @@ pub struct InstanceNvLinkStatus {
     pub configs_synced: SyncState,
 }
 
-impl TryFrom<InstanceNvLinkStatus> for rpc::InstanceNvLinkStatus {
+impl TryFrom<InstanceNvLinkStatus> for forge::InstanceNvLinkStatus {
     type Error = RpcDataConversionError;
 
     fn try_from(status: InstanceNvLinkStatus) -> Result<Self, Self::Error> {
-        let mut gpu_statuses: Vec<rpc::InstanceNvLinkGpuStatus> = Vec::new();
+        let mut gpu_statuses: Vec<forge::InstanceNvLinkGpuStatus> = Vec::new();
         for gpu in status.nvlink_gpus.iter() {
-            let g = rpc::InstanceNvLinkGpuStatus::try_from(gpu.clone())?;
+            let g = forge::InstanceNvLinkGpuStatus::try_from(gpu.clone())?;
             gpu_statuses.push(g);
         }
         Ok(Self {
             gpu_statuses,
-            configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
+            configs_synced: forge::SyncState::try_from(status.configs_synced)? as i32,
         })
     }
 }
@@ -136,7 +136,7 @@ pub struct InstanceNvLinkGpuStatus {
     pub logical_partition_id: Option<NvLinkLogicalPartitionId>,
 }
 
-impl TryFrom<InstanceNvLinkGpuStatus> for rpc::InstanceNvLinkGpuStatus {
+impl TryFrom<InstanceNvLinkGpuStatus> for forge::InstanceNvLinkGpuStatus {
     type Error = RpcDataConversionError;
     fn try_from(status: InstanceNvLinkGpuStatus) -> Result<Self, Self::Error> {
         Ok(Self {
@@ -147,9 +147,9 @@ impl TryFrom<InstanceNvLinkGpuStatus> for rpc::InstanceNvLinkGpuStatus {
     }
 }
 
-impl TryFrom<rpc::InstanceNvLinkGpuStatus> for InstanceNvLinkGpuStatus {
+impl TryFrom<forge::InstanceNvLinkGpuStatus> for InstanceNvLinkGpuStatus {
     type Error = RpcDataConversionError;
-    fn try_from(status: rpc::InstanceNvLinkGpuStatus) -> Result<Self, Self::Error> {
+    fn try_from(status: forge::InstanceNvLinkGpuStatus) -> Result<Self, Self::Error> {
         Ok(Self {
             logical_partition_id: status.logical_partition_id,
             gpu_guid: status.gpu_guid.unwrap_or_default(),

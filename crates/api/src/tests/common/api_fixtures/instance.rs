@@ -18,31 +18,31 @@
 use std::ops::DerefMut;
 use std::time::SystemTime;
 
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcPrefixId;
-use model::instance::config::network::DeviceLocator;
-use model::instance::config::nvlink::InstanceNvLinkConfig;
-use model::instance::snapshot::InstanceSnapshot;
-use model::instance::status::network::InstanceNetworkStatusObservation;
-use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
-use model::machine::{
+use nico_api_model::instance::config::network::DeviceLocator;
+use nico_api_model::instance::config::nvlink::InstanceNvLinkConfig;
+use nico_api_model::instance::snapshot::InstanceSnapshot;
+use nico_api_model::instance::status::network::InstanceNetworkStatusObservation;
+use nico_api_model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
+use nico_api_model::machine::{
     CleanupState, Machine, MachineState, MachineValidatingState, ManagedHostState, ValidationState,
 };
-use rpc::forge::InstanceDpuExtensionServicesConfig;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::instance_interface_config::NetworkDetails;
-use rpc::{InstanceReleaseRequest, Timestamp};
+use nico_rpc::forge::InstanceDpuExtensionServicesConfig;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::instance_interface_config::NetworkDetails;
+use nico_rpc::{InstanceReleaseRequest, Timestamp, forge};
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcPrefixId;
 
 use super::{TestEnv, inject_machine_measurements, persist_machine_validation_result};
 use crate::tests::common::api_fixtures::{RpcInstance, TestManagedHost};
 
 pub struct TestInstanceBuilder<'a, 'b> {
     env: &'a TestEnv,
-    config: rpc::InstanceConfig,
-    tenant: rpc::TenantConfig,
-    metadata: Option<rpc::Metadata>,
+    config: forge::InstanceConfig,
+    tenant: forge::TenantConfig,
+    metadata: Option<forge::Metadata>,
     mh: &'b TestManagedHost,
 }
 
@@ -50,7 +50,7 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
     pub fn new(env: &'a TestEnv, mh: &'b TestManagedHost) -> Self {
         Self {
             env,
-            config: rpc::InstanceConfig {
+            config: forge::InstanceConfig {
                 tenant: None,
                 os: Some(default_os_config()),
                 network: None,
@@ -65,12 +65,12 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
         }
     }
 
-    pub fn config(mut self, config: rpc::InstanceConfig) -> Self {
+    pub fn config(mut self, config: forge::InstanceConfig) -> Self {
         self.config = config;
         self
     }
 
-    pub fn network(mut self, network: rpc::InstanceNetworkConfig) -> Self {
+    pub fn network(mut self, network: forge::InstanceNetworkConfig) -> Self {
         self.config.network = Some(network);
         self
     }
@@ -92,7 +92,7 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
         self
     }
 
-    pub fn metadata(mut self, metadata: rpc::Metadata) -> Self {
+    pub fn metadata(mut self, metadata: forge::Metadata) -> Self {
         self.metadata = Some(metadata);
         self
     }
@@ -119,7 +119,7 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
         let instance_id = self
             .env
             .api
-            .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+            .allocate_instance(tonic::Request::new(forge::InstanceAllocationRequest {
                 instance_id: None,
                 machine_id: Some(self.mh.host().id),
                 instance_type_id: None,
@@ -154,7 +154,7 @@ type Txn<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
 
 impl<'a, 'b> TestInstance<'a, 'b> {
     pub async fn db_instance(&self, txn: &mut Txn<'_>) -> InstanceSnapshot {
-        db::instance::find_by_id(txn.as_mut(), self.id)
+        nico_api_db::instance::find_by_id(txn.as_mut(), self.id)
             .await
             .unwrap()
             .unwrap()
@@ -164,7 +164,7 @@ impl<'a, 'b> TestInstance<'a, 'b> {
         let mut result = self
             .env
             .api
-            .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+            .find_instances_by_ids(tonic::Request::new(forge::InstancesByIdsRequest {
                 instance_ids: vec![self.id],
             }))
             .await
@@ -182,7 +182,7 @@ impl<'a, 'b> TestInstance<'a, 'b> {
 pub async fn create_instance_with_ib_config<'a, 'b>(
     env: &'a TestEnv,
     mh: &'b TestManagedHost,
-    ib_config: rpc::forge::InstanceInfinibandConfig,
+    ib_config: forge::InstanceInfinibandConfig,
     network_segment_id: NetworkSegmentId,
 ) -> (TestInstance<'a, 'b>, RpcInstance) {
     mh.instance_builer(env)
@@ -191,10 +191,12 @@ pub async fn create_instance_with_ib_config<'a, 'b>(
         .await
 }
 
-pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::InstanceNetworkConfig {
-    rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
+pub fn single_interface_network_config(
+    segment_id: NetworkSegmentId,
+) -> forge::InstanceNetworkConfig {
+    forge::InstanceNetworkConfig {
+        interfaces: vec![nico_rpc::InstanceInterfaceConfig {
+            function_type: forge::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some(segment_id),
             network_details: Some(NetworkDetails::SegmentId(segment_id)),
             device: None,
@@ -207,11 +209,11 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
 
 pub fn single_interface_network_config_with_vfs(
     segment_ids: Vec<NetworkSegmentId>,
-) -> rpc::InstanceNetworkConfig {
+) -> forge::InstanceNetworkConfig {
     let mut segment_iter = segment_ids.into_iter().enumerate();
     let (_function_id, segment_id) = segment_iter.next().unwrap();
-    let mut interfaces = vec![rpc::InstanceInterfaceConfig {
-        function_type: rpc::InterfaceFunctionType::Physical as i32,
+    let mut interfaces = vec![nico_rpc::InstanceInterfaceConfig {
+        function_type: forge::InterfaceFunctionType::Physical as i32,
         network_segment_id: Some(segment_id),
         network_details: Some(NetworkDetails::SegmentId(segment_id)),
         device: None,
@@ -220,30 +222,30 @@ pub fn single_interface_network_config_with_vfs(
         ip_address: None,
     }];
 
-    interfaces.extend(
-        segment_iter.map(|(function_id, segment_id)| rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Virtual as i32,
+    interfaces.extend(segment_iter.map(|(function_id, segment_id)| {
+        forge::InstanceInterfaceConfig {
+            function_type: forge::InterfaceFunctionType::Virtual as i32,
             network_segment_id: Some(segment_id),
             network_details: Some(NetworkDetails::SegmentId(segment_id)),
             device: None,
             device_instance: 0,
             virtual_function_id: Some(function_id as u32),
             ip_address: None,
-        }),
-    );
+        }
+    }));
 
-    rpc::InstanceNetworkConfig { interfaces }
+    forge::InstanceNetworkConfig { interfaces }
 }
 
 pub fn interface_network_config_with_devices(
     segment_ids: &[NetworkSegmentId],
     device_locators: &[DeviceLocator],
-) -> rpc::InstanceNetworkConfig {
+) -> forge::InstanceNetworkConfig {
     let interfaces = device_locators
         .iter()
         .zip(segment_ids)
-        .map(|(dl, segment_id)| rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
+        .map(|(dl, segment_id)| forge::InstanceInterfaceConfig {
+            function_type: forge::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some(*segment_id),
             network_details: Some(NetworkDetails::SegmentId(*segment_id)),
             device: Some(dl.device.clone()),
@@ -252,15 +254,15 @@ pub fn interface_network_config_with_devices(
             ip_address: None,
         })
         .collect();
-    rpc::InstanceNetworkConfig { interfaces }
+    forge::InstanceNetworkConfig { interfaces }
 }
 
 pub fn single_interface_network_config_with_vpc_prefix(
     prefix_id: VpcPrefixId,
-) -> rpc::InstanceNetworkConfig {
-    rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
+) -> forge::InstanceNetworkConfig {
+    forge::InstanceNetworkConfig {
+        interfaces: vec![nico_rpc::InstanceInterfaceConfig {
+            function_type: forge::InterfaceFunctionType::Physical as i32,
             network_segment_id: None,
             network_details: Some(NetworkDetails::VpcPrefixId(prefix_id)),
             device: None,
@@ -271,22 +273,20 @@ pub fn single_interface_network_config_with_vpc_prefix(
     }
 }
 
-pub fn default_os_config() -> rpc::forge::OperatingSystem {
-    rpc::forge::OperatingSystem {
+pub fn default_os_config() -> forge::OperatingSystem {
+    forge::OperatingSystem {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::InlineIpxe {
-                ipxe_script: "SomeRandomiPxe".to_string(),
-                user_data: Some("SomeRandomData".to_string()),
-            },
-        )),
+        variant: Some(forge::operating_system::Variant::Ipxe(forge::InlineIpxe {
+            ipxe_script: "SomeRandomiPxe".to_string(),
+            user_data: Some("SomeRandomData".to_string()),
+        })),
     }
 }
 
-pub fn default_tenant_config() -> rpc::TenantConfig {
-    rpc::TenantConfig {
+pub fn default_tenant_config() -> forge::TenantConfig {
+    forge::TenantConfig {
         tenant_organization_id: "Tenant1".to_string(),
         tenant_keyset_ids: vec![],
         hostname: None,
@@ -294,10 +294,10 @@ pub fn default_tenant_config() -> rpc::TenantConfig {
 }
 
 pub fn config_for_ib_config(
-    ib_config: rpc::forge::InstanceInfinibandConfig,
+    ib_config: forge::InstanceInfinibandConfig,
     network_segment_id: NetworkSegmentId,
-) -> rpc::forge::InstanceConfig {
-    rpc::forge::InstanceConfig {
+) -> forge::InstanceConfig {
+    forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(network_segment_id)),
@@ -309,10 +309,10 @@ pub fn config_for_ib_config(
 }
 
 pub fn config_for_nvlink_config(
-    nvl_config: rpc::forge::InstanceNvLinkConfig,
+    nvl_config: forge::InstanceNvLinkConfig,
     network_segment_id: NetworkSegmentId,
-) -> rpc::forge::InstanceConfig {
-    rpc::forge::InstanceConfig {
+) -> forge::InstanceConfig {
+    forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(network_segment_id)),
@@ -335,7 +335,7 @@ pub async fn advance_created_instance_into_state(
         &mh.host().id,
         10,
         ManagedHostState::Assigned {
-            instance_state: model::machine::InstanceState::WaitingForNetworkConfig,
+            instance_state: nico_api_model::machine::InstanceState::WaitingForNetworkConfig,
         },
     )
     .await;
@@ -349,16 +349,17 @@ pub async fn advance_created_instance_into_state(
         mh.host().parsed_history(Some(4)).await,
         vec![
             ManagedHostState::Assigned {
-                instance_state: model::machine::InstanceState::DpaProvisioning,
+                instance_state: nico_api_model::machine::InstanceState::DpaProvisioning,
             },
             ManagedHostState::Assigned {
-                instance_state: model::machine::InstanceState::WaitingForDpaToBeReady,
+                instance_state: nico_api_model::machine::InstanceState::WaitingForDpaToBeReady,
             },
             ManagedHostState::Assigned {
-                instance_state: model::machine::InstanceState::WaitingForNetworkSegmentToBeReady,
+                instance_state:
+                    nico_api_model::machine::InstanceState::WaitingForNetworkSegmentToBeReady,
             },
             ManagedHostState::Assigned {
-                instance_state: model::machine::InstanceState::WaitingForNetworkConfig,
+                instance_state: nico_api_model::machine::InstanceState::WaitingForNetworkConfig,
             }
         ]
     );
@@ -377,7 +378,7 @@ pub async fn advance_created_instance_into_state(
     super::simulate_hardware_health_report(
         env,
         &mh.host().id,
-        health_report::HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health")),
+        nico_health_report::HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health")),
     )
     .await;
 
@@ -395,7 +396,7 @@ pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &TestM
         matches!(
             machine.state.value,
             ManagedHostState::Assigned {
-                instance_state: model::machine::InstanceState::Ready,
+                instance_state: nico_api_model::machine::InstanceState::Ready,
             }
         )
     })
@@ -405,10 +406,10 @@ pub async fn advance_created_instance_into_ready_state(env: &TestEnv, mh: &TestM
         mh.host().parsed_history(Some(2)).await,
         vec![
             ManagedHostState::Assigned {
-                instance_state: model::machine::InstanceState::WaitingForRebootToReady,
+                instance_state: nico_api_model::machine::InstanceState::WaitingForRebootToReady,
             },
             ManagedHostState::Assigned {
-                instance_state: model::machine::InstanceState::Ready,
+                instance_state: nico_api_model::machine::InstanceState::Ready,
             }
         ]
     );
@@ -426,15 +427,15 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
 
     // The instance should show up immediatly as terminating - even if the state handler didn't yet run
     let instance = env.one_instance(instance_id).await;
-    assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Terminating);
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
         7,
         ManagedHostState::Assigned {
-            instance_state: model::machine::InstanceState::HostPlatformConfiguration {
+            instance_state: nico_api_model::machine::InstanceState::HostPlatformConfiguration {
                 platform_config_state:
-                    model::machine::HostPlatformConfigurationState::CheckHostConfig,
+                    nico_api_model::machine::HostPlatformConfigurationState::CheckHostConfig,
             },
         },
     )
@@ -446,7 +447,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
         &mh.host().id,
         2,
         ManagedHostState::Assigned {
-            instance_state: model::machine::InstanceState::WaitingForDpusToUp,
+            instance_state: nico_api_model::machine::InstanceState::WaitingForDpusToUp,
         },
     )
     .await;
@@ -457,8 +458,8 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
         &mh.host().id,
         1,
         ManagedHostState::Assigned {
-            instance_state: model::machine::InstanceState::BootingWithDiscoveryImage {
-                retry: model::machine::RetryInfo { count: 0 },
+            instance_state: nico_api_model::machine::InstanceState::BootingWithDiscoveryImage {
+                retry: nico_api_model::machine::RetryInfo { count: 0 },
             },
         },
     )
@@ -482,7 +483,7 @@ pub async fn delete_instance(env: &TestEnv, instance_id: InstanceId, mh: &TestMa
 pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &TestManagedHost) {
     let mut txn = env.pool.begin().await.unwrap();
     let machine = mh.host().db_machine(&mut txn).await;
-    db::machine::update_reboot_time(&machine, &mut txn)
+    nico_api_db::machine::update_reboot_time(&machine, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -494,7 +495,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &Te
         &mh.host().id,
         2,
         ManagedHostState::Assigned {
-            instance_state: model::machine::InstanceState::WaitingForNetworkReconfig,
+            instance_state: nico_api_model::machine::InstanceState::WaitingForNetworkReconfig,
         },
     )
     .await;
@@ -529,10 +530,10 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &Te
 
     let mut txn = env.pool.begin().await.unwrap();
     let machine = mh.host().db_machine(&mut txn).await;
-    db::machine::update_reboot_time(&machine, &mut txn)
+    nico_api_db::machine::update_reboot_time(&machine, &mut txn)
         .await
         .unwrap();
-    db::machine::update_cleanup_time(&machine, &mut txn)
+    nico_api_db::machine::update_cleanup_time(&machine, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -554,7 +555,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &Te
     )
     .await;
 
-    let mut machine_validation_result = rpc::forge::MachineValidationResult {
+    let mut machine_validation_result = forge::MachineValidationResult {
         validation_id: None,
         name: "instance".to_string(),
         description: "desc".to_string(),
@@ -572,13 +573,13 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &Te
     let response = mh.host().forge_agent_control().await;
     let uuid = &response.data.unwrap().pair[1].value;
 
-    machine_validation_result.validation_id = Some(rpc::Uuid {
+    machine_validation_result.validation_id = Some(nico_rpc::Uuid {
         value: uuid.to_owned(),
     });
     persist_machine_validation_result(env, machine_validation_result.clone()).await;
 
     let mut txn = env.pool.begin().await.unwrap();
-    db::machine::update_machine_validation_time(&mh.host().id, &mut txn)
+    nico_api_db::machine::update_machine_validation_time(&mh.host().id, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -596,7 +597,7 @@ pub async fn handle_delete_post_bootingwithdiscoveryimage(env: &TestEnv, mh: &Te
 
     let mut txn = env.pool.begin().await.unwrap();
     let machine = mh.host().db_machine(&mut txn).await;
-    db::machine::update_reboot_time(&machine, &mut txn)
+    nico_api_db::machine::update_reboot_time(&machine, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -626,7 +627,7 @@ pub async fn update_instance_network_status_observation(
 pub async fn create_instance_with_nvlink_config<'a, 'b>(
     env: &'a TestEnv,
     mh: &'b TestManagedHost,
-    nvl_config: rpc::forge::InstanceNvLinkConfig,
+    nvl_config: forge::InstanceNvLinkConfig,
     network_segment_id: NetworkSegmentId,
 ) -> (TestInstance<'a, 'b>, RpcInstance) {
     mh.instance_builer(env)

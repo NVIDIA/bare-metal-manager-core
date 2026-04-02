@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use carbide_uuid::machine::MachineId;
-use rpc::forge::SkuMachinePair;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::forge::SkuMachinePair;
+use nico_uuid::machine::MachineId;
 
 use crate::rpc::ApiClient;
 

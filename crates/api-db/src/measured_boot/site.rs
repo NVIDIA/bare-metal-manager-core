@@ -22,7 +22,7 @@
  * This also provides code for importing/exporting (and working with) SiteModels.
  */
 
-use measured_boot::site::SiteModel;
+use nico_measured_boot::site::SiteModel;
 use sqlx::PgConnection;
 
 use crate::DatabaseResult;

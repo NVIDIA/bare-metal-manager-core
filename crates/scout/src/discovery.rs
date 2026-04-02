@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineId;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 
 use crate::CarbideClientError;
 use crate::cfg::Options;
@@ -27,7 +27,7 @@ pub(crate) async fn completed(
     machine_id: &MachineId,
 ) -> Result<(), CarbideClientError> {
     let mut client = create_forge_client(config).await?;
-    let request = tonic::Request::new(rpc::MachineDiscoveryCompletedRequest {
+    let request = tonic::Request::new(forge::MachineDiscoveryCompletedRequest {
         machine_id: Some(*machine_id),
     });
     client.discovery_completed(request).await?;
@@ -38,7 +38,7 @@ pub(crate) async fn rebooted(
     machine_id: &MachineId,
 ) -> Result<(), CarbideClientError> {
     let mut client = create_forge_client(config).await?;
-    let request = tonic::Request::new(rpc::MachineRebootCompletedRequest {
+    let request = tonic::Request::new(forge::MachineRebootCompletedRequest {
         machine_id: Some(*machine_id),
     });
     client.reboot_completed(request).await?;

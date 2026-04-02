@@ -16,6 +16,7 @@
  */
 
 use clap::Parser;
+use nico_rpc::forge;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -31,7 +32,7 @@ pub struct Args {
     pub versions: Vec<String>,
 }
 
-impl From<Args> for ::rpc::forge::DeleteDpuExtensionServiceRequest {
+impl From<Args> for forge::DeleteDpuExtensionServiceRequest {
     fn from(args: Args) -> Self {
         Self {
             service_id: args.service_id,

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 use super::args::Args;
 use crate::network_security_group::common::convert_nsgs_to_table;

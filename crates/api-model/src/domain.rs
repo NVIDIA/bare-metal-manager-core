@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::domain::DomainId;
+use nico_uuid::domain::DomainId;
 use chrono::{DateTime, Utc};
-use rpc::errors::RpcDataConversionError;
+use nico_rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Error, FromRow, Row};
@@ -76,10 +76,10 @@ pub struct NewDomain {
     // pub metadata: DomainMetadata, // unused
 }
 
-impl TryFrom<rpc::Domain> for NewDomain {
+impl TryFrom<forge::Domain> for NewDomain {
     type Error = RpcDataConversionError;
 
-    fn try_from(value: rpc::Domain) -> Result<Self, Self::Error> {
+    fn try_from(value: forge::Domain) -> Result<Self, Self::Error> {
         if let Some(_id) = value.id {
             return Err(RpcDataConversionError::IdentifierSpecifiedForNewObject(
                 String::from("Domain"),
@@ -237,9 +237,9 @@ impl DomainMetadata {
 }
 
 // Marshal Domain object into Protobuf
-impl From<Domain> for rpc::Domain {
+impl From<Domain> for forge::Domain {
     fn from(src: Domain) -> Self {
-        rpc::Domain {
+        forge::Domain {
             id: Some(src.id),
             name: src.name,
             created: Some(src.created.into()),

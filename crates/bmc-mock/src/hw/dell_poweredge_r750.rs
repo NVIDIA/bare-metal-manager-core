@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use bmc_vendor::BMCVendor;
 use mac_address::MacAddress;
-use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, MemoryDevice};
+use nico_rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, MemoryDevice};
 use serde_json::json;
 use utils::models::arch::CpuArchitecture;
 

@@ -22,14 +22,14 @@
 
 use std::str::FromStr;
 
-use carbide_uuid::UuidEmptyStringError;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::MeasurementReportId;
 use chrono::Utc;
 #[cfg(feature = "cli")]
-use rpc::admin_cli::ToTable;
-use rpc::errors::RpcDataConversionError;
-use rpc::protos::measured_boot::MeasurementReportPb;
+use nico_rpc::admin_cli::ToTable;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::protos::measured_boot::MeasurementReportPb;
+use nico_uuid::UuidEmptyStringError;
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::MeasurementReportId;
 use serde::Serialize;
 
 use super::pcr::PcrRegisterValue;

@@ -21,13 +21,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bmc_mock::{DpuMachineInfo, DpuSettings, HostHardwareType, HostMachineInfo};
-use carbide_uuid::machine::MachineId;
 use clap::Parser;
 use duration_str::deserialize_duration;
 use mac_address::MacAddress;
-use rpc::forge::DesiredFirmwareVersionEntry;
-use rpc::forge_tls_client::ForgeClientConfig;
-use rpc::protos::forge_api_client::ForgeApiClient;
+use nico_rpc::forge::DesiredFirmwareVersionEntry;
+use nico_rpc::forge_tls_client::ForgeClientConfig;
+use nico_rpc::protos::forge_api_client::ForgeApiClient;
+use nico_uuid::machine::MachineId;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;

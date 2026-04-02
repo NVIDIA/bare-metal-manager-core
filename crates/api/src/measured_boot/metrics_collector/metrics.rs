@@ -18,9 +18,9 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use carbide_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
-use measured_boot::pcr::PcrRegisterValue;
-use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+use nico_measured_boot::pcr::PcrRegisterValue;
+use nico_measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+use nico_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
 

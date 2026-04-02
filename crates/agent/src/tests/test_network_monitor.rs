@@ -19,16 +19,16 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use ::rpc::forge::{self as rpc};
-use ::rpc::forge_tls_client::ForgeClientConfig;
 use axum::Router;
 use axum::extract::State as AxumState;
 use axum::http::{StatusCode, Uri};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
-use carbide_host_support::agent_config::AgentConfig;
 use eyre::{Context, Result};
-use forge_tls::client_config::ClientCert;
+use nico_host_support::agent_config::AgentConfig;
+use nico_rpc::forge;
+use nico_rpc::forge_tls_client::ForgeClientConfig;
+use nico_tls::client_config::ClientCert;
 use opentelemetry::metrics::{Meter, MeterProvider};
 use opentelemetry_sdk::metrics;
 use prometheus::{Encoder, TextEncoder};
@@ -52,7 +52,7 @@ struct State {
 
 #[tokio::test]
 pub async fn test_network_monitor() -> eyre::Result<()> {
-    carbide_host_support::init_logging()?;
+    nico_host_support::init_logging()?;
 
     let state: Arc<Mutex<State>> = Arc::new(Mutex::new(Default::default()));
 
@@ -161,13 +161,13 @@ async fn handle_get_dpu_info_list(
             .num_get_dpu_ips
             .fetch_add(1, Ordering::SeqCst);
     }
-    common::respond(rpc::GetDpuInfoListResponse {
+    common::respond(forge::GetDpuInfoListResponse {
         dpu_list: vec![
-            rpc::DpuInfo {
+            forge::DpuInfo {
                 id: DPU_ID.to_string(),
                 loopback_ip: "172.20.0.119".to_string(),
             },
-            rpc::DpuInfo {
+            forge::DpuInfo {
                 id: DEST_DPU_ID.to_string(),
                 loopback_ip: "172.20.0.200".to_string(),
             },
@@ -176,7 +176,7 @@ async fn handle_get_dpu_info_list(
 }
 
 async fn handle_version() -> impl IntoResponse {
-    common::respond(rpc::BuildInfo::default())
+    common::respond(forge::BuildInfo::default())
 }
 
 async fn handler(uri: Uri) -> impl IntoResponse {

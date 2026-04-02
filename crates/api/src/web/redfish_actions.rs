@@ -24,8 +24,9 @@ use axum::{Extension, Json};
 use axum_extra::extract::PrivateCookieJar;
 use http::HeaderMap;
 use hyper::http::StatusCode;
-use rpc::forge::RedfishAction;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::RedfishAction;
+use nico_rpc::forge::forge_server::Forge;
 use serde::Deserialize;
 
 use super::Oauth2Layer;
@@ -71,7 +72,7 @@ pub async fn query(
     };
 
     let requests = match state
-        .redfish_list_actions(tonic::Request::new(rpc::forge::RedfishListActionsRequest {
+        .redfish_list_actions(tonic::Request::new(forge::RedfishListActionsRequest {
             machine_ip: None,
         }))
         .await
@@ -101,7 +102,7 @@ pub async fn create(
     Extension(auth_context): Extension<AuthContext>,
     Json(payload): Json<ActionRequest>,
 ) -> Response {
-    let mut request = tonic::Request::new(rpc::forge::RedfishCreateActionRequest {
+    let mut request = tonic::Request::new(forge::RedfishCreateActionRequest {
         ips: payload.ips,
         action: payload.action,
         target: payload.target,
@@ -125,7 +126,7 @@ pub async fn approve(
     Extension(auth_context): Extension<AuthContext>,
     request_id: String,
 ) -> Response {
-    let mut request = tonic::Request::new(rpc::forge::RedfishActionId {
+    let mut request = tonic::Request::new(forge::RedfishActionId {
         request_id: match request_id.parse() {
             Ok(v) => v,
             Err(e) => {
@@ -155,7 +156,7 @@ pub async fn apply(
     Extension(auth_context): Extension<AuthContext>,
     request_id: String,
 ) -> Response {
-    let mut request = tonic::Request::new(rpc::forge::RedfishActionId {
+    let mut request = tonic::Request::new(forge::RedfishActionId {
         request_id: match request_id.parse() {
             Ok(v) => v,
             Err(e) => {
@@ -181,7 +182,7 @@ pub async fn apply(
 }
 
 pub async fn cancel(AxumState(state): AxumState<Arc<Api>>, request_id: String) -> Response {
-    let request = tonic::Request::new(rpc::forge::RedfishActionId {
+    let request = tonic::Request::new(forge::RedfishActionId {
         request_id: match request_id.parse() {
             Ok(v) => v,
             Err(e) => {
@@ -209,10 +210,10 @@ pub mod filters {
 
     use askama_escape::Escaper;
     use itertools::Itertools;
-    use rpc::forge::OptionalRedfishActionResult;
+    use nico_rpc::forge::OptionalRedfishActionResult;
     use utils::managed_host_display::to_time;
 
-    pub fn date_fmt(value: &rpc::Timestamp) -> ::askama::Result<String> {
+    pub fn date_fmt(value: &nico_rpc::Timestamp) -> ::askama::Result<String> {
         Ok(to_time::<String>(Some(*value), None).unwrap_or_default())
     }
 

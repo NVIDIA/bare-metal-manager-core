@@ -19,15 +19,16 @@ use std::str::FromStr;
 
 use arc_swap::ArcSwap;
 use chrono::{DateTime, Local};
-use db::Transaction;
-use db::redfish_actions::{
+use http::header::CONTENT_TYPE;
+use http::{HeaderMap, HeaderValue, Uri};
+use nico_api_db::Transaction;
+use nico_api_db::redfish_actions::{
     approve_request, delete_request, fetch_request, find_serials, insert_request, list_requests,
     set_applied, update_response,
 };
-use forge_secrets::credentials::CredentialReader;
-use http::header::CONTENT_TYPE;
-use http::{HeaderMap, HeaderValue, Uri};
-use model::redfish::BMCResponse;
+use nico_api_model::redfish::BMCResponse;
+use nico_rpc::forge;
+use nico_secrets::credentials::CredentialReader;
 use serde::Serialize;
 use sqlx::PgPool;
 use utils::HostPortPair;
@@ -42,8 +43,8 @@ pub const NUM_REQUIRED_APPROVALS: usize = 2;
 
 pub async fn redfish_browse(
     api: &crate::api::Api,
-    request: tonic::Request<::rpc::forge::RedfishBrowseRequest>,
-) -> Result<tonic::Response<::rpc::forge::RedfishBrowseResponse>, tonic::Status> {
+    request: tonic::Request<forge::RedfishBrowseRequest>,
+) -> Result<tonic::Response<forge::RedfishBrowseResponse>, tonic::Status> {
     log_request_data(&request);
 
     let request = request.into_inner();
@@ -93,32 +94,30 @@ pub async fn redfish_browse(
         ))
     })?;
 
-    Ok(tonic::Response::new(::rpc::forge::RedfishBrowseResponse {
+    Ok(tonic::Response::new(forge::RedfishBrowseResponse {
         text,
         headers,
     }))
 }
 pub async fn redfish_list_actions(
     api: &crate::api::Api,
-    request: tonic::Request<::rpc::forge::RedfishListActionsRequest>,
-) -> Result<tonic::Response<::rpc::forge::RedfishListActionsResponse>, tonic::Status> {
+    request: tonic::Request<forge::RedfishListActionsRequest>,
+) -> Result<tonic::Response<forge::RedfishListActionsResponse>, tonic::Status> {
     log_request_data(&request);
 
-    let filter: model::redfish::RedfishListActionsFilter = request.into_inner().into();
+    let filter: nico_api_model::redfish::RedfishListActionsFilter = request.into_inner().into();
 
     let result = list_requests(filter, &api.database_connection).await?;
 
-    Ok(tonic::Response::new(
-        rpc::forge::RedfishListActionsResponse {
-            actions: result.into_iter().map(Into::into).collect(),
-        },
-    ))
+    Ok(tonic::Response::new(forge::RedfishListActionsResponse {
+        actions: result.into_iter().map(Into::into).collect(),
+    }))
 }
 
 pub async fn redfish_create_action(
     api: &crate::api::Api,
-    request: tonic::Request<::rpc::forge::RedfishCreateActionRequest>,
-) -> Result<tonic::Response<::rpc::forge::RedfishCreateActionResponse>, tonic::Status> {
+    request: tonic::Request<forge::RedfishCreateActionRequest>,
+) -> Result<tonic::Response<forge::RedfishCreateActionResponse>, tonic::Status> {
     log_request_data(&request);
 
     let authored_by = external_user_info(&request)?.user.ok_or(
@@ -127,7 +126,7 @@ pub async fn redfish_create_action(
 
     let rpc_request = request.into_inner();
     let ips = rpc_request.ips.clone();
-    let create_action: model::redfish::RedfishCreateAction = rpc_request.into();
+    let create_action: nico_api_model::redfish::RedfishCreateAction = rpc_request.into();
 
     let mut txn = api.txn_begin().await?;
 
@@ -145,22 +144,22 @@ pub async fn redfish_create_action(
 
     txn.commit().await?;
 
-    Ok(tonic::Response::new(
-        ::rpc::forge::RedfishCreateActionResponse { request_id },
-    ))
+    Ok(tonic::Response::new(forge::RedfishCreateActionResponse {
+        request_id,
+    }))
 }
 
 pub async fn redfish_approve_action(
     api: &crate::api::Api,
-    request: tonic::Request<::rpc::forge::RedfishActionId>,
-) -> Result<tonic::Response<::rpc::forge::RedfishApproveActionResponse>, tonic::Status> {
+    request: tonic::Request<forge::RedfishActionId>,
+) -> Result<tonic::Response<forge::RedfishApproveActionResponse>, tonic::Status> {
     log_request_data(&request);
 
     let approver = external_user_info(&request)?.user.ok_or(
         CarbideError::ClientCertificateMissingInformation("external user name".to_string()),
     )?;
 
-    let request: model::redfish::RedfishActionId = request.into_inner().into();
+    let request: nico_api_model::redfish::RedfishActionId = request.into_inner().into();
 
     let mut txn = api.txn_begin().await?;
     let action_request = fetch_request(request, &mut txn).await?;
@@ -178,22 +177,20 @@ pub async fn redfish_approve_action(
     }
     txn.commit().await?;
 
-    Ok(tonic::Response::new(
-        ::rpc::forge::RedfishApproveActionResponse {},
-    ))
+    Ok(tonic::Response::new(forge::RedfishApproveActionResponse {}))
 }
 
 pub async fn redfish_apply_action(
     api: &crate::api::Api,
-    request: tonic::Request<::rpc::forge::RedfishActionId>,
-) -> Result<tonic::Response<::rpc::forge::RedfishApplyActionResponse>, tonic::Status> {
+    request: tonic::Request<forge::RedfishActionId>,
+) -> Result<tonic::Response<forge::RedfishApplyActionResponse>, tonic::Status> {
     log_request_data(&request);
 
     let applier = external_user_info(&request)?.user.ok_or(
         CarbideError::ClientCertificateMissingInformation("external user name".to_string()),
     )?;
 
-    let request: model::redfish::RedfishActionId = request.into_inner().into();
+    let request: nico_api_model::redfish::RedfishActionId = request.into_inner().into();
 
     let mut txn = api.txn_begin().await?;
 
@@ -279,14 +276,12 @@ pub async fn redfish_apply_action(
 
     txn.commit().await?;
 
-    Ok(tonic::Response::new(
-        ::rpc::forge::RedfishApplyActionResponse {},
-    ))
+    Ok(tonic::Response::new(forge::RedfishApplyActionResponse {}))
 }
 
 async fn update_response_in_tx(
     pool: &PgPool,
-    request: model::redfish::RedfishActionId,
+    request: nico_api_model::redfish::RedfishActionId,
     index: usize,
     response: BMCResponse,
 ) -> Result<(), tonic::Status> {
@@ -390,21 +385,21 @@ async fn create_client(
     bmc_proxy: &ArcSwap<Option<HostPortPair>>,
 ) -> Result<
     (
-        rpc::forge::BmcMetaDataGetResponse,
+        forge::BmcMetaDataGetResponse,
         http::Uri,
         HeaderMap,
         reqwest::Client,
     ),
     CarbideError,
 > {
-    let bmc_metadata_request = rpc::forge::BmcMetaDataGetRequest {
+    let bmc_metadata_request = forge::BmcMetaDataGetRequest {
         machine_id: None,
-        bmc_endpoint_request: Some(rpc::forge::BmcEndpointRequest {
+        bmc_endpoint_request: Some(forge::BmcEndpointRequest {
             ip_address: uri.host().map(|x| x.to_string()).unwrap_or_default(),
             mac_address: None,
         }),
-        role: rpc::forge::UserRoles::Administrator.into(),
-        request_type: rpc::forge::BmcRequestType::Ipmi.into(),
+        role: forge::UserRoles::Administrator.into(),
+        request_type: forge::BmcRequestType::Ipmi.into(),
     };
 
     let metadata =
@@ -465,11 +460,11 @@ async fn create_client(
 
 pub async fn redfish_cancel_action(
     api: &crate::api::Api,
-    request: tonic::Request<::rpc::forge::RedfishActionId>,
-) -> Result<tonic::Response<::rpc::forge::RedfishCancelActionResponse>, tonic::Status> {
+    request: tonic::Request<forge::RedfishActionId>,
+) -> Result<tonic::Response<forge::RedfishCancelActionResponse>, tonic::Status> {
     log_request_data(&request);
 
-    let request: model::redfish::RedfishActionId = request.into_inner().into();
+    let request: nico_api_model::redfish::RedfishActionId = request.into_inner().into();
 
     let mut txn = api.txn_begin().await?;
 
@@ -477,9 +472,7 @@ pub async fn redfish_cancel_action(
 
     txn.commit().await?;
 
-    Ok(tonic::Response::new(
-        ::rpc::forge::RedfishCancelActionResponse {},
-    ))
+    Ok(tonic::Response::new(forge::RedfishCancelActionResponse {}))
 }
 
 #[derive(Serialize, Copy, Clone)]

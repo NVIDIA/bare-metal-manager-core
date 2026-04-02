@@ -18,11 +18,11 @@
 // profile/cmds.rs
 // Command handlers for profile operations.
 
-use libmlx::profile::serialization::SerializableProfile;
-use libmlx::runner::result_types::{ComparisonResult, SyncResult};
+use nico_libmlx::profile::serialization::SerializableProfile;
+use nico_libmlx::runner::result_types::{ComparisonResult, SyncResult};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::protos::mlx_device as mlx_device_pb;
 use prettytable::{Cell, Row, Table};
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use rpc::protos::mlx_device as mlx_device_pb;
 
 use super::args::{
     ProfileCommand, ProfileCompareCommand, ProfileListCommand, ProfileShowCommand,

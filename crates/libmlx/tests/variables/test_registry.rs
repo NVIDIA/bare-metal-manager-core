@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use libmlx::device::filters::{DeviceField, DeviceFilter, DeviceFilterSet, MatchMode};
-use libmlx::device::info::MlxDeviceInfo;
-use libmlx::variables::registry::MlxVariableRegistry;
-use libmlx::variables::spec::MlxVariableSpec;
-use libmlx::variables::variable::MlxConfigVariable;
 use mac_address::MacAddress;
+use nico_libmlx::device::filters::{DeviceField, DeviceFilter, DeviceFilterSet, MatchMode};
+use nico_libmlx::device::info::MlxDeviceInfo;
+use nico_libmlx::variables::registry::MlxVariableRegistry;
+use nico_libmlx::variables::spec::MlxVariableSpec;
+use nico_libmlx::variables::variable::MlxConfigVariable;
 
 // create_test_variables creates a set of test variables for registry testing.
 fn create_test_variables() -> Vec<MlxConfigVariable> {

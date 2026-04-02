@@ -17,12 +17,12 @@
 
 use std::collections::HashMap;
 
-use carbide_uuid::instance_type::InstanceTypeId;
 use config_version::ConfigVersion;
-use model::instance_type::{
+use nico_api_model::instance_type::{
     InstanceType, InstanceTypeAssociationDetails, InstanceTypeMachineCapabilityFilter,
 };
-use model::metadata::Metadata;
+use nico_api_model::metadata::Metadata;
+use nico_uuid::instance_type::InstanceTypeId;
 use sqlx::{PgConnection, Postgres};
 
 use crate::DatabaseError;
@@ -238,9 +238,11 @@ pub async fn soft_delete(
 mod tests {
     use std::collections::HashMap;
 
-    use model::instance_type::InstanceTypeMachineCapabilityFilter;
-    use model::machine::capabilities::{MachineCapabilityDeviceType, MachineCapabilityType};
-    use model::metadata::Metadata;
+    use nico_api_model::instance_type::InstanceTypeMachineCapabilityFilter;
+    use nico_api_model::machine::capabilities::{
+        MachineCapabilityDeviceType, MachineCapabilityType,
+    };
+    use nico_api_model::metadata::Metadata;
 
     use super::*;
 

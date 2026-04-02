@@ -19,9 +19,10 @@ use std::cmp::min;
 use std::io::Write;
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineId;
 use errors::MachineValidationError;
 use futures_util::StreamExt;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 mod errors;
@@ -115,7 +116,7 @@ impl MachineValidationManager {
 
         let tests = mc
             .clone()
-            .get_machine_validation_tests(rpc::forge::MachineValidationTestsGetRequest {
+            .get_machine_validation_tests(forge::MachineValidationTestsGetRequest {
                 supported_platforms: vec![platform_name],
                 contexts: if machine_validation_filter
                     .clone()
@@ -140,14 +141,14 @@ impl MachineValidationManager {
                     Some(true)
                 },
                 custom_tags: machine_validation_filter.clone().tags,
-                ..rpc::forge::MachineValidationTestsGetRequest::default()
+                ..forge::MachineValidationTestsGetRequest::default()
             })
             .await?;
-        let mut run_request = rpc::forge::MachineValidationRunRequest {
-            validation_id: Some(rpc::Uuid {
+        let mut run_request = forge::MachineValidationRunRequest {
+            validation_id: Some(nico_rpc::Uuid {
                 value: uuid.to_owned(),
             }),
-            ..rpc::forge::MachineValidationRunRequest::default()
+            ..forge::MachineValidationRunRequest::default()
         };
         let mut expected_time_duration = 0;
         for test in tests.clone() {
@@ -162,7 +163,7 @@ impl MachineValidationManager {
             run_request.total += 1;
             expected_time_duration += test.timeout.unwrap_or(7200);
         }
-        run_request.duration_to_complete = Some(rpc::Duration::from(
+        run_request.duration_to_complete = Some(nico_rpc::Duration::from(
             std::time::Duration::from_secs(expected_time_duration as u64),
         ));
         //Update the duration

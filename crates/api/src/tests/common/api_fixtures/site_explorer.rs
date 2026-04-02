@@ -19,35 +19,39 @@ use std::future::Future;
 use std::iter;
 use std::net::IpAddr;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
-use carbide_uuid::rack::RackId;
-use carbide_uuid::switch::SwitchId;
-use db::machine_interface::find_by_mac_address;
-use db::{DatabaseError, power_shelf as db_power_shelf, rack as db_rack, switch as db_switch};
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use futures_util::FutureExt;
-use health_report::HealthReport;
 use mac_address::MacAddress;
-use model::address_selection_strategy::AddressSelectionStrategy;
-use model::expected_machine::ExpectedMachine;
-use model::hardware_info::HardwareInfo;
-use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
-use model::machine::{
+use nico_api_db::machine_interface::find_by_mac_address;
+use nico_api_db::{
+    DatabaseError, power_shelf as db_power_shelf, rack as db_rack, switch as db_switch,
+};
+use nico_api_model::address_selection_strategy::AddressSelectionStrategy;
+use nico_api_model::expected_machine::ExpectedMachine;
+use nico_api_model::hardware_info::HardwareInfo;
+use nico_api_model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
+use nico_api_model::machine::{
     BomValidating, BomValidatingContext, DpfState, DpuInitState, FailureCause, FailureDetails,
     FailureSource, LockdownInfo, LockdownMode, LockdownState, MachineState, MachineValidatingState,
     ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
 };
-use model::power_shelf::power_shelf_id::from_hardware_info;
-use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
-use model::rack::RackConfig;
-use model::site_explorer::EndpointExplorationReport;
-use model::switch::{NewSwitch, SwitchConfig};
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{self, HealthReportOverride, InsertHealthReportOverrideRequest};
-use rpc::forge_agent_control_response::Action;
-use rpc::machine_discovery::AttestKeyInfo;
-use rpc::{DiscoveryData, DiscoveryInfo};
+use nico_api_model::power_shelf::power_shelf_id::from_hardware_info;
+use nico_api_model::power_shelf::{NewPowerShelf, PowerShelfConfig};
+use nico_api_model::rack::RackConfig;
+use nico_api_model::site_explorer::EndpointExplorationReport;
+use nico_api_model::switch::{NewSwitch, SwitchConfig};
+use nico_health_report::HealthReport;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{
+    HealthReportOverride, InsertHealthReportOverrideRequest, {self},
+};
+use nico_rpc::forge_agent_control_response::Action;
+use nico_rpc::machine_discovery::AttestKeyInfo;
+use nico_rpc::{DiscoveryData, DiscoveryInfo};
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
+use nico_uuid::machine::MachineId;
+use nico_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType};
+use nico_uuid::rack::RackId;
+use nico_uuid::switch::SwitchId;
 use sqlx::PgConnection;
 use tonic::Request;
 use uuid;
@@ -299,7 +303,7 @@ impl<'a> MockExploredHost<'a> {
         let result = self
             .test_env
             .api
-            .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
+            .discover_machine(tonic::Request::new(forge::MachineDiscoveryInfo {
                 machine_interface_id: Some(
                     *self
                         .host_dhcp_response
@@ -336,12 +340,14 @@ impl<'a> MockExploredHost<'a> {
 
         let mut txn = self.test_env.pool.begin().await.unwrap();
 
-        let host_machine_id =
-            db::machine::find_host_by_dpu_machine_id(&mut txn, &self.dpu_machine_ids[&0].clone())
-                .await
-                .unwrap()
-                .unwrap()
-                .id;
+        let host_machine_id = nico_api_db::machine::find_host_by_dpu_machine_id(
+            &mut txn,
+            &self.dpu_machine_ids[&0].clone(),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
 
         for machine_id in self.dpu_machine_ids.values() {
             create_machine_inventory(self.test_env, *machine_id).await;
@@ -352,7 +358,7 @@ impl<'a> MockExploredHost<'a> {
                 &host_machine_id,
                 10 + (10 * self.dpu_machine_ids.len() as u32),
                 ManagedHostState::DPUInit {
-                    dpu_states: model::machine::DpuInitStates {
+                    dpu_states: nico_api_model::machine::DpuInitStates {
                         states: self
                             .dpu_machine_ids
                             .clone()
@@ -383,7 +389,7 @@ impl<'a> MockExploredHost<'a> {
             let _ = self
                 .test_env
                 .api
-                .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
+                .discover_machine(tonic::Request::new(forge::MachineDiscoveryInfo {
                     machine_interface_id: Some(primary_interface.id),
                     create_machine: true,
                     discovery_data: Some(DiscoveryData::Info(
@@ -397,7 +403,7 @@ impl<'a> MockExploredHost<'a> {
             let response = forge_agent_control(self.test_env, *machine_id).await;
             assert_eq!(
                 response.action,
-                rpc::forge_agent_control_response::Action::Discovery as i32
+                nico_rpc::forge_agent_control_response::Action::Discovery as i32
             );
 
             discovery_completed(self.test_env, *machine_id).await;
@@ -410,7 +416,7 @@ impl<'a> MockExploredHost<'a> {
                 &host_machine_id,
                 35,
                 ManagedHostState::DPUInit {
-                    dpu_states: model::machine::DpuInitStates {
+                    dpu_states: nico_api_model::machine::DpuInitStates {
                         states: self
                             .dpu_machine_ids
                             .clone()
@@ -432,12 +438,14 @@ impl<'a> MockExploredHost<'a> {
 
         let mut txn = self.test_env.pool.begin().await.unwrap();
 
-        let host_machine_id =
-            db::machine::find_host_by_dpu_machine_id(&mut txn, &self.dpu_machine_ids[&0].clone())
-                .await
-                .unwrap()
-                .unwrap()
-                .id;
+        let host_machine_id = nico_api_db::machine::find_host_by_dpu_machine_id(
+            &mut txn,
+            &self.dpu_machine_ids[&0].clone(),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
 
         for machine_id in self.dpu_machine_ids.values() {
             create_machine_inventory(self.test_env, *machine_id).await;
@@ -448,7 +456,7 @@ impl<'a> MockExploredHost<'a> {
                 &host_machine_id,
                 10 + (10 * self.dpu_machine_ids.len() as u32),
                 ManagedHostState::DPUInit {
-                    dpu_states: model::machine::DpuInitStates {
+                    dpu_states: nico_api_model::machine::DpuInitStates {
                         states: self
                             .dpu_machine_ids
                             .clone()
@@ -472,7 +480,7 @@ impl<'a> MockExploredHost<'a> {
             let _ = self
                 .test_env
                 .api
-                .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
+                .discover_machine(tonic::Request::new(forge::MachineDiscoveryInfo {
                     machine_interface_id: Some(primary_interface.id),
                     create_machine: true,
                     discovery_data: Some(DiscoveryData::Info(
@@ -486,7 +494,7 @@ impl<'a> MockExploredHost<'a> {
             let response = forge_agent_control(self.test_env, *machine_id).await;
             assert_eq!(
                 response.action,
-                rpc::forge_agent_control_response::Action::Discovery as i32
+                nico_rpc::forge_agent_control_response::Action::Discovery as i32
             );
 
             discovery_completed(self.test_env, *machine_id).await;
@@ -497,7 +505,7 @@ impl<'a> MockExploredHost<'a> {
                 &host_machine_id,
                 35,
                 ManagedHostState::DPUInit {
-                    dpu_states: model::machine::DpuInitStates {
+                    dpu_states: nico_api_model::machine::DpuInitStates {
                         states: self
                             .dpu_machine_ids
                             .clone()
@@ -536,12 +544,14 @@ impl<'a> MockExploredHost<'a> {
 
         let mut txn = self.test_env.pool.begin().await.unwrap();
 
-        let host_machine_id =
-            db::machine::find_host_by_dpu_machine_id(&mut txn, &self.dpu_machine_ids[&0].clone())
-                .await
-                .unwrap()
-                .unwrap()
-                .id;
+        let host_machine_id = nico_api_db::machine::find_host_by_dpu_machine_id(
+            &mut txn,
+            &self.dpu_machine_ids[&0].clone(),
+        )
+        .await
+        .unwrap()
+        .unwrap()
+        .id;
 
         for machine_id in self.dpu_machine_ids.values() {
             create_machine_inventory(self.test_env, *machine_id).await;
@@ -552,7 +562,7 @@ impl<'a> MockExploredHost<'a> {
                 &host_machine_id,
                 25,
                 ManagedHostState::DPUInit {
-                    dpu_states: model::machine::DpuInitStates {
+                    dpu_states: nico_api_model::machine::DpuInitStates {
                         states: self
                             .dpu_machine_ids
                             .clone()
@@ -576,7 +586,7 @@ impl<'a> MockExploredHost<'a> {
             let _ = self
                 .test_env
                 .api
-                .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
+                .discover_machine(tonic::Request::new(forge::MachineDiscoveryInfo {
                     machine_interface_id: Some(primary_interface.id),
                     create_machine: true,
                     discovery_data: Some(DiscoveryData::Info(
@@ -595,7 +605,7 @@ impl<'a> MockExploredHost<'a> {
                 &host_machine_id,
                 35,
                 ManagedHostState::DPUInit {
-                    dpu_states: model::machine::DpuInitStates {
+                    dpu_states: nico_api_model::machine::DpuInitStates {
                         states: self
                             .dpu_machine_ids
                             .clone()
@@ -827,7 +837,7 @@ impl<'a> MockExploredHost<'a> {
         let response = forge_agent_control(self.test_env, host_machine_id).await;
         assert_eq!(
             response.action,
-            rpc::forge_agent_control_response::Action::Noop as i32
+            nico_rpc::forge_agent_control_response::Action::Noop as i32
         );
 
         self.test_env
@@ -855,7 +865,7 @@ impl<'a> MockExploredHost<'a> {
             .collect::<Vec<_>>();
         let mut txn = self.test_env.pool.begin().await?;
         for ip in ips {
-            db::explored_endpoints::set_preingestion_complete(ip, &mut txn).await?;
+            nico_api_db::explored_endpoints::set_preingestion_complete(ip, &mut txn).await?;
         }
         txn.commit().await?;
         Ok(self)
@@ -863,7 +873,7 @@ impl<'a> MockExploredHost<'a> {
 
     pub async fn host_state_controller_iterations_with_machine_validation(
         self,
-        machine_validation_result_data: Option<rpc::forge::MachineValidationResult>,
+        machine_validation_result_data: Option<forge::MachineValidationResult>,
         error: Option<String>,
     ) -> Self {
         let host_machine_id = self
@@ -946,13 +956,15 @@ impl<'a> MockExploredHost<'a> {
         let response = forge_agent_control(self.test_env, host_machine_id).await;
         if self.test_env.config.machine_validation_config.enabled {
             let uuid = &response.data.unwrap().pair[1].value;
-            let validation_id = Some(rpc::Uuid {
+            let validation_id = Some(nico_rpc::Uuid {
                 value: uuid.to_owned(),
             });
             let success = update_machine_validation_run(
                 self.test_env,
                 validation_id.clone(),
-                Some(rpc::Duration::from(std::time::Duration::from_secs(1200))),
+                Some(nico_rpc::Duration::from(std::time::Duration::from_secs(
+                    1200,
+                ))),
                 1,
             )
             .await;
@@ -998,10 +1010,10 @@ impl<'a> MockExploredHost<'a> {
                 self.test_env.run_machine_state_controller_iteration().await;
 
                 let mut txn = self.test_env.pool.begin().await.unwrap();
-                let machine = db::machine::find_one(
+                let machine = nico_api_db::machine::find_one(
                     txn.as_mut(),
                     &self.dpu_machine_ids[&0],
-                    model::machine::machine_search_config::MachineSearchConfig::default(),
+                    nico_api_model::machine::machine_search_config::MachineSearchConfig::default(),
                 )
                 .await
                 .unwrap()
@@ -1126,14 +1138,14 @@ impl<'a> MockExploredHost<'a> {
 
             let mut txn = self.test_env.pool.begin().await.unwrap();
             tracing::info!("generating sku");
-            let sku = db::sku::generate_sku_from_machine(txn.as_mut(), host_machine_id)
+            let sku = nico_api_db::sku::generate_sku_from_machine(txn.as_mut(), host_machine_id)
                 .await
                 .unwrap();
             tracing::info!("creating sku: {}", sku.id);
-            db::sku::create(&mut txn, &sku).await.unwrap();
+            nico_api_db::sku::create(&mut txn, &sku).await.unwrap();
 
             tracing::info!("assigning sku");
-            db::machine::assign_sku(&mut txn, host_machine_id, &sku.id)
+            nico_api_db::machine::assign_sku(&mut txn, host_machine_id, &sku.id)
                 .await
                 .unwrap();
             txn.commit().await.unwrap();
@@ -1163,7 +1175,7 @@ impl<'a> MockExploredHost<'a> {
             tracing::info!("updating inventory");
             // discovery time is based on transaction start time, so this needs a new transaction
             let mut txn = self.test_env.pool.begin().await.unwrap();
-            db::machine::update_discovery_time(host_machine_id, &mut txn)
+            nico_api_db::machine::update_discovery_time(host_machine_id, &mut txn)
                 .await
                 .unwrap();
 
@@ -1194,8 +1206,8 @@ pub async fn register_expected_machine(env: &'_ TestEnv, config: &ManagedHostCon
 
     env.api
         .create_expected_machines(tonic::Request::new(
-            rpc::forge::BatchExpectedMachineOperationRequest {
-                expected_machines: Some(rpc::forge::ExpectedMachineList {
+            forge::BatchExpectedMachineOperationRequest {
+                expected_machines: Some(forge::ExpectedMachineList {
                     expected_machines: vec![em.into()],
                 }),
                 accept_partial_results: false,
@@ -1304,7 +1316,7 @@ pub async fn new_host(
         .await?
         .finish(|mock| async move {
             let machine_id = mock.discovered_machine_id().unwrap();
-            Ok(db::managed_host::load_snapshot(
+            Ok(nico_api_db::managed_host::load_snapshot(
                 &mut env.db_reader(),
                 &machine_id,
                 Default::default(),
@@ -1319,7 +1331,7 @@ pub async fn new_host(
 pub async fn new_host_with_machine_validation(
     env: &TestEnv,
     dpu_count: u8,
-    machine_validation_result_data: Option<rpc::forge::MachineValidationResult>,
+    machine_validation_result_data: Option<forge::MachineValidationResult>,
     error: Option<String>,
 ) -> eyre::Result<ManagedHostStateSnapshot> {
     let managed_host =
@@ -1375,7 +1387,7 @@ pub async fn new_host_with_machine_validation(
         .await
         .finish(|mock| async move {
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
-            Ok(db::managed_host::load_snapshot(
+            Ok(nico_api_db::managed_host::load_snapshot(
                 &mut env.db_reader(),
                 &machine_id,
                 Default::default(),
@@ -1452,11 +1464,12 @@ pub async fn new_dpu_in_network_install(
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_machine_id = mock_explored_host.dpu_machine_ids[&0];
-    let host_machine_id = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
-        .await
-        .unwrap()
-        .unwrap()
-        .id;
+    let host_machine_id =
+        nico_api_db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
 
     Ok(TestManagedHost {
         id: host_machine_id,
@@ -1658,12 +1671,12 @@ pub async fn new_switch(
         None => expected_switches.first().unwrap(),
     };
 
-    let switch_id = model::switch::switch_id::from_hardware_info(
+    let switch_id = nico_api_model::switch::switch_id::from_hardware_info(
         &expected_switch.serial_number,
         "NVIDIA",
         "Switch",
-        carbide_uuid::switch::SwitchIdSource::ProductBoardChassisSerial,
-        carbide_uuid::switch::SwitchType::NvLink,
+        nico_uuid::switch::SwitchIdSource::ProductBoardChassisSerial,
+        nico_uuid::switch::SwitchType::NvLink,
     )
     .map_err(|e| eyre::eyre!("Failed to create switch ID: {:?}", e))
     .unwrap();
@@ -1787,7 +1800,7 @@ pub async fn new_mock_host_with_dpf(
         .await
         .finish(|mock| async move {
             let machine_id = mock.machine_discovery_response.unwrap().machine_id.unwrap();
-            Ok(db::managed_host::load_snapshot(
+            Ok(nico_api_db::managed_host::load_snapshot(
                 &mut env.db_reader(),
                 &machine_id,
                 Default::default(),
@@ -1805,9 +1818,9 @@ pub async fn new_mock_host_with_dpf(
 /// replacing the create_expected_switch.sql fixture.
 pub async fn create_expected_switches(
     txn: &mut sqlx::PgConnection,
-) -> Vec<model::expected_switch::ExpectedSwitch> {
-    use model::expected_switch::ExpectedSwitch;
-    use model::metadata::Metadata;
+) -> Vec<nico_api_model::expected_switch::ExpectedSwitch> {
+    use nico_api_model::expected_switch::ExpectedSwitch;
+    use nico_api_model::metadata::Metadata;
 
     use crate::tests::common::mac_address_pool::EXPECTED_SWITCH_BMC_MAC_ADDRESS_POOL;
 
@@ -1837,17 +1850,17 @@ pub async fn create_expected_switches(
             },
             rack_id: None,
         };
-        let result = db::expected_switch::create(txn, switch)
+        let result = nico_api_db::expected_switch::create(txn, switch)
             .await
             .expect("unable to create expected switch");
 
-        let network_segment = db::network_segment::admin(txn)
+        let network_segment = nico_api_db::network_segment::admin(txn)
             .await
             .map_err(|e| eyre::eyre!("Failed to get admin network segment: {:?}", e))
             .unwrap();
 
         for nvos_mac in &result.nvos_mac_addresses.clone() {
-            db::machine_interface::create(
+            nico_api_db::machine_interface::create(
                 txn,
                 &network_segment,
                 nvos_mac,
@@ -1859,12 +1872,12 @@ pub async fn create_expected_switches(
             .map_err(|e| eyre::eyre!("Failed to create NVOS machine interface: {:?}", e))
             .unwrap();
         }
-        let overlay_network_segment = db::network_segment::find_by_name(txn, "UNDERLAY")
+        let overlay_network_segment = nico_api_db::network_segment::find_by_name(txn, "UNDERLAY")
             .await
             .map_err(|e| eyre::eyre!("Failed to get overlay network segment: {:?}", e))
             .unwrap();
 
-        db::machine_interface::create(
+        nico_api_db::machine_interface::create(
             txn,
             &overlay_network_segment,
             &result.bmc_mac_address.clone(),
@@ -1884,9 +1897,9 @@ pub async fn create_expected_switches(
 /// database, replacing the create_expected_power_shelf.sql fixture.
 pub async fn create_expected_power_shelves(
     txn: &mut sqlx::PgConnection,
-) -> Vec<model::expected_power_shelf::ExpectedPowerShelf> {
-    use model::expected_power_shelf::ExpectedPowerShelf;
-    use model::metadata::Metadata;
+) -> Vec<nico_api_model::expected_power_shelf::ExpectedPowerShelf> {
+    use nico_api_model::expected_power_shelf::ExpectedPowerShelf;
+    use nico_api_model::metadata::Metadata;
 
     use crate::tests::common::mac_address_pool::EXPECTED_POWER_SHELF_BMC_MAC_ADDRESS_POOL;
 
@@ -1906,7 +1919,7 @@ pub async fn create_expected_power_shelves(
             metadata: Metadata::default(),
             rack_id: None,
         };
-        let result = db::expected_power_shelf::create(txn, power_shelf)
+        let result = nico_api_db::expected_power_shelf::create(txn, power_shelf)
             .await
             .expect("unable to create expected power shelf");
         created.push(result);

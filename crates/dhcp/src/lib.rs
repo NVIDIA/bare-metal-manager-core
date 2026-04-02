@@ -20,12 +20,12 @@ use std::sync::atomic::AtomicI64;
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-use forge_tls::default as tls_default;
 use libc::c_char;
 use metrics_endpoint::HealthController;
+use nico_rpc::forge_tls_client::ForgeClientConfig;
+use nico_tls::default as tls_default;
 use once_cell::sync::Lazy;
 use opentelemetry::metrics::Counter;
-use rpc::forge_tls_client::ForgeClientConfig;
 use tokio::runtime::{Builder, Runtime};
 
 mod cache;

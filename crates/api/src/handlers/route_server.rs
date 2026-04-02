@@ -18,7 +18,7 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
+use nico_rpc::forge;
 use tonic::Status;
 
 use crate::api::{Api, log_request_data};
@@ -29,12 +29,12 @@ use crate::{CarbideError, CarbideResult};
 pub(crate) async fn get(
     api: &Api,
     request: tonic::Request<()>,
-) -> Result<tonic::Response<rpc::RouteServerEntries>, Status> {
+) -> Result<tonic::Response<forge::RouteServerEntries>, Status> {
     log_request_data(&request);
 
-    let route_servers = db::route_servers::get(&api.database_connection).await?;
+    let route_servers = nico_api_db::route_servers::get(&api.database_connection).await?;
 
-    Ok(tonic::Response::new(rpc::RouteServerEntries {
+    Ok(tonic::Response::new(forge::RouteServerEntries {
         route_servers: route_servers.into_iter().map(Into::into).collect(),
     }))
 }
@@ -44,19 +44,19 @@ pub(crate) async fn get(
 // admin_api source type.
 pub(crate) async fn add(
     api: &Api,
-    request: tonic::Request<rpc::RouteServers>,
+    request: tonic::Request<forge::RouteServers>,
 ) -> Result<tonic::Response<()>, Status> {
     log_request_data(&request);
 
     let request = request.into_inner();
     let route_servers = get_route_server_ip_addrs(&request.route_servers)?;
-    let source_type: rpc::RouteServerSourceType = request
+    let source_type: forge::RouteServerSourceType = request
         .source_type
         .try_into()
         .map_err(|_| CarbideError::InvalidArgument("source_type".to_string()))?;
 
     let mut txn = api.txn_begin().await?;
-    db::route_servers::add(&mut txn, &route_servers, source_type.into()).await?;
+    nico_api_db::route_servers::add(&mut txn, &route_servers, source_type.into()).await?;
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))
@@ -67,19 +67,19 @@ pub(crate) async fn add(
 // the admin_api source type.
 pub(crate) async fn remove(
     api: &Api,
-    request: tonic::Request<rpc::RouteServers>,
+    request: tonic::Request<forge::RouteServers>,
 ) -> Result<tonic::Response<()>, Status> {
     log_request_data(&request);
 
     let request = request.into_inner();
     let route_servers = get_route_server_ip_addrs(&request.route_servers)?;
-    let source_type: rpc::RouteServerSourceType = request
+    let source_type: forge::RouteServerSourceType = request
         .source_type
         .try_into()
         .map_err(|_| CarbideError::InvalidArgument("source_type".to_string()))?;
 
     let mut txn = api.txn_begin().await?;
-    db::route_servers::remove(&mut txn, &route_servers, source_type.into()).await?;
+    nico_api_db::route_servers::remove(&mut txn, &route_servers, source_type.into()).await?;
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))
@@ -91,19 +91,19 @@ pub(crate) async fn remove(
 // here will be tagged with the admin_api source type.
 pub(crate) async fn replace(
     api: &Api,
-    request: tonic::Request<rpc::RouteServers>,
+    request: tonic::Request<forge::RouteServers>,
 ) -> Result<tonic::Response<()>, Status> {
     log_request_data(&request);
 
     let request = request.into_inner();
     let route_servers = get_route_server_ip_addrs(&request.route_servers)?;
-    let source_type: rpc::RouteServerSourceType = request
+    let source_type: forge::RouteServerSourceType = request
         .source_type
         .try_into()
         .map_err(|_| CarbideError::InvalidArgument("source_type".to_string()))?;
 
     let mut txn = api.txn_begin().await?;
-    db::route_servers::replace(&mut txn, &route_servers, source_type.into()).await?;
+    nico_api_db::route_servers::replace(&mut txn, &route_servers, source_type.into()).await?;
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))

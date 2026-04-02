@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
 use common::api_fixtures::create_test_env;
 use common::api_fixtures::instance::{
     default_os_config, default_tenant_config, single_interface_network_config,
 };
-use rpc::forge as rpcf;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::{forge as rpcf, forge};
+use nico_uuid::machine::MachineId;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu};
@@ -60,7 +60,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     alert.in_alert_since = None;
     assert_eq!(
         *alert,
-        rpc::health::HealthProbeAlert {
+        nico_rpc::health::HealthProbeAlert {
             id: "Maintenance".to_string(),
             target: None,
             in_alert_since: None,
@@ -73,7 +73,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         }
     );
 
-    let instance_config = rpc::InstanceConfig {
+    let instance_config = forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(segment_id)),
@@ -111,7 +111,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // list: should be included
     let machine_ids = env
         .api
-        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+        .find_machine_ids(tonic::Request::new(forge::MachineSearchConfig {
             include_dpus: true,
             include_predicted_host: true,
             only_maintenance: true,
@@ -144,7 +144,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // There are now no machines in maintenance mode
     let machine_ids = env
         .api
-        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+        .find_machine_ids(tonic::Request::new(forge::MachineSearchConfig {
             include_dpus: true,
             include_predicted_host: true,
             only_maintenance: true,
@@ -161,7 +161,7 @@ async fn test_maintenance(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         machine_id: Some(rpc_host_id),
         instance_type_id: None,
         config: Some(instance_config),
-        metadata: Some(rpc::Metadata {
+        metadata: Some(forge::Metadata {
             name: "test_instance".to_string(),
             description: "tests/maintenance".to_string(),
             labels: Vec::new(),
@@ -229,7 +229,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
     // list: should be included
     let machine_ids = env
         .api
-        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+        .find_machine_ids(tonic::Request::new(forge::MachineSearchConfig {
             include_dpus: true,
             include_predicted_host: true,
             only_maintenance: true,
@@ -257,7 +257,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
     // There are now no machines in maintenance mode
     let machines_ids = env
         .api
-        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+        .find_machine_ids(tonic::Request::new(forge::MachineSearchConfig {
             include_dpus: true,
             include_predicted_host: true,
             only_maintenance: true,
@@ -274,7 +274,7 @@ async fn test_maintenance_multi_dpu(db_pool: sqlx::PgPool) -> Result<(), eyre::R
         machine_id: Some(mh.host().id),
         instance_type_id: None,
         config: Some(instance_config),
-        metadata: Some(rpc::Metadata {
+        metadata: Some(forge::Metadata {
             name: "test_instance".to_string(),
             description: "tests/maintenance".to_string(),
             labels: Vec::new(),

@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
-use rpc::forge::CreateRemediationRequest;
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::forge::CreateRemediationRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;

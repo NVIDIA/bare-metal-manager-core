@@ -18,8 +18,8 @@ use std::net::AddrParseError;
 use std::path::PathBuf;
 
 use clap::Parser;
-use ssh_console::config::{Config, ConfigError, Defaults};
-use ssh_console::shutdown_handle::ShutdownHandle;
+use nico_ssh_console::config::{Config, ConfigError, Defaults};
+use nico_ssh_console::shutdown_handle::ShutdownHandle;
 use tracing::metadata::LevelFilter;
 
 #[tokio::main(flavor = "multi_thread")]
@@ -29,7 +29,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         Command::Run(run_command) => {
-            let spawn_handle = ssh_console::spawn((*run_command).try_into()?).await?;
+            let spawn_handle = nico_ssh_console::spawn((*run_command).try_into()?).await?;
             // Let the service run forever by awaiting the join handle, while holding onto the
             // shutdown handle.
             let (_shutdown_tx, join_handle) = spawn_handle.into_parts();

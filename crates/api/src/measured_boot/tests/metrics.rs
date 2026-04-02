@@ -18,8 +18,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use measured_boot::pcr::PcrRegisterValue;
-use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+use nico_measured_boot::pcr::PcrRegisterValue;
+use nico_measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 use prometheus_text_parser::ParsedPrometheusMetrics;
 
 use crate::measured_boot::metrics_collector::metrics::{

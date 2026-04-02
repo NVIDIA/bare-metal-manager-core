@@ -17,15 +17,16 @@
 
 //! Tests for batch instance allocation API
 
-use ::rpc::forge::forge_server::Forge;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::instance::{
     default_os_config, default_tenant_config, single_interface_network_config,
 };
 use common::api_fixtures::{
     TestEnv, create_managed_host, create_test_env, populate_network_security_groups,
 };
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::machine::MachineId;
+use nico_uuid::network::NetworkSegmentId;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 use crate::tests::common;
@@ -45,7 +46,7 @@ async fn test_batch_allocate_instances_success(_: PgPoolOptions, options: PgConn
     let mh3 = create_managed_host(&env).await;
 
     // Build batch allocation request
-    let batch_request = rpc::forge::BatchInstanceAllocationRequest {
+    let batch_request = forge::BatchInstanceAllocationRequest {
         instance_requests: vec![
             build_test_instance_allocation_request(&env, &mh1, segment_id),
             build_test_instance_allocation_request(&env, &mh2, segment_id),
@@ -68,10 +69,10 @@ async fn test_batch_allocate_instances_success(_: PgPoolOptions, options: PgConn
     let mut txn = env.db_txn().await;
     for instance in &response.instances {
         let machine_id = *instance.machine_id.as_ref().unwrap();
-        let snapshot = db::managed_host::load_snapshot(
+        let snapshot = nico_api_db::managed_host::load_snapshot(
             txn.as_mut(),
             &machine_id,
-            model::machine::LoadSnapshotOptions::default(),
+            nico_api_model::machine::LoadSnapshotOptions::default(),
         )
         .await
         .unwrap();
@@ -104,13 +105,13 @@ async fn test_batch_allocate_instances_rollback_on_failure(
     #[allow(deprecated)]
     let invalid_machine_id = MachineId::default();
 
-    let batch_request = rpc::forge::BatchInstanceAllocationRequest {
+    let batch_request = forge::BatchInstanceAllocationRequest {
         instance_requests: vec![
             build_test_instance_allocation_request(&env, &mh1, segment_id),
             // Invalid request - machine doesn't exist
-            rpc::forge::InstanceAllocationRequest {
+            forge::InstanceAllocationRequest {
                 machine_id: Some(invalid_machine_id),
-                config: Some(rpc::forge::InstanceConfig {
+                config: Some(forge::InstanceConfig {
                     tenant: Some(default_tenant_config()),
                     os: Some(default_os_config()),
                     network: Some(single_interface_network_config(segment_id)),
@@ -121,7 +122,7 @@ async fn test_batch_allocate_instances_rollback_on_failure(
                 }),
                 instance_id: None,
                 instance_type_id: None,
-                metadata: Some(rpc::forge::Metadata {
+                metadata: Some(forge::Metadata {
                     name: "test-instance-invalid".to_string(),
                     description: "".to_string(),
                     labels: vec![],
@@ -148,10 +149,10 @@ async fn test_batch_allocate_instances_rollback_on_failure(
 
     // Verify that the first instance was NOT created (transaction rolled back)
     let mut txn = env.db_txn().await;
-    let snapshot1 = db::managed_host::load_snapshot(
+    let snapshot1 = nico_api_db::managed_host::load_snapshot(
         txn.as_mut(),
         &mh1.host().id,
-        model::machine::LoadSnapshotOptions::default(),
+        nico_api_model::machine::LoadSnapshotOptions::default(),
     )
     .await
     .unwrap()
@@ -163,10 +164,10 @@ async fn test_batch_allocate_instances_rollback_on_failure(
     );
 
     // Verify that the third instance was also NOT created
-    let snapshot2 = db::managed_host::load_snapshot(
+    let snapshot2 = nico_api_db::managed_host::load_snapshot(
         txn.as_mut(),
         &mh2.host().id,
-        model::machine::LoadSnapshotOptions::default(),
+        nico_api_model::machine::LoadSnapshotOptions::default(),
     )
     .await
     .unwrap()
@@ -185,7 +186,7 @@ async fn test_batch_allocate_instances_empty_request(_: PgPoolOptions, options: 
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
 
-    let batch_request = rpc::forge::BatchInstanceAllocationRequest {
+    let batch_request = forge::BatchInstanceAllocationRequest {
         instance_requests: vec![],
     };
 
@@ -227,7 +228,7 @@ async fn test_batch_allocate_instances_with_same_nsg(_: PgPoolOptions, options: 
     let mut req2 = build_test_instance_allocation_request(&env, &mh2, segment_id);
     req2.config.as_mut().unwrap().network_security_group_id = Some(nsg_id);
 
-    let batch_request = rpc::forge::BatchInstanceAllocationRequest {
+    let batch_request = forge::BatchInstanceAllocationRequest {
         instance_requests: vec![req1, req2],
     };
 
@@ -247,10 +248,10 @@ fn build_test_instance_allocation_request(
     _env: &TestEnv,
     mh: &TestManagedHost,
     segment_id: NetworkSegmentId,
-) -> rpc::forge::InstanceAllocationRequest {
-    rpc::forge::InstanceAllocationRequest {
+) -> forge::InstanceAllocationRequest {
+    forge::InstanceAllocationRequest {
         machine_id: Some(mh.host().id),
-        config: Some(rpc::forge::InstanceConfig {
+        config: Some(forge::InstanceConfig {
             tenant: Some(default_tenant_config()),
             os: Some(default_os_config()),
             network: Some(single_interface_network_config(segment_id)),
@@ -261,7 +262,7 @@ fn build_test_instance_allocation_request(
         }),
         instance_id: None,
         instance_type_id: None,
-        metadata: Some(rpc::forge::Metadata {
+        metadata: Some(forge::Metadata {
             name: format!("test-instance-{}", uuid::Uuid::new_v4()),
             description: "Test instance for batch allocation".to_string(),
             labels: vec![],

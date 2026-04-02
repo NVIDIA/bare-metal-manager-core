@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::machine::MachineInterfaceId;
+use nico_uuid::machine::MachineInterfaceId;
 use sqlx::{FromRow, PgConnection};
 
 use super::DatabaseError;

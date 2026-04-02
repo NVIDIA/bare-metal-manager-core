@@ -19,14 +19,14 @@ use std::sync::Arc;
 
 use config::Config;
 use eyre::{Report, WrapErr};
+use nico_rpc::JsonDnsResourceRecord;
+use nico_rpc::forge_tls_client::{ApiConfig, ForgeClientT, ForgeTlsClient};
+use nico_rpc::protos::dns::{
+    DnsResourceRecordLookupRequest, DomainMetadataRequest, GetAllDomainsRequest,
+};
 use pdns::request::PdnsRequest;
 use pdns::response::PdnsResponse;
 use pdns::socket::PdnsSocket;
-use rpc::JsonDnsResourceRecord;
-use rpc::forge_tls_client::{ApiConfig, ForgeClientT, ForgeTlsClient};
-use rpc::protos::dns::{
-    DnsResourceRecordLookupRequest, DomainMetadataRequest, GetAllDomainsRequest,
-};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;

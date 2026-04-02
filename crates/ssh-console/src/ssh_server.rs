@@ -20,8 +20,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use nico_rpc::forge_api_client::ForgeApiClient;
 use opentelemetry::metrics::{Counter, Meter, ObservableGauge, UpDownCounter};
-use rpc::forge_api_client::ForgeApiClient;
 use russh::server::{Server as RusshServer, run_stream};
 use russh::{MethodKind, MethodSet};
 use tokio::net::TcpListener;

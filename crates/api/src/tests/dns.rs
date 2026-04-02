@@ -16,10 +16,11 @@
  */
 use std::net::IpAddr;
 
-use carbide_uuid::machine::MachineId;
 use common::api_fixtures::{create_managed_host, create_test_env};
 use const_format::concatcp;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::machine::MachineId;
 use sqlx::{Postgres, Row};
 
 use crate::tests::common;
@@ -62,7 +63,7 @@ async fn test_dns(pool: sqlx::PgPool) {
     tracing::info!("FQDN1: {}", fqdn1);
     let dns_record = api
         .lookup_record(tonic::Request::new(
-            rpc::protos::dns::DnsResourceRecordLookupRequest {
+            nico_rpc::protos::dns::DnsResourceRecordLookupRequest {
                 qname: fqdn1 + ".",
                 zone_id: uuid::Uuid::new_v4().to_string(),
                 local: None,
@@ -87,7 +88,7 @@ async fn test_dns(pool: sqlx::PgPool) {
 
     let dns_record = api
         .lookup_record(tonic::Request::new(
-            rpc::protos::dns::DnsResourceRecordLookupRequest {
+            nico_rpc::protos::dns::DnsResourceRecordLookupRequest {
                 qtype: "A".to_string(),
                 zone_id: uuid::Uuid::new_v4().to_string(),
                 local: None,
@@ -124,13 +125,14 @@ async fn test_dns(pool: sqlx::PgPool) {
         // First, check the BMC record by querying the MachineTopology
         // data for the current machine ID.
         tracing::info!(machine_id = %machine_id, subdomain = %DNS_BMC_SUBDOMAIN, "Checking BMC record");
-        let topologies = db::machine_topology::find_by_machine_ids(&mut txn, &[*machine_id])
-            .await
-            .unwrap();
+        let topologies =
+            nico_api_db::machine_topology::find_by_machine_ids(&mut txn, &[*machine_id])
+                .await
+                .unwrap();
         let topology = &topologies.get(machine_id).unwrap()[0];
         let bmc_record = api
             .lookup_record(tonic::Request::new(
-                rpc::protos::dns::DnsResourceRecordLookupRequest {
+                nico_rpc::protos::dns::DnsResourceRecordLookupRequest {
                     qname: format!("{}.{}.", machine_id, DNS_BMC_SUBDOMAIN),
                     zone_id: uuid::Uuid::new_v4().to_string(),
                     local: None,
@@ -154,13 +156,15 @@ async fn test_dns(pool: sqlx::PgPool) {
         // And now check the ADM (Admin IP) record by querying the
         // MachineInterface data for the given machineID.
         tracing::info!(machine_id = %machine_id, subdomain = %DNS_ADM_SUBDOMAIN, "Checking ADM record");
-        let interface =
-            db::machine_interface::get_machine_interface_primary(&machine_id.clone(), &mut txn)
-                .await
-                .unwrap();
+        let interface = nico_api_db::machine_interface::get_machine_interface_primary(
+            &machine_id.clone(),
+            &mut txn,
+        )
+        .await
+        .unwrap();
         let adm_record = api
             .lookup_record(tonic::Request::new(
-                rpc::protos::dns::DnsResourceRecordLookupRequest {
+                nico_rpc::protos::dns::DnsResourceRecordLookupRequest {
                     qname: format!("{}.{}.", machine_id, DNS_ADM_SUBDOMAIN),
                     zone_id: uuid::Uuid::new_v4().to_string(),
                     local: None,
@@ -193,7 +197,7 @@ async fn test_dns(pool: sqlx::PgPool) {
 
     let status = api
         .lookup_record(tonic::Request::new(
-            rpc::protos::dns::DnsResourceRecordLookupRequest {
+            nico_rpc::protos::dns::DnsResourceRecordLookupRequest {
                 qname: "".to_string(),
                 zone_id: uuid::Uuid::new_v4().to_string(),
                 local: None,
@@ -214,7 +218,7 @@ async fn test_dns(pool: sqlx::PgPool) {
     ] {
         let status = api
             .lookup_record(tonic::Request::new(
-                rpc::protos::dns::DnsResourceRecordLookupRequest {
+                nico_rpc::protos::dns::DnsResourceRecordLookupRequest {
                     qname: name.clone(),
                     zone_id: uuid::Uuid::new_v4().to_string(),
                     local: None,
@@ -246,9 +250,10 @@ async fn test_dns_aaaa(pool: sqlx::PgPool) {
 
     // Get the primary interface for this host — it already has an IPv4 address
     // from the managed host creation flow.
-    let interface = db::machine_interface::get_machine_interface_primary(&host_id, &mut txn)
-        .await
-        .unwrap();
+    let interface =
+        nico_api_db::machine_interface::get_machine_interface_primary(&host_id, &mut txn)
+            .await
+            .unwrap();
     assert!(
         !interface.addresses.is_empty(),
         "interface should have at least one IPv4 address"
@@ -272,7 +277,7 @@ async fn test_dns_aaaa(pool: sqlx::PgPool) {
     let adm_qname = format!("{}.{}.", host_id, DNS_ADM_SUBDOMAIN);
     let dns_response = api
         .lookup_record(tonic::Request::new(
-            rpc::protos::dns::DnsResourceRecordLookupRequest {
+            nico_rpc::protos::dns::DnsResourceRecordLookupRequest {
                 qname: adm_qname.clone(),
                 zone_id: uuid::Uuid::new_v4().to_string(),
                 local: None,
@@ -314,7 +319,7 @@ async fn test_dns_aaaa(pool: sqlx::PgPool) {
     let shortname_qname = format!("{}.{}.", interface.hostname, DOMAIN_NAME);
     let shortname_response = api
         .lookup_record(tonic::Request::new(
-            rpc::protos::dns::DnsResourceRecordLookupRequest {
+            nico_rpc::protos::dns::DnsResourceRecordLookupRequest {
                 qname: shortname_qname,
                 zone_id: uuid::Uuid::new_v4().to_string(),
                 local: None,
@@ -355,9 +360,10 @@ async fn test_dns_aaaa_legacy(pool: sqlx::PgPool) {
     let (host_id, _dpu_id) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await.unwrap();
-    let interface = db::machine_interface::get_machine_interface_primary(&host_id, &mut txn)
-        .await
-        .unwrap();
+    let interface =
+        nico_api_db::machine_interface::get_machine_interface_primary(&host_id, &mut txn)
+            .await
+            .unwrap();
 
     let ipv6_addr: IpAddr = "fd00::1".parse().unwrap();
     sqlx::query("INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1, $2)")
@@ -372,7 +378,7 @@ async fn test_dns_aaaa_legacy(pool: sqlx::PgPool) {
 
     // Test the legacy RPC with q_type=1 (A record).
     let legacy_a_response = api
-        .lookup_record_legacy(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
+        .lookup_record_legacy(tonic::Request::new(forge::dns_message::DnsQuestion {
             q_name: Some(adm_qname.clone()),
             q_class: Some(1),
             q_type: Some(1), // A
@@ -401,7 +407,7 @@ async fn test_dns_aaaa_legacy(pool: sqlx::PgPool) {
 
     // Test the legacy RPC with q_type=28 (AAAA record).
     let legacy_aaaa_response = api
-        .lookup_record_legacy(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
+        .lookup_record_legacy(tonic::Request::new(forge::dns_message::DnsQuestion {
             q_name: Some(adm_qname.clone()),
             q_class: Some(1),
             q_type: Some(28), // AAAA

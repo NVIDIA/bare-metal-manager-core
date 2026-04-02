@@ -16,13 +16,13 @@
  */
 use std::panic::Location;
 
-use carbide_uuid::machine::MachineId;
-use db::DatabaseError;
 use libredfish::RedfishError;
 use librms::RackManagerError;
-use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::machine::ManagedHostState;
-use model::resource_pool::ResourcePoolError;
+use nico_api_db::DatabaseError;
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::machine::ManagedHostState;
+use nico_api_model::resource_pool::ResourcePoolError;
+use nico_uuid::machine::MachineId;
 use sqlx::{PgPool, PgTransaction};
 
 use crate::redfish::RedfishClientCreationError;
@@ -291,13 +291,13 @@ pub enum StateHandlerError {
     },
 
     #[error("Spdm error: {0}")]
-    SpdmError(#[from] model::attestation::spdm::SpdmHandlerError),
+    SpdmError(#[from] nico_api_model::attestation::spdm::SpdmHandlerError),
 
     #[error("Rack Manager error: {0}")]
     RackManagerError(#[from] RackManagerError),
 
     #[error("DPF error: {0}")]
-    DpfError(#[from] carbide_dpf::DpfError),
+    DpfError(#[from] nico_dpf::DpfError),
 }
 
 impl StateHandlerError {

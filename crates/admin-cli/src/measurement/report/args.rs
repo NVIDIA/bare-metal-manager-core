@@ -31,16 +31,16 @@
  *  - `report match``
  */
 
-use ::rpc::protos::measured_boot::{
+use clap::Parser;
+use nico_measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
+use nico_rpc::protos::measured_boot::{
     CreateMeasurementReportRequest, DeleteMeasurementReportRequest, ListMeasurementReportRequest,
     MatchMeasurementReportRequest, PromoteMeasurementReportRequest, RevokeMeasurementReportRequest,
     ShowMeasurementReportForIdRequest, ShowMeasurementReportsForMachineRequest,
     list_measurement_report_request,
 };
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::MeasurementReportId;
-use clap::Parser;
-use measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::MeasurementReportId;
 
 use crate::cfg::measurement::parse_pcr_register_values;
 

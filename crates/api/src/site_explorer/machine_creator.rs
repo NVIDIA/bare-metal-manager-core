@@ -17,20 +17,20 @@
 
 use std::sync::Arc;
 
-use carbide_uuid::machine::MachineId;
-use db::{ObjectColumnFilter, Transaction};
 use librms::RmsApi;
-use model::bmc_info::BmcInfo;
-use model::expected_machine::ExpectedMachineData;
-use model::hardware_info::HardwareInfo;
-use model::machine::machine_id::host_id_from_dpu_hardware_info;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{Machine, MachineInterfaceSnapshot, ManagedHostState};
-use model::machine_interface_address::MachineInterfaceAssociation;
-use model::network_segment::NetworkSegmentType;
-use model::predicted_machine_interface::NewPredictedMachineInterface;
-use model::resource_pool::common::CommonPools;
-use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
+use nico_api_db::{ObjectColumnFilter, Transaction};
+use nico_api_model::bmc_info::BmcInfo;
+use nico_api_model::expected_machine::ExpectedMachineData;
+use nico_api_model::hardware_info::HardwareInfo;
+use nico_api_model::machine::machine_id::host_id_from_dpu_hardware_info;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::{Machine, MachineInterfaceSnapshot, ManagedHostState};
+use nico_api_model::machine_interface_address::MachineInterfaceAssociation;
+use nico_api_model::network_segment::NetworkSegmentType;
+use nico_api_model::predicted_machine_interface::NewPredictedMachineInterface;
+use nico_api_model::resource_pool::common::CommonPools;
+use nico_api_model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
+use nico_uuid::machine::MachineId;
 use sqlx::{PgConnection, PgPool};
 
 use crate::site_explorer::SiteExplorerConfig;
@@ -162,7 +162,7 @@ impl MachineCreator {
                 "Failed to get machine ID for host: {managed_host:#?}"
             )))?;
 
-        db::machine::update_state(
+        nico_api_db::machine::update_state(
             &mut txn,
             &host_machine_id,
             &ManagedHostState::VerifyRmsMembership,
@@ -187,7 +187,7 @@ impl MachineCreator {
         // already.
         let mac_addresses = report.all_mac_addresses();
         for mac_address in &mac_addresses {
-            if db::machine::find_by_mac_address(txn, mac_address)
+            if nico_api_db::machine::find_by_mac_address(txn, mac_address)
                 .await?
                 .is_some()
             {
@@ -196,10 +196,10 @@ impl MachineCreator {
 
             // If we already minted this machine and it hasn't DHCP'd yet, there will be an
             // predicted_machine_interface with this MAC address. If so, also skip.
-            if !db::predicted_machine_interface::find_by(
+            if !nico_api_db::predicted_machine_interface::find_by(
                 txn,
                 ObjectColumnFilter::One(
-                    db::predicted_machine_interface::MacAddressColumn,
+                    nico_api_db::predicted_machine_interface::MacAddressColumn,
                     mac_address,
                 ),
             )
@@ -220,7 +220,7 @@ impl MachineCreator {
 
         tracing::info!(%machine_id, "Minted predicted host ID for zero-DPU machine");
 
-        let existing_machine = db::machine::find_one(
+        let existing_machine = nico_api_db::machine::find_one(
             &mut *txn,
             machine_id,
             MachineSearchConfig {
@@ -255,14 +255,14 @@ impl MachineCreator {
         // the exploration report
         for mac_address in mac_addresses {
             if let Some(machine_interface) =
-                db::machine_interface::find_by_mac_address(&mut *txn, mac_address)
+                nico_api_db::machine_interface::find_by_mac_address(&mut *txn, mac_address)
                     .await?
                     .into_iter()
                     .next()
             {
                 // There's already a machine_interface with this MAC...
                 if let Some(existing_machine_id) = machine_interface.machine_id {
-                    // ...If it has a MachineId, something's gone wrong. We already checked db::machine::find_by_mac()
+                    // ...If it has a MachineId, something's gone wrong. We already checked nico_api_db::machine::find_by_mac()
                     // above for all mac addresses, and returned Ok(false) if any were found. Finding an interface
                     // with this MAC with a non-nil machine_id is a contradiction.
                     tracing::error!(
@@ -278,7 +278,7 @@ impl MachineCreator {
                 } else {
                     // ...If it has no MachineId, the host must have DHCP'd before site-explorer ran. Set it to the new machine ID.
                     tracing::info!(%mac_address, %machine_id, "Migrating unowned machine_interface to new managed host");
-                    db::machine_interface::associate_interface_with_machine(
+                    nico_api_db::machine_interface::associate_interface_with_machine(
                         &machine_interface.id,
                         MachineInterfaceAssociation::Machine(*machine_id),
                         txn,
@@ -286,7 +286,7 @@ impl MachineCreator {
                     .await?;
                 }
             } else {
-                db::predicted_machine_interface::create(
+                nico_api_db::predicted_machine_interface::create(
                     NewPredictedMachineInterface {
                         machine_id,
                         mac_address,
@@ -331,7 +331,7 @@ impl MachineCreator {
         predicted_machine_id: &MachineId,
         machine_data: Option<&ExpectedMachineData>,
     ) -> CarbideResult<()> {
-        _ = db::machine::create(
+        _ = nico_api_db::machine::create(
             txn,
             Some(&self.common_pools),
             predicted_machine_id,
@@ -374,7 +374,8 @@ impl MachineCreator {
 
         // If machine_interface exists for the DPU and machine_id is not updated, do it now.
         if let Some(oob_net0_mac) = oob_net0_mac {
-            let mi = db::machine_interface::find_by_mac_address(&mut *txn, oob_net0_mac).await?;
+            let mi = nico_api_db::machine_interface::find_by_mac_address(&mut *txn, oob_net0_mac)
+                .await?;
 
             if let Some(interface) = mi.first()
                 && interface.machine_id.is_none()
@@ -383,13 +384,13 @@ impl MachineCreator {
                     "Updating machine interface {} with machine id {dpu_machine_id}.",
                     interface.id
                 );
-                db::machine_interface::associate_interface_with_machine(
+                nico_api_db::machine_interface::associate_interface_with_machine(
                     &interface.id,
                     MachineInterfaceAssociation::Machine(*dpu_machine_id),
                     txn,
                 )
                 .await?;
-                db::machine_interface::associate_interface_with_dpu_machine(
+                nico_api_db::machine_interface::associate_interface_with_dpu_machine(
                     &interface.id,
                     dpu_machine_id,
                     txn,
@@ -411,12 +412,16 @@ impl MachineCreator {
         explored_dpu: &ExploredDpu,
     ) -> CarbideResult<Option<Machine>> {
         let dpu_machine_id = explored_dpu.report.machine_id.as_ref().unwrap();
-        match db::machine::find_one(&mut *txn, dpu_machine_id, MachineSearchConfig::default())
-            .await?
+        match nico_api_db::machine::find_one(
+            &mut *txn,
+            dpu_machine_id,
+            MachineSearchConfig::default(),
+        )
+        .await?
         {
             // Do nothing if machine exists. It'll be reprovisioned via redfish
             Some(_existing_machine) => Ok(None),
-            None => match db::machine::create(
+            None => match nico_api_db::machine::create(
                 txn,
                 Some(&self.common_pools),
                 dpu_machine_id,
@@ -450,7 +455,7 @@ impl MachineCreator {
         // In case host interface is created, this method will return existing one, instead
         // creating new everytime.
         let host_machine_interface =
-            db::machine_interface::create_host_machine_dpu_interface_proactively(
+            nico_api_db::machine_interface::create_host_machine_dpu_interface_proactively(
                 txn,
                 Some(&dpu_hw_info),
                 explored_dpu.report.machine_id.as_ref().unwrap(),
@@ -475,7 +480,7 @@ impl MachineCreator {
             )
             .await?;
 
-        db::machine_interface::associate_interface_with_machine(
+        nico_api_db::machine_interface::associate_interface_with_machine(
             &host_machine_interface.id,
             MachineInterfaceAssociation::Machine(host_machine_id),
             txn,
@@ -493,13 +498,14 @@ impl MachineCreator {
         hardware_info: HardwareInfo,
     ) -> CarbideResult<()> {
         let _topology =
-            db::machine_topology::create_or_update(txn, machine_id, &hardware_info).await?;
+            nico_api_db::machine_topology::create_or_update(txn, machine_id, &hardware_info)
+                .await?;
 
         // Forge scout will update this topology with a full information.
-        db::machine_topology::set_topology_update_needed(txn, machine_id, true).await?;
+        nico_api_db::machine_topology::set_topology_update_needed(txn, machine_id, true).await?;
 
         // call enrich_mac_address to fill the MAC address info from the machine_interfaces table
-        db::bmc_metadata::enrich_mac_address(
+        nico_api_db::bmc_metadata::enrich_mac_address(
             &mut bmc_info,
             "SiteExplorer::update_machine_topology".to_string(),
             txn,
@@ -508,7 +514,8 @@ impl MachineCreator {
         )
         .await?;
 
-        db::bmc_metadata::update_bmc_network_into_topologies(txn, machine_id, &bmc_info).await?;
+        nico_api_db::bmc_metadata::update_bmc_network_into_topologies(txn, machine_id, &bmc_info)
+            .await?;
 
         Ok(())
     }
@@ -520,7 +527,7 @@ impl MachineCreator {
     ) -> CarbideResult<()> {
         let (mut network_config, version) = dpu_machine.network_config.clone().take();
         if network_config.loopback_ip.is_none() {
-            let loopback_ip = db::machine::allocate_loopback_ip(
+            let loopback_ip = nico_api_db::machine::allocate_loopback_ip(
                 &self.common_pools,
                 txn,
                 &dpu_machine.id.to_string(),
@@ -532,7 +539,7 @@ impl MachineCreator {
         if self.config.allocate_secondary_vtep_ip
             && network_config.secondary_overlay_vtep_ip.is_none()
         {
-            let secondary_vtep_ip = db::machine::allocate_secondary_vtep_ip(
+            let secondary_vtep_ip = nico_api_db::machine::allocate_secondary_vtep_ip(
                 &self.common_pools,
                 txn,
                 &dpu_machine.id.to_string(),
@@ -542,8 +549,13 @@ impl MachineCreator {
         }
 
         network_config.use_admin_network = Some(true);
-        db::machine::try_update_network_config(txn, &dpu_machine.id, version, &network_config)
-            .await?;
+        nico_api_db::machine::try_update_network_config(
+            txn,
+            &dpu_machine.id,
+            version,
+            &network_config,
+        )
+        .await?;
 
         Ok(())
     }
@@ -574,7 +586,7 @@ impl MachineCreator {
             Some(host_machine_id) => {
                 // This is not the primary interface for this host
                 // The primary interface *must* have already been created for this host (otherwise something very bad has happened)
-                db::machine_interface::set_primary_interface(
+                nico_api_db::machine_interface::set_primary_interface(
                     &host_machine_interface.id,
                     false,
                     txn,
@@ -601,8 +613,12 @@ impl MachineCreator {
                     "Created host machine proactively in site-explorer",
                 );
 
-                db::machine_interface::set_primary_interface(&host_machine_interface.id, true, txn)
-                    .await?;
+                nico_api_db::machine_interface::set_primary_interface(
+                    &host_machine_interface.id,
+                    true,
+                    txn,
+                )
+                .await?;
                 Ok(host_machine_id)
             }
         }
@@ -622,7 +638,7 @@ impl MachineCreator {
         let predicted_machine_id = host_id_from_dpu_hardware_info(&dpu_hw_info)
             .map_err(|e| CarbideError::InvalidArgument(format!("hardware info missing: {e}")))?;
 
-        let _host_machine = db::machine::create(
+        let _host_machine = nico_api_db::machine::create(
             txn,
             Some(&self.common_pools),
             &predicted_machine_id,

@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
-use ::rpc::forge as forgerpc;
 use clap::Parser;
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::forge;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -31,7 +31,7 @@ pub struct Args {
     pub tenant_org_id: Option<String>,
 }
 
-impl TryFrom<&Args> for Option<forgerpc::TenantKeysetIdentifier> {
+impl TryFrom<&Args> for Option<forge::TenantKeysetIdentifier> {
     type Error = CarbideCliError;
 
     fn try_from(args: &Args) -> Result<Self, Self::Error> {
@@ -46,7 +46,7 @@ impl TryFrom<&Args> for Option<forgerpc::TenantKeysetIdentifier> {
             ));
         }
 
-        Ok(Some(forgerpc::TenantKeysetIdentifier {
+        Ok(Some(forge::TenantKeysetIdentifier {
             organization_id: split_id[0].to_string(),
             keyset_id: split_id[1].to_string(),
         }))

@@ -17,8 +17,8 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
 use prettytable::{Table, row};
 
 use crate::rpc::ApiClient;
@@ -44,7 +44,7 @@ pub async fn external_config_show(
 }
 
 pub fn show_external_config_show_details(
-    configs: Vec<forgerpc::MachineValidationExternalConfig>,
+    configs: Vec<forge::MachineValidationExternalConfig>,
     json: bool,
 ) -> CarbideCliResult<()> {
     if json {
@@ -56,7 +56,7 @@ pub fn show_external_config_show_details(
 }
 
 pub fn show_external_config_show(
-    configs: Vec<forgerpc::MachineValidationExternalConfig>,
+    configs: Vec<forge::MachineValidationExternalConfig>,
     json: bool,
 ) -> CarbideCliResult<()> {
     if json {
@@ -68,7 +68,7 @@ pub fn show_external_config_show(
 }
 
 fn convert_external_config_to_nice_format(
-    configs: Vec<forgerpc::MachineValidationExternalConfig>,
+    configs: Vec<forge::MachineValidationExternalConfig>,
 ) -> CarbideCliResult<String> {
     let width = 14;
     let mut lines = String::new();
@@ -108,7 +108,7 @@ fn convert_external_config_to_nice_format(
 }
 
 fn convert_external_config_to_nice_table(
-    configs: Vec<forgerpc::MachineValidationExternalConfig>,
+    configs: Vec<forge::MachineValidationExternalConfig>,
 ) -> Box<Table> {
     let mut table = Table::new();
 

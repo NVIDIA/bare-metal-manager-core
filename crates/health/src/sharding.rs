@@ -57,8 +57,8 @@ impl ShardManager {
 mod tests {
     use std::str::FromStr;
 
-    use carbide_uuid::rack::RackId;
     use mac_address::MacAddress;
+    use nico_uuid::rack::RackId;
 
     use super::*;
     use crate::endpoint::{BmcAddr, BmcCredentials};

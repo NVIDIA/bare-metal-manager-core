@@ -20,11 +20,13 @@ use std::net::SocketAddr;
 use libredfish::RoleId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
-use model::expected_machine::ExpectedMachine;
-use model::expected_power_shelf::ExpectedPowerShelf;
-use model::expected_switch::ExpectedSwitch;
-use model::machine::MachineInterfaceSnapshot;
-use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, LockdownStatus};
+use nico_api_model::expected_machine::ExpectedMachine;
+use nico_api_model::expected_power_shelf::ExpectedPowerShelf;
+use nico_api_model::expected_switch::ExpectedSwitch;
+use nico_api_model::machine::MachineInterfaceSnapshot;
+use nico_api_model::site_explorer::{
+    EndpointExplorationError, EndpointExplorationReport, LockdownStatus,
+};
 
 use super::metrics::SiteExplorationMetrics;
 

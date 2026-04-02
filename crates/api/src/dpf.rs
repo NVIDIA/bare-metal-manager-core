@@ -21,8 +21,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use carbide_dpf::types::{DpuFlavorBridgeDefinition, DpuFlavorDefinition};
-use carbide_dpf::{
+use nico_dpf::types::{DpuFlavorBridgeDefinition, DpuFlavorDefinition};
+use nico_dpf::{
     BmcPasswordProvider, DpfError, DpfSdk, DpuDeviceInfo, DpuNodeInfo, DpuPhase, DpuWatcher,
     KubeRepository, ResourceLabeler, node_id_from_dpu_node_cr_name,
 };
@@ -188,10 +188,10 @@ impl ResourceLabeler for CarbideDPFLabeler {
 }
 
 /// BMC password provider backed by the Carbide credential manager.
-pub struct CarbideBmcPasswordProvider(Arc<dyn forge_secrets::credentials::CredentialReader>);
+pub struct CarbideBmcPasswordProvider(Arc<dyn nico_secrets::credentials::CredentialReader>);
 
 impl CarbideBmcPasswordProvider {
-    pub fn new(credential_reader: Arc<dyn forge_secrets::credentials::CredentialReader>) -> Self {
+    pub fn new(credential_reader: Arc<dyn nico_secrets::credentials::CredentialReader>) -> Self {
         Self(credential_reader)
     }
 }
@@ -199,7 +199,7 @@ impl CarbideBmcPasswordProvider {
 #[async_trait]
 impl BmcPasswordProvider for CarbideBmcPasswordProvider {
     async fn get_bmc_password(&self) -> Result<String, DpfError> {
-        use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
+        use nico_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
         let key = CredentialKey::BmcCredentials {
             credential_type: BmcCredentialType::SiteWideRoot,
         };
@@ -320,7 +320,7 @@ async fn enqueue_host(db_pool: &PgPool, node_name: &str, reason: &str) -> Result
         let mut conn = db_pool.acquire().await.map_err(|e| {
             DpfError::InvalidState(format!("Failed to acquire database connection: {e}"))
         })?;
-        db::machine_topology::find_machine_id_by_bmc_mac(&mut conn, bmc_mac)
+        nico_api_db::machine_topology::find_machine_id_by_bmc_mac(&mut conn, bmc_mac)
             .await
             .map_err(|e| {
                 DpfError::InvalidState(format!("DB error looking up host by BMC MAC: {e}"))
@@ -336,10 +336,10 @@ async fn enqueue_host(db_pool: &PgPool, node_name: &str, reason: &str) -> Result
         let mut conn = db_pool.acquire().await.map_err(|e| {
             DpfError::InvalidState(format!("Failed to acquire database connection: {e}"))
         })?;
-        db::machine::find_one(
+        nico_api_db::machine::find_one(
             &mut *conn,
             &host_machine_id,
-            model::machine::machine_search_config::MachineSearchConfig::default(),
+            nico_api_model::machine::machine_search_config::MachineSearchConfig::default(),
         )
         .await
         .map_err(|e| DpfError::InvalidState(format!("DB error looking up host: {e}")))?

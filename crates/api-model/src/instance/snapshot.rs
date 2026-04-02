@@ -17,13 +17,13 @@
 
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::network_security_group::NetworkSecurityGroupId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
+use nico_rpc::errors::RpcDataConversionError;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::instance_type::InstanceTypeId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::network_security_group::NetworkSecurityGroupId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use libmlx::firmware::source::FirmwareSource;
+use nico_libmlx::firmware::source::FirmwareSource;
 
 // -- from_url: local paths --
 

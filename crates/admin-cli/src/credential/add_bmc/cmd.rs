@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge as forgerpc;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::forge;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -24,7 +24,7 @@ use crate::rpc::ApiClient;
 pub async fn add_bmc(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
     api_client
         .0
-        .create_credential(forgerpc::CredentialCreationRequest::try_from(data)?)
+        .create_credential(forge::CredentialCreationRequest::try_from(data)?)
         .await?;
     Ok(())
 }

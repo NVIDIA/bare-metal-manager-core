@@ -22,8 +22,12 @@ use std::io::Write;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use tracing::field::{self, Field, Visit};
-use tracing::span::{self, Attributes};
+use tracing::field::{
+    Field, Visit, {self},
+};
+use tracing::span::{
+    Attributes, {self},
+};
 use tracing::{Event, Subscriber};
 use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;

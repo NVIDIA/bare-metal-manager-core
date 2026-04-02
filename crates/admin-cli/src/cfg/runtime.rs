@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use rpc::admin_cli::OutputFormat;
+use nico_rpc::admin_cli::OutputFormat;
 
 use crate::cfg::cli_options::SortField;
 use crate::rpc::ApiClient;

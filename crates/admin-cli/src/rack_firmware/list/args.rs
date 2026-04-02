@@ -16,6 +16,7 @@
  */
 
 use clap::Parser;
+use nico_rpc::forge;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -23,7 +24,7 @@ pub struct Args {
     pub only_available: bool,
 }
 
-impl From<Args> for rpc::forge::RackFirmwareListRequest {
+impl From<Args> for forge::RackFirmwareListRequest {
     fn from(args: Args) -> Self {
         Self {
             only_available: args.only_available,

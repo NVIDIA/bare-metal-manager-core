@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::extension_service::ExtensionServiceId;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::extension_service::ExtensionServiceId;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -62,18 +62,18 @@ impl std::str::FromStr for ExtensionServiceType {
     }
 }
 
-impl From<ExtensionServiceType> for rpc::DpuExtensionServiceType {
+impl From<ExtensionServiceType> for forge::DpuExtensionServiceType {
     fn from(service_type: ExtensionServiceType) -> Self {
         match service_type {
-            ExtensionServiceType::KubernetesPod => rpc::DpuExtensionServiceType::KubernetesPod,
+            ExtensionServiceType::KubernetesPod => forge::DpuExtensionServiceType::KubernetesPod,
         }
     }
 }
 
-impl From<rpc::DpuExtensionServiceType> for ExtensionServiceType {
-    fn from(service_type: rpc::DpuExtensionServiceType) -> Self {
+impl From<forge::DpuExtensionServiceType> for ExtensionServiceType {
+    fn from(service_type: forge::DpuExtensionServiceType) -> Self {
         match service_type {
-            rpc::DpuExtensionServiceType::KubernetesPod => ExtensionServiceType::KubernetesPod,
+            forge::DpuExtensionServiceType::KubernetesPod => ExtensionServiceType::KubernetesPod,
         }
     }
 }
@@ -130,7 +130,7 @@ pub struct ExtensionServiceVersionInfo {
     pub deleted: Option<DateTime<Utc>>,
 }
 
-impl From<ExtensionServiceVersionInfo> for rpc::DpuExtensionServiceVersionInfo {
+impl From<ExtensionServiceVersionInfo> for forge::DpuExtensionServiceVersionInfo {
     fn from(version: ExtensionServiceVersionInfo) -> Self {
         Self {
             version: version.version.to_string(),
@@ -159,7 +159,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for ExtensionServiceVersionInfo {
     }
 }
 
-/// A snapshot of the extension service information from DB that matches rpc::ExtensionService message.
+/// A snapshot of the extension service information from DB that matches forge::ExtensionService message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtensionServiceSnapshot {
     pub service_id: ExtensionServiceId,
@@ -246,7 +246,7 @@ impl<'r> FromRow<'r, PgRow> for ExtensionServiceSnapshot {
     }
 }
 
-impl From<ExtensionServiceSnapshot> for rpc::DpuExtensionService {
+impl From<ExtensionServiceSnapshot> for forge::DpuExtensionService {
     fn from(snapshot: ExtensionServiceSnapshot) -> Self {
         Self {
             service_id: snapshot.service_id.into(),
@@ -296,7 +296,7 @@ pub struct ExtensionServiceObservability {
     pub configs: Vec<ExtensionServiceObservabilityConfig>,
 }
 
-impl From<ExtensionServiceObservability> for rpc::DpuExtensionServiceObservability {
+impl From<ExtensionServiceObservability> for forge::DpuExtensionServiceObservability {
     fn from(o: ExtensionServiceObservability) -> Self {
         Self {
             configs: o.configs.into_iter().map(|c| c.into()).collect(),
@@ -304,10 +304,10 @@ impl From<ExtensionServiceObservability> for rpc::DpuExtensionServiceObservabili
     }
 }
 
-impl TryFrom<rpc::DpuExtensionServiceObservability> for ExtensionServiceObservability {
+impl TryFrom<forge::DpuExtensionServiceObservability> for ExtensionServiceObservability {
     type Error = RpcDataConversionError;
 
-    fn try_from(o: rpc::DpuExtensionServiceObservability) -> Result<Self, Self::Error> {
+    fn try_from(o: forge::DpuExtensionServiceObservability) -> Result<Self, Self::Error> {
         Ok(Self {
             configs: o
                 .configs
@@ -318,22 +318,22 @@ impl TryFrom<rpc::DpuExtensionServiceObservability> for ExtensionServiceObservab
     }
 }
 
-impl From<ExtensionServiceObservabilityConfig> for rpc::DpuExtensionServiceObservabilityConfig {
+impl From<ExtensionServiceObservabilityConfig> for forge::DpuExtensionServiceObservabilityConfig {
     fn from(o: ExtensionServiceObservabilityConfig) -> Self {
         Self {
             name: o.name,
             config: Some(match o.config {
                 ExtensionServiceObservabilityConfigType::Prometheus(c) => {
-                    rpc::dpu_extension_service_observability_config::Config::Prometheus(
-                        rpc::DpuExtensionServiceObservabilityConfigPrometheus {
+                    forge::dpu_extension_service_observability_config::Config::Prometheus(
+                        forge::DpuExtensionServiceObservabilityConfigPrometheus {
                             scrape_interval_seconds: c.scrape_interval_seconds,
                             endpoint: c.endpoint,
                         },
                     )
                 }
                 ExtensionServiceObservabilityConfigType::Logging(c) => {
-                    rpc::dpu_extension_service_observability_config::Config::Logging(
-                        rpc::DpuExtensionServiceObservabilityConfigLogging { path: c.path },
+                    forge::dpu_extension_service_observability_config::Config::Logging(
+                        forge::DpuExtensionServiceObservabilityConfigLogging { path: c.path },
                     )
                 }
             }),
@@ -341,10 +341,12 @@ impl From<ExtensionServiceObservabilityConfig> for rpc::DpuExtensionServiceObser
     }
 }
 
-impl TryFrom<rpc::DpuExtensionServiceObservabilityConfig> for ExtensionServiceObservabilityConfig {
+impl TryFrom<forge::DpuExtensionServiceObservabilityConfig>
+    for ExtensionServiceObservabilityConfig
+{
     type Error = RpcDataConversionError;
 
-    fn try_from(c: rpc::DpuExtensionServiceObservabilityConfig) -> Result<Self, Self::Error> {
+    fn try_from(c: forge::DpuExtensionServiceObservabilityConfig) -> Result<Self, Self::Error> {
         let Some(config) = c.config else {
             return Err(RpcDataConversionError::MissingArgument(
                 "DpuExtensionServiceObservability.config",
@@ -363,7 +365,7 @@ impl TryFrom<rpc::DpuExtensionServiceObservabilityConfig> for ExtensionServiceOb
         Ok(Self {
             name: c.name,
             config: match config {
-                rpc::dpu_extension_service_observability_config::Config::Prometheus(c) => {
+                forge::dpu_extension_service_observability_config::Config::Prometheus(c) => {
                     if c.endpoint.len() > MAX_OBSERVABILITY_PROPERTY_LEN {
                         return Err(RpcDataConversionError::InvalidValue(
                             "DpuExtensionServiceObservability.config.endpoint".to_string(),
@@ -388,7 +390,7 @@ impl TryFrom<rpc::DpuExtensionServiceObservabilityConfig> for ExtensionServiceOb
                         },
                     )
                 }
-                rpc::dpu_extension_service_observability_config::Config::Logging(c) => {
+                forge::dpu_extension_service_observability_config::Config::Logging(c) => {
                     if c.path.len() > MAX_OBSERVABILITY_PROPERTY_LEN {
                         return Err(RpcDataConversionError::InvalidValue(
                             "DpuExtensionServiceObservability.config.path".to_string(),
@@ -417,8 +419,8 @@ impl TryFrom<rpc::DpuExtensionServiceObservabilityConfig> for ExtensionServiceOb
 
 #[cfg(test)]
 mod tests {
-    use ::rpc::forge::dpu_extension_service_observability_config::Config;
-    use ::rpc::forge::{self as rpc};
+    use nico_rpc::forge;
+    use nico_rpc::forge::dpu_extension_service_observability_config::Config;
 
     use super::*;
 
@@ -426,10 +428,10 @@ mod tests {
     fn test_observability_config_from_rpc() {
         // Try a bad name
         ExtensionServiceObservabilityConfig::try_from(
-            rpc::DpuExtensionServiceObservabilityConfig {
+            forge::DpuExtensionServiceObservabilityConfig {
                 name: Some("a".repeat(1024)),
                 config: Some(Config::Logging(
-                    rpc::DpuExtensionServiceObservabilityConfigLogging {
+                    forge::DpuExtensionServiceObservabilityConfigLogging {
                         path: "/dev/null".to_string(),
                     },
                 )),
@@ -439,7 +441,7 @@ mod tests {
 
         // Try a missing config
         ExtensionServiceObservabilityConfig::try_from(
-            rpc::DpuExtensionServiceObservabilityConfig {
+            forge::DpuExtensionServiceObservabilityConfig {
                 name: Some("a".repeat(10)),
                 config: None,
             },
@@ -448,10 +450,10 @@ mod tests {
 
         // Try a bad log path size
         ExtensionServiceObservabilityConfig::try_from(
-            rpc::DpuExtensionServiceObservabilityConfig {
+            forge::DpuExtensionServiceObservabilityConfig {
                 name: Some("a".repeat(10)),
                 config: Some(Config::Logging(
-                    rpc::DpuExtensionServiceObservabilityConfigLogging {
+                    forge::DpuExtensionServiceObservabilityConfigLogging {
                         path: "/dev/null".repeat(1024),
                     },
                 )),
@@ -461,10 +463,10 @@ mod tests {
 
         // Try a bad log path
         ExtensionServiceObservabilityConfig::try_from(
-            rpc::DpuExtensionServiceObservabilityConfig {
+            forge::DpuExtensionServiceObservabilityConfig {
                 name: Some("a".repeat(10)),
                 config: Some(Config::Logging(
-                    rpc::DpuExtensionServiceObservabilityConfigLogging {
+                    forge::DpuExtensionServiceObservabilityConfigLogging {
                         path: "/dev/null$$$$$$".repeat(1024),
                     },
                 )),
@@ -474,10 +476,10 @@ mod tests {
 
         // Try a bad endpoint
         ExtensionServiceObservabilityConfig::try_from(
-            rpc::DpuExtensionServiceObservabilityConfig {
+            forge::DpuExtensionServiceObservabilityConfig {
                 name: Some("a".repeat(10)),
                 config: Some(Config::Prometheus(
-                    rpc::DpuExtensionServiceObservabilityConfigPrometheus {
+                    forge::DpuExtensionServiceObservabilityConfigPrometheus {
                         endpoint: "localhost".repeat(1024),
                         scrape_interval_seconds: 30,
                     },
@@ -488,10 +490,10 @@ mod tests {
 
         // Try another bad endpoint using bad characters
         ExtensionServiceObservabilityConfig::try_from(
-            rpc::DpuExtensionServiceObservabilityConfig {
+            forge::DpuExtensionServiceObservabilityConfig {
                 name: Some("a".repeat(10)),
                 config: Some(Config::Prometheus(
-                    rpc::DpuExtensionServiceObservabilityConfigPrometheus {
+                    forge::DpuExtensionServiceObservabilityConfigPrometheus {
                         endpoint: "/this/is/not/valid".repeat(1024),
                         scrape_interval_seconds: 30,
                     },
@@ -503,10 +505,10 @@ mod tests {
         // Try a good prom config
         assert_eq!(
             ExtensionServiceObservabilityConfig::try_from(
-                rpc::DpuExtensionServiceObservabilityConfig {
+                forge::DpuExtensionServiceObservabilityConfig {
                     name: Some("a".repeat(10)),
                     config: Some(Config::Prometheus(
-                        rpc::DpuExtensionServiceObservabilityConfigPrometheus {
+                        forge::DpuExtensionServiceObservabilityConfigPrometheus {
                             endpoint: "localhost:8080".to_string(),
                             scrape_interval_seconds: 30,
                         },
@@ -528,10 +530,10 @@ mod tests {
         // Try a good logging config
         assert_eq!(
             ExtensionServiceObservabilityConfig::try_from(
-                rpc::DpuExtensionServiceObservabilityConfig {
+                forge::DpuExtensionServiceObservabilityConfig {
                     name: Some("a".repeat(10)),
                     config: Some(Config::Logging(
-                        rpc::DpuExtensionServiceObservabilityConfigLogging {
+                        forge::DpuExtensionServiceObservabilityConfigLogging {
                             path: "/dev/null@home".to_string(),
                         },
                     )),

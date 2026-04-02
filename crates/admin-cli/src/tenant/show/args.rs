@@ -16,7 +16,7 @@
  */
 
 use clap::Parser;
-use rpc::forge::FindTenantRequest;
+use nico_rpc::forge::FindTenantRequest;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {

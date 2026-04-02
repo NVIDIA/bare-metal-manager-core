@@ -17,8 +17,7 @@
 
 use std::net::IpAddr;
 
-use ::rpc::forge as rpc;
-use db;
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -28,8 +27,8 @@ use crate::ipxe::PxeInstructions;
 // The carbide pxe server makes this RPC call
 pub(crate) async fn get_pxe_instructions(
     api: &Api,
-    request: Request<rpc::PxeInstructionRequest>,
-) -> Result<Response<rpc::PxeInstructions>, Status> {
+    request: Request<forge::PxeInstructionRequest>,
+) -> Result<Response<forge::PxeInstructions>, Status> {
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
@@ -40,13 +39,13 @@ pub(crate) async fn get_pxe_instructions(
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::PxeInstructions { pxe_script }))
+    Ok(Response::new(forge::PxeInstructions { pxe_script }))
 }
 
 pub(crate) async fn get_cloud_init_instructions(
     api: &Api,
-    request: Request<rpc::CloudInitInstructionsRequest>,
-) -> Result<Response<rpc::CloudInitInstructions>, Status> {
+    request: Request<forge::CloudInitInstructionsRequest>,
+) -> Result<Response<forge::CloudInitInstructions>, Status> {
     log_request_data(&request);
     let cloud_name = "nvidia".to_string();
     let platform = "forge".to_string();
@@ -65,10 +64,10 @@ pub(crate) async fn get_cloud_init_instructions(
     // prefix, network segment, and IP allocators behind the scenes for supporting
     // dual stacking interfaces, none of that means much until DHCPv6 is working
     // to actually hand those addresses out.
-    let instructions = match db::instance_address::find_by_address(db, ip).await? {
+    let instructions = match nico_api_db::instance_address::find_by_address(db, ip).await? {
         None => {
             // assume there is no instance associated with this IP and check if there is an interface associated with it
-            let machine_interface = db::machine_interface::find_by_ip(db, ip)
+            let machine_interface = nico_api_db::machine_interface::find_by_ip(db, ip)
                 .await?
                 .ok_or_else(|| {
                     CarbideError::internal(format!("No machine interface with IP {ip} was found"))
@@ -81,7 +80,7 @@ pub(crate) async fn get_cloud_init_instructions(
                 ))
             })?;
 
-            let domain = db::dns::domain::find_by_uuid(db, domain_id)
+            let domain = nico_api_db::dns::domain::find_by_uuid(db, domain_id)
                 .await
                 .map_err(CarbideError::from)?
                 .ok_or_else(|| {
@@ -94,26 +93,28 @@ pub(crate) async fn get_cloud_init_instructions(
             // It is possible for the user data to be null if we are only trying to test the pxe, and this will
             // follow the same code path and retrieve the non custom user data
             let custom_cloud_init =
-                match db::machine_boot_override::find_optional(db, machine_interface.id).await? {
+                match nico_api_db::machine_boot_override::find_optional(db, machine_interface.id)
+                    .await?
+                {
                     Some(machine_boot_override) => machine_boot_override.custom_user_data,
                     None => None,
                 };
 
-            let metadata: Option<rpc::CloudInitMetaData> = machine_interface
+            let metadata: Option<forge::CloudInitMetaData> = machine_interface
                 .machine_id
                 .as_ref()
-                .map(|machine_id| rpc::CloudInitMetaData {
+                .map(|machine_id| forge::CloudInitMetaData {
                     instance_id: machine_id.to_string(),
                     cloud_name,
                     platform,
                 });
 
-            rpc::CloudInitInstructions {
+            forge::CloudInitInstructions {
                 custom_cloud_init,
-                discovery_instructions: Some(rpc::CloudInitDiscoveryInstructions {
+                discovery_instructions: Some(forge::CloudInitDiscoveryInstructions {
                     machine_interface: Some(machine_interface.into()),
-                    domain: Some(rpc::PxeDomain {
-                        domain: Some(rpc::pxe_domain::Domain::NewDomain(domain.into())),
+                    domain: Some(forge::PxeDomain {
+                        domain: Some(forge::pxe_domain::Domain::NewDomain(domain.into())),
                     }),
                     hbn_reps: api
                         .runtime_config
@@ -166,7 +167,7 @@ pub(crate) async fn get_cloud_init_instructions(
         }
 
         Some(instance_address) => {
-            let instance = db::instance::find_by_id(db, instance_address.instance_id)
+            let instance = nico_api_db::instance::find_by_id(db, instance_address.instance_id)
                 .await?
                 .ok_or_else(|| {
                     // Note that this isn't a NotFound error since it indicates an
@@ -177,10 +178,10 @@ pub(crate) async fn get_cloud_init_instructions(
                     ))
                 })?;
 
-            rpc::CloudInitInstructions {
+            forge::CloudInitInstructions {
                 custom_cloud_init: instance.config.os.user_data,
                 discovery_instructions: None,
-                metadata: Some(rpc::CloudInitMetaData {
+                metadata: Some(forge::CloudInitMetaData {
                     instance_id: instance.id.to_string(),
                     cloud_name,
                     platform,

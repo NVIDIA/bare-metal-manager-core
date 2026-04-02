@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
-use model::bmc_info::BmcInfo;
+use nico_api_model::bmc_info::BmcInfo;
+use nico_uuid::machine::MachineId;
 use serde_json::json;
 use sqlx::PgConnection;
 

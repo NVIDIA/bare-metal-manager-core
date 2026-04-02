@@ -15,7 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::errors::RpcDataConversionError;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
 use serde::{Deserialize, Serialize};
 
 /// The most recent tenant related status
@@ -27,12 +28,12 @@ pub struct InstanceTenantStatus {
     pub state_details: String,
 }
 
-impl TryFrom<InstanceTenantStatus> for rpc::InstanceTenantStatus {
+impl TryFrom<InstanceTenantStatus> for forge::InstanceTenantStatus {
     type Error = RpcDataConversionError;
 
     fn try_from(state: InstanceTenantStatus) -> Result<Self, Self::Error> {
-        Ok(rpc::InstanceTenantStatus {
-            state: rpc::TenantState::try_from(state.state)? as i32,
+        Ok(forge::InstanceTenantStatus {
+            state: forge::TenantState::try_from(state.state)? as i32,
             state_details: state.state_details,
         })
     }
@@ -73,21 +74,21 @@ pub enum TenantState {
     Invalid,
 }
 
-impl TryFrom<TenantState> for rpc::TenantState {
+impl TryFrom<TenantState> for forge::TenantState {
     type Error = RpcDataConversionError;
 
     fn try_from(state: TenantState) -> Result<Self, Self::Error> {
         Ok(match state {
-            TenantState::Provisioning => rpc::TenantState::Provisioning,
-            TenantState::DpuReprovisioning => rpc::TenantState::DpuReprovisioning,
-            TenantState::Ready => rpc::TenantState::Ready,
-            TenantState::Configuring => rpc::TenantState::Configuring,
-            TenantState::Terminating => rpc::TenantState::Terminating,
-            TenantState::Terminated => rpc::TenantState::Terminated,
-            TenantState::Failed => rpc::TenantState::Failed,
-            TenantState::HostReprovisioning => rpc::TenantState::HostReprovisioning,
-            TenantState::Updating => rpc::TenantState::Updating,
-            TenantState::Invalid => rpc::TenantState::Invalid,
+            TenantState::Provisioning => forge::TenantState::Provisioning,
+            TenantState::DpuReprovisioning => forge::TenantState::DpuReprovisioning,
+            TenantState::Ready => forge::TenantState::Ready,
+            TenantState::Configuring => forge::TenantState::Configuring,
+            TenantState::Terminating => forge::TenantState::Terminating,
+            TenantState::Terminated => forge::TenantState::Terminated,
+            TenantState::Failed => forge::TenantState::Failed,
+            TenantState::HostReprovisioning => forge::TenantState::HostReprovisioning,
+            TenantState::Updating => forge::TenantState::Updating,
+            TenantState::Invalid => forge::TenantState::Invalid,
         })
     }
 }

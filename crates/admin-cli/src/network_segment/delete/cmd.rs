@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 
 use super::args::Args;
 use crate::cfg::runtime::RuntimeContext;

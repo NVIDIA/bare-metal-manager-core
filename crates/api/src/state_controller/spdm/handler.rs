@@ -24,14 +24,14 @@ use itertools::Itertools;
 use libredfish::Redfish;
 use libredfish::model::component_integrity::{ComponentIntegrities, ComponentIntegrity};
 use libredfish::model::task::TaskState;
-use model::attestation::spdm::{
+use nico_api_model::attestation::spdm::{
     AttestationDeviceState, AttestationState, AttestationStatus, DeviceType,
     EvidenceResultAppraisalPolicyDeviceStates, FetchDataDeviceStates, SpdmAttestationStatus,
     SpdmHandlerError, SpdmMachineDeviceAttestation, SpdmMachineDeviceMetadata, SpdmMachineSnapshot,
     SpdmMachineStateSnapshot, SpdmObjectId, VerificationDeviceStates, Verifier,
     from_component_integrity,
 };
-use model::bmc_info::BmcInfo;
+use nico_api_model::bmc_info::BmcInfo;
 use nras::{DeviceAttestationInfo, EvidenceCertificate, RawAttestationOutcome, VerifierClient};
 
 use crate::state_controller::spdm::context::SpdmStateHandlerContextObjects;
@@ -121,7 +121,7 @@ fn next_state_snapshot(
         AttestationState::Completed | AttestationState::ApplyEvidenceResultAppraisalPolicy => (
             AttestationState::Completed,
             AttestationDeviceState::AttestationCompleted {
-                status: model::attestation::spdm::AttestationStatus::Success,
+                status: nico_api_model::attestation::spdm::AttestationStatus::Success,
             },
             true,
         ),
@@ -252,14 +252,18 @@ impl StateHandler for SpdmAttestationStateHandler {
                 let status = if root.component_integrity.is_none() {
                     SpdmAttestationStatus::NotSupported
                 } else {
-                    db::attestation::spdm::update_started_time(&mut txn, &machine_id)
+                    nico_api_db::attestation::spdm::update_started_time(&mut txn, &machine_id)
                         .await
                         .map_err(StateHandlerError::from)?;
                     SpdmAttestationStatus::Started
                 };
-                db::attestation::spdm::update_attestation_status(&mut txn, &machine_id, &status)
-                    .await
-                    .map_err(StateHandlerError::from)?;
+                nico_api_db::attestation::spdm::update_attestation_status(
+                    &mut txn,
+                    &machine_id,
+                    &status,
+                )
+                .await
+                .map_err(StateHandlerError::from)?;
 
                 // Update state only if attestation is supported.
                 // In any case if status is set as not_supported, this machine won't be picked for
@@ -289,7 +293,7 @@ impl StateHandler for SpdmAttestationStateHandler {
                 let components = get_components_supporting_spdm(&component_integrities);
 
                 if components.is_empty() {
-                    db::attestation::spdm::update_attestation_status(
+                    nico_api_db::attestation::spdm::update_attestation_status(
                         &mut txn,
                         &machine_id,
                         &SpdmAttestationStatus::NotSupported,
@@ -309,7 +313,7 @@ impl StateHandler for SpdmAttestationStateHandler {
                     .map(|x| from_component_integrity(x.clone(), machine_id))
                     .collect_vec();
 
-                db::attestation::spdm::insert_devices(&mut txn, &machine_id, devices)
+                nico_api_db::attestation::spdm::insert_devices(&mut txn, &machine_id, devices)
                     .await
                     .map_err(StateHandlerError::from)?;
 
@@ -366,7 +370,7 @@ impl StateHandler for SpdmAttestationStateHandler {
                         .values()
                         .all(|x| matches!(x, AttestationDeviceState::AttestationCompleted { .. }))
                     {
-                        db::attestation::spdm::update_attestation_status(
+                        nico_api_db::attestation::spdm::update_attestation_status(
                             &mut txn,
                             &machine_id,
                             &SpdmAttestationStatus::Completed,
@@ -471,7 +475,7 @@ impl StateHandler for SpdmAttestationDeviceStateHandler {
                         let mut txn = ctx.services.db_pool.begin().await?;
 
                         let metadata = SpdmMachineDeviceMetadata { firmware_version };
-                        db::attestation::spdm::update_metadata(
+                        nico_api_db::attestation::spdm::update_metadata(
                             &mut txn,
                             &object_id.0,
                             device_id,
@@ -510,7 +514,7 @@ impl StateHandler for SpdmAttestationDeviceStateHandler {
                             })?;
 
                         let mut txn = ctx.services.db_pool.begin().await?;
-                        db::attestation::spdm::update_certificate(
+                        nico_api_db::attestation::spdm::update_certificate(
                             &mut txn,
                             &object_id.0,
                             device_id,
@@ -601,7 +605,7 @@ impl StateHandler for SpdmAttestationDeviceStateHandler {
                                         // retry count exhausted.
                                         AttestationDeviceState::AttestationCompleted {
                                         status:
-                                            model::attestation::spdm::AttestationStatus::Failure {
+                                            nico_api_model::attestation::spdm::AttestationStatus::Failure {
                                                 cause: SpdmHandlerError::TriggerMeasurementFail(
                                                     err,
                                                 ),
@@ -640,7 +644,7 @@ impl StateHandler for SpdmAttestationDeviceStateHandler {
                             }
                         })?;
                         let mut txn = ctx.services.db_pool.begin().await?;
-                        db::attestation::spdm::update_evidence(
+                        nico_api_db::attestation::spdm::update_evidence(
                             &mut txn,
                             &object_id.0,
                             device_id,

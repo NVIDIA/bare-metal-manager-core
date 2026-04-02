@@ -14,9 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use db::{self, ObjectColumnFilter, network_segment};
-use model::address_selection_strategy::AddressSelectionStrategy;
-use model::machine::machine_id::from_hardware_info;
+use nico_api_db::{
+    ObjectColumnFilter, network_segment, {self},
+};
+use nico_api_model::address_selection_strategy::AddressSelectionStrategy;
+use nico_api_model::machine::machine_id::from_hardware_info;
 
 use crate::DatabaseError;
 use crate::tests::common::api_fixtures::create_test_env;
@@ -31,16 +33,16 @@ async fn prevent_duplicate_mac_addresses(
 
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::find_by(
+    let network_segment = nico_api_db::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(network_segment::IdColumn, &env.admin_segment.unwrap()),
-        model::network_segment::NetworkSegmentSearchConfig::default(),
+        nico_api_model::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?
     .pop()
     .unwrap();
 
-    let new_interface = db::machine_interface::create(
+    let new_interface = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         &dpu.oob_mac_address,
@@ -51,9 +53,9 @@ async fn prevent_duplicate_mac_addresses(
     .await?;
 
     let machine_id = from_hardware_info(&dpu.into()).unwrap();
-    db::machine::get_or_create(&mut txn, None, &machine_id, &new_interface).await?;
+    nico_api_db::machine::get_or_create(&mut txn, None, &machine_id, &new_interface).await?;
 
-    let duplicate_interface = db::machine_interface::create(
+    let duplicate_interface = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         &dpu.oob_mac_address,

@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::errors::RpcDataConversionError;
 use chrono::{DateTime, Utc};
 use dns_record::SoaRecord;
+use nico_rpc::errors::RpcDataConversionError;
 use serde::{Deserialize, Serialize};
 
 pub mod domain_info;
@@ -32,7 +32,7 @@ pub use snapshot::SoaSnapshot;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Domain {
-    pub id: carbide_uuid::domain::DomainId,
+    pub id: nico_uuid::domain::DomainId,
     pub name: String,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
@@ -77,10 +77,10 @@ impl NewDomain {
     }
 }
 
-impl TryFrom<rpc::protos::dns::Domain> for NewDomain {
+impl TryFrom<nico_rpc::protos::dns::Domain> for NewDomain {
     type Error = RpcDataConversionError;
 
-    fn try_from(proto: rpc::protos::dns::Domain) -> Result<Self, Self::Error> {
+    fn try_from(proto: nico_rpc::protos::dns::Domain) -> Result<Self, Self::Error> {
         let soa = proto
             .soa
             .map(|soa| {
@@ -97,9 +97,9 @@ impl TryFrom<rpc::protos::dns::Domain> for NewDomain {
     }
 }
 
-impl From<Domain> for rpc::protos::dns::Domain {
+impl From<Domain> for nico_rpc::protos::dns::Domain {
     fn from(domain: Domain) -> Self {
-        rpc::protos::dns::Domain {
+        nico_rpc::protos::dns::Domain {
             id: Some(domain.id),
             name: domain.name,
             created: Some(domain.created.into()),
@@ -111,10 +111,10 @@ impl From<Domain> for rpc::protos::dns::Domain {
     }
 }
 
-impl TryFrom<rpc::protos::dns::Domain> for Domain {
+impl TryFrom<nico_rpc::protos::dns::Domain> for Domain {
     type Error = RpcDataConversionError;
 
-    fn try_from(domain: rpc::protos::dns::Domain) -> Result<Self, Self::Error> {
+    fn try_from(domain: nico_rpc::protos::dns::Domain) -> Result<Self, Self::Error> {
         let domain_id = match domain.id {
             Some(id) => id,
             None => uuid::Uuid::new_v4().into(),

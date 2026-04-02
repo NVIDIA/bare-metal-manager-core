@@ -23,8 +23,8 @@
 // to create a properly-typed value.
 use std::fmt;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::protos::mlx_device::{
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::protos::mlx_device::{
     MlxConfigValue as MlxConfigValuePb, MlxValueType as MlxValueTypePb,
     mlx_value_type as mlx_value_type_pb,
 };

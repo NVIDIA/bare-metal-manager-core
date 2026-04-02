@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 use axum::body::Body;
-use db::managed_host;
 use http_body_util::BodyExt;
 use hyper::http::StatusCode;
-use model::hardware_info::HardwareInfo;
-use model::machine::LoadSnapshotOptions;
+use nico_api_db::managed_host;
+use nico_api_model::hardware_info::HardwareInfo;
+use nico_api_model::machine::LoadSnapshotOptions;
 use tower::ServiceExt;
 use utils::ManagedHostOutput;
 

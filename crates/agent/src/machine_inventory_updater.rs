@@ -17,9 +17,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use carbide_uuid::machine::MachineId;
+use nico_rpc::forge;
+use nico_rpc::forge_tls_client::{
+    ApiConfig, ForgeClientConfig, {self},
+};
+use nico_uuid::machine::MachineId;
 
 use crate::containerd::container;
 use crate::containerd::container::ContainerSummary;
@@ -58,12 +60,12 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
         result.push(c);
     }
 
-    let mut inventory: Vec<rpc::MachineInventorySoftwareComponent> = result
+    let mut inventory: Vec<forge::MachineInventorySoftwareComponent> = result
         .into_iter()
         .flat_map(|c| {
             c.image_ref
                 .into_iter()
-                .map(|n| rpc::MachineInventorySoftwareComponent {
+                .map(|n| forge::MachineInventorySoftwareComponent {
                     name: n.name.clone(),
                     version: n.version.clone(),
                     url: n.repository,
@@ -73,17 +75,17 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
         .collect();
 
     // Add the DPU agent version to the inventory
-    inventory.push(rpc::MachineInventorySoftwareComponent {
+    inventory.push(forge::MachineInventorySoftwareComponent {
         name: "forge-dpu-agent".to_string(),
         version: config.dpu_agent_version.clone(),
         url: String::new(),
     });
 
-    let inventory = rpc::MachineInventory {
+    let inventory = forge::MachineInventory {
         components: inventory,
     };
 
-    let agent_report = rpc::DpuAgentInventoryReport {
+    let agent_report = forge::DpuAgentInventoryReport {
         machine_id: Some(machine_id),
         inventory: Some(inventory),
     };
@@ -107,7 +109,7 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
 }
 
 async fn update_agent_reported_inventory(
-    inventory_report: rpc::DpuAgentInventoryReport,
+    inventory_report: forge::DpuAgentInventoryReport,
     client_config: &forge_tls_client::ForgeClientConfig,
     forge_api: &str,
 ) -> eyre::Result<()> {

@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use db::{ObjectColumnFilter, switch as db_switch};
-use model::metadata::Metadata;
+use nico_api_db::{ObjectColumnFilter, switch as db_switch};
+use nico_api_model::metadata::Metadata;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -26,8 +26,8 @@ use crate::api::{Api, log_request_data};
 
 pub async fn find_switch(
     api: &Api,
-    request: Request<rpc::SwitchQuery>,
-) -> Result<Response<rpc::SwitchList>, Status> {
+    request: Request<forge::SwitchQuery>,
+) -> Result<Response<forge::SwitchList>, Status> {
     let query = request.into_inner();
     let mut txn = api
         .database_connection
@@ -41,7 +41,7 @@ pub async fn find_switch(
     let switch_list = if let Some(id) = query.switch_id {
         db_switch::find_by(
             &mut txn,
-            db::ObjectColumnFilter::One(db_switch::IdColumn, &id),
+            nico_api_db::ObjectColumnFilter::One(db_switch::IdColumn, &id),
             db_switch::SwitchSearchConfig::default(),
         )
         .await
@@ -52,7 +52,7 @@ pub async fn find_switch(
         // Handle name search
         db_switch::find_by(
             &mut txn,
-            db::ObjectColumnFilter::One(db_switch::NameColumn, &name),
+            nico_api_db::ObjectColumnFilter::One(db_switch::NameColumn, &name),
             db_switch::SwitchSearchConfig::default(),
         )
         .await
@@ -63,7 +63,7 @@ pub async fn find_switch(
         // No filter - return all
         db_switch::find_by(
             &mut txn,
-            db::ObjectColumnFilter::<db_switch::IdColumn>::All,
+            nico_api_db::ObjectColumnFilter::<db_switch::IdColumn>::All,
             db_switch::SwitchSearchConfig::default(),
         )
         .await
@@ -72,7 +72,7 @@ pub async fn find_switch(
         })?
     };
 
-    let bmc_info_map: std::collections::HashMap<String, rpc::BmcInfo> = {
+    let bmc_info_map: std::collections::HashMap<String, forge::BmcInfo> = {
         let rows = db_switch::list_switch_bmc_info(&mut txn)
             .await
             .map_err(|e| CarbideError::Internal {
@@ -83,7 +83,7 @@ pub async fn find_switch(
             .map(|row| {
                 (
                     row.serial_number,
-                    rpc::BmcInfo {
+                    forge::BmcInfo {
                         ip: Some(row.ip_address.to_string()),
                         mac: Some(row.bmc_mac_address.to_string()),
                         version: None,
@@ -99,13 +99,13 @@ pub async fn find_switch(
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
-    let switches: Vec<rpc::Switch> = switch_list
+    let switches: Vec<forge::Switch> = switch_list
         .into_iter()
         .map(|s| {
             let serial = s.config.name.clone();
             let bmc_info = bmc_info_map.get(&serial).cloned();
 
-            rpc::Switch::try_from(s).map(|mut rpc_switch| {
+            forge::Switch::try_from(s).map(|mut rpc_switch| {
                 rpc_switch.bmc_info = bmc_info;
                 rpc_switch
             })
@@ -115,26 +115,26 @@ pub async fn find_switch(
             message: format!("Failed to convert switch: {}", e),
         })?;
 
-    Ok(Response::new(rpc::SwitchList { switches }))
+    Ok(Response::new(forge::SwitchList { switches }))
 }
 
 pub async fn find_ids(
     api: &Api,
-    request: Request<rpc::SwitchSearchFilter>,
-) -> Result<Response<rpc::SwitchIdList>, Status> {
+    request: Request<forge::SwitchSearchFilter>,
+) -> Result<Response<forge::SwitchIdList>, Status> {
     log_request_data(&request);
 
-    let filter: model::switch::SwitchSearchFilter = request.into_inner().into();
+    let filter: nico_api_model::switch::SwitchSearchFilter = request.into_inner().into();
 
     let switch_ids = db_switch::find_ids(&api.database_connection, filter).await?;
 
-    Ok(Response::new(rpc::SwitchIdList { ids: switch_ids }))
+    Ok(Response::new(forge::SwitchIdList { ids: switch_ids }))
 }
 
 pub async fn find_by_ids(
     api: &Api,
-    request: Request<rpc::SwitchesByIdsRequest>,
-) -> Result<Response<rpc::SwitchList>, Status> {
+    request: Request<forge::SwitchesByIdsRequest>,
+) -> Result<Response<forge::SwitchList>, Status> {
     log_request_data(&request);
 
     let switch_ids = request.into_inner().switch_ids;
@@ -171,7 +171,7 @@ pub async fn find_by_ids(
             .map(|row| {
                 (
                     row.switch_id,
-                    rpc::BmcInfo {
+                    forge::BmcInfo {
                         ip: Some(row.bmc_ip.to_string()),
                         mac: Some(row.bmc_mac.to_string()),
                         version: None,
@@ -185,13 +185,13 @@ pub async fn find_by_ids(
 
     let _ = txn.rollback().await;
 
-    let switches: Vec<rpc::Switch> = switch_list
+    let switches: Vec<forge::Switch> = switch_list
         .into_iter()
         .map(|s| {
             let id = s.id;
             let bmc_info = bmc_info_map.get(&id).cloned();
 
-            rpc::Switch::try_from(s).map(|mut rpc_switch| {
+            forge::Switch::try_from(s).map(|mut rpc_switch| {
                 rpc_switch.bmc_info = bmc_info;
                 rpc_switch
             })
@@ -201,13 +201,13 @@ pub async fn find_by_ids(
             message: format!("Failed to convert switch: {}", e),
         })?;
 
-    Ok(Response::new(rpc::SwitchList { switches }))
+    Ok(Response::new(forge::SwitchList { switches }))
 }
 
 pub async fn find_switch_state_histories(
     api: &Api,
-    request: Request<rpc::SwitchStateHistoriesRequest>,
-) -> Result<Response<rpc::SwitchStateHistories>, Status> {
+    request: Request<forge::SwitchStateHistoriesRequest>,
+) -> Result<Response<forge::SwitchStateHistories>, Status> {
     log_request_data(&request);
     let request = request.into_inner();
     let switch_ids = request.switch_ids;
@@ -226,15 +226,15 @@ pub async fn find_switch_state_histories(
 
     let mut txn = api.txn_begin().await?;
 
-    let results = db::switch_state_history::find_by_switch_ids(&mut txn, &switch_ids)
+    let results = nico_api_db::switch_state_history::find_by_switch_ids(&mut txn, &switch_ids)
         .await
         .map_err(CarbideError::from)?;
 
-    let mut response = rpc::SwitchStateHistories::default();
+    let mut response = forge::SwitchStateHistories::default();
     for (switch_id, records) in results {
         response.histories.insert(
             switch_id.to_string(),
-            ::rpc::forge::SwitchStateHistoryRecords {
+            forge::SwitchStateHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
         );
@@ -248,8 +248,8 @@ pub async fn find_switch_state_histories(
 // TODO: block if switch is in use (firmware update, etc.)
 pub async fn delete_switch(
     api: &Api,
-    request: Request<rpc::SwitchDeletionRequest>,
-) -> Result<Response<rpc::SwitchDeletionResult>, Status> {
+    request: Request<forge::SwitchDeletionRequest>,
+) -> Result<Response<forge::SwitchDeletionResult>, Status> {
     let req = request.into_inner();
 
     let switch_id = match req.id {
@@ -269,7 +269,7 @@ pub async fn delete_switch(
 
     let mut switch_list = db_switch::find_by(
         &mut txn,
-        db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
+        nico_api_db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
         db_switch::SwitchSearchConfig::default(),
     )
     .await
@@ -296,12 +296,12 @@ pub async fn delete_switch(
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
-    Ok(Response::new(rpc::SwitchDeletionResult {}))
+    Ok(Response::new(forge::SwitchDeletionResult {}))
 }
 
 pub(crate) async fn update_switch_metadata(
     api: &Api,
-    request: Request<rpc::SwitchMetadataUpdateRequest>,
+    request: Request<forge::SwitchMetadataUpdateRequest>,
 ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
     let request = request.into_inner();
@@ -323,7 +323,7 @@ pub(crate) async fn update_switch_metadata(
 
     let switches = db_switch::find_by(
         &mut txn,
-        db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
+        nico_api_db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
         db_switch::SwitchSearchConfig::default(),
     )
     .await

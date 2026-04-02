@@ -671,8 +671,8 @@ mod tests {
     // Test integration from gRPC push -> REST read.
     #[tokio::test]
     async fn test_grpc_push_then_rest_read() {
-        use rpc::fmds::fmds_config_service_server::FmdsConfigService;
-        use rpc::fmds::{FmdsConfigUpdate, UpdateConfigRequest};
+        use nico_rpc::fmds::fmds_config_service_server::FmdsConfigService;
+        use nico_rpc::fmds::{FmdsConfigUpdate, UpdateConfigRequest};
         use tonic::Request;
 
         use crate::grpc_server::FmdsGrpcServer;

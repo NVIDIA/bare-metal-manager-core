@@ -17,9 +17,11 @@
 
 use std::ffi::CStr;
 
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use libc::c_char;
+use nico_rpc::forge;
+use nico_rpc::forge_tls_client::{
+    ApiConfig, ForgeClientConfig, {self},
+};
 
 use crate::{CONFIG, CarbideDhcpContext, tls};
 
@@ -65,7 +67,7 @@ fn expire_lease_at(
             .await
             .map_err(|e| format!("unable to connect to Carbide API: {e:?}"))?;
         client
-            .expire_dhcp_lease(tonic::Request::new(rpc::ExpireDhcpLeaseRequest {
+            .expire_dhcp_lease(tonic::Request::new(forge::ExpireDhcpLeaseRequest {
                 ip_address: ip_str.to_string(),
             }))
             .await
@@ -75,13 +77,13 @@ fn expire_lease_at(
     match result {
         Ok(response) => {
             let resp = response.into_inner();
-            let status = rpc::ExpireDhcpLeaseStatus::try_from(resp.status)
-                .unwrap_or(rpc::ExpireDhcpLeaseStatus::NotFound);
+            let status = forge::ExpireDhcpLeaseStatus::try_from(resp.status)
+                .unwrap_or(forge::ExpireDhcpLeaseStatus::NotFound);
             match status {
-                rpc::ExpireDhcpLeaseStatus::Released => {
+                forge::ExpireDhcpLeaseStatus::Released => {
                     log::info!("Released expired lease for {ip_str}");
                 }
-                rpc::ExpireDhcpLeaseStatus::NotFound => {
+                forge::ExpireDhcpLeaseStatus::NotFound => {
                     log::info!("No allocation found for expired lease {ip_str}");
                 }
             }

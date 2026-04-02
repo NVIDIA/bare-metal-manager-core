@@ -17,9 +17,9 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
-use ::rpc::Timestamp;
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
+use nico_rpc::Timestamp;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcId;
 use tonic::Status;
 
 use crate::config::MachineATronContext;

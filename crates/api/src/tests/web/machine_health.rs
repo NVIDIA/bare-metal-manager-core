@@ -18,8 +18,8 @@
 use axum::body::Body;
 use http_body_util::BodyExt;
 use hyper::http::StatusCode;
-use rpc::forge::AdminForceDeleteMachineRequest;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge::AdminForceDeleteMachineRequest;
+use nico_rpc::forge::forge_server::Forge;
 use tower::ServiceExt;
 
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};

@@ -26,8 +26,8 @@ authors.workspace = true
 # [local-dependencies]
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 bmc-vendor = { path = "../bmc-vendor" }
-carbide-network = { path = "../network", default-features = false }
-carbide-api-model = { path = "../api-model", default-features = false }
+nico-network = { path = "../network", default-features = false }
+nico-api-model = { path = "../api-model", default-features = false }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 itertools = { workspace = true }

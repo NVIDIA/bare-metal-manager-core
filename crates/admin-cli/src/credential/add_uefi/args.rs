@@ -16,8 +16,8 @@
  */
 
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::{CredentialType, forge as forgerpc};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::{CredentialType, forge};
 
 use crate::credential::common::{UefiCredentialType, password_validator};
 
@@ -30,12 +30,12 @@ pub struct Args {
     pub password: String,
 }
 
-impl TryFrom<Args> for forgerpc::CredentialCreationRequest {
+impl TryFrom<Args> for forge::CredentialCreationRequest {
     type Error = CarbideCliError;
     fn try_from(args: Args) -> CarbideCliResult<Self> {
         let mut password = password_validator(args.password)?;
         if password.is_empty() {
-            password = forge_secrets::credentials::Credentials::generate_password_no_special_char();
+            password = nico_secrets::credentials::Credentials::generate_password_no_special_char();
         }
         Ok(Self {
             credential_type: CredentialType::from(args.kind).into(),

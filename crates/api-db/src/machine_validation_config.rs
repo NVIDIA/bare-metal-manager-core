@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use config_version::ConfigVersion;
-use model::machine_validation::MachineValidationExternalConfig;
+use nico_api_model::machine_validation::MachineValidationExternalConfig;
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;

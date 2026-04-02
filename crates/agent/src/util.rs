@@ -21,19 +21,19 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineId;
 use diff::Result as DiffResult;
 use eyre::{OptionExt, WrapErr};
-use forge_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
 use hickory_resolver::Name;
 use hickory_resolver::config::ResolverConfig;
 use hyper::service::Service;
-use resolv_conf::Config;
-use rpc::forge::{
+use nico_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
+use nico_rpc::forge::{
     InstancePhoneHomeLastContactRequest, ManagedHostNetworkConfigRequest, VersionRequest,
 };
-use rpc::forge_tls_client::ForgeClientT;
-use rpc::{Instance, Timestamp, forge_resolver};
+use nico_rpc::forge_tls_client::ForgeClientT;
+use nico_rpc::{Instance, Timestamp, forge, forge_resolver};
+use nico_uuid::machine::MachineId;
+use resolv_conf::Config;
 
 pub fn compare_lines(left: &str, right: &str, strip_behavior: Option<StripType>) -> CompareResult {
     let (left, right) = match strip_behavior {
@@ -193,7 +193,7 @@ pub async fn get_sitename(client: &mut ForgeClientT) -> Result<Option<String>, e
 pub async fn get_periodic_dpu_config(
     client: &mut ForgeClientT,
     dpu_machine_id: &MachineId,
-) -> Result<rpc::forge::ManagedHostNetworkConfigResponse, eyre::Error> {
+) -> Result<forge::ManagedHostNetworkConfigResponse, eyre::Error> {
     let request = tonic::Request::new(ManagedHostNetworkConfigRequest {
         dpu_machine_id: Some(*dpu_machine_id),
     });

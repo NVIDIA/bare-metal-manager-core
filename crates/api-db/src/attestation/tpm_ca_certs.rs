@@ -16,7 +16,7 @@
  */
 
 use chrono::{DateTime, Utc};
-use model::attestation::TpmCaCert;
+use nico_api_model::attestation::TpmCaCert;
 use sqlx::PgConnection;
 
 use crate::{DatabaseError, DatabaseResult};

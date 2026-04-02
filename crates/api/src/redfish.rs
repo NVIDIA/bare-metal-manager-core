@@ -22,14 +22,14 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use chrono::Utc;
-use forge_secrets::SecretsError;
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialReader, CredentialType, Credentials,
-};
 use libredfish::model::BootProgress;
 use libredfish::{Endpoint, PowerState, Redfish, RedfishError, SystemPowerControl};
 use mac_address::MacAddress;
-use model::machine::Machine;
+use nico_api_model::machine::Machine;
+use nico_secrets::SecretsError;
+use nico_secrets::credentials::{
+    BmcCredentialType, CredentialKey, CredentialReader, CredentialType, Credentials,
+};
 use sqlx::PgPool;
 use utils::HostPortPair;
 
@@ -53,7 +53,7 @@ pub enum RedfishClientCreationError {
     #[error("Missing BMC Information: {0}")]
     MissingBmcEndpoint(String),
     #[error("Database Error Loading Machine Interface")]
-    MachineInterfaceLoadError(#[from] db::DatabaseError),
+    MachineInterfaceLoadError(#[from] nico_api_db::DatabaseError),
 }
 
 impl From<SecretsError> for RedfishClientCreationError {
@@ -111,7 +111,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         };
         let ip = addr.ip();
         let port = addr.port();
-        let auth_key = db::machine_interface::find_by_ip(pool, ip)
+        let auth_key = nico_api_db::machine_interface::find_by_ip(pool, ip)
             .await?
             .ok_or_else(|| {
                 RedfishClientCreationError::MissingArgument(format!(
@@ -135,7 +135,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         port: Option<u16>,
         pool: &PgPool,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        let auth_key = db::machine_interface::find_by_ip(pool, ip)
+        let auth_key = nico_api_db::machine_interface::find_by_ip(pool, ip)
             .await?
             .ok_or_else(|| {
                 RedfishClientCreationError::MissingArgument(format!(
@@ -632,7 +632,6 @@ pub mod test_support {
     use std::time::Duration;
 
     use chrono::Utc;
-    use forge_secrets::credentials::TestCredentialManager;
     use libredfish::model::certificate::Certificate;
     use libredfish::model::component_integrity::{ComponentIntegrities, ComponentIntegrity};
     use libredfish::model::oem::nvidia_dpu::{HostPrivilegeLevel, NicMode};
@@ -649,6 +648,7 @@ pub mod test_support {
         Redfish, RedfishError, Resource, SystemPowerControl,
     };
     use mac_address::MacAddress;
+    use nico_secrets::credentials::TestCredentialManager;
 
     use super::*;
 

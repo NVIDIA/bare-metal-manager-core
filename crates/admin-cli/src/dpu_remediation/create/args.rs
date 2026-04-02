@@ -16,6 +16,7 @@
  */
 
 use clap::Parser;
+use nico_rpc::forge;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -50,7 +51,7 @@ pub struct Args {
 }
 
 impl Args {
-    pub fn into_metadata(self) -> Option<::rpc::forge::Metadata> {
+    pub fn into_metadata(self) -> Option<forge::Metadata> {
         if self.labels.is_none() && self.meta_name.is_none() && self.meta_description.is_none() {
             return None;
         }
@@ -59,11 +60,11 @@ impl Args {
         if let Some(list) = &self.labels {
             for label in list {
                 let label = match label.split_once(':') {
-                    Some((k, v)) => rpc::forge::Label {
+                    Some((k, v)) => forge::Label {
                         key: k.trim().to_string(),
                         value: Some(v.trim().to_string()),
                     },
-                    None => rpc::forge::Label {
+                    None => forge::Label {
                         key: label.trim().to_string(),
                         value: None,
                     },
@@ -72,7 +73,7 @@ impl Args {
             }
         }
 
-        Some(::rpc::forge::Metadata {
+        Some(forge::Metadata {
             name: self.meta_name.unwrap_or_default(),
             description: self.meta_description.unwrap_or_default(),
             labels,

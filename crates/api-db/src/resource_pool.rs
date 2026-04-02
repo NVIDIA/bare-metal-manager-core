@@ -21,13 +21,13 @@ use std::sync::{Arc, Mutex};
 
 use config_version::ConfigVersion;
 use ipnetwork::Ipv6Network;
-use model::resource_pool;
-use model::resource_pool::common::{
+use nico_api_model::resource_pool;
+use nico_api_model::resource_pool::common::{
     CommonPools, EXTERNAL_VPC_VNI, EthernetPools, FNN_ASN, IbPools, LOOPBACK_IP, SECONDARY_VTEP_IP,
     VLANID, VNI, VPC_DPU_LOOPBACK, VPC_VNI,
 };
-use model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
-use model::resource_pool::{
+use nico_api_model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
+use nico_api_model::resource_pool::{
     OwnerType, ResourcePool, ResourcePoolEntry, ResourcePoolEntryState, ResourcePoolError,
     ResourcePoolSnapshot, ResourcePoolStats, ValueType,
 };
@@ -317,7 +317,7 @@ pub enum DefineResourcePoolError {
     InvalidArgument(String),
 
     #[error("Resource pool error: {0}")]
-    ResourcePoolError(#[from] model::resource_pool::ResourcePoolError),
+    ResourcePoolError(#[from] nico_api_model::resource_pool::ResourcePoolError),
 
     #[error("Max pool size exceeded. {0} > {1}")]
     TooBig(usize, usize),
@@ -400,9 +400,9 @@ async fn define_by_prefix(
             if num_values > MAX_POOL_SIZE {
                 return Err(DefineResourcePoolError::TooBig(num_values, MAX_POOL_SIZE));
             }
-            let pool = model::resource_pool::ResourcePool::new(
+            let pool = nico_api_model::resource_pool::ResourcePool::new(
                 name.to_string(),
-                model::resource_pool::ValueType::Ipv4,
+                nico_api_model::resource_pool::ValueType::Ipv4,
             );
             populate(&pool, txn, values, true).await?;
             tracing::debug!(
@@ -415,9 +415,9 @@ async fn define_by_prefix(
         ResourcePoolType::Ipv6 => {
             let values = expand_ipv6_prefix(prefix)?;
             let num_values = values.len();
-            let pool = model::resource_pool::ResourcePool::new(
+            let pool = nico_api_model::resource_pool::ResourcePool::new(
                 name.to_string(),
-                model::resource_pool::ValueType::Ipv6,
+                nico_api_model::resource_pool::ValueType::Ipv6,
             );
             populate(&pool, txn, values, true).await?;
             tracing::debug!(
@@ -435,9 +435,9 @@ async fn define_by_prefix(
             })?;
             let values = expand_ipv6_prefix_delegation(prefix, delegate_len)?;
             let num_values = values.len();
-            let pool = model::resource_pool::ResourcePool::new(
+            let pool = nico_api_model::resource_pool::ResourcePool::new(
                 name.to_string(),
-                model::resource_pool::ValueType::Ipv6Prefix,
+                nico_api_model::resource_pool::ValueType::Ipv6Prefix,
             );
             populate(&pool, txn, values, true).await?;
             tracing::debug!(
@@ -474,9 +474,9 @@ async fn define_by_range(
             if num_values > MAX_POOL_SIZE {
                 return Err(DefineResourcePoolError::TooBig(num_values, MAX_POOL_SIZE));
             }
-            let pool = model::resource_pool::ResourcePool::new(
+            let pool = nico_api_model::resource_pool::ResourcePool::new(
                 name.to_string(),
-                model::resource_pool::ValueType::Ipv4,
+                nico_api_model::resource_pool::ValueType::Ipv4,
             );
             populate(&pool, txn, values, auto_assign).await?;
             tracing::debug!(
@@ -490,9 +490,9 @@ async fn define_by_range(
         ResourcePoolType::Ipv6 => {
             let values = expand_ipv6_range(range_start, range_end)?;
             let num_values = values.len();
-            let pool = model::resource_pool::ResourcePool::new(
+            let pool = nico_api_model::resource_pool::ResourcePool::new(
                 name.to_string(),
-                model::resource_pool::ValueType::Ipv6,
+                nico_api_model::resource_pool::ValueType::Ipv6,
             );
             populate(&pool, txn, values, auto_assign).await?;
             tracing::debug!(
@@ -506,9 +506,9 @@ async fn define_by_range(
         ResourcePoolType::Ipv6Prefix => {
             let values = expand_ipv6_prefix_range(range_start, range_end)?;
             let num_values = values.len();
-            let pool = model::resource_pool::ResourcePool::new(
+            let pool = nico_api_model::resource_pool::ResourcePool::new(
                 name.to_string(),
-                model::resource_pool::ValueType::Ipv6Prefix,
+                nico_api_model::resource_pool::ValueType::Ipv6Prefix,
             );
             populate(&pool, txn, values, auto_assign).await?;
             tracing::debug!(
@@ -526,9 +526,9 @@ async fn define_by_range(
             if num_values > MAX_POOL_SIZE {
                 return Err(DefineResourcePoolError::TooBig(num_values, MAX_POOL_SIZE));
             }
-            let pool = model::resource_pool::ResourcePool::new(
+            let pool = nico_api_model::resource_pool::ResourcePool::new(
                 name.to_string(),
-                model::resource_pool::ValueType::Integer,
+                nico_api_model::resource_pool::ValueType::Integer,
             );
             populate(&pool, txn, values, auto_assign).await?;
             tracing::debug!(pool_name = name, num_values, "Populated int resource pool");
@@ -885,7 +885,7 @@ mod tests {
     async fn test_ipv4_pool_all_snapshots(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        use model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
+        use nico_api_model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
 
         let mut txn = pool.begin().await?;
 
@@ -925,7 +925,7 @@ mod tests {
     async fn test_ipv6_pool_define_allocate_release(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        use model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
+        use nico_api_model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
 
         let mut txn = pool.begin().await?;
 
@@ -980,7 +980,7 @@ mod tests {
     async fn test_ipv6_pool_define_by_range(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        use model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
+        use nico_api_model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
 
         let mut txn = pool.begin().await?;
 
@@ -1174,7 +1174,7 @@ mod tests {
     async fn test_ipv6_prefix_pool_define_allocate_release(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        use model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
+        use nico_api_model::resource_pool::define::{ResourcePoolDef, ResourcePoolType};
 
         let mut txn = pool.begin().await?;
 
@@ -1231,7 +1231,7 @@ mod tests {
     async fn test_ipv6_prefix_pool_define_by_range(
         pool: sqlx::PgPool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        use model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
+        use nico_api_model::resource_pool::define::{Range, ResourcePoolDef, ResourcePoolType};
 
         let mut txn = pool.begin().await?;
 

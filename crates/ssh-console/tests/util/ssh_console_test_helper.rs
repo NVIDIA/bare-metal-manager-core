@@ -21,8 +21,8 @@ use eyre::Context;
 use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper_util::rt::TokioExecutor;
+use nico_ssh_console::config::Defaults;
 use size::Size;
-use ssh_console::config::Defaults;
 use temp_dir::TempDir;
 
 use crate::util::fixtures::{
@@ -59,7 +59,7 @@ pub async fn spawn(
 
     let logs_dir = TempDir::new().context("error creating temp dir for console logs")?;
 
-    let config = ssh_console::config::Config {
+    let config = nico_ssh_console::config::Config {
         listen_address,
         metrics_address,
         carbide_uri: format!("https://localhost:{carbide_port}")
@@ -99,10 +99,10 @@ pub async fn spawn(
         log_rotate_max_rotated_files: 3,
         log_rotate_max_size: Size::from_kib(10),
         hosts: true,
-        openssh_certificate_authorization: ssh_console::config::Defaults::cert_authorization(),
+        openssh_certificate_authorization: nico_ssh_console::config::Defaults::cert_authorization(),
     };
 
-    let spawn_handle = ssh_console::spawn(config).await?;
+    let spawn_handle = nico_ssh_console::spawn(config).await?;
 
     Ok(NewSshConsoleHandle {
         addr: listen_address,
@@ -117,7 +117,7 @@ pub struct NewSshConsoleHandle {
     pub addr: SocketAddr,
     pub metrics_address: SocketAddr,
     pub logs_dir: TempDir,
-    pub spawn_handle: ssh_console::SpawnHandle,
+    pub spawn_handle: nico_ssh_console::SpawnHandle,
 }
 
 pub async fn get_metrics(addr: SocketAddr) -> eyre::Result<String> {

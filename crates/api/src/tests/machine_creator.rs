@@ -20,18 +20,18 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::rack::RackId;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::{
     DpuDiscoveringState, DpuInitState, InstallDpuOsState, ManagedHostState, SetSecureBootState,
 };
-use model::resource_pool::ResourcePoolStats;
-use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
-use rpc::forge::forge_server::Forge;
-use rpc::{BlockDevice, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
+use nico_api_model::resource_pool::ResourcePoolStats;
+use nico_api_model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::{BlockDevice, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo, forge};
+use nico_uuid::machine::MachineId;
+use nico_uuid::rack::RackId;
 use tonic::Request;
 use utils::models::arch::CpuArchitecture;
 
@@ -92,7 +92,7 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
     let interface_id = response.machine_interface_id;
     let mut ifaces = env
         .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+        .find_interfaces(tonic::Request::new(forge::InterfaceSearchQuery {
             id: Some(interface_id.unwrap()),
             ip: None,
         }))
@@ -203,7 +203,7 @@ async fn test_site_explorer_creates_managed_host(
     let interface_id = response.machine_interface_id;
     let mut ifaces = env
         .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+        .find_interfaces(tonic::Request::new(forge::InterfaceSearchQuery {
             id: Some(interface_id.unwrap()),
             ip: None,
         }))
@@ -238,7 +238,7 @@ async fn test_site_explorer_creates_managed_host(
     );
 
     let mut txn = env.pool.begin().await.unwrap();
-    let dpu_machine = db::machine::find_one(
+    let dpu_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         dpu_report.machine_id.as_ref().unwrap(),
         MachineSearchConfig {
@@ -306,7 +306,7 @@ async fn test_site_explorer_creates_managed_host(
         "Bluefield 3 SmartNIC Main Card".to_string()
     );
 
-    let host_machine = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine.id)
+    let host_machine = nico_api_db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine.id)
         .await?
         .unwrap();
     assert_eq!(
@@ -342,7 +342,7 @@ async fn test_site_explorer_creates_managed_host(
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
 
-    let dpu_machine = db::machine::find_one(
+    let dpu_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &dpu_machine.id,
         MachineSearchConfig::default(),
@@ -354,7 +354,7 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         &ManagedHostState::DpuDiscoveringState {
-            dpu_states: model::machine::DpuDiscoveringStates {
+            dpu_states: nico_api_model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::Configuring)]),
             },
         }
@@ -362,7 +362,7 @@ async fn test_site_explorer_creates_managed_host(
 
     env.run_machine_state_controller_iteration().await;
 
-    let dpu_machine = db::machine::find_one(
+    let dpu_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &dpu_machine.id,
         MachineSearchConfig::default(),
@@ -374,7 +374,7 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         &ManagedHostState::DpuDiscoveringState {
-            dpu_states: model::machine::DpuDiscoveringStates {
+            dpu_states: nico_api_model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(dpu_machine.id, DpuDiscoveringState::EnableRshim,)]),
             },
         }
@@ -382,7 +382,7 @@ async fn test_site_explorer_creates_managed_host(
 
     env.run_machine_state_controller_iteration().await;
 
-    let dpu_machine = db::machine::find_one(
+    let dpu_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &dpu_machine.id,
         MachineSearchConfig::default(),
@@ -394,7 +394,7 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         &ManagedHostState::DpuDiscoveringState {
-            dpu_states: model::machine::DpuDiscoveringStates {
+            dpu_states: nico_api_model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(
                     dpu_machine.id,
                     DpuDiscoveringState::EnableSecureBoot {
@@ -408,7 +408,7 @@ async fn test_site_explorer_creates_managed_host(
 
     env.run_machine_state_controller_iteration().await;
 
-    let dpu_machine = db::machine::find_one(
+    let dpu_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &dpu_machine.id,
         MachineSearchConfig::default(),
@@ -420,7 +420,7 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         &ManagedHostState::DpuDiscoveringState {
-            dpu_states: model::machine::DpuDiscoveringStates {
+            dpu_states: nico_api_model::machine::DpuDiscoveringStates {
                 states: HashMap::from([(
                     dpu_machine.id,
                     DpuDiscoveringState::EnableSecureBoot {
@@ -438,7 +438,7 @@ async fn test_site_explorer_creates_managed_host(
     // CheckSecureBootStatus:
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
-    let dpu_machine = db::machine::find_one(
+    let dpu_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &dpu_machine.id,
         MachineSearchConfig::default(),
@@ -450,7 +450,7 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         &ManagedHostState::DPUInit {
-            dpu_states: model::machine::DpuInitStates {
+            dpu_states: nico_api_model::machine::DpuInitStates {
                 states: HashMap::from([(
                     dpu_machine.id,
                     DpuInitState::InstallDpuOs {
@@ -465,7 +465,7 @@ async fn test_site_explorer_creates_managed_host(
     // Wait for installComplete
     env.run_machine_state_controller_iteration().await;
 
-    let dpu_machine = db::machine::find_one(
+    let dpu_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &dpu_machine.id,
         MachineSearchConfig::default(),
@@ -477,21 +477,24 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         dpu_machine.current_state(),
         &ManagedHostState::DPUInit {
-            dpu_states: model::machine::DpuInitStates {
+            dpu_states: nico_api_model::machine::DpuInitStates {
                 states: HashMap::from([(dpu_machine.id, DpuInitState::Init,)]),
             },
         },
     );
 
     let machine_interfaces =
-        db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
+        nico_api_db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
     assert!(!machine_interfaces.is_empty());
-    let topologies = db::machine_topology::find_by_machine_ids(&mut txn, &[dpu_machine.id]).await?;
+    let topologies =
+        nico_api_db::machine_topology::find_by_machine_ids(&mut txn, &[dpu_machine.id]).await?;
     assert!(topologies.contains_key(&dpu_machine.id));
 
-    let pairs =
-        db::machine_topology::find_machine_bmc_pairs_by_machine_id(&mut txn, vec![dpu_machine.id])
-            .await?;
+    let pairs = nico_api_db::machine_topology::find_machine_bmc_pairs_by_machine_id(
+        &mut txn,
+        vec![dpu_machine.id],
+    )
+    .await?;
     assert_eq!(pairs.len(), 1);
     assert_eq!(pairs[0].1, Some("192.0.1.4".to_string()));
 
@@ -520,7 +523,7 @@ async fn test_site_explorer_creates_managed_host(
     assert!(response.machine_id.is_some());
 
     // Now let's check that DPU and host updated states and updated hardware information.
-    let dpu_machine = db::machine::find_one(
+    let dpu_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &dpu_machine.id,
         MachineSearchConfig::default(),
@@ -532,7 +535,7 @@ async fn test_site_explorer_creates_managed_host(
     assert!(dpu_machine.network_config.loopback_ip.is_some());
 
     let machine_interfaces =
-        db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
+        nico_api_db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
     assert!(
         machine_interfaces[0]
             .machine_id
@@ -540,7 +543,7 @@ async fn test_site_explorer_creates_managed_host(
             .is_some_and(|id| id == &dpu_machine.id)
     );
 
-    let host_machine = db::machine::find_one(
+    let host_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &host_machine.id,
         MachineSearchConfig::default(),
@@ -552,13 +555,14 @@ async fn test_site_explorer_creates_managed_host(
     assert_eq!(
         host_machine.current_state(),
         &ManagedHostState::DPUInit {
-            dpu_states: model::machine::DpuInitStates {
+            dpu_states: nico_api_model::machine::DpuInitStates {
                 states: HashMap::from([(dpu_machine.id, DpuInitState::Init,)]),
             },
         }
     );
 
-    let topologies = db::machine_topology::find_by_machine_ids(&mut txn, &[dpu_machine.id]).await?;
+    let topologies =
+        nico_api_db::machine_topology::find_by_machine_ids(&mut txn, &[dpu_machine.id]).await?;
     let topology = &topologies[&dpu_machine.id][0];
     assert!(!topology.topology_update_needed());
 
@@ -601,12 +605,14 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
     );
     let mut txn = env.pool.begin().await.unwrap();
     const NUM_DPUS: usize = 2;
-    let initial_loopback_pool_stats =
-        db::resource_pool::stats(&mut *txn, env.common_pools.ethernet.pool_loopback_ip.name())
-            .await
-            .expect("failed to get inital pool stats");
+    let initial_loopback_pool_stats = nico_api_db::resource_pool::stats(
+        &mut *txn,
+        env.common_pools.ethernet.pool_loopback_ip.name(),
+    )
+    .await
+    .expect("failed to get inital pool stats");
 
-    let initial_secondary_vtep_pool_stats = db::resource_pool::stats(
+    let initial_secondary_vtep_pool_stats = nico_api_db::resource_pool::stats(
         &mut *txn,
         env.common_pools.ethernet.pool_secondary_vtep_ip.name(),
     )
@@ -634,7 +640,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
 
         assert!(!response.address.is_empty());
         let oob_interface =
-            db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
+            nico_api_db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
         assert!(oob_interface[0].primary_interface);
         oob_interfaces.push(oob_interface[0].clone());
 
@@ -664,7 +670,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
     let interface_id = response.machine_interface_id;
     let mut ifaces = env
         .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+        .find_interfaces(tonic::Request::new(forge::InterfaceSearchQuery {
             id: Some(interface_id.unwrap()),
             ip: None,
         }))
@@ -707,8 +713,11 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
 
     let expected_loopback_count = NUM_DPUS;
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, env.common_pools.ethernet.pool_loopback_ip.name())
-            .await?,
+        nico_api_db::resource_pool::stats(
+            &mut *txn,
+            env.common_pools.ethernet.pool_loopback_ip.name()
+        )
+        .await?,
         ResourcePoolStats {
             used: expected_loopback_count,
             free: initial_loopback_pool_stats.free - expected_loopback_count,
@@ -724,7 +733,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
     let mut host_machine = None;
 
     for dpu in explored_dpus.iter() {
-        let dpu_machine = db::machine::find_one(
+        let dpu_machine = nico_api_db::machine::find_one(
             txn.as_mut(),
             dpu.report.machine_id.as_ref().unwrap(),
             MachineSearchConfig {
@@ -745,11 +754,9 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
 
         let network_config_response = env
             .api
-            .get_managed_host_network_config(Request::new(
-                rpc::forge::ManagedHostNetworkConfigRequest {
-                    dpu_machine_id: Some(dpu_machine.id),
-                },
-            ))
+            .get_managed_host_network_config(Request::new(forge::ManagedHostNetworkConfigRequest {
+                dpu_machine_id: Some(dpu_machine.id),
+            }))
             .await?
             .into_inner();
 
@@ -772,7 +779,8 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
 
         if host_machine.is_none() {
             host_machine =
-                db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine.id).await?;
+                nico_api_db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine.id)
+                    .await?;
         }
         let hm = host_machine.clone().unwrap();
         assert!(hm.bmc_info.ip.is_some());
@@ -788,7 +796,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
     // secondary vteps should have been assigned.
     let expected_secondary_vtep_count = NUM_DPUS;
     assert_eq!(
-        db::resource_pool::stats(
+        nico_api_db::resource_pool::stats(
             &mut *txn,
             env.common_pools.ethernet.pool_secondary_vtep_ip.name()
         )
@@ -812,9 +820,11 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         assert_eq!(dpu.current_state(), &expected_state);
     }
 
-    let mut interfaces_map =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[*host_machine_id.as_ref().unwrap()])
-            .await?;
+    let mut interfaces_map = nico_api_db::machine_interface::find_by_machine_ids(
+        &mut txn,
+        &[*host_machine_id.as_ref().unwrap()],
+    )
+    .await?;
     let interfaces = interfaces_map
         .remove(host_machine_id.clone().as_ref().unwrap())
         .unwrap();
@@ -839,7 +849,8 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
     // Try to discover machine with multiple DPUs
     for i in 0..NUM_DPUS {
         let topologies =
-            db::machine_topology::find_by_machine_ids(&mut txn, &[dpu_machines[i].id]).await?;
+            nico_api_db::machine_topology::find_by_machine_ids(&mut txn, &[dpu_machines[i].id])
+                .await?;
 
         let topology = &topologies[&dpu_machines[i].id][0];
 
@@ -908,7 +919,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     let interface_id = response.machine_interface_id;
     let mut ifaces = env
         .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+        .find_interfaces(tonic::Request::new(forge::InterfaceSearchQuery {
             id: Some(interface_id.unwrap()),
             ip: None,
         }))
@@ -950,7 +961,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
 
     // Machine interface should not have any machine id associated with it right now.
     let mut txn = env.pool.begin().await?;
-    let mi = db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
+    let mi = nico_api_db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
     assert!(mi[0].attached_dpu_machine_id.is_none());
     assert!(mi[0].machine_id.is_none());
     txn.rollback().await?;
@@ -969,7 +980,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     // At this point, create_managed_host must have updated the associated machine id in
     // machine_interfaces table.
     let mut txn = env.pool.begin().await?;
-    let mi = db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
+    let mi = nico_api_db::machine_interface::find_by_mac_address(txn.as_mut(), oob_mac).await?;
     assert!(mi[0].attached_dpu_machine_id.is_some());
     assert!(mi[0].machine_id.is_some());
     txn.rollback().await?;
@@ -1011,7 +1022,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     let interface_id = response.machine_interface_id;
     let mut ifaces = env
         .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+        .find_interfaces(tonic::Request::new(forge::InterfaceSearchQuery {
             id: Some(interface_id.unwrap()),
             ip: None,
         }))
@@ -1054,7 +1065,8 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     // No way to find a machine_interface using machine id as machine id is not yet associated with
     // interface (right now no machine interface is created yet).
     let mut txn = env.pool.begin().await?;
-    let mi = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id]).await?;
+    let mi =
+        nico_api_db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id]).await?;
     assert!(mi.is_empty());
     txn.rollback().await?;
 
@@ -1072,7 +1084,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     // At this point, create_managed_hostmust have created machine but can not associate it with to
     // any interface as interface does not exist.
     let mut txn = env.pool.begin().await?;
-    let machine = db::machine::find_one(
+    let machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &dpu_machine_id,
         MachineSearchConfig {
@@ -1085,7 +1097,8 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
 
     // No way to find a machine_interface using machine id as machine id is not yet associated with
     // interface (right now no machine interface is created yet).
-    let mi = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id]).await?;
+    let mi =
+        nico_api_db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id]).await?;
     assert!(mi.is_empty());
     txn.rollback().await?;
 
@@ -1115,7 +1128,8 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     // At this point, create_managed_host must have updated the associated machine id in
     // machine_interfaces table.
     let mut txn = env.pool.begin().await?;
-    let mi = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id]).await?;
+    let mi =
+        nico_api_db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id]).await?;
     assert!(!mi.is_empty());
     let value = mi.values().collect_vec()[0].clone()[0].clone();
     assert_eq!(value.attached_dpu_machine_id.unwrap(), dpu_machine_id);
@@ -1204,7 +1218,7 @@ async fn test_site_explorer_creates_managed_host_with_dpf_disable(
     let interface_id = response.machine_interface_id;
     let mut ifaces = env
         .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+        .find_interfaces(tonic::Request::new(forge::InterfaceSearchQuery {
             id: Some(interface_id.unwrap()),
             ip: None,
         }))
@@ -1227,10 +1241,10 @@ async fn test_site_explorer_creates_managed_host_with_dpf_disable(
         }],
     };
 
-    let expected_machine = model::expected_machine::ExpectedMachine {
+    let expected_machine = nico_api_model::expected_machine::ExpectedMachine {
         id: Some(uuid::Uuid::new_v4()),
         bmc_mac_address: mock_host.bmc_mac_address,
-        data: model::expected_machine::ExpectedMachineData {
+        data: nico_api_model::expected_machine::ExpectedMachineData {
             dpf_enabled: None,
             ..Default::default()
         },
@@ -1247,9 +1261,9 @@ async fn test_site_explorer_creates_managed_host_with_dpf_disable(
             .await?
     );
 
-    let machines = db::machine::find(
+    let machines = nico_api_db::machine::find(
         &env.pool,
-        db::ObjectFilter::All,
+        nico_api_db::ObjectFilter::All,
         MachineSearchConfig {
             include_predicted_host: true,
             ..Default::default()
@@ -1351,7 +1365,7 @@ async fn test_site_explorer_creates_managed_host_with_dpf_enabled(
     let interface_id = response.machine_interface_id;
     let mut ifaces = env
         .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+        .find_interfaces(tonic::Request::new(forge::InterfaceSearchQuery {
             id: Some(interface_id.unwrap()),
             ip: None,
         }))
@@ -1374,10 +1388,10 @@ async fn test_site_explorer_creates_managed_host_with_dpf_enabled(
         }],
     };
 
-    let expected_machine = model::expected_machine::ExpectedMachine {
+    let expected_machine = nico_api_model::expected_machine::ExpectedMachine {
         id: Some(uuid::Uuid::new_v4()),
         bmc_mac_address: mock_host.bmc_mac_address,
-        data: model::expected_machine::ExpectedMachineData {
+        data: nico_api_model::expected_machine::ExpectedMachineData {
             dpf_enabled: Some(true),
             ..Default::default()
         },
@@ -1394,9 +1408,9 @@ async fn test_site_explorer_creates_managed_host_with_dpf_enabled(
             .await?
     );
 
-    let machines = db::machine::find(
+    let machines = nico_api_db::machine::find(
         &env.pool,
-        db::ObjectFilter::All,
+        nico_api_db::ObjectFilter::All,
         MachineSearchConfig {
             include_predicted_host: true,
             ..Default::default()
@@ -1479,7 +1493,7 @@ async fn test_rms_registration_with_rack_id(
     let interface_id = response.machine_interface_id;
     let mut ifaces = env
         .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+        .find_interfaces(tonic::Request::new(forge::InterfaceSearchQuery {
             id: Some(interface_id.unwrap()),
             ip: None,
         }))
@@ -1503,12 +1517,12 @@ async fn test_rms_registration_with_rack_id(
     // Create an expected machine WITH a rack_id in the DB.
     let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = env.pool.begin().await.unwrap();
-    db::expected_machine::create(
+    nico_api_db::expected_machine::create(
         &mut txn,
-        model::expected_machine::ExpectedMachine {
+        nico_api_model::expected_machine::ExpectedMachine {
             id: None,
             bmc_mac_address: mock_host.bmc_mac_address,
-            data: model::expected_machine::ExpectedMachineData {
+            data: nico_api_model::expected_machine::ExpectedMachineData {
                 rack_id: Some(rack_id),
                 ..Default::default()
             },
@@ -1530,10 +1544,12 @@ async fn test_rms_registration_with_rack_id(
     );
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host_machine =
-        db::machine::find_host_by_dpu_machine_id(&mut txn, dpu_report.machine_id.as_ref().unwrap())
-            .await?
-            .unwrap();
+    let host_machine = nico_api_db::machine::find_host_by_dpu_machine_id(
+        &mut txn,
+        dpu_report.machine_id.as_ref().unwrap(),
+    )
+    .await?
+    .unwrap();
     assert_eq!(
         host_machine.current_state(),
         &ManagedHostState::VerifyRmsMembership,
@@ -1552,7 +1568,7 @@ async fn test_rms_registration_with_rack_id(
     // Iteration 1: VerifyRmsMembership -> RegisterRmsMembership
     // (node not found in inventory — needs registration)
     env.run_machine_state_controller_iteration().await;
-    let host_machine = db::machine::find_one(
+    let host_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &host_machine.id,
         MachineSearchConfig::default(),
@@ -1568,7 +1584,7 @@ async fn test_rms_registration_with_rack_id(
     // Iteration 2: RegisterRmsMembership -> DpuDiscoveringState
     // (add_node succeeds)
     env.run_machine_state_controller_iteration().await;
-    let host_machine = db::machine::find_one(
+    let host_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &host_machine.id,
         MachineSearchConfig::default(),
@@ -1653,7 +1669,7 @@ async fn test_rms_registration_retries_on_failure(
     let interface_id = response.machine_interface_id;
     let mut ifaces = env
         .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+        .find_interfaces(tonic::Request::new(forge::InterfaceSearchQuery {
             id: Some(interface_id.unwrap()),
             ip: None,
         }))
@@ -1676,12 +1692,12 @@ async fn test_rms_registration_retries_on_failure(
 
     let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = env.pool.begin().await.unwrap();
-    db::expected_machine::create(
+    nico_api_db::expected_machine::create(
         &mut txn,
-        model::expected_machine::ExpectedMachine {
+        nico_api_model::expected_machine::ExpectedMachine {
             id: None,
             bmc_mac_address: mock_host.bmc_mac_address,
-            data: model::expected_machine::ExpectedMachineData {
+            data: nico_api_model::expected_machine::ExpectedMachineData {
                 rack_id: Some(rack_id),
                 ..Default::default()
             },
@@ -1702,10 +1718,12 @@ async fn test_rms_registration_retries_on_failure(
     );
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host_machine =
-        db::machine::find_host_by_dpu_machine_id(&mut txn, dpu_report.machine_id.as_ref().unwrap())
-            .await?
-            .unwrap();
+    let host_machine = nico_api_db::machine::find_host_by_dpu_machine_id(
+        &mut txn,
+        dpu_report.machine_id.as_ref().unwrap(),
+    )
+    .await?
+    .unwrap();
 
     let handler = MachineStateHandlerBuilder::builder()
         .dpu_up_threshold(chrono::Duration::minutes(1))
@@ -1719,7 +1737,7 @@ async fn test_rms_registration_retries_on_failure(
 
     // Iteration 1: VerifyRmsMembership -> RegisterRmsMembership (not found)
     env.run_machine_state_controller_iteration().await;
-    let host_machine = db::machine::find_one(
+    let host_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &host_machine.id,
         MachineSearchConfig::default(),
@@ -1737,7 +1755,7 @@ async fn test_rms_registration_retries_on_failure(
 
     // Iteration 2: RegisterRmsMembership stays (add_node fails)
     env.run_machine_state_controller_iteration().await;
-    let host_machine = db::machine::find_one(
+    let host_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &host_machine.id,
         MachineSearchConfig::default(),
@@ -1757,7 +1775,7 @@ async fn test_rms_registration_retries_on_failure(
 
     // Iteration 3: RegisterRmsMembership -> DpuDiscoveringState (succeeds)
     env.run_machine_state_controller_iteration().await;
-    let host_machine = db::machine::find_one(
+    let host_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &host_machine.id,
         MachineSearchConfig::default(),
@@ -1843,7 +1861,7 @@ async fn test_rms_verification_failure_paths(
     let interface_id = response.machine_interface_id;
     let mut ifaces = env
         .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+        .find_interfaces(tonic::Request::new(forge::InterfaceSearchQuery {
             id: Some(interface_id.unwrap()),
             ip: None,
         }))
@@ -1866,12 +1884,12 @@ async fn test_rms_verification_failure_paths(
 
     let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = env.pool.begin().await.unwrap();
-    db::expected_machine::create(
+    nico_api_db::expected_machine::create(
         &mut txn,
-        model::expected_machine::ExpectedMachine {
+        nico_api_model::expected_machine::ExpectedMachine {
             id: None,
             bmc_mac_address: mock_host.bmc_mac_address,
-            data: model::expected_machine::ExpectedMachineData {
+            data: nico_api_model::expected_machine::ExpectedMachineData {
                 rack_id: Some(rack_id),
                 ..Default::default()
             },
@@ -1892,10 +1910,12 @@ async fn test_rms_verification_failure_paths(
     );
 
     let mut txn = env.pool.begin().await.unwrap();
-    let host_machine =
-        db::machine::find_host_by_dpu_machine_id(&mut txn, dpu_report.machine_id.as_ref().unwrap())
-            .await?
-            .unwrap();
+    let host_machine = nico_api_db::machine::find_host_by_dpu_machine_id(
+        &mut txn,
+        dpu_report.machine_id.as_ref().unwrap(),
+    )
+    .await?
+    .unwrap();
 
     // Make inventory_get fail so verification can't proceed
     env.rms_sim.set_fail_inventory_get(true);
@@ -1912,7 +1932,7 @@ async fn test_rms_verification_failure_paths(
 
     // Iteration 1: VerifyRmsMembership stays (inventory_get API error)
     env.run_machine_state_controller_iteration().await;
-    let host_machine = db::machine::find_one(
+    let host_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &host_machine.id,
         MachineSearchConfig::default(),
@@ -1932,7 +1952,7 @@ async fn test_rms_verification_failure_paths(
 
     // Iteration 2: VerifyRmsMembership -> RegisterRmsMembership (not found)
     env.run_machine_state_controller_iteration().await;
-    let host_machine = db::machine::find_one(
+    let host_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &host_machine.id,
         MachineSearchConfig::default(),
@@ -1947,7 +1967,7 @@ async fn test_rms_verification_failure_paths(
 
     // Iteration 3: RegisterRmsMembership -> DpuDiscoveringState (succeeds)
     env.run_machine_state_controller_iteration().await;
-    let host_machine = db::machine::find_one(
+    let host_machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &host_machine.id,
         MachineSearchConfig::default(),

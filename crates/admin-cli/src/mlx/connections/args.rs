@@ -18,9 +18,9 @@
 // connections/args.rs
 // Command-line argument definitions for mlx connections commands.
 
-use carbide_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::protos::forge as forge_pb;
+use nico_rpc::protos::forge as forge_pb;
+use nico_uuid::machine::MachineId;
 
 // ConnectionsCommand are the connections subcommands.
 #[derive(Parser, Debug)]

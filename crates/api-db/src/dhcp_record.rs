@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use carbide_network::ip::IpAddressFamily;
-use carbide_uuid::network::NetworkSegmentId;
 use mac_address::MacAddress;
-use model::dhcp_record::DhcpRecord;
+use nico_api_model::dhcp_record::DhcpRecord;
+use nico_network::ip::IpAddressFamily;
+use nico_uuid::network::NetworkSegmentId;
 use sqlx::PgConnection;
 
 use crate::DatabaseError;

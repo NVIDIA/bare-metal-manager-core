@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
 use chrono::TimeZone;
 use itertools::Itertools;
-use model::firmware::DesiredFirmwareVersions;
+use nico_api_model::firmware::DesiredFirmwareVersions;
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -26,8 +26,8 @@ use crate::api::{Api, log_request_data};
 
 pub(crate) async fn set_firmware_update_time_window(
     api: &Api,
-    request: Request<rpc::SetFirmwareUpdateTimeWindowRequest>,
-) -> Result<Response<rpc::SetFirmwareUpdateTimeWindowResponse>, Status> {
+    request: Request<forge::SetFirmwareUpdateTimeWindowRequest>,
+) -> Result<Response<forge::SetFirmwareUpdateTimeWindowResponse>, Status> {
     let request = request.into_inner();
     let start = request.start_timestamp.unwrap_or_default().seconds;
     let end = request.end_timestamp.unwrap_or_default().seconds;
@@ -56,7 +56,7 @@ pub(crate) async fn set_firmware_update_time_window(
         request.machine_ids
     );
 
-    db::machine::update_firmware_update_time_window_start_end(
+    nico_api_db::machine::update_firmware_update_time_window_start_end(
         &request.machine_ids,
         chrono::Utc
             .timestamp_opt(request.start_timestamp.unwrap_or_default().seconds, 0)
@@ -72,19 +72,19 @@ pub(crate) async fn set_firmware_update_time_window(
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::SetFirmwareUpdateTimeWindowResponse {}))
+    Ok(Response::new(forge::SetFirmwareUpdateTimeWindowResponse {}))
 }
 
 pub(crate) fn list_host_firmware(
     api: &Api,
-    _request: Request<rpc::ListHostFirmwareRequest>,
-) -> Result<Response<rpc::ListHostFirmwareResponse>, Status> {
+    _request: Request<forge::ListHostFirmwareRequest>,
+) -> Result<Response<forge::ListHostFirmwareResponse>, Status> {
     let mut ret = vec![];
     for (_, entry) in api.runtime_config.get_firmware_config().map() {
         for (component, component_info) in entry.components {
             for firmware in component_info.known_firmware {
                 if firmware.default {
-                    ret.push(rpc::AvailableHostFirmware {
+                    ret.push(forge::AvailableHostFirmware {
                         vendor: entry.vendor.to_string(),
                         model: entry.model.clone(),
                         r#type: component.to_string(),
@@ -100,15 +100,15 @@ pub(crate) fn list_host_firmware(
             }
         }
     }
-    Ok(Response::new(rpc::ListHostFirmwareResponse {
+    Ok(Response::new(forge::ListHostFirmwareResponse {
         available: ret,
     }))
 }
 
 pub(crate) fn get_desired_firmware_versions(
     api: &Api,
-    request: Request<rpc::GetDesiredFirmwareVersionsRequest>,
-) -> Result<Response<rpc::GetDesiredFirmwareVersionsResponse>, Status> {
+    request: Request<forge::GetDesiredFirmwareVersionsRequest>,
+) -> Result<Response<forge::GetDesiredFirmwareVersionsResponse>, Status> {
     log_request_data(&request);
 
     let entries = api
@@ -121,7 +121,7 @@ pub(crate) fn get_desired_firmware_versions(
             let model = firmware.model.clone();
             let component_versions = DesiredFirmwareVersions::from(firmware).versions;
 
-            Ok::<_, serde_json::Error>(rpc::DesiredFirmwareVersionEntry {
+            Ok::<_, serde_json::Error>(forge::DesiredFirmwareVersionEntry {
                 vendor: vendor.to_string(),
                 model,
                 // Launder firmware.components through serde::value to convert FirmwareComponentType
@@ -133,7 +133,7 @@ pub(crate) fn get_desired_firmware_versions(
         })
         .try_collect()
         .map_err(CarbideError::from)?;
-    Ok(Response::new(rpc::GetDesiredFirmwareVersionsResponse {
+    Ok(Response::new(forge::GetDesiredFirmwareVersionsResponse {
         entries,
     }))
 }

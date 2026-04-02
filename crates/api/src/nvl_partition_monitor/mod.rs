@@ -19,25 +19,29 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
 use chrono::Utc;
 use config_version::Versioned;
-use db::machine::find_machine_ids;
-use db::managed_host::load_by_machine_ids;
-use db::nvl_logical_partition::IdColumn as LpIdColumn;
-use db::nvl_partition::IdColumn;
-use db::work_lock_manager::WorkLockManagerHandle;
-use db::{self, ObjectColumnFilter, machine};
 use metrics::{AppliedChange, NmxmPartitionOperationStatus, NvlPartitionMonitorMetrics};
-use model::hardware_info::{MachineNvLinkInfo, NvLinkGpu};
-use model::instance::status::SyncState;
-use model::instance::status::nvlink::InstanceNvLinkStatus;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::nvlink::{MachineNvLinkGpuStatusObservation, MachineNvLinkStatusObservation};
-use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
-use model::nvl_logical_partition::LogicalPartition;
-use model::nvl_partition::{NvlPartition, NvlPartitionName};
+use nico_api_db::machine::find_machine_ids;
+use nico_api_db::managed_host::load_by_machine_ids;
+use nico_api_db::nvl_logical_partition::IdColumn as LpIdColumn;
+use nico_api_db::nvl_partition::IdColumn;
+use nico_api_db::work_lock_manager::WorkLockManagerHandle;
+use nico_api_db::{
+    ObjectColumnFilter, machine, {self},
+};
+use nico_api_model::hardware_info::{MachineNvLinkInfo, NvLinkGpu};
+use nico_api_model::instance::status::SyncState;
+use nico_api_model::instance::status::nvlink::InstanceNvLinkStatus;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::nvlink::{
+    MachineNvLinkGpuStatusObservation, MachineNvLinkStatusObservation,
+};
+use nico_api_model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
+use nico_api_model::nvl_logical_partition::LogicalPartition;
+use nico_api_model::nvl_partition::{NvlPartition, NvlPartitionName};
+use nico_uuid::machine::MachineId;
+use nico_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
 use sqlx::PgPool;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -162,7 +166,9 @@ impl PartitionProcessingContext {
         if let Some(matching_logical_partition) =
             self.db_nvl_logical_partitions.get(logical_partition_id)
         {
-            if model::nvl_logical_partition::is_marked_as_deleted(matching_logical_partition) {
+            if nico_api_model::nvl_logical_partition::is_marked_as_deleted(
+                matching_logical_partition,
+            ) {
                 tracing::error!(
                     "logical partition already marked as deleted, cannot modify physical partition"
                 );
@@ -751,11 +757,14 @@ impl NvlPartitionMonitor {
         )
         .await?;
         let db_nvl_partitions =
-            db::nvl_partition::find_by(&mut txn, ObjectColumnFilter::<IdColumn>::All).await?;
-
-        let db_nvl_logical_partitions =
-            db::nvl_logical_partition::find_by(&mut txn, ObjectColumnFilter::<LpIdColumn>::All)
+            nico_api_db::nvl_partition::find_by(&mut txn, ObjectColumnFilter::<IdColumn>::All)
                 .await?;
+
+        let db_nvl_logical_partitions = nico_api_db::nvl_logical_partition::find_by(
+            &mut txn,
+            ObjectColumnFilter::<LpIdColumn>::All,
+        )
+        .await?;
 
         // Don't hold the transaction across unrelated awaits
         txn.commit().await?;
@@ -971,8 +980,12 @@ impl NvlPartitionMonitor {
                     machine_id = %machine_id,
                     "Updating machine nvlink_info in DB to match NMX-M nmx_m_id"
                 );
-                db::machine::update_nvlink_info(&mut txn, machine_id, updated_nvlink_info.clone())
-                    .await?;
+                nico_api_db::machine::update_nvlink_info(
+                    &mut txn,
+                    machine_id,
+                    updated_nvlink_info.clone(),
+                )
+                .await?;
             }
 
             // Delete stale partitions that no longer exist in NMX-M.
@@ -986,7 +999,7 @@ impl NvlPartitionMonitor {
                     domain_uuid = %stale_partition.domain_uuid,
                     "Deleting stale nvlink partition from DB - not found in NMX-M"
                 );
-                db::nvl_partition::final_delete(stale_partition.id, &mut txn).await?;
+                nico_api_db::nvl_partition::final_delete(stale_partition.id, &mut txn).await?;
                 metrics.num_stale_partitions_deleted += 1;
             }
 
@@ -1414,8 +1427,12 @@ impl NvlPartitionMonitor {
             ))
         })?;
         for (machine_id, observations) in observations {
-            db::machine::update_nvlink_status_observation(&mut obs_txn, &machine_id, &observations)
-                .await?;
+            nico_api_db::machine::update_nvlink_status_observation(
+                &mut obs_txn,
+                &machine_id,
+                &observations,
+            )
+            .await?;
         }
         obs_txn.commit().await.map_err(|e| {
             CarbideError::internal(format!(
@@ -1849,7 +1866,7 @@ impl NvlPartitionMonitor {
                 match operation.operation_type {
                     NmxmPartitionOperationType::Create => {
                         // Create the nvl partition in the database
-                        let new_partition = model::nvl_partition::NewNvlPartition {
+                        let new_partition = nico_api_model::nvl_partition::NewNvlPartition {
                             id: NvLinkPartitionId::new(),
                             logical_partition_id,
                             name: NvlPartitionName::try_from(operation.name.clone())?,
@@ -1873,10 +1890,11 @@ impl NvlPartitionMonitor {
                                 }
                             },
                         };
-                        let _partition = db::nvl_partition::create(&new_partition, txn).await?;
+                        let _partition =
+                            nico_api_db::nvl_partition::create(&new_partition, txn).await?;
                     }
                     NmxmPartitionOperationType::Remove(_) => {
-                        db::nvl_partition::final_delete(
+                        nico_api_db::nvl_partition::final_delete(
                             operation.db_partition_id.unwrap_or_default(),
                             txn,
                         )
@@ -1899,9 +1917,9 @@ impl NvlPartitionMonitor {
 
         // walk the logical partition list and check if any logical partitions need to be cleaned up
         for lp in db_nvl_logical_partitions {
-            if model::nvl_logical_partition::is_marked_as_deleted(lp) {
+            if nico_api_model::nvl_logical_partition::is_marked_as_deleted(lp) {
                 tracing::info!(logical_partition_id = %lp.id, "Deleting logical partition");
-                db::nvl_logical_partition::final_delete(lp.id, txn).await?;
+                nico_api_db::nvl_logical_partition::final_delete(lp.id, txn).await?;
             }
         }
 

@@ -25,7 +25,8 @@ use std::fmt::{Display, Write};
 use std::str::FromStr;
 
 use askama_escape::Escaper;
-use carbide_uuid::machine::MachineId;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 
 /// Generates HTML links for Machine IDs
 pub fn machine_id_link(id: impl Display) -> ::askama::Result<String> {
@@ -87,7 +88,7 @@ pub fn rack_id_link(id: impl Display) -> ::askama::Result<String> {
 }
 
 /// Formats labels into HTML
-pub fn label_list_fmt(labels: &[rpc::forge::Label], truncate: bool) -> ::askama::Result<String> {
+pub fn label_list_fmt(labels: &[forge::Label], truncate: bool) -> ::askama::Result<String> {
     const MAX_LABEL_LENGTH: usize = 32;
 
     // Format labels by key to get a consistent order
@@ -131,7 +132,7 @@ pub fn label_list_fmt(labels: &[rpc::forge::Label], truncate: bool) -> ::askama:
 /// If there is no alert, generates a green "None" bubble
 /// Generates HTML using the unified bubble system
 pub fn health_alerts_fmt(
-    alerts: &[health_report::HealthProbeAlert],
+    alerts: &[nico_health_report::HealthProbeAlert],
     include_message: bool,
     include_target: bool,
 ) -> ::askama::Result<String> {
@@ -167,13 +168,13 @@ pub fn health_alerts_fmt(
 pub fn health_alert_classifications_fmt<'a, T, AlertRef>(alerts: T) -> ::askama::Result<String>
 where
     T: IntoIterator<Item = AlertRef>,
-    AlertRef: std::borrow::Borrow<&'a health_report::HealthProbeAlert> + 'a,
+    AlertRef: std::borrow::Borrow<&'a nico_health_report::HealthProbeAlert> + 'a,
 {
     let mut result = String::new();
-    let mut classifications = BTreeSet::<health_report::HealthAlertClassification>::new();
+    let mut classifications = BTreeSet::<nico_health_report::HealthAlertClassification>::new();
 
     for alert_ref in alerts.into_iter() {
-        let alert: &health_report::HealthProbeAlert = alert_ref.borrow();
+        let alert: &nico_health_report::HealthProbeAlert = alert_ref.borrow();
         classifications.extend(alert.classifications.iter().cloned());
     }
 
@@ -215,7 +216,7 @@ pub fn option_fmt(value: &Option<impl Display>) -> askama::Result<String> {
 
 /// Formats the boot order list
 pub fn boot_order_fmt(
-    boot_order: &Option<rpc::site_explorer::BootOrder>,
+    boot_order: &Option<nico_rpc::site_explorer::BootOrder>,
 ) -> ::askama::Result<String> {
     let json_result = boot_order
         .as_ref()
@@ -237,7 +238,7 @@ pub fn colorize_output(ansi_text: &str) -> ::askama::Result<String> {
 
 /// Formats a state handler outcome
 pub fn controller_state_reason_fmt(
-    reason: &Option<::rpc::forge::ControllerStateReason>,
+    reason: &Option<forge::ControllerStateReason>,
 ) -> ::askama::Result<String> {
     let Some(reason) = reason else {
         return Ok(String::new());
@@ -245,8 +246,8 @@ pub fn controller_state_reason_fmt(
 
     let mut result = String::new();
     let classes = match reason.outcome() {
-        rpc::forge::ControllerStateOutcome::Wait => "bubble warning".to_string(),
-        rpc::forge::ControllerStateOutcome::Error => "bubble error".to_string(),
+        forge::ControllerStateOutcome::Wait => "bubble warning".to_string(),
+        forge::ControllerStateOutcome::Error => "bubble error".to_string(),
         _ => "bubble".to_string(),
     };
 
@@ -264,9 +265,9 @@ pub fn controller_state_reason_fmt(
     if let Some(source_ref) = reason.source_ref.as_ref() {
         const GITLAB_REPO: &str = "https://gitlab-master.nvidia.com/nvmetal/carbide";
 
-        // TODO: carbide_version::v!(git_sha) should work here - however it returns an
+        // TODO: nico_version::v!(git_sha) should work here - however it returns an
         // outdated commit ID.
-        let build_version = carbide_version::v!(build_version);
+        let build_version = nico_version::v!(build_version);
         let commit_hash = match build_version.rfind('g') {
             Some(idx) if idx != build_version.len() - 1 => &build_version[idx + 1..],
             _ => "trunk",

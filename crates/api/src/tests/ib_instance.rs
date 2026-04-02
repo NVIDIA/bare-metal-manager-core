@@ -17,15 +17,16 @@
 
 use std::collections::{HashMap, HashSet};
 
-use carbide_uuid::infiniband::IBPartitionId;
-use carbide_uuid::machine::MachineId;
 use common::api_fixtures::ib_partition::{DEFAULT_TENANT, create_ib_partition};
 use common::api_fixtures::instance::{config_for_ib_config, create_instance_with_ib_config};
 use common::api_fixtures::{TestEnv, create_managed_host};
-use model::ib::DEFAULT_IB_FABRIC_NAME;
-use model::machine::ManagedHostState;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{IbPartitionStatus, TenantState};
+use nico_api_model::ib::DEFAULT_IB_FABRIC_NAME;
+use nico_api_model::machine::ManagedHostState;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{IbPartitionStatus, TenantState};
+use nico_uuid::infiniband::IBPartitionId;
+use nico_uuid::machine::MachineId;
 use tonic::Request;
 
 use crate::api::Api;
@@ -36,7 +37,7 @@ use crate::tests::common::api_fixtures::TestEnvOverrides;
 
 async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {
     let segment = api
-        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+        .find_ib_partitions_by_ids(Request::new(forge::IbPartitionsByIdsRequest {
             ib_partition_ids: vec![ib_partition_id],
             include_history: false,
         }))
@@ -108,18 +109,18 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     assert_eq!(machine.ib_status.as_ref().unwrap().ib_interfaces.len(), 6);
 
     // select the second MT2910 Family [ConnectX-7] and the first MT27800 Family [ConnectX-5] which are sorted by slots
-    let ib_config = rpc::forge::InstanceInfinibandConfig {
+    let ib_config = forge::InstanceInfinibandConfig {
         ib_interfaces: vec![
-            rpc::forge::InstanceIbInterfaceConfig {
-                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            forge::InstanceIbInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 virtual_function_id: None,
                 ib_partition_id: Some(ib_partition_id),
                 device: "MT2910 Family [ConnectX-7]".to_string(),
                 vendor: None,
                 device_instance: 1,
             },
-            rpc::forge::InstanceIbInterfaceConfig {
-                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            forge::InstanceIbInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 virtual_function_id: None,
                 ib_partition_id: Some(ib_partition_id),
                 device: "MT27800 Family [ConnectX-5]".to_string(),
@@ -184,14 +185,14 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
 
     let check_instance = tinstance.rpc_instance().await;
     assert_eq!(instance.machine_id(), mh.id);
-    assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Ready);
     assert_eq!(instance, check_instance);
 
     let applied_ib_config = check_instance.config().infiniband();
     assert_eq!(*applied_ib_config, ib_config);
 
     let ib_status = check_instance.status().infiniband();
-    assert_eq!(ib_status.configs_synced(), rpc::SyncState::Synced);
+    assert_eq!(ib_status.configs_synced(), forge::SyncState::Synced);
     assert_eq!(ib_status.ib_interfaces.len(), 2);
 
     if let Some(iface) = ib_status.ib_interfaces.first() {
@@ -289,9 +290,9 @@ async fn test_can_not_create_instance_for_not_enough_ib_device(pool: sqlx::PgPoo
     let result = try_allocate_instance(
         &env,
         &host_machine_id,
-        rpc::forge::InstanceInfinibandConfig {
-            ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
-                function_type: rpc::forge::InterfaceFunctionType::Physical as _,
+        forge::InstanceInfinibandConfig {
+            ib_interfaces: vec![forge::InstanceIbInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as _,
                 virtual_function_id: None,
                 ib_partition_id: Some(ib_partition_id),
                 device: "MT2910 Family [ConnectX-7]".to_string(),
@@ -334,9 +335,9 @@ async fn test_can_not_create_instance_for_no_ib_device(pool: sqlx::PgPool) {
     let result = try_allocate_instance(
         &env,
         &host_machine_id,
-        rpc::forge::InstanceInfinibandConfig {
-            ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
-                function_type: rpc::forge::InterfaceFunctionType::Physical as _,
+        forge::InstanceInfinibandConfig {
+            ib_interfaces: vec![forge::InstanceIbInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as _,
                 virtual_function_id: None,
                 ib_partition_id: Some(ib_partition_id),
                 device: "MT28908  Family [ConnectX-6]".to_string(), // no ib devices
@@ -379,18 +380,18 @@ async fn test_can_not_create_instance_for_reuse_ib_device(pool: sqlx::PgPool) {
     let result = try_allocate_instance(
         &env,
         &host_machine_id,
-        rpc::forge::InstanceInfinibandConfig {
+        forge::InstanceInfinibandConfig {
             ib_interfaces: vec![
-                rpc::forge::InstanceIbInterfaceConfig {
-                    function_type: rpc::forge::InterfaceFunctionType::Physical as _,
+                forge::InstanceIbInterfaceConfig {
+                    function_type: forge::InterfaceFunctionType::Physical as _,
                     virtual_function_id: None,
                     ib_partition_id: Some(ib_partition_id),
                     device: "MT2910 Family [ConnectX-7]".to_string(), // no ib devices
                     vendor: None,
                     device_instance: 0,
                 },
-                rpc::forge::InstanceIbInterfaceConfig {
-                    function_type: rpc::forge::InterfaceFunctionType::Physical as _,
+                forge::InstanceIbInterfaceConfig {
+                    function_type: forge::InterfaceFunctionType::Physical as _,
                     virtual_function_id: None,
                     ib_partition_id: Some(ib_partition_id),
                     device: "MT2910 Family [ConnectX-7]".to_string(), // no ib devices
@@ -434,18 +435,18 @@ async fn test_can_not_create_instance_with_inconsistent_tenant(pool: sqlx::PgPoo
     let result = try_allocate_instance(
         &env,
         &host_machine_id,
-        rpc::forge::InstanceInfinibandConfig {
+        forge::InstanceInfinibandConfig {
             ib_interfaces: vec![
-                rpc::forge::InstanceIbInterfaceConfig {
-                    function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                forge::InstanceIbInterfaceConfig {
+                    function_type: forge::InterfaceFunctionType::Physical as i32,
                     virtual_function_id: None,
                     ib_partition_id: Some(ib_partition_id),
                     device: "MT2910 Family [ConnectX-7]".to_string(),
                     vendor: None,
                     device_instance: 1,
                 },
-                rpc::forge::InstanceIbInterfaceConfig {
-                    function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                forge::InstanceIbInterfaceConfig {
+                    function_type: forge::InterfaceFunctionType::Physical as i32,
                     virtual_function_id: None,
                     ib_partition_id: Some(ib_partition_id),
                     device: "MT27800 Family [ConnectX-5]".to_string(),
@@ -525,11 +526,11 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
     let result = try_allocate_instance(
         &env,
         &mh.id,
-        rpc::forge::InstanceInfinibandConfig {
+        forge::InstanceInfinibandConfig {
             ib_interfaces: vec![
                 // guids[0]
-                rpc::forge::InstanceIbInterfaceConfig {
-                    function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                forge::InstanceIbInterfaceConfig {
+                    function_type: forge::InterfaceFunctionType::Physical as i32,
                     virtual_function_id: None,
                     ib_partition_id: Some(ib_partition_id),
                     device: device_name.clone(),
@@ -537,8 +538,8 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
                     device_instance: 0,
                 },
                 // guids[1]
-                rpc::forge::InstanceIbInterfaceConfig {
-                    function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+                forge::InstanceIbInterfaceConfig {
+                    function_type: forge::InterfaceFunctionType::Physical as i32,
                     virtual_function_id: None,
                     ib_partition_id: Some(ib_partition_id),
                     device: device_name.clone(),
@@ -619,7 +620,7 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
         TestEnvOverrides::with_config(config),
     )
     .await;
-    let segment_id: carbide_uuid::network::NetworkSegmentId =
+    let segment_id: nico_uuid::network::NetworkSegmentId =
         env.create_vpc_and_tenant_segment().await;
 
     let (ib_partition1_id, ib_partition1) = create_ib_partition(
@@ -662,18 +663,18 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
     assert_eq!(machine.ib_status.as_ref().unwrap().ib_interfaces.len(), 6);
 
     // select the second MT2910 Family [ConnectX-7] and the first MT27800 Family [ConnectX-5] which are sorted by slots
-    let ib_config = rpc::forge::InstanceInfinibandConfig {
+    let ib_config = forge::InstanceInfinibandConfig {
         ib_interfaces: vec![
-            rpc::forge::InstanceIbInterfaceConfig {
-                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            forge::InstanceIbInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 virtual_function_id: None,
                 ib_partition_id: Some(ib_partition1_id),
                 device: "MT2910 Family [ConnectX-7]".to_string(),
                 vendor: None,
                 device_instance: 0,
             },
-            rpc::forge::InstanceIbInterfaceConfig {
-                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            forge::InstanceIbInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 virtual_function_id: None,
                 ib_partition_id: Some(ib_partition2_id),
                 device: "MT2910 Family [ConnectX-7]".to_string(),
@@ -738,7 +739,7 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
 
     let check_instance = tinstance.rpc_instance().await;
     assert_eq!(instance.machine_id(), mh.id);
-    assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Ready);
     assert_eq!(instance, check_instance);
     let initial_config_version = instance.config_version();
     let initial_ib_config_version = instance.ib_config_version();
@@ -748,7 +749,7 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
     assert_eq!(*applied_ib_config, ib_config);
 
     let ib_status = check_instance.status().infiniband();
-    assert_eq!(ib_status.configs_synced(), rpc::SyncState::Synced);
+    assert_eq!(ib_status.configs_synced(), forge::SyncState::Synced);
     assert_eq!(ib_status.ib_interfaces.len(), 2);
 
     if let Some(iface) = ib_status.ib_interfaces.first() {
@@ -781,18 +782,18 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
     .await;
 
     // Update the IB config. This deletes one interface, and adds another one
-    let ib_config2 = rpc::forge::InstanceInfinibandConfig {
+    let ib_config2 = forge::InstanceInfinibandConfig {
         ib_interfaces: vec![
-            rpc::forge::InstanceIbInterfaceConfig {
-                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            forge::InstanceIbInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 virtual_function_id: None,
                 ib_partition_id: Some(ib_partition2_id),
                 device: "MT2910 Family [ConnectX-7]".to_string(),
                 vendor: None,
                 device_instance: 1,
             },
-            rpc::forge::InstanceIbInterfaceConfig {
-                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            forge::InstanceIbInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 virtual_function_id: None,
                 ib_partition_id: Some(ib_partition2_id),
                 device: "MT27800 Family [ConnectX-5]".to_string(),
@@ -807,22 +808,20 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
 
     let instance = env
         .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: instance.id().into(),
-                if_version_match: None,
-                config: Some(new_config.clone()),
-                metadata: Some(instance.metadata().clone()),
-            },
-        ))
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            instance_id: instance.id().into(),
+            if_version_match: None,
+            config: Some(new_config.clone()),
+            metadata: Some(instance.metadata().clone()),
+        }))
         .await
         .unwrap()
         .into_inner();
     let instance_status = instance.status.as_ref().unwrap();
-    assert_eq!(instance_status.configs_synced(), rpc::SyncState::Pending);
+    assert_eq!(instance_status.configs_synced(), forge::SyncState::Pending);
     assert_eq!(
         instance_status.tenant.as_ref().unwrap().state(),
-        rpc::TenantState::Configuring
+        forge::TenantState::Configuring
     );
 
     let applied_ib_config = instance
@@ -835,7 +834,7 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
     assert_eq!(*applied_ib_config, ib_config2);
 
     let ib_status = instance_status.infiniband.as_ref().unwrap();
-    assert_eq!(ib_status.configs_synced(), rpc::SyncState::Pending);
+    assert_eq!(ib_status.configs_synced(), forge::SyncState::Pending);
     assert_eq!(ib_status.ib_interfaces.len(), 2);
 
     if let Some(iface) = ib_status.ib_interfaces.first() {
@@ -956,8 +955,8 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
     // Instance shows ready state again
     let instance = tinstance.rpc_instance().await;
     let instance_status = instance.status();
-    assert_eq!(instance_status.configs_synced(), rpc::SyncState::Synced);
-    assert_eq!(instance_status.tenant(), rpc::TenantState::Ready);
+    assert_eq!(instance_status.configs_synced(), forge::SyncState::Synced);
+    assert_eq!(instance_status.tenant(), forge::TenantState::Ready);
     let new_config_version = instance.config_version();
     let new_ib_config_version = instance.ib_config_version();
     let new_network_config_version = instance.network_config_version();
@@ -975,7 +974,7 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
     assert_eq!(*applied_ib_config, ib_config2);
 
     let ib_status = instance_status.infiniband();
-    assert_eq!(ib_status.configs_synced(), rpc::SyncState::Synced);
+    assert_eq!(ib_status.configs_synced(), forge::SyncState::Synced);
     assert_eq!(ib_status.ib_interfaces.len(), 2);
 
     if let Some(iface) = ib_status.ib_interfaces.first() {
@@ -1034,19 +1033,19 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
 pub async fn try_allocate_instance(
     env: &TestEnv,
     host_machine_id: &MachineId,
-    ib_config: rpc::forge::InstanceInfinibandConfig,
-) -> Result<(uuid::Uuid, rpc::forge::Instance), tonic::Status> {
+    ib_config: forge::InstanceInfinibandConfig,
+) -> Result<(uuid::Uuid, forge::Instance), tonic::Status> {
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let config = config_for_ib_config(ib_config, segment_id);
 
     let instance = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+        .allocate_instance(tonic::Request::new(forge::InstanceAllocationRequest {
             instance_id: None,
             machine_id: Some(*host_machine_id),
             instance_type_id: None,
             config: Some(config),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "test_instance".to_string(),
                 description: "tests/ib_instance".to_string(),
                 labels: Vec::new(),
@@ -1060,7 +1059,7 @@ pub async fn try_allocate_instance(
     Ok((instance_id, instance))
 }
 
-fn guids_by_device(machine: &rpc::forge::Machine) -> HashMap<String, Vec<String>> {
+fn guids_by_device(machine: &forge::Machine) -> HashMap<String, Vec<String>> {
     let mut ib_ifaces = machine
         .discovery_info
         .as_ref()
@@ -1130,27 +1129,30 @@ async fn test_count_instances_referencing_partition(pool: sqlx::PgPool) {
     .await;
 
     // No instances yet — count should be 0
-    let count = db::ib_partition::count_instances_referencing_partition(&env.pool, ib_partition_id)
-        .await
-        .unwrap();
+    let count = nico_api_db::ib_partition::count_instances_referencing_partition(
+        &env.pool,
+        ib_partition_id,
+    )
+    .await
+    .unwrap();
     assert_eq!(count, 0, "No instances should reference the partition yet");
 
     // Create a managed host and an instance with two IB interfaces both
     // referencing the same partition. The count query uses containment (@>)
     // so it should still return 1 (one instance), not 2.
     let mh = create_managed_host(&env).await;
-    let ib_config = rpc::forge::InstanceInfinibandConfig {
+    let ib_config = forge::InstanceInfinibandConfig {
         ib_interfaces: vec![
-            rpc::forge::InstanceIbInterfaceConfig {
-                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            forge::InstanceIbInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 virtual_function_id: None,
                 ib_partition_id: Some(ib_partition_id),
                 device: "MT2910 Family [ConnectX-7]".to_string(),
                 vendor: None,
                 device_instance: 0,
             },
-            rpc::forge::InstanceIbInterfaceConfig {
-                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            forge::InstanceIbInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 virtual_function_id: None,
                 ib_partition_id: Some(ib_partition_id),
                 device: "MT2910 Family [ConnectX-7]".to_string(),
@@ -1163,9 +1165,12 @@ async fn test_count_instances_referencing_partition(pool: sqlx::PgPool) {
         create_instance_with_ib_config(&env, &mh, ib_config, segment_id).await;
 
     // Two interfaces reference the partition, but it's one instance — count should be 1
-    let count = db::ib_partition::count_instances_referencing_partition(&env.pool, ib_partition_id)
-        .await
-        .unwrap();
+    let count = nico_api_db::ib_partition::count_instances_referencing_partition(
+        &env.pool,
+        ib_partition_id,
+    )
+    .await
+    .unwrap();
     assert_eq!(
         count, 1,
         "One instance (with two IB interfaces) should be counted once"
@@ -1181,9 +1186,12 @@ async fn test_count_instances_referencing_partition(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
 
     // After mark_as_deleted, count should still be 1 (instance row still exists)
-    let count = db::ib_partition::count_instances_referencing_partition(&env.pool, ib_partition_id)
-        .await
-        .unwrap();
+    let count = nico_api_db::ib_partition::count_instances_referencing_partition(
+        &env.pool,
+        ib_partition_id,
+    )
+    .await
+    .unwrap();
     assert_eq!(
         count, 1,
         "Instance marked as deleted should still be counted (cleanup not finished)"
@@ -1202,9 +1210,12 @@ async fn test_count_instances_referencing_partition(pool: sqlx::PgPool) {
         .unwrap();
     txn.commit().await.unwrap();
 
-    let count = db::ib_partition::count_instances_referencing_partition(&env.pool, ib_partition_id)
-        .await
-        .unwrap();
+    let count = nico_api_db::ib_partition::count_instances_referencing_partition(
+        &env.pool,
+        ib_partition_id,
+    )
+    .await
+    .unwrap();
     assert_eq!(
         count, 0,
         "No instances should reference the partition after final delete"
@@ -1259,9 +1270,9 @@ async fn test_postpone_partition_deletion_while_instances_reference_it(pool: sql
     .expect("Failed to parse pkey");
 
     let mh = create_managed_host(&env).await;
-    let ib_config = rpc::forge::InstanceInfinibandConfig {
-        ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
-            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+    let ib_config = forge::InstanceInfinibandConfig {
+        ib_interfaces: vec![forge::InstanceIbInterfaceConfig {
+            function_type: forge::InterfaceFunctionType::Physical as i32,
             virtual_function_id: None,
             ib_partition_id: Some(ib_partition_id),
             device: "MT2910 Family [ConnectX-7]".to_string(),
@@ -1295,7 +1306,7 @@ async fn test_postpone_partition_deletion_while_instances_reference_it(pool: sql
 
     // Delete the partition via the API (marks it for deletion).
     env.api
-        .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
+        .delete_ib_partition(Request::new(forge::IbPartitionDeletionRequest {
             id: Some(ib_partition_id),
         }))
         .await
@@ -1310,7 +1321,7 @@ async fn test_postpone_partition_deletion_while_instances_reference_it(pool: sql
     // Partition should still exist because instance still references it
     let partitions = env
         .api
-        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+        .find_ib_partitions_by_ids(Request::new(forge::IbPartitionsByIdsRequest {
             ib_partition_ids: vec![ib_partition_id],
             include_history: false,
         }))
@@ -1339,7 +1350,7 @@ async fn test_postpone_partition_deletion_while_instances_reference_it(pool: sql
 
     let partitions = env
         .api
-        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+        .find_ib_partitions_by_ids(Request::new(forge::IbPartitionsByIdsRequest {
             ib_partition_ids: vec![ib_partition_id],
             include_history: false,
         }))
@@ -1371,7 +1382,7 @@ async fn test_postpone_partition_deletion_while_instances_reference_it(pool: sql
 
     let partitions = env
         .api
-        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+        .find_ib_partitions_by_ids(Request::new(forge::IbPartitionsByIdsRequest {
             ib_partition_ids: vec![ib_partition_id],
             include_history: false,
         }))
@@ -1425,11 +1436,11 @@ async fn test_count_instances_multi_partition_multi_interface(pool: sqlx::PgPool
 
     // No instances yet — both counts should be 0
     let count_a =
-        db::ib_partition::count_instances_referencing_partition(&env.pool, partition_a_id)
+        nico_api_db::ib_partition::count_instances_referencing_partition(&env.pool, partition_a_id)
             .await
             .unwrap();
     let count_b =
-        db::ib_partition::count_instances_referencing_partition(&env.pool, partition_b_id)
+        nico_api_db::ib_partition::count_instances_referencing_partition(&env.pool, partition_b_id)
             .await
             .unwrap();
     assert_eq!(count_a, 0, "No instances should reference partition A yet");
@@ -1440,9 +1451,9 @@ async fn test_count_instances_multi_partition_multi_interface(pool: sqlx::PgPool
     let mh2 = create_managed_host(&env).await;
 
     // Instance 1 (host 1): 1 IB interface bound to partition A
-    let ib_config_1 = rpc::forge::InstanceInfinibandConfig {
-        ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
-            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+    let ib_config_1 = forge::InstanceInfinibandConfig {
+        ib_interfaces: vec![forge::InstanceIbInterfaceConfig {
+            function_type: forge::InterfaceFunctionType::Physical as i32,
             virtual_function_id: None,
             ib_partition_id: Some(partition_a_id),
             device: "MT2910 Family [ConnectX-7]".to_string(),
@@ -1452,26 +1463,26 @@ async fn test_count_instances_multi_partition_multi_interface(pool: sqlx::PgPool
     };
 
     // Instance 2 (host 2): 3 IB interfaces — 2 on partition A, 1 on partition B
-    let ib_config_2 = rpc::forge::InstanceInfinibandConfig {
+    let ib_config_2 = forge::InstanceInfinibandConfig {
         ib_interfaces: vec![
-            rpc::forge::InstanceIbInterfaceConfig {
-                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            forge::InstanceIbInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 virtual_function_id: None,
                 ib_partition_id: Some(partition_a_id),
                 device: "MT2910 Family [ConnectX-7]".to_string(),
                 vendor: None,
                 device_instance: 0,
             },
-            rpc::forge::InstanceIbInterfaceConfig {
-                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            forge::InstanceIbInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 virtual_function_id: None,
                 ib_partition_id: Some(partition_a_id),
                 device: "MT2910 Family [ConnectX-7]".to_string(),
                 vendor: None,
                 device_instance: 1,
             },
-            rpc::forge::InstanceIbInterfaceConfig {
-                function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            forge::InstanceIbInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 virtual_function_id: None,
                 ib_partition_id: Some(partition_b_id),
                 device: "MT27800 Family [ConnectX-5]".to_string(),
@@ -1487,11 +1498,11 @@ async fn test_count_instances_multi_partition_multi_interface(pool: sqlx::PgPool
     // Partition A: referenced by instance 1 (1 iface) and instance 2 (2 ifaces) → count = 2
     // Partition B: referenced by instance 2 only (1 iface) → count = 1
     let count_a =
-        db::ib_partition::count_instances_referencing_partition(&env.pool, partition_a_id)
+        nico_api_db::ib_partition::count_instances_referencing_partition(&env.pool, partition_a_id)
             .await
             .unwrap();
     let count_b =
-        db::ib_partition::count_instances_referencing_partition(&env.pool, partition_b_id)
+        nico_api_db::ib_partition::count_instances_referencing_partition(&env.pool, partition_b_id)
             .await
             .unwrap();
     assert_eq!(
@@ -1513,11 +1524,11 @@ async fn test_count_instances_multi_partition_multi_interface(pool: sqlx::PgPool
     txn.commit().await.unwrap();
 
     let count_a =
-        db::ib_partition::count_instances_referencing_partition(&env.pool, partition_a_id)
+        nico_api_db::ib_partition::count_instances_referencing_partition(&env.pool, partition_a_id)
             .await
             .unwrap();
     let count_b =
-        db::ib_partition::count_instances_referencing_partition(&env.pool, partition_b_id)
+        nico_api_db::ib_partition::count_instances_referencing_partition(&env.pool, partition_b_id)
             .await
             .unwrap();
     assert_eq!(
@@ -1546,11 +1557,11 @@ async fn test_count_instances_multi_partition_multi_interface(pool: sqlx::PgPool
     // Partition A drops to 1 (only instance 2 remains).
     // Partition B stays at 1 (instance 2 still references it).
     let count_a =
-        db::ib_partition::count_instances_referencing_partition(&env.pool, partition_a_id)
+        nico_api_db::ib_partition::count_instances_referencing_partition(&env.pool, partition_a_id)
             .await
             .unwrap();
     let count_b =
-        db::ib_partition::count_instances_referencing_partition(&env.pool, partition_b_id)
+        nico_api_db::ib_partition::count_instances_referencing_partition(&env.pool, partition_b_id)
             .await
             .unwrap();
     assert_eq!(
@@ -1574,11 +1585,11 @@ async fn test_count_instances_multi_partition_multi_interface(pool: sqlx::PgPool
 
     // Both counts should be 0
     let count_a =
-        db::ib_partition::count_instances_referencing_partition(&env.pool, partition_a_id)
+        nico_api_db::ib_partition::count_instances_referencing_partition(&env.pool, partition_a_id)
             .await
             .unwrap();
     let count_b =
-        db::ib_partition::count_instances_referencing_partition(&env.pool, partition_b_id)
+        nico_api_db::ib_partition::count_instances_referencing_partition(&env.pool, partition_b_id)
             .await
             .unwrap();
     assert_eq!(

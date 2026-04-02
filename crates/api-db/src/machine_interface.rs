@@ -18,23 +18,23 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use carbide_uuid::domain::DomainId;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
-use model::address_selection_strategy::AddressSelectionStrategy;
-use model::expected_machine::ExpectedHostNic;
-use model::hardware_info::HardwareInfo;
-use model::machine::MachineInterfaceSnapshot;
-use model::machine_interface_address::MachineInterfaceAssociation;
-use model::network_prefix::NetworkPrefix;
-use model::network_segment::{NetworkSegment, NetworkSegmentType};
-use model::predicted_machine_interface::PredictedMachineInterface;
+use nico_api_model::address_selection_strategy::AddressSelectionStrategy;
+use nico_api_model::expected_machine::ExpectedHostNic;
+use nico_api_model::hardware_info::HardwareInfo;
+use nico_api_model::machine::MachineInterfaceSnapshot;
+use nico_api_model::machine_interface_address::MachineInterfaceAssociation;
+use nico_api_model::network_prefix::NetworkPrefix;
+use nico_api_model::network_segment::{NetworkSegment, NetworkSegmentType};
+use nico_api_model::predicted_machine_interface::PredictedMachineInterface;
+use nico_uuid::domain::DomainId;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
+use nico_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::switch::SwitchId;
 use sqlx::{FromRow, PgConnection, PgTransaction};
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};

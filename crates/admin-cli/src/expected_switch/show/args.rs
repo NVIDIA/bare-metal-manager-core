@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
 use clap::Parser;
 use mac_address::MacAddress;
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::forge;
 use uuid::Uuid;
 
 #[derive(Parser, Debug)]
@@ -32,19 +33,19 @@ pub struct Args {
     pub id: Option<Uuid>,
 }
 
-impl TryFrom<&Args> for Option<rpc::forge::ExpectedSwitchRequest> {
+impl TryFrom<&Args> for Option<forge::ExpectedSwitchRequest> {
     type Error = CarbideCliError;
 
     fn try_from(args: &Args) -> Result<Self, Self::Error> {
         match (&args.bmc_mac_address, &args.id) {
             (Some(_), Some(_)) => Err(CarbideCliError::ChooseOneError("--bmc-mac-address", "--id")),
-            (None, Some(id)) => Ok(Some(rpc::forge::ExpectedSwitchRequest {
+            (None, Some(id)) => Ok(Some(forge::ExpectedSwitchRequest {
                 bmc_mac_address: String::new(),
-                expected_switch_id: Some(::rpc::common::Uuid {
+                expected_switch_id: Some(nico_rpc::common::Uuid {
                     value: id.to_string(),
                 }),
             })),
-            (Some(mac), None) => Ok(Some(rpc::forge::ExpectedSwitchRequest {
+            (Some(mac), None) => Ok(Some(forge::ExpectedSwitchRequest {
                 bmc_mac_address: mac.to_string(),
                 expected_switch_id: None,
             })),

@@ -19,7 +19,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use x509_parser::certificate::X509Certificate;
 use x509_parser::pem::parse_x509_pem;
 use x509_parser::prelude::FromDer;

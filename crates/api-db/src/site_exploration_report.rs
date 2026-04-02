@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use model::site_explorer::SiteExplorationReport;
+use nico_api_model::site_explorer::SiteExplorationReport;
 
 use crate::DatabaseError;
 use crate::db_read::DbReader;

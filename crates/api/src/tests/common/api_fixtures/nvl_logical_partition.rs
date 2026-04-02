@@ -15,17 +15,17 @@
  * limitations under the License.
  */
 
-use ::rpc::forge::{self as rpc};
-use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{NvLinkLogicalPartitionConfig, NvLinkLogicalPartitionCreationRequest};
+use nico_uuid::nvlink::NvLinkLogicalPartitionId;
 use tonic::Request;
 
 use super::TestEnv;
-use crate::api::rpc::forge_server::Forge;
-use crate::api::rpc::{NvLinkLogicalPartitionConfig, NvLinkLogicalPartitionCreationRequest};
 
 pub struct NvlLogicalPartitionFixture {
     pub id: NvLinkLogicalPartitionId,
-    pub logical_partition: rpc::NvLinkLogicalPartition,
+    pub logical_partition: forge::NvLinkLogicalPartition,
 }
 
 pub async fn create_nvl_logical_partition(
@@ -37,7 +37,7 @@ pub async fn create_nvl_logical_partition(
         .create_nv_link_logical_partition(Request::new(NvLinkLogicalPartitionCreationRequest {
             id: None,
             config: Some(NvLinkLogicalPartitionConfig {
-                metadata: Some(rpc::Metadata {
+                metadata: Some(forge::Metadata {
                     name,
                     ..Default::default()
                 }),
@@ -53,7 +53,7 @@ pub async fn create_nvl_logical_partition(
     let logical_partition = env
         .api
         .find_nv_link_logical_partitions_by_ids(Request::new(
-            rpc::NvLinkLogicalPartitionsByIdsRequest {
+            forge::NvLinkLogicalPartitionsByIdsRequest {
                 partition_ids: vec![partition_id],
                 include_history: false,
             },

@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineInterfaceId;
 use clap::Parser;
+use nico_uuid::machine::MachineInterfaceId;
 
 #[derive(Parser, Debug)]
 pub struct Args {

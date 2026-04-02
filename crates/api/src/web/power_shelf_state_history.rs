@@ -22,9 +22,10 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use carbide_uuid::power_shelf::PowerShelfId;
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::power_shelf::PowerShelfId;
 
 use crate::api::Api;
 
@@ -103,8 +104,8 @@ pub async fn fetch_state_history_records(
     power_shelf_id: &str,
 ) -> Result<
     (
-        carbide_uuid::power_shelf::PowerShelfId,
-        Vec<::rpc::forge::PowerShelfStateHistoryRecord>,
+        nico_uuid::power_shelf::PowerShelfId,
+        Vec<forge::PowerShelfStateHistoryRecord>,
     ),
     (http::StatusCode, String),
 > {
@@ -117,7 +118,7 @@ pub async fn fetch_state_history_records(
 
     let mut histories = match api
         .find_power_shelf_state_histories(tonic::Request::new(
-            ::rpc::forge::PowerShelfStateHistoriesRequest {
+            forge::PowerShelfStateHistoriesRequest {
                 power_shelf_ids: vec![power_shelf_id],
             },
         ))

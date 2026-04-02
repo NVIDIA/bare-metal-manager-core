@@ -20,10 +20,10 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
-use carbide_uuid::machine::MachineId;
-use db::dpu_machine_update;
-use model::dpu_machine_update::DpuMachineUpdate;
-use model::machine::ManagedHostStateSnapshot;
+use nico_api_db::dpu_machine_update;
+use nico_api_model::dpu_machine_update::DpuMachineUpdate;
+use nico_api_model::machine::ManagedHostStateSnapshot;
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
 use super::dpu_nic_firmware_metrics::DpuNicFirmwareUpdateMetrics;

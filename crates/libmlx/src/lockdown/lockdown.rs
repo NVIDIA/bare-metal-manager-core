@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::protos::mlx_device::{LockStatus as LockStatusPb, StatusReport as StatusReportPb};
 use chrono;
+use nico_rpc::protos::mlx_device::{LockStatus as LockStatusPb, StatusReport as StatusReportPb};
 use serde::{Deserialize, Serialize};
 
 use crate::lockdown::error::{MlxError, MlxResult};

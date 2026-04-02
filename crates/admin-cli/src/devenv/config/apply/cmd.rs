@@ -14,10 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use carbide_network::ip::prefix::Ipv4Network;
-use carbide_uuid::network::NetworkSegmentId;
-use rpc::forge::{PrefixMatchType, Vpc, VpcPrefixCreationRequest, VpcPrefixSearchQuery};
+use nico_network::ip::prefix::Ipv4Network;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge;
+use nico_rpc::forge::{PrefixMatchType, Vpc, VpcPrefixCreationRequest, VpcPrefixSearchQuery};
+use nico_uuid::network::NetworkSegmentId;
 use serde::{Deserialize, Serialize};
 
 use super::args::{Args, NetworkChoice};
@@ -146,10 +147,10 @@ async fn handle_overlay_vpc_prefix_creation(
             prefix: String::new(),
             name: String::new(),
             vpc_id: vpc.id,
-            config: Some(rpc::forge::VpcPrefixConfig {
+            config: Some(forge::VpcPrefixConfig {
                 prefix: network.to_string(),
             }),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: vpc_prefix_name,
                 description: "Vpc prefix created for overlay network by dev environment setup"
                     .to_string(),

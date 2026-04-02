@@ -22,11 +22,11 @@
 
 use std::convert::{Into, TryFrom};
 
-use carbide_uuid::measured_boot::MeasurementSystemProfileId;
 use chrono::{DateTime, Utc};
 #[cfg(feature = "cli")]
-use rpc::admin_cli::ToTable;
-use rpc::protos::measured_boot::MeasurementSystemProfilePb;
+use nico_rpc::admin_cli::ToTable;
+use nico_rpc::protos::measured_boot::MeasurementSystemProfilePb;
+use nico_uuid::measured_boot::MeasurementSystemProfileId;
 use serde::Serialize;
 
 use super::records::MeasurementSystemProfileAttrRecord;

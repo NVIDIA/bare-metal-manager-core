@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
 use clap::Parser;
 use mac_address::MacAddress;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge;
+use nico_uuid::rack::RackId;
 use serde::{Deserialize, Serialize};
 use utils::has_duplicates;
 
@@ -121,11 +122,11 @@ impl Args {
     }
 }
 
-impl TryFrom<Args> for rpc::forge::ExpectedMachine {
+impl TryFrom<Args> for forge::ExpectedMachine {
     type Error = CarbideCliError;
     fn try_from(value: Args) -> CarbideCliResult<Self> {
         let labels = crate::metadata::parse_rpc_labels(value.labels.unwrap_or_default());
-        let metadata = rpc::Metadata {
+        let metadata = forge::Metadata {
             name: value.meta_name.unwrap_or_default(),
             description: value.meta_description.unwrap_or_default(),
             labels,
@@ -136,7 +137,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
             .transpose()?
             .unwrap_or_default()
             .into_iter()
-            .map(|mac| rpc::forge::ExpectedHostNic {
+            .map(|mac| forge::ExpectedHostNic {
                 mac_address: mac.to_string(),
                 nic_type: None,
                 fixed_ip: None,
@@ -145,7 +146,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
             })
             .collect();
 
-        Ok(rpc::forge::ExpectedMachine {
+        Ok(forge::ExpectedMachine {
             bmc_mac_address: value.bmc_mac_address.to_string(),
             bmc_username: value.bmc_username,
             bmc_password: value.bmc_password,

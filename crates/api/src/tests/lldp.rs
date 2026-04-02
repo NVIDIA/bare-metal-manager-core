@@ -19,7 +19,8 @@ use std::collections::HashSet;
 use common::api_fixtures::create_test_env;
 use common::api_fixtures::dpu::create_dpu_machine;
 use itertools::Itertools;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_managed_host;
@@ -33,7 +34,7 @@ async fn test_lldp_topology(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     let topology = env
         .api
-        .get_network_topology(tonic::Request::new(rpc::forge::NetworkTopologyRequest {
+        .get_network_topology(tonic::Request::new(forge::NetworkTopologyRequest {
             id: None,
         }))
         .await?
@@ -87,7 +88,7 @@ async fn test_lldp_topology_force_delete(
 
     let topology = env
         .api
-        .get_network_topology(tonic::Request::new(rpc::forge::NetworkTopologyRequest {
+        .get_network_topology(tonic::Request::new(forge::NetworkTopologyRequest {
             id: None,
         }))
         .await?
@@ -98,21 +99,19 @@ async fn test_lldp_topology_force_delete(
     assert_eq!(topology.network_devices[2].devices.len(), 1);
 
     env.api
-        .admin_force_delete_machine(tonic::Request::new(
-            rpc::forge::AdminForceDeleteMachineRequest {
-                host_query: dpu_machine_id.to_string(),
-                delete_interfaces: true,
-                delete_bmc_interfaces: true,
-                delete_bmc_credentials: false,
-            },
-        ))
+        .admin_force_delete_machine(tonic::Request::new(forge::AdminForceDeleteMachineRequest {
+            host_query: dpu_machine_id.to_string(),
+            delete_interfaces: true,
+            delete_bmc_interfaces: true,
+            delete_bmc_credentials: false,
+        }))
         .await
         .unwrap()
         .into_inner();
 
     let topology = env
         .api
-        .get_network_topology(tonic::Request::new(rpc::forge::NetworkTopologyRequest {
+        .get_network_topology(tonic::Request::new(forge::NetworkTopologyRequest {
             id: None,
         }))
         .await?
@@ -131,7 +130,7 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     let topology = env
         .api
-        .get_network_topology(tonic::Request::new(rpc::forge::NetworkTopologyRequest {
+        .get_network_topology(tonic::Request::new(forge::NetworkTopologyRequest {
             id: None,
         }))
         .await?
@@ -151,7 +150,7 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let mut txn = env.pool.begin().await.unwrap();
 
     let machine_interface_id =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
+        nico_api_db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
             .await
             .unwrap()
             .get(&dpu_machine_id)
@@ -169,7 +168,7 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     let topology = env
         .api
-        .get_network_topology(tonic::Request::new(rpc::forge::NetworkTopologyRequest {
+        .get_network_topology(tonic::Request::new(forge::NetworkTopologyRequest {
             id: None,
         }))
         .await?
@@ -204,7 +203,7 @@ async fn test_lldp_topology_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     let topology = env
         .api
-        .get_network_topology(tonic::Request::new(rpc::forge::NetworkTopologyRequest {
+        .get_network_topology(tonic::Request::new(forge::NetworkTopologyRequest {
             id: None,
         }))
         .await?

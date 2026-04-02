@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersion;
-use model::machine::{MachineStateHistory, ManagedHostState};
+use nico_api_model::machine::{MachineStateHistory, ManagedHostState};
+use nico_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, PgConnection};
 
@@ -37,7 +37,7 @@ struct DbMachineStateHistory {
     //timestamp: DateTime<Utc>,
 }
 
-impl From<DbMachineStateHistory> for model::machine::MachineStateHistory {
+impl From<DbMachineStateHistory> for nico_api_model::machine::MachineStateHistory {
     fn from(event: DbMachineStateHistory) -> Self {
         Self {
             state: event.state,

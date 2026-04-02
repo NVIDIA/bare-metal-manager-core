@@ -20,25 +20,25 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::time::Duration;
 
-use carbide_host_support::dpa_cmds::{DpaCommand, OpCode};
-use carbide_host_support::registration;
-use carbide_uuid::machine::MachineId;
 use cfg::{AutoDetect, Command, MlxAction, Mode, Options};
 use chrono::{DateTime, Days, TimeDelta, Utc};
 use clap::CommandFactory;
-use libmlx::device::cmd::device::args::DeviceArgs;
-use libmlx::device::cmd::device::cmds::handle as handle_mlx_device;
-use libmlx::device::discovery::discover_device;
-use libmlx::lockdown::cmd::cmds::handle_lockdown as handle_mlx_lockdown;
-use once_cell::sync::Lazy;
-use rpc::forge::ForgeAgentControlResponse;
-use rpc::forge::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
-use rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
-use rpc::protos::mlx_device::{
+use nico_host_support::dpa_cmds::{DpaCommand, OpCode};
+use nico_host_support::registration;
+use nico_libmlx::device::cmd::device::args::DeviceArgs;
+use nico_libmlx::device::cmd::device::cmds::handle as handle_mlx_device;
+use nico_libmlx::device::discovery::discover_device;
+use nico_libmlx::lockdown::cmd::cmds::handle_lockdown as handle_mlx_lockdown;
+use nico_rpc::forge::ForgeAgentControlResponse;
+use nico_rpc::forge::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
+use nico_rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
+use nico_rpc::protos::mlx_device::{
     FirmwareFlashReport as FirmwareFlashReportPb, LockStatus, MlxObservation, MlxObservationReport,
     PublishMlxObservationReportRequest,
 };
-use rpc::{ForgeScoutErrorReport, forge as rpc_forge};
+use nico_rpc::{ForgeScoutErrorReport, forge as rpc_forge};
+use nico_uuid::machine::MachineId;
+use once_cell::sync::Lazy;
 pub use scout::{CarbideClientError, CarbideClientResult};
 use tokio::sync::RwLock;
 use tryhard::{RetryFutureConfig, RetryPolicy};
@@ -84,13 +84,13 @@ async fn check_if_running_in_qemu() {
 async fn main() -> Result<(), eyre::Report> {
     let config = Options::load();
     if config.version {
-        println!("{}", carbide_version::version!());
+        println!("{}", nico_version::version!());
         return Ok(());
     }
 
     check_if_running_in_qemu().await;
 
-    carbide_host_support::init_logging()?;
+    nico_host_support::init_logging()?;
 
     tracing::info!("Running as {}...{}", config.mode, config.version);
 
@@ -389,7 +389,7 @@ async fn handle_action(
             let mut id = "".to_string();
             let mut is_enabled = false;
             let mut machine_validation_filter =
-                ::machine_validation::MachineValidationFilter::default();
+                nico_machine_validation::MachineValidationFilter::default();
             for item in controller_response.data.unwrap().pair {
                 if item.key == "Context" {
                     context = item.value;
@@ -623,7 +623,7 @@ fn get_log_str() -> eyre::Result<String> {
     for line in text.lines().rev() {
         let line_str = format!("{line}\n");
         ret_str.insert_str(0, &line_str);
-        if ret_str.len() > ::rpc::MAX_ERR_MSG_SIZE as usize {
+        if ret_str.len() > nico_rpc::MAX_ERR_MSG_SIZE as usize {
             break;
         }
     }

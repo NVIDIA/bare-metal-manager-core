@@ -15,17 +15,17 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-dpu-otel-agent"
+name = "nico-dpu-otel-agent"
 version = "0.0.1"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [lib]
-name = "otel_agent"
+name = "nico_dpu_otel_agent"
 
 [[bin]]
-# TODO: rename to carbide-dpu-otel-agent
+# TODO: rename to nico-dpu-otel-agent
 name = "forge-dpu-otel-agent"
 path = "src/main.rs"
 
@@ -45,11 +45,11 @@ tracing-subscriber = { features = [
 typed-builder = { workspace = true }
 
 # [local-dependencies]
-carbide-certs = { path = "../certs" }
-carbide-host-support = { path = "../host-support", default-features = false }
-carbide-systemd = { path = "../systemd" }
-carbide-tls = { path = "../tls" }
-carbide-rpc = { path = "../rpc" }
+nico-certs = { path = "../certs" }
+nico-host-support = { path = "../host-support", default-features = false }
+nico-systemd = { path = "../systemd" }
+nico-tls = { path = "../tls" }
+nico-rpc = { path = "../rpc" }
 
 [dev-dependencies]
 ctor = { workspace = true }

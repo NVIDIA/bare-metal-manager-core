@@ -24,18 +24,11 @@ use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
-use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
-use db::DatabaseError;
-use db::db_read::PgPoolReader;
 use eyre::eyre;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use futures::TryFutureExt;
 use futures_util::FutureExt;
-use health_report::{
-    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,
-};
 use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::HostPrivilegeLevel;
 use libredfish::model::task::TaskState;
@@ -44,23 +37,26 @@ use libredfish::{Boot, EnabledDisabled, PowerState, Redfish, RedfishError, Syste
 use librms::RackManagerError;
 use librms::protos::rack_manager::{NewNodeInfo, NodeType as RmsNodeType};
 use machine_validation::{handle_machine_validation_requested, handle_machine_validation_state};
-use measured_boot::records::MeasurementMachineState;
-use model::DpuModel;
-use model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
-use model::instance::InstanceNetworkSyncStatus;
-use model::instance::config::network::{
+use nico_api_db::DatabaseError;
+use nico_api_db::db_read::PgPoolReader;
+use nico_api_model::DpuModel;
+use nico_api_model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
+use nico_api_model::instance::InstanceNetworkSyncStatus;
+use nico_api_model::instance::config::network::{
     DeviceLocator, InstanceInterfaceConfig, InterfaceFunctionId, NetworkDetails,
 };
-use model::instance::snapshot::InstanceSnapshot;
-use model::instance::status::SyncState;
-use model::instance::status::extension_service::{
-    self, ExtensionServiceDeploymentStatus, ExtensionServicesReadiness,
-    InstanceExtensionServicesStatus,
+use nico_api_model::instance::snapshot::InstanceSnapshot;
+use nico_api_model::instance::status::SyncState;
+use nico_api_model::instance::status::extension_service::{
+    ExtensionServiceDeploymentStatus, ExtensionServicesReadiness, InstanceExtensionServicesStatus,
+    {self},
 };
-use model::machine::LockdownMode::{self, Enable};
-use model::machine::infiniband::{IbConfigNotSyncedReason, ib_config_synced};
-use model::machine::nvlink::nvlink_config_synced;
-use model::machine::{
+use nico_api_model::machine::LockdownMode::{
+    Enable, {self},
+};
+use nico_api_model::machine::infiniband::{IbConfigNotSyncedReason, ib_config_synced};
+use nico_api_model::machine::nvlink::nvlink_config_synced;
+use nico_api_model::machine::{
     BomValidating, BomValidatingContext, CleanupState, CreateBossVolumeContext,
     CreateBossVolumeState, DpuDiscoveringState, DpuDiscoveringStates, DpuInitNextStateResolver,
     DpuInitState, FailureCause, FailureDetails, FailureSource, HostPlatformConfigurationState,
@@ -73,9 +69,15 @@ use model::machine::{
     StateMachineArea, UefiSetupInfo, UefiSetupState, UnlockHostState, ValidationState,
     dpf_based_dpu_provisioning_possible, get_display_ids,
 };
-use model::power_manager::PowerHandlingOutcome;
-use model::resource_pool::common::CommonPools;
-use model::site_explorer::ExploredEndpoint;
+use nico_api_model::power_manager::PowerHandlingOutcome;
+use nico_api_model::resource_pool::common::CommonPools;
+use nico_api_model::site_explorer::ExploredEndpoint;
+use nico_health_report::{
+    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,
+};
+use nico_measured_boot::records::MeasurementMachineState;
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
+use nico_uuid::machine::MachineId;
 use sku::{handle_bom_validation_requested, handle_bom_validation_state};
 use sqlx::PgConnection;
 use tokio::fs::File;
@@ -92,7 +94,7 @@ use crate::cfg::file::{
 use crate::dpf::DpfOperations;
 use crate::firmware_downloader::FirmwareDownloader;
 use crate::redfish::{
-    self, host_power_control, host_power_control_with_location, set_host_uefi_password,
+    host_power_control, host_power_control_with_location, set_host_uefi_password, {self},
 };
 use crate::site_explorer::rms;
 use crate::state_controller::common_services::CommonStateHandlerServices;
@@ -508,7 +510,7 @@ impl MachineStateHandler {
 
         // Note that DPU alerts may be suppressed (classifications removed) in the aggregate health report.
         let suppress_alerts =
-            health_report::HealthAlertClassification::suppress_external_alerting();
+            nico_health_report::HealthAlertClassification::suppress_external_alerting();
         for alert in state.aggregate_health.alerts.iter() {
             ctx.metrics
                 .health_probe_alerts
@@ -545,16 +547,17 @@ impl MachineStateHandler {
         mh_snaphost: &ManagedHostStateSnapshot,
         txn: &mut PgConnection,
     ) -> Result<(), StateHandlerError> {
-        db::machine::remove_health_report_override(
+        nico_api_db::machine::remove_health_report_override(
             txn,
             &mh_snaphost.host_snapshot.id,
-            health_report::OverrideMode::Merge,
-            model::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE,
+            nico_health_report::OverrideMode::Merge,
+            nico_api_model::machine_update_module::HOST_UPDATE_HEALTH_REPORT_SOURCE,
         )
         .await?;
 
         for dpu_snapshot in &mh_snaphost.dpu_snapshots {
-            db::machine::clear_dpu_reprovisioning_request(txn, &dpu_snapshot.id, false).await?;
+            nico_api_db::machine::clear_dpu_reprovisioning_request(txn, &dpu_snapshot.id, false)
+                .await?;
         }
 
         Ok(())
@@ -564,10 +567,10 @@ impl MachineStateHandler {
         txn: &mut PgConnection,
         host_machine_id: &MachineId,
     ) -> Result<(), StateHandlerError> {
-        db::machine::remove_health_report_override(
+        nico_api_db::machine::remove_health_report_override(
             txn,
             host_machine_id,
-            health_report::OverrideMode::Merge,
+            nico_health_report::OverrideMode::Merge,
             "scout",
         )
         .await?;
@@ -580,7 +583,7 @@ impl MachineStateHandler {
     ) -> Result<(), StateHandlerError> {
         // Host fw update health override is not set yet. It is done when host re-provisioning is
         // started in state handler.
-        db::host_machine_update::clear_host_reprovisioning_request(
+        nico_api_db::host_machine_update::clear_host_reprovisioning_request(
             txn,
             &mh_snaphost.host_snapshot.id,
         )
@@ -619,7 +622,7 @@ impl MachineStateHandler {
                     if since_last_seen > self.dpu_up_threshold {
                         let message = format!("Last seen over {} ago", self.dpu_up_threshold);
                         let dpu_machine_id = &dpu_snapshot.id;
-                        let health_report = health_report::HealthReport::heartbeat_timeout(
+                        let health_report = nico_health_report::HealthReport::heartbeat_timeout(
                             "forge-dpu-agent".to_string(),
                             "forge-dpu-agent".to_string(),
                             message,
@@ -628,7 +631,7 @@ impl MachineStateHandler {
                         );
 
                         let mut txn = ctx.services.db_pool.begin().await?;
-                        db::machine::update_dpu_agent_health_report(
+                        nico_api_db::machine::update_dpu_agent_health_report(
                             &mut txn,
                             dpu_machine_id,
                             &health_report,
@@ -719,7 +722,7 @@ impl MachineStateHandler {
                 // so skip RMS verification entirely.
                 let expected_machine = if let Some(bmc_mac) = mh_snapshot.host_snapshot.bmc_info.mac
                 {
-                    db::expected_machine::find_by_bmc_mac_address(
+                    nico_api_db::expected_machine::find_by_bmc_mac_address(
                         &mut ctx.services.db_reader,
                         bmc_mac,
                     )
@@ -825,8 +828,11 @@ impl MachineStateHandler {
 
                 let bmc_mac = mh_snapshot.host_snapshot.bmc_info.mac;
                 let expected_machine = if let Some(mac) = bmc_mac {
-                    db::expected_machine::find_by_bmc_mac_address(&mut ctx.services.db_reader, mac)
-                        .await?
+                    nico_api_db::expected_machine::find_by_bmc_mac_address(
+                        &mut ctx.services.db_reader,
+                        mac,
+                    )
+                    .await?
                 } else {
                     None
                 };
@@ -1024,10 +1030,10 @@ impl MachineStateHandler {
                         return Ok(outcome
                             .in_transaction(&ctx.services.db_pool, move |txn| {
                                 async move {
-                                    db::machine::insert_health_report_override(
+                                    nico_api_db::machine::insert_health_report_override(
                                         txn,
                                         &host_machine_id,
-                                        health_report::OverrideMode::Merge,
+                                        nico_health_report::OverrideMode::Merge,
                                         &health_report,
                                         false,
                                     )
@@ -1089,10 +1095,10 @@ impl MachineStateHandler {
 
                     // Mark the Host as in update.
                     let mut txn = ctx.services.db_pool.begin().await?;
-                    db::machine::insert_health_report_override(
+                    nico_api_db::machine::insert_health_report_override(
                         &mut txn,
                         host_machine_id,
-                        health_report::OverrideMode::Merge,
+                        nico_health_report::OverrideMode::Merge,
                         &health_override,
                         false,
                     )
@@ -1481,7 +1487,8 @@ impl MachineStateHandler {
                                 Some(*retry_count as u64);
                             // Anytime host discovery is successful, move to next state.
                             let mut txn = ctx.services.db_pool.begin().await?;
-                            db::machine::clear_failure_details(machine_id, &mut txn).await?;
+                            nico_api_db::machine::clear_failure_details(machine_id, &mut txn)
+                                .await?;
                             let next_state = ManagedHostState::HostInit {
                                 machine_state: MachineState::WaitingForLockdown {
                                     lockdown_info: LockdownInfo {
@@ -1546,7 +1553,8 @@ impl MachineStateHandler {
                                 cleanup_state: CleanupState::Init,
                             };
                             let mut txn = ctx.services.db_pool.begin().await?;
-                            db::machine::clear_failure_details(machine_id, &mut txn).await?;
+                            nico_api_db::machine::clear_failure_details(machine_id, &mut txn)
+                                .await?;
                             return Ok(StateHandlerOutcome::transition(next_state).with_txn(txn));
                         }
 
@@ -1758,7 +1766,7 @@ impl MachineStateHandler {
             );
 
             let mut txn = ctx.services.db_pool.begin().await?;
-            db::machine::insert_health_report_override(
+            nico_api_db::machine::insert_health_report_override(
                 &mut txn,
                 host_machine_id,
                 OverrideMode::Merge,
@@ -2342,7 +2350,7 @@ impl StateHandler for MachineStateHandler {
         // by the main state handling outcome
         if let Some(power_options) = power_options {
             let mut txn = power_options_pool.begin().await?;
-            db::power_options::persist(&power_options, &mut txn).await?;
+            nico_api_db::power_options::persist(&power_options, &mut txn).await?;
             txn.commit().await?;
         }
 
@@ -2945,8 +2953,12 @@ async fn handle_dpu_reprovision(
 
             // Clear reprovisioning state.
             for dpu_snapshot in &state.dpu_snapshots {
-                db::machine::clear_dpu_reprovisioning_request(&mut txn, &dpu_snapshot.id, false)
-                    .await?;
+                nico_api_db::machine::clear_dpu_reprovisioning_request(
+                    &mut txn,
+                    &dpu_snapshot.id,
+                    false,
+                )
+                .await?;
             }
 
             Ok(StateHandlerOutcome::transition(
@@ -3483,14 +3495,14 @@ impl DpuMachineStateHandler {
 
                 if dpf_based_dpu_provisioning_possible(state, self.dpf_sdk.is_some(), false) {
                     let mut txn = ctx.services.db_pool.begin().await?;
-                    db::machine::mark_machine_ingestion_done_with_dpf(
+                    nico_api_db::machine::mark_machine_ingestion_done_with_dpf(
                         &mut txn,
                         &state.host_snapshot.id,
                     )
                     .await?;
 
                     let next_state = DpuInitState::DpfStates {
-                        state: model::machine::DpfState::Provisioning,
+                        state: nico_api_model::machine::DpfState::Provisioning,
                     }
                     .next_state_with_all_dpus_updated(&state.managed_state)?;
 
@@ -4534,17 +4546,17 @@ fn managed_host_network_config_version_synced_and_dpu_healthy(dpu_snapshot: &Mac
 
     // Note that DPU alerts may be surpressed (classifications removed) in the aggregate health
     // report so the individual DPU's report is used.
-    !dpu_health
-        .has_classification(&health_report::HealthAlertClassification::prevent_host_state_changes())
+    !dpu_health.has_classification(
+        &nico_health_report::HealthAlertClassification::prevent_host_state_changes(),
+    )
 }
 
 fn check_host_health_for_alerts(state: &ManagedHostStateSnapshot) -> Result<(), StateHandlerError> {
     // In some states, DPU alerts may be surpressed (classifications removed) in the aggregate health report.
     // Since this is not called from a state that supresses DPU alerts, this is ok here.
-    match state
-        .aggregate_health
-        .has_classification(&health_report::HealthAlertClassification::prevent_host_state_changes())
-    {
+    match state.aggregate_health.has_classification(
+        &nico_health_report::HealthAlertClassification::prevent_host_state_changes(),
+    ) {
         true => Err(StateHandlerError::HealthProbeAlert),
         false => Ok(()),
     }
@@ -4763,7 +4775,7 @@ async fn handle_host_uefi_setup(
 
             let mut txn = ctx.services.db_pool.begin().await?;
             state.host_snapshot.bios_password_set_time = Some(chrono::offset::Utc::now());
-            db::machine::update_bios_password_set_time(&state.host_snapshot.id, &mut txn)
+            nico_api_db::machine::update_bios_password_set_time(&state.host_snapshot.id, &mut txn)
                 .await
                 .map_err(|e| {
                     StateHandlerError::GenericError(eyre!(
@@ -5357,7 +5369,7 @@ impl StateHandler for InstanceStateHandler {
                     }
 
                     let network_segments_are_ready =
-                        db::network_segment::are_network_segments_ready(
+                        nico_api_db::network_segment::are_network_segments_ready(
                             &mut ctx.services.db_reader,
                             &network_segment_ids_with_vpc,
                         )
@@ -5690,7 +5702,7 @@ impl StateHandler for InstanceStateHandler {
                                         crate::machine_update_manager::machine_update_module::create_host_update_health_report_hostfw();
                             let machine_id = *host_machine_id;
                             // The health report alert gets generated here, the machine update manager retains responsibilty for clearing it when we're done.
-                            db::machine::insert_health_report_override(
+                            nico_api_db::machine::insert_health_report_override(
                                 &mut txn,
                                 &machine_id,
                                 OverrideMode::Merge,
@@ -5704,7 +5716,7 @@ impl StateHandler for InstanceStateHandler {
                             let health_override = crate::machine_update_manager::machine_update_module::create_host_update_health_report_dpufw();
                             let machine_id = *host_machine_id;
                             // Mark the Host as in update.
-                            db::machine::insert_health_report_override(
+                            nico_api_db::machine::insert_health_report_override(
                                 &mut txn,
                                 &machine_id,
                                 OverrideMode::Merge,
@@ -5890,7 +5902,7 @@ impl StateHandler for InstanceStateHandler {
                     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                         let (mut netconf, version) = dpu_snapshot.network_config.clone().take();
                         netconf.use_admin_network = Some(true);
-                        db::machine::try_update_network_config(
+                        nico_api_db::machine::try_update_network_config(
                             &mut txn,
                             &dpu_snapshot.id,
                             version,
@@ -5907,7 +5919,7 @@ impl StateHandler for InstanceStateHandler {
                         let (mut netconf, version) = dpa_interface.network_config.clone().take();
                         netconf.use_admin_network = Some(true);
                         let dpa_interface_id = dpa_interface.id;
-                        db::dpa_interface::try_update_network_config(
+                        nico_api_db::dpa_interface::try_update_network_config(
                             &mut txn,
                             &dpa_interface_id,
                             version,
@@ -6027,7 +6039,7 @@ impl StateHandler for InstanceStateHandler {
                             ctx.pending_db_writes.push(
                                 MachineWriteOp::InsertHealthReportOverride {
                                     machine_id: *host_machine_id,
-                                    mode: health_report::OverrideMode::Merge,
+                                    mode: nico_health_report::OverrideMode::Merge,
                                     health_report,
                                 },
                             );
@@ -6061,7 +6073,7 @@ impl StateHandler for InstanceStateHandler {
 
                     // Delete from database now. Once done, reboot and move to next state.
                     let mut txn = ctx.services.db_pool.begin().await?;
-                    db::instance::delete(instance.id, &mut txn)
+                    nico_api_db::instance::delete(instance.id, &mut txn)
                         .await
                         .map_err(|err| StateHandlerError::GenericError(err.into()))?;
 
@@ -6158,7 +6170,7 @@ impl StateHandler for InstanceStateHandler {
                             let (mut netconf, version) =
                                 dpa_interface.network_config.clone().take();
                             netconf.use_admin_network = Some(false);
-                            db::dpa_interface::try_update_network_config(
+                            nico_api_db::dpa_interface::try_update_network_config(
                                 &mut txn,
                                 &dpa_interface.id,
                                 version,
@@ -6193,7 +6205,7 @@ impl StateHandler for InstanceStateHandler {
                     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                         let (mut netconf, version) = dpu_snapshot.network_config.clone().take();
                         netconf.use_admin_network = Some(false);
-                        db::machine::try_update_network_config(
+                        nico_api_db::machine::try_update_network_config(
                             &mut txn,
                             &dpu_snapshot.id,
                             version,
@@ -6261,7 +6273,7 @@ async fn cleanup_terminated_extension_services(
         .extension_services
         .remove_terminated_services(&terminated_service_ids);
 
-    db::instance::update_extension_services_config(
+    nico_api_db::instance::update_extension_services_config(
         txn,
         instance.id,
         instance.extension_services_config_version,
@@ -6310,11 +6322,12 @@ async fn handle_instance_network_config_update_request(
 
             // No network segment is configured with vpc_prefix_id.
             if !network_segment_ids_with_vpc.is_empty() {
-                let network_segments_are_ready = db::network_segment::are_network_segments_ready(
-                    &mut ctx.services.db_reader,
-                    &network_segment_ids_with_vpc,
-                )
-                .await?;
+                let network_segments_are_ready =
+                    nico_api_db::network_segment::are_network_segments_ready(
+                        &mut ctx.services.db_reader,
+                        &network_segment_ids_with_vpc,
+                    )
+                    .await?;
                 if !network_segments_are_ready {
                     return Ok(StateHandlerOutcome::wait(
                         "Waiting for all segments to come in ready state.".to_string(),
@@ -6324,7 +6337,7 @@ async fn handle_instance_network_config_update_request(
 
             // Update requested network config and increment version.
             let mut txn = ctx.services.db_pool.begin().await?;
-            db::instance::update_network_config(
+            nico_api_db::instance::update_network_config(
                 txn.as_mut(),
                 instance.id,
                 instance.network_config_version,
@@ -6400,7 +6413,7 @@ async fn handle_instance_network_config_update_request(
                     instance.id,
                     addresses,
                 );
-                db::instance_address::delete_addresses(&mut txn, &addresses).await?;
+                nico_api_db::instance_address::delete_addresses(&mut txn, &addresses).await?;
                 release_network_segments_with_vpc_prefix(&resources_to_be_released, &mut txn)
                     .await?;
 
@@ -6412,7 +6425,8 @@ async fn handle_instance_network_config_update_request(
                 // completed.
                 release_vpc_dpu_loopback(mh_snapshot, common_pools.as_deref(), &mut txn).await?;
             }
-            db::instance::delete_update_network_config_request(&instance.id, &mut txn).await?;
+            nico_api_db::instance::delete_update_network_config_request(&instance.id, &mut txn)
+                .await?;
             let next_state = ManagedHostState::Assigned {
                 instance_state: InstanceState::Ready,
             };
@@ -6580,12 +6594,17 @@ pub async fn release_vpc_dpu_loopback(
 ) -> Result<(), StateHandlerError> {
     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
         if let Some(common_pools) = common_pools {
-            db::vpc_dpu_loopback::delete_and_deallocate(common_pools, &dpu_snapshot.id, txn, false)
-                .await
-                .map_err(|e| StateHandlerError::ResourceCleanupError {
-                    resource: "VpcLoopbackIp",
-                    error: e.to_string(),
-                })?;
+            nico_api_db::vpc_dpu_loopback::delete_and_deallocate(
+                common_pools,
+                &dpu_snapshot.id,
+                txn,
+                false,
+            )
+            .await
+            .map_err(|e| StateHandlerError::ResourceCleanupError {
+                resource: "VpcLoopbackIp",
+                error: e.to_string(),
+            })?;
         }
     }
 
@@ -6606,12 +6625,15 @@ async fn release_network_segments_with_vpc_prefix(
 
     // Mark all network ready for delete which were created for vpc_prefixes.
     if !network_segment_ids_with_vpc.is_empty() {
-        db::network_segment::mark_as_deleted_no_validation(txn, &network_segment_ids_with_vpc)
-            .await
-            .map_err(|err| StateHandlerError::ResourceCleanupError {
-                resource: "network_segment",
-                error: err.to_string(),
-            })?;
+        nico_api_db::network_segment::mark_as_deleted_no_validation(
+            txn,
+            &network_segment_ids_with_vpc,
+        )
+        .await
+        .map_err(|err| StateHandlerError::ResourceCleanupError {
+            resource: "network_segment",
+            error: err.to_string(),
+        })?;
     }
 
     Ok(())
@@ -6882,13 +6904,13 @@ impl HostUpgradeState {
             _ => {
                 ret.in_transaction(&ctx.services.db_pool, move |txn| {
                     async move {
-                        db::host_machine_update::clear_host_reprovisioning_request(
+                        nico_api_db::host_machine_update::clear_host_reprovisioning_request(
                             txn,
                             &machine_id,
                         )
                         .await?;
                         // TODO: Remove when manual upgrade feature is removed
-                        db::host_machine_update::clear_manual_firmware_upgrade_completed(
+                        nico_api_db::host_machine_update::clear_manual_firmware_upgrade_completed(
                             txn,
                             &machine_id,
                         )
@@ -7721,8 +7743,10 @@ impl HostUpgradeState {
                         // We need site explorer to requery the version, just in case it actually did get done
                         let mut txn = ctx.services.db_pool.begin().await?;
 
-                        db::explored_endpoints::set_waiting_for_explorer_refresh(address, &mut txn)
-                            .await?;
+                        nico_api_db::explored_endpoints::set_waiting_for_explorer_refresh(
+                            address, &mut txn,
+                        )
+                        .await?;
 
                         Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                             HostReprovisionState::FailedFirmwareUpgrade {
@@ -8107,7 +8131,7 @@ impl HostUpgradeState {
             );
 
             let mut txn = ctx.services.db_pool.begin().await?;
-            db::explored_endpoints::re_explore_if_version_matches(
+            nico_api_db::explored_endpoints::re_explore_if_version_matches(
                 endpoint.address,
                 endpoint.report_version,
                 &mut txn,
@@ -8240,7 +8264,7 @@ fn handler_restart_dpu(
     ctx.pending_db_writes
         .push(MachineWriteOp::UpdateRebootRequestedTime {
             machine_id: machine.id,
-            mode: model::machine::MachineLastRebootRequestedMode::Reboot,
+            mode: nico_api_model::machine::MachineLastRebootRequestedMode::Reboot,
             time: Utc::now(),
         });
     restart_dpu(machine, ctx.services, dpf_used_for_ingestion)
@@ -8903,7 +8927,8 @@ async fn needs_ipmi_restart(
         .ip_addr()
         .map_err(StateHandlerError::GenericError)?;
     let endpoints =
-        db::explored_endpoints::find_by_ips(&mut ctx.services.db_reader, vec![addr]).await?;
+        nico_api_db::explored_endpoints::find_by_ips(&mut ctx.services.db_reader, vec![addr])
+            .await?;
     let Some(ep) = endpoints.first() else {
         return Ok(false);
     };
@@ -8996,7 +9021,8 @@ pub async fn find_explored_refreshed_endpoint(
         .map_err(StateHandlerError::GenericError)?;
 
     let endpoint =
-        db::explored_endpoints::find_by_ips(&mut ctx.services.db_reader, vec![addr]).await?;
+        nico_api_db::explored_endpoints::find_by_ips(&mut ctx.services.db_reader, vec![addr])
+            .await?;
     let endpoint = endpoint
         .into_iter()
         .next()

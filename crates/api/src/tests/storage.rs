@@ -15,8 +15,9 @@
  * limitations under the License.
  */
 
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{
     // StorageClusterAttributes,
     // StoragePoolAttributes,
     OsImageAttributes,
@@ -50,7 +51,7 @@ async fn test_create_and_delete_storage_cluster(pool: sqlx::PgPool) -> Result<()
     assert!(cluster.healthy, "Cluster should be healthy");
 
     let id = cluster.id.expect("Cluster ID should be present");
-    let delete_request = rpc::forge::DeleteStorageClusterRequest {
+    let delete_request = forge::DeleteStorageClusterRequest {
         id: Some(id),
         name: cluster.name.clone(),
     };
@@ -81,9 +82,9 @@ async fn test_create_and_delete_storage_pool(pool: sqlx::PgPool) -> Result<(), B
 
     // Create storage pool
     let pool_attrs = StoragePoolAttributes {
-        id: Some(rpc::Uuid { value: Uuid::new_v4().to_string() }),
+        id: Some(nico_rpc::Uuid { value: Uuid::new_v4().to_string() }),
         cluster_id: cluster.id.clone(),
-        raid_level: rpc::forge::StorageRaidLevels::Raid1 as i32,
+        raid_level: forge::StorageRaidLevels::Raid1 as i32,
         capacity: 1024 * 1024 * 1024, // 1GB
         tenant_organization_id: "test-org".to_string(),
         use_for_boot_volumes: true,
@@ -103,7 +104,7 @@ async fn test_create_and_delete_storage_pool(pool: sqlx::PgPool) -> Result<(), B
     );
 
     let pool_id = pool.attributes.as_ref().unwrap().id.clone().unwrap();
-    let delete_request = rpc::forge::DeleteStoragePoolRequest {
+    let delete_request = forge::DeleteStoragePoolRequest {
         cluster_id: cluster.id.clone(),
         pool_id: Some(pool_id),
     };
@@ -162,9 +163,9 @@ async fn test_invalid_storage_pool_capacity(pool: sqlx::PgPool) -> Result<(), Bo
 
     // Test with invalid capacity (0)
     let invalid_pool_attrs = StoragePoolAttributes {
-        id: Some(rpc::Uuid { value: Uuid::new_v4().to_string() }),
+        id: Some(nico_rpc::Uuid { value: Uuid::new_v4().to_string() }),
         cluster_id: cluster.id.clone(),
-        raid_level: rpc::forge::StorageRaidLevels::Raid1 as i32,
+        raid_level: forge::StorageRaidLevels::Raid1 as i32,
         capacity: 0,  // Invalid capacity
         tenant_organization_id: "test-org".to_string(),
         use_for_boot_volumes: true,
@@ -196,7 +197,7 @@ async fn test_create_and_delete_os_image(
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::default()).await;
 
     let image_attrs = OsImageAttributes {
-        id: Some(rpc::Uuid {
+        id: Some(nico_rpc::Uuid {
             value: Uuid::new_v4().to_string(),
         }),
         source_url: "https://example.com/image.qcow2".to_string(),
@@ -227,7 +228,7 @@ async fn test_create_and_delete_os_image(
     );
 
     let image_id = image.attributes.as_ref().unwrap().id.clone().unwrap();
-    let delete_request = rpc::forge::DeleteOsImageRequest {
+    let delete_request = forge::DeleteOsImageRequest {
         id: Some(image_id),
         tenant_organization_id: "test-org".to_string(),
     };
@@ -246,7 +247,7 @@ async fn test_os_image_status_transitions(
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::default()).await;
 
     let image_attrs = OsImageAttributes {
-        id: Some(rpc::Uuid {
+        id: Some(nico_rpc::Uuid {
             value: Uuid::new_v4().to_string(),
         }),
         source_url: "https://example.com/image.qcow2".to_string(),

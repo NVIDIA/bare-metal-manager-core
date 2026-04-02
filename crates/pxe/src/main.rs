@@ -49,7 +49,7 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let opts = Args::parse();
     if opts.version {
-        println!("{}", carbide_version::version!());
+        println!("{}", nico_version::version!());
         return Ok(());
     }
 
@@ -66,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("Start carbide-pxe version {}", carbide_version::version!());
+    println!("Start carbide-pxe version {}", nico_version::version!());
     let prometheus_handle = metrics::setup_prometheus();
 
     let runtime_config =

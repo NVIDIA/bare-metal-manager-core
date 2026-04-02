@@ -22,7 +22,7 @@ use std::fs;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 
-use api_test_helper::utils::LOCALHOST_CERTS;
+use nico_api_test_helper::utils::LOCALHOST_CERTS;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
@@ -34,7 +34,7 @@ use crate::generated::{common, machine_discovery};
 
 #[derive(Debug, Clone)]
 pub struct MockHost {
-    pub machine_id: carbide_uuid::machine::MachineId,
+    pub machine_id: nico_uuid::machine::MachineId,
     pub instance_id: Uuid,
     pub tenant_public_key: String,
     pub sys_vendor: &'static str,

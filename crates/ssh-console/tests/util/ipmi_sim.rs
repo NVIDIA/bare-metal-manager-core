@@ -19,9 +19,9 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
-use api_test_helper::utils::REPO_ROOT;
 use eyre::Context;
 use lazy_static::lazy_static;
+use nico_api_test_helper::utils::REPO_ROOT;
 use temp_dir::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};

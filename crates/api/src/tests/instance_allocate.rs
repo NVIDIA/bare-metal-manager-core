@@ -16,12 +16,12 @@
  */
 use std::ops::DerefMut;
 
-use ::rpc::forge::ManagedHostNetworkConfigRequest;
 use forge::forge_server::Forge;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use model::machine::ManagedHostStateSnapshot;
-use rpc::forge;
+use nico_api_model::machine::ManagedHostStateSnapshot;
+use nico_rpc::forge;
+use nico_rpc::forge::ManagedHostNetworkConfigRequest;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures;
@@ -179,9 +179,11 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
     // Ingest zero DPU host
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
 
-    let host_inband_segment =
-        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND")
-            .await?;
+    let host_inband_segment = nico_api_db::network_segment::find_by_name(
+        env.pool.begin().await?.deref_mut(),
+        "HOST_INBAND",
+    )
+    .await?;
 
     // Allocate an instance by explicitly specifying an interface that is on the HOST_INBAND network
     let instance = crate::handlers::instance::allocate(
@@ -274,9 +276,11 @@ async fn test_zero_dpu_instance_allocation_no_network_config(
     // Ingest zero DPU host
     let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
 
-    let host_inband_segment =
-        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND")
-            .await?;
+    let host_inband_segment = nico_api_db::network_segment::find_by_name(
+        env.pool.begin().await?.deref_mut(),
+        "HOST_INBAND",
+    )
+    .await?;
 
     // Allocate an instance without specifying a network config
     let instance = crate::handlers::instance::allocate(
@@ -361,7 +365,7 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
             let machine_id = mock.discovered_machine_id().unwrap();
 
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
-                db::managed_host::load_snapshot(
+                nico_api_db::managed_host::load_snapshot(
                     mock.test_env.pool.begin().await?.deref_mut(),
                     &machine_id,
                     Default::default(),
@@ -409,10 +413,16 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
     .into_inner();
 
     let (host_inband_segment_1, host_inband_segment_2) = (
-        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND")
-            .await?,
-        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND_2")
-            .await?,
+        nico_api_db::network_segment::find_by_name(
+            env.pool.begin().await?.deref_mut(),
+            "HOST_INBAND",
+        )
+        .await?,
+        nico_api_db::network_segment::find_by_name(
+            env.pool.begin().await?.deref_mut(),
+            "HOST_INBAND_2",
+        )
+        .await?,
     );
 
     let interfaces = instance.config.unwrap().network.unwrap().interfaces;
@@ -422,7 +432,7 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
         "New instance should have two interface"
     );
 
-    let host_snapshot_after_allocate = db::managed_host::load_snapshot(
+    let host_snapshot_after_allocate = nico_api_db::managed_host::load_snapshot(
         env.pool.begin().await?.deref_mut(),
         &zero_dpu_host.host_snapshot.id,
         Default::default(),
@@ -550,9 +560,11 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
     // Create single DPU host
     let single_dpu_host = api_fixtures::site_explorer::new_host(&env, Default::default()).await?;
 
-    let host_inband_segment =
-        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND")
-            .await?;
+    let host_inband_segment = nico_api_db::network_segment::find_by_name(
+        env.pool.begin().await?.deref_mut(),
+        "HOST_INBAND",
+    )
+    .await?;
 
     // Create an instance on a host with DPUs, but try to configure it on a host_inband network,
     // which is not allowed
@@ -652,7 +664,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
         .finish(|mock| async move {
             let machine_id = mock.discovered_machine_id().unwrap();
             Ok::<ManagedHostStateSnapshot, eyre::Report>(
-                db::managed_host::load_snapshot(
+                nico_api_db::managed_host::load_snapshot(
                     &mut mock.test_env.db_reader(),
                     &machine_id,
                     Default::default(),
@@ -666,12 +678,16 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
 
     let host_snapshot_rpc: forge::Machine = zero_dpu_host.host_snapshot.clone().into();
 
-    let host_inband_segment =
-        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND")
-            .await?;
-    let host_inband_2_segment =
-        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "HOST_INBAND_2")
-            .await?;
+    let host_inband_segment = nico_api_db::network_segment::find_by_name(
+        env.pool.begin().await?.deref_mut(),
+        "HOST_INBAND",
+    )
+    .await?;
+    let host_inband_2_segment = nico_api_db::network_segment::find_by_name(
+        env.pool.begin().await?.deref_mut(),
+        "HOST_INBAND_2",
+    )
+    .await?;
 
     let instance_network_restrictions = host_snapshot_rpc.instance_network_restrictions.unwrap();
     assert_eq!(
@@ -758,7 +774,8 @@ async fn test_single_dpu_instance_allocation(
     let single_dpu_host = api_fixtures::site_explorer::new_host(&env, Default::default()).await?;
 
     let tenant_segment =
-        db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "TENANT").await?;
+        nico_api_db::network_segment::find_by_name(env.pool.begin().await?.deref_mut(), "TENANT")
+            .await?;
 
     // Create an instance on a host with DPUs, without specifying a network config, which is not allowed
     let result = crate::handlers::instance::allocate(
@@ -811,7 +828,7 @@ async fn test_single_dpu_instance_allocation(
 
     let mut machine = env
         .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(tonic::Request::new(forge::MachinesByIdsRequest {
             machine_ids: vec![mid],
             ..Default::default()
         }))

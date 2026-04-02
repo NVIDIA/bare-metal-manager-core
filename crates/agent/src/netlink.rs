@@ -21,7 +21,7 @@ use std::error::Error;
 use futures_util::TryStreamExt;
 use netlink_packet_route::link::{LinkAttribute, LinkMessage};
 pub use netlink_packet_route::link::{LinkLayerType, State as LinkState};
-use rpc::forge as rpc;
+use nico_rpc::forge;
 use {rtnetlink, tokio};
 
 #[derive(Clone, Debug)]
@@ -98,7 +98,7 @@ impl From<LinkMessage> for InterfaceLinkData {
     }
 }
 
-impl From<&InterfaceLinkData> for rpc::LinkData {
+impl From<&InterfaceLinkData> for forge::LinkData {
     fn from(link_data: &InterfaceLinkData) -> Self {
         let link_type = Some(match link_data.link_type {
             LinkLayerType::Ether => "ethernet".to_owned(),
@@ -129,7 +129,7 @@ impl From<&InterfaceLinkData> for rpc::LinkData {
         let carrier_up_count = link_data.carrier_up_count;
         let carrier_down_count = link_data.carrier_down_count;
 
-        rpc::LinkData {
+        forge::LinkData {
             link_type,
             state,
             carrier_up,

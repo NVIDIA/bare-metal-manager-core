@@ -17,8 +17,8 @@
 
 use std::collections::HashSet;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::{self as forgerpc};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -119,7 +119,7 @@ pub async fn show_attachments(
                             id,
                             "INSTANCE",
                             format!("INDIRECT via VPC {}", vpc.id),
-                            forgerpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone
+                            forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone
                                 .as_str_name()
                         ]);
                     } else {
@@ -127,7 +127,7 @@ pub async fn show_attachments(
                             id,
                             "INSTANCE",
                             format!("INDIRECT via VPC {}", vpc.id),
-                            forgerpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull
+                            forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull
                                 .as_str_name()
                         ]);
                     }

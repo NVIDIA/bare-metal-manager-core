@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::compute_allocation::ComputeAllocationId;
 use clap::Parser;
+use nico_uuid::compute_allocation::ComputeAllocationId;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {

@@ -20,11 +20,11 @@
  *  tables in the database, leveraging the bundle-specific record types.
  */
 
-use carbide_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 #[cfg(feature = "cli")]
-use rpc::admin_cli::ToTable;
-use rpc::errors::RpcDataConversionError;
-use rpc::protos::measured_boot::{MeasurementBundlePb, MeasurementBundleStatePb};
+use nico_rpc::admin_cli::ToTable;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::protos::measured_boot::{MeasurementBundlePb, MeasurementBundleStatePb};
+use nico_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use serde::Serialize;
 
 use super::pcr::PcrRegisterValue;

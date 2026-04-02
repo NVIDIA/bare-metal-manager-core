@@ -22,8 +22,8 @@ use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 
 use super::filters;
 use crate::api::Api;
@@ -37,14 +37,14 @@ struct IbPartitionShow {
 struct IbPartitionRowDisplay {
     id: String,
     tenant_organization_id: String,
-    metadata: rpc::forge::Metadata,
+    metadata: forge::Metadata,
     state: String,
     time_in_state_above_sla: bool,
     pkey: String,
 }
 
-impl From<forgerpc::IbPartition> for IbPartitionRowDisplay {
-    fn from(partition: forgerpc::IbPartition) -> Self {
+impl From<forge::IbPartition> for IbPartitionRowDisplay {
+    fn from(partition: forge::IbPartition) -> Self {
         Self {
             id: partition.id.map(|id| id.to_string()).unwrap_or_default(),
             tenant_organization_id: partition.config.unwrap_or_default().tenant_organization_id,
@@ -52,7 +52,7 @@ impl From<forgerpc::IbPartition> for IbPartitionRowDisplay {
             state: partition
                 .status
                 .as_ref()
-                .and_then(|status| forgerpc::TenantState::try_from(status.state).ok())
+                .and_then(|status| forge::TenantState::try_from(status.state).ok())
                 .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
             time_in_state_above_sla: partition
@@ -106,8 +106,8 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(partitions)).into_response()
 }
 
-async fn fetch_ib_partitions(api: Arc<Api>) -> Result<Vec<forgerpc::IbPartition>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::IbPartitionSearchFilter::default());
+async fn fetch_ib_partitions(api: Arc<Api>) -> Result<Vec<forge::IbPartition>, tonic::Status> {
+    let request = tonic::Request::new(forge::IbPartitionSearchFilter::default());
 
     let ib_partition_ids = api
         .find_ib_partition_ids(request)
@@ -121,7 +121,7 @@ async fn fetch_ib_partitions(api: Arc<Api>) -> Result<Vec<forgerpc::IbPartition>
         const PAGE_SIZE: usize = 100;
         let page_size = PAGE_SIZE.min(ib_partition_ids.len() - offset);
         let next_ids = &ib_partition_ids[offset..offset + page_size];
-        let request = tonic::Request::new(forgerpc::IbPartitionsByIdsRequest {
+        let request = tonic::Request::new(forge::IbPartitionsByIdsRequest {
             ib_partition_ids: next_ids.to_vec(),
             include_history: false,
         });
@@ -134,7 +134,7 @@ async fn fetch_ib_partitions(api: Arc<Api>) -> Result<Vec<forgerpc::IbPartition>
         offset += page_size;
     }
 
-    partitions.sort_unstable_by(|p1, p2: &rpc::IbPartition| {
+    partitions.sort_unstable_by(|p1, p2: &forge::IbPartition| {
         // Sort by tenant_org and name
         // Otherwise fall back to ID
         if let (Some(pc1), Some(pc2)) = (p1.config.as_ref(), p2.config.as_ref()) {
@@ -155,7 +155,7 @@ async fn fetch_ib_partitions(api: Arc<Api>) -> Result<Vec<forgerpc::IbPartition>
             return id1.cmp(id2);
         }
         // This path should never be taken, since ID is always set
-        (p1 as *const rpc::IbPartition).cmp(&(p2 as *const rpc::IbPartition))
+        (p1 as *const forge::IbPartition).cmp(&(p2 as *const forge::IbPartition))
     });
     Ok(partitions)
 }
@@ -166,11 +166,11 @@ struct IbPartitionDetail {
     id: String,
     config_version: String,
     tenant_organization_id: String,
-    metadata: rpc::forge::Metadata,
+    metadata: forge::Metadata,
     state: String,
     state_sla: String,
     time_in_state_above_sla: bool,
-    state_reason: Option<rpc::forge::ControllerStateReason>,
+    state_reason: Option<forge::ControllerStateReason>,
     pkey: String,
     service_level: String,
     rate_limit: String,
@@ -178,8 +178,8 @@ struct IbPartitionDetail {
     enable_sharp: String,
 }
 
-impl From<forgerpc::IbPartition> for IbPartitionDetail {
-    fn from(partition: forgerpc::IbPartition) -> Self {
+impl From<forge::IbPartition> for IbPartitionDetail {
+    fn from(partition: forge::IbPartition) -> Self {
         Self {
             id: partition.id.map(|id| id.to_string()).unwrap_or_default(),
             config_version: partition.config_version,
@@ -188,7 +188,7 @@ impl From<forgerpc::IbPartition> for IbPartitionDetail {
             state: partition
                 .status
                 .as_ref()
-                .and_then(|status| forgerpc::TenantState::try_from(status.state).ok())
+                .and_then(|status| forge::TenantState::try_from(status.state).ok())
                 .map(|state| format!("{state:?}"))
                 .unwrap_or_default(),
             state_sla: partition
@@ -266,7 +266,7 @@ pub async fn detail(
         }
     };
 
-    let request = tonic::Request::new(forgerpc::IbPartitionsByIdsRequest {
+    let request = tonic::Request::new(forge::IbPartitionsByIdsRequest {
         ib_partition_ids: vec![partition_id],
         include_history: true,
     });

@@ -34,7 +34,7 @@ use crate::state_controller::state_handler::StateHandlerError;
 /// ```ignore
 /// let write_batch = DbWriteBatch::new();
 /// write_batch.push(move |txn| async move {
-///     db::machine::find_by_ip(txn, &Ipv4Addr::new(17, 0, 0, 1)).await
+///     nico_api_db::machine::find_by_ip(txn, &Ipv4Addr::new(17, 0, 0, 1)).await
 /// }.boxed());
 ///
 /// // Later the controller will do:

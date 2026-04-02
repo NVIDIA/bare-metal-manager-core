@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::errors::RpcDataConversionError;
 use config_version::Versioned;
-use rpc::forge as rpc;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
 use serde::{Deserialize, Serialize};
 
 use crate::instance::config::infiniband::InstanceInfinibandConfig;
@@ -62,17 +62,17 @@ pub struct InstanceInfinibandStatus {
     pub configs_synced: SyncState,
 }
 
-impl TryFrom<InstanceInfinibandStatus> for rpc::InstanceInfinibandStatus {
+impl TryFrom<InstanceInfinibandStatus> for forge::InstanceInfinibandStatus {
     type Error = RpcDataConversionError;
 
     fn try_from(status: InstanceInfinibandStatus) -> Result<Self, Self::Error> {
         let mut ib_interfaces = Vec::with_capacity(status.ib_interfaces.len());
         for iface in status.ib_interfaces {
-            ib_interfaces.push(rpc::InstanceIbInterfaceStatus::try_from(iface)?);
+            ib_interfaces.push(forge::InstanceIbInterfaceStatus::try_from(iface)?);
         }
-        Ok(rpc::InstanceInfinibandStatus {
+        Ok(forge::InstanceInfinibandStatus {
             ib_interfaces,
-            configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
+            configs_synced: forge::SyncState::try_from(status.configs_synced)? as i32,
         })
     }
 }
@@ -194,7 +194,7 @@ pub struct InstanceIbInterfaceStatus {
     pub lid: u32,
 }
 
-impl TryFrom<InstanceIbInterfaceStatus> for rpc::InstanceIbInterfaceStatus {
+impl TryFrom<InstanceIbInterfaceStatus> for forge::InstanceIbInterfaceStatus {
     type Error = RpcDataConversionError;
     fn try_from(status: InstanceIbInterfaceStatus) -> Result<Self, Self::Error> {
         Ok(Self {
@@ -205,9 +205,9 @@ impl TryFrom<InstanceIbInterfaceStatus> for rpc::InstanceIbInterfaceStatus {
     }
 }
 
-impl TryFrom<rpc::InstanceIbInterfaceStatus> for InstanceIbInterfaceStatus {
+impl TryFrom<forge::InstanceIbInterfaceStatus> for InstanceIbInterfaceStatus {
     type Error = RpcDataConversionError;
-    fn try_from(status: rpc::InstanceIbInterfaceStatus) -> Result<Self, Self::Error> {
+    fn try_from(status: forge::InstanceIbInterfaceStatus) -> Result<Self, Self::Error> {
         Ok(Self {
             pf_guid: status.pf_guid.clone(),
             guid: status.guid.clone(),

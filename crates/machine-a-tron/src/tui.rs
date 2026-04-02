@@ -20,14 +20,16 @@ use std::error::Error;
 use std::time::Duration;
 
 use bmc_mock::{HostHardwareType, MockPowerState};
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
 use crossterm::ExecutableCommand;
-use crossterm::event::{self, Event, EventStream, KeyCode, KeyModifiers};
+use crossterm::event::{
+    Event, EventStream, KeyCode, KeyModifiers, {self},
+};
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use futures::StreamExt;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcId;
 use ratatui::prelude::*;
 use ratatui::symbols::DOT;
 use ratatui::widgets::*;

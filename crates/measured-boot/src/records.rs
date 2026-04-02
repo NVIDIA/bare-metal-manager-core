@@ -32,30 +32,27 @@ use std::error::Error;
 use std::fmt;
 use std::str::FromStr;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::{
-    MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementBundleId,
-    MeasurementBundleValueId, MeasurementJournalId, MeasurementReportId, MeasurementReportValueId,
-    MeasurementSystemProfileAttrId, MeasurementSystemProfileId, TrustedMachineId,
-};
-use carbide_uuid::{DbTable, UuidEmptyStringError};
 use chrono::{DateTime, Utc};
 #[cfg(feature = "cli")]
-use rpc::admin_cli::{ToTable, serde_just_print_summary};
-use rpc::errors::RpcDataConversionError;
-use rpc::protos::measured_boot::{
+use nico_rpc::admin_cli::{ToTable, serde_just_print_summary};
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::protos::measured_boot::{
     CandidateMachineSummaryPb, MeasurementApprovedMachineRecordPb,
     MeasurementApprovedProfileRecordPb, MeasurementApprovedTypePb, MeasurementBundleRecordPb,
     MeasurementBundleStatePb, MeasurementBundleValueRecordPb, MeasurementJournalRecordPb,
     MeasurementMachineStatePb, MeasurementReportRecordPb, MeasurementReportValueRecordPb,
     MeasurementSystemProfileAttrRecordPb, MeasurementSystemProfileRecordPb,
 };
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::{
+    MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementBundleId,
+    MeasurementBundleValueId, MeasurementJournalId, MeasurementReportId, MeasurementReportValueId,
+    MeasurementSystemProfileAttrId, MeasurementSystemProfileId, TrustedMachineId,
+};
+use nico_uuid::{DbTable, UuidEmptyStringError};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "sqlx")]
-use sqlx::{
-    postgres::PgRow,
-    {FromRow, Row},
-};
+use sqlx::{FromRow, Row, postgres::PgRow};
 use tonic::Status;
 
 use super::pcr::PcrRegisterValue;

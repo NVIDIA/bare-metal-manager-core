@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::forge as forgerpc;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -29,7 +29,7 @@ pub struct Args {
     pub reboot: bool,
 }
 
-impl From<Args> for forgerpc::SetPrimaryDpuRequest {
+impl From<Args> for forge::SetPrimaryDpuRequest {
     fn from(args: Args) -> Self {
         Self {
             host_machine_id: Some(args.host_machine_id),

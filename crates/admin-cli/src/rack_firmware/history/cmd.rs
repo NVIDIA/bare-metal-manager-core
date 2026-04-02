@@ -15,7 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use nico_rpc::admin_cli::{CarbideCliError, OutputFormat};
+use nico_rpc::forge;
 use prettytable::{Cell, Row, Table};
 
 use super::args::Args;
@@ -32,7 +33,7 @@ pub async fn history(
         // Flatten to map<rack_id, Vec<record>> for serialization
         let json_histories: std::collections::HashMap<
             &str,
-            Vec<&rpc::forge::RackFirmwareHistoryRecord>,
+            Vec<&forge::RackFirmwareHistoryRecord>,
         > = result
             .histories
             .iter()

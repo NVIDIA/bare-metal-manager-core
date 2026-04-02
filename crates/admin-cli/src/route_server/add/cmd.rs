@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use nico_rpc::admin_cli::CarbideCliResult;
 
 use crate::route_server::common::AddressArgs;
 use crate::rpc::ApiClient;

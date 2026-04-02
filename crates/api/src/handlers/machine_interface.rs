@@ -18,9 +18,9 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineType;
 use itertools::Itertools;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineType;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -28,18 +28,22 @@ use crate::api::{Api, log_request_data};
 
 pub(crate) async fn find_interfaces(
     api: &Api,
-    request: Request<rpc::InterfaceSearchQuery>,
-) -> Result<Response<rpc::InterfaceList>, Status> {
+    request: Request<forge::InterfaceSearchQuery>,
+) -> Result<Response<forge::InterfaceList>, Status> {
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
 
-    let rpc::InterfaceSearchQuery { id, ip } = request.into_inner();
+    let forge::InterfaceSearchQuery { id, ip } = request.into_inner();
 
-    let mut interfaces: Vec<rpc::MachineInterface> = match (id, ip) {
-        (Some(id), _) => vec![db::machine_interface::find_one(&mut txn, id).await?.into()],
+    let mut interfaces: Vec<forge::MachineInterface> = match (id, ip) {
+        (Some(id), _) => vec![
+            nico_api_db::machine_interface::find_one(&mut txn, id)
+                .await?
+                .into(),
+        ],
         (None, Some(ip)) => match IpAddr::from_str(ip.as_ref()) {
-            Ok(ip) => match db::machine_interface::find_by_ip(&mut txn, ip).await? {
+            Ok(ip) => match nico_api_db::machine_interface::find_by_ip(&mut txn, ip).await? {
                 Some(interface) => vec![interface.into()],
                 None => {
                     return Err(CarbideError::internal(format!(
@@ -55,7 +59,7 @@ pub(crate) async fn find_interfaces(
                 .into());
             }
         },
-        (None, None) => match db::machine_interface::find_all(&mut txn).await {
+        (None, None) => match nico_api_db::machine_interface::find_all(&mut txn).await {
             Ok(machine_interfaces) => machine_interfaces
                 .into_iter()
                 .map(|i| i.into())
@@ -77,7 +81,9 @@ pub(crate) async fn find_interfaces(
                 }
                 .into());
             };
-            match db::machine_topology::find_machine_id_by_bmc_ip(txn.as_pgconn(), ip).await {
+            match nico_api_db::machine_topology::find_machine_id_by_bmc_ip(txn.as_pgconn(), ip)
+                .await
+            {
                 Ok(Some(machine_id)) => {
                     let rpc_machine_id = Some(machine_id);
                     interface.is_bmc = Some(true);
@@ -98,23 +104,23 @@ pub(crate) async fn find_interfaces(
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::InterfaceList { interfaces }))
+    Ok(Response::new(forge::InterfaceList { interfaces }))
 }
 
 pub(crate) async fn delete_interface(
     api: &Api,
-    request: Request<rpc::InterfaceDeleteQuery>,
+    request: Request<forge::InterfaceDeleteQuery>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
 
-    let rpc::InterfaceDeleteQuery { id } = request.into_inner();
+    let forge::InterfaceDeleteQuery { id } = request.into_inner();
     let Some(id) = id else {
         return Err(CarbideError::MissingArgument("delete interface.interface_id").into());
     };
 
-    let interface = db::machine_interface::find_one(&mut txn, id).await?;
+    let interface = nico_api_db::machine_interface::find_one(&mut txn, id).await?;
 
     // There should not be any machine associated with this interface.
     if let Some(machine_id) = interface.machine_id {
@@ -126,9 +132,11 @@ pub(crate) async fn delete_interface(
 
     // There should not be any BMC information associated with any machine.
     for address in interface.addresses.iter() {
-        let machine_id =
-            db::machine_topology::find_machine_id_by_bmc_ip(txn.as_pgconn(), &address.to_string())
-                .await?;
+        let machine_id = nico_api_db::machine_topology::find_machine_id_by_bmc_ip(
+            txn.as_pgconn(),
+            &address.to_string(),
+        )
+        .await?;
 
         if let Some(machine_id) = machine_id {
             return Err(CarbideError::InvalidArgument(format!(
@@ -138,7 +146,7 @@ pub(crate) async fn delete_interface(
         }
     }
 
-    db::machine_interface::delete(&interface.id, &mut txn).await?;
+    nico_api_db::machine_interface::delete(&interface.id, &mut txn).await?;
 
     txn.commit().await?;
 
@@ -147,14 +155,14 @@ pub(crate) async fn delete_interface(
 
 pub(crate) async fn find_mac_address_by_bmc_ip(
     api: &Api,
-    request: Request<rpc::BmcIp>,
-) -> Result<Response<rpc::MacAddressBmcIp>, Status> {
+    request: Request<forge::BmcIp>,
+) -> Result<Response<forge::MacAddressBmcIp>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
     let bmc_ip = req.bmc_ip;
 
-    let interface = db::machine_interface::find_by_ip(
+    let interface = nico_api_db::machine_interface::find_by_ip(
         &api.database_connection,
         bmc_ip
             .parse()
@@ -166,7 +174,7 @@ pub(crate) async fn find_mac_address_by_bmc_ip(
         id: bmc_ip.clone(),
     })?;
 
-    Ok(Response::new(rpc::MacAddressBmcIp {
+    Ok(Response::new(forge::MacAddressBmcIp {
         bmc_ip,
         mac_address: interface.mac_address.to_string(),
     }))

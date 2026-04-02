@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::protos::forge as rpc;
+use nico_rpc::forge;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
@@ -31,7 +31,7 @@ use crate::handlers::utils::convert_and_log_machine_id;
 // feeding data back to administrative CLI/UI calls).
 pub(crate) async fn scout_stream(
     api: &Api,
-    request: Request<Streaming<rpc::ScoutStreamApiBoundMessage>>,
+    request: Request<Streaming<forge::ScoutStreamApiBoundMessage>>,
 ) -> Result<Response<ScoutStreamType>, Status> {
     log_request_data(&request);
 
@@ -46,7 +46,7 @@ pub(crate) async fn scout_stream(
     // an Init message as the first thing from the client (in this
     // case, a scout agent).
     let machine_id = match init_message.payload {
-        Some(rpc::scout_stream_api_bound_message::Payload::Init(init)) => {
+        Some(forge::scout_stream_api_bound_message::Payload::Init(init)) => {
             convert_and_log_machine_id(init.machine_id.as_ref())?
         }
         _ => {
@@ -62,9 +62,9 @@ pub(crate) async fn scout_stream(
     // Now we create channels for bidirectional communication. The API
     // will receive on one side, process whatever is packed into the oneof field
     // for the stream message, and then pass it off out the other side.
-    let (agent_tx, agent_rx) = mpsc::channel::<rpc::ScoutStreamApiBoundMessage>(100);
+    let (agent_tx, agent_rx) = mpsc::channel::<forge::ScoutStreamApiBoundMessage>(100);
     let (server_tx, server_rx) =
-        mpsc::channel::<Result<rpc::ScoutStreamScoutBoundMessage, Status>>(100);
+        mpsc::channel::<Result<forge::ScoutStreamScoutBoundMessage, Status>>(100);
 
     // Next, register the connection using the machine ID and our fancy new channels.
     api.scout_stream_registry
@@ -94,8 +94,8 @@ pub(crate) async fn scout_stream(
 
 pub async fn show_connections(
     api: &Api,
-    request: Request<rpc::ScoutStreamShowConnectionsRequest>,
-) -> Result<Response<rpc::ScoutStreamShowConnectionsResponse>, Status> {
+    request: Request<forge::ScoutStreamShowConnectionsRequest>,
+) -> Result<Response<forge::ScoutStreamShowConnectionsResponse>, Status> {
     log_request_data(&request);
 
     let connections = api.scout_stream_registry.list_connected().await;
@@ -107,7 +107,7 @@ pub async fn show_connections(
                 .elapsed()
                 .unwrap_or(std::time::Duration::from_secs(0));
 
-            rpc::ScoutStreamConnectionInfo {
+            forge::ScoutStreamConnectionInfo {
                 machine_id: machine_id.into(),
                 connected_at: format_system_time(connected_at),
                 uptime_seconds: duration.as_secs(),
@@ -115,19 +115,19 @@ pub async fn show_connections(
         })
         .collect();
 
-    Ok(Response::new(rpc::ScoutStreamShowConnectionsResponse {
+    Ok(Response::new(forge::ScoutStreamShowConnectionsResponse {
         scout_stream_connections: connection_list,
     }))
 }
 pub async fn disconnect(
     api: &Api,
-    request: Request<rpc::ScoutStreamDisconnectRequest>,
-) -> Result<Response<rpc::ScoutStreamDisconnectResponse>, Status> {
+    request: Request<forge::ScoutStreamDisconnectRequest>,
+) -> Result<Response<forge::ScoutStreamDisconnectResponse>, Status> {
     log_request_data(&request);
     let request = request.into_inner();
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
     let success = api.scout_stream_registry.unregister(machine_id).await;
-    Ok(Response::new(rpc::ScoutStreamDisconnectResponse {
+    Ok(Response::new(forge::ScoutStreamDisconnectResponse {
         machine_id: machine_id.into(),
         success,
     }))
@@ -135,8 +135,8 @@ pub async fn disconnect(
 
 pub async fn ping(
     api: &Api,
-    request: Request<rpc::ScoutStreamAdminPingRequest>,
-) -> Result<Response<rpc::ScoutStreamAdminPingResponse>, Status> {
+    request: Request<forge::ScoutStreamAdminPingRequest>,
+) -> Result<Response<forge::ScoutStreamAdminPingResponse>, Status> {
     log_request_data(&request);
     let request = request.into_inner();
     let machine_id = convert_and_log_machine_id(request.machine_id.as_ref())?;
@@ -150,9 +150,9 @@ pub async fn ping(
         .into());
     }
 
-    let request = rpc::ScoutStreamScoutBoundMessage::new_flow(
-        rpc::scout_stream_scout_bound_message::Payload::ScoutStreamAgentPingRequest(
-            rpc::ScoutStreamAgentPingRequest {},
+    let request = forge::ScoutStreamScoutBoundMessage::new_flow(
+        forge::scout_stream_scout_bound_message::Payload::ScoutStreamAgentPingRequest(
+            forge::ScoutStreamAgentPingRequest {},
         ),
     );
 
@@ -168,13 +168,13 @@ pub async fn ping(
         })?;
 
     match response.payload {
-        Some(rpc::scout_stream_api_bound_message::Payload::ScoutStreamAgentPingResponse(
+        Some(forge::scout_stream_api_bound_message::Payload::ScoutStreamAgentPingResponse(
             agent_ping_response,
         )) => match agent_ping_response.reply {
-            Some(rpc::scout_stream_agent_ping_response::Reply::Pong(pong)) => {
-                Ok(Response::new(rpc::ScoutStreamAdminPingResponse { pong }))
+            Some(forge::scout_stream_agent_ping_response::Reply::Pong(pong)) => {
+                Ok(Response::new(forge::ScoutStreamAdminPingResponse { pong }))
             }
-            Some(rpc::scout_stream_agent_ping_response::Reply::Error(error)) => {
+            Some(forge::scout_stream_agent_ping_response::Reply::Error(error)) => {
                 Err(CarbideError::Internal {
                     message: format!(
                         "scout agent returned error attempting to ping agent (machine_id={machine_id}): {}",

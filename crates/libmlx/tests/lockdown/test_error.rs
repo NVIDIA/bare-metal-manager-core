@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use libmlx::lockdown::error::{MlxError, MlxResult};
+use nico_libmlx::lockdown::error::{MlxError, MlxResult};
 
 #[test]
 fn test_error_display() {

@@ -18,17 +18,17 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ::rpc::DiscoveryInfo;
-use ::rpc::forge_tls_client::ForgeClientConfig;
-use ::rpc::machine_discovery::DpuData;
-use carbide_host_support::agent_config::AgentConfig;
-use carbide_host_support::hardware_enumeration::enumerate_hardware;
-use carbide_host_support::registration::register_machine;
 pub use command_line::{AgentCommand, Options, RunOptions, WriteTarget};
 use eyre::WrapErr;
-use forge_tls::client_config::ClientCert;
 use mac_address::MacAddress;
 use network_monitor::{NetworkPingerType, Ping};
+use nico_host_support::agent_config::AgentConfig;
+use nico_host_support::hardware_enumeration::enumerate_hardware;
+use nico_host_support::registration::register_machine;
+use nico_rpc::DiscoveryInfo;
+use nico_rpc::forge_tls_client::ForgeClientConfig;
+use nico_rpc::machine_discovery::DpuData;
+use nico_tls::client_config::ClientCert;
 use utils::models::arch::CpuArchitecture;
 use version_compare::{Part, Version};
 
@@ -45,8 +45,8 @@ pub mod containerd;
 mod dhcp;
 mod dhcp_server_grpc_client;
 mod ethernet_virtualization;
-use carbide_uuid::machine::MachineId;
 pub use ethernet_virtualization::FPath;
+use nico_uuid::machine::MachineId;
 pub mod extension_services;
 mod fmds_client;
 
@@ -83,7 +83,7 @@ pub const NVUE_MINIMUM_HBN_VERSION: &str = "2.0.0-doca2.5.0";
 
 pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
     if cmdline.version {
-        println!("{}", carbide_version::version!());
+        println!("{}", nico_version::version!());
         return Ok(());
     }
 
@@ -461,7 +461,7 @@ async fn register(agent: &AgentConfig) -> Result<Registration, eyre::Report> {
         agent.machine.interface_id,
         hardware_info,
         true,
-        carbide_host_support::registration::DiscoveryRetry {
+        nico_host_support::registration::DiscoveryRetry {
             secs: agent.period.discovery_retry_secs,
             max: agent.period.discovery_retries_max,
         },

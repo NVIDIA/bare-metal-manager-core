@@ -17,16 +17,18 @@
 
 //! State Controller IO implementation for Machines
 
-use carbide_uuid::machine::MachineId;
 use config_version::{ConfigVersion, Versioned};
-use db::{self, DatabaseError};
-use model::StateSla;
-use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{
-    self, DpuDiscoveringState, DpuInitState, HostHealthConfig, MachineValidatingState,
-    ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
+use nico_api_db::{
+    DatabaseError, {self},
 };
+use nico_api_model::StateSla;
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::{
+    DpuDiscoveringState, DpuInitState, HostHealthConfig, MachineValidatingState, ManagedHostState,
+    ManagedHostStateSnapshot, MeasuringState, ValidationState, {self},
+};
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
@@ -59,7 +61,7 @@ impl StateControllerIO for MachineStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        Ok(db::machine::find_machine_ids(
+        Ok(nico_api_db::machine::find_machine_ids(
             txn,
             MachineSearchConfig {
                 include_predicted_host: true,
@@ -88,10 +90,10 @@ impl StateControllerIO for MachineStateControllerIO {
             ));
         }
 
-        let mut retstate = db::managed_host::load_snapshot(
+        let mut retstate = nico_api_db::managed_host::load_snapshot(
             txn,
             machine_id,
-            model::machine::LoadSnapshotOptions {
+            nico_api_model::machine::LoadSnapshotOptions {
                 include_history: false,
                 include_instance_data: true,
                 host_health_config: self.host_health,
@@ -100,7 +102,8 @@ impl StateControllerIO for MachineStateControllerIO {
         .await?;
 
         if let Some(retstate) = retstate.as_mut() {
-            let dpa_snapshots = db::dpa_interface::find_by_machine_id(txn, *machine_id).await?;
+            let dpa_snapshots =
+                nico_api_db::dpa_interface::find_by_machine_id(txn, *machine_id).await?;
             retstate.dpa_interface_snapshots = dpa_snapshots;
         };
 
@@ -126,7 +129,7 @@ impl StateControllerIO for MachineStateControllerIO {
         _new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<bool, DatabaseError> {
-        db::machine::update_state(txn, object_id, new_state).await?;
+        nico_api_db::machine::update_state(txn, object_id, new_state).await?;
         Ok(true)
     }
 
@@ -150,11 +153,11 @@ impl StateControllerIO for MachineStateControllerIO {
         object_id: &Self::ObjectId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
-        db::machine::update_controller_state_outcome(txn, object_id, outcome).await
+        nico_api_db::machine::update_controller_state_outcome(txn, object_id, outcome).await
     }
 
     fn metric_state_names(state: &ManagedHostState) -> (&'static str, &'static str) {
-        use model::machine::{CleanupState, InstanceState, MachineState};
+        use nico_api_model::machine::{CleanupState, InstanceState, MachineState};
 
         fn dpuinit_state_name(dpu_state: &DpuInitState) -> &'static str {
             match dpu_state {

@@ -27,23 +27,25 @@ use common::api_fixtures::{
     TestManagedHost, create_managed_host, create_test_env, create_test_env_with_overrides,
     get_config,
 };
-use health_report::HealthReport;
-use measured_boot::bundle::MeasurementBundle;
-use measured_boot::pcr::PcrRegisterValue;
-use measured_boot::records::MeasurementBundleState;
-use measured_boot::report::MeasurementReport;
-use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::hardware_info::TpmEkCertificate;
-use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
-use model::machine::{
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::hardware_info::TpmEkCertificate;
+use nico_api_model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
+use nico_api_model::machine::{
     DpuInitState, FailureCause, FailureDetails, FailureSource, InstanceState, LockdownMode,
     MachineState, MachineValidatingState, ManagedHostState, MeasuringState, ValidationState,
 };
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{HealthReportOverride, InsertHealthReportOverrideRequest, TpmCaCert, TpmCaCertId};
-use rpc::forge_agent_control_response::Action;
-use rpc::machine_discovery::AttestKeyInfo;
-use rpc::{DiscoveryData, DiscoveryInfo};
+use nico_health_report::HealthReport;
+use nico_measured_boot::bundle::MeasurementBundle;
+use nico_measured_boot::pcr::PcrRegisterValue;
+use nico_measured_boot::records::MeasurementBundleState;
+use nico_measured_boot::report::MeasurementReport;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{
+    HealthReportOverride, InsertHealthReportOverrideRequest, TpmCaCert, TpmCaCertId,
+};
+use nico_rpc::forge_agent_control_response::Action;
+use nico_rpc::machine_discovery::AttestKeyInfo;
+use nico_rpc::{DiscoveryData, DiscoveryInfo, forge};
 use tonic::{Code, Request};
 
 use crate::handlers::measured_boot::rpc_forge::MachineDiscoveryInfo;
@@ -182,15 +184,15 @@ async fn test_failed_state_host(pool: sqlx::PgPool) {
     let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
 
-    db::machine::update_failure_details(
+    nico_api_db::machine::update_failure_details(
         &host,
         &mut txn,
         FailureDetails {
-            cause: model::machine::FailureCause::NVMECleanFailed {
+            cause: nico_api_model::machine::FailureCause::NVMECleanFailed {
                 err: "failed in module xyz.".to_string(),
             },
             failed_at: chrono::Utc::now(),
-            source: model::machine::FailureSource::Scout,
+            source: nico_api_model::machine::FailureSource::Scout,
         },
     )
     .await
@@ -216,11 +218,11 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     let mut txn = env.pool.begin().await.unwrap();
     let host = mh.host().db_machine(&mut txn).await;
 
-    let clean_failed_req = tonic::Request::new(rpc::MachineCleanupInfo {
+    let clean_failed_req = tonic::Request::new(forge::MachineCleanupInfo {
         machine_id: mh.id.into(),
         nvme: Some(
-            rpc::protos::forge::machine_cleanup_info::CleanupStepResult {
-                result: rpc::protos::forge::machine_cleanup_info::CleanupResult::Error as i32,
+            nico_rpc::protos::forge::machine_cleanup_info::CleanupStepResult {
+                result: nico_rpc::protos::forge::machine_cleanup_info::CleanupResult::Error as i32,
                 message: "test nvme failure".to_string(),
             },
         ),
@@ -251,7 +253,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
         host.current_state(),
         ManagedHostState::Failed {
             details: FailureDetails {
-                cause: model::machine::FailureCause::NVMECleanFailed { .. },
+                cause: nico_api_model::machine::FailureCause::NVMECleanFailed { .. },
                 ..
             },
             retry_count: 0,
@@ -260,11 +262,11 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
     ));
 
     // Fail again
-    let clean_failed_req = tonic::Request::new(rpc::MachineCleanupInfo {
+    let clean_failed_req = tonic::Request::new(forge::MachineCleanupInfo {
         machine_id: mh.id.into(),
         nvme: Some(
-            rpc::protos::forge::machine_cleanup_info::CleanupStepResult {
-                result: rpc::protos::forge::machine_cleanup_info::CleanupResult::Error as i32,
+            nico_rpc::protos::forge::machine_cleanup_info::CleanupStepResult {
+                result: nico_rpc::protos::forge::machine_cleanup_info::CleanupResult::Error as i32,
                 message: "test nvme failure".to_string(),
             },
         ),
@@ -289,7 +291,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
         host.current_state(),
         ManagedHostState::Failed {
             details: FailureDetails {
-                cause: model::machine::FailureCause::NVMECleanFailed { .. },
+                cause: nico_api_model::machine::FailureCause::NVMECleanFailed { .. },
                 ..
             },
             retry_count: 1,
@@ -297,7 +299,7 @@ async fn test_nvme_clean_failed_state_host(pool: sqlx::PgPool) {
         }
     ));
     // Now the host cleans up successfully.
-    let clean_succeeded_req = tonic::Request::new(rpc::MachineCleanupInfo {
+    let clean_succeeded_req = tonic::Request::new(forge::MachineCleanupInfo {
         machine_id: mh.id.into(),
         nvme: None,
         ram: None,
@@ -462,15 +464,15 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
 
-    db::machine::update_failure_details(
+    nico_api_db::machine::update_failure_details(
         &host,
         &mut txn,
         FailureDetails {
-            cause: model::machine::FailureCause::Discovery {
+            cause: nico_api_model::machine::FailureCause::Discovery {
                 err: "host discovery failed".to_string(),
             },
             failed_at: chrono::Utc::now(),
-            source: model::machine::FailureSource::Scout,
+            source: nico_api_model::machine::FailureSource::Scout,
         },
     )
     .await
@@ -504,8 +506,8 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
     txn.commit().await.unwrap();
     let pxe = env
         .api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
-            arch: rpc::forge::MachineArchitecture::X86 as i32,
+        .get_pxe_instructions(tonic::Request::new(forge::PxeInstructionRequest {
+            arch: forge::MachineArchitecture::X86 as i32,
             interface_id: Some(host.interfaces[0].id),
             product: None,
         }))
@@ -555,9 +557,9 @@ async fn test_failed_state_host_discovery_recovery(pool: sqlx::PgPool) {
         5,
         ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForLockdown {
-                lockdown_info: model::machine::LockdownInfo {
-                    state: model::machine::LockdownState::WaitForDPUUp,
-                    mode: model::machine::LockdownMode::Enable,
+                lockdown_info: nico_api_model::machine::LockdownInfo {
+                    state: nico_api_model::machine::LockdownState::WaitForDPUUp,
+                    mode: nico_api_model::machine::LockdownMode::Enable,
                 },
             },
         },
@@ -731,7 +733,7 @@ async fn test_state_outcome(pool: sqlx::PgPool) {
     let host_machine = mh.host().db_machine(&mut txn).await;
     txn.rollback().await.unwrap();
     let _expected_state = ManagedHostState::DPUInit {
-        dpu_states: model::machine::DpuInitStates {
+        dpu_states: nico_api_model::machine::DpuInitStates {
             states: HashMap::from([(mh.dpu().id, DpuInitState::WaitingForNetworkConfig)]),
         },
     };
@@ -774,7 +776,7 @@ async fn test_state_sla(pool: sqlx::PgPool) {
 
     // Now do a Hack and move the Machine into a failed state - which has a SLA
     let mut txn = env.db_txn().await;
-    db::machine::update_state(
+    nico_api_db::machine::update_state(
         &mut txn,
         &mh.id,
         &ManagedHostState::Failed {
@@ -845,7 +847,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     let bundles_response = env
         .api
         .show_measurement_bundles(Request::new(
-            rpc::protos::measured_boot::ShowMeasurementBundlesRequest {},
+            nico_rpc::protos::measured_boot::ShowMeasurementBundlesRequest {},
         ))
         .await
         .unwrap()
@@ -854,7 +856,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
     let bundle = MeasurementBundle::from_grpc(Some(&bundles_response.bundles[0])).unwrap();
     assert_eq!(bundle.state, MeasurementBundleState::Active);
     let mut txn = env.db_txn().await;
-    let retired_bundle = db::measured_boot::bundle::set_state_for_id(
+    let retired_bundle = nico_api_db::measured_boot::bundle::set_state_for_id(
         &mut txn,
         bundle.bundle_id,
         MeasurementBundleState::Retired,
@@ -876,7 +878,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
         host.current_state(),
         ManagedHostState::Failed {
             details: FailureDetails {
-                cause: model::machine::FailureCause::MeasurementsRetired { .. },
+                cause: nico_api_model::machine::FailureCause::MeasurementsRetired { .. },
                 ..
             },
             ..
@@ -886,7 +888,7 @@ async fn test_measurement_failed_state_transition(pool: sqlx::PgPool) {
 
     // ..and now reactivate the bundle.
     let mut txn = env.db_txn().await;
-    let reactivated_bundle = db::measured_boot::bundle::set_state_for_id(
+    let reactivated_bundle = nico_api_db::measured_boot::bundle::set_state_for_id(
         &mut txn,
         retired_bundle.bundle_id,
         MeasurementBundleState::Active,
@@ -947,7 +949,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
     let bundles_response = env
         .api
         .show_measurement_bundles(Request::new(
-            rpc::protos::measured_boot::ShowMeasurementBundlesRequest {},
+            nico_rpc::protos::measured_boot::ShowMeasurementBundlesRequest {},
         ))
         .await
         .unwrap()
@@ -956,7 +958,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
     let bundle = MeasurementBundle::from_grpc(Some(&bundles_response.bundles[0])).unwrap();
     assert_eq!(bundle.state, MeasurementBundleState::Active);
     let mut txn = env.db_txn().await;
-    let retired_bundle = db::measured_boot::bundle::set_state_for_id(
+    let retired_bundle = nico_api_db::measured_boot::bundle::set_state_for_id(
         &mut txn,
         bundle.bundle_id,
         MeasurementBundleState::Retired,
@@ -980,7 +982,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
         host.current_state(),
         ManagedHostState::Failed {
             details: FailureDetails {
-                cause: model::machine::FailureCause::MeasurementsRetired { .. },
+                cause: nico_api_model::machine::FailureCause::MeasurementsRetired { .. },
                 ..
             },
             ..
@@ -1000,7 +1002,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
         .unwrap();
     // "resurrect" the bundle
     let mut txn = env.db_txn().await;
-    let reactivated_bundle = db::measured_boot::bundle::set_state_for_id(
+    let reactivated_bundle = nico_api_db::measured_boot::bundle::set_state_for_id(
         &mut txn,
         retired_bundle.bundle_id,
         MeasurementBundleState::Active,
@@ -1021,7 +1023,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
         host.current_state(),
         ManagedHostState::Failed {
             details: FailureDetails {
-                cause: model::machine::FailureCause::MeasurementsCAValidationFailed { .. },
+                cause: nico_api_model::machine::FailureCause::MeasurementsCAValidationFailed { .. },
                 ..
             },
             ..
@@ -1041,7 +1043,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
 
     // before advancing the state, change the bundle state to revoked
     let mut txn = env.db_txn().await;
-    let _revoked_bundle = db::measured_boot::bundle::set_state_for_id(
+    let _revoked_bundle = nico_api_db::measured_boot::bundle::set_state_for_id(
         &mut txn,
         bundle.bundle_id,
         MeasurementBundleState::Revoked,
@@ -1062,7 +1064,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
         host.current_state(),
         ManagedHostState::Failed {
             details: FailureDetails {
-                cause: model::machine::FailureCause::MeasurementsRevoked { .. },
+                cause: nico_api_model::machine::FailureCause::MeasurementsRevoked { .. },
                 ..
             },
             ..
@@ -1070,7 +1072,7 @@ async fn test_measurement_ready_to_retired_to_ca_fail_to_revoked_to_ready(pool: 
     ));
 
     // and now reactivate the state so that it would get to ready
-    let _reactivated_bundle = db::measured_boot::bundle::set_state_for_id(
+    let _reactivated_bundle = nico_api_db::measured_boot::bundle::set_state_for_id(
         &mut txn,
         retired_bundle.bundle_id,
         MeasurementBundleState::Active,
@@ -1134,7 +1136,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         host.current_state(),
         ManagedHostState::Failed {
             details: FailureDetails {
-                cause: model::machine::FailureCause::MeasurementsCAValidationFailed { .. },
+                cause: nico_api_model::machine::FailureCause::MeasurementsCAValidationFailed { .. },
                 ..
             },
             ..
@@ -1181,7 +1183,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     let _response = env
         .api
         .attest_candidate_machine(Request::new(
-            rpc::protos::measured_boot::AttestCandidateMachineRequest {
+            nico_rpc::protos::measured_boot::AttestCandidateMachineRequest {
                 machine_id: host_machine_id.to_string(),
                 pcr_values: PcrRegisterValue::to_pb_vec(&pcr_values),
             },
@@ -1209,7 +1211,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     let reports_response = env
         .api
         .show_measurement_reports(Request::new(
-            rpc::protos::measured_boot::ShowMeasurementReportsRequest {},
+            nico_rpc::protos::measured_boot::ShowMeasurementReportsRequest {},
         ))
         .await
         .unwrap()
@@ -1220,7 +1222,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
     let _promotion_response = env
         .api
         .promote_measurement_report(Request::new(
-            rpc::protos::measured_boot::PromoteMeasurementReportRequest {
+            nico_rpc::protos::measured_boot::PromoteMeasurementReportRequest {
                 report_id: Some(report.report_id),
                 pcr_registers: "0,1".to_string(),
             },
@@ -1265,8 +1267,8 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
         10,
         ManagedHostState::HostInit {
             machine_state: MachineState::WaitingForLockdown {
-                lockdown_info: model::machine::LockdownInfo {
-                    state: model::machine::LockdownState::WaitForDPUUp,
+                lockdown_info: nico_api_model::machine::LockdownInfo {
+                    state: nico_api_model::machine::LockdownState::WaitForDPUUp,
                     mode: LockdownMode::Enable,
                 },
             },
@@ -1518,11 +1520,11 @@ async fn test_scout_heartbeat_timeout_alert_cleared_on_instance_creation_transit
     env.run_machine_state_controller_iteration().await;
 
     env.api
-        .allocate_instance(Request::new(rpc::forge::InstanceAllocationRequest {
+        .allocate_instance(Request::new(forge::InstanceAllocationRequest {
             instance_id: None,
             machine_id: Some(host_machine_id),
             instance_type_id: None,
-            config: Some(rpc::InstanceConfig {
+            config: Some(forge::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
                 network: Some(single_interface_network_config(segment_id)),
@@ -1531,7 +1533,7 @@ async fn test_scout_heartbeat_timeout_alert_cleared_on_instance_creation_transit
                 dpu_extension_services: None,
                 nvlink: None,
             }),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "test_instance".to_string(),
                 description: "tests/machine_states".to_string(),
                 labels: vec![],
@@ -1599,11 +1601,11 @@ async fn test_scout_heartbeat_timeout_alert_not_cleared_when_unhealthy_allocatio
 
     let err = env
         .api
-        .allocate_instance(Request::new(rpc::forge::InstanceAllocationRequest {
+        .allocate_instance(Request::new(forge::InstanceAllocationRequest {
             instance_id: None,
             machine_id: Some(host_machine_id),
             instance_type_id: None,
-            config: Some(rpc::InstanceConfig {
+            config: Some(forge::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
                 network: Some(single_interface_network_config(segment_id)),
@@ -1612,7 +1614,7 @@ async fn test_scout_heartbeat_timeout_alert_not_cleared_when_unhealthy_allocatio
                 dpu_extension_services: None,
                 nvlink: None,
             }),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "test_instance".to_string(),
                 description: "tests/machine_states".to_string(),
                 labels: vec![],
@@ -1647,8 +1649,10 @@ async fn test_tpm_logging(pool: sqlx::PgPool) {
 
     // Second discovery - different TPM EK cert simulates TPM replacement
     // without force-delete, producing a different stable_machine_id
-    let mut discovery_info =
-        DiscoveryInfo::try_from(model::hardware_info::HardwareInfo::from(&host_config)).unwrap();
+    let mut discovery_info = DiscoveryInfo::try_from(
+        nico_api_model::hardware_info::HardwareInfo::from(&host_config),
+    )
+    .unwrap();
     // Use a different valid EK cert to simulate TPM replacement
     discovery_info.tpm_ek_certificate =
         Some(BASE64_STANDARD.encode(common::api_fixtures::tpm_attestation::EK_CERT_SERIALIZED));

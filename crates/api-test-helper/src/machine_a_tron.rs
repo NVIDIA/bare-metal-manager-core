@@ -18,15 +18,15 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use forge_tls::client_config::get_forge_root_ca_path;
 use futures::future::try_join_all;
-use machine_a_tron::{
+use nico_machine_a_tron::{
     BmcMockRegistry, BmcRegistrationMode, HostMachineHandle, MachineATron, MachineATronConfig,
     MachineATronContext, api_throttler,
 };
-use rpc::forge_api_client::FailOverOn;
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, RetryConfig};
-use rpc::protos::forge_api_client::ForgeApiClient;
+use nico_rpc::forge_api_client::FailOverOn;
+use nico_rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, RetryConfig};
+use nico_rpc::protos::forge_api_client::ForgeApiClient;
+use nico_tls::client_config::get_forge_root_ca_path;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 

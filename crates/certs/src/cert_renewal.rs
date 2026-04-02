@@ -19,11 +19,13 @@ use std::ops::Add;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use carbide_host_support::registration;
 use eyre::Context;
-use forge_tls::client_config::ClientCert;
+use nico_host_support::registration;
+use nico_rpc::forge;
+use nico_rpc::forge_tls_client::{
+    ApiConfig, ForgeClientConfig, {self},
+};
+use nico_tls::client_config::ClientCert;
 use rand::Rng;
 
 /// Certificates are renewed between in these 2 time intervals
@@ -96,7 +98,7 @@ impl ClientCertRenewer {
         .await
         .wrap_err("renew_certificates: Failed to build Forge API server client")?;
 
-        let request = tonic::Request::new(rpc::MachineCertificateRenewRequest {});
+        let request = tonic::Request::new(forge::MachineCertificateRenewRequest {});
         let machine_certificate_result = client
             .renew_machine_certificate(request)
             .await

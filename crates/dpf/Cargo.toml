@@ -1,16 +1,17 @@
 [package]
-name = "carbide-dpf"
+name = "nico-dpf"
 version = "0.0.1"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [lib]
-name = "carbide_dpf"
+name = "nico_dpf"
 
 # Harness that exercises the DPF SDK using the same surface as Carbide API.
 # Used to validate provisioning flows against a real DPF operator without a full Carbide deployment.
 [[bin]]
+# TODO: rename to nico-dpf-api-harness
 name = "carbide-dpf-api-harness"
 path = "src/bin/api_harness.rs"
 required-features = ["driver"]
@@ -44,9 +45,9 @@ tokio-stream = { workspace = true }
 rand = { workspace = true }
 sha2 = { workspace = true }
 
-carbide-uuid = { path = "../uuid", features = ["sqlx"] }
+nico-uuid = { path = "../uuid", features = ["sqlx"] }
 
-# Optional dependencies for carbide-dpf-api-harness binary
+# Optional dependencies for nico-dpf-api-harness binary
 clap = { workspace = true, features = ["derive"], optional = true }
 tracing-subscriber = { workspace = true, features = [
   "env-filter",

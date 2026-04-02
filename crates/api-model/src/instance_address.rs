@@ -14,8 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::network::NetworkSegmentId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::network::NetworkSegmentId;
 use sqlx::FromRow;
 
 #[derive(Debug, FromRow, Clone)]

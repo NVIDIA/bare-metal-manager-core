@@ -20,15 +20,15 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use carbide_uuid::machine::MachineId;
 use common::api_fixtures::create_test_env;
 use figment::Figment;
 use figment::providers::{Format, Toml};
-use model::dpu_machine_update::DpuMachineUpdate;
-use model::machine::ManagedHostStateSnapshot;
-use model::machine_update_module::{
+use nico_api_model::dpu_machine_update::DpuMachineUpdate;
+use nico_api_model::machine::ManagedHostStateSnapshot;
+use nico_api_model::machine_update_module::{
     AutomaticFirmwareUpdateReference, DpuReprovisionInitiator, HOST_UPDATE_HEALTH_REPORT_SOURCE,
 };
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -191,11 +191,14 @@ async fn test_remove_machine_update_markers(
         .await
         .unwrap();
 
-    let managed_host =
-        db::managed_host::load_snapshot(txn.as_mut(), &host_machine_id, Default::default())
-            .await
-            .unwrap()
-            .unwrap();
+    let managed_host = nico_api_db::managed_host::load_snapshot(
+        txn.as_mut(),
+        &host_machine_id,
+        Default::default(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert!(
         !managed_host
             .host_snapshot
@@ -215,7 +218,7 @@ fn test_start(pool: sqlx::PgPool) {
     let mut join_set = JoinSet::new();
     let cancel_token = CancellationToken::new();
     let work_lock_manager_handle =
-        db::work_lock_manager::start(&mut join_set, pool.clone(), Default::default())
+        nico_api_db::work_lock_manager::start(&mut join_set, pool.clone(), Default::default())
             .await
             .unwrap();
 
@@ -289,35 +292,40 @@ async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     add_host_update_alert(&mut txn, &machine_update, reference).await?;
 
     // Second Machine has a health report, but with an irrelevant alert
-    let health_override_2 = health_report::HealthReport {
+    let health_override_2 = nico_health_report::HealthReport {
         source: "host-update".to_string(),
         triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
-        alerts: vec![health_report::HealthProbeAlert {
+        alerts: vec![nico_health_report::HealthProbeAlert {
             id: "should_get_ignored".parse().unwrap(),
             target: None,
             in_alert_since: Some(chrono::Utc::now()),
             message: "Test".to_string(),
             tenant_message: None,
             classifications: vec![
-                health_report::HealthAlertClassification::prevent_allocations(),
-                health_report::HealthAlertClassification::suppress_external_alerting(),
+                nico_health_report::HealthAlertClassification::prevent_allocations(),
+                nico_health_report::HealthAlertClassification::suppress_external_alerting(),
             ],
         }],
     };
 
-    db::machine::insert_health_report_override(
+    nico_api_db::machine::insert_health_report_override(
         &mut txn,
         &host_machine_id2,
-        health_report::OverrideMode::Merge,
+        nico_health_report::OverrideMode::Merge,
         &health_override_2,
         false,
     )
     .await?;
 
-    db::machine::trigger_dpu_reprovisioning_request(&host_machine_id1, &mut txn, "test", true)
-        .await?;
+    nico_api_db::machine::trigger_dpu_reprovisioning_request(
+        &host_machine_id1,
+        &mut txn,
+        "test",
+        true,
+    )
+    .await?;
     txn.commit().await.unwrap();
 
     let mut txn = env
@@ -339,7 +347,7 @@ async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 async fn add_host_update_alert(
     txn: &mut PgConnection,
     machine_update: &DpuMachineUpdate,
-    reference: &model::machine_update_module::DpuReprovisionInitiator,
+    reference: &nico_api_model::machine_update_module::DpuReprovisionInitiator,
 ) -> CarbideResult<()> {
     let health_override = create_host_update_health_report(
         Some("DpuFirmware".to_string()),
@@ -347,10 +355,10 @@ async fn add_host_update_alert(
         false,
     );
 
-    db::machine::insert_health_report_override(
+    nico_api_db::machine::insert_health_report_override(
         txn,
         &machine_update.host_machine_id,
-        health_report::OverrideMode::Merge,
+        nico_health_report::OverrideMode::Merge,
         &health_override,
         false,
     )

@@ -20,10 +20,10 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineId;
 use lazy_static::lazy_static;
-use rpc::forge::ValidateTenantPublicKeyRequest;
-use rpc::forge_api_client::ForgeApiClient;
+use nico_rpc::forge::ValidateTenantPublicKeyRequest;
+use nico_rpc::forge_api_client::ForgeApiClient;
+use nico_uuid::machine::MachineId;
 use russh::keys::ssh_key::AuthorizedKeys;
 use russh::keys::{Certificate, PublicKey, PublicKeyBase64};
 use russh::server::{Auth, Msg, Session};

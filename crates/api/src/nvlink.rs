@@ -16,9 +16,9 @@
  */
 
 use async_trait::async_trait;
-use db::DatabaseError;
-use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 use libnmxm::{Nmxm, NmxmApiError};
+use nico_api_db::DatabaseError;
+use nico_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 
 use crate::handlers::credential::DEFAULT_NMX_M_NAME;
 

@@ -17,9 +17,8 @@
 
 //use crate::tests::common;
 //use crate::tests::common::api_fixtures::TestEnvOverrides;
-use ::rpc::forge as rpc;
-use rpc::TenantState;
-use rpc::forge_server::Forge;
+use forge::forge_server::Forge;
+use nico_rpc::{TenantState, forge};
 
 use crate::tests::common::api_fixtures::create_test_env;
 use crate::tests::common::api_fixtures::nvl_logical_partition::{
@@ -39,7 +38,7 @@ async fn test_find_nvl_logical_partition_ids(pool: sqlx::PgPool) {
     }
 
     // test getting all ids
-    let request_all = tonic::Request::new(rpc::NvLinkLogicalPartitionSearchFilter { name: None });
+    let request_all = tonic::Request::new(forge::NvLinkLogicalPartitionSearchFilter { name: None });
 
     let ids_all = env
         .api
@@ -50,7 +49,7 @@ async fn test_find_nvl_logical_partition_ids(pool: sqlx::PgPool) {
     assert_eq!(ids_all.partition_ids.len(), 6);
 
     // test getting ids based on name
-    let request_name = tonic::Request::new(rpc::NvLinkLogicalPartitionSearchFilter {
+    let request_name = tonic::Request::new(forge::NvLinkLogicalPartitionSearchFilter {
         name: Some("partition_5".to_string()),
     });
 
@@ -67,7 +66,7 @@ async fn test_find_nvl_logical_partition_ids(pool: sqlx::PgPool) {
 async fn test_find_nvl_logical_partitions_by_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
-    let mut partition3 = rpc::NvLinkLogicalPartition::default();
+    let mut partition3 = forge::NvLinkLogicalPartition::default();
     for i in 0..6 {
         let NvlLogicalPartitionFixture {
             id: _id,
@@ -78,7 +77,7 @@ async fn test_find_nvl_logical_partitions_by_ids(pool: sqlx::PgPool) {
         }
     }
 
-    let request_ids = tonic::Request::new(rpc::NvLinkLogicalPartitionSearchFilter {
+    let request_ids = tonic::Request::new(forge::NvLinkLogicalPartitionSearchFilter {
         name: Some("partition_3".to_string()),
     });
 
@@ -90,7 +89,7 @@ async fn test_find_nvl_logical_partitions_by_ids(pool: sqlx::PgPool) {
         .unwrap();
     assert_eq!(ids_list.partition_ids.len(), 1);
 
-    let request_partitions = tonic::Request::new(rpc::NvLinkLogicalPartitionsByIdsRequest {
+    let request_partitions = tonic::Request::new(forge::NvLinkLogicalPartitionsByIdsRequest {
         partition_ids: ids_list.partition_ids,
         include_history: false,
     });
@@ -125,7 +124,7 @@ async fn test_delete_nvl_logical_partitions_by_ids(pool: sqlx::PgPool) {
         logical_partition: partition,
     } = create_nvl_logical_partition(&env, "partition3".to_string()).await;
 
-    let request_ids = tonic::Request::new(rpc::NvLinkLogicalPartitionSearchFilter {
+    let request_ids = tonic::Request::new(forge::NvLinkLogicalPartitionSearchFilter {
         // name: Some("partition3".to_string()),
         name: None,
     });
@@ -140,12 +139,12 @@ async fn test_delete_nvl_logical_partitions_by_ids(pool: sqlx::PgPool) {
 
     env.api
         .delete_nv_link_logical_partition(tonic::Request::new(
-            rpc::NvLinkLogicalPartitionDeletionRequest { id: Some(id) },
+            forge::NvLinkLogicalPartitionDeletionRequest { id: Some(id) },
         ))
         .await
         .expect("expect deletion to succeed");
 
-    let request_partitions = tonic::Request::new(rpc::NvLinkLogicalPartitionsByIdsRequest {
+    let request_partitions = tonic::Request::new(forge::NvLinkLogicalPartitionsByIdsRequest {
         partition_ids: ids_list.partition_ids,
         include_history: false,
     });
@@ -180,7 +179,7 @@ async fn test_update_nvl_logical_partition(pool: sqlx::PgPool) {
         logical_partition: _partition,
     } = create_nvl_logical_partition(&env, "partition3".to_string()).await;
 
-    let request_ids = tonic::Request::new(rpc::NvLinkLogicalPartitionSearchFilter { name: None });
+    let request_ids = tonic::Request::new(forge::NvLinkLogicalPartitionSearchFilter { name: None });
 
     let ids_list = env
         .api
@@ -190,7 +189,7 @@ async fn test_update_nvl_logical_partition(pool: sqlx::PgPool) {
         .unwrap();
     assert_eq!(ids_list.partition_ids.len(), 1);
 
-    let request_partitions = tonic::Request::new(rpc::NvLinkLogicalPartitionsByIdsRequest {
+    let request_partitions = tonic::Request::new(forge::NvLinkLogicalPartitionsByIdsRequest {
         partition_ids: ids_list.partition_ids,
         include_history: false,
     });
@@ -204,8 +203,8 @@ async fn test_update_nvl_logical_partition(pool: sqlx::PgPool) {
 
     let partition = partition_list.partitions[0].clone();
 
-    let config = rpc::NvLinkLogicalPartitionConfig {
-        metadata: Some(rpc::Metadata {
+    let config = forge::NvLinkLogicalPartitionConfig {
+        metadata: Some(forge::Metadata {
             name: "new_partition3".to_string(),
             ..partition.config.clone().unwrap().metadata.unwrap()
         }),
@@ -213,7 +212,7 @@ async fn test_update_nvl_logical_partition(pool: sqlx::PgPool) {
     };
     env.api
         .update_nv_link_logical_partition(tonic::Request::new(
-            rpc::NvLinkLogicalPartitionUpdateRequest {
+            forge::NvLinkLogicalPartitionUpdateRequest {
                 id: Some(id),
                 config: Some(config),
                 if_version_match: None,
@@ -222,7 +221,7 @@ async fn test_update_nvl_logical_partition(pool: sqlx::PgPool) {
         .await
         .expect("expect update to succeed");
 
-    let request_ids = tonic::Request::new(rpc::NvLinkLogicalPartitionSearchFilter { name: None });
+    let request_ids = tonic::Request::new(forge::NvLinkLogicalPartitionSearchFilter { name: None });
     let ids_list = env
         .api
         .find_nv_link_logical_partition_ids(request_ids)
@@ -231,7 +230,7 @@ async fn test_update_nvl_logical_partition(pool: sqlx::PgPool) {
         .unwrap();
     assert_eq!(ids_list.partition_ids.len(), 1);
 
-    let request_partitions = tonic::Request::new(rpc::NvLinkLogicalPartitionsByIdsRequest {
+    let request_partitions = tonic::Request::new(forge::NvLinkLogicalPartitionsByIdsRequest {
         partition_ids: ids_list.partition_ids,
         include_history: false,
     });

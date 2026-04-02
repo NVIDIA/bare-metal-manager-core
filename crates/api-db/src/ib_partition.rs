@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-use carbide_uuid::infiniband::IBPartitionId;
 use config_version::ConfigVersion;
 use futures::StreamExt;
-use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::ib_partition::{
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::ib_partition::{
     IBPartition, IBPartitionControllerState, IBPartitionStatus, NewIBPartition,
 };
+use nico_uuid::infiniband::IBPartitionId;
 use sqlx::{FromRow, PgConnection};
 
 use crate::db_read::DbReader;
@@ -126,7 +126,7 @@ pub async fn for_tenant(
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: model::ib_partition::IbPartitionSearchFilter,
+    filter: nico_api_model::ib_partition::IbPartitionSearchFilter,
 ) -> Result<Vec<IBPartitionId>, DatabaseError> {
     // build query
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM ib_partitions");

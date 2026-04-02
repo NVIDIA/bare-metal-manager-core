@@ -26,13 +26,13 @@
  *  - `mock-machine list``: Lists all mock machines.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
-use ::rpc::protos::measured_boot::{
+use clap::Parser;
+use nico_measured_boot::pcr::PcrRegisterValue;
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::protos::measured_boot::{
     AttestCandidateMachineRequest, ShowCandidateMachineRequest, show_candidate_machine_request,
 };
-use carbide_uuid::machine::MachineId;
-use clap::Parser;
-use measured_boot::pcr::PcrRegisterValue;
+use nico_uuid::machine::MachineId;
 
 use crate::cfg::measurement::parse_pcr_register_values;
 

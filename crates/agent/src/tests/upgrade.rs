@@ -18,10 +18,10 @@
 use std::path::PathBuf;
 use std::{env, fs};
 
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::ForgeClientConfig;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
+use nico_rpc::forge;
+use nico_rpc::forge_tls_client::ForgeClientConfig;
 
 use crate::tests::common;
 
@@ -29,7 +29,7 @@ const ROOT_CERT_PATH: &str = "dev/certs/forge_developer_local_only_root_cert_pem
 
 #[tokio::test]
 async fn test_upgrade_check() -> eyre::Result<()> {
-    carbide_host_support::init_logging()?;
+    nico_host_support::init_logging()?;
 
     unsafe {
         env::set_var("DISABLE_TLS_ENFORCEMENT", "true");
@@ -78,7 +78,7 @@ async fn test_upgrade_check() -> eyre::Result<()> {
 }
 
 async fn dpu_agent_upgrade_check() -> impl IntoResponse {
-    common::respond(rpc::DpuAgentUpgradeCheckResponse {
+    common::respond(forge::DpuAgentUpgradeCheckResponse {
         should_upgrade: true,
         package_version: "2024.05-rc3-0".to_string(),
         server_version: "v2024.05-rc3-0".to_string(),
@@ -90,5 +90,5 @@ async fn handle_up() -> &'static str {
     "OK"
 }
 async fn handle_version() -> impl IntoResponse {
-    common::respond(rpc::BuildInfo::default())
+    common::respond(forge::BuildInfo::default())
 }

@@ -22,9 +22,9 @@
 
 */
 
-use ::rpc::admin_cli::OutputFormat;
 use clap::Parser;
-use measured_boot::pcr::PcrRegisterValue;
+use nico_measured_boot::pcr::PcrRegisterValue;
+use nico_rpc::admin_cli::OutputFormat;
 
 use crate::measurement::{bundle, journal, machine, profile, report, site};
 

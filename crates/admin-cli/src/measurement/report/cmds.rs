@@ -18,11 +18,11 @@
 //!
 //! `measurement report` subcommand dispatcher + backing functions.
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
-use ::rpc::protos::measured_boot::ListMeasurementReportRequest;
-use measured_boot::bundle::MeasurementBundle;
-use measured_boot::records::MeasurementReportRecord;
-use measured_boot::report::MeasurementReport;
+use nico_measured_boot::bundle::MeasurementBundle;
+use nico_measured_boot::records::MeasurementReportRecord;
+use nico_measured_boot::report::MeasurementReport;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
+use nico_rpc::protos::measured_boot::ListMeasurementReportRequest;
 use serde::Serialize;
 
 use crate::measurement::global;
@@ -43,28 +43,28 @@ pub async fn dispatch(
             cli_output(
                 create_for_id(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdReport::Delete(local_args) => {
             cli_output(
                 delete(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdReport::Promote(local_args) => {
             cli_output(
                 promote(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdReport::Revoke(local_args) => {
             cli_output(
                 revoke(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdReport::Show(selector) => match selector {
@@ -72,20 +72,20 @@ pub async fn dispatch(
                 cli_output(
                     show_for_id(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
             ShowFor::Machine(local_args) => {
                 cli_output(
                     show_for_machine(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
             ShowFor::All => cli_output(
                 show_all(cli.grpc_conn).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?,
         },
         CmdReport::List(selector) => match selector {
@@ -93,14 +93,14 @@ pub async fn dispatch(
                 cli_output(
                     list_machines(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
             List::All(_) => {
                 cli_output(
                     list_all(cli.grpc_conn).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
         },
@@ -108,7 +108,7 @@ pub async fn dispatch(
             cli_output(
                 match_values(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
     }

@@ -22,8 +22,8 @@
 // the spec -- the spec says what type of variable it is, and any
 // corresponding options depending on the type.
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::protos::mlx_device::MlxConfigVariable as MlxConfigVariablePb;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::protos::mlx_device::MlxConfigVariable as MlxConfigVariablePb;
 use serde::{Deserialize, Serialize};
 
 use crate::variables::spec::MlxVariableSpec;

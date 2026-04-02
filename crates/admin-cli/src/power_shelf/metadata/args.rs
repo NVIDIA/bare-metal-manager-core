@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::power_shelf::PowerShelfId;
 use clap::Parser;
+use nico_uuid::power_shelf::PowerShelfId;
 
 #[derive(Parser, Debug, Clone)]
 pub enum Args {

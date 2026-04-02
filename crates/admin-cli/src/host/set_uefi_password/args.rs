@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::forge::SetHostUefiPasswordRequest;
 use clap::Parser;
+use nico_rpc::forge::SetHostUefiPasswordRequest;
 
 use crate::machine::MachineQuery;
 

@@ -30,8 +30,11 @@
 
 use std::str::FromStr;
 
-use ::rpc::admin_cli::CarbideCliError;
-use ::rpc::protos::measured_boot::{
+use clap::Parser;
+use nico_measured_boot::pcr::PcrRegisterValue;
+use nico_measured_boot::records::MeasurementBundleState;
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::protos::measured_boot::{
     CreateMeasurementBundleRequest, DeleteMeasurementBundleRequest, FindClosestBundleMatchRequest,
     ListMeasurementBundleMachinesRequest, MeasurementBundleStatePb, RenameMeasurementBundleRequest,
     ShowMeasurementBundleRequest, UpdateMeasurementBundleRequest,
@@ -39,12 +42,9 @@ use ::rpc::protos::measured_boot::{
     rename_measurement_bundle_request, show_measurement_bundle_request,
     update_measurement_bundle_request,
 };
-use carbide_uuid::measured_boot::{
+use nico_uuid::measured_boot::{
     MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId,
 };
-use clap::Parser;
-use measured_boot::pcr::PcrRegisterValue;
-use measured_boot::records::MeasurementBundleState;
 
 use crate::cfg::measurement::parse_pcr_register_values;
 use crate::measurement::global::cmds::{IdNameIdentifier, IdentifierType, get_identifier};

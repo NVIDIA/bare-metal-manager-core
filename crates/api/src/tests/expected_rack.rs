@@ -15,14 +15,15 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
 use common::api_fixtures::{create_test_env, create_test_env_with_overrides, get_config};
-use model::rack_type::{
+use nico_api_model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
     RackTypeConfig,
 };
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{ExpectedRackList, ExpectedRackRequest};
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{ExpectedRackList, ExpectedRackRequest};
+use nico_uuid::rack::RackId;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
@@ -92,12 +93,12 @@ fn new_rack_id() -> RackId {
 async fn seed_expected_racks(txn: &mut sqlx::PgConnection) -> Vec<RackId> {
     let ids: Vec<RackId> = (0..3).map(|_| new_rack_id()).collect();
 
-    db::expected_rack::create(
+    nico_api_db::expected_rack::create(
         txn,
-        &model::expected_rack::ExpectedRack {
+        &nico_api_model::expected_rack::ExpectedRack {
             rack_id: ids[0].clone(),
             rack_type: "NVL72".to_string(),
-            metadata: model::metadata::Metadata {
+            metadata: nico_api_model::metadata::Metadata {
                 name: "rack-1".to_string(),
                 description: "Test rack 1".to_string(),
                 labels: Default::default(),
@@ -107,12 +108,12 @@ async fn seed_expected_racks(txn: &mut sqlx::PgConnection) -> Vec<RackId> {
     .await
     .unwrap();
 
-    db::expected_rack::create(
+    nico_api_db::expected_rack::create(
         txn,
-        &model::expected_rack::ExpectedRack {
+        &nico_api_model::expected_rack::ExpectedRack {
             rack_id: ids[1].clone(),
             rack_type: "NVL72".to_string(),
-            metadata: model::metadata::Metadata {
+            metadata: nico_api_model::metadata::Metadata {
                 name: "rack-2".to_string(),
                 description: "Test rack 2".to_string(),
                 labels: Default::default(),
@@ -122,12 +123,12 @@ async fn seed_expected_racks(txn: &mut sqlx::PgConnection) -> Vec<RackId> {
     .await
     .unwrap();
 
-    db::expected_rack::create(
+    nico_api_db::expected_rack::create(
         txn,
-        &model::expected_rack::ExpectedRack {
+        &nico_api_model::expected_rack::ExpectedRack {
             rack_id: ids[2].clone(),
             rack_type: "NVL36".to_string(),
-            metadata: model::metadata::Metadata {
+            metadata: nico_api_model::metadata::Metadata {
                 name: "rack-3".to_string(),
                 description: "Test rack 3".to_string(),
                 labels: [("env".to_string(), "test".to_string())]
@@ -149,7 +150,7 @@ async fn test_db_find_by_rack_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     let mut txn = pool.begin().await?;
     let ids = seed_expected_racks(&mut txn).await;
 
-    let expected_rack = db::expected_rack::find_by_rack_id(&mut txn, &ids[0])
+    let expected_rack = nico_api_db::expected_rack::find_by_rack_id(&mut txn, &ids[0])
         .await?
         .expect("Expected rack not found");
 
@@ -166,7 +167,7 @@ async fn test_db_find_all(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
     let mut txn = pool.begin().await?;
     let _ids = seed_expected_racks(&mut txn).await;
 
-    let all = db::expected_rack::find_all(&mut txn).await?;
+    let all = nico_api_db::expected_rack::find_all(&mut txn).await?;
     assert_eq!(all.len(), 3);
     Ok(())
 }
@@ -175,7 +176,7 @@ async fn test_db_find_all(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
 async fn test_db_find_nonexistent(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
     let rack_id = new_rack_id();
-    let result = db::expected_rack::find_by_rack_id(&mut txn, &rack_id).await?;
+    let result = nico_api_db::expected_rack::find_by_rack_id(&mut txn, &rack_id).await?;
     assert!(result.is_none());
     Ok(())
 }
@@ -185,7 +186,7 @@ async fn test_db_create_and_find(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     let mut txn = pool.begin().await?;
 
     let rack_id = new_rack_id();
-    let metadata = model::metadata::Metadata {
+    let metadata = nico_api_model::metadata::Metadata {
         name: "test-rack".to_string(),
         description: "A test rack".to_string(),
         labels: [("env".to_string(), "test".to_string())]
@@ -193,9 +194,9 @@ async fn test_db_create_and_find(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
             .collect(),
     };
 
-    let created = db::expected_rack::create(
+    let created = nico_api_db::expected_rack::create(
         &mut txn,
-        &model::expected_rack::ExpectedRack {
+        &nico_api_model::expected_rack::ExpectedRack {
             rack_id: rack_id.clone(),
             rack_type: "NVL72".to_string(),
             metadata,
@@ -208,7 +209,7 @@ async fn test_db_create_and_find(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     assert_eq!(created.metadata.name, "test-rack");
     assert_eq!(created.metadata.labels.get("env").unwrap(), "test");
 
-    let found = db::expected_rack::find_by_rack_id(&mut txn, &rack_id)
+    let found = nico_api_db::expected_rack::find_by_rack_id(&mut txn, &rack_id)
         .await?
         .expect("Should find the rack we just created");
 
@@ -223,12 +224,12 @@ async fn test_db_duplicate_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     let mut txn = pool.begin().await?;
     let ids = seed_expected_racks(&mut txn).await;
 
-    let result = db::expected_rack::create(
+    let result = nico_api_db::expected_rack::create(
         &mut txn,
-        &model::expected_rack::ExpectedRack {
+        &nico_api_model::expected_rack::ExpectedRack {
             rack_id: ids[0].clone(),
             rack_type: "NVL72".to_string(),
-            metadata: model::metadata::Metadata::default(),
+            metadata: nico_api_model::metadata::Metadata::default(),
         },
     )
     .await;
@@ -246,28 +247,28 @@ async fn test_db_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Er
     let mut txn = pool.begin().await?;
     let ids = seed_expected_racks(&mut txn).await;
 
-    let expected_rack = db::expected_rack::find_by_rack_id(&mut txn, &ids[0])
+    let expected_rack = nico_api_db::expected_rack::find_by_rack_id(&mut txn, &ids[0])
         .await?
         .expect("Expected rack not found");
 
     assert_eq!(expected_rack.rack_type, "NVL72");
 
-    let updated = model::expected_rack::ExpectedRack {
+    let updated = nico_api_model::expected_rack::ExpectedRack {
         rack_id: ids[0].clone(),
         rack_type: "NVL36".to_string(),
-        metadata: model::metadata::Metadata {
+        metadata: nico_api_model::metadata::Metadata {
             name: "updated-rack".to_string(),
             description: "Updated description".to_string(),
             labels: Default::default(),
         },
     };
 
-    db::expected_rack::update(&mut txn, &updated).await?;
+    nico_api_db::expected_rack::update(&mut txn, &updated).await?;
 
     txn.commit().await?;
 
     let mut txn = pool.begin().await?;
-    let found = db::expected_rack::find_by_rack_id(&mut txn, &ids[0])
+    let found = nico_api_db::expected_rack::find_by_rack_id(&mut txn, &ids[0])
         .await?
         .unwrap();
     assert_eq!(found.rack_type, "NVL36");
@@ -281,11 +282,11 @@ async fn test_db_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Er
     let mut txn = pool.begin().await?;
     let ids = seed_expected_racks(&mut txn).await;
 
-    db::expected_rack::delete(&mut txn, &ids[0]).await?;
+    nico_api_db::expected_rack::delete(&mut txn, &ids[0]).await?;
     txn.commit().await?;
 
     let mut txn = pool.begin().await?;
-    let result = db::expected_rack::find_by_rack_id(&mut txn, &ids[0]).await?;
+    let result = nico_api_db::expected_rack::find_by_rack_id(&mut txn, &ids[0]).await?;
     assert!(result.is_none());
 
     Ok(())
@@ -296,7 +297,7 @@ async fn test_db_delete_nonexistent(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let mut txn = pool.begin().await?;
     let rack_id = new_rack_id();
 
-    let result = db::expected_rack::delete(&mut txn, &rack_id).await;
+    let result = nico_api_db::expected_rack::delete(&mut txn, &rack_id).await;
     assert!(result.is_err(), "Deleting nonexistent rack should fail");
 
     Ok(())
@@ -307,11 +308,11 @@ async fn test_db_clear(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Err
     let mut txn = pool.begin().await?;
     let _ids = seed_expected_racks(&mut txn).await;
 
-    db::expected_rack::clear(&mut txn).await?;
+    nico_api_db::expected_rack::clear(&mut txn).await?;
     txn.commit().await?;
 
     let mut txn = pool.begin().await?;
-    let all = db::expected_rack::find_all(&mut txn).await?;
+    let all = nico_api_db::expected_rack::find_all(&mut txn).await?;
     assert_eq!(all.len(), 0);
 
     Ok(())
@@ -325,13 +326,13 @@ async fn test_add_expected_rack(pool: sqlx::PgPool) {
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
-    let expected_rack = rpc::forge::ExpectedRack {
+    let expected_rack = forge::ExpectedRack {
         rack_id: Some(rack_id.clone()),
         rack_type: "NVL72".to_string(),
-        metadata: Some(rpc::forge::Metadata {
+        metadata: Some(forge::Metadata {
             name: "test-rack".to_string(),
             description: "A test NVL72 rack".to_string(),
-            labels: vec![rpc::forge::Label {
+            labels: vec![forge::Label {
                 key: "env".to_string(),
                 value: Some("test".to_string()),
             }],
@@ -363,7 +364,7 @@ async fn test_add_expected_rack_invalid_type(pool: sqlx::PgPool) {
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
-    let expected_rack = rpc::forge::ExpectedRack {
+    let expected_rack = forge::ExpectedRack {
         rack_id: Some(rack_id.clone()),
         rack_type: "INVALID_TYPE".to_string(),
         metadata: None,
@@ -388,7 +389,7 @@ async fn test_add_expected_rack_empty_type(pool: sqlx::PgPool) {
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
-    let expected_rack = rpc::forge::ExpectedRack {
+    let expected_rack = forge::ExpectedRack {
         rack_id: Some(rack_id.clone()),
         rack_type: "".to_string(),
         metadata: None,
@@ -412,7 +413,7 @@ async fn test_add_expected_rack_missing_rack_id(pool: sqlx::PgPool) {
     let config = config_with_rack_types();
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
-    let expected_rack = rpc::forge::ExpectedRack {
+    let expected_rack = forge::ExpectedRack {
         rack_id: None,
         rack_type: "NVL72".to_string(),
         metadata: None,
@@ -457,7 +458,7 @@ async fn test_delete_expected_rack(pool: sqlx::PgPool) {
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
-    let expected_rack = rpc::forge::ExpectedRack {
+    let expected_rack = forge::ExpectedRack {
         rack_id: Some(rack_id.clone()),
         rack_type: "NVL72".to_string(),
         metadata: None,
@@ -515,10 +516,10 @@ async fn test_update_expected_rack(pool: sqlx::PgPool) {
 
     // Add a rack first.
     env.api
-        .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
+        .add_expected_rack(tonic::Request::new(forge::ExpectedRack {
             rack_id: Some(rack_id.clone()),
             rack_type: "NVL72".to_string(),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "original".to_string(),
                 ..Default::default()
             }),
@@ -528,10 +529,10 @@ async fn test_update_expected_rack(pool: sqlx::PgPool) {
 
     // Update it.
     env.api
-        .update_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
+        .update_expected_rack(tonic::Request::new(forge::ExpectedRack {
             rack_id: Some(rack_id.clone()),
             rack_type: "NVL36".to_string(),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "updated".to_string(),
                 description: "Updated rack".to_string(),
                 ..Default::default()
@@ -565,7 +566,7 @@ async fn test_update_expected_rack_not_found(pool: sqlx::PgPool) {
     let rack_id = new_rack_id();
     let err = env
         .api
-        .update_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
+        .update_expected_rack(tonic::Request::new(forge::ExpectedRack {
             rack_id: Some(rack_id.clone()),
             rack_type: "NVL72".to_string(),
             metadata: None,
@@ -598,10 +599,10 @@ async fn test_get_all_expected_racks(pool: sqlx::PgPool) {
     for i in 0..2 {
         let rack_id = new_rack_id();
         env.api
-            .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
+            .add_expected_rack(tonic::Request::new(forge::ExpectedRack {
                 rack_id: Some(rack_id),
                 rack_type: "NVL72".to_string(),
-                metadata: Some(rpc::forge::Metadata {
+                metadata: Some(forge::Metadata {
                     name: format!("rack-{}", i),
                     ..Default::default()
                 }),
@@ -625,7 +626,7 @@ async fn test_add_expected_rack_duplicate(pool: sqlx::PgPool) {
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
-    let expected_rack = rpc::forge::ExpectedRack {
+    let expected_rack = forge::ExpectedRack {
         rack_id: Some(rack_id.clone()),
         rack_type: "NVL72".to_string(),
         metadata: None,
@@ -659,7 +660,7 @@ async fn test_replace_all_expected_racks(pool: sqlx::PgPool) {
     // Add one initial rack.
     let initial_rack_id = new_rack_id();
     env.api
-        .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
+        .add_expected_rack(tonic::Request::new(forge::ExpectedRack {
             rack_id: Some(initial_rack_id.clone()),
             rack_type: "NVL72".to_string(),
             metadata: None,
@@ -672,18 +673,18 @@ async fn test_replace_all_expected_racks(pool: sqlx::PgPool) {
     let rack_id_2 = new_rack_id();
     let replacement = ExpectedRackList {
         expected_racks: vec![
-            rpc::forge::ExpectedRack {
+            forge::ExpectedRack {
                 rack_id: Some(rack_id_1),
                 rack_type: "NVL72".to_string(),
-                metadata: Some(rpc::forge::Metadata {
+                metadata: Some(forge::Metadata {
                     name: "replacement-1".to_string(),
                     ..Default::default()
                 }),
             },
-            rpc::forge::ExpectedRack {
+            forge::ExpectedRack {
                 rack_id: Some(rack_id_2),
                 rack_type: "NVL36".to_string(),
-                metadata: Some(rpc::forge::Metadata {
+                metadata: Some(forge::Metadata {
                     name: "replacement-2".to_string(),
                     ..Default::default()
                 }),
@@ -724,7 +725,7 @@ async fn test_delete_all_expected_racks(pool: sqlx::PgPool) {
     for _ in 0..2 {
         let rack_id = new_rack_id();
         env.api
-            .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
+            .add_expected_rack(tonic::Request::new(forge::ExpectedRack {
                 rack_id: Some(rack_id),
                 rack_type: "NVL72".to_string(),
                 metadata: None,
@@ -764,7 +765,7 @@ async fn test_add_expected_rack_creates_rack_entry(pool: sqlx::PgPool) {
 
     let rack_id = new_rack_id();
     env.api
-        .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
+        .add_expected_rack(tonic::Request::new(forge::ExpectedRack {
             rack_id: Some(rack_id.clone()),
             rack_type: "NVL72".to_string(),
             metadata: None,
@@ -773,6 +774,6 @@ async fn test_add_expected_rack_creates_rack_entry(pool: sqlx::PgPool) {
         .expect("unable to add expected rack");
 
     // Verify the rack was also created in the racks table with the rack_type set.
-    let rack = db::rack::get(&pool, &rack_id).await.unwrap();
+    let rack = nico_api_db::rack::get(&pool, &rack_id).await.unwrap();
     assert_eq!(rack.config.rack_type.as_deref(), Some("NVL72"));
 }

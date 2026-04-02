@@ -18,7 +18,7 @@
 use std::sync::Arc;
 
 use eyre::WrapErr;
-use forge_secrets::{CredentialConfig, create_credential_manager, create_vault_client};
+use nico_secrets::{CredentialConfig, create_credential_manager, create_vault_client};
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -130,9 +130,9 @@ pub async fn run(
 
     tracing::info!(
         address = carbide_config.listen.to_string(),
-        build_version = carbide_version::v!(build_version),
-        build_date = carbide_version::v!(build_date),
-        rust_version = carbide_version::v!(rust_version),
+        build_version = nico_version::v!(build_version),
+        build_date = nico_version::v!(build_date),
+        rust_version = nico_version::v!(rust_version),
         "Start carbide-api",
     );
 

@@ -20,10 +20,10 @@ use std::fmt;
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
-use carbide_uuid::machine::MachineId;
-use model::site_explorer::{
+use nico_api_model::site_explorer::{
     BootOrder, ComputerSystem, EndpointExplorationReport, ExploredManagedHost,
 };
+use nico_uuid::machine::MachineId;
 
 pub trait BootOrderReporter: Send + Sync {
     fn report(
@@ -273,7 +273,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
 
-    use model::site_explorer::BootOption;
+    use nico_api_model::site_explorer::BootOption;
 
     use super::*;
 

@@ -17,12 +17,16 @@
 
 //! State Controller IO implementation for network segments
 
-use carbide_uuid::network::NetworkSegmentId;
 use config_version::{ConfigVersion, Versioned};
-use db::{self, DatabaseError, ObjectColumnFilter};
-use model::StateSla;
-use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::network_segment::{self, NetworkSegment, NetworkSegmentControllerState};
+use nico_api_db::{
+    DatabaseError, ObjectColumnFilter, {self},
+};
+use nico_api_model::StateSla;
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::network_segment::{
+    NetworkSegment, NetworkSegmentControllerState, {self},
+};
+use nico_uuid::network::NetworkSegmentId;
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
@@ -50,7 +54,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        db::network_segment::list_segment_ids(txn, None).await
+        nico_api_db::network_segment::list_segment_ids(txn, None).await
     }
 
     /// Loads a state snapshot from the database
@@ -59,10 +63,10 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         txn: &mut PgConnection,
         segment_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
-        let mut segments = db::network_segment::find_by(
+        let mut segments = nico_api_db::network_segment::find_by(
             txn,
-            ObjectColumnFilter::One(db::network_segment::IdColumn, segment_id),
-            model::network_segment::NetworkSegmentSearchConfig {
+            ObjectColumnFilter::One(nico_api_db::network_segment::IdColumn, segment_id),
+            nico_api_model::network_segment::NetworkSegmentSearchConfig {
                 include_num_free_ips: true,
                 include_history: false,
             },
@@ -104,7 +108,7 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<bool, DatabaseError> {
-        db::network_segment::try_update_controller_state(
+        nico_api_db::network_segment::try_update_controller_state(
             txn,
             *object_id,
             old_version,
@@ -121,7 +125,13 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::network_segment_state_history::persist(txn, *object_id, new_state, new_version).await?;
+        nico_api_db::network_segment_state_history::persist(
+            txn,
+            *object_id,
+            new_state,
+            new_version,
+        )
+        .await?;
         Ok(())
     }
 
@@ -131,11 +141,12 @@ impl StateControllerIO for NetworkSegmentStateControllerIO {
         object_id: &Self::ObjectId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
-        db::network_segment::update_controller_state_outcome(txn, *object_id, outcome).await
+        nico_api_db::network_segment::update_controller_state_outcome(txn, *object_id, outcome)
+            .await
     }
 
     fn metric_state_names(state: &NetworkSegmentControllerState) -> (&'static str, &'static str) {
-        use model::network_segment::NetworkSegmentDeletionState;
+        use nico_api_model::network_segment::NetworkSegmentDeletionState;
 
         fn deletion_state_name(deletion_state: &NetworkSegmentDeletionState) -> &'static str {
             match deletion_state {

@@ -17,11 +17,11 @@
 
 use std::sync::Arc;
 
-use ::rpc::forge_tls_client::ForgeClientConfig;
-use carbide_host_support::agent_config::AgentConfig;
 pub use command_line::{AgentCommand, Options, RunOptions};
 use eyre::WrapErr;
-use forge_tls::client_config::ClientCert;
+use nico_host_support::agent_config::AgentConfig;
+use nico_rpc::forge_tls_client::ForgeClientConfig;
+use nico_tls::client_config::ClientCert;
 
 mod command_line;
 

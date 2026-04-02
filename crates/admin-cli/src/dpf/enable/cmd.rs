@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
-use carbide_uuid::machine::MachineId;
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_uuid::machine::MachineId;
 
 use crate::dpf::common::DpfQuery;
 use crate::rpc::ApiClient;

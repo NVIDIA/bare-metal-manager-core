@@ -14,9 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::network::NetworkSegmentId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
+use nico_rpc::forge;
+use nico_uuid::network::NetworkSegmentId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -40,9 +41,9 @@ pub struct NetworkSegmentStateHistory {
     timestamp: DateTime<Utc>,
 }
 
-impl TryFrom<NetworkSegmentStateHistory> for rpc::forge::NetworkSegmentStateHistory {
+impl TryFrom<NetworkSegmentStateHistory> for forge::NetworkSegmentStateHistory {
     fn try_from(value: NetworkSegmentStateHistory) -> Result<Self, Self::Error> {
-        Ok(rpc::forge::NetworkSegmentStateHistory {
+        Ok(forge::NetworkSegmentStateHistory {
             state: value.state,
             version: value.state_version.version_string(),
             time: Some(value.timestamp.into()),

@@ -17,13 +17,13 @@
 
 use std::collections::HashMap;
 
-use libmlx::profile::error::MlxProfileError;
-use libmlx::profile::profile::MlxConfigProfile;
-use libmlx::profile::serialization::{
+use nico_libmlx::profile::error::MlxProfileError;
+use nico_libmlx::profile::profile::MlxConfigProfile;
+use nico_libmlx::profile::serialization::{
     SerializableProfile, deserialize_option_profile_map, serialize_option_profile_map,
 };
-use libmlx::registry::registries;
-use rpc::protos::mlx_device::SerializableMlxConfigProfile as SerializableMlxConfigProfilePb;
+use nico_libmlx::registry::registries;
+use nico_rpc::protos::mlx_device::SerializableMlxConfigProfile as SerializableMlxConfigProfilePb;
 use serde::{Deserialize, Serialize};
 
 #[test]

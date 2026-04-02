@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
+use nico_uuid::switch::{SwitchId, SwitchIdSource, SwitchType};
 use sha2::{Digest, Sha256};
 
 /// Generates a Switch ID from the hardware fingerprint

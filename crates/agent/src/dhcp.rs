@@ -16,8 +16,8 @@
  */
 use std::net::Ipv4Addr;
 
-use ::rpc::forge as rpc;
 use gtmpl_derive::Gtmpl;
+use nico_rpc::forge;
 use utils::models::dhcp::HostConfig;
 
 use crate::HBNDeviceNames;
@@ -77,7 +77,7 @@ pub fn build_server_config(
 }
 
 pub fn build_server_host_config(
-    conf: rpc::ManagedHostNetworkConfigResponse,
+    conf: forge::ManagedHostNetworkConfigResponse,
     hbn_devic_names: &HBNDeviceNames,
 ) -> Result<String, eyre::Report> {
     Ok(serde_yaml::to_string(&HostConfig::try_from(

@@ -21,14 +21,13 @@
 
 use std::str::FromStr;
 
-use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::machine::MachineId;
-use db::measured_boot::interface::report::{
+use nico_api_db::measured_boot::interface::report::{
     get_all_measurement_report_records, get_measurement_report_records_for_machine_id,
     match_latest_reports,
 };
-use measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
-use rpc::protos::measured_boot::{
+use nico_measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::protos::measured_boot::{
     CreateMeasurementReportRequest, CreateMeasurementReportResponse,
     DeleteMeasurementReportRequest, DeleteMeasurementReportResponse, ListMeasurementReportRequest,
     ListMeasurementReportResponse, MatchMeasurementReportRequest, MatchMeasurementReportResponse,
@@ -38,6 +37,7 @@ use rpc::protos::measured_boot::{
     ShowMeasurementReportsForMachineRequest, ShowMeasurementReportsForMachineResponse,
     ShowMeasurementReportsRequest, ShowMeasurementReportsResponse, list_measurement_report_request,
 };
+use nico_uuid::machine::MachineId;
 use tonic::Status;
 
 use crate::CarbideError;
@@ -50,7 +50,7 @@ pub async fn handle_create_measurement_report(
     req: CreateMeasurementReportRequest,
 ) -> Result<CreateMeasurementReportResponse, Status> {
     let mut txn = api.txn_begin().await?;
-    let report = db::measured_boot::report::new(
+    let report = nico_api_db::measured_boot::report::new(
         &mut txn,
         MachineId::from_str(&req.machine_id).map_err(|_| {
             CarbideError::from(RpcDataConversionError::InvalidMachineId(req.machine_id))
@@ -75,7 +75,7 @@ pub async fn handle_delete_measurement_report(
     req: DeleteMeasurementReportRequest,
 ) -> Result<DeleteMeasurementReportResponse, Status> {
     let mut txn = api.txn_begin().await?;
-    let report = db::measured_boot::report::delete_for_id(
+    let report = nico_api_db::measured_boot::report::delete_for_id(
         &mut txn,
         req.report_id
             .ok_or(CarbideError::MissingArgument("report_id"))?,
@@ -105,7 +105,7 @@ pub async fn handle_promote_measurement_report(
         false => None,
     };
 
-    let report = db::measured_boot::report::from_id(
+    let report = nico_api_db::measured_boot::report::from_id(
         &mut txn,
         req.report_id
             .ok_or(CarbideError::MissingArgument("report_id"))?,
@@ -115,11 +115,12 @@ pub async fn handle_promote_measurement_report(
         message: format!("promotion failed fetching report: {e}"),
     })?;
 
-    let bundle = db::measured_boot::report::create_active_bundle(&mut txn, &report, &pcr_set)
-        .await
-        .map_err(|e| CarbideError::Internal {
-            message: format!("promotion failed promoting into active bundle: {e}"),
-        })?;
+    let bundle =
+        nico_api_db::measured_boot::report::create_active_bundle(&mut txn, &report, &pcr_set)
+            .await
+            .map_err(|e| CarbideError::Internal {
+                message: format!("promotion failed promoting into active bundle: {e}"),
+            })?;
 
     txn.commit().await?;
     Ok(PromoteMeasurementReportResponse {
@@ -141,7 +142,7 @@ pub async fn handle_revoke_measurement_report(
         })?),
     };
 
-    let report = db::measured_boot::report::from_id(
+    let report = nico_api_db::measured_boot::report::from_id(
         &mut txn,
         req.report_id
             .ok_or(CarbideError::MissingArgument("report_id"))?,
@@ -151,11 +152,12 @@ pub async fn handle_revoke_measurement_report(
         message: format!("promotion failed fetching report: {e}"),
     })?;
 
-    let bundle = db::measured_boot::report::create_revoked_bundle(&mut txn, &report, &pcr_set)
-        .await
-        .map_err(|e| CarbideError::Internal {
-            message: format!("promotion failed promoting into revoked bundle: {e}"),
-        })?;
+    let bundle =
+        nico_api_db::measured_boot::report::create_revoked_bundle(&mut txn, &report, &pcr_set)
+            .await
+            .map_err(|e| CarbideError::Internal {
+                message: format!("promotion failed promoting into revoked bundle: {e}"),
+            })?;
 
     txn.commit().await?;
     Ok(RevokeMeasurementReportResponse {
@@ -172,7 +174,7 @@ pub async fn handle_show_measurement_report_for_id(
     let mut txn = api.txn_begin().await?;
     let result = Ok(ShowMeasurementReportForIdResponse {
         report: Some(
-            db::measured_boot::report::from_id(
+            nico_api_db::measured_boot::report::from_id(
                 &mut txn,
                 req.report_id
                     .ok_or(CarbideError::MissingArgument("report_id"))?,
@@ -196,7 +198,7 @@ pub async fn handle_show_measurement_reports_for_machine(
 ) -> Result<ShowMeasurementReportsForMachineResponse, Status> {
     let mut txn = api.txn_begin().await?;
     let result = Ok(ShowMeasurementReportsForMachineResponse {
-        reports: db::measured_boot::report::get_all_for_machine_id(
+        reports: nico_api_db::measured_boot::report::get_all_for_machine_id(
             &mut txn,
             MachineId::from_str(&req.machine_id).map_err(|_| {
                 CarbideError::from(RpcDataConversionError::InvalidMachineId(req.machine_id))
@@ -221,7 +223,7 @@ pub async fn handle_show_measurement_reports(
     _req: ShowMeasurementReportsRequest,
 ) -> Result<ShowMeasurementReportsResponse, Status> {
     Ok(ShowMeasurementReportsResponse {
-        reports: db::measured_boot::report::get_all(&mut api.db_reader())
+        reports: nico_api_db::measured_boot::report::get_all(&mut api.db_reader())
             .await
             .map_err(|e| CarbideError::Internal {
                 message: format!("{e}"),

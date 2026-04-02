@@ -18,7 +18,8 @@
 use common::api_fixtures::instance::{default_tenant_config, single_interface_network_config};
 use common::api_fixtures::{create_managed_host, create_test_env};
 use config_version::ConfigVersion;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 use crate::tests::common;
@@ -30,19 +31,17 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let initial_os = rpc::forge::OperatingSystem {
+    let initial_os = forge::OperatingSystem {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::InlineIpxe {
-                ipxe_script: "SomeRandomiPxe1".to_string(),
-                user_data: Some("SomeRandomData1".to_string()),
-            },
-        )),
+        variant: Some(forge::operating_system::Variant::Ipxe(forge::InlineIpxe {
+            ipxe_script: "SomeRandomiPxe1".to_string(),
+            user_data: Some("SomeRandomData1".to_string()),
+        })),
     };
 
-    let config = rpc::InstanceConfig {
+    let config = forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(initial_os.clone()),
         network: Some(single_interface_network_config(segment_id)),
@@ -56,29 +55,27 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
 
     let instance = tinstance.rpc_instance().await;
 
-    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Ready);
 
     let os = instance.config().os();
     assert_eq!(os, &initial_os);
     let initial_config_version = instance.config_version();
     assert_eq!(initial_config_version.version_nr(), 1);
 
-    let updated_os_1 = rpc::forge::OperatingSystem {
+    let updated_os_1 = forge::OperatingSystem {
         phone_home_enabled: true,
         run_provisioning_instructions_on_every_boot: true,
         user_data: Some("SomeRandomData2".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::InlineIpxe {
-                ipxe_script: "SomeRandomiPxe2".to_string(),
-                user_data: Some("SomeRandomData2".to_string()),
-            },
-        )),
+        variant: Some(forge::operating_system::Variant::Ipxe(forge::InlineIpxe {
+            ipxe_script: "SomeRandomiPxe2".to_string(),
+            user_data: Some("SomeRandomData2".to_string()),
+        })),
     };
 
     let instance = env
         .api
         .update_instance_operating_system(tonic::Request::new(
-            rpc::forge::InstanceOperatingSystemUpdateRequest {
+            forge::InstanceOperatingSystemUpdateRequest {
                 instance_id: Some(tinstance.id),
                 if_version_match: None,
                 os: Some(updated_os_1.clone()),
@@ -92,16 +89,14 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     let updated_config_version = instance.config_version.parse::<ConfigVersion>().unwrap();
     assert_eq!(updated_config_version.version_nr(), 2);
 
-    let updated_os_2 = rpc::forge::OperatingSystem {
+    let updated_os_2 = forge::OperatingSystem {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData3".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::InlineIpxe {
-                ipxe_script: "SomeRandomiPxe3".to_string(),
-                user_data: Some("SomeRandomData3".to_string()),
-            },
-        )),
+        variant: Some(forge::operating_system::Variant::Ipxe(forge::InlineIpxe {
+            ipxe_script: "SomeRandomiPxe3".to_string(),
+            user_data: Some("SomeRandomData3".to_string()),
+        })),
     };
 
     // Start a conditional update first that specifies the wrong last version.
@@ -109,7 +104,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     let status = env
         .api
         .update_instance_operating_system(tonic::Request::new(
-            rpc::forge::InstanceOperatingSystemUpdateRequest {
+            forge::InstanceOperatingSystemUpdateRequest {
                 instance_id: Some(tinstance.id),
                 if_version_match: Some(initial_config_version.version_string()),
                 os: Some(updated_os_2.clone()),
@@ -132,7 +127,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     let instance = env
         .api
         .update_instance_operating_system(tonic::Request::new(
-            rpc::forge::InstanceOperatingSystemUpdateRequest {
+            forge::InstanceOperatingSystemUpdateRequest {
                 instance_id: Some(tinstance.id),
                 if_version_match: Some(updated_config_version.version_string()),
                 os: Some(updated_os_2.clone()),
@@ -152,7 +147,7 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     let status = env
         .api
         .update_instance_operating_system(tonic::Request::new(
-            rpc::forge::InstanceOperatingSystemUpdateRequest {
+            forge::InstanceOperatingSystemUpdateRequest {
                 instance_id: Some(unknown_instance.into()),
                 if_version_match: None,
                 os: Some(updated_os_2.clone()),
@@ -169,22 +164,20 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     );
 
     // Try to update to an invalid OS
-    let invalid_os = rpc::forge::OperatingSystem {
+    let invalid_os = forge::OperatingSystem {
         phone_home_enabled: true,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData2".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::InlineIpxe {
-                ipxe_script: "".to_string(),
-                user_data: None,
-            },
-        )),
+        variant: Some(forge::operating_system::Variant::Ipxe(forge::InlineIpxe {
+            ipxe_script: "".to_string(),
+            user_data: None,
+        })),
     };
 
     let err = env
         .api
         .update_instance_operating_system(tonic::Request::new(
-            rpc::forge::InstanceOperatingSystemUpdateRequest {
+            forge::InstanceOperatingSystemUpdateRequest {
                 instance_id: Some(tinstance.id),
                 if_version_match: None,
                 os: Some(invalid_os),

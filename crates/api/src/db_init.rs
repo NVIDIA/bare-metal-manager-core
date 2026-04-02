@@ -17,17 +17,17 @@
 
 use std::collections::HashMap;
 
-use carbide_network::virtualization::VpcVirtualizationType;
-use db::dns::domain;
-use db::vpc::{self};
-use db::{ObjectColumnFilter, Transaction, dpu_agent_upgrade_policy, network_segment};
 use itertools::Itertools;
-use model::dns::NewDomain;
-use model::firmware::AgentUpgradePolicyChoice;
-use model::machine::upgrade_policy::AgentUpgradePolicy;
-use model::metadata::Metadata;
-use model::network_segment::{NetworkDefinition, NewNetworkSegment};
-use model::vpc::{NewVpc, VpcStatus};
+use nico_api_db::dns::domain;
+use nico_api_db::vpc::{self};
+use nico_api_db::{ObjectColumnFilter, Transaction, dpu_agent_upgrade_policy, network_segment};
+use nico_api_model::dns::NewDomain;
+use nico_api_model::firmware::AgentUpgradePolicyChoice;
+use nico_api_model::machine::upgrade_policy::AgentUpgradePolicy;
+use nico_api_model::metadata::Metadata;
+use nico_api_model::network_segment::{NetworkDefinition, NewNetworkSegment};
+use nico_api_model::vpc::{NewVpc, VpcStatus};
+use nico_network::virtualization::VpcVirtualizationType;
 use sqlx::{Pool, Postgres};
 
 use crate::CarbideError;
@@ -43,7 +43,7 @@ pub async fn create_initial_domain(
     let domains = domain::find_by(&mut txn, ObjectColumnFilter::<domain::IdColumn>::All).await?;
     if domains.is_empty() {
         let domain = NewDomain::new(domain_name);
-        db::dns::domain::persist_first(&domain, &mut txn).await?;
+        nico_api_db::dns::domain::persist_first(&domain, &mut txn).await?;
         txn.commit().await?;
         Ok(true)
     } else {
@@ -63,9 +63,9 @@ pub async fn create_initial_networks(
     networks: &HashMap<String, NetworkDefinition>,
 ) -> Result<(), CarbideError> {
     let mut txn = Transaction::begin(db_pool).await?;
-    let all_domains = db::dns::domain::find_by(
+    let all_domains = nico_api_db::dns::domain::find_by(
         &mut txn,
-        ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
+        ObjectColumnFilter::<nico_api_db::dns::domain::IdColumn>::All,
     )
     .await?;
     if all_domains.len() != 1 {
@@ -78,7 +78,7 @@ pub async fn create_initial_networks(
     }
     let domain_id = all_domains[0].id;
     for (name, def) in networks {
-        if db::network_segment::find_by_name(&mut txn, name)
+        if nico_api_db::network_segment::find_by_name(&mut txn, name)
             .await
             .is_ok()
         {
@@ -98,10 +98,10 @@ pub async fn create_initial_networks(
 
 pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<(), CarbideError> {
     let mut txn = Transaction::begin(db_pool).await?;
-    let all_segments = db::network_segment::find_by(
+    let all_segments = nico_api_db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::<network_segment::IdColumn>::All,
-        model::network_segment::NetworkSegmentSearchConfig::default(),
+        nico_api_model::network_segment::NetworkSegmentSearchConfig::default(),
     )
     .await?;
 
@@ -111,7 +111,7 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
         .collect::<Vec<_>>();
 
     let all_vpcs_ids = all_segments.iter().filter_map(|x| x.vpc_id).collect_vec();
-    let all_vpcs = db::vpc::find_by(
+    let all_vpcs = nico_api_db::vpc::find_by(
         &mut txn,
         ObjectColumnFilter::List(vpc::IdColumn, &all_vpcs_ids),
     )
@@ -146,7 +146,7 @@ pub async fn update_network_segments_svi_ip(db_pool: &Pool<Postgres>) -> Result<
 
         let mut txn = Transaction::begin(db_pool).await?;
 
-        match db::network_segment::allocate_svi_ip(&segment, &mut txn).await {
+        match nico_api_db::network_segment::allocate_svi_ip(&segment, &mut txn).await {
             Ok(_) => {
                 txn.commit().await?;
             }
@@ -197,8 +197,8 @@ pub(crate) async fn create_admin_vpc(
 
     let mut txn = Transaction::begin(db_pool).await?;
 
-    let admin_segment = db::network_segment::admin(&mut txn).await?;
-    let existing_vpc = db::vpc::find_by_vni(&mut txn, vpc_vni as i32).await?;
+    let admin_segment = nico_api_db::network_segment::admin(&mut txn).await?;
+    let existing_vpc = nico_api_db::vpc::find_by_vni(&mut txn, vpc_vni as i32).await?;
     if let Some(existing_vpc) = existing_vpc.first() {
         if let Some(vpc_id) = admin_segment.vpc_id {
             if vpc_id != existing_vpc.id {
@@ -212,7 +212,7 @@ pub(crate) async fn create_admin_vpc(
             return Ok(());
         } else {
             // Somehow vni field is not updated in network segment table. do it now.
-            db::network_segment::set_vpc_id_and_can_stretch(
+            nico_api_db::network_segment::set_vpc_id_and_can_stretch(
                 &admin_segment,
                 &mut txn,
                 existing_vpc.id,
@@ -229,9 +229,9 @@ pub(crate) async fn create_admin_vpc(
         tenant_organization_id: "carbide_internal".to_string(),
         // For consistency, but admin routing profile is defined in-line in the
         // FNN config.
-        routing_profile_type: Some(model::tenant::RoutingProfileType::Admin),
+        routing_profile_type: Some(nico_api_model::tenant::RoutingProfileType::Admin),
         network_security_group_id: None,
-        network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
+        network_virtualization_type: nico_network::virtualization::VpcVirtualizationType::Fnn,
         metadata: Metadata {
             name: "admin".to_string(),
             labels: HashMap::from([("kind".to_string(), "admin".to_string())]),
@@ -239,7 +239,7 @@ pub(crate) async fn create_admin_vpc(
         },
     };
 
-    let vpc = db::vpc::persist(
+    let vpc = nico_api_db::vpc::persist(
         admin_vpc,
         VpcStatus {
             vni: Some(vpc_vni as i32),
@@ -249,7 +249,8 @@ pub(crate) async fn create_admin_vpc(
     .await?;
 
     // Attach it to admin network segment.
-    db::network_segment::set_vpc_id_and_can_stretch(&admin_segment, &mut txn, vpc.id).await?;
+    nico_api_db::network_segment::set_vpc_id_and_can_stretch(&admin_segment, &mut txn, vpc.id)
+        .await?;
 
     txn.commit().await?;
 

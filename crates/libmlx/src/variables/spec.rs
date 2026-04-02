@@ -23,8 +23,8 @@
 
 use std::fmt;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::protos::mlx_device::{
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::protos::mlx_device::{
     MlxVariableSpec as MlxVariableSpecPb, mlx_variable_spec as mlx_variable_spec_pb,
 };
 use serde::{Deserialize, Serialize};

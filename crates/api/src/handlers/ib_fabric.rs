@@ -15,15 +15,15 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
 
 pub(crate) fn find_ids(
     api: &Api,
-    request: Request<rpc::IbFabricSearchFilter>,
-) -> Result<Response<rpc::IbFabricIdList>, Status> {
+    request: Request<forge::IbFabricSearchFilter>,
+) -> Result<Response<forge::IbFabricIdList>, Status> {
     log_request_data(&request);
 
     let _filter = request.into_inner();
@@ -31,15 +31,15 @@ pub(crate) fn find_ids(
     let config = api.ib_fabric_manager.get_config();
     let fabrics = config.endpoints.into_keys().collect();
 
-    Ok(Response::new(rpc::IbFabricIdList {
+    Ok(Response::new(forge::IbFabricIdList {
         ib_fabric_ids: fabrics,
     }))
 }
 
 pub(crate) async fn ufm_browse(
     api: &Api,
-    request: Request<rpc::UfmBrowseRequest>,
-) -> Result<tonic::Response<rpc::UfmBrowseResponse>, Status> {
+    request: Request<forge::UfmBrowseRequest>,
+) -> Result<tonic::Response<forge::UfmBrowseResponse>, Status> {
     log_request_data(&request);
 
     let request = request.into_inner();
@@ -48,7 +48,7 @@ pub(crate) async fn ufm_browse(
 
     let response = fabric.raw_get(&request.path).await?;
 
-    Ok(tonic::Response::new(::rpc::forge::UfmBrowseResponse {
+    Ok(tonic::Response::new(forge::UfmBrowseResponse {
         body: response.body,
         code: response.code.into(),
         headers: response

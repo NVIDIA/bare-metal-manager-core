@@ -17,13 +17,13 @@
 //! 2. Wait for watcher callbacks (DPU ready, reboot required)
 //! 3. Handle cleanup on error/reprovisioning
 
-use carbide_dpf::{DpuPhase, dpu_node_cr_name};
-use carbide_uuid::machine::MachineId;
 use libredfish::SystemPowerControl;
-use model::machine::{
+use nico_api_model::machine::{
     DpfState, DpuInitState, FailureCause, FailureDetails, FailureSource, InstanceState, Machine,
     ManagedHostState, ManagedHostStateSnapshot, ReprovisionState, StateMachineArea,
 };
+use nico_dpf::{DpuPhase, dpu_node_cr_name};
+use nico_uuid::machine::MachineId;
 
 use super::helpers::{DpuInitStateHelper, ManagedHostStateHelper, ReprovisionStateHelper};
 use super::{handler_host_power_control, host_power_state};
@@ -117,7 +117,7 @@ fn update_phase_detail_or_wait(
     state: &ManagedHostStateSnapshot,
     dpu_id: &MachineId,
     stored_phase_detail: &Option<String>,
-    current_phase: &carbide_dpf::DpuPhase,
+    current_phase: &nico_dpf::DpuPhase,
     wait_reason: &str,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     // if we're no longer in provisioning, there's no need to update the phase detail.
@@ -178,7 +178,7 @@ async fn handle_dpf_provisioning(
             .and_then(|x| x.dmi_data.as_ref())
             .map(|x| x.product_serial.as_str())
             .unwrap_or_default();
-        let device_info = carbide_dpf::DpuDeviceInfo {
+        let device_info = nico_dpf::DpuDeviceInfo {
             device_id: dpf_id(dpu)?,
             dpu_bmc_ip: bmc_ip(dpu)?.to_string(),
             host_bmc_ip: bmc_ip(&state.host_snapshot)?.to_string(),
@@ -194,7 +194,7 @@ async fn handle_dpf_provisioning(
         .iter()
         .map(dpf_id)
         .collect::<Result<_, _>>()?;
-    let node_info = carbide_dpf::DpuNodeInfo {
+    let node_info = nico_dpf::DpuNodeInfo {
         node_id: dpf_id(&state.host_snapshot)?,
         host_bmc_ip: bmc_ip(&state.host_snapshot)?.to_string(),
         device_ids,
@@ -300,7 +300,7 @@ async fn handle_dpf_waiting_for_ready(
         .await;
     }
 
-    if current_phase == carbide_dpf::DpuPhase::Error {
+    if current_phase == nico_dpf::DpuPhase::Error {
         tracing::error!(
             host = %state.host_snapshot.id,
             dpu = %dpu_snapshot.id,
@@ -322,7 +322,7 @@ async fn handle_dpf_waiting_for_ready(
         }));
     }
     // wait for dpf to report that the dpu is ready
-    if current_phase != carbide_dpf::DpuPhase::Ready {
+    if current_phase != nico_dpf::DpuPhase::Ready {
         return update_phase_detail_or_wait(
             state,
             &dpu_snapshot.id,

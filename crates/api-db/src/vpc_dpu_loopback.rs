@@ -16,9 +16,9 @@
  */
 use std::net::IpAddr;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::vpc::VpcId;
-use model::vpc::VpcDpuLoopback;
+use nico_api_model::vpc::VpcDpuLoopback;
+use nico_uuid::machine::MachineId;
+use nico_uuid::vpc::VpcId;
 use sqlx::PgConnection;
 
 use crate::DatabaseError;
@@ -39,7 +39,7 @@ pub async fn persist(
 }
 
 pub async fn delete_and_deallocate(
-    common_pools: &model::resource_pool::common::CommonPools,
+    common_pools: &nico_api_model::resource_pool::common::CommonPools,
     dpu_id: &MachineId,
     txn: &mut PgConnection,
     delete_admin_loopback_also: bool,
@@ -100,7 +100,7 @@ pub async fn find(
 /// Allocate loopback ip for a vpc and dpu if not allocated yet.
 /// If already allocated, return the value.
 pub async fn get_or_allocate_loopback_ip_for_vpc(
-    common_pools: &model::resource_pool::common::CommonPools,
+    common_pools: &nico_api_model::resource_pool::common::CommonPools,
     txn: &mut PgConnection,
     dpu_id: &MachineId,
     vpc_id: &VpcId,

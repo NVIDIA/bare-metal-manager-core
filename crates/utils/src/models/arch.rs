@@ -72,18 +72,22 @@ impl FromStr for CpuArchitecture {
 impl From<CpuArchitecture> for i32 {
     fn from(a: CpuArchitecture) -> Self {
         match a {
-            CpuArchitecture::Aarch64 => rpc::machine_discovery::CpuArchitecture::Aarch64 as i32,
-            CpuArchitecture::X86_64 => rpc::machine_discovery::CpuArchitecture::X8664 as i32,
-            CpuArchitecture::Unknown => rpc::machine_discovery::CpuArchitecture::Unknown as i32,
+            CpuArchitecture::Aarch64 => {
+                nico_rpc::machine_discovery::CpuArchitecture::Aarch64 as i32
+            }
+            CpuArchitecture::X86_64 => nico_rpc::machine_discovery::CpuArchitecture::X8664 as i32,
+            CpuArchitecture::Unknown => {
+                nico_rpc::machine_discovery::CpuArchitecture::Unknown as i32
+            }
         }
     }
 }
 
 impl From<i32> for CpuArchitecture {
     fn from(a: i32) -> Self {
-        match rpc::machine_discovery::CpuArchitecture::try_from(a) {
-            Ok(rpc::machine_discovery::CpuArchitecture::Aarch64) => CpuArchitecture::Aarch64,
-            Ok(rpc::machine_discovery::CpuArchitecture::X8664) => CpuArchitecture::X86_64,
+        match nico_rpc::machine_discovery::CpuArchitecture::try_from(a) {
+            Ok(nico_rpc::machine_discovery::CpuArchitecture::Aarch64) => CpuArchitecture::Aarch64,
+            Ok(nico_rpc::machine_discovery::CpuArchitecture::X8664) => CpuArchitecture::X86_64,
             _ => CpuArchitecture::Unknown,
         }
     }

@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::forge as forgerpc;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 
 /// Enable or disable quarantine mode on a managed host.
 #[derive(Parser, Debug)]
@@ -42,12 +42,12 @@ pub struct QuarantineOn {
     pub reason: String,
 }
 
-impl From<QuarantineOn> for forgerpc::SetManagedHostQuarantineStateRequest {
+impl From<QuarantineOn> for forge::SetManagedHostQuarantineStateRequest {
     fn from(args: QuarantineOn) -> Self {
         Self {
             machine_id: Some(args.host),
-            quarantine_state: Some(forgerpc::ManagedHostQuarantineState {
-                mode: forgerpc::ManagedHostQuarantineMode::BlockAllTraffic as i32,
+            quarantine_state: Some(forge::ManagedHostQuarantineState {
+                mode: forge::ManagedHostQuarantineMode::BlockAllTraffic as i32,
                 reason: Some(args.reason),
             }),
         }
@@ -60,7 +60,7 @@ pub struct QuarantineOff {
     pub host: MachineId,
 }
 
-impl From<QuarantineOff> for forgerpc::ClearManagedHostQuarantineStateRequest {
+impl From<QuarantineOff> for forge::ClearManagedHostQuarantineStateRequest {
     fn from(args: QuarantineOff) -> Self {
         Self {
             machine_id: Some(args.host),

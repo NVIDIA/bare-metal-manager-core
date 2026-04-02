@@ -15,16 +15,16 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersion;
 use itertools::Itertools;
 use libredfish::model::component_integrity::{CaCertificate, Evidence};
-use model::attestation::spdm::{
+use nico_api_model::attestation::spdm::{
     AttestationState, SpdmAttestationStatus, SpdmMachineAttestation, SpdmMachineDetails,
     SpdmMachineDeviceAttestation, SpdmMachineDeviceMetadata, SpdmMachineSnapshot,
     SpdmMachineStateSnapshot, SpdmObjectId, SpdmObjectId_,
 };
-use model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
 use crate::{DatabaseError, DatabaseResult};

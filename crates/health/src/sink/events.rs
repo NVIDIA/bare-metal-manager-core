@@ -17,12 +17,12 @@
 
 use std::sync::Arc;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::rack::RackId;
-use health_report::{
+use nico_health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess,
     HealthReport as CarbideHealthReport, HealthReportConversionError,
 };
+use nico_uuid::machine::MachineId;
+use nico_uuid::rack::RackId;
 use nv_redfish::resource::Health as BmcHealth;
 
 use crate::endpoint::{BmcAddr, BmcEndpoint, EndpointMetadata};

@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
-use ::rpc::forge::{self as forgerpc, CreateComputeAllocationRequest};
-use carbide_uuid::compute_allocation::ComputeAllocationId;
 use clap::Parser;
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::forge::{self, CreateComputeAllocationRequest};
+use nico_uuid::compute_allocation::ComputeAllocationId;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -66,7 +66,7 @@ impl TryFrom<Args> for CreateComputeAllocationRequest {
             vec![]
         };
 
-        let metadata = forgerpc::Metadata {
+        let metadata = forge::Metadata {
             name: args.name.unwrap_or_default(),
             description: args.description.unwrap_or_default(),
             labels,
@@ -76,7 +76,7 @@ impl TryFrom<Args> for CreateComputeAllocationRequest {
             id: args.id,
             tenant_organization_id: args.tenant_organization_id,
             metadata: Some(metadata),
-            attributes: Some(forgerpc::ComputeAllocationAttributes {
+            attributes: Some(forge::ComputeAllocationAttributes {
                 instance_type_id: args.instance_type_id,
                 count: args.count,
             }),

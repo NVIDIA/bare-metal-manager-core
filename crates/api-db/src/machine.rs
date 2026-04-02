@@ -22,33 +22,33 @@ use std::net::IpAddr;
 use std::ops::Deref;
 use std::str::FromStr;
 
-use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::{MachineId, MachineType};
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
-use health_report::{HealthReport, OverrideMode};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
-use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::expected_machine::ExpectedMachineData;
-use model::hardware_info::{MachineInventory, MachineNvLinkInfo};
-use model::machine::infiniband::MachineInfinibandStatusObservation;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::network::{
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::expected_machine::ExpectedMachineData;
+use nico_api_model::hardware_info::{MachineInventory, MachineNvLinkInfo};
+use nico_api_model::machine::infiniband::MachineInfinibandStatusObservation;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::network::{
     MachineNetworkStatusObservation, ManagedHostNetworkConfig, ManagedHostQuarantineState,
 };
-use model::machine::nvlink::MachineNvLinkStatusObservation;
-use model::machine::upgrade_policy::AgentUpgradePolicy;
-use model::machine::{
+use nico_api_model::machine::nvlink::MachineNvLinkStatusObservation;
+use nico_api_model::machine::upgrade_policy::AgentUpgradePolicy;
+use nico_api_model::machine::{
     Dpf, DpuInfo, FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
     MachineLastRebootRequestedMode, ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
-use model::machine_interface_address::MachineInterfaceAssociation;
-use model::metadata::Metadata;
-use model::resource_pool;
-use model::resource_pool::ResourcePoolError;
-use model::resource_pool::common::CommonPools;
+use nico_api_model::machine_interface_address::MachineInterfaceAssociation;
+use nico_api_model::metadata::Metadata;
+use nico_api_model::resource_pool;
+use nico_api_model::resource_pool::ResourcePoolError;
+use nico_api_model::resource_pool::common::CommonPools;
+use nico_health_report::{HealthReport, OverrideMode};
+use nico_uuid::instance_type::InstanceTypeId;
+use nico_uuid::machine::{MachineId, MachineType};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Pool, Postgres, Row};
@@ -1191,9 +1191,9 @@ pub async fn clear_failure_details(
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let failure_details = FailureDetails {
-        cause: model::machine::FailureCause::NoError,
+        cause: nico_api_model::machine::FailureCause::NoError,
         failed_at: chrono::Utc::now(),
-        source: model::machine::FailureSource::NoError,
+        source: nico_api_model::machine::FailureSource::NoError,
     };
 
     let query = "UPDATE machines SET failure_details = $1::json WHERE id = $2 RETURNING id";
@@ -1614,7 +1614,7 @@ pub async fn apply_agent_upgrade_policy(
     match machine.network_status_observation.as_ref() {
         None => Ok(false),
         Some(obs) => {
-            let carbide_api_version = carbide_version::v!(build_version);
+            let carbide_api_version = nico_version::v!(build_version);
             let Some(agent_version) = obs.agent_version.clone() else {
                 return Ok(false);
             };
@@ -2322,15 +2322,14 @@ impl<'r> FromRow<'r, PgRow> for _HealthReportWrapper {
 }
 
 pub fn count_healthy_unhealthy_host_machines(
-    all_machines: &HashMap<MachineId, model::machine::ManagedHostStateSnapshot>,
+    all_machines: &HashMap<MachineId, nico_api_model::machine::ManagedHostStateSnapshot>,
 ) -> (i32, i32) {
     let without_fault_count = all_machines
         .iter()
         .filter(|(_, x)| {
-            !x.aggregate_health
-                .alerts
-                .iter()
-                .any(|x| x.id != *model::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID)
+            !x.aggregate_health.alerts.iter().any(|x| {
+                x.id != *nico_api_model::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID
+            })
         })
         .count();
 
@@ -2344,9 +2343,9 @@ pub fn count_healthy_unhealthy_host_machines(
 mod test {
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
-    use model::machine::ManagedHostState;
-    use model::machine::machine_search_config::MachineSearchConfig;
+    use nico_api_model::machine::ManagedHostState;
+    use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+    use nico_uuid::machine::MachineId;
 
     #[crate::sqlx_test]
 

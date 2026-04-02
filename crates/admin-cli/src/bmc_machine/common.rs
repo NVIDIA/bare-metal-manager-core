@@ -16,6 +16,7 @@
  */
 
 use clap::{Parser, ValueEnum};
+use nico_rpc::forge;
 
 #[derive(ValueEnum, Parser, Debug, Clone)]
 pub enum AdminPowerControlAction {
@@ -27,26 +28,26 @@ pub enum AdminPowerControlAction {
     ACPowercycle,
 }
 
-impl From<AdminPowerControlAction> for rpc::forge::admin_power_control_request::SystemPowerControl {
+impl From<AdminPowerControlAction> for forge::admin_power_control_request::SystemPowerControl {
     fn from(c_type: AdminPowerControlAction) -> Self {
         match c_type {
             AdminPowerControlAction::On => {
-                rpc::forge::admin_power_control_request::SystemPowerControl::On
+                forge::admin_power_control_request::SystemPowerControl::On
             }
             AdminPowerControlAction::GracefulShutdown => {
-                rpc::forge::admin_power_control_request::SystemPowerControl::GracefulShutdown
+                forge::admin_power_control_request::SystemPowerControl::GracefulShutdown
             }
             AdminPowerControlAction::ForceOff => {
-                rpc::forge::admin_power_control_request::SystemPowerControl::ForceOff
+                forge::admin_power_control_request::SystemPowerControl::ForceOff
             }
             AdminPowerControlAction::GracefulRestart => {
-                rpc::forge::admin_power_control_request::SystemPowerControl::GracefulRestart
+                forge::admin_power_control_request::SystemPowerControl::GracefulRestart
             }
             AdminPowerControlAction::ForceRestart => {
-                rpc::forge::admin_power_control_request::SystemPowerControl::ForceRestart
+                forge::admin_power_control_request::SystemPowerControl::ForceRestart
             }
             AdminPowerControlAction::ACPowercycle => {
-                rpc::forge::admin_power_control_request::SystemPowerControl::AcPowercycle
+                forge::admin_power_control_request::SystemPowerControl::AcPowercycle
             }
         }
     }

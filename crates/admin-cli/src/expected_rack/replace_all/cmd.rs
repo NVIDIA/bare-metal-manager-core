@@ -19,8 +19,8 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge as rpc_forge;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge as rpc_forge;
 use serde::{Deserialize, Serialize};
 
 use super::Args;

@@ -14,18 +14,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use model::ConfigValidationError;
-use model::metadata::Metadata;
-use model::tenant::RoutingProfileType;
+use nico_api_model::ConfigValidationError;
+use nico_api_model::metadata::Metadata;
+use nico_api_model::tenant::RoutingProfileType;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_tenant_organization_id};
 
 /// Ensures that fields unsupported by the tenant DB model are rejected early.
-fn metadata_to_valid_tenant_metadata(metadata: Option<rpc::Metadata>) -> Result<Metadata, Status> {
+fn metadata_to_valid_tenant_metadata(
+    metadata: Option<forge::Metadata>,
+) -> Result<Metadata, Status> {
     Ok(match metadata {
         None => return Err(CarbideError::MissingArgument("metadata").into()),
         Some(mdata) => {
@@ -54,11 +56,11 @@ fn metadata_to_valid_tenant_metadata(metadata: Option<rpc::Metadata>) -> Result<
 
 pub(crate) async fn create(
     api: &Api,
-    request: Request<rpc::CreateTenantRequest>,
-) -> Result<Response<rpc::CreateTenantResponse>, Status> {
+    request: Request<forge::CreateTenantRequest>,
+) -> Result<Response<forge::CreateTenantResponse>, Status> {
     crate::api::log_request_data(&request);
 
-    let rpc::CreateTenantRequest {
+    let forge::CreateTenantRequest {
         organization_id,
         metadata,
         routing_profile_type,
@@ -73,7 +75,7 @@ pub(crate) async fn create(
     // We won't use it if FNN isn't enabled, but we can still map so a caller integrating
     // with us before FNN is enabled on a site will be told if they're sending invalid values.
     let routing_profile_type = routing_profile_type
-        .map(rpc::RoutingProfileType::try_from)
+        .map(forge::RoutingProfileType::try_from)
         .transpose()
         .map_err(|e| {
             CarbideError::from(RpcDataConversionError::InvalidValue(
@@ -88,7 +90,7 @@ pub(crate) async fn create(
 
     let mut txn = api.txn_begin().await?;
 
-    let response = db::tenant::create_and_persist(
+    let response = nico_api_db::tenant::create_and_persist(
         organization_id,
         metadata,
         if api.runtime_config.fnn.is_none() {
@@ -110,11 +112,11 @@ pub(crate) async fn create(
 
 pub(crate) async fn find(
     api: &Api,
-    request: Request<rpc::FindTenantRequest>,
-) -> Result<Response<rpc::FindTenantResponse>, Status> {
+    request: Request<forge::FindTenantRequest>,
+) -> Result<Response<forge::FindTenantResponse>, Status> {
     crate::api::log_request_data(&request);
 
-    let rpc::FindTenantRequest {
+    let forge::FindTenantRequest {
         tenant_organization_id,
     } = request.into_inner();
 
@@ -122,12 +124,12 @@ pub(crate) async fn find(
 
     let mut txn = api.txn_begin().await?;
 
-    let response = match db::tenant::find(tenant_organization_id, false, &mut txn)
+    let response = match nico_api_db::tenant::find(tenant_organization_id, false, &mut txn)
         .await
         .map(Response::new)?
         .into_inner()
     {
-        None => rpc::FindTenantResponse { tenant: None },
+        None => forge::FindTenantResponse { tenant: None },
         Some(t) => t.try_into().map_err(CarbideError::from)?,
     };
 
@@ -138,11 +140,11 @@ pub(crate) async fn find(
 
 pub(crate) async fn update(
     api: &Api,
-    request: Request<rpc::UpdateTenantRequest>,
-) -> Result<Response<rpc::UpdateTenantResponse>, Status> {
+    request: Request<forge::UpdateTenantRequest>,
+) -> Result<Response<forge::UpdateTenantResponse>, Status> {
     crate::api::log_request_data(&request);
 
-    let rpc::UpdateTenantRequest {
+    let forge::UpdateTenantRequest {
         organization_id,
         if_version_match,
         metadata,
@@ -156,7 +158,7 @@ pub(crate) async fn update(
     metadata.validate(true).map_err(CarbideError::from)?;
 
     let routing_profile_type = routing_profile_type
-        .map(rpc::RoutingProfileType::try_from)
+        .map(forge::RoutingProfileType::try_from)
         .transpose()
         .map_err(|e| {
             CarbideError::from(RpcDataConversionError::InvalidValue(
@@ -171,7 +173,8 @@ pub(crate) async fn update(
     let mut txn = api.txn_begin().await?;
 
     // Grab the tenant details and a row-lock
-    let Some(current_tenant) = db::tenant::find(&organization_id, true, &mut txn).await? else {
+    let Some(current_tenant) = nico_api_db::tenant::find(&organization_id, true, &mut txn).await?
+    else {
         return Err(CarbideError::NotFoundError {
             kind: "tenant",
             id: organization_id.clone(),
@@ -187,9 +190,9 @@ pub(crate) async fn update(
     // internal==true to false), but total restriction is safer
     // and easy to loosen later if we find we need it.
     if current_tenant.routing_profile_type != routing_profile_type
-        && !db::vpc::find_ids(
+        && !nico_api_db::vpc::find_ids(
             &mut txn,
-            model::vpc::VpcSearchFilter {
+            nico_api_model::vpc::VpcSearchFilter {
                 tenant_org_id: Some(organization_id.clone()),
                 ..Default::default()
             },
@@ -209,7 +212,7 @@ pub(crate) async fn update(
         current_tenant.version
     };
 
-    let response = db::tenant::update(
+    let response = nico_api_db::tenant::update(
         organization_id,
         metadata,
         expected_version,
@@ -228,8 +231,8 @@ pub(crate) async fn update(
 
 pub(crate) async fn find_tenants_by_organization_ids(
     api: &Api,
-    request: Request<rpc::TenantByOrganizationIdsRequest>,
-) -> Result<Response<rpc::TenantList>, Status> {
+    request: Request<forge::TenantByOrganizationIdsRequest>,
+) -> Result<Response<forge::TenantList>, Status> {
     crate::api::log_request_data(&request);
     let request = request.into_inner();
 
@@ -249,34 +252,35 @@ pub(crate) async fn find_tenants_by_organization_ids(
         );
     }
 
-    let tenants: Vec<rpc::Tenant> =
-        db::tenant::load_by_organization_ids(&mut txn, &tenant_organization_ids)
+    let tenants: Vec<forge::Tenant> =
+        nico_api_db::tenant::load_by_organization_ids(&mut txn, &tenant_organization_ids)
             .await?
             .into_iter()
-            .filter_map(|tenant| rpc::Tenant::try_from(tenant).ok())
+            .filter_map(|tenant| forge::Tenant::try_from(tenant).ok())
             .collect();
 
     txn.commit().await?;
 
-    Ok(tonic::Response::new(rpc::TenantList { tenants }))
+    Ok(tonic::Response::new(forge::TenantList { tenants }))
 }
 
 pub(crate) async fn find_tenant_organization_ids(
     api: &Api,
-    request: Request<rpc::TenantSearchFilter>,
-) -> Result<Response<rpc::TenantOrganizationIdList>, Status> {
+    request: Request<forge::TenantSearchFilter>,
+) -> Result<Response<forge::TenantOrganizationIdList>, Status> {
     crate::api::log_request_data(&request);
-    let search_config: model::tenant::TenantSearchFilter = request.into_inner().into();
+    let search_config: nico_api_model::tenant::TenantSearchFilter = request.into_inner().into();
     let tenant_org_ids =
-        db::tenant::find_tenant_organization_ids(&api.database_connection, search_config).await?;
-    Ok(tonic::Response::new(rpc::TenantOrganizationIdList {
+        nico_api_db::tenant::find_tenant_organization_ids(&api.database_connection, search_config)
+            .await?;
+    Ok(tonic::Response::new(forge::TenantOrganizationIdList {
         tenant_organization_ids: tenant_org_ids.into_iter().collect(),
     }))
 }
 
 #[cfg(test)]
 mod tests {
-    use ::rpc::forge as rpc;
+    use nico_rpc::forge;
     use tonic::Code;
 
     use super::*;
@@ -284,7 +288,7 @@ mod tests {
     #[test]
     fn test_metadata_to_valid_tenant_metadata() {
         // Good metadata
-        let metadata = metadata_to_valid_tenant_metadata(Some(rpc::Metadata {
+        let metadata = metadata_to_valid_tenant_metadata(Some(forge::Metadata {
             name: "Name".to_string(),
             description: "".to_string(),
             labels: vec![],
@@ -293,7 +297,7 @@ mod tests {
         assert!(metadata.is_ok());
 
         // No description allowed
-        let metadata = metadata_to_valid_tenant_metadata(Some(rpc::Metadata {
+        let metadata = metadata_to_valid_tenant_metadata(Some(forge::Metadata {
             name: "Name".to_string(),
             description: "should not be stored".to_string(),
             labels: vec![],
@@ -304,10 +308,10 @@ mod tests {
         assert!(metadata.message().contains("description"));
 
         // No labels allowed
-        let metadata = metadata_to_valid_tenant_metadata(Some(rpc::Metadata {
+        let metadata = metadata_to_valid_tenant_metadata(Some(forge::Metadata {
             name: "Name".to_string(),
             description: "".to_string(),
-            labels: vec![rpc::Label {
+            labels: vec![forge::Label {
                 key: "aaa".to_string(),
                 value: Some("bbb".to_string()),
             }],

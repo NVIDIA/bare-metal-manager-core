@@ -16,12 +16,12 @@
  */
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::compute_allocation::ComputeAllocationId;
-use carbide_uuid::instance_type::InstanceTypeId;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::compute_allocation::ComputeAllocationId;
+use nico_uuid::instance_type::InstanceTypeId;
 use sqlx::Row;
 use sqlx::postgres::PgRow;
 
@@ -83,16 +83,16 @@ impl<'r> sqlx::FromRow<'r, PgRow> for ComputeAllocation {
     }
 }
 
-impl TryFrom<ComputeAllocation> for rpc::ComputeAllocation {
+impl TryFrom<ComputeAllocation> for forge::ComputeAllocation {
     type Error = RpcDataConversionError;
 
     fn try_from(compute_alloc: ComputeAllocation) -> Result<Self, Self::Error> {
-        let attributes = rpc::ComputeAllocationAttributes {
+        let attributes = forge::ComputeAllocationAttributes {
             instance_type_id: compute_alloc.instance_type_id.to_string(),
             count: compute_alloc.count,
         };
 
-        Ok(rpc::ComputeAllocation {
+        Ok(forge::ComputeAllocation {
             id: Some(compute_alloc.id),
             tenant_organization_id: compute_alloc.tenant_organization_id.to_string(),
             version: compute_alloc.version.to_string(),
@@ -100,14 +100,14 @@ impl TryFrom<ComputeAllocation> for rpc::ComputeAllocation {
             created_at: Some(compute_alloc.created.to_string()),
             created_by: compute_alloc.created_by,
             updated_by: compute_alloc.updated_by,
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: compute_alloc.metadata.name,
                 description: compute_alloc.metadata.description,
                 labels: compute_alloc
                     .metadata
                     .labels
                     .iter()
-                    .map(|(key, value)| rpc::Label {
+                    .map(|(key, value)| forge::Label {
                         key: key.to_owned(),
                         value: if value.is_empty() {
                             None
@@ -129,8 +129,8 @@ impl TryFrom<ComputeAllocation> for rpc::ComputeAllocation {
 mod tests {
     use std::collections::HashMap;
 
-    use ::rpc::forge as rpc;
     use config_version::ConfigVersion;
+    use nico_rpc::forge;
 
     use super::*;
 
@@ -138,16 +138,16 @@ mod tests {
     fn test_model_compute_allocation_to_rpc_conversion() {
         let version = ConfigVersion::initial();
 
-        let req_type = rpc::ComputeAllocation {
+        let req_type = forge::ComputeAllocation {
             id: Some("dbe71f32-1bdc-11f1-8101-3b10d91c938c".parse().unwrap()),
             version: version.to_string(),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "fancy name".to_string(),
                 description: "".to_string(),
                 labels: vec![],
             }),
             tenant_organization_id: "theorg".to_string(),
-            attributes: Some(rpc::ComputeAllocationAttributes {
+            attributes: Some(forge::ComputeAllocationAttributes {
                 instance_type_id: "12345".to_string(),
                 count: 10,
             }),
@@ -178,7 +178,7 @@ mod tests {
         // protobuf ComputeAllocation message
         assert_eq!(
             req_type,
-            rpc::ComputeAllocation::try_from(compute_alloc).unwrap()
+            forge::ComputeAllocation::try_from(compute_alloc).unwrap()
         );
     }
 }

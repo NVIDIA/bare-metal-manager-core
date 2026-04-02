@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use model::ib::{
+use nico_api_model::ib::{
     IBMtu, IBNetwork, IBPort, IBPortMembership, IBPortState, IBQosConf, IBRateLimit, IBServiceLevel,
 };
 

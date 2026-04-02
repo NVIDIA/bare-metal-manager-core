@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge as forgerpc;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::forge;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -24,7 +24,7 @@ use crate::rpc::ApiClient;
 pub async fn delete_ufm(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
     api_client
         .0
-        .delete_credential(forgerpc::CredentialDeletionRequest::try_from(data)?)
+        .delete_credential(forge::CredentialDeletionRequest::try_from(data)?)
         .await?;
     Ok(())
 }

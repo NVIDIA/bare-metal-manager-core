@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use libmlx::variables::spec::MlxVariableSpec;
-use libmlx::variables::value::{MlxValueError, MlxValueType};
-use libmlx::variables::variable::MlxConfigVariable;
+use nico_libmlx::variables::spec::MlxVariableSpec;
+use nico_libmlx::variables::value::{MlxValueError, MlxValueType};
+use nico_libmlx::variables::variable::MlxConfigVariable;
 
 // create_test_variable creates a test variable with a given spec
 // to use for testing. This is leveraged for basically each test.

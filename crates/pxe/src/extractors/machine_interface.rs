@@ -18,7 +18,7 @@ use std::collections::HashMap;
 
 use axum::extract::{FromRequestParts, Path, Query};
 use axum::http::request::Parts;
-use carbide_uuid::machine::MachineInterfaceId;
+use nico_uuid::machine::MachineInterfaceId;
 use serde::{Deserialize, Serialize};
 
 use crate::common::MachineInterface;
@@ -53,12 +53,11 @@ impl TryFrom<MaybeMachineInterface> for MachineInterface {
 
         let uuid = match (value.uuid, value.uuid_as_param) {
             (Some(uuid), _) => Ok(uuid),
-            (None, Some(uuid)) => {
-                uuid.parse()
-                    .map_err(|e: carbide_uuid::typed_uuids::UuidError| {
-                        PxeRequestError::UuidConversion(e.into())
-                    })
-            }
+            (None, Some(uuid)) => uuid
+                .parse()
+                .map_err(|e: nico_uuid::typed_uuids::UuidError| {
+                    PxeRequestError::UuidConversion(e.into())
+                }),
             _ => Err(PxeRequestError::MissingMachineId),
         }?;
 

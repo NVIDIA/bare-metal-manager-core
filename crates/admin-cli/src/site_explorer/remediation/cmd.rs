@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::PauseExploredEndpointRemediationRequest;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge::PauseExploredEndpointRemediationRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;

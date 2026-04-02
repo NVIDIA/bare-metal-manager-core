@@ -15,13 +15,14 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::forge;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn create(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let image_attrs: ::rpc::forge::OsImageAttributes = args.try_into()?;
+    let image_attrs: forge::OsImageAttributes = args.try_into()?;
     let image = api_client.0.create_os_image(image_attrs).await?;
     if let Some(x) = image.attributes {
         if let Some(y) = x.id {

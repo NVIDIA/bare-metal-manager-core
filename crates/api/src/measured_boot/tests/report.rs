@@ -27,16 +27,17 @@
 mod tests {
     use std::collections::{HashMap, HashSet};
 
-    use carbide_uuid::measured_boot::MeasurementReportId;
-    use db::db_read::PgPoolReader;
-    use db::measured_boot::interface::common::pcr_register_values_to_map;
-    use db::measured_boot::interface::report::{
+    use nico_api_db::db_read::PgPoolReader;
+    use nico_api_db::measured_boot::interface::common::pcr_register_values_to_map;
+    use nico_api_db::measured_boot::interface::report::{
         get_all_measurement_report_records, get_all_measurement_report_value_records,
     };
-    use measured_boot::pcr::{PcrRegisterValue, parse_pcr_index_input};
-    use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+    use nico_measured_boot::pcr::{PcrRegisterValue, parse_pcr_index_input};
+    use nico_measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+    use nico_rpc::forge;
+    use nico_rpc::forge::forge_server::Forge;
+    use nico_uuid::measured_boot::MeasurementReportId;
     use rand::prelude::*;
-    use rpc::forge::forge_server::Forge;
 
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
     use crate::tests::common::api_fixtures::create_test_env;
@@ -91,13 +92,15 @@ mod tests {
         assert_eq!(input_value_map.len(), 7);
 
         // Make a report and make sure it looks good.
-        let report = db::measured_boot::report::new(&mut txn, machine.machine_id, &values).await?;
+        let report =
+            nico_api_db::measured_boot::report::new(&mut txn, machine.machine_id, &values).await?;
         assert_eq!(report.machine_id, machine.machine_id);
         assert_eq!(report.pcr_values().len(), 7);
         let report_value_map = pcr_register_values_to_map(&report.pcr_values())?;
 
         // Get the same report and make sure its the same as the report we made.
-        let same_report = db::measured_boot::report::from_id(&mut txn, report.report_id).await?;
+        let same_report =
+            nico_api_db::measured_boot::report::from_id(&mut txn, report.report_id).await?;
         assert_eq!(report.report_id, same_report.report_id);
         assert_eq!(report.ts, same_report.ts);
         assert_eq!(same_report.machine_id, machine.machine_id);
@@ -109,19 +112,24 @@ mod tests {
         // Verify that the timestamp has been updated.
 
         // get journal first
-        let journal =
-            db::measured_boot::journal::get_journal_for_report_id(&mut txn, report.report_id)
-                .await?;
+        let journal = nico_api_db::measured_boot::journal::get_journal_for_report_id(
+            &mut txn,
+            report.report_id,
+        )
+        .await?;
 
-        let report2 = db::measured_boot::report::new(&mut txn, machine.machine_id, &values).await?;
+        let report2 =
+            nico_api_db::measured_boot::report::new(&mut txn, machine.machine_id, &values).await?;
         assert_eq!(report2.machine_id, machine.machine_id);
         assert_eq!(report2.report_id, report.report_id);
         assert_eq!(report2.pcr_values().len(), 7);
 
         // check journal too
-        let journal2 =
-            db::measured_boot::journal::get_journal_for_report_id(&mut txn, report.report_id)
-                .await?;
+        let journal2 = nico_api_db::measured_boot::journal::get_journal_for_report_id(
+            &mut txn,
+            report.report_id,
+        )
+        .await?;
         assert_eq!(journal.journal_id, journal2.journal_id);
         assert_eq!(journal.report_id, journal2.report_id);
         assert_eq!(journal.machine_id, journal2.machine_id);
@@ -185,13 +193,14 @@ mod tests {
 
         // Make a report and make sure it looks good.
         let report3 =
-            db::measured_boot::report::new(&mut txn, machine.machine_id, &values3).await?;
+            nico_api_db::measured_boot::report::new(&mut txn, machine.machine_id, &values3).await?;
         assert_eq!(report3.machine_id, machine.machine_id);
         assert_eq!(report3.pcr_values().len(), 7);
         let report3_value_map = pcr_register_values_to_map(&report3.pcr_values())?;
 
         // Get the same report and make sure its the same as the report we made.
-        let same_report3 = db::measured_boot::report::from_id(&mut txn, report3.report_id).await?;
+        let same_report3 =
+            nico_api_db::measured_boot::report::from_id(&mut txn, report3.report_id).await?;
         assert_eq!(report3.report_id, same_report3.report_id);
         assert_eq!(report3.ts, same_report3.ts);
         assert_eq!(same_report3.machine_id, machine.machine_id);
@@ -209,7 +218,7 @@ mod tests {
         }
 
         // And then get everything thus far.
-        let reports = db::measured_boot::report::get_all(txn.as_mut()).await?;
+        let reports = nico_api_db::measured_boot::report::get_all(txn.as_mut()).await?;
         assert_eq!(reports.len(), 2);
 
         // And now lets do some database record checks.
@@ -245,7 +254,7 @@ mod tests {
         .collect();
 
         let optional_profile =
-            db::measured_boot::profile::load_from_attrs(&mut txn, &attrs).await?;
+            nico_api_db::measured_boot::profile::load_from_attrs(&mut txn, &attrs).await?;
         assert!(optional_profile.is_none());
 
         let values: Vec<PcrRegisterValue> = vec![
@@ -282,19 +291,23 @@ mod tests {
         assert_eq!(input_value_map.len(), 7);
 
         // Make a report and make sure the records themselves are correct.
-        let report = db::measured_boot::report::new(&mut txn, machine.machine_id, &values).await?;
+        let report =
+            nico_api_db::measured_boot::report::new(&mut txn, machine.machine_id, &values).await?;
 
         txn.commit().await?;
         let mut txn = pool.begin().await?;
 
         // And NOW there should be a profile.
         let optional_profile =
-            db::measured_boot::profile::load_from_attrs(&mut txn, &attrs).await?;
+            nico_api_db::measured_boot::profile::load_from_attrs(&mut txn, &attrs).await?;
         assert!(optional_profile.is_some());
         let profile = optional_profile.unwrap();
 
-        let journals =
-            db::measured_boot::journal::get_all_for_machine_id(&mut txn, report.machine_id).await?;
+        let journals = nico_api_db::measured_boot::journal::get_all_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert_eq!(journals.len(), 1);
 
         let journal = &journals[0];
@@ -359,13 +372,19 @@ mod tests {
         //
         // ...which means we have what we need to promote a new bundle,
         // which will result in a second journal entry.
-        let report = db::measured_boot::report::new(&mut txn, machine.machine_id, &values).await?;
-        let journals =
-            db::measured_boot::journal::get_all_for_machine_id(&mut txn, report.machine_id).await?;
+        let report =
+            nico_api_db::measured_boot::report::new(&mut txn, machine.machine_id, &values).await?;
+        let journals = nico_api_db::measured_boot::journal::get_all_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert_eq!(journals.len(), 1);
-        let is_latest_journal =
-            db::measured_boot::journal::get_latest_for_machine_id(&mut txn, report.machine_id)
-                .await?;
+        let is_latest_journal = nico_api_db::measured_boot::journal::get_latest_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.state, MeasurementMachineState::PendingBundle);
@@ -374,18 +393,24 @@ mod tests {
         // Make a bundle with all of the values from the report,
         // and make sure everything gets updated accordingly.
         let bundle_full =
-            db::measured_boot::report::create_active_bundle(&mut txn, &report, &None).await?;
-        let bundles = db::measured_boot::bundle::get_all(txn.as_mut()).await?;
+            nico_api_db::measured_boot::report::create_active_bundle(&mut txn, &report, &None)
+                .await?;
+        let bundles = nico_api_db::measured_boot::bundle::get_all(txn.as_mut()).await?;
         assert_eq!(bundles.len(), 1);
-        let journals =
-            db::measured_boot::journal::get_all_for_machine_id(&mut txn, report.machine_id).await?;
+        let journals = nico_api_db::measured_boot::journal::get_all_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert_eq!(journals.len(), 2);
         let first_bundle =
-            db::measured_boot::bundle::from_id(&mut txn, bundle_full.bundle_id).await?;
+            nico_api_db::measured_boot::bundle::from_id(&mut txn, bundle_full.bundle_id).await?;
         assert_eq!(first_bundle.pcr_values().len(), 7);
-        let is_latest_journal =
-            db::measured_boot::journal::get_latest_for_machine_id(&mut txn, report.machine_id)
-                .await?;
+        let is_latest_journal = nico_api_db::measured_boot::journal::get_latest_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.bundle_id, Some(first_bundle.bundle_id));
@@ -394,21 +419,29 @@ mod tests {
         // Create a new bundle with SOME of the bundles from the report,
         // and make sure it all looks good.
         let pcr_set = parse_pcr_index_input("0-3")?;
-        let bundle_partial =
-            db::measured_boot::report::create_active_bundle(&mut txn, &report, &Some(pcr_set))
-                .await?;
-        let bundles = db::measured_boot::bundle::get_all(txn.as_mut()).await?;
+        let bundle_partial = nico_api_db::measured_boot::report::create_active_bundle(
+            &mut txn,
+            &report,
+            &Some(pcr_set),
+        )
+        .await?;
+        let bundles = nico_api_db::measured_boot::bundle::get_all(txn.as_mut()).await?;
         assert_eq!(bundles.len(), 2);
-        let journals =
-            db::measured_boot::journal::get_all_for_machine_id(&mut txn, report.machine_id).await?;
+        let journals = nico_api_db::measured_boot::journal::get_all_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert_eq!(journals.len(), 3);
         let second_bundle =
-            db::measured_boot::bundle::from_id(&mut txn, bundle_partial.bundle_id).await?;
+            nico_api_db::measured_boot::bundle::from_id(&mut txn, bundle_partial.bundle_id).await?;
         assert_eq!(second_bundle.pcr_values().len(), 4);
 
-        let is_latest_journal =
-            db::measured_boot::journal::get_latest_for_machine_id(&mut txn, report.machine_id)
-                .await?;
+        let is_latest_journal = nico_api_db::measured_boot::journal::get_latest_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.bundle_id, Some(second_bundle.bundle_id));
@@ -452,7 +485,7 @@ mod tests {
             },
         ];
 
-        let other_bundle = db::measured_boot::bundle::new(
+        let other_bundle = nico_api_db::measured_boot::bundle::new(
             &mut txn,
             bundle_partial.profile_id,
             None,
@@ -461,18 +494,23 @@ mod tests {
         )
         .await?;
 
-        let bundles = db::measured_boot::bundle::get_all(txn.as_mut()).await?;
+        let bundles = nico_api_db::measured_boot::bundle::get_all(txn.as_mut()).await?;
         assert_eq!(bundles.len(), 3);
-        let journals =
-            db::measured_boot::journal::get_all_for_machine_id(&mut txn, report.machine_id).await?;
+        let journals = nico_api_db::measured_boot::journal::get_all_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert_eq!(journals.len(), 3);
         let third_bundle =
-            db::measured_boot::bundle::from_id(&mut txn, other_bundle.bundle_id).await?;
+            nico_api_db::measured_boot::bundle::from_id(&mut txn, other_bundle.bundle_id).await?;
         assert_eq!(third_bundle.pcr_values().len(), 8);
 
-        let is_latest_journal =
-            db::measured_boot::journal::get_latest_for_machine_id(&mut txn, report.machine_id)
-                .await?;
+        let is_latest_journal = nico_api_db::measured_boot::journal::get_latest_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.bundle_id, Some(second_bundle.bundle_id));
@@ -533,13 +571,19 @@ mod tests {
         //
         // ...which means we have what we need to promote a new bundle,
         // which will result in a second journal entry.
-        let report = db::measured_boot::report::new(&mut txn, machine.machine_id, &values).await?;
-        let journals =
-            db::measured_boot::journal::get_all_for_machine_id(&mut txn, report.machine_id).await?;
+        let report =
+            nico_api_db::measured_boot::report::new(&mut txn, machine.machine_id, &values).await?;
+        let journals = nico_api_db::measured_boot::journal::get_all_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert_eq!(journals.len(), 1);
-        let is_latest_journal =
-            db::measured_boot::journal::get_latest_for_machine_id(&mut txn, report.machine_id)
-                .await?;
+        let is_latest_journal = nico_api_db::measured_boot::journal::get_latest_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.state, MeasurementMachineState::PendingBundle);
@@ -548,20 +592,28 @@ mod tests {
         // Make a bundle with some of the values from the report,
         // and make sure everything gets updated accordingly.
         let pcr_set = parse_pcr_index_input("0-3")?;
-        let bundle_partial =
-            db::measured_boot::report::create_revoked_bundle(&mut txn, &report, &Some(pcr_set))
-                .await?;
-        let bundles = db::measured_boot::bundle::get_all(txn.as_mut()).await?;
+        let bundle_partial = nico_api_db::measured_boot::report::create_revoked_bundle(
+            &mut txn,
+            &report,
+            &Some(pcr_set),
+        )
+        .await?;
+        let bundles = nico_api_db::measured_boot::bundle::get_all(txn.as_mut()).await?;
         assert_eq!(bundles.len(), 1);
-        let journals =
-            db::measured_boot::journal::get_all_for_machine_id(&mut txn, report.machine_id).await?;
+        let journals = nico_api_db::measured_boot::journal::get_all_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert_eq!(journals.len(), 2);
         let first_bundle =
-            db::measured_boot::bundle::from_id(&mut txn, bundle_partial.bundle_id).await?;
+            nico_api_db::measured_boot::bundle::from_id(&mut txn, bundle_partial.bundle_id).await?;
         assert_eq!(first_bundle.pcr_values().len(), 4);
-        let is_latest_journal =
-            db::measured_boot::journal::get_latest_for_machine_id(&mut txn, report.machine_id)
-                .await?;
+        let is_latest_journal = nico_api_db::measured_boot::journal::get_latest_for_machine_id(
+            &mut txn,
+            report.machine_id,
+        )
+        .await?;
         assert!(is_latest_journal.is_some());
         let latest_journal = is_latest_journal.unwrap();
         assert_eq!(latest_journal.bundle_id, Some(first_bundle.bundle_id));
@@ -638,15 +690,17 @@ mod tests {
             ];
 
             let report =
-                db::measured_boot::report::new(&mut txn, machine_1.machine_id, &values).await?;
+                nico_api_db::measured_boot::report::new(&mut txn, machine_1.machine_id, &values)
+                    .await?;
             inserted_report_ids.push(report.report_id);
             let report =
-                db::measured_boot::report::new(&mut txn, machine_2.machine_id, &values).await?;
+                nico_api_db::measured_boot::report::new(&mut txn, machine_2.machine_id, &values)
+                    .await?;
             inserted_report_ids.push(report.report_id);
         }
 
         // make sure 520 reports have been stored
-        let inserted_reports = db::measured_boot::report::get_all(txn.as_mut()).await?;
+        let inserted_reports = nico_api_db::measured_boot::report::get_all(txn.as_mut()).await?;
         assert_eq!(inserted_reports.len(), 520);
 
         // since the trim operation happens in a separate transaction, we need to commit
@@ -654,8 +708,8 @@ mod tests {
         let _ = txn.commit().await;
 
         // now trim the table and verify that it has been trimmed down to 500
-        let request = tonic::Request::new(rpc::forge::TrimTableRequest {
-            target: rpc::forge::TrimTableTarget::MeasuredBoot as i32,
+        let request = tonic::Request::new(forge::TrimTableRequest {
+            target: forge::TrimTableTarget::MeasuredBoot as i32,
             keep_entries: 250,
         });
 
@@ -664,7 +718,7 @@ mod tests {
 
         // make sure 500 are remaining
         let remaining_reports =
-            db::measured_boot::report::get_all(&mut PgPoolReader::from(pool)).await?;
+            nico_api_db::measured_boot::report::get_all(&mut PgPoolReader::from(pool)).await?;
         assert_eq!(remaining_reports.len(), 500);
 
         // now make sure the first 20 reports are already gone and the rest are still in

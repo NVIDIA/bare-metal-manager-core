@@ -27,7 +27,9 @@ fn main() -> eyre::Result<()> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    rt.block_on(otel_agent::start(otel_agent::Options::load()))?;
+    rt.block_on(nico_dpu_otel_agent::start(
+        nico_dpu_otel_agent::Options::load(),
+    ))?;
     rt.shutdown_timeout(Duration::from_secs(2));
     Ok(())
 }

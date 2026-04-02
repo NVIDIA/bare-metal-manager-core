@@ -52,7 +52,7 @@ Core type definitions and validation logic for Mellanox hardware configuration. 
 The `with()` method automatically converts input types based on the variable's specification:
 
 ```rust
-use libmlx::variables::variable::MlxConfigVariable;
+use nico_libmlx::variables::variable::MlxConfigVariable;
 
 let turbo_var = registry.get_variable("enable_turbo").unwrap();
 let freq_var = registry.get_variable("cpu_frequency").unwrap();
@@ -101,8 +101,8 @@ The system natively handles string input from `mlxconfig` JSON responses:
 ### Builder Patterns
 
 ```rust
-use libmlx::variables::variable::MlxConfigVariable;
-use libmlx::variables::spec::MlxVariableSpec;
+use nico_libmlx::variables::variable::MlxConfigVariable;
+use nico_libmlx::variables::spec::MlxVariableSpec;
 
 let variable = MlxConfigVariable::builder()
     .name("turbo_enabled")
@@ -166,7 +166,7 @@ databases/     Validation    src/registry/          Static access
 ### Usage
 
 ```rust
-use libmlx::registry::registries;
+use nico_libmlx::registry::registries;
 
 // List all registries
 println!("Available: {:?}", registries::list());
@@ -220,8 +220,8 @@ High-level Rust wrapper around the `mlxconfig` CLI tool with type-safe, registry
 ### Quick Start
 
 ```rust
-use libmlx::runner::runner::MlxConfigRunner;
-use libmlx::registry::registries;
+use nico_libmlx::runner::runner::MlxConfigRunner;
+use nico_libmlx::registry::registries;
 
 let registry = registries::get("mlx_generic").unwrap();
 let runner = MlxConfigRunner::new("01:00.0".to_string(), registry.clone());
@@ -287,7 +287,7 @@ runner.set(&[
 ### Execution Options
 
 ```rust
-use libmlx::runner::exec_options::ExecOptions;
+use nico_libmlx::runner::exec_options::ExecOptions;
 use std::time::Duration;
 
 let options = ExecOptions::default()
@@ -325,8 +325,8 @@ Profile-based configuration management that ties together variables, registries,
 ### Profile Builder
 
 ```rust
-use libmlx::profile::profile::MlxConfigProfile;
-use libmlx::registry::registries;
+use nico_libmlx::profile::profile::MlxConfigProfile;
+use nico_libmlx::registry::registries;
 
 let registry = registries::get("mlx_generic").unwrap().clone();
 
@@ -395,7 +395,7 @@ let json_string = profile.to_json_string()?;
 ### Error Handling
 
 ```rust
-use libmlx::profile::error::MlxProfileError;
+use nico_libmlx::profile::error::MlxProfileError;
 
 match profile.sync("01:00.0", None) {
     Ok(result) => println!("Success: {}", result.summary()),
@@ -433,8 +433,8 @@ Firmware management for Mellanox NICs, including flash, verify, and reset operat
 | `file://` or bare path | Local file | `/opt/firmware/prod.bin` |
 
 ```rust
-use libmlx::firmware::source::FirmwareSource;
-use libmlx::firmware::credentials::Credentials;
+use nico_libmlx::firmware::source::FirmwareSource;
+use nico_libmlx::firmware::credentials::Credentials;
 
 let source = FirmwareSource::from_url("https://artifacts.example.com/fw/prod.signed.bin")?
     .with_credentials(Credentials::bearer_token("my-token"));
@@ -446,7 +446,7 @@ let source = FirmwareSource::from_url("ssh://deploy@build-server:builds/fw/prod.
 ### Credentials
 
 ```rust
-use libmlx::firmware::credentials::Credentials;
+use nico_libmlx::firmware::credentials::Credentials;
 
 // HTTP
 let bearer = Credentials::bearer_token("eyJhbGciOi...");
@@ -463,8 +463,8 @@ let agent = Credentials::ssh_agent();
 Builder-pattern orchestrator for firmware operations:
 
 ```rust
-use libmlx::firmware::flasher::FirmwareFlasher;
-use libmlx::firmware::source::FirmwareSource;
+use nico_libmlx::firmware::flasher::FirmwareFlasher;
+use nico_libmlx::firmware::source::FirmwareSource;
 
 // Flash local firmware
 let flasher = FirmwareFlasher::new("4b:00.0")

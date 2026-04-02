@@ -22,8 +22,9 @@ use common::api_fixtures::host::host_discover_dhcp;
 use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_managed_host, create_test_env};
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::hardware_info::HardwareInfo;
-use rpc::forge::forge_server::Forge;
+use nico_api_model::hardware_info::HardwareInfo;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 use tonic::Request;
 
 use crate::tests::common;
@@ -35,7 +36,7 @@ async fn test_machine_discovery_no_domain(
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let machine_interface = db::machine_interface::validate_existing_mac_and_create(
+    let machine_interface = nico_api_db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
         FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
@@ -72,7 +73,7 @@ async fn test_machine_discovery_with_domain(
         .await
         .expect("Unable to create transaction on database pool");
 
-    let machine_interface = db::machine_interface::validate_existing_mac_and_create(
+    let machine_interface = nico_api_db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
         FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
@@ -118,10 +119,10 @@ async fn test_reject_host_machine_with_disabled_tpm(
 
     let response = env
         .api
-        .discover_machine(tonic::Request::new(rpc::MachineDiscoveryInfo {
+        .discover_machine(tonic::Request::new(forge::MachineDiscoveryInfo {
             machine_interface_id: Some(host_machine_interface_id),
-            discovery_data: Some(rpc::DiscoveryData::Info(
-                rpc::DiscoveryInfo::try_from(hardware_info).unwrap(),
+            discovery_data: Some(nico_rpc::DiscoveryData::Info(
+                nico_rpc::DiscoveryInfo::try_from(hardware_info).unwrap(),
             )),
             create_machine: true,
         }))
@@ -135,9 +136,7 @@ async fn test_reject_host_machine_with_disabled_tpm(
     // We shouldn't have created any machine
     let machine_ids = env
         .api
-        .find_machine_ids(tonic::Request::new(
-            rpc::forge::MachineSearchConfig::default(),
-        ))
+        .find_machine_ids(tonic::Request::new(forge::MachineSearchConfig::default()))
         .await
         .unwrap()
         .into_inner();
@@ -162,7 +161,7 @@ async fn test_discover_2_managed_hosts(
 
     let machine_ids = env
         .api
-        .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+        .find_machine_ids(tonic::Request::new(forge::MachineSearchConfig {
             include_dpus: true,
             ..Default::default()
         }))
@@ -185,7 +184,7 @@ async fn test_discover_dpu_by_source_ip(
 
     let dhcp_response = env
         .api
-        .discover_dhcp(Request::new(rpc::forge::DhcpDiscovery {
+        .discover_dhcp(Request::new(forge::DhcpDiscovery {
             mac_address: dpu.oob_mac_address.to_string(),
             relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
             vendor_string: None,
@@ -198,10 +197,10 @@ async fn test_discover_dpu_by_source_ip(
         .unwrap()
         .into_inner();
 
-    let mut req = Request::new(rpc::MachineDiscoveryInfo {
+    let mut req = Request::new(forge::MachineDiscoveryInfo {
         machine_interface_id: None,
-        discovery_data: Some(rpc::DiscoveryData::Info(
-            rpc::DiscoveryInfo::try_from(HardwareInfo::from(dpu)).unwrap(),
+        discovery_data: Some(nico_rpc::DiscoveryData::Info(
+            nico_rpc::DiscoveryInfo::try_from(HardwareInfo::from(dpu)).unwrap(),
         )),
         create_machine: true,
     });
@@ -224,7 +223,7 @@ async fn test_discover_dpu_not_create_machine(
 
     let dhcp_response = env
         .api
-        .discover_dhcp(Request::new(rpc::forge::DhcpDiscovery {
+        .discover_dhcp(Request::new(forge::DhcpDiscovery {
             mac_address: dpu.oob_mac_address.to_string(),
             relay_address: FIXTURE_DHCP_RELAY_ADDRESS.to_string(),
             vendor_string: None,
@@ -237,10 +236,10 @@ async fn test_discover_dpu_not_create_machine(
         .unwrap()
         .into_inner();
 
-    let mut req = Request::new(rpc::MachineDiscoveryInfo {
+    let mut req = Request::new(forge::MachineDiscoveryInfo {
         machine_interface_id: None,
-        discovery_data: Some(rpc::DiscoveryData::Info(
-            rpc::DiscoveryInfo::try_from(HardwareInfo::from(dpu)).unwrap(),
+        discovery_data: Some(nico_rpc::DiscoveryData::Info(
+            nico_rpc::DiscoveryInfo::try_from(HardwareInfo::from(dpu)).unwrap(),
         )),
         create_machine: false,
     });

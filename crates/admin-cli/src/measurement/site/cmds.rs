@@ -21,10 +21,12 @@
 use std::fs::File;
 use std::io::BufReader;
 
-use ::rpc::admin_cli::{CarbideCliResult, ToTable, cli_output, set_summary};
-use ::rpc::protos::measured_boot::ImportSiteMeasurementsRequest;
-use measured_boot::records::{MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord};
-use measured_boot::site::{ImportResult, SiteModel};
+use nico_measured_boot::records::{
+    MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord,
+};
+use nico_measured_boot::site::{ImportResult, SiteModel};
+use nico_rpc::admin_cli::{CarbideCliResult, ToTable, cli_output, set_summary};
+use nico_rpc::protos::measured_boot::ImportSiteMeasurementsRequest;
 use serde::Serialize;
 
 use crate::measurement::global;
@@ -46,13 +48,13 @@ pub async fn dispatch(
             cli_output(
                 import(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdSite::Export(local_args) => {
-            let dest: ::rpc::admin_cli::Destination = match &local_args.path {
-                Some(path) => ::rpc::admin_cli::Destination::Path(path.clone()),
-                None => ::rpc::admin_cli::Destination::Stdout(),
+            let dest: nico_rpc::admin_cli::Destination = match &local_args.path {
+                Some(path) => nico_rpc::admin_cli::Destination::Path(path.clone()),
+                None => nico_rpc::admin_cli::Destination::Stdout(),
             };
             cli_output(
                 export(cli.grpc_conn, local_args).await?,
@@ -65,7 +67,7 @@ pub async fn dispatch(
                 cli_output(
                     approve_machine(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
             TrustedMachine::Remove(selector) => match selector {
@@ -73,14 +75,14 @@ pub async fn dispatch(
                     cli_output(
                         remove_machine_by_approval_id(cli.grpc_conn, local_args).await?,
                         &cli.args.format,
-                        ::rpc::admin_cli::Destination::Stdout(),
+                        nico_rpc::admin_cli::Destination::Stdout(),
                     )?;
                 }
                 RemoveMachine::ByMachineId(local_args) => {
                     cli_output(
                         remove_machine_by_machine_id(cli.grpc_conn, local_args).await?,
                         &cli.args.format,
-                        ::rpc::admin_cli::Destination::Stdout(),
+                        nico_rpc::admin_cli::Destination::Stdout(),
                     )?;
                 }
             },
@@ -88,7 +90,7 @@ pub async fn dispatch(
                 cli_output(
                     list_machines(cli.grpc_conn).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
         },
@@ -97,7 +99,7 @@ pub async fn dispatch(
                 cli_output(
                     approve_profile(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
             TrustedProfile::Remove(selector) => match selector {
@@ -105,14 +107,14 @@ pub async fn dispatch(
                     cli_output(
                         remove_profile_by_approval_id(cli.grpc_conn, local_args).await?,
                         &cli.args.format,
-                        ::rpc::admin_cli::Destination::Stdout(),
+                        nico_rpc::admin_cli::Destination::Stdout(),
                     )?;
                 }
                 RemoveProfile::ByProfileId(local_args) => {
                     cli_output(
                         remove_profile_by_profile_id(cli.grpc_conn, local_args).await?,
                         &cli.args.format,
-                        ::rpc::admin_cli::Destination::Stdout(),
+                        nico_rpc::admin_cli::Destination::Stdout(),
                     )?;
                 }
             },
@@ -120,7 +122,7 @@ pub async fn dispatch(
                 cli_output(
                     list_profiles(cli.grpc_conn).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
         },

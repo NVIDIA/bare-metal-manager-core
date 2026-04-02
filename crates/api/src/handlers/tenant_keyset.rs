@@ -17,12 +17,12 @@
 
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
-use ::rpc::forge as rpc;
 use itertools::Itertools;
-use model::tenant::{
+use nico_api_model::tenant::{
     PublicKey, TenantKeyset, TenantKeysetIdentifier, TenantPublicKey,
     TenantPublicKeyValidationRequest, UpdateTenantKeyset,
 };
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -30,8 +30,8 @@ use crate::api::{Api, log_request_data};
 
 pub(crate) async fn create(
     api: &Api,
-    request: Request<rpc::CreateTenantKeysetRequest>,
-) -> Result<Response<rpc::CreateTenantKeysetResponse>, Status> {
+    request: Request<forge::CreateTenantKeysetRequest>,
+) -> Result<Response<forge::CreateTenantKeysetResponse>, Status> {
     crate::api::log_request_data(&request);
 
     let keyset_request: TenantKeyset = request
@@ -41,7 +41,7 @@ pub(crate) async fn create(
 
     let mut txn = api.txn_begin().await?;
 
-    let keyset = db::tenant_keyset::create(&keyset_request, &mut txn).await?;
+    let keyset = nico_api_db::tenant_keyset::create(&keyset_request, &mut txn).await?;
 
     txn.commit().await?;
 
@@ -55,36 +55,36 @@ pub(crate) async fn create(
         "Tenant keyset created"
     );
 
-    Ok(Response::new(rpc::CreateTenantKeysetResponse {
+    Ok(Response::new(forge::CreateTenantKeysetResponse {
         keyset: Some(keyset.into()),
     }))
 }
 
 pub(crate) async fn find_ids(
     api: &Api,
-    request: Request<rpc::TenantKeysetSearchFilter>,
-) -> Result<Response<rpc::TenantKeysetIdList>, Status> {
+    request: Request<forge::TenantKeysetSearchFilter>,
+) -> Result<Response<forge::TenantKeysetIdList>, Status> {
     log_request_data(&request);
 
-    let filter: model::tenant::TenantKeysetSearchFilter = request.into_inner().into();
+    let filter: nico_api_model::tenant::TenantKeysetSearchFilter = request.into_inner().into();
 
-    let keyset_ids = db::tenant_keyset::find_ids(&api.database_connection, filter).await?;
+    let keyset_ids = nico_api_db::tenant_keyset::find_ids(&api.database_connection, filter).await?;
 
-    Ok(Response::new(rpc::TenantKeysetIdList {
+    Ok(Response::new(forge::TenantKeysetIdList {
         keyset_ids: keyset_ids
             .into_iter()
-            .map(rpc::TenantKeysetIdentifier::from)
+            .map(forge::TenantKeysetIdentifier::from)
             .collect(),
     }))
 }
 
 pub(crate) async fn find_by_ids(
     api: &Api,
-    request: Request<rpc::TenantKeysetsByIdsRequest>,
-) -> Result<Response<rpc::TenantKeySetList>, Status> {
+    request: Request<forge::TenantKeysetsByIdsRequest>,
+) -> Result<Response<forge::TenantKeySetList>, Status> {
     log_request_data(&request);
 
-    let rpc::TenantKeysetsByIdsRequest {
+    let forge::TenantKeysetsByIdsRequest {
         keyset_ids,
         include_key_data,
         ..
@@ -102,18 +102,21 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let keyset_ids: Vec<model::tenant::TenantKeysetIdentifier> = keyset_ids
+    let keyset_ids: Vec<nico_api_model::tenant::TenantKeysetIdentifier> = keyset_ids
         .into_iter()
         .map(|id| id.try_into())
         .collect::<Result<_, _>>()?;
 
-    let keysets =
-        db::tenant_keyset::find_by_ids(&api.database_connection, keyset_ids, include_key_data)
-            .await;
+    let keysets = nico_api_db::tenant_keyset::find_by_ids(
+        &api.database_connection,
+        keyset_ids,
+        include_key_data,
+    )
+    .await;
 
     let result = keysets
-        .map(|vpc| rpc::TenantKeySetList {
-            keyset: vpc.into_iter().map(rpc::TenantKeyset::from).collect(),
+        .map(|vpc| forge::TenantKeySetList {
+            keyset: vpc.into_iter().map(forge::TenantKeyset::from).collect(),
         })
         .map(Response::new)?;
 
@@ -122,8 +125,8 @@ pub(crate) async fn find_by_ids(
 
 pub(crate) async fn update(
     api: &Api,
-    request: Request<rpc::UpdateTenantKeysetRequest>,
-) -> Result<Response<rpc::UpdateTenantKeysetResponse>, Status> {
+    request: Request<forge::UpdateTenantKeysetRequest>,
+) -> Result<Response<forge::UpdateTenantKeysetResponse>, Status> {
     crate::api::log_request_data(&request);
 
     let update_request: UpdateTenantKeyset = request
@@ -133,7 +136,7 @@ pub(crate) async fn update(
 
     let mut txn = api.txn_begin().await?;
 
-    db::tenant_keyset::update(&update_request, &mut txn).await?;
+    nico_api_db::tenant_keyset::update(&update_request, &mut txn).await?;
 
     txn.commit().await?;
 
@@ -147,16 +150,16 @@ pub(crate) async fn update(
         "Tenant keyset updated"
     );
 
-    Ok(Response::new(rpc::UpdateTenantKeysetResponse {}))
+    Ok(Response::new(forge::UpdateTenantKeysetResponse {}))
 }
 
 pub(crate) async fn delete(
     api: &Api,
-    request: Request<rpc::DeleteTenantKeysetRequest>,
-) -> Result<Response<rpc::DeleteTenantKeysetResponse>, Status> {
+    request: Request<forge::DeleteTenantKeysetRequest>,
+) -> Result<Response<forge::DeleteTenantKeysetResponse>, Status> {
     crate::api::log_request_data(&request);
 
-    let rpc::DeleteTenantKeysetRequest { keyset_identifier } = request.into_inner();
+    let forge::DeleteTenantKeysetRequest { keyset_identifier } = request.into_inner();
 
     let mut txn = api.txn_begin().await?;
 
@@ -167,7 +170,7 @@ pub(crate) async fn delete(
     let keyset_identifier: TenantKeysetIdentifier =
         keyset_identifier.try_into().map_err(CarbideError::from)?;
 
-    if !db::tenant_keyset::delete(&keyset_identifier, &mut txn).await? {
+    if !nico_api_db::tenant_keyset::delete(&keyset_identifier, &mut txn).await? {
         return Err(CarbideError::NotFoundError {
             kind: "keyset",
             id: format!("{keyset_identifier:?}"),
@@ -182,23 +185,23 @@ pub(crate) async fn delete(
         "Tenant keyset deleted"
     );
 
-    Ok(Response::new(rpc::DeleteTenantKeysetResponse {}))
+    Ok(Response::new(forge::DeleteTenantKeysetResponse {}))
 }
 
 pub(crate) async fn validate_public_key(
     api: &Api,
-    request: Request<rpc::ValidateTenantPublicKeyRequest>,
-) -> Result<Response<rpc::ValidateTenantPublicKeyResponse>, Status> {
+    request: Request<forge::ValidateTenantPublicKeyRequest>,
+) -> Result<Response<forge::ValidateTenantPublicKeyResponse>, Status> {
     let request = TenantPublicKeyValidationRequest::try_from(request.into_inner())
         .map_err(CarbideError::from)?;
 
     let mut txn = api.txn_begin().await?;
 
-    db::tenant::validate_public_key(&request, &mut txn).await?;
+    nico_api_db::tenant::validate_public_key(&request, &mut txn).await?;
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::ValidateTenantPublicKeyResponse {}))
+    Ok(Response::new(forge::ValidateTenantPublicKeyResponse {}))
 }
 
 struct PublicKeySuffixes<'a>(&'a Vec<TenantPublicKey>);

@@ -16,7 +16,8 @@
  */
 
 use config_version::ConfigVersion;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 use tonic::Code;
 
 use crate::tests::common::api_fixtures::instance::{
@@ -31,9 +32,7 @@ async fn test_instance_type_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     let existing_instance_type_ids = env
         .api
-        .find_instance_type_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypeIdsRequest {},
-        ))
+        .find_instance_type_ids(tonic::Request::new(forge::FindInstanceTypeIdsRequest {}))
         .await
         .unwrap()
         .into_inner()
@@ -42,9 +41,9 @@ async fn test_instance_type_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let id = "can_i_see_some_id?";
 
     // Prepare some attributes for creation and comparison later
-    let instance_type_attributes = Some(rpc::forge::InstanceTypeAttributes {
-        desired_capabilities: vec![rpc::forge::InstanceTypeMachineCapabilityFilterAttributes {
-            capability_type: rpc::forge::MachineCapabilityType::CapTypeCpu.into(),
+    let instance_type_attributes = Some(forge::InstanceTypeAttributes {
+        desired_capabilities: vec![forge::InstanceTypeMachineCapabilityFilterAttributes {
+            capability_type: forge::MachineCapabilityType::CapTypeCpu.into(),
             name: Some("pentium 4 HT".to_string()),
             frequency: Some("1.3 GHz".to_string()),
             capacity: None,
@@ -54,11 +53,11 @@ async fn test_instance_type_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std
             cores: Some(1),
             threads: Some(2),
             inactive_devices: None,
-            device_type: Some(rpc::forge::MachineCapabilityDeviceType::Unknown as i32),
+            device_type: Some(forge::MachineCapabilityDeviceType::Unknown as i32),
         }],
     });
 
-    let metadata = Some(rpc::forge::Metadata {
+    let metadata = Some(forge::Metadata {
         name: "the best type".to_string(),
         description: "".to_string(),
         labels: vec![],
@@ -67,7 +66,7 @@ async fn test_instance_type_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // First, we'll create a new instance type
     let forge_instance_type = env
         .api
-        .create_instance_type(tonic::Request::new(rpc::forge::CreateInstanceTypeRequest {
+        .create_instance_type(tonic::Request::new(forge::CreateInstanceTypeRequest {
             id: Some(id.to_string()),
             metadata: metadata.clone(),
             instance_type_attributes: instance_type_attributes.clone(),
@@ -92,7 +91,7 @@ async fn test_instance_type_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // This should fail.
     let _ = env
         .api
-        .create_instance_type(tonic::Request::new(rpc::forge::CreateInstanceTypeRequest {
+        .create_instance_type(tonic::Request::new(forge::CreateInstanceTypeRequest {
             id: Some("any_other_id".to_string()),
             metadata: metadata.clone(),
             instance_type_attributes: instance_type_attributes.clone(),
@@ -105,9 +104,7 @@ async fn test_instance_type_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     let forge_instance_type_ids = env
         .api
-        .find_instance_type_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypeIdsRequest {},
-        ))
+        .find_instance_type_ids(tonic::Request::new(forge::FindInstanceTypeIdsRequest {}))
         .await
         .unwrap()
         .into_inner()
@@ -123,13 +120,11 @@ async fn test_instance_type_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // and make sure everything still matches.
     let forge_instance_types = env
         .api
-        .find_instance_types_by_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypesByIdsRequest {
-                instance_type_ids: vec![id.to_string()],
-                tenant_organization_id: None,
-                include_allocation_stats: false,
-            },
-        ))
+        .find_instance_types_by_ids(tonic::Request::new(forge::FindInstanceTypesByIdsRequest {
+            instance_type_ids: vec![id.to_string()],
+            tenant_organization_id: None,
+            include_allocation_stats: false,
+        }))
         .await
         .unwrap()
         .into_inner()
@@ -159,9 +154,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // Find the existing instance types in the test env
     let existing_instance_type_ids = env
         .api
-        .find_instance_type_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypeIdsRequest {},
-        ))
+        .find_instance_type_ids(tonic::Request::new(forge::FindInstanceTypeIdsRequest {}))
         .await
         .unwrap()
         .into_inner()
@@ -169,13 +162,11 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     let existing_instance_types = env
         .api
-        .find_instance_types_by_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypesByIdsRequest {
-                instance_type_ids: existing_instance_type_ids,
-                tenant_organization_id: None,
-                include_allocation_stats: false,
-            },
-        ))
+        .find_instance_types_by_ids(tonic::Request::new(forge::FindInstanceTypesByIdsRequest {
+            instance_type_ids: existing_instance_type_ids,
+            tenant_organization_id: None,
+            include_allocation_stats: false,
+        }))
         .await
         .unwrap()
         .into_inner()
@@ -185,9 +176,9 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let original_attributes = existing_instance_types[0].attributes.clone();
     let version = existing_instance_types[0].version.clone();
 
-    let update_instance_type_attributes = Some(rpc::forge::InstanceTypeAttributes {
-        desired_capabilities: vec![rpc::forge::InstanceTypeMachineCapabilityFilterAttributes {
-            capability_type: rpc::forge::MachineCapabilityType::CapTypeCpu.into(),
+    let update_instance_type_attributes = Some(forge::InstanceTypeAttributes {
+        desired_capabilities: vec![forge::InstanceTypeMachineCapabilityFilterAttributes {
+            capability_type: forge::MachineCapabilityType::CapTypeCpu.into(),
             name: Some("pentium 9000".to_string()),
             frequency: Some("100.3 GHz".to_string()),
             capacity: None,
@@ -197,11 +188,11 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
             cores: Some(1),
             threads: Some(2),
             inactive_devices: None,
-            device_type: Some(rpc::forge::MachineCapabilityDeviceType::Unknown as i32),
+            device_type: Some(forge::MachineCapabilityDeviceType::Unknown as i32),
         }],
     });
 
-    let metadata = Some(rpc::forge::Metadata {
+    let metadata = Some(forge::Metadata {
         name: "fixture_test_instance_type_1".to_string(),
         description: "".to_string(),
         labels: vec![],
@@ -214,7 +205,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let _ = env
         .api
         .associate_machines_with_instance_type(tonic::Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            forge::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: id.to_string(),
                 machine_ids: vec![tmp_machine_id.to_string()],
             },
@@ -226,7 +217,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let _ = env
         .api
         .associate_machines_with_instance_type(tonic::Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            forge::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: id.to_string(),
                 machine_ids: vec![dpu_machine_id.to_string()],
             },
@@ -238,9 +229,9 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // because there's no capability filter change.
     let _ = env
         .api
-        .update_instance_type(tonic::Request::new(rpc::forge::UpdateInstanceTypeRequest {
+        .update_instance_type(tonic::Request::new(forge::UpdateInstanceTypeRequest {
             id: id.to_string(),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "zoinks".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -255,7 +246,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // because there's a machine associated with the instance type.
     let _ = env
         .api
-        .update_instance_type(tonic::Request::new(rpc::forge::UpdateInstanceTypeRequest {
+        .update_instance_type(tonic::Request::new(forge::UpdateInstanceTypeRequest {
             id: id.to_string(),
             metadata: metadata.clone(),
             instance_type_attributes: update_instance_type_attributes.clone(),
@@ -268,7 +259,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let _ = env
         .api
         .remove_machine_instance_type_association(tonic::Request::new(
-            rpc::forge::RemoveMachineInstanceTypeAssociationRequest {
+            forge::RemoveMachineInstanceTypeAssociationRequest {
                 machine_id: tmp_machine_id.to_string(),
             },
         ))
@@ -279,7 +270,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // pass because there are no associated machines.
     let forge_instance_type = env
         .api
-        .update_instance_type(tonic::Request::new(rpc::forge::UpdateInstanceTypeRequest {
+        .update_instance_type(tonic::Request::new(forge::UpdateInstanceTypeRequest {
             id: id.to_string(),
             metadata: metadata.clone(),
             instance_type_attributes: update_instance_type_attributes.clone(),
@@ -312,7 +303,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // This should fail.
     let _ = env
         .api
-        .update_instance_type(tonic::Request::new(rpc::forge::UpdateInstanceTypeRequest {
+        .update_instance_type(tonic::Request::new(forge::UpdateInstanceTypeRequest {
             id: id.to_string(),
             metadata: metadata.clone(),
             instance_type_attributes: update_instance_type_attributes.clone(),
@@ -325,7 +316,7 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // This should pass.
     let forge_instance_type = env
         .api
-        .update_instance_type(tonic::Request::new(rpc::forge::UpdateInstanceTypeRequest {
+        .update_instance_type(tonic::Request::new(forge::UpdateInstanceTypeRequest {
             id: id.to_string(),
             metadata: metadata.clone(),
             instance_type_attributes: update_instance_type_attributes.clone(),
@@ -358,13 +349,11 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // didn't screw-up the DB update and lie to ourselves.
     let forge_instance_types = env
         .api
-        .find_instance_types_by_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypesByIdsRequest {
-                instance_type_ids: vec![forge_instance_type.id.to_string()],
-                tenant_organization_id: None,
-                include_allocation_stats: false,
-            },
-        ))
+        .find_instance_types_by_ids(tonic::Request::new(forge::FindInstanceTypesByIdsRequest {
+            instance_type_ids: vec![forge_instance_type.id.to_string()],
+            tenant_organization_id: None,
+            include_allocation_stats: false,
+        }))
         .await
         .unwrap()
         .into_inner()
@@ -388,9 +377,9 @@ async fn test_instance_type_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // use the name of an existing type.  This should fail.
     let _ = env
         .api
-        .update_instance_type(tonic::Request::new(rpc::forge::UpdateInstanceTypeRequest {
+        .update_instance_type(tonic::Request::new(forge::UpdateInstanceTypeRequest {
             id: id.to_string(),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: existing_instance_types[1].metadata.clone().unwrap().name,
                 description: "".to_string(),
                 labels: vec![],
@@ -411,9 +400,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // Find the existing instance types in the test env
     let existing_instance_type_ids = env
         .api
-        .find_instance_type_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypeIdsRequest {},
-        ))
+        .find_instance_type_ids(tonic::Request::new(forge::FindInstanceTypeIdsRequest {}))
         .await
         .unwrap()
         .into_inner()
@@ -421,13 +408,11 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     let existing_instance_types = env
         .api
-        .find_instance_types_by_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypesByIdsRequest {
-                instance_type_ids: existing_instance_type_ids,
-                tenant_organization_id: None,
-                include_allocation_stats: false,
-            },
-        ))
+        .find_instance_types_by_ids(tonic::Request::new(forge::FindInstanceTypesByIdsRequest {
+            instance_type_ids: existing_instance_type_ids,
+            tenant_organization_id: None,
+            include_allocation_stats: false,
+        }))
         .await
         .unwrap()
         .into_inner()
@@ -443,7 +428,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let _ = env
         .api
         .associate_machines_with_instance_type(tonic::Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            forge::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: id.to_string(),
                 machine_ids: vec![tmp_mh.host().id.to_string()],
             },
@@ -454,11 +439,11 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // Create an instance for the machine.
     let instance_id = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+        .allocate_instance(tonic::Request::new(forge::InstanceAllocationRequest {
             instance_id: None,
             machine_id: tmp_mh.host().id.into(),
             instance_type_id: Some(id.to_string()),
-            config: Some(rpc::InstanceConfig {
+            config: Some(forge::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
                 network: Some(single_interface_network_config(
@@ -487,7 +472,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // with the instance type.
     let _ = env
         .api
-        .delete_instance_type(tonic::Request::new(rpc::forge::DeleteInstanceTypeRequest {
+        .delete_instance_type(tonic::Request::new(forge::DeleteInstanceTypeRequest {
             id: id.to_string(),
         }))
         .await
@@ -501,7 +486,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // with the instance type.
     let _ = env
         .api
-        .delete_instance_type(tonic::Request::new(rpc::forge::DeleteInstanceTypeRequest {
+        .delete_instance_type(tonic::Request::new(forge::DeleteInstanceTypeRequest {
             id: id.to_string(),
         }))
         .await
@@ -530,13 +515,11 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // Next, we'll try to retrieve the deleted instance type
     let forge_instance_types = env
         .api
-        .find_instance_types_by_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypesByIdsRequest {
-                instance_type_ids: vec![id.to_string()],
-                tenant_organization_id: None,
-                include_allocation_stats: false,
-            },
-        ))
+        .find_instance_types_by_ids(tonic::Request::new(forge::FindInstanceTypesByIdsRequest {
+            instance_type_ids: vec![id.to_string()],
+            tenant_organization_id: None,
+            include_allocation_stats: false,
+        }))
         .await
         .unwrap()
         .into_inner()
@@ -549,7 +532,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // This should be a no-op that returns without error.
     let _ = env
         .api
-        .delete_instance_type(tonic::Request::new(rpc::forge::DeleteInstanceTypeRequest {
+        .delete_instance_type(tonic::Request::new(forge::DeleteInstanceTypeRequest {
             id: id.to_string(),
         }))
         .await
@@ -560,7 +543,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let _ = env
         .api
         .associate_machines_with_instance_type(tonic::Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            forge::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: id.to_string(),
                 machine_ids: vec![tmp_mh.host().id.to_string()],
             },
@@ -571,7 +554,7 @@ async fn test_instance_type_delete(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     // Now try to delete an instance type with a blank ID.
     let _ = env
         .api
-        .delete_instance_type(tonic::Request::new(rpc::forge::DeleteInstanceTypeRequest {
+        .delete_instance_type(tonic::Request::new(forge::DeleteInstanceTypeRequest {
             id: "".to_string(),
         }))
         .await
@@ -589,9 +572,7 @@ async fn test_instance_type_associate(
     // Find the existing instance types in the test env
     let existing_instance_type_ids = env
         .api
-        .find_instance_type_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypeIdsRequest {},
-        ))
+        .find_instance_type_ids(tonic::Request::new(forge::FindInstanceTypeIdsRequest {}))
         .await
         .unwrap()
         .into_inner()
@@ -599,13 +580,11 @@ async fn test_instance_type_associate(
 
     let existing_instance_types = env
         .api
-        .find_instance_types_by_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypesByIdsRequest {
-                instance_type_ids: existing_instance_type_ids,
-                tenant_organization_id: None,
-                include_allocation_stats: false,
-            },
-        ))
+        .find_instance_types_by_ids(tonic::Request::new(forge::FindInstanceTypesByIdsRequest {
+            instance_type_ids: existing_instance_type_ids,
+            tenant_organization_id: None,
+            include_allocation_stats: false,
+        }))
         .await
         .unwrap()
         .into_inner()
@@ -622,7 +601,7 @@ async fn test_instance_type_associate(
     let _ = env
         .api
         .associate_machines_with_instance_type(tonic::Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            forge::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: id.clone(),
                 machine_ids: vec![tmp_mh.host().id.to_string()],
             },
@@ -654,11 +633,11 @@ async fn test_instance_type_associate(
     // that doesn't match the source machine. This should fail.
     let err = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+        .allocate_instance(tonic::Request::new(forge::InstanceAllocationRequest {
             instance_id: None,
             machine_id: tmp_mh.host().id.into(),
             instance_type_id: Some("1fcd4e9a-be16-11ef-b892-0fad889bcd2b".to_string()),
-            config: Some(rpc::InstanceConfig {
+            config: Some(forge::InstanceConfig {
                 network_security_group_id: None,
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
@@ -679,11 +658,11 @@ async fn test_instance_type_associate(
     // Create an instance for the machine.
     let instance_id = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::InstanceAllocationRequest {
+        .allocate_instance(tonic::Request::new(forge::InstanceAllocationRequest {
             instance_id: None,
             machine_id: tmp_mh.host().id.into(),
             instance_type_id: machine.instance_type_id.clone(),
-            config: Some(rpc::InstanceConfig {
+            config: Some(forge::InstanceConfig {
                 network_security_group_id: None,
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
@@ -714,7 +693,7 @@ async fn test_instance_type_associate(
     let _ = env
         .api
         .associate_machines_with_instance_type(tonic::Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            forge::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: id.clone(),
                 machine_ids: vec![tmp_mh.host().id.to_string()],
             },
@@ -727,7 +706,7 @@ async fn test_instance_type_associate(
     let _ = env
         .api
         .remove_machine_instance_type_association(tonic::Request::new(
-            rpc::forge::RemoveMachineInstanceTypeAssociationRequest {
+            forge::RemoveMachineInstanceTypeAssociationRequest {
                 machine_id: tmp_mh.host().id.to_string(),
             },
         ))
@@ -742,7 +721,7 @@ async fn test_instance_type_associate(
     let _ = env
         .api
         .associate_machines_with_instance_type(tonic::Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            forge::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: id.clone(),
                 machine_ids: vec![tmp_mh.host().id.to_string()],
             },
@@ -754,7 +733,7 @@ async fn test_instance_type_associate(
     let _ = env
         .api
         .remove_machine_instance_type_association(tonic::Request::new(
-            rpc::forge::RemoveMachineInstanceTypeAssociationRequest {
+            forge::RemoveMachineInstanceTypeAssociationRequest {
                 machine_id: tmp_mh.host().id.to_string(),
             },
         ))

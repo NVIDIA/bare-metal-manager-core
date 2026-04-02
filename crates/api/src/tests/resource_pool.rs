@@ -20,11 +20,12 @@ use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 use common::api_fixtures::create_test_env;
-use model::resource_pool::common::VPC_VNI;
-use model::resource_pool::{
+use nico_api_model::resource_pool::common::VPC_VNI;
+use nico_api_model::resource_pool::{
     OwnerType, ResourcePool, ResourcePoolError, ResourcePoolStats as St, ValueType,
 };
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 use sqlx::migrate::MigrateDatabase;
 
 use crate::tests;
@@ -40,7 +41,7 @@ async fn test_define_range(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 type = "ipv4"
 ranges = [{ start = "172.0.1.0", end = "172.0.1.255" }]
 "#;
-    let rp_req = rpc::forge::GrowResourcePoolRequest {
+    let rp_req = forge::GrowResourcePoolRequest {
         text: toml.to_string(),
     };
     env.api
@@ -53,7 +54,7 @@ ranges = [{ start = "172.0.1.0", end = "172.0.1.255" }]
 
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, pool.name()).await?,
         St {
             used: 0,
             free: 255,
@@ -76,7 +77,7 @@ async fn test_define_prefix(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 type = "ipv4"
 prefix = "172.0.1.0/24"
 "#;
-    let rp_req = rpc::forge::GrowResourcePoolRequest {
+    let rp_req = forge::GrowResourcePoolRequest {
         text: toml.to_string(),
     };
     env.api
@@ -89,7 +90,7 @@ prefix = "172.0.1.0/24"
 
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, pool.name()).await?,
         St {
             used: 0,
             free: 255,
@@ -109,17 +110,18 @@ async fn test_simple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let pool = ResourcePool::new("test_simple".to_string(), ValueType::Integer);
 
     // one auto-assignable value in the pool
-    db::resource_pool::populate(&pool, &mut txn, vec!["1".to_string()], true).await?;
+    nico_api_db::resource_pool::populate(&pool, &mut txn, vec!["1".to_string()], true).await?;
 
     // one non-auto-assignable value in the pool
-    db::resource_pool::populate(&pool, &mut txn, vec!["2".to_string()], false).await?;
+    nico_api_db::resource_pool::populate(&pool, &mut txn, vec!["2".to_string()], false).await?;
 
     // Get an auto-allocated value
     let auto_allocated =
-        db::resource_pool::allocate(&pool, &mut txn, OwnerType::Machine, "123", None).await?;
+        nico_api_db::resource_pool::allocate(&pool, &mut txn, OwnerType::Machine, "123", None)
+            .await?;
     assert_eq!(auto_allocated, "1");
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, pool.name()).await?,
         St {
             used: 1,
             free: 1,
@@ -131,8 +133,10 @@ async fn test_simple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     );
 
     // no more auto values
-    match db::resource_pool::allocate(&pool, &mut txn, OwnerType::Machine, "id456", None).await {
-        Err(db::resource_pool::ResourcePoolDatabaseError::ResourcePool(
+    match nico_api_db::resource_pool::allocate(&pool, &mut txn, OwnerType::Machine, "id456", None)
+        .await
+    {
+        Err(nico_api_db::resource_pool::ResourcePoolDatabaseError::ResourcePool(
             ResourcePoolError::Empty,
         )) => {} // expected
         Err(err) => panic!("Unexpected err: {err}"),
@@ -140,7 +144,7 @@ async fn test_simple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     }
 
     // Get an non-auto-allocated value
-    let non_auto_allocated = db::resource_pool::allocate(
+    let non_auto_allocated = nico_api_db::resource_pool::allocate(
         &pool,
         &mut txn,
         OwnerType::Machine,
@@ -150,7 +154,7 @@ async fn test_simple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     .await?;
     assert_eq!(non_auto_allocated, "2");
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, pool.name()).await?,
         St {
             used: 2,
             free: 0,
@@ -162,11 +166,11 @@ async fn test_simple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     );
 
     // return the values
-    db::resource_pool::release(&pool, &mut txn, auto_allocated).await?;
-    db::resource_pool::release(&pool, &mut txn, non_auto_allocated).await?;
+    nico_api_db::resource_pool::release(&pool, &mut txn, auto_allocated).await?;
+    nico_api_db::resource_pool::release(&pool, &mut txn, non_auto_allocated).await?;
 
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, pool.name()).await?,
         St {
             used: 0,
             free: 2,
@@ -188,12 +192,15 @@ async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let pool2 = ResourcePool::new("test_multiple_2".to_string(), ValueType::Integer);
     let pool3 = ResourcePool::new("test_multiple_3".to_string(), ValueType::Integer);
 
-    db::resource_pool::populate(&pool1, &mut txn, (1..=10).collect::<Vec<_>>(), true).await?;
-    db::resource_pool::populate(&pool2, &mut txn, (1..=100).collect::<Vec<_>>(), true).await?;
-    db::resource_pool::populate(&pool3, &mut txn, (1..=500).collect::<Vec<_>>(), true).await?;
+    nico_api_db::resource_pool::populate(&pool1, &mut txn, (1..=10).collect::<Vec<_>>(), true)
+        .await?;
+    nico_api_db::resource_pool::populate(&pool2, &mut txn, (1..=100).collect::<Vec<_>>(), true)
+        .await?;
+    nico_api_db::resource_pool::populate(&pool3, &mut txn, (1..=500).collect::<Vec<_>>(), true)
+        .await?;
 
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, pool1.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, pool1.name()).await?,
         St {
             used: 0,
             free: 10,
@@ -204,7 +211,7 @@ async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         }
     );
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, pool2.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, pool2.name()).await?,
         St {
             used: 0,
             free: 100,
@@ -215,7 +222,7 @@ async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         }
     );
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, pool3.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, pool3.name()).await?,
         St {
             used: 0,
             free: 500,
@@ -229,14 +236,20 @@ async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let mut got = Vec::with_capacity(10);
     for _ in 1..=10 {
         got.push(
-            db::resource_pool::allocate(&pool2, &mut txn, OwnerType::Machine, "my_id", None)
-                .await
-                .unwrap(),
+            nico_api_db::resource_pool::allocate(
+                &pool2,
+                &mut txn,
+                OwnerType::Machine,
+                "my_id",
+                None,
+            )
+            .await
+            .unwrap(),
         );
     }
 
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, pool1.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, pool1.name()).await?,
         St {
             used: 0,
             free: 10,
@@ -247,7 +260,7 @@ async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         }
     );
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, pool2.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, pool2.name()).await?,
         St {
             used: 10,
             free: 90,
@@ -258,7 +271,7 @@ async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         }
     );
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, pool3.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, pool3.name()).await?,
         St {
             used: 0,
             free: 500,
@@ -270,11 +283,11 @@ async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     );
 
     for val in got {
-        db::resource_pool::release(&pool2, &mut txn, val).await?;
+        nico_api_db::resource_pool::release(&pool2, &mut txn, val).await?;
     }
 
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, pool1.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, pool1.name()).await?,
         St {
             used: 0,
             free: 10,
@@ -285,7 +298,7 @@ async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         }
     );
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, pool2.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, pool2.name()).await?,
         St {
             used: 0,
             free: 100,
@@ -296,7 +309,7 @@ async fn test_multiple(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         }
     );
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, pool3.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, pool3.name()).await?,
         St {
             used: 0,
             free: 500,
@@ -317,14 +330,15 @@ async fn test_rollback(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     // Pool has a single value
     let mut txn = db_pool.begin().await?;
-    db::resource_pool::populate(&pool, &mut txn, vec![1], true).await?;
+    nico_api_db::resource_pool::populate(&pool, &mut txn, vec![1], true).await?;
     txn.commit().await?;
 
     // Which we allocate then rollback
     let mut txn = db_pool.begin().await?;
-    db::resource_pool::allocate(&pool, &mut txn, OwnerType::Machine, "my_id", None).await?;
+    nico_api_db::resource_pool::allocate(&pool, &mut txn, OwnerType::Machine, "my_id", None)
+        .await?;
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, pool.name()).await?,
         St {
             used: 1,
             free: 0,
@@ -338,7 +352,7 @@ async fn test_rollback(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
     // The single value should be available
     assert_eq!(
-        db::resource_pool::stats(&db_pool, pool.name()).await?,
+        nico_api_db::resource_pool::stats(&db_pool, pool.name()).await?,
         St {
             used: 0,
             free: 1,
@@ -349,12 +363,13 @@ async fn test_rollback(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         }
     );
     let mut txn = db_pool.begin().await?;
-    db::resource_pool::allocate(&pool, &mut txn, OwnerType::Machine, "my_id", None).await?;
+    nico_api_db::resource_pool::allocate(&pool, &mut txn, OwnerType::Machine, "my_id", None)
+        .await?;
     txn.commit().await?;
 
     // And now it's really allocated
     assert_eq!(
-        db::resource_pool::stats(&db_pool, pool.name()).await?,
+        nico_api_db::resource_pool::stats(&db_pool, pool.name()).await?,
         St {
             used: 1,
             free: 0,
@@ -383,19 +398,20 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     // Only one vpc-vni available
     let mut txn = db_pool.begin().await?;
     let vpc_vni_pool = ResourcePool::new(VPC_VNI.to_string(), ValueType::Integer);
-    db::resource_pool::populate(&vpc_vni_pool, &mut txn, vec!["1".to_string()], true).await?;
+    nico_api_db::resource_pool::populate(&vpc_vni_pool, &mut txn, vec!["1".to_string()], true)
+        .await?;
     txn.commit().await?;
 
     // CreateVpc rpc call
     let vpc_req = VpcCreationRequest::builder("test_vpc_assign_after_delete_1", "test")
-        .network_virtualization_type(rpc::forge::VpcVirtualizationType::EthernetVirtualizer)
+        .network_virtualization_type(forge::VpcVirtualizationType::EthernetVirtualizer)
         .tonic_request();
     let vpc1 = env.api.create_vpc(vpc_req).await.unwrap().into_inner();
 
     // Value is allocated
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
         St {
             used: 1,
             free: 0,
@@ -408,7 +424,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     txn.commit().await?;
 
     // DeleteVpc rpc call
-    let del_req = rpc::forge::VpcDeletionRequest { id: vpc1.id };
+    let del_req = forge::VpcDeletionRequest { id: vpc1.id };
     env.api
         .delete_vpc(tonic::Request::new(del_req))
         .await
@@ -417,7 +433,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     // Value is free
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
         St {
             used: 0,
             free: 1,
@@ -431,14 +447,14 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
 
     // CreateVpc
     let vpc_req = VpcCreationRequest::builder("test_vpc_assign_after_delete_2", "test")
-        .network_virtualization_type(rpc::forge::VpcVirtualizationType::EthernetVirtualizer)
+        .network_virtualization_type(forge::VpcVirtualizationType::EthernetVirtualizer)
         .tonic_request();
     let vpc2 = env.api.create_vpc(vpc_req).await.unwrap().into_inner();
 
     // Value allocated again
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
         St {
             used: 1,
             free: 0,
@@ -450,7 +466,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     );
     txn.commit().await?;
 
-    let del_req = rpc::forge::VpcDeletionRequest { id: vpc2.id };
+    let del_req = forge::VpcDeletionRequest { id: vpc2.id };
     env.api
         .delete_vpc(tonic::Request::new(del_req.clone()))
         .await
@@ -459,7 +475,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     // Value is free
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
         St {
             used: 0,
             free: 1,
@@ -472,11 +488,16 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
 
     // Allocate the value for something else. Deleting the already deleted VPC again
     // shouldn't free the VNI another time
-    let _vni =
-        db::resource_pool::allocate(&vpc_vni_pool, &mut txn, OwnerType::Vpc, "testalloc", None)
-            .await?;
+    let _vni = nico_api_db::resource_pool::allocate(
+        &vpc_vni_pool,
+        &mut txn,
+        OwnerType::Vpc,
+        "testalloc",
+        None,
+    )
+    .await?;
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
         St {
             used: 1,
             free: 0,
@@ -501,7 +522,7 @@ async fn test_vpc_assign_after_delete(db_pool: sqlx::PgPool) -> Result<(), eyre:
     // The VNI isn't freed
     let mut txn = db_pool.begin().await?;
     assert_eq!(
-        db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn, vpc_vni_pool.name()).await?,
         St {
             used: 1,
             free: 0,
@@ -526,17 +547,26 @@ async fn test_list(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let pool1 = ResourcePool::new(names[0].to_string(), ValueType::Integer);
     let pool2 = ResourcePool::new(names[1].to_string(), ValueType::Integer);
     let pool3 = ResourcePool::new(names[2].to_string(), ValueType::Integer);
-    db::resource_pool::populate(&pool1, &mut txn, (1..=max[0]).collect::<Vec<_>>(), true).await?;
-    db::resource_pool::populate(&pool2, &mut txn, (1..=max[1]).collect::<Vec<_>>(), true).await?;
-    db::resource_pool::populate(&pool3, &mut txn, (1..=max[2]).collect::<Vec<_>>(), true).await?;
+    nico_api_db::resource_pool::populate(&pool1, &mut txn, (1..=max[0]).collect::<Vec<_>>(), true)
+        .await?;
+    nico_api_db::resource_pool::populate(&pool2, &mut txn, (1..=max[1]).collect::<Vec<_>>(), true)
+        .await?;
+    nico_api_db::resource_pool::populate(&pool3, &mut txn, (1..=max[2]).collect::<Vec<_>>(), true)
+        .await?;
     for _ in 1..=5 {
-        let _ = db::resource_pool::allocate(&pool1, &mut txn, OwnerType::Machine, "my_id", None)
-            .await
-            .unwrap();
+        let _ = nico_api_db::resource_pool::allocate(
+            &pool1,
+            &mut txn,
+            OwnerType::Machine,
+            "my_id",
+            None,
+        )
+        .await
+        .unwrap();
     }
 
     // What we're testing
-    let all = db::resource_pool::all(&mut txn).await?;
+    let all = nico_api_db::resource_pool::all(&mut txn).await?;
 
     // Verify
     assert_eq!(all.len(), 3);
@@ -584,7 +614,7 @@ async fn test_parallel() -> Result<(), eyre::Report> {
         ValueType::Integer,
     ));
 
-    db::resource_pool::populate(
+    nico_api_db::resource_pool::populate(
         &pool,
         &mut txn,
         (1..=5_000).map(|i| i.to_string()).collect(),
@@ -604,7 +634,7 @@ async fn test_parallel() -> Result<(), eyre::Report> {
             for _ in 0..100 {
                 let mut txn = db_pool_c.begin().await.unwrap();
                 got.push(
-                    db::resource_pool::allocate(
+                    nico_api_db::resource_pool::allocate(
                         &p,
                         &mut txn,
                         OwnerType::Machine,
@@ -677,15 +707,16 @@ async fn test_allocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let pool = ResourcePool::new("test_rollback".to_string(), ValueType::Integer);
 
     let mut txn = db_pool.begin().await?;
-    db::resource_pool::populate(&pool, &mut txn, vec![1, 2], true).await?; // Auto-assign
+    nico_api_db::resource_pool::populate(&pool, &mut txn, vec![1, 2], true).await?; // Auto-assign
     txn.commit().await?;
 
     // allocate in one transaction
     let mut txn1 = db_pool.begin().await?;
     let v1 =
-        db::resource_pool::allocate(&pool, &mut txn1, OwnerType::Machine, "my_id", None).await?;
+        nico_api_db::resource_pool::allocate(&pool, &mut txn1, OwnerType::Machine, "my_id", None)
+            .await?;
     assert_eq!(
-        db::resource_pool::stats(&mut *txn1, pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn1, pool.name()).await?,
         St {
             used: 1,
             free: 1,
@@ -699,9 +730,10 @@ async fn test_allocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // allocate in second transaction
     let mut txn2 = db_pool.begin().await?;
     let v2 =
-        db::resource_pool::allocate(&pool, &mut txn2, OwnerType::Machine, "my_id", None).await?;
+        nico_api_db::resource_pool::allocate(&pool, &mut txn2, OwnerType::Machine, "my_id", None)
+            .await?;
     assert_eq!(
-        db::resource_pool::stats(&mut *txn2, pool.name()).await?,
+        nico_api_db::resource_pool::stats(&mut *txn2, pool.name()).await?,
         St {
             used: 1,
             free: 1,
@@ -716,7 +748,7 @@ async fn test_allocate(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     txn1.commit().await.expect("txn1 commit failed");
 
     assert_eq!(
-        db::resource_pool::stats(&db_pool, pool.name()).await?,
+        nico_api_db::resource_pool::stats(&db_pool, pool.name()).await?,
         St {
             used: 2,
             free: 0,

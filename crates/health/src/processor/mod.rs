@@ -23,11 +23,11 @@ use std::time::Instant;
 mod health_report;
 mod leak_events;
 mod rack_leak;
-pub use health_report::HealthReportProcessor;
 pub use leak_events::LeakEventProcessor;
 pub use rack_leak::RackLeakProcessor;
 
 use crate::metrics::{ComponentMetrics, MetricsManager};
+pub use crate::processor::health_report::HealthReportProcessor;
 use crate::sink::{CollectorEvent, DataSink, EventContext};
 
 pub trait EventProcessor: Send + Sync {

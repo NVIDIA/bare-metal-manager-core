@@ -18,7 +18,7 @@
 use std::borrow::Cow;
 
 use mac_address::MacAddress;
-use rpc::{NetworkInterface, PciDeviceProperties};
+use nico_rpc::{NetworkInterface, PciDeviceProperties};
 
 use crate::hw;
 

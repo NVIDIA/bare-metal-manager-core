@@ -17,8 +17,8 @@
 
 use std::sync::Arc;
 
-use rpc::fmds::fmds_config_service_server::FmdsConfigService;
-use rpc::fmds::{UpdateConfigRequest, UpdateConfigResponse};
+use nico_rpc::fmds::fmds_config_service_server::FmdsConfigService;
+use nico_rpc::fmds::{UpdateConfigRequest, UpdateConfigResponse};
 use tonic::{Request, Response, Status};
 
 use crate::state::{FmdsConfig, FmdsState, IBDeviceConfig, IBInstanceConfig};
@@ -95,7 +95,7 @@ impl FmdsConfigService for FmdsGrpcServer {
 
 #[cfg(test)]
 mod tests {
-    use rpc::fmds::{FmdsConfigUpdate, IbDevice, IbInstance};
+    use nico_rpc::fmds::{FmdsConfigUpdate, IbDevice, IbInstance};
 
     use super::*;
 

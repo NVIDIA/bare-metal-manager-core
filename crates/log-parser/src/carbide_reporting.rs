@@ -18,13 +18,15 @@ use std::collections::VecDeque;
 use std::path::Path;
 use std::str::FromStr;
 
-use ::rpc::forge::{self as rpc};
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig, ForgeClientT};
-use carbide_uuid::machine::MachineId;
-use forge_tls::client_config::ClientCert;
-use health_report::{
+use nico_health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
 };
+use nico_rpc::forge;
+use nico_rpc::forge_tls_client::{
+    ApiConfig, ForgeClientConfig, ForgeClientT, {self},
+};
+use nico_tls::client_config::ClientCert;
+use nico_uuid::machine::MachineId;
 
 use crate::Event;
 
@@ -124,10 +126,10 @@ async fn send_one_report(
         return Ok(());
     }
 
-    let request = tonic::Request::new(rpc::InsertHealthReportOverrideRequest {
+    let request = tonic::Request::new(forge::InsertHealthReportOverrideRequest {
         machine_id: MachineId::from_str(machine_id).ok(),
-        r#override: Some(rpc::HealthReportOverride {
-            mode: rpc::OverrideMode::Merge.into(),
+        r#override: Some(forge::HealthReportOverride {
+            mode: forge::OverrideMode::Merge.into(),
             report: Some(report.clone().into()),
         }),
     });

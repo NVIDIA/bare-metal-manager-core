@@ -18,9 +18,9 @@
 // registry/args.rs
 // Command-line argument definitions for registry commands.
 
-use carbide_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::protos::mlx_device as mlx_device_pb;
+use nico_rpc::protos::mlx_device as mlx_device_pb;
+use nico_uuid::machine::MachineId;
 
 // RegistryCommand are the registry subcommands.
 #[derive(Parser, Debug)]

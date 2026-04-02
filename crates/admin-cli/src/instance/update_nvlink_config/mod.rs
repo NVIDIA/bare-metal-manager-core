@@ -18,8 +18,8 @@
 pub mod args;
 pub mod cmd;
 
-use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Args;
+use nico_rpc::admin_cli::CarbideCliResult;
 
 use super::common::GlobalOptions;
 use crate::cfg::run::Run;

@@ -18,8 +18,9 @@
 use std::collections::HashSet;
 use std::fmt::Write;
 
-use carbide_uuid::infiniband::IBPartitionId;
 use chrono::{DateTime, Utc};
+use nico_rpc::forge;
+use nico_uuid::infiniband::IBPartitionId;
 use serde::{Deserialize, Serialize};
 
 use crate::ib_partition::PartitionKey;
@@ -60,11 +61,9 @@ pub struct MachineIbInterfaceStatusObservation {
     pub associated_partition_ids: Option<HashSet<IBPartitionId>>,
 }
 
-impl From<MachineInfinibandStatusObservation> for rpc::forge::InfinibandStatusObservation {
-    fn from(
-        ib_status: MachineInfinibandStatusObservation,
-    ) -> rpc::forge::InfinibandStatusObservation {
-        rpc::forge::InfinibandStatusObservation {
+impl From<MachineInfinibandStatusObservation> for forge::InfinibandStatusObservation {
+    fn from(ib_status: MachineInfinibandStatusObservation) -> forge::InfinibandStatusObservation {
+        forge::InfinibandStatusObservation {
             ib_interfaces: ib_status
                 .ib_interfaces
                 .into_iter()
@@ -75,11 +74,11 @@ impl From<MachineInfinibandStatusObservation> for rpc::forge::InfinibandStatusOb
     }
 }
 
-impl From<MachineIbInterfaceStatusObservation> for rpc::forge::MachineIbInterface {
+impl From<MachineIbInterfaceStatusObservation> for forge::MachineIbInterface {
     fn from(
         machine_ib_interface: MachineIbInterfaceStatusObservation,
-    ) -> rpc::forge::MachineIbInterface {
-        rpc::forge::MachineIbInterface {
+    ) -> forge::MachineIbInterface {
+        forge::MachineIbInterface {
             pf_guid: None,
             guid: Some(machine_ib_interface.guid),
             lid: Some(machine_ib_interface.lid as u32),
@@ -88,12 +87,12 @@ impl From<MachineIbInterfaceStatusObservation> for rpc::forge::MachineIbInterfac
                 false => Some(machine_ib_interface.fabric_id),
             },
             associated_pkeys: machine_ib_interface.associated_pkeys.map(|pkeys| {
-                rpc::common::StringList {
+                nico_rpc::common::StringList {
                     items: pkeys.into_iter().map(|key| key.to_string()).collect(),
                 }
             }),
             associated_partition_ids: machine_ib_interface.associated_partition_ids.map(|ids| {
-                rpc::common::StringList {
+                nico_rpc::common::StringList {
                     items: ids.into_iter().map(|id| id.into()).collect(),
                 }
             }),
@@ -355,7 +354,7 @@ mod tests {
 
     #[test]
     fn test_ib_config_synced_ok_when_synced() {
-        use carbide_uuid::infiniband::IBPartitionId;
+        use nico_uuid::infiniband::IBPartitionId;
 
         use crate::instance::config::network::InterfaceFunctionId;
         let partition_id: IBPartitionId =

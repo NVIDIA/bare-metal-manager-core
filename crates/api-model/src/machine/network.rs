@@ -17,12 +17,12 @@
 use std::net::IpAddr;
 use std::time::SystemTime;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::ConfigVersion;
-use health_report::HealthReport;
+use nico_health_report::HealthReport;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use crate::instance::status::extension_service::{
@@ -85,7 +85,7 @@ impl MachineNetworkStatusObservation {
         prevent_allocations: bool,
     ) -> Option<HealthReport> {
         let Some(agent_version) = self.agent_version.as_ref() else {
-            return Some(health_report::HealthReport::stale_agent_version(
+            return Some(nico_health_report::HealthReport::stale_agent_version(
                 "forge-dpu-agent".to_string(),
                 self.machine_id.to_string(),
                 "Agent version is not known".to_string(),
@@ -93,7 +93,7 @@ impl MachineNetworkStatusObservation {
             ));
         };
 
-        if agent_version == carbide_version::v!(build_version) {
+        if agent_version == nico_version::v!(build_version) {
             // Same version as the server, all good.
             return None;
         }
@@ -102,7 +102,7 @@ impl MachineNetworkStatusObservation {
             Some(superseded_at) => {
                 let staleness = Utc::now().signed_duration_since(superseded_at);
                 if staleness > staleness_threshold {
-                    Some(health_report::HealthReport::stale_agent_version(
+                    Some(nico_health_report::HealthReport::stale_agent_version(
                         "forge-dpu-agent".to_string(),
                         self.machine_id.to_string(),
                         format!(
@@ -127,10 +127,10 @@ impl MachineNetworkStatusObservation {
     }
 }
 
-impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
+impl TryFrom<forge::DpuNetworkStatus> for MachineNetworkStatusObservation {
     type Error = RpcDataConversionError;
 
-    fn try_from(obs: rpc::DpuNetworkStatus) -> Result<Self, Self::Error> {
+    fn try_from(obs: forge::DpuNetworkStatus) -> Result<Self, Self::Error> {
         let observed_at = match obs.observed_at {
             Some(timestamp) => {
                 let system_time = SystemTime::try_from(timestamp)
@@ -221,9 +221,9 @@ impl TryFrom<rpc::DpuNetworkStatus> for MachineNetworkStatusObservation {
 // persisted.
 // It would be preferable to migrate carbide-web from reading the status to using
 // a better supported API. E.g. the FindMachinesByIds one.
-impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
-    fn from(m: MachineNetworkStatusObservation) -> rpc::DpuNetworkStatus {
-        rpc::DpuNetworkStatus {
+impl From<MachineNetworkStatusObservation> for forge::DpuNetworkStatus {
+    fn from(m: MachineNetworkStatusObservation) -> forge::DpuNetworkStatus {
+        forge::DpuNetworkStatus {
             dpu_machine_id: Some(m.machine_id),
             dpu_agent_version: m.agent_version.clone(),
             observed_at: Some(m.observed_at.into()),
@@ -270,31 +270,31 @@ impl ManagedHostQuarantineState {
     }
 }
 
-impl From<ManagedHostQuarantineState> for rpc::ManagedHostQuarantineState {
+impl From<ManagedHostQuarantineState> for forge::ManagedHostQuarantineState {
     fn from(m: ManagedHostQuarantineState) -> Self {
         Self {
-            mode: rpc::ManagedHostQuarantineMode::from(m.mode) as i32,
+            mode: forge::ManagedHostQuarantineMode::from(m.mode) as i32,
             reason: m.reason,
         }
     }
 }
 
-impl From<ManagedHostQuarantineMode> for rpc::ManagedHostQuarantineMode {
+impl From<ManagedHostQuarantineMode> for forge::ManagedHostQuarantineMode {
     fn from(m: ManagedHostQuarantineMode) -> Self {
         match m {
             ManagedHostQuarantineMode::BlockAllTraffic => {
-                rpc::ManagedHostQuarantineMode::BlockAllTraffic
+                forge::ManagedHostQuarantineMode::BlockAllTraffic
             }
         }
     }
 }
 
-impl TryFrom<rpc::ManagedHostQuarantineState> for ManagedHostQuarantineState {
+impl TryFrom<forge::ManagedHostQuarantineState> for ManagedHostQuarantineState {
     type Error = RpcDataConversionError;
-    fn try_from(value: rpc::ManagedHostQuarantineState) -> Result<Self, Self::Error> {
+    fn try_from(value: forge::ManagedHostQuarantineState) -> Result<Self, Self::Error> {
         Ok(Self {
             reason: value.reason,
-            mode: rpc::ManagedHostQuarantineMode::try_from(value.mode)
+            mode: forge::ManagedHostQuarantineMode::try_from(value.mode)
                 .map_err(|_| {
                     RpcDataConversionError::InvalidValue(value.mode.to_string(), "mode".to_string())
                 })?
@@ -303,10 +303,10 @@ impl TryFrom<rpc::ManagedHostQuarantineState> for ManagedHostQuarantineState {
     }
 }
 
-impl From<rpc::ManagedHostQuarantineMode> for ManagedHostQuarantineMode {
-    fn from(m: rpc::ManagedHostQuarantineMode) -> Self {
+impl From<forge::ManagedHostQuarantineMode> for ManagedHostQuarantineMode {
+    fn from(m: forge::ManagedHostQuarantineMode) -> Self {
         match m {
-            rpc::ManagedHostQuarantineMode::BlockAllTraffic => Self::BlockAllTraffic,
+            forge::ManagedHostQuarantineMode::BlockAllTraffic => Self::BlockAllTraffic,
         }
     }
 }

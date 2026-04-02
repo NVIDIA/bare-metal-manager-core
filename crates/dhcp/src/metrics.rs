@@ -22,8 +22,11 @@ use std::time::Duration;
 
 use ::metrics_endpoint::{MetricsEndpointConfig, new_metrics_setup, run_metrics_endpoint};
 use metrics_endpoint::{HealthController, MetricsSetup};
+use nico_rpc::forge;
+use nico_rpc::forge_tls_client::{
+    ApiConfig, ForgeClientConfig, {self},
+};
 use opentelemetry::KeyValue;
-use rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use tokio::runtime::Runtime;
 use tokio::time::{interval, timeout};
 
@@ -141,7 +144,7 @@ async fn check_api_connectivity(carbide_api_url: &str, client_config: &ForgeClie
     let api_config: ApiConfig<'_> = ApiConfig::new(carbide_api_url, client_config);
     match forge_tls_client::ForgeTlsClient::retry_build(&api_config).await {
         Ok(mut client) => {
-            let request = tonic::Request::new(rpc::forge::EchoRequest {
+            let request = tonic::Request::new(forge::EchoRequest {
                 message: "dhcp_echo".into(),
             });
 

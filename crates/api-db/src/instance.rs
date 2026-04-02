@@ -18,22 +18,24 @@
 use std::ops::DerefMut;
 use std::str::FromStr;
 
-use carbide_uuid::extension_service::ExtensionServiceId;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
-use carbide_uuid::vpc::VpcId;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
-use model::instance::NewInstance;
-use model::instance::config::InstanceConfig;
-use model::instance::config::extension_services::InstanceExtensionServicesConfig;
-use model::instance::config::infiniband::InstanceInfinibandConfig;
-use model::instance::config::network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate};
-use model::instance::config::nvlink::InstanceNvLinkConfig;
-use model::instance::snapshot::InstanceSnapshot;
-use model::metadata::Metadata;
-use model::os::{OperatingSystem, OperatingSystemVariant};
+use nico_api_model::instance::NewInstance;
+use nico_api_model::instance::config::InstanceConfig;
+use nico_api_model::instance::config::extension_services::InstanceExtensionServicesConfig;
+use nico_api_model::instance::config::infiniband::InstanceInfinibandConfig;
+use nico_api_model::instance::config::network::{
+    InstanceNetworkConfig, InstanceNetworkConfigUpdate,
+};
+use nico_api_model::instance::config::nvlink::InstanceNvLinkConfig;
+use nico_api_model::instance::snapshot::InstanceSnapshot;
+use nico_api_model::metadata::Metadata;
+use nico_api_model::os::{OperatingSystem, OperatingSystemVariant};
+use nico_uuid::extension_service::ExtensionServiceId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::nvlink::NvLinkLogicalPartitionId;
+use nico_uuid::vpc::VpcId;
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -59,7 +61,7 @@ pub struct InstanceTable {}
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: model::instance::InstanceSearchFilter,
+    filter: nico_api_model::instance::InstanceSearchFilter,
 ) -> Result<Vec<InstanceId>, DatabaseError> {
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM instances WHERE TRUE "); // The TRUE will be optimized away.
 

@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::network::NetworkSegmentId;
 use clap::Parser;
+use nico_uuid::network::NetworkSegmentId;
 
 #[derive(Parser, Debug)]
 pub struct Args {

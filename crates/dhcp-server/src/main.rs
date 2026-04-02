@@ -29,7 +29,6 @@ use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use ::rpc::forge::{DhcpDiscovery, DhcpRecord};
 use cache::CacheEntry;
 use chrono::Utc;
 use command_line::{Args, ServerMode};
@@ -39,6 +38,7 @@ use lru::LruCache;
 use modes::DhcpMode;
 use modes::controller::Controller;
 use modes::dpu::{Dpu, get_host_config};
+use nico_rpc::forge::{DhcpDiscovery, DhcpRecord};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;

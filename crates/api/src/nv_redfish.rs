@@ -15,7 +15,7 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
-use forge_secrets::credentials::Credentials;
+use nico_secrets::credentials::Credentials;
 use nv_redfish::bmc_http::reqwest::{
     Client as NvRedfishReqwestClient, ClientParams as NvRedfishReqwestClientParams,
 };

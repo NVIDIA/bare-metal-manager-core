@@ -22,7 +22,7 @@ members = ["crates/*"]
 edition = "2024"
 license = "Apache-2.0"
 license-file = "LICENSE"
-authors = ["NVIDIA Carbide Engineering <carbide-dev@exchange.nvidia.com>"]
+authors = ["NCX Infra Controller Development Team <carbide-dev@exchange.nvidia.com>"]
 
 [workspace.dependencies]
 clap = { version = "4", features = ["derive", "env"] }

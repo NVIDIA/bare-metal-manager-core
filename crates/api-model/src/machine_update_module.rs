@@ -19,7 +19,7 @@ use std::fmt::{Display, Formatter};
 use lazy_static::lazy_static;
 
 lazy_static! {
-    pub static ref HOST_UPDATE_HEALTH_PROBE_ID: health_report::HealthProbeId =
+    pub static ref HOST_UPDATE_HEALTH_PROBE_ID: nico_health_report::HealthProbeId =
         "HostUpdateInProgress".parse().unwrap();
 }
 

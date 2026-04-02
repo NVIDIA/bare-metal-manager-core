@@ -25,11 +25,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use carbide_dpf::DpuPhase;
-use carbide_uuid::machine::MachineId;
-use model::machine::{
+use nico_api_model::machine::{
     DpfState, DpuReprovisionStates, InstanceState, ManagedHostState, ReprovisionState,
 };
+use nico_dpf::DpuPhase;
+use nico_uuid::machine::MachineId;
 use tokio::time::timeout;
 
 use crate::dpf::MockDpfOperations;
@@ -151,7 +151,7 @@ async fn dpu_device_names(pool: &sqlx::PgPool, mh: &TestManagedHost) -> HashSet<
     let mut txn = pool.begin().await.unwrap();
     let mut names = HashSet::new();
     for dpu_id in &mh.dpu_ids {
-        let dpu = db::machine::find_one(txn.as_mut(), dpu_id, Default::default())
+        let dpu = nico_api_db::machine::find_one(txn.as_mut(), dpu_id, Default::default())
             .await
             .unwrap()
             .unwrap();

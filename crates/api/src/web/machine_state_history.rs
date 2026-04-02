@@ -22,9 +22,10 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use carbide_uuid::machine::MachineId;
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::machine::MachineId;
 
 use super::filters;
 use crate::api::Api;
@@ -89,17 +90,15 @@ pub async fn show_state_history_json(
 pub async fn fetch_state_history_records(
     api: &Api,
     machine_id: &str,
-) -> Result<(MachineId, Vec<::rpc::forge::MachineEvent>), (http::StatusCode, String)> {
+) -> Result<(MachineId, Vec<forge::MachineEvent>), (http::StatusCode, String)> {
     let Ok(machine_id) = MachineId::from_str(machine_id) else {
         return Err((StatusCode::BAD_REQUEST, "invalid machine id".to_string()));
     };
 
     let mut histories = match api
-        .find_machine_state_histories(tonic::Request::new(
-            ::rpc::forge::MachineStateHistoriesRequest {
-                machine_ids: vec![machine_id],
-            },
-        ))
+        .find_machine_state_histories(tonic::Request::new(forge::MachineStateHistoriesRequest {
+            machine_ids: vec![machine_id],
+        }))
         .await
     {
         Ok(response) => response.into_inner().histories,

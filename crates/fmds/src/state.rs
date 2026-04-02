@@ -18,14 +18,14 @@
 use std::sync::Arc;
 
 use arc_swap::ArcSwapOption;
-use carbide_uuid::infiniband::IBPartitionId;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
 use governor::middleware::NoOpMiddleware;
 use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter, clock};
+use nico_rpc::forge_tls_client::ForgeClientConfig;
+use nico_uuid::infiniband::IBPartitionId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
 use nonzero_ext::nonzero;
-use rpc::forge_tls_client::ForgeClientConfig;
 
 const PHONE_HOME_RATE_LIMIT: Quota = Quota::per_minute(nonzero!(10u32));
 

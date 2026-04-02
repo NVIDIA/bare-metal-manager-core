@@ -17,15 +17,17 @@
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
-use carbide_network::ip::{IdentifyAddressFamily, IpAddressFamily};
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::rack::RackId;
-use db::dhcp_entry::DhcpEntry;
-use db::{self, expected_machine, machine_interface};
 use mac_address::MacAddress;
-use model::dpa_interface::DpaInterface;
-use model::expected_machine::ExpectedHostNic;
+use nico_api_db::dhcp_entry::DhcpEntry;
+use nico_api_db::{
+    expected_machine, machine_interface, {self},
+};
+use nico_api_model::dpa_interface::DpaInterface;
+use nico_api_model::expected_machine::ExpectedHostNic;
+use nico_network::ip::{IdentifyAddressFamily, IpAddressFamily};
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
+use nico_uuid::rack::RackId;
 use sqlx::PgConnection;
 use tonic::{Request, Response};
 
@@ -52,7 +54,7 @@ async fn handle_overlay_from_dpa(
     dpa_if: &mut DpaInterface,
     macaddr: MacAddress,
     desired_addr: IpAddr,
-) -> Result<Option<Response<rpc::DhcpRecord>>, CarbideError> {
+) -> Result<Option<Response<forge::DhcpRecord>>, CarbideError> {
     let IpAddr::V4(ip_v4_addr) = desired_addr else {
         return Err(CarbideError::internal(
             "IPv6 not supported for DPA overlay".to_string(),
@@ -65,9 +67,9 @@ async fn handle_overlay_from_dpa(
 
     dpa_if.overlay_ip = Some(desired_addr);
 
-    db::dpa_interface::update_ip(dpa_if.clone(), false, txn).await?;
+    nico_api_db::dpa_interface::update_ip(dpa_if.clone(), false, txn).await?;
 
-    Ok(Some(Response::new(rpc::DhcpRecord {
+    Ok(Some(Response::new(forge::DhcpRecord {
         machine_id: Some(dpa_if.get_machine_id()),
         machine_interface_id: None,
         segment_id: None,
@@ -90,7 +92,7 @@ async fn handle_underlay_from_dpa(
     dpa_if: &mut DpaInterface,
     macaddr: MacAddress,
     relay_address: String,
-) -> Result<Option<Response<rpc::DhcpRecord>>, CarbideError> {
+) -> Result<Option<Response<forge::DhcpRecord>>, CarbideError> {
     // The relay address and the mac address should differ only in bit 0
     let relay_addr = Ipv4Addr::from_str(&relay_address)?;
 
@@ -104,9 +106,9 @@ async fn handle_underlay_from_dpa(
 
     dpa_if.underlay_ip = Some(IpAddr::from(ret_addr));
 
-    db::dpa_interface::update_ip(dpa_if.clone(), true, txn).await?;
+    nico_api_db::dpa_interface::update_ip(dpa_if.clone(), true, txn).await?;
 
-    Ok(Some(Response::new(rpc::DhcpRecord {
+    Ok(Some(Response::new(forge::DhcpRecord {
         machine_id: Some(dpa_if.get_machine_id()),
         machine_interface_id: None,
         segment_id: None,
@@ -133,12 +135,12 @@ async fn handle_dhcp_from_dpa(
     macaddr: MacAddress,
     relay_address: String,
     desired_address: Option<IpAddr>,
-) -> Result<Option<Response<rpc::DhcpRecord>>, CarbideError> {
+) -> Result<Option<Response<forge::DhcpRecord>>, CarbideError> {
     if !api.runtime_config.is_dpa_enabled() {
         return Ok(None);
     }
 
-    let mut dpa_ifs = db::dpa_interface::find_by_mac_addr(&mut *txn, &macaddr).await?;
+    let mut dpa_ifs = nico_api_db::dpa_interface::find_by_mac_addr(&mut *txn, &macaddr).await?;
 
     if dpa_ifs.len() != 1 {
         // If the MAC address does not belong to any DPA object, len will be 0.
@@ -164,12 +166,12 @@ async fn handle_dhcp_from_dpa(
 
 pub async fn discover_dhcp(
     api: &Api,
-    request: Request<rpc::DhcpDiscovery>,
+    request: Request<forge::DhcpDiscovery>,
     rack_level_service: Option<bool>,
-) -> Result<Response<rpc::DhcpRecord>, CarbideError> {
+) -> Result<Response<forge::DhcpRecord>, CarbideError> {
     let mut txn = api.txn_begin().await?;
 
-    let rpc::DhcpDiscovery {
+    let forge::DhcpDiscovery {
         mac_address,
         relay_address,
         link_address,
@@ -192,12 +194,16 @@ pub async fn discover_dhcp(
         desired_address.map(|addr| addr.parse()).transpose()?;
 
     let existing_machine_id =
-        match db::machine::find_existing_machine(&mut txn, parsed_mac, parsed_relay).await? {
+        match nico_api_db::machine::find_existing_machine(&mut txn, parsed_mac, parsed_relay)
+            .await?
+        {
             Some(existing_machine) => Some(existing_machine),
             None => {
                 if let Some(expected_interface) =
-                    db::predicted_machine_interface::find_by_mac_address(&mut txn, parsed_mac)
-                        .await?
+                    nico_api_db::predicted_machine_interface::find_by_mac_address(
+                        &mut txn, parsed_mac,
+                    )
+                    .await?
                 {
                     // remember expected machine id for later rack update
                     let predicted_machine_id = expected_interface.machine_id;
@@ -259,7 +265,7 @@ pub async fn discover_dhcp(
             }
         };
 
-    let machine_interface = db::machine_interface::find_or_create_machine_interface(
+    let machine_interface = nico_api_db::machine_interface::find_or_create_machine_interface(
         &mut txn,
         existing_machine_id,
         parsed_mac,
@@ -276,21 +282,26 @@ pub async fn discover_dhcp(
             %parsed_mac,
             "Interface has no addresses, re-allocating from segment"
         );
-        let segment = db::network_segment::for_relay(&mut txn, parsed_relay)
+        let segment = nico_api_db::network_segment::for_relay(&mut txn, parsed_relay)
             .await?
             .ok_or_else(|| {
                 CarbideError::internal(format!(
                     "No network segment defined for relay address: {parsed_relay}"
                 ))
             })?;
-        db::machine_interface::allocate_addresses(&mut txn, machine_interface.id, &segment).await?;
+        nico_api_db::machine_interface::allocate_addresses(
+            &mut txn,
+            machine_interface.id,
+            &segment,
+        )
+        .await?;
     }
 
     if let Some(machine_id) = machine_interface.machine_id {
         // Can't block host's DHCP handling completely to support Zero-DPU.
         if machine_id.machine_type().is_host()
             && let Some(instance_id) =
-                db::instance::find_id_by_machine_id(&mut txn, &machine_id).await?
+                nico_api_db::instance::find_id_by_machine_id(&mut txn, &machine_id).await?
         {
             // An instance is associated with machine id. DPU must process it.
             return Err(CarbideError::internal(format!(
@@ -301,7 +312,7 @@ pub async fn discover_dhcp(
 
     // Save vendor string, this is allowed to fail due to dhcp happening more than once on the same machine/vendor string
     if let Some(vendor) = vendor_string {
-        let res = db::dhcp_entry::persist(
+        let res = nico_api_db::dhcp_entry::persist(
             DhcpEntry {
                 machine_interface_id: machine_interface.id,
                 vendor_string: vendor,
@@ -317,13 +328,13 @@ pub async fn discover_dhcp(
         }
     }
 
-    db::machine_interface::update_last_dhcp(&mut txn, machine_interface.id, None).await?;
+    nico_api_db::machine_interface::update_last_dhcp(&mut txn, machine_interface.id, None).await?;
 
     txn.commit().await?;
 
     let mut txn = api.txn_begin().await?;
 
-    let record: rpc::DhcpRecord = db::dhcp_record::find_by_mac_address(
+    let record: forge::DhcpRecord = nico_api_db::dhcp_record::find_by_mac_address(
         &mut txn,
         &parsed_mac,
         &machine_interface.segment_id,
@@ -343,17 +354,23 @@ async fn update_rack_config_predicted_id_with_actual(
     actual: &MachineId,
 ) -> Result<(), CarbideError> {
     // TODO: pass in a rack id query by that when we support multirack, when supported
-    let racks = db::rack::list(&mut *txn).await?;
+    let racks = nico_api_db::rack::list(&mut *txn).await?;
     let rack = match racks.is_empty() {
         false => racks[0].clone(),
         true => {
             let expected_compute_trays = vec![*parsed_mac];
             #[allow(deprecated)]
             let rack_id: RackId = RackId::default();
-            let rack =
-                db::rack::create(txn, &rack_id, expected_compute_trays, vec![], vec![], None)
-                    .await
-                    .map_err(CarbideError::from)?;
+            let rack = nico_api_db::rack::create(
+                txn,
+                &rack_id,
+                expected_compute_trays,
+                vec![],
+                vec![],
+                None,
+            )
+            .await
+            .map_err(CarbideError::from)?;
             tracing::warn!(
                 "Handling DHCP response for mac {parsed_mac} but no rack was found! Create one with id {rack_id}"
             );
@@ -368,7 +385,7 @@ async fn update_rack_config_predicted_id_with_actual(
         .find(|item| *item == predicted)
     {
         *item = *actual;
-        db::rack::update(txn, &rack.id, &config)
+        nico_api_db::rack::update(txn, &rack.id, &config)
             .await
             .map_err(CarbideError::from)?;
     }

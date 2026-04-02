@@ -20,12 +20,13 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
-use carbide_uuid::rack::RackId;
-use forge_tls::client_config::ClientCert;
 use mac_address::MacAddress;
-use rpc::forge::MachineSearchConfig;
-use rpc::forge_api_client::ForgeApiClient;
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use nico_rpc::forge;
+use nico_rpc::forge::MachineSearchConfig;
+use nico_rpc::forge_api_client::ForgeApiClient;
+use nico_rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use nico_tls::client_config::ClientCert;
+use nico_uuid::rack::RackId;
 use url::Url;
 
 use crate::HealthError;
@@ -50,7 +51,7 @@ impl CredentialProvider for ApiCredentialProvider {
         endpoint: &'a BmcAddr,
     ) -> BoxFuture<'a, Result<BmcCredentials, HealthError>> {
         Box::pin(async move {
-            let request = rpc::forge::GetBmcCredentialsRequest {
+            let request = forge::GetBmcCredentialsRequest {
                 mac_addr: endpoint.mac.to_string(),
             };
 
@@ -108,7 +109,7 @@ impl ApiClientWrapper {
         let mut endpoints = Vec::new();
 
         for ids_chunk in machine_ids.machine_ids.chunks(100) {
-            let request = ::rpc::forge::MachinesByIdsRequest {
+            let request = forge::MachinesByIdsRequest {
                 machine_ids: Vec::from(ids_chunk),
                 ..Default::default()
             };
@@ -138,7 +139,7 @@ impl ApiClientWrapper {
     }
 
     async fn fetch_switch_endpoints(&self) -> Vec<Arc<BmcEndpoint>> {
-        let switch_request = rpc::forge::SwitchQuery {
+        let switch_request = forge::SwitchQuery {
             name: None,
             switch_id: None,
         };
@@ -170,7 +171,7 @@ impl ApiClientWrapper {
 
     async fn extract_machine_endpoint(
         &self,
-        machine: &rpc::forge::Machine,
+        machine: &forge::Machine,
     ) -> Result<BmcEndpoint, HealthError> {
         let Some(bmc_info) = &machine.bmc_info else {
             return Err(HealthError::GenericError(
@@ -194,7 +195,7 @@ impl ApiClientWrapper {
 
     async fn extract_switch_endpoint(
         &self,
-        switch: &rpc::forge::Switch,
+        switch: &forge::Switch,
     ) -> Result<BmcEndpoint, HealthError> {
         let Some(bmc_info) = &switch.bmc_info else {
             return Err(HealthError::GenericError(
@@ -241,15 +242,15 @@ impl ApiClientWrapper {
 
     pub async fn submit_health_report(
         &self,
-        machine_id: &carbide_uuid::machine::MachineId,
-        report: health_report::HealthReport,
+        machine_id: &nico_uuid::machine::MachineId,
+        report: nico_health_report::HealthReport,
     ) -> Result<(), HealthError> {
-        let ovrd = rpc::forge::HealthReportOverride {
+        let ovrd = forge::HealthReportOverride {
             report: Some(report.into()),
-            mode: rpc::forge::OverrideMode::Merge.into(),
+            mode: forge::OverrideMode::Merge.into(),
         };
 
-        let request = rpc::forge::InsertHealthReportOverrideRequest {
+        let request = forge::InsertHealthReportOverrideRequest {
             machine_id: Some(*machine_id),
             r#override: Some(ovrd),
         };
@@ -264,15 +265,15 @@ impl ApiClientWrapper {
 
     pub async fn submit_rack_health_report(
         &self,
-        rack_id: &carbide_uuid::rack::RackId,
-        report: health_report::HealthReport,
+        rack_id: &nico_uuid::rack::RackId,
+        report: nico_health_report::HealthReport,
     ) -> Result<(), HealthError> {
-        let ovrd = rpc::forge::HealthReportOverride {
+        let ovrd = forge::HealthReportOverride {
             report: Some(report.into()),
-            mode: rpc::forge::OverrideMode::Merge.into(),
+            mode: forge::OverrideMode::Merge.into(),
         };
 
-        let request = rpc::forge::InsertRackHealthReportOverrideRequest {
+        let request = forge::InsertRackHealthReportOverrideRequest {
             rack_id: Some(rack_id.clone()),
             r#override: Some(ovrd),
         };
@@ -292,10 +293,10 @@ impl EndpointSource for ApiClientWrapper {
     }
 }
 
-impl TryFrom<&rpc::forge::BmcInfo> for BmcAddr {
+impl TryFrom<&forge::BmcInfo> for BmcAddr {
     type Error = HealthError;
 
-    fn try_from(bmc_info: &rpc::forge::BmcInfo) -> Result<Self, Self::Error> {
+    fn try_from(bmc_info: &forge::BmcInfo) -> Result<Self, Self::Error> {
         let ip = bmc_info
             .ip
             .as_ref()
@@ -316,8 +317,8 @@ impl TryFrom<&rpc::forge::BmcInfo> for BmcAddr {
     }
 }
 
-impl From<rpc::forge::UsernamePassword> for BmcCredentials {
-    fn from(value: rpc::forge::UsernamePassword) -> Self {
+impl From<forge::UsernamePassword> for BmcCredentials {
+    fn from(value: forge::UsernamePassword) -> Self {
         Self::UsernamePassword {
             username: value.username,
             password: Some(value.password),
@@ -325,17 +326,17 @@ impl From<rpc::forge::UsernamePassword> for BmcCredentials {
     }
 }
 
-impl From<rpc::forge::SessionToken> for BmcCredentials {
-    fn from(value: rpc::forge::SessionToken) -> Self {
+impl From<forge::SessionToken> for BmcCredentials {
+    fn from(value: forge::SessionToken) -> Self {
         Self::SessionToken { token: value.token }
     }
 }
 
-impl From<rpc::forge::bmc_credentials::Type> for BmcCredentials {
-    fn from(value: rpc::forge::bmc_credentials::Type) -> Self {
+impl From<forge::bmc_credentials::Type> for BmcCredentials {
+    fn from(value: forge::bmc_credentials::Type) -> Self {
         match value {
-            rpc::forge::bmc_credentials::Type::UsernamePassword(value) => value.into(),
-            rpc::forge::bmc_credentials::Type::SessionToken(value) => value.into(),
+            forge::bmc_credentials::Type::UsernamePassword(value) => value.into(),
+            forge::bmc_credentials::Type::SessionToken(value) => value.into(),
         }
     }
 }

@@ -15,8 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use rpc::forge::{FindTenantRequest, UpdateTenantRequest};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_rpc::forge::{FindTenantRequest, UpdateTenantRequest};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -55,7 +56,7 @@ pub async fn update(
             if_version_match: args.version,
             routing_profile_type: args
                 .routing_profile_type
-                .map(|p| rpc::forge::RoutingProfileType::from(p).into()),
+                .map(|p| forge::RoutingProfileType::from(p).into()),
         })
         .await?
         .tenant

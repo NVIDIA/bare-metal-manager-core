@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::switch::SwitchId;
-use model::switch::SwitchControllerState;
+use nico_api_model::switch::SwitchControllerState;
+use nico_uuid::switch::SwitchId;
 use sqlx::PgConnection;
 
 /// Helper function to set switch controller state directly in database

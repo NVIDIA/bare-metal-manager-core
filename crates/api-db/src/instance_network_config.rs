@@ -16,14 +16,14 @@
  */
 use std::collections::HashMap;
 
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::network::NetworkSegmentId;
-use model::instance::config::network::{
+use nico_api_model::instance::config::network::{
     InstanceInterfaceConfig, InstanceNetworkConfig, InterfaceFunctionId,
 };
-use model::machine::Machine;
-use model::network_segment::NetworkSegmentType;
+use nico_api_model::machine::Machine;
+use nico_api_model::network_segment::NetworkSegmentType;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::network::NetworkSegmentId;
 use sqlx::PgConnection;
 
 use crate::DatabaseResult;
@@ -44,7 +44,7 @@ pub async fn with_allocated_ips(
 pub async fn with_inband_interfaces_from_machine(
     value: InstanceNetworkConfig,
     txn: &mut PgConnection,
-    machine_id: &::carbide_uuid::machine::MachineId,
+    machine_id: &::nico_uuid::machine::MachineId,
 ) -> DatabaseResult<InstanceNetworkConfig> {
     let inband_segments_map = crate::network_segment::batch_find_ids_by_machine_ids(
         txn,

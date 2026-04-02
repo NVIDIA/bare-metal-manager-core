@@ -17,18 +17,21 @@
 pub mod tests {
     use std::time::Duration;
 
-    use carbide_uuid::machine::MachineId;
-    use db::sku::CURRENT_SKU_VERSION;
-    use db::{self, DatabaseError, ObjectFilter, WithTransaction};
     use futures_util::FutureExt;
-    use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
-    use model::machine::machine_search_config::MachineSearchConfig;
-    use model::machine::{
+    use nico_api_db::sku::CURRENT_SKU_VERSION;
+    use nico_api_db::{
+        DatabaseError, ObjectFilter, WithTransaction, {self},
+    };
+    use nico_api_model::expected_machine::{ExpectedMachine, ExpectedMachineData};
+    use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+    use nico_api_model::machine::{
         BomValidating, BomValidatingContext, MachineState, MachineValidatingState,
         ManagedHostState, ValidationState,
     };
-    use model::metadata::Metadata;
-    use model::sku::Sku;
+    use nico_api_model::metadata::Metadata;
+    use nico_api_model::sku::Sku;
+    use nico_rpc::forge;
+    use nico_uuid::machine::MachineId;
     use sqlx::PgConnection;
 
     use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
@@ -247,7 +250,7 @@ pub mod tests {
         .await;
 
         let mut txn = pool.begin().await.unwrap();
-        db::machine::update_discovery_time(&mh.host().id, &mut txn)
+        nico_api_db::machine::update_discovery_time(&mh.host().id, &mut txn)
             .await
             .unwrap();
         txn.commit().await.unwrap();
@@ -292,7 +295,7 @@ pub mod tests {
         machine_id: &MachineId,
         current_sku_id: &str,
     ) -> Result<String, eyre::Error> {
-        let correct_sku = db::sku::find(txn, &[current_sku_id.to_string()])
+        let correct_sku = nico_api_db::sku::find(txn, &[current_sku_id.to_string()])
             .await?
             .pop()
             .unwrap();
@@ -301,9 +304,9 @@ pub mod tests {
         wrong_sku.id = format!("wrong-{}", current_sku_id);
         wrong_sku.components.cpus[0].count += 1; // Make it mismatch
 
-        db::sku::create(txn, &wrong_sku).await?;
-        db::machine::unassign_sku(txn, machine_id).await?;
-        db::machine::assign_sku(txn, machine_id, &wrong_sku.id).await?;
+        nico_api_db::sku::create(txn, &wrong_sku).await?;
+        nico_api_db::machine::unassign_sku(txn, machine_id).await?;
+        nico_api_db::machine::assign_sku(txn, machine_id, &wrong_sku.id).await?;
 
         Ok(wrong_sku.id)
     }
@@ -312,8 +315,8 @@ pub mod tests {
     async fn get_machine_by_id(
         txn: &mut PgConnection,
         machine_id: &MachineId,
-    ) -> Result<model::machine::Machine, eyre::Error> {
-        db::machine::find(
+    ) -> Result<nico_api_model::machine::Machine, eyre::Error> {
+        nico_api_db::machine::find(
             txn,
             ObjectFilter::One(*machine_id),
             MachineSearchConfig::default(),
@@ -350,7 +353,7 @@ pub mod tests {
         let (machine_id, _dpu_id) = create_managed_host(env).await.into();
 
         let mut txn = env.pool.begin().await?;
-        let machine = db::machine::find(
+        let machine = nico_api_db::machine::find(
             txn.as_mut(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
@@ -362,15 +365,18 @@ pub mod tests {
         assert_eq!(machine.current_state(), &ManagedHostState::Ready);
         assert!(machine.hw_sku.is_some());
 
-        let new_sku = db::sku::find(&mut txn, &[machine.hw_sku.unwrap()])
+        let new_sku = nico_api_db::sku::find(&mut txn, &[machine.hw_sku.unwrap()])
             .await?
             .pop()
             .unwrap();
-        assert_eq!(new_sku.schema_version, db::sku::CURRENT_SKU_VERSION);
+        assert_eq!(
+            new_sku.schema_version,
+            nico_api_db::sku::CURRENT_SKU_VERSION
+        );
         assert_ne!(new_sku.components.storage.len(), 0);
 
         // create an older version sku from new topology data will create a backwards compatible sku
-        let old_sku = db::sku::generate_sku_from_machine_at_version(
+        let old_sku = nico_api_db::sku::generate_sku_from_machine_at_version(
             txn.as_mut(),
             &machine_id,
             old_schema_version,
@@ -379,13 +385,13 @@ pub mod tests {
         assert_eq!(old_sku.schema_version, old_schema_version);
 
         // diff does not check version.  comparing SKUs of different versions will fail
-        let diffs = model::sku::diff_skus(&old_sku, &new_sku);
+        let diffs = nico_api_model::sku::diff_skus(&old_sku, &new_sku);
         assert!(!diffs.is_empty());
 
-        let diffs = model::sku::diff_skus(&old_sku, &old_sku);
+        let diffs = nico_api_model::sku::diff_skus(&old_sku, &old_sku);
         assert!(diffs.is_empty());
 
-        let diffs = model::sku::diff_skus(&old_sku, &new_sku);
+        let diffs = nico_api_model::sku::diff_skus(&old_sku, &new_sku);
         assert!(!diffs.is_empty());
 
         Ok(())
@@ -396,15 +402,16 @@ pub mod tests {
     #[crate::sqlx_test]
     pub async fn test_sku_create(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let mut txn = pool.begin().await?;
-        let rpc_sku: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
+        let rpc_sku: forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
         let expected_sku: Sku = rpc_sku.into();
         let expected_sku_json = serde_json::ser::to_string_pretty(&expected_sku)?;
 
-        db::sku::create(&mut txn, &expected_sku).await?;
+        nico_api_db::sku::create(&mut txn, &expected_sku).await?;
 
-        let mut actual_sku = db::sku::find(&mut txn, std::slice::from_ref(&expected_sku.id))
-            .await?
-            .remove(0);
+        let mut actual_sku =
+            nico_api_db::sku::find(&mut txn, std::slice::from_ref(&expected_sku.id))
+                .await?
+                .remove(0);
         // cheat the created timestamp
         actual_sku.created = expected_sku.created;
 
@@ -412,7 +419,7 @@ pub mod tests {
 
         assert_eq!(actual_sku_json, expected_sku_json);
 
-        let error = db::sku::create(&mut txn, &expected_sku)
+        let error = nico_api_db::sku::create(&mut txn, &expected_sku)
             .await
             .expect_err("Duplicate SKU create should have failed");
 
@@ -429,17 +436,17 @@ pub mod tests {
     #[crate::sqlx_test]
     pub async fn test_sku_delete(pool: sqlx::PgPool) -> Result<(), eyre::Error> {
         let mut txn = pool.begin().await?;
-        let rpc_sku: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
+        let rpc_sku: forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
         let expected_sku: Sku = rpc_sku.into();
 
-        db::sku::create(&mut txn, &expected_sku).await?;
-        let actual_sku = db::sku::find(&mut txn, std::slice::from_ref(&expected_sku.id))
+        nico_api_db::sku::create(&mut txn, &expected_sku).await?;
+        let actual_sku = nico_api_db::sku::find(&mut txn, std::slice::from_ref(&expected_sku.id))
             .await?
             .remove(0);
 
-        db::sku::delete(&mut txn, &actual_sku.id).await?;
+        nico_api_db::sku::delete(&mut txn, &actual_sku.id).await?;
 
-        match db::sku::find(&mut txn, &[expected_sku.id]).await {
+        match nico_api_db::sku::find(&mut txn, &[expected_sku.id]).await {
             Ok(sku) => {
                 if !sku.is_empty() {
                     let sku_name = sku[0].id.clone();
@@ -457,9 +464,10 @@ pub mod tests {
         let env = create_test_env(pool.clone()).await;
         let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
 
-        let expected_sku: Sku = serde_json::de::from_str::<rpc::forge::Sku>(SKU_DATA)?.into();
+        let expected_sku: Sku = serde_json::de::from_str::<forge::Sku>(SKU_DATA)?.into();
 
-        let mut actual_sku = db::sku::generate_sku_from_machine(&pool, &machine_id).await?;
+        let mut actual_sku =
+            nico_api_db::sku::generate_sku_from_machine(&pool, &machine_id).await?;
         // cheat the created timestamp and id
         actual_sku.id = "sku id".to_string();
         actual_sku.created = expected_sku.created;
@@ -480,13 +488,16 @@ pub mod tests {
         let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
         let mut txn = pool.begin().await?;
 
-        let actual_sku = db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
-        db::sku::create(&mut txn, &actual_sku).await?;
-        let actual_sku = db::sku::find(&mut txn, &[actual_sku.id]).await?.remove(0);
+        let actual_sku =
+            nico_api_db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
+        nico_api_db::sku::create(&mut txn, &actual_sku).await?;
+        let actual_sku = nico_api_db::sku::find(&mut txn, &[actual_sku.id])
+            .await?
+            .remove(0);
 
-        db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
+        nico_api_db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
 
-        let machine = db::machine::find(
+        let machine = nico_api_db::machine::find(
             txn.as_mut(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
@@ -496,9 +507,9 @@ pub mod tests {
         .unwrap();
         assert_eq!(machine.hw_sku.unwrap(), actual_sku.id);
 
-        db::machine::unassign_sku(&mut txn, &machine_id).await?;
+        nico_api_db::machine::unassign_sku(&mut txn, &machine_id).await?;
 
-        let machine = db::machine::find(
+        let machine = nico_api_db::machine::find(
             txn.as_mut(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
@@ -510,9 +521,9 @@ pub mod tests {
         assert!(machine.hw_sku.is_none());
 
         let sku_id = actual_sku.id.clone();
-        db::sku::delete(&mut txn, &actual_sku.id).await?;
+        nico_api_db::sku::delete(&mut txn, &actual_sku.id).await?;
 
-        match db::sku::find(&mut txn, &[sku_id]).await {
+        match nico_api_db::sku::find(&mut txn, &[sku_id]).await {
             // We expect an okay result, but that it should be an empty list.
             Ok(sku) => {
                 if !sku.is_empty() {
@@ -542,7 +553,7 @@ pub mod tests {
 
         let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
 
-        let machine = db::machine::find(
+        let machine = nico_api_db::machine::find(
             &pool,
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
@@ -577,7 +588,7 @@ pub mod tests {
         let mh = create_managed_host_with_config(&env, config).await;
         let (machine_id, _dpu_id) = mh.into();
 
-        let machine = db::machine::find(
+        let machine = nico_api_db::machine::find(
             &pool,
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
@@ -668,10 +679,11 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
 
-        let actual_sku = db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
-        db::sku::create(&mut txn, &actual_sku).await?;
+        let actual_sku =
+            nico_api_db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
+        nico_api_db::sku::create(&mut txn, &actual_sku).await?;
 
-        db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
+        nico_api_db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
 
         txn.commit().await?;
 
@@ -779,7 +791,7 @@ pub mod tests {
             });
 
         let mut txn = pool.begin().await?;
-        db::expected_machine::create(
+        nico_api_db::expected_machine::create(
             &mut txn,
             ExpectedMachine {
                 id: None,
@@ -819,10 +831,11 @@ pub mod tests {
             }
         ));
 
-        let mut sku = db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
+        let mut sku =
+            nico_api_db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
         sku.id = "no-sku".to_string();
 
-        db::sku::create(&mut txn, &sku).await?;
+        nico_api_db::sku::create(&mut txn, &sku).await?;
 
         txn.commit().await?;
 
@@ -870,7 +883,7 @@ pub mod tests {
             });
 
         let mut txn = pool.begin().await?;
-        db::expected_machine::create(
+        nico_api_db::expected_machine::create(
             &mut txn,
             ExpectedMachine {
                 id: None,
@@ -897,7 +910,7 @@ pub mod tests {
 
         // Remove the SKU assignment from the machine
         let mut txn = pool.begin().await?;
-        db::machine::unassign_sku(&mut txn, &machine_id).await?;
+        nico_api_db::machine::unassign_sku(&mut txn, &machine_id).await?;
         txn.commit().await?;
 
         // Run state controller - should transition to WaitingForSkuAssignment
@@ -936,7 +949,7 @@ pub mod tests {
             });
 
         let mut txn = pool.begin().await?;
-        db::expected_machine::create(
+        nico_api_db::expected_machine::create(
             &mut txn,
             ExpectedMachine {
                 id: None,
@@ -1019,7 +1032,7 @@ pub mod tests {
             });
 
         let mut txn = pool.begin().await?;
-        db::expected_machine::create(
+        nico_api_db::expected_machine::create(
             &mut txn,
             ExpectedMachine {
                 id: None,
@@ -1107,10 +1120,11 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
 
-        let actual_sku = db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
-        db::sku::create(&mut txn, &actual_sku).await?;
+        let actual_sku =
+            nico_api_db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
+        nico_api_db::sku::create(&mut txn, &actual_sku).await?;
 
-        db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
+        nico_api_db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
 
         txn.commit().await?;
 
@@ -1173,7 +1187,7 @@ pub mod tests {
         let machine = mh.host().db_machine(&mut txn).await;
         let machine_id = mh.host().id;
 
-        db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
+        nico_api_db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
         txn.commit().await?;
 
@@ -1201,7 +1215,7 @@ pub mod tests {
             ) {
                 let mut txn = pool.begin().await?;
 
-                db::machine::update_discovery_time(&machine.id, &mut txn)
+                nico_api_db::machine::update_discovery_time(&machine.id, &mut txn)
                     .await
                     .unwrap();
                 txn.commit().await.unwrap();
@@ -1238,7 +1252,7 @@ pub mod tests {
         let machine = mh.host().db_machine(&mut txn).await;
         let machine_id = mh.host().id;
 
-        let original_sku = db::sku::find(&mut txn, &[machine.hw_sku.clone().unwrap()])
+        let original_sku = nico_api_db::sku::find(&mut txn, &[machine.hw_sku.clone().unwrap()])
             .await?
             .pop()
             .unwrap();
@@ -1249,14 +1263,14 @@ pub mod tests {
         broken_sku.id = "Broken SKU".to_string();
         broken_sku.components.cpus[0].count += 1;
 
-        db::sku::create(&mut txn, &broken_sku).await?;
+        nico_api_db::sku::create(&mut txn, &broken_sku).await?;
 
         tracing::info!("SKU2: {:?}", broken_sku);
 
-        db::machine::unassign_sku(&mut txn, &machine_id).await?;
-        db::machine::assign_sku(&mut txn, &machine_id, &broken_sku.id).await?;
+        nico_api_db::machine::unassign_sku(&mut txn, &machine_id).await?;
+        nico_api_db::machine::assign_sku(&mut txn, &machine_id, &broken_sku.id).await?;
 
-        db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
+        nico_api_db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
 
         txn.commit().await?;
 
@@ -1288,10 +1302,10 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
 
-        db::machine::unassign_sku(&mut txn, &machine_id).await?;
-        db::machine::assign_sku(&mut txn, &machine_id, &original_sku.id).await?;
+        nico_api_db::machine::unassign_sku(&mut txn, &machine_id).await?;
+        nico_api_db::machine::assign_sku(&mut txn, &machine_id, &original_sku.id).await?;
 
-        db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
+        nico_api_db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
         txn.commit().await?;
 
         handle_inventory_update(&pool, &env, &mh).await;
@@ -1364,7 +1378,7 @@ pub mod tests {
         assign_mismatched_sku(&mut txn, &machine_id, &current_sku_id).await?;
 
         // Trigger re-verification
-        db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
+        nico_api_db::machine::update_sku_status_verify_request_time(&mut txn, &machine_id).await?;
         txn.commit().await?;
 
         handle_inventory_update(&pool, &env, &mh).await;
@@ -1447,13 +1461,13 @@ pub mod tests {
         // Create a SKU that will mismatch with the actual hardware
         let mut txn = pool.begin().await?;
         let mismatched_sku: Sku = serde_json::from_str(SKU_DATA)?;
-        db::sku::create(&mut txn, &mismatched_sku).await?;
+        nico_api_db::sku::create(&mut txn, &mismatched_sku).await?;
         txn.commit().await?;
 
         // Create machine with the mismatched SKU
         let managed_host_config = ManagedHostConfig::default();
         let mut txn = pool.begin().await?;
-        db::expected_machine::create(
+        nico_api_db::expected_machine::create(
             &mut txn,
             ExpectedMachine {
                 id: None,
@@ -1514,10 +1528,11 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
 
-        let actual_sku = db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
-        db::sku::create(&mut txn, &actual_sku).await?;
+        let actual_sku =
+            nico_api_db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id).await?;
+        nico_api_db::sku::create(&mut txn, &actual_sku).await?;
 
-        db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
+        nico_api_db::machine::assign_sku(&mut txn, &machine_id, &actual_sku.id).await?;
 
         txn.commit().await?;
 
@@ -1561,7 +1576,7 @@ pub mod tests {
         let mut txn = pool.begin().await?;
 
         // The SKU should have been auto-created and assigned by create_managed_host when BOM validation is enabled
-        let machine = db::machine::find(
+        let machine = nico_api_db::machine::find(
             txn.as_mut(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
@@ -1574,7 +1589,7 @@ pub mod tests {
             .hw_sku
             .clone()
             .expect("SKU should have been assigned");
-        let mut actual_sku = db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
+        let mut actual_sku = nico_api_db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
             .await?
             .pop()
             .expect("SKU should exist");
@@ -1586,11 +1601,11 @@ pub mod tests {
         let mut txn = pool.begin().await?;
 
         actual_sku.components.cpus[0].thread_count *= 2;
-        db::sku::replace(&mut txn, &actual_sku).await?;
+        nico_api_db::sku::replace(&mut txn, &actual_sku).await?;
 
         txn.commit().await?;
 
-        let machine = db::machine::find(
+        let machine = nico_api_db::machine::find(
             &pool,
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
@@ -1605,7 +1620,7 @@ pub mod tests {
 
         env.run_machine_state_controller_iteration().await;
 
-        let machine = db::machine::find(
+        let machine = nico_api_db::machine::find(
             &pool,
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
@@ -1645,7 +1660,7 @@ pub mod tests {
         let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
 
         let mut txn = pool.begin().await?;
-        let machine = db::machine::find(
+        let machine = nico_api_db::machine::find(
             txn.as_mut(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
@@ -1661,7 +1676,7 @@ pub mod tests {
             .hw_sku
             .clone()
             .expect("SKU should have been assigned");
-        let expected_sku = db::sku::find(&mut txn, std::slice::from_ref(&expected_sku_id))
+        let expected_sku = nico_api_db::sku::find(&mut txn, std::slice::from_ref(&expected_sku_id))
             .await?
             .pop()
             .expect("SKU should exist");
@@ -1675,7 +1690,7 @@ pub mod tests {
 
         let mut txn = pool.begin().await?;
 
-        let machine = db::machine::find(
+        let machine = nico_api_db::machine::find(
             txn.as_mut(),
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
@@ -1689,7 +1704,7 @@ pub mod tests {
 
         clear_sku_status(&mut txn, &machine_id).await?;
         // test that an unassigned can find and assign a machine.
-        db::machine::unassign_sku(&mut txn, &machine_id).await?;
+        nico_api_db::machine::unassign_sku(&mut txn, &machine_id).await?;
         txn.commit().await?;
 
         // Wait for machine to leave Ready and enter UpdatingInventory
@@ -1712,7 +1727,7 @@ pub mod tests {
 
         // Update discovery time to satisfy the inventory freshness check
         let mut txn = pool.begin().await.unwrap();
-        db::machine::update_discovery_time(&machine_id, &mut txn)
+        nico_api_db::machine::update_discovery_time(&machine_id, &mut txn)
             .await
             .unwrap();
         txn.commit().await.unwrap();
@@ -1725,7 +1740,7 @@ pub mod tests {
         )
         .await;
 
-        let machine = db::machine::find(
+        let machine = nico_api_db::machine::find(
             &pool,
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
@@ -1757,19 +1772,19 @@ pub mod tests {
 
     #[test]
     fn test_thread_differences() -> Result<(), eyre::Error> {
-        let rpc_sku1: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
-        let mut rpc_sku2: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
+        let rpc_sku1: forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
+        let mut rpc_sku2: forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
 
         let sku1 = rpc_sku1.into();
         let sku2 = rpc_sku2.clone().into();
 
-        let diffs = model::sku::diff_skus(&sku1, &sku2);
+        let diffs = nico_api_model::sku::diff_skus(&sku1, &sku2);
         assert!(diffs.is_empty());
 
         rpc_sku2.components.as_mut().unwrap().cpus[0].thread_count *= 2;
         let sku2 = rpc_sku2.into();
 
-        let diffs = model::sku::diff_skus(&sku1, &sku2);
+        let diffs = nico_api_model::sku::diff_skus(&sku1, &sku2);
         assert!(!diffs.is_empty());
 
         Ok(())
@@ -1780,7 +1795,7 @@ pub mod tests {
         let env = create_test_env_for_bom_validation(pool.clone(), false, None, false).await;
         let (machine_id, _dpu_id) = create_managed_host(&env).await.into();
 
-        let machine = db::machine::find(
+        let machine = nico_api_db::machine::find(
             &pool,
             ObjectFilter::One(machine_id),
             MachineSearchConfig::default(),
@@ -1797,12 +1812,12 @@ pub mod tests {
                 |txn| {
                     async move {
                         let mut unassigned_sku =
-                            db::sku::find(txn, std::slice::from_ref(&assigned_sku_id))
+                            nico_api_db::sku::find(txn, std::slice::from_ref(&assigned_sku_id))
                                 .await?
                                 .remove(0);
                         unassigned_sku.id = "unassigned-sku".to_string();
                         unassigned_sku.components.cpus[0].count += 1;
-                        db::sku::create(txn, &unassigned_sku).await?;
+                        nico_api_db::sku::create(txn, &unassigned_sku).await?;
                         Ok::<_, DatabaseError>(unassigned_sku)
                     }
                     .boxed()
@@ -1812,7 +1827,7 @@ pub mod tests {
 
         let sku_ids = vec![assigned_sku_id.clone(), unassigned_sku.id.clone()];
         let machine_ids_by_sku_ids =
-            db::machine::find_machine_ids_by_sku_ids(&pool, &sku_ids).await?;
+            nico_api_db::machine::find_machine_ids_by_sku_ids(&pool, &sku_ids).await?;
 
         assert_eq!(machine_ids_by_sku_ids.len(), 2);
 
@@ -1830,7 +1845,7 @@ pub mod tests {
     pub fn test_sku_metadata_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
 
-        db::sku::update_metadata(
+        nico_api_db::sku::update_metadata(
             &mut txn,
             "sku1".to_string(),
             Some("new description".to_string()),
@@ -1838,7 +1853,7 @@ pub mod tests {
         )
         .await?;
 
-        let sku = db::sku::find(&mut txn, &["sku1".to_string()])
+        let sku = nico_api_db::sku::find(&mut txn, &["sku1".to_string()])
             .await?
             .pop()
             .unwrap();
@@ -1855,7 +1870,7 @@ pub mod tests {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
 
-        db::sku::update_metadata(
+        nico_api_db::sku::update_metadata(
             &mut txn,
             "sku1".to_string(),
             Some("new description".to_string()),
@@ -1863,7 +1878,7 @@ pub mod tests {
         )
         .await?;
 
-        let sku = db::sku::find(&mut txn, &["sku1".to_string()])
+        let sku = nico_api_db::sku::find(&mut txn, &["sku1".to_string()])
             .await?
             .pop()
             .unwrap();
@@ -1871,7 +1886,7 @@ pub mod tests {
         assert_eq!(&sku.description, "new description");
         assert_eq!(sku.device_type, Some("device_type".to_string()));
 
-        db::sku::update_metadata(
+        nico_api_db::sku::update_metadata(
             &mut txn,
             "sku1".to_string(),
             Some("old description".to_string()),
@@ -1879,7 +1894,7 @@ pub mod tests {
         )
         .await?;
 
-        db::sku::update_metadata(
+        nico_api_db::sku::update_metadata(
             &mut txn,
             "sku1".to_string(),
             Some("really new description".to_string()),
@@ -1887,7 +1902,7 @@ pub mod tests {
         )
         .await?;
 
-        let sku = db::sku::find(&mut txn, &["sku1".to_string()])
+        let sku = nico_api_db::sku::find(&mut txn, &["sku1".to_string()])
             .await?
             .pop()
             .unwrap();
@@ -1904,7 +1919,7 @@ pub mod tests {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
 
-        db::sku::update_metadata(
+        nico_api_db::sku::update_metadata(
             &mut txn,
             "sku1".to_string(),
             None,
@@ -1912,7 +1927,7 @@ pub mod tests {
         )
         .await?;
 
-        let sku = db::sku::find(&mut txn, &["sku1".to_string()])
+        let sku = nico_api_db::sku::find(&mut txn, &["sku1".to_string()])
             .await?
             .pop()
             .unwrap();
@@ -1929,7 +1944,8 @@ pub mod tests {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
 
-        let result = db::sku::update_metadata(&mut txn, "sku1".to_string(), None, None).await;
+        let result =
+            nico_api_db::sku::update_metadata(&mut txn, "sku1".to_string(), None, None).await;
 
         assert!(result.is_err());
         Ok(())
@@ -1939,13 +1955,13 @@ pub mod tests {
     pub fn test_sku_replace(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let mut txn = pool.begin().await?;
         let sku_id = "sku1".to_string();
-        let original_sku = db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
+        let original_sku = nico_api_db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
             .await?
             .remove(0);
         let original_sku_json = serde_json::ser::to_string_pretty(&original_sku)?;
         tracing::info!(original_sku_json, "original");
 
-        let rpc_sku: rpc::forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
+        let rpc_sku: forge::Sku = serde_json::de::from_str(FULL_SKU_DATA)?;
         let replacement_sku: Sku = rpc_sku.into();
         let replacement_sku_json = serde_json::ser::to_string_pretty(&replacement_sku)?;
         tracing::info!(replacement_sku_json, "replacment");
@@ -1957,11 +1973,11 @@ pub mod tests {
         };
         let expected_sku_json = serde_json::ser::to_string_pretty(&expected_sku)?;
 
-        let returned_sku = db::sku::replace(&mut txn, &expected_sku).await?;
+        let returned_sku = nico_api_db::sku::replace(&mut txn, &expected_sku).await?;
 
         let returned_sku_json = serde_json::ser::to_string_pretty(&returned_sku)?;
 
-        let mut actual_sku = db::sku::find(&mut txn, &[sku_id]).await?.remove(0);
+        let mut actual_sku = nico_api_db::sku::find(&mut txn, &[sku_id]).await?.remove(0);
 
         // cheat the created timestamp
         actual_sku.created = expected_sku.created;

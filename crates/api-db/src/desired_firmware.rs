@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use model::firmware::{DesiredFirmwareVersions, Firmware};
+use nico_api_model::firmware::{DesiredFirmwareVersions, Firmware};
 use sqlx::PgConnection;
 
 use super::DatabaseError;

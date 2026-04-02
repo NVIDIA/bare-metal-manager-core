@@ -15,7 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
 
 use super::args::Args;
 use crate::instance_type::common::convert_itypes_to_table;
@@ -31,7 +32,7 @@ pub async fn create(
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
-    let req: ::rpc::forge::CreateInstanceTypeRequest = args.try_into()?;
+    let req: forge::CreateInstanceTypeRequest = args.try_into()?;
     let itype = api_client
         .0
         .create_instance_type(req)

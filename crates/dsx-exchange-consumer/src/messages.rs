@@ -16,7 +16,7 @@
 //! by BMS on the DSX Exchange Event Bus.
 
 use chrono::{DateTime, Utc};
-use health_report::HealthProbeId;
+use nico_health_report::HealthProbeId;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 /// Point type identifier for leak detection events.

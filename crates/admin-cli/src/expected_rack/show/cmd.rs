@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_rpc::forge::ExpectedRackRequest;
 use prettytable::{Table, row};
-use rpc::admin_cli::{CarbideCliResult, OutputFormat};
-use rpc::forge::ExpectedRackRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -47,7 +48,7 @@ pub async fn show(
 }
 
 fn convert_and_print_into_nice_table(
-    expected_racks: &::rpc::forge::ExpectedRackList,
+    expected_racks: &forge::ExpectedRackList,
 ) -> CarbideCliResult<()> {
     let mut table = Box::new(Table::new());
 

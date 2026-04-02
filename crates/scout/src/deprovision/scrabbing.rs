@@ -17,9 +17,9 @@
 use std::fs;
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
-use carbide_host_support::hardware_enumeration::discovery_ibs;
-use carbide_uuid::machine::MachineId;
+use nico_host_support::hardware_enumeration::discovery_ibs;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 use regex::Regex;
 use scout::CarbideClientError;
 use serde::Deserialize;
@@ -712,14 +712,14 @@ async fn reset_ib_devices() -> Result<(), CarbideClientError> {
     set_ib_link_up().await
 }
 
-async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineCleanupInfo> {
-    let mut cleanup_result = rpc::MachineCleanupInfo {
+async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<forge::MachineCleanupInfo> {
+    let mut cleanup_result = forge::MachineCleanupInfo {
         machine_id: Some(*machine_id),
         nvme: None,
         ram: None,
         mem_overwrite: None,
         ib: None,
-        result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
+        result: forge::machine_cleanup_info::CleanupResult::Ok as _,
     };
 
     // do nvme cleanup only if stdin is /dev/null. This is because we afraid to cleanum someone's nvme drive.
@@ -731,18 +731,18 @@ async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineC
     if stdin_link == "/dev/null" {
         match all_nvme_cleanup().await {
             Ok(_) => {
-                cleanup_result.nvme = Some(rpc::machine_cleanup_info::CleanupStepResult {
-                    result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
+                cleanup_result.nvme = Some(forge::machine_cleanup_info::CleanupStepResult {
+                    result: forge::machine_cleanup_info::CleanupResult::Ok as _,
                     message: "OK".to_string(),
                 });
             }
             Err(e) => {
                 tracing::error!("{}", e);
-                cleanup_result.nvme = Some(rpc::machine_cleanup_info::CleanupStepResult {
-                    result: rpc::machine_cleanup_info::CleanupResult::Error as _,
+                cleanup_result.nvme = Some(forge::machine_cleanup_info::CleanupStepResult {
+                    result: forge::machine_cleanup_info::CleanupResult::Error as _,
                     message: e.to_string(),
                 });
-                cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
+                cleanup_result.result = forge::machine_cleanup_info::CleanupResult::Error as _;
             }
         }
     } else {
@@ -751,19 +751,19 @@ async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineC
 
     match check_memory_overwrite_efi_var() {
         Ok(_) => {
-            cleanup_result.mem_overwrite = Some(rpc::machine_cleanup_info::CleanupStepResult {
-                result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
+            cleanup_result.mem_overwrite = Some(forge::machine_cleanup_info::CleanupStepResult {
+                result: forge::machine_cleanup_info::CleanupResult::Ok as _,
                 message: "OK".to_string(),
             });
         }
         Err(e) => {
             tracing::error!("{}", e);
-            cleanup_result.mem_overwrite = Some(rpc::machine_cleanup_info::CleanupStepResult {
-                result: rpc::machine_cleanup_info::CleanupResult::Error as _,
+            cleanup_result.mem_overwrite = Some(forge::machine_cleanup_info::CleanupStepResult {
+                result: forge::machine_cleanup_info::CleanupResult::Error as _,
                 message: e.to_string(),
             });
             if !IN_QEMU_VM.read().await.in_qemu {
-                cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
+                cleanup_result.result = forge::machine_cleanup_info::CleanupResult::Error as _;
             }
         }
     }
@@ -771,35 +771,35 @@ async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineC
     // Memory cleanup is disabled until we can guarantee the system won't run out of memory while performing it
     // match cleanup_ram() {
     //     Ok(_) => {
-    //         cleanup_result.ram = Some(rpc::machine_cleanup_info::CleanupStepResult {
-    //             result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
+    //         cleanup_result.ram = Some(forge::machine_cleanup_info::CleanupStepResult {
+    //             result: nico_rpc::machine_cleanup_info::CleanupResult::Ok as _,
     //             message: "OK".to_string(),
     //         });
     //     }
     //     Err(e) => {
     //         tracing::error!("{}", e);
-    //         cleanup_result.ram = Some(rpc::machine_cleanup_info::CleanupStepResult {
-    //             result: rpc::machine_cleanup_info::CleanupResult::Error as _,
+    //         cleanup_result.ram = Some(forge::machine_cleanup_info::CleanupStepResult {
+    //             result: nico_rpc::machine_cleanup_info::CleanupResult::Error as _,
     //             message: e.to_string(),
     //         });
-    //         cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
+    //         cleanup_result.result = nico_rpc::machine_cleanup_info::CleanupResult::Error as _;
     //     }
     // }
 
     match reset_ib_devices().await {
         Ok(_) => {
-            cleanup_result.ib = Some(rpc::machine_cleanup_info::CleanupStepResult {
-                result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
+            cleanup_result.ib = Some(forge::machine_cleanup_info::CleanupStepResult {
+                result: forge::machine_cleanup_info::CleanupResult::Ok as _,
                 message: "OK".to_string(),
             });
         }
         Err(e) => {
             tracing::error!("{}", e);
-            cleanup_result.ib = Some(rpc::machine_cleanup_info::CleanupStepResult {
-                result: rpc::machine_cleanup_info::CleanupResult::Error as _,
+            cleanup_result.ib = Some(forge::machine_cleanup_info::CleanupStepResult {
+                result: forge::machine_cleanup_info::CleanupResult::Error as _,
                 message: e.to_string(),
             });
-            cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
+            cleanup_result.result = forge::machine_cleanup_info::CleanupResult::Error as _;
         }
     }
 

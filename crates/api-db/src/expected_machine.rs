@@ -16,10 +16,12 @@
  */
 use std::collections::{BTreeMap, HashMap};
 
-use carbide_uuid::rack::RackId;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::expected_machine::{ExpectedMachine, ExpectedMachineRequest, LinkedExpectedMachine};
+use nico_api_model::expected_machine::{
+    ExpectedMachine, ExpectedMachineRequest, LinkedExpectedMachine,
+};
+use nico_uuid::rack::RackId;
 use sqlx::PgConnection;
 use uuid::Uuid;
 

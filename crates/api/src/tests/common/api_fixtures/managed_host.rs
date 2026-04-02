@@ -22,10 +22,12 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use itertools::Itertools;
 use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
-use model::expected_machine::ExpectedMachineData;
-use model::hardware_info::{HardwareInfo, NetworkInterface, PciDeviceProperties, TpmEkCertificate};
-use model::machine::ManagedHostState;
-use model::site_explorer::{
+use nico_api_model::expected_machine::ExpectedMachineData;
+use nico_api_model::hardware_info::{
+    HardwareInfo, NetworkInterface, PciDeviceProperties, TpmEkCertificate,
+};
+use nico_api_model::machine::ManagedHostState;
+use nico_api_model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
     EthernetInterface, Inventory, Manager, NetworkAdapter, PowerState, Service, UefiDevicePath,
 };

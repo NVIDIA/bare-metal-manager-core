@@ -20,11 +20,6 @@ use std::ops::DerefMut;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
-use ::rpc::forge::forge_server::Forge;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcPrefixId;
 use chrono::Utc;
 use common::api_fixtures::instance::{
     advance_created_instance_into_ready_state, default_os_config, default_tenant_config,
@@ -40,36 +35,43 @@ use common::api_fixtures::{
     populate_network_security_groups, site_explorer,
 };
 use config_version::ConfigVersion;
-use db::instance_address::UsedOverlayNetworkIpResolver;
-use db::ip_allocator::UsedIpResolver;
-use db::network_segment::IdColumn;
-use db::{self, ObjectColumnFilter};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::dpu_machine_update::DpuMachineUpdate;
-use model::instance::config::extension_services::InstanceExtensionServicesConfig;
-use model::instance::config::infiniband::InstanceInfinibandConfig;
-use model::instance::config::network::{
+use nico_api_db::instance_address::UsedOverlayNetworkIpResolver;
+use nico_api_db::ip_allocator::UsedIpResolver;
+use nico_api_db::network_segment::IdColumn;
+use nico_api_db::{
+    ObjectColumnFilter, {self},
+};
+use nico_api_model::dpu_machine_update::DpuMachineUpdate;
+use nico_api_model::instance::config::extension_services::InstanceExtensionServicesConfig;
+use nico_api_model::instance::config::infiniband::InstanceInfinibandConfig;
+use nico_api_model::instance::config::network::{
     DeviceLocator, InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
 };
-use model::instance::config::nvlink::InstanceNvLinkConfig;
-use model::instance::status::network::{
+use nico_api_model::instance::config::nvlink::InstanceNvLinkConfig;
+use nico_api_model::instance::status::network::{
     InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
 };
-use model::machine::{
+use nico_api_model::machine::{
     CleanupState, FailureDetails, InstanceState, MachineState, MachineValidatingState,
     ManagedHostState, MeasuringState, NetworkConfigUpdateState, ValidationState,
 };
-use model::metadata::Metadata;
-use model::network_security_group::NetworkSecurityGroupStatusObservation;
-use model::network_segment::{NetworkSegmentSearchConfig, NetworkSegmentSearchFilter};
-use model::vpc::UpdateVpcVirtualization;
-use model::vpc_prefix::VpcPrefixConfig;
-use rpc::forge::{
+use nico_api_model::metadata::Metadata;
+use nico_api_model::network_security_group::NetworkSecurityGroupStatusObservation;
+use nico_api_model::network_segment::{NetworkSegmentSearchConfig, NetworkSegmentSearchFilter};
+use nico_api_model::vpc::UpdateVpcVirtualization;
+use nico_api_model::vpc_prefix::VpcPrefixConfig;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{
     DpuExtensionService, Issue, IssueCategory, ManagedHostQuarantineMode, TpmCaCert, TpmCaCertId,
 };
-use rpc::{InstanceReleaseRequest, InterfaceFunctionType, Timestamp};
+use nico_rpc::{InstanceReleaseRequest, InterfaceFunctionType, Timestamp, forge};
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcPrefixId;
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tonic::Request;
@@ -88,13 +90,10 @@ use crate::tests::common::rpc_builder::{
     InstanceAllocationRequest, InstanceConfig, VpcCreationRequest,
 };
 
-pub async fn find_instances_by_label(
-    env: &TestEnv,
-    label: rpc::forge::Label,
-) -> rpc::forge::InstanceList {
+pub async fn find_instances_by_label(env: &TestEnv, label: forge::Label) -> forge::InstanceList {
     let instance_ids = env
         .api
-        .find_instance_ids(tonic::Request::new(rpc::forge::InstanceSearchFilter {
+        .find_instance_ids(tonic::Request::new(forge::InstanceSearchFilter {
             label: Some(label),
             tenant_org_id: None,
             vpc_id: None,
@@ -106,7 +105,7 @@ pub async fn find_instances_by_label(
         .instance_ids;
 
     env.api
-        .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+        .find_instances_by_ids(tonic::Request::new(forge::InstancesByIdsRequest {
             instance_ids,
         }))
         .await
@@ -159,7 +158,7 @@ async fn test_allocate_and_release_instance_impl(
     let mut txn = env.db_txn().await;
     for segment_id in &segment_ids {
         assert_eq!(
-            db::instance_address::count_by_segment_id(&mut txn, segment_id)
+            nico_api_db::instance_address::count_by_segment_id(&mut txn, segment_id)
                 .await
                 .unwrap(),
             0
@@ -193,7 +192,7 @@ async fn test_allocate_and_release_instance_impl(
 
     let instance = tinstance.rpc_instance().await;
 
-    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Ready);
 
     let tenant_config = instance.config().tenant();
     let expected_os = default_os_config();
@@ -215,7 +214,7 @@ async fn test_allocate_and_release_instance_impl(
             0
         };
         assert_eq!(
-            db::instance_address::count_by_segment_id(&mut txn, segment_id)
+            nico_api_db::instance_address::count_by_segment_id(&mut txn, segment_id)
                 .await
                 .unwrap(),
             expected_count
@@ -240,14 +239,15 @@ async fn test_allocate_and_release_instance_impl(
     assert!(!fetched_instance.observations.network.is_empty());
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
-    let _ = db::instance::use_custom_ipxe_on_next_boot(&mh.host().id, false, &mut txn).await;
+    let _ =
+        nico_api_db::instance::use_custom_ipxe_on_next_boot(&mh.host().id, false, &mut txn).await;
     let snapshot = mh.snapshot(&mut txn).await;
     let fetched_instance = snapshot.instance.unwrap();
     txn.commit().await.unwrap();
 
     let mut txn = env.db_txn().await;
     // TODO: The MAC here doesn't matter. It's not used for lookup
-    let record = db::instance_address::find_by_instance_id_and_segment_id(
+    let record = nico_api_db::instance_address::find_by_instance_id_and_segment_id(
         &mut txn,
         &fetched_instance.id,
         segment_ids.first().unwrap(),
@@ -298,7 +298,7 @@ async fn test_allocate_and_release_instance_impl(
     ));
     for segment_id in &segment_ids {
         assert_eq!(
-            db::instance_address::count_by_segment_id(&mut txn, segment_id)
+            nico_api_db::instance_address::count_by_segment_id(&mut txn, segment_id)
                 .await
                 .unwrap(),
             0
@@ -335,7 +335,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let mut txn = env.db_txn().await;
     //let dpu_loopback_ip = dpu::loopback_ip(&mut txn, &dpu_machine_id).await;
     assert_eq!(
-        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
+        nico_api_db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -362,7 +362,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     let instance = tinstance.rpc_instance().await;
 
-    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Ready);
 
     let tenant_config = instance.config().tenant();
     let expected_os = default_os_config();
@@ -378,7 +378,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let fetched_instance = snapshot.instance.unwrap();
     assert_eq!(fetched_instance.machine_id, mh.host().id);
     assert_eq!(
-        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
+        nico_api_db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         1
@@ -403,7 +403,8 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     assert!(!fetched_instance.observations.network.is_empty());
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
-    let _ = db::instance::use_custom_ipxe_on_next_boot(&mh.host().id, false, &mut txn).await;
+    let _ =
+        nico_api_db::instance::use_custom_ipxe_on_next_boot(&mh.host().id, false, &mut txn).await;
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
@@ -413,10 +414,10 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     let mut txn = env.db_txn().await;
     // TODO: The MAC here doesn't matter. It's not used for lookup
-    let segment = db::network_segment::find_by_name(&mut txn, "TENANT")
+    let segment = nico_api_db::network_segment::find_by_name(&mut txn, "TENANT")
         .await
         .unwrap();
-    let record = db::instance_address::find_by_instance_id_and_segment_id(
+    let record = nico_api_db::instance_address::find_by_instance_id_and_segment_id(
         &mut txn,
         &fetched_instance.id,
         &segment.id,
@@ -469,15 +470,15 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     // The instance should show up immediatly as terminating - even if the state handler didn't yet run
     let instance = tinstance.rpc_instance().await;
-    assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Terminating);
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
         7,
         ManagedHostState::Assigned {
-            instance_state: model::machine::InstanceState::HostPlatformConfiguration {
+            instance_state: nico_api_model::machine::InstanceState::HostPlatformConfiguration {
                 platform_config_state:
-                    model::machine::HostPlatformConfigurationState::CheckHostConfig,
+                    nico_api_model::machine::HostPlatformConfigurationState::CheckHostConfig,
             },
         },
     )
@@ -489,7 +490,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         &mh.host().id,
         2,
         ManagedHostState::Assigned {
-            instance_state: model::machine::InstanceState::WaitingForDpusToUp,
+            instance_state: nico_api_model::machine::InstanceState::WaitingForDpusToUp,
         },
     )
     .await;
@@ -500,8 +501,8 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         &mh.host().id,
         1,
         ManagedHostState::Assigned {
-            instance_state: model::machine::InstanceState::BootingWithDiscoveryImage {
-                retry: model::machine::RetryInfo { count: 0 },
+            instance_state: nico_api_model::machine::InstanceState::BootingWithDiscoveryImage {
+                retry: nico_api_model::machine::RetryInfo { count: 0 },
             },
         },
     )
@@ -511,7 +512,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     let mut txn = env.db_txn().await;
     let machine = mh.host().db_machine(&mut txn).await;
-    db::machine::update_reboot_time(&machine, &mut txn)
+    nico_api_db::machine::update_reboot_time(&machine, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -523,7 +524,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         &mh.host().id,
         2,
         ManagedHostState::Assigned {
-            instance_state: model::machine::InstanceState::WaitingForNetworkReconfig,
+            instance_state: nico_api_model::machine::InstanceState::WaitingForNetworkReconfig,
         },
     )
     .await;
@@ -564,7 +565,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         host.current_state(),
         ManagedHostState::Failed {
             details: FailureDetails {
-                cause: model::machine::FailureCause::MeasurementsCAValidationFailed { .. },
+                cause: nico_api_model::machine::FailureCause::MeasurementsCAValidationFailed { .. },
                 ..
             },
             ..
@@ -595,10 +596,10 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     let mut txn = env.db_txn().await;
     let machine = mh.host().db_machine(&mut txn).await;
-    db::machine::update_reboot_time(&machine, &mut txn)
+    nico_api_db::machine::update_reboot_time(&machine, &mut txn)
         .await
         .unwrap();
-    db::machine::update_cleanup_time(&machine, &mut txn)
+    nico_api_db::machine::update_cleanup_time(&machine, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -620,7 +621,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     )
     .await;
 
-    let mut machine_validation_result = rpc::forge::MachineValidationResult {
+    let mut machine_validation_result = forge::MachineValidationResult {
         validation_id: None,
         name: "instance".to_string(),
         description: "desc".to_string(),
@@ -638,13 +639,13 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
     let response = mh.host().forge_agent_control().await;
     let uuid = &response.data.unwrap().pair[1].value;
 
-    machine_validation_result.validation_id = Some(rpc::Uuid {
+    machine_validation_result.validation_id = Some(nico_rpc::Uuid {
         value: uuid.to_owned(),
     });
     persist_machine_validation_result(&env, machine_validation_result.clone()).await;
 
     let mut txn = env.db_txn().await;
-    db::machine::update_machine_validation_time(&mh.host().id, &mut txn)
+    nico_api_db::machine::update_machine_validation_time(&mh.host().id, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -662,7 +663,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
 
     let mut txn = env.db_txn().await;
     let machine = mh.host().db_machine(&mut txn).await;
-    db::machine::update_reboot_time(&machine, &mut txn)
+    nico_api_db::machine::update_reboot_time(&machine, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -692,7 +693,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         ManagedHostState::Ready
     ));
     assert_eq!(
-        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
+        nico_api_db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -714,15 +715,15 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
         .expect("Unable to create transaction on database pool");
     txn.commit().await.unwrap();
 
-    let instance_metadata = rpc::forge::Metadata {
+    let instance_metadata = forge::Metadata {
         name: "test_instance_with_labels".to_string(),
         description: "this instance must have labels.".to_string(),
         labels: vec![
-            rpc::forge::Label {
+            forge::Label {
                 key: "key1".to_string(),
                 value: Some("value1".to_string()),
             },
-            rpc::forge::Label {
+            forge::Label {
                 key: "key2".to_string(),
                 value: None,
             },
@@ -769,7 +770,7 @@ async fn test_allocate_instance_with_labels(_: PgPoolOptions, options: PgConnect
 
     let mut instance_matched_by_label = find_instances_by_label(
         &env,
-        rpc::forge::Label {
+        forge::Label {
             key: "key1".to_string(),
             value: None,
         },
@@ -891,10 +892,10 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
     let (segment_id_1, segment_id_2) = env.create_vpc_and_dual_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let network = rpc::InstanceNetworkConfig {
+    let network = forge::InstanceNetworkConfig {
         interfaces: vec![
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 network_segment_id: Some(segment_id_1),
                 network_details: None,
                 device: None,
@@ -902,8 +903,8 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
                 virtual_function_id: None,
                 ip_address: None,
             },
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: Some(segment_id_2),
                 network_details: None,
                 device: None,
@@ -925,7 +926,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(
-            rpc::forge::ManagedHostNetworkConfigRequest {
+            forge::ManagedHostNetworkConfigRequest {
                 dpu_machine_id: mh.dpu().id.into(),
             },
         ))
@@ -937,7 +938,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
     let dns_record = env
         .api
         .lookup_record(tonic::Request::new(
-            rpc::protos::dns::DnsResourceRecordLookupRequest {
+            nico_rpc::protos::dns::DnsResourceRecordLookupRequest {
                 qname: "192-0-2-3.dwrt1.com.".to_string(),
                 zone_id: uuid::Uuid::new_v4().to_string(),
                 local: None,
@@ -984,7 +985,7 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
     let _response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(
-            rpc::forge::ManagedHostNetworkConfigRequest {
+            forge::ManagedHostNetworkConfigRequest {
                 dpu_machine_id: mh.dpu().id.into(),
             },
         ))
@@ -996,7 +997,7 @@ async fn test_instance_null_hostname(_: PgPoolOptions, options: PgConnectOptions
     let dns_record = env
         .api
         .lookup_record(tonic::Request::new(
-            rpc::protos::dns::DnsResourceRecordLookupRequest {
+            nico_rpc::protos::dns::DnsResourceRecordLookupRequest {
                 qname: "192-0-2-3.dwrt1.com.".to_string(),
                 zone_id: uuid::Uuid::new_v4().to_string(),
                 local: None,
@@ -1027,15 +1028,15 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
 
         mh.instance_builer(&env)
             .single_interface_network_config(segment_id)
-            .metadata(rpc::forge::Metadata {
+            .metadata(forge::Metadata {
                 name: format!("instance_{i}{i}{i}").to_string(),
                 description: format!("instance_{i}{i}{i} have labels").to_string(),
                 labels: vec![
-                    rpc::forge::Label {
+                    forge::Label {
                         key: format!("key_A_{i}{i}{i}").to_string(),
                         value: Some(format!("value_A_{i}{i}{i}").to_string()),
                     },
-                    rpc::forge::Label {
+                    forge::Label {
                         key: format!("key_B_{i}{i}{i}").to_string(),
                         value: None,
                     },
@@ -1048,7 +1049,7 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
     // Test searching based on value.
     let instance_matched_by_label = find_instances_by_label(
         &env,
-        rpc::forge::Label {
+        forge::Label {
             key: "".to_string(),
             value: Some("value_A_444".to_string()),
         },
@@ -1065,7 +1066,7 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
     // Test searching based on key.
     let instance_matched_by_label = find_instances_by_label(
         &env,
-        rpc::forge::Label {
+        forge::Label {
             key: "key_A_111".to_string(),
             value: None,
         },
@@ -1082,7 +1083,7 @@ async fn test_instance_search_based_on_labels(pool: sqlx::PgPool) {
     // Test searching based on key and value.
     let instance_matched_by_label = find_instances_by_label(
         &env,
-        rpc::forge::Label {
+        forge::Label {
             key: "key_A_888".to_string(),
             value: Some("value_A_888".to_string()),
         },
@@ -1116,7 +1117,7 @@ async fn test_create_instance_with_provided_id(_: PgPoolOptions, options: PgConn
                 .instance_id(instance_id)
                 .machine_id(host_machine_id)
                 .config(config)
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: "test_instance".to_string(),
                     description: "tests/instance".to_string(),
                     labels: Vec::new(),
@@ -1153,7 +1154,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
             InstanceAllocationRequest::builder(false)
                 .machine_id(mh.host().id)
                 .config(config)
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: "test_instance".to_string(),
                     description: "tests/instance".to_string(),
                     labels: Vec::new(),
@@ -1172,7 +1173,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
             .as_ref()
             .unwrap()
             .state(),
-        rpc::TenantState::Provisioning
+        forge::TenantState::Provisioning
     );
 
     let instance_id = instance.id.expect("Missing instance ID");
@@ -1187,7 +1188,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
         .expect("Delete instance failed.");
 
     let instance = env.one_instance(instance_id).await;
-    assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Terminating);
 
     // Advance the instance into the "ready" state and then cleanup.
     // The next state that requires external input is HostPlatformConfiguration.
@@ -1202,7 +1203,7 @@ async fn test_instance_deletion_before_provisioning_finishes(
     })
     .await;
     let instance = env.one_instance(instance_id).await;
-    assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Terminating);
 
     // Now go through regular deletion
     mh.delete_instance(&env, instance_id).await;
@@ -1232,7 +1233,7 @@ async fn test_instance_deletion_is_idempotent(_: PgPoolOptions, options: PgConne
             .await
             .unwrap_or_else(|_| panic!("Delete instance failed failed on attempt {i}."));
         let instance = tinstance.rpc_instance().await;
-        assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
+        assert_eq!(instance.status().tenant(), forge::TenantState::Terminating);
     }
 
     // And finally delete the instance
@@ -1279,7 +1280,7 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
                 .instance_id(instance_id)
                 .machine_id(host_machine_id)
                 .config(config.clone())
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: "test_instance".to_string(),
                     description: "tests/instance".to_string(),
                     labels: Vec::new(),
@@ -1298,7 +1299,7 @@ async fn test_can_not_create_2_instances_with_same_id(_: PgPoolOptions, options:
                 .instance_id(instance_id)
                 .machine_id(host_machine_id_2)
                 .config(config)
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: "test_instance".to_string(),
                     description: "tests/instance".to_string(),
                     labels: Vec::new(),
@@ -1325,7 +1326,7 @@ async fn test_instance_cloud_init_metadata(
     let mut txn = env.db_txn().await;
     let machine = mh.host().db_machine(&mut txn).await;
 
-    let request = tonic::Request::new(rpc::forge::CloudInitInstructionsRequest {
+    let request = tonic::Request::new(forge::CloudInitInstructionsRequest {
         ip: machine.interfaces[0].addresses[0].to_string(),
     });
 
@@ -1343,7 +1344,7 @@ async fn test_instance_cloud_init_metadata(
         .build_and_return()
         .await;
 
-    let request = tonic::Request::new(rpc::forge::CloudInitInstructionsRequest {
+    let request = tonic::Request::new(forge::CloudInitInstructionsRequest {
         ip: instance.status().network().interfaces[0].addresses[0].to_string(),
     });
 
@@ -1395,7 +1396,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
         .get(pf_segment)
         .expect("Could not find matching interface_prefixes entry for pf_segment from ip_addrs.");
 
-    let pf_gw = db::network_prefix::find(&mut txn, *pf_segment)
+    let pf_gw = nico_api_db::network_prefix::find(&mut txn, *pf_segment)
         .await
         .ok()
         .and_then(|pfx| pfx.gateway_cidr())
@@ -1412,7 +1413,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             gateways: vec![IpNetwork::try_from(pf_gw.as_str()).expect("Invalid gateway")],
             network_security_group: Some(NetworkSecurityGroupStatusObservation {
                 id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
-                source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
+                source: forge::NetworkSecurityGroupSource::NsgSourceInstance
                     .try_into()
                     .unwrap(),
                 version: "V1-T1".parse().unwrap(),
@@ -1437,13 +1438,16 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
 
     let instance = tinstance.rpc_instance().await;
     let status = instance.status();
-    assert_eq!(status.configs_synced(), rpc::SyncState::Synced);
-    assert_eq!(status.network().configs_synced(), rpc::SyncState::Synced);
-    assert_eq!(status.infiniband().configs_synced(), rpc::SyncState::Synced);
-    assert_eq!(status.tenant(), rpc::TenantState::Ready);
+    assert_eq!(status.configs_synced(), forge::SyncState::Synced);
+    assert_eq!(status.network().configs_synced(), forge::SyncState::Synced);
+    assert_eq!(
+        status.infiniband().configs_synced(),
+        forge::SyncState::Synced
+    );
+    assert_eq!(status.tenant(), forge::TenantState::Ready);
     assert_eq!(
         status.network().interfaces,
-        vec![rpc::InstanceInterfaceStatus {
+        vec![forge::InstanceInterfaceStatus {
             virtual_function_id: None,
             mac_address: None,
             addresses: vec![pf_addr.to_string()],
@@ -1472,13 +1476,16 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
 
     let instance = tinstance.rpc_instance().await;
     let status = instance.status();
-    assert_eq!(status.configs_synced(), rpc::SyncState::Synced);
-    assert_eq!(status.network().configs_synced(), rpc::SyncState::Synced);
-    assert_eq!(status.infiniband().configs_synced(), rpc::SyncState::Synced);
-    assert_eq!(status.tenant(), rpc::TenantState::Ready);
+    assert_eq!(status.configs_synced(), forge::SyncState::Synced);
+    assert_eq!(status.network().configs_synced(), forge::SyncState::Synced);
+    assert_eq!(
+        status.infiniband().configs_synced(),
+        forge::SyncState::Synced
+    );
+    assert_eq!(status.tenant(), forge::TenantState::Ready);
     assert_eq!(
         status.network().interfaces,
-        vec![rpc::InstanceInterfaceStatus {
+        vec![forge::InstanceInterfaceStatus {
             virtual_function_id: None,
             mac_address: Some("11:12:13:14:15:16".to_string()),
             addresses: vec![pf_addr.to_string()],
@@ -1512,14 +1519,17 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
 
     let instance = tinstance.rpc_instance().await;
     let status = instance.status();
-    assert_eq!(status.configs_synced(), rpc::SyncState::Pending);
-    assert_eq!(status.network().configs_synced(), rpc::SyncState::Pending);
-    assert_eq!(status.infiniband().configs_synced(), rpc::SyncState::Synced);
+    assert_eq!(status.configs_synced(), forge::SyncState::Pending);
+    assert_eq!(status.network().configs_synced(), forge::SyncState::Pending);
+    assert_eq!(
+        status.infiniband().configs_synced(),
+        forge::SyncState::Synced
+    );
 
-    assert_eq!(status.tenant(), rpc::TenantState::Configuring);
+    assert_eq!(status.tenant(), forge::TenantState::Configuring);
     assert_eq!(
         status.network().interfaces,
-        vec![rpc::InstanceInterfaceStatus {
+        vec![forge::InstanceInterfaceStatus {
             virtual_function_id: None,
             mac_address: None,
             addresses: vec![],
@@ -1544,7 +1554,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
             gateways: vec!["127.1.2.1".parse().unwrap()],
             network_security_group: Some(NetworkSecurityGroupStatusObservation {
                 id: "c7c056c8-daa5-11ef-b221-c76a97b6c2ec".parse().unwrap(),
-                source: rpc::forge::NetworkSecurityGroupSource::NsgSourceInstance
+                source: forge::NetworkSecurityGroupSource::NsgSourceInstance
                     .try_into()
                     .unwrap(),
                 version: "V1-T1".parse().unwrap(),
@@ -1565,13 +1575,16 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
 
     let instance = tinstance.rpc_instance().await;
     let status = instance.status();
-    assert_eq!(status.configs_synced(), rpc::SyncState::Synced);
-    assert_eq!(status.network().configs_synced(), rpc::SyncState::Synced);
-    assert_eq!(status.infiniband().configs_synced(), rpc::SyncState::Synced);
-    assert_eq!(status.tenant(), rpc::TenantState::Ready);
+    assert_eq!(status.configs_synced(), forge::SyncState::Synced);
+    assert_eq!(status.network().configs_synced(), forge::SyncState::Synced);
+    assert_eq!(
+        status.infiniband().configs_synced(),
+        forge::SyncState::Synced
+    );
+    assert_eq!(status.tenant(), forge::TenantState::Ready);
     assert_eq!(
         status.network().interfaces,
-        vec![rpc::InstanceInterfaceStatus {
+        vec![forge::InstanceInterfaceStatus {
             virtual_function_id: None,
             mac_address: Some("11:12:13:14:15:16".to_string()),
             addresses: vec![pf_addr.to_string()],
@@ -1607,7 +1620,7 @@ async fn test_instance_network_status_sync(_: PgPoolOptions, options: PgConnectO
     let status = instance.status();
     assert_eq!(
         status.network().interfaces,
-        vec![rpc::InstanceInterfaceStatus {
+        vec![forge::InstanceInterfaceStatus {
             virtual_function_id: None,
             mac_address: Some("11:12:13:14:15:16".to_string()),
             addresses: vec![pf_addr.to_string()],
@@ -1633,7 +1646,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
         instance_id: InstanceId::new(),
         machine_id: dpu_machine_id,
         instance_type_id: None,
-        config: model::instance::config::InstanceConfig {
+        config: nico_api_model::instance::config::InstanceConfig {
             os: default_os_config().try_into().unwrap(),
             tenant: default_tenant_config().try_into().unwrap(),
             network: InstanceNetworkConfig::for_segment_ids(&[segment_id], &Vec::default()),
@@ -1671,23 +1684,23 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
 
     let mut txn = env.db_txn().await;
     assert_eq!(
-        db::instance_address::count_by_segment_id(&mut txn, &segment_id_1)
+        nico_api_db::instance_address::count_by_segment_id(&mut txn, &segment_id_1)
             .await
             .unwrap(),
         0
     );
     assert_eq!(
-        db::instance_address::count_by_segment_id(&mut txn, &segment_id_2)
+        nico_api_db::instance_address::count_by_segment_id(&mut txn, &segment_id_2)
             .await
             .unwrap(),
         0
     );
     txn.commit().await.unwrap();
 
-    let network = rpc::InstanceNetworkConfig {
+    let network = forge::InstanceNetworkConfig {
         interfaces: vec![
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 network_segment_id: Some(segment_id_1),
                 network_details: None,
                 device: None,
@@ -1695,8 +1708,8 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
                 virtual_function_id: None,
                 ip_address: None,
             },
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: Some(segment_id_2),
                 network_details: None,
                 device: None,
@@ -1711,13 +1724,13 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
 
     let mut txn = env.db_txn().await;
     assert_eq!(
-        db::instance_address::count_by_segment_id(&mut txn, &segment_id_1)
+        nico_api_db::instance_address::count_by_segment_id(&mut txn, &segment_id_1)
             .await
             .unwrap(),
         1
     );
     assert_eq!(
-        db::instance_address::count_by_segment_id(&mut txn, &segment_id_2)
+        nico_api_db::instance_address::count_by_segment_id(&mut txn, &segment_id_2)
             .await
             .unwrap(),
         1
@@ -1758,10 +1771,11 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     // And make sure find_by_prefix works -- just leverage
     // the last used_prefixes prefix and make sure it matches
     // the allocated instance ID.
-    let address_by_prefix = db::instance_address::find_by_prefix(&mut txn, used_prefixes[0])
-        .await
-        .unwrap()
-        .unwrap();
+    let address_by_prefix =
+        nico_api_db::instance_address::find_by_prefix(&mut txn, used_prefixes[0])
+            .await
+            .unwrap()
+            .unwrap();
     assert_eq!(tinstance.id, address_by_prefix.instance_id);
 
     txn.commit().await.unwrap();
@@ -1770,7 +1784,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
     let network_config = env
         .api
         .get_managed_host_network_config(tonic::Request::new(
-            rpc::forge::ManagedHostNetworkConfigRequest {
+            forge::ManagedHostNetworkConfigRequest {
                 dpu_machine_id: mh.dpu().id.into(),
             },
         ))
@@ -1809,20 +1823,21 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
     network_configured_with_health(
         &env,
         &dpu_machine_id,
-        Some(rpc::health::HealthReport {
+        Some(nico_rpc::health::HealthReport {
             source: "forge-dpu-agent".to_string(),
             triggered_by: None,
             observed_at: None,
             successes: vec![],
-            alerts: vec![rpc::health::HealthProbeAlert {
+            alerts: vec![nico_rpc::health::HealthProbeAlert {
                 id: "everything".to_string(),
                 target: None,
                 in_alert_since: None,
                 message: "test_cannot_create_instance_on_unhealthy_dpu".to_string(),
                 tenant_message: None,
                 classifications: vec![
-                    health_report::HealthAlertClassification::prevent_allocations().to_string(),
-                    health_report::HealthAlertClassification::prevent_host_state_changes()
+                    nico_health_report::HealthAlertClassification::prevent_allocations()
+                        .to_string(),
+                    nico_health_report::HealthAlertClassification::prevent_host_state_changes()
                         .to_string(),
                 ],
             }],
@@ -1839,7 +1854,7 @@ async fn test_cannot_create_instance_on_unhealthy_dpu(
                     InstanceConfig::default_tenant_and_os()
                         .network(single_interface_network_config(segment_id)),
                 )
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: "test_instance".to_string(),
                     description: "tests/instance".to_string(),
                     labels: Vec::new(),
@@ -1874,20 +1889,21 @@ async fn test_create_instance_with_allow_unhealthy_machine_true(
     network_configured_with_health(
         &env,
         &dpu_machine_id,
-        Some(rpc::health::HealthReport {
+        Some(nico_rpc::health::HealthReport {
             source: "forge-dpu-agent".to_string(),
             triggered_by: None,
             observed_at: None,
             successes: vec![],
-            alerts: vec![rpc::health::HealthProbeAlert {
+            alerts: vec![nico_rpc::health::HealthProbeAlert {
                 id: "everything".to_string(),
                 target: None,
                 in_alert_since: None,
                 message: "test_cannot_create_instance_on_unhealthy_dpu".to_string(),
                 tenant_message: None,
                 classifications: vec![
-                    health_report::HealthAlertClassification::prevent_allocations().to_string(),
-                    health_report::HealthAlertClassification::prevent_host_state_changes()
+                    nico_health_report::HealthAlertClassification::prevent_allocations()
+                        .to_string(),
+                    nico_health_report::HealthAlertClassification::prevent_host_state_changes()
                         .to_string(),
                 ],
             }],
@@ -1907,7 +1923,7 @@ async fn test_create_instance_with_allow_unhealthy_machine_true(
                     InstanceConfig::default_tenant_and_os()
                         .network(single_interface_network_config(segment_id)),
                 )
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: "test_instance".to_string(),
                     description: "tests/instance".to_string(),
                     labels: Vec::new(),
@@ -1933,7 +1949,7 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
 
     let mut os = default_os_config();
     os.phone_home_enabled = true;
-    let instance_config = rpc::InstanceConfig {
+    let instance_config = forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(os),
         network: Some(single_interface_network_config(segment_id)),
@@ -1952,12 +1968,12 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
     let instance = tinstance.rpc_instance().await;
 
     // Should be in a provisioning state
-    assert_eq!(instance.status().tenant(), rpc::TenantState::Provisioning);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Provisioning);
 
     // Phone home to transition to the ready state
     env.api
         .update_instance_phone_home_last_contact(tonic::Request::new(
-            rpc::forge::InstancePhoneHomeLastContactRequest {
+            forge::InstancePhoneHomeLastContactRequest {
                 instance_id: Some(tinstance.id),
             },
         ))
@@ -1966,7 +1982,7 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
 
     let instance = tinstance.rpc_instance().await;
 
-    assert_eq!(instance.status().tenant(), rpc::TenantState::Ready);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Ready);
 }
 
 #[crate::sqlx_test]
@@ -1995,9 +2011,9 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         &mh.host().id,
         7,
         ManagedHostState::Assigned {
-            instance_state: model::machine::InstanceState::HostPlatformConfiguration {
+            instance_state: nico_api_model::machine::InstanceState::HostPlatformConfiguration {
                 platform_config_state:
-                    model::machine::HostPlatformConfigurationState::CheckHostConfig,
+                    nico_api_model::machine::HostPlatformConfigurationState::CheckHostConfig,
             },
         },
     )
@@ -2009,7 +2025,7 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         &mh.host().id,
         2,
         ManagedHostState::Assigned {
-            instance_state: model::machine::InstanceState::WaitingForDpusToUp,
+            instance_state: nico_api_model::machine::InstanceState::WaitingForDpusToUp,
         },
     )
     .await;
@@ -2020,8 +2036,8 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         &mh.host().id,
         1,
         ManagedHostState::Assigned {
-            instance_state: model::machine::InstanceState::BootingWithDiscoveryImage {
-                retry: model::machine::RetryInfo { count: 0 },
+            instance_state: nico_api_model::machine::InstanceState::BootingWithDiscoveryImage {
+                retry: nico_api_model::machine::RetryInfo { count: 0 },
             },
         },
     )
@@ -2044,8 +2060,8 @@ async fn test_bootingwithdiscoveryimage_delay(_: PgPoolOptions, options: PgConne
         &mh.host().id,
         1,
         ManagedHostState::Assigned {
-            instance_state: model::machine::InstanceState::BootingWithDiscoveryImage {
-                retry: model::machine::RetryInfo { count: 1 },
+            instance_state: nico_api_model::machine::InstanceState::BootingWithDiscoveryImage {
+                retry: nico_api_model::machine::RetryInfo { count: 1 },
             },
         },
     )
@@ -2081,9 +2097,9 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
-    let config = rpc::InstanceConfig {
+    let config = forge::InstanceConfig {
         os: Some(default_os_config()),
-        tenant: Some(rpc::TenantConfig {
+        tenant: Some(forge::TenantConfig {
             tenant_organization_id: "Tenant1".to_string(),
             tenant_keyset_ids: vec![
                 "a".to_string(),
@@ -2109,7 +2125,7 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
                 .instance_id(instance_id)
                 .machine_id(host_machine_id)
                 .config(config)
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: "test_instance".to_string(),
                     description: "tests/instance".to_string(),
                     labels: Vec::new(),
@@ -2130,9 +2146,9 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
-    let config = rpc::InstanceConfig {
+    let config = forge::InstanceConfig {
         os: Some(default_os_config()),
-        tenant: Some(rpc::TenantConfig {
+        tenant: Some(forge::TenantConfig {
             tenant_organization_id: "Tenant1".to_string(),
             tenant_keyset_ids: vec![
                 "a".to_string(),
@@ -2165,7 +2181,7 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
                 .instance_id(instance_id)
                 .machine_id(host_machine_id)
                 .config(config)
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: "test_instance".to_string(),
                     description: "tests/instance".to_string(),
                     labels: Vec::new(),
@@ -2199,7 +2215,7 @@ async fn test_allocate_instance_with_old_network_segemnt(
         .expect("Unable to create transaction on database pool");
     txn.commit().await.unwrap();
 
-    let instance_metadata = rpc::forge::Metadata {
+    let instance_metadata = forge::Metadata {
         name: "test_instance_with_labels".to_string(),
         description: "this instance does not have labels.".to_string(),
         labels: vec![],
@@ -2264,7 +2280,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     env.create_vpc_and_tenant_segment().await;
-    let vpc = db::vpc::find_by_name(&env.pool, "test vpc 1")
+    let vpc = nico_api_db::vpc::find_by_name(&env.pool, "test vpc 1")
         .await
         .unwrap()
         .into_iter()
@@ -2273,12 +2289,12 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
 
     let vpc_prefix_id = create_tenant_overlay_prefix(&env, vpc.id).await;
 
-    let x = rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
+    let x = forge::InstanceNetworkConfig {
+        interfaces: vec![forge::InstanceInterfaceConfig {
             function_type: 0,
             network_segment_id: None,
             network_details: Some(
-                rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(vpc_prefix_id),
+                forge::instance_interface_config::NetworkDetails::VpcPrefixId(vpc_prefix_id),
             ),
             device: None,
             device_instance: 0u32,
@@ -2287,8 +2303,8 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
         }],
     };
 
-    let config = rpc::InstanceConfig {
-        tenant: Some(rpc::TenantConfig {
+    let config = forge::InstanceConfig {
+        tenant: Some(forge::TenantConfig {
             tenant_organization_id: "abc".to_string(),
             hostname: Some("xyz".to_string()),
             tenant_keyset_ids: vec![],
@@ -2301,7 +2317,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
         dpu_extension_services: None,
     };
 
-    let mut config: model::instance::config::InstanceConfig = config.try_into().unwrap();
+    let mut config: nico_api_model::instance::config::InstanceConfig = config.try_into().unwrap();
 
     assert!(config.network.interfaces[0].network_segment_id.is_none());
 
@@ -2314,7 +2330,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
     assert!(config.network.interfaces[0].network_segment_id.is_some());
 
     let mut txn = env.db_txn().await;
-    let network_segment = db::network_segment::find_by(
+    let network_segment = nico_api_db::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(
             IdColumn,
@@ -2347,7 +2363,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
 
     let mut txn = env.db_txn().await;
     assert_eq!(
-        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
+        nico_api_db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -2356,7 +2372,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Ready
     ));
-    let mut vpc = db::vpc::find_by_name(&env.pool, "test vpc 1")
+    let mut vpc = nico_api_db::vpc::find_by_name(&env.pool, "test vpc 1")
         .await
         .unwrap();
     let vpc = vpc.remove(0);
@@ -2364,9 +2380,9 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     let update_vpc = UpdateVpcVirtualization {
         id: vpc.id,
         if_version_match: None,
-        network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
+        network_virtualization_type: nico_network::virtualization::VpcVirtualizationType::Fnn,
     };
-    db::vpc::update_virtualization(&update_vpc, &mut txn)
+    nico_api_db::vpc::update_virtualization(&update_vpc, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -2374,7 +2390,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     let vpc_prefix_id = create_tenant_overlay_prefix(&env, vpc.id).await;
     let vpc_prefix = env
         .api
-        .get_vpc_prefixes(tonic::Request::new(rpc::forge::VpcPrefixGetRequest {
+        .get_vpc_prefixes(tonic::Request::new(forge::VpcPrefixGetRequest {
             vpc_prefix_ids: vec![vpc_prefix_id],
         }))
         .await
@@ -2396,7 +2412,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
 
     let vpc_prefix = env
         .api
-        .get_vpc_prefixes(tonic::Request::new(rpc::forge::VpcPrefixGetRequest {
+        .get_vpc_prefixes(tonic::Request::new(forge::VpcPrefixGetRequest {
             vpc_prefix_ids: vec![vpc_prefix_id],
         }))
         .await
@@ -2410,7 +2426,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
 
     let instance = tinstance.rpc_instance().await;
 
-    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Ready);
 
     let tenant_config = instance.config().tenant();
     let expected_os = default_os_config();
@@ -2426,7 +2442,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     let fetched_instance = snapshot.instance.unwrap();
     assert_eq!(fetched_instance.machine_id, mh.id);
     assert_eq!(
-        db::instance_address::count_by_segment_id(
+        nico_api_db::instance_address::count_by_segment_id(
             &mut txn,
             &fetched_instance.config.network.interfaces[0]
                 .network_segment_id
@@ -2441,9 +2457,9 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         .network_segment_id
         .unwrap();
 
-    let ns = db::network_segment::find_by(
+    let ns = nico_api_db::network_segment::find_by(
         txn.as_mut(),
-        ObjectColumnFilter::One(db::network_segment::IdColumn, &ns_id),
+        ObjectColumnFilter::One(nico_api_db::network_segment::IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
     )
     .await
@@ -2473,7 +2489,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     assert!(!fetched_instance.observations.network.is_empty());
     assert!(fetched_instance.use_custom_pxe_on_boot);
 
-    let _ = db::instance::use_custom_ipxe_on_next_boot(&mh.id, false, &mut txn).await;
+    let _ = nico_api_db::instance::use_custom_ipxe_on_next_boot(&mh.id, false, &mut txn).await;
     let snapshot = mh.snapshot(&mut txn).await;
 
     let fetched_instance = snapshot.instance.unwrap();
@@ -2482,7 +2498,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     txn.commit().await.unwrap();
 
     let mut txn = env.db_txn().await;
-    let mut ns = db::network_segment::find_by(
+    let mut ns = nico_api_db::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(
             IdColumn,
@@ -2497,7 +2513,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
 
     let ns = ns.remove(0);
 
-    let record = db::instance_address::find_by_instance_id_and_segment_id(
+    let record = nico_api_db::instance_address::find_by_instance_id_and_segment_id(
         &mut txn,
         &fetched_instance.id,
         &ns.id,
@@ -2553,7 +2569,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
 
     // Address is freed during delete
     let mut txn = env.db_txn().await;
-    let network_segments = db::network_segment::find_by(
+    let network_segments = nico_api_db::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::List(IdColumn, &segment_ids),
         NetworkSegmentSearchConfig::default(),
@@ -2568,7 +2584,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         ManagedHostState::Ready
     ));
     assert_eq!(
-        db::instance_address::count_by_segment_id(
+        nico_api_db::instance_address::count_by_segment_id(
             &mut txn,
             &fetched_instance.config.network.interfaces[0]
                 .network_segment_id
@@ -2580,7 +2596,7 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     );
     let vpc_prefix = env
         .api
-        .get_vpc_prefixes(tonic::Request::new(rpc::forge::VpcPrefixGetRequest {
+        .get_vpc_prefixes(tonic::Request::new(forge::VpcPrefixGetRequest {
             vpc_prefix_ids: vec![vpc_prefix_id],
         }))
         .await
@@ -2634,7 +2650,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .await
         .unwrap();
 
-    let ns1 = db::network_segment::find_by(
+    let ns1 = nico_api_db::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
@@ -2661,7 +2677,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .await
         .unwrap();
 
-    let ns2 = db::network_segment::find_by(
+    let ns2 = nico_api_db::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
@@ -2687,7 +2703,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .await
         .unwrap();
 
-    let ns3 = db::network_segment::find_by(
+    let ns3 = nico_api_db::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
@@ -2722,7 +2738,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .await
         .unwrap();
 
-    let ns4 = db::network_segment::find_by(
+    let ns4 = nico_api_db::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
@@ -2744,7 +2760,7 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .await
         .unwrap();
 
-    let ns4 = db::network_segment::find_by(
+    let ns4 = nico_api_db::network_segment::find_by(
         txn.as_mut(),
         ObjectColumnFilter::One(IdColumn, &ns_id),
         NetworkSegmentSearchConfig::default(),
@@ -2770,13 +2786,10 @@ async fn test_vpc_prefix_handling(pool: PgPool) {
         .unwrap_err();
 }
 
-async fn create_tenant_overlay_prefix(
-    env: &TestEnv,
-    vpc_id: carbide_uuid::vpc::VpcId,
-) -> VpcPrefixId {
+async fn create_tenant_overlay_prefix(env: &TestEnv, vpc_id: nico_uuid::vpc::VpcId) -> VpcPrefixId {
     let mut txn = env.db_txn().await;
-    let vpc_prefix_id = db::vpc_prefix::persist(
-        model::vpc_prefix::NewVpcPrefix {
+    let vpc_prefix_id = nico_api_db::vpc_prefix::persist(
+        nico_api_model::vpc_prefix::NewVpcPrefix {
             id: uuid::Uuid::new_v4().into(),
             vpc_id,
             config: VpcPrefixConfig {
@@ -2817,9 +2830,7 @@ async fn test_allocate_with_instance_type_id(
     // Find the existing instance types in the test env
     let existing_instance_type_ids = env
         .api
-        .find_instance_type_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypeIdsRequest {},
-        ))
+        .find_instance_type_ids(tonic::Request::new(forge::FindInstanceTypeIdsRequest {}))
         .await
         .unwrap()
         .into_inner()
@@ -2827,13 +2838,11 @@ async fn test_allocate_with_instance_type_id(
 
     let existing_instance_types = env
         .api
-        .find_instance_types_by_ids(tonic::Request::new(
-            rpc::forge::FindInstanceTypesByIdsRequest {
-                instance_type_ids: existing_instance_type_ids,
-                include_allocation_stats: false,
-                tenant_organization_id: None,
-            },
-        ))
+        .find_instance_types_by_ids(tonic::Request::new(forge::FindInstanceTypesByIdsRequest {
+            instance_type_ids: existing_instance_type_ids,
+            include_allocation_stats: false,
+            tenant_organization_id: None,
+        }))
         .await
         .unwrap()
         .into_inner()
@@ -2846,7 +2855,7 @@ async fn test_allocate_with_instance_type_id(
     let _ = env
         .api
         .associate_machines_with_instance_type(tonic::Request::new(
-            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+            forge::AssociateMachinesWithInstanceTypeRequest {
                 instance_type_id: good_id.clone(),
                 machine_ids: vec![
                     mh.host_snapshot.id.to_string(),
@@ -2873,7 +2882,7 @@ async fn test_allocate_with_instance_type_id(
                         .network(single_interface_network_config(segment_id)),
                 )
                 .instance_type_id(bad_id.clone())
-                .metadata(rpc::forge::Metadata {
+                .metadata(forge::Metadata {
                     name: "newinstance".to_string(),
                     description: "desc".to_string(),
                     labels: vec![],
@@ -2896,7 +2905,7 @@ async fn test_allocate_with_instance_type_id(
                         .rpc(),
                 )
                 .instance_type_id(good_id.clone())
-                .metadata(rpc::forge::Metadata {
+                .metadata(forge::Metadata {
                     name: "newinstance".to_string(),
                     description: "desc".to_string(),
                     labels: vec![],
@@ -2913,7 +2922,7 @@ async fn test_allocate_with_instance_type_id(
     // stored the instance type.
     let instance = env
         .api
-        .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+        .find_instances_by_ids(tonic::Request::new(forge::InstancesByIdsRequest {
             instance_ids: vec![instance.id.unwrap()],
         }))
         .await
@@ -2936,7 +2945,7 @@ async fn test_allocate_with_instance_type_id(
                     InstanceConfig::default_tenant_and_os()
                         .network(single_interface_network_config(segment_id)),
                 )
-                .metadata(rpc::forge::Metadata {
+                .metadata(forge::Metadata {
                     name: "newinstance".to_string(),
                     description: "desc".to_string(),
                     labels: vec![],
@@ -2988,7 +2997,7 @@ async fn test_allocate_and_update_with_network_security_group(
                         .network_security_group_id(bad_network_security_group_id)
                         .rpc(),
                 )
-                .metadata(rpc::forge::Metadata {
+                .metadata(forge::Metadata {
                     name: "newinstance".to_string(),
                     description: "desc".to_string(),
                     labels: vec![],
@@ -3011,7 +3020,7 @@ async fn test_allocate_and_update_with_network_security_group(
                         .network_security_group_id(good_network_security_group_id)
                         .rpc(),
                 )
-                .metadata(rpc::forge::Metadata {
+                .metadata(forge::Metadata {
                     name: "newinstance".to_string(),
                     description: "desc".to_string(),
                     labels: vec![],
@@ -3033,22 +3042,20 @@ async fn test_allocate_and_update_with_network_security_group(
     // Now update to remove the NSG attachment.
     let i = env
         .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                if_version_match: None,
-                config: Some(
-                    InstanceConfig::default_tenant_and_os()
-                        .network(single_interface_network_config(segment_id))
-                        .into(),
-                ),
-                instance_id: Some(instance_id),
-                metadata: Some(rpc::forge::Metadata {
-                    name: "newinstance".to_string(),
-                    description: "desc".to_string(),
-                    labels: vec![],
-                }),
-            },
-        ))
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            if_version_match: None,
+            config: Some(
+                InstanceConfig::default_tenant_and_os()
+                    .network(single_interface_network_config(segment_id))
+                    .into(),
+            ),
+            instance_id: Some(instance_id),
+            metadata: Some(forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
         .await
         .unwrap()
         .into_inner();
@@ -3060,46 +3067,42 @@ async fn test_allocate_and_update_with_network_security_group(
     // Now update to remove the NSG attachment.
     let _ = env
         .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                if_version_match: None,
-                config: Some(
-                    InstanceConfig::default_tenant_and_os()
-                        .network(single_interface_network_config(segment_id))
-                        .network_security_group_id(bad_network_security_group_id)
-                        .rpc(),
-                ),
-                instance_id: Some(instance_id),
-                metadata: Some(rpc::forge::Metadata {
-                    name: "newinstance".to_string(),
-                    description: "desc".to_string(),
-                    labels: vec![],
-                }),
-            },
-        ))
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            if_version_match: None,
+            config: Some(
+                InstanceConfig::default_tenant_and_os()
+                    .network(single_interface_network_config(segment_id))
+                    .network_security_group_id(bad_network_security_group_id)
+                    .rpc(),
+            ),
+            instance_id: Some(instance_id),
+            metadata: Some(forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
         .await
         .unwrap_err();
 
     // Now try to update it again and but with a good NSG
     let i = env
         .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                if_version_match: None,
-                config: Some(
-                    InstanceConfig::default_tenant_and_os()
-                        .network(single_interface_network_config(segment_id))
-                        .network_security_group_id(good_network_security_group_id)
-                        .into(),
-                ),
-                instance_id: Some(instance_id),
-                metadata: Some(rpc::forge::Metadata {
-                    name: "newinstance".to_string(),
-                    description: "desc".to_string(),
-                    labels: vec![],
-                }),
-            },
-        ))
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            if_version_match: None,
+            config: Some(
+                InstanceConfig::default_tenant_and_os()
+                    .network(single_interface_network_config(segment_id))
+                    .network_security_group_id(good_network_security_group_id)
+                    .into(),
+            ),
+            instance_id: Some(instance_id),
+            metadata: Some(forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
         .await
         .unwrap()
         .into_inner();
@@ -3149,9 +3152,9 @@ async fn test_network_details_migration(
                 .machine_id(mh_without_network_details.host_snapshot.id)
                 .config(
                     InstanceConfig::default_tenant_and_os()
-                        .network(rpc::InstanceNetworkConfig {
-                            interfaces: vec![rpc::InstanceInterfaceConfig {
-                                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                        .network(forge::InstanceNetworkConfig {
+                            interfaces: vec![forge::InstanceInterfaceConfig {
+                                function_type: forge::InterfaceFunctionType::Physical as i32,
                                 network_segment_id: Some(segment_id),
                                 network_details: None,
                                 device: None,
@@ -3162,7 +3165,7 @@ async fn test_network_details_migration(
                         })
                         .rpc(),
                 )
-                .metadata(rpc::forge::Metadata {
+                .metadata(forge::Metadata {
                     name: "newinstance".to_string(),
                     description: "desc".to_string(),
                     labels: vec![],
@@ -3198,7 +3201,7 @@ async fn test_network_details_migration(
     // Find the instance to confirm the state we expect.
     let i = env
         .api
-        .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+        .find_instances_by_ids(tonic::Request::new(forge::InstancesByIdsRequest {
             instance_ids: vec![i1_id],
         }))
         .await
@@ -3224,21 +3227,19 @@ async fn test_network_details_migration(
     // Create an instance with network_details
     let i = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+        .allocate_instance(tonic::Request::new(forge::InstanceAllocationRequest {
             machine_id: mh_without_segment_id.host_snapshot.id.into(),
-            config: Some(rpc::InstanceConfig {
+            config: Some(forge::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
-                network: Some(rpc::InstanceNetworkConfig {
-                    interfaces: vec![rpc::InstanceInterfaceConfig {
+                network: Some(forge::InstanceNetworkConfig {
+                    interfaces: vec![forge::InstanceInterfaceConfig {
                         ip_address: None,
 
-                        function_type: rpc::InterfaceFunctionType::Physical as i32,
+                        function_type: forge::InterfaceFunctionType::Physical as i32,
                         network_segment_id: None,
                         network_details: Some(
-                            rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                                segment_id,
-                            ),
+                            forge::instance_interface_config::NetworkDetails::SegmentId(segment_id),
                         ),
                         device: None,
                         device_instance: 0,
@@ -3252,7 +3253,7 @@ async fn test_network_details_migration(
             }),
             instance_id: None,
             instance_type_id: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "newinstance".to_string(),
                 description: "desc".to_string(),
                 labels: vec![],
@@ -3268,7 +3269,9 @@ async fn test_network_details_migration(
     // Check that the instance actually has the ID we expect
     assert_eq!(
         i.config.clone().unwrap().network.unwrap().interfaces[0].network_details,
-        Some(rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id))
+        Some(forge::instance_interface_config::NetworkDetails::SegmentId(
+            segment_id
+        ))
     );
 
     assert_eq!(
@@ -3281,18 +3284,18 @@ async fn test_network_details_migration(
     let vpc_id = get_vpc_fixture_id(&env).await;
     let vpc_prefix = env
         .api
-        .create_vpc_prefix(tonic::Request::new(rpc::forge::VpcPrefixCreationRequest {
+        .create_vpc_prefix(tonic::Request::new(forge::VpcPrefixCreationRequest {
             id: None,
             prefix: String::new(),
             name: String::new(),
             vpc_id: Some(vpc_id),
-            config: Some(rpc::forge::VpcPrefixConfig {
+            config: Some(forge::VpcPrefixConfig {
                 prefix: ip_prefix.into(),
             }),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "Test VPC prefix".into(),
                 description: String::from("some description"),
-                labels: vec![rpc::forge::Label {
+                labels: vec![forge::Label {
                     key: "example_key".into(),
                     value: Some("example_value".into()),
                 }],
@@ -3306,19 +3309,19 @@ async fn test_network_details_migration(
 
     let i = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+        .allocate_instance(tonic::Request::new(forge::InstanceAllocationRequest {
             machine_id: mh_with_vpc_prefix.host_snapshot.id.into(),
-            config: Some(rpc::InstanceConfig {
+            config: Some(forge::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
-                network: Some(rpc::InstanceNetworkConfig {
-                    interfaces: vec![rpc::InstanceInterfaceConfig {
+                network: Some(forge::InstanceNetworkConfig {
+                    interfaces: vec![forge::InstanceInterfaceConfig {
                         ip_address: None,
 
-                        function_type: rpc::InterfaceFunctionType::Physical as i32,
+                        function_type: forge::InterfaceFunctionType::Physical as i32,
                         network_segment_id: None,
                         network_details: Some(
-                            rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(
+                            forge::instance_interface_config::NetworkDetails::VpcPrefixId(
                                 vpc_prefix_id,
                             ),
                         ),
@@ -3334,7 +3337,7 @@ async fn test_network_details_migration(
             }),
             instance_id: None,
             instance_type_id: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "newinstance".to_string(),
                 description: "desc".to_string(),
                 labels: vec![],
@@ -3349,7 +3352,7 @@ async fn test_network_details_migration(
 
     assert_eq!(
         i.config.clone().unwrap().network.unwrap().interfaces[0].network_details,
-        Some(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(vpc_prefix_id))
+        Some(forge::instance_interface_config::NetworkDetails::VpcPrefixId(vpc_prefix_id))
     );
 
     // Run the migration
@@ -3378,7 +3381,7 @@ pub async fn validate_post_migration_instance_network_config(
 ) {
     let i = env
         .api
-        .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+        .find_instances_by_ids(tonic::Request::new(forge::InstancesByIdsRequest {
             instance_ids: vec![instance_id],
         }))
         .await
@@ -3394,7 +3397,9 @@ pub async fn validate_post_migration_instance_network_config(
         Some(id) => {
             assert_eq!(
                 i.config.clone().unwrap().network.unwrap().interfaces[0].network_details,
-                Some(rpc::forge::instance_interface_config::NetworkDetails::SegmentId(id))
+                Some(forge::instance_interface_config::NetworkDetails::SegmentId(
+                    id
+                ))
             );
 
             assert_eq!(
@@ -3408,7 +3413,7 @@ pub async fn validate_post_migration_instance_network_config(
         None => {
             assert!(matches!(
                 i.config.clone().unwrap().network.unwrap().interfaces[0].network_details,
-                Some(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(_))
+                Some(forge::instance_interface_config::NetworkDetails::VpcPrefixId(_))
             ));
             assert!(
                 i.config.unwrap().network.unwrap().interfaces[0]
@@ -3431,7 +3436,7 @@ async fn test_instance_cannot_allocate_requested_ip_with_network_segment(
 
     let mut txn = env.db_txn().await;
     assert_eq!(
-        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
+        nico_api_db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -3449,27 +3454,25 @@ async fn test_instance_cannot_allocate_requested_ip_with_network_segment(
         .allocate_instance(
             InstanceAllocationRequest::builder(false)
                 .machine_id(mh.id)
-                .config(rpc::InstanceConfig {
+                .config(forge::InstanceConfig {
                     tenant: Some(default_tenant_config()),
-                    os: Some(rpc::forge::OperatingSystem {
+                    os: Some(forge::OperatingSystem {
                         phone_home_enabled: false,
                         run_provisioning_instructions_on_every_boot: false,
                         user_data: Some("SomeRandomData1".to_string()),
-                        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-                            rpc::forge::InlineIpxe {
-                                ipxe_script: "SomeRandomiPxe1".to_string(),
-                                user_data: Some("SomeRandomData1".to_string()),
-                            },
-                        )),
+                        variant: Some(forge::operating_system::Variant::Ipxe(forge::InlineIpxe {
+                            ipxe_script: "SomeRandomiPxe1".to_string(),
+                            user_data: Some("SomeRandomData1".to_string()),
+                        })),
                     }),
-                    network: Some(rpc::InstanceNetworkConfig {
-                        interfaces: vec![rpc::InstanceInterfaceConfig {
+                    network: Some(forge::InstanceNetworkConfig {
+                        interfaces: vec![forge::InstanceInterfaceConfig {
                             ip_address: Some("192.168.0.1".to_string()),
 
-                            function_type: rpc::InterfaceFunctionType::Physical as i32,
+                            function_type: forge::InterfaceFunctionType::Physical as i32,
                             network_segment_id: None,
                             network_details: Some(
-                                rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+                                forge::instance_interface_config::NetworkDetails::SegmentId(
                                     segment_id2,
                                 ),
                             ),
@@ -3483,7 +3486,7 @@ async fn test_instance_cannot_allocate_requested_ip_with_network_segment(
                     dpu_extension_services: None,
                     nvlink: None,
                 })
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: "test_instance".to_string(),
                     description: "tests/instance".to_string(),
                     labels: Vec::new(),
@@ -3511,7 +3514,7 @@ async fn test_allocate_and_update_network_config_instance(
 
     let mut txn = env.db_txn().await;
     assert_eq!(
-        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
+        nico_api_db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -3530,21 +3533,21 @@ async fn test_allocate_and_update_network_config_instance(
 
     let instance = tinstance.rpc_instance().await;
 
-    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Ready);
 
     assert_eq!(
         instance.status().network().configs_synced(),
-        rpc::SyncState::Synced
+        forge::SyncState::Synced
     );
 
-    let new_network_config = rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
+    let new_network_config = forge::InstanceNetworkConfig {
+        interfaces: vec![forge::InstanceInterfaceConfig {
             ip_address: None,
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            function_type: forge::InterfaceFunctionType::Physical as i32,
             network_segment_id: None,
-            network_details: Some(
-                rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id2),
-            ),
+            network_details: Some(forge::instance_interface_config::NetworkDetails::SegmentId(
+                segment_id2,
+            )),
             device: None,
             device_instance: 0,
             virtual_function_id: None,
@@ -3554,26 +3557,24 @@ async fn test_allocate_and_update_network_config_instance(
     // Now update to change network config.
     let _ = env
         .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                if_version_match: None,
-                config: Some(rpc::InstanceConfig {
-                    tenant: Some(default_tenant_config()),
-                    os: Some(default_os_config()),
-                    network: Some(new_network_config),
-                    infiniband: None,
-                    nvlink: None,
-                    network_security_group_id: None,
-                    dpu_extension_services: None,
-                }),
-                instance_id: instance.rpc_id(),
-                metadata: Some(rpc::forge::Metadata {
-                    name: "newinstance".to_string(),
-                    description: "desc".to_string(),
-                    labels: vec![],
-                }),
-            },
-        ))
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            if_version_match: None,
+            config: Some(forge::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(new_network_config),
+                infiniband: None,
+                nvlink: None,
+                network_security_group_id: None,
+                dpu_extension_services: None,
+            }),
+            instance_id: instance.rpc_id(),
+            metadata: Some(forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
         .await
         .unwrap();
 
@@ -3581,7 +3582,7 @@ async fn test_allocate_and_update_network_config_instance(
 
     assert_eq!(
         instance.status().network().configs_synced(),
-        rpc::SyncState::Pending
+        forge::SyncState::Pending
     );
 
     let mut txn = env.db_txn().await;
@@ -3613,7 +3614,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
 
     let mut txn = env.db_txn().await;
     assert_eq!(
-        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
+        nico_api_db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -3632,11 +3633,11 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
 
     let instance = tinstance.rpc_instance().await;
 
-    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Ready);
 
     assert_eq!(
         instance.status().network().configs_synced(),
-        rpc::SyncState::Synced
+        forge::SyncState::Synced
     );
 
     let instance_id_rpc = instance.rpc_id();
@@ -3654,25 +3655,25 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
 
     txn.rollback().await.unwrap();
 
-    let new_network_config = rpc::InstanceNetworkConfig {
+    let new_network_config = forge::InstanceNetworkConfig {
         interfaces: vec![
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 network_segment_id: None,
-                network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id),
-                ),
+                network_details: Some(forge::instance_interface_config::NetworkDetails::SegmentId(
+                    segment_id,
+                )),
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
             },
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: None,
-                network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id2),
-                ),
+                network_details: Some(forge::instance_interface_config::NetworkDetails::SegmentId(
+                    segment_id2,
+                )),
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
@@ -3684,26 +3685,24 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
     // Now update to change network config.
     let _ = env
         .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                if_version_match: None,
-                config: Some(rpc::InstanceConfig {
-                    tenant: Some(default_tenant_config()),
-                    os: Some(default_os_config()),
-                    network: Some(new_network_config),
-                    infiniband: None,
-                    nvlink: None,
-                    network_security_group_id: None,
-                    dpu_extension_services: None,
-                }),
-                instance_id: instance_id_rpc,
-                metadata: Some(rpc::forge::Metadata {
-                    name: "newinstance".to_string(),
-                    description: "desc".to_string(),
-                    labels: vec![],
-                }),
-            },
-        ))
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            if_version_match: None,
+            config: Some(forge::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(new_network_config),
+                infiniband: None,
+                nvlink: None,
+                network_security_group_id: None,
+                dpu_extension_services: None,
+            }),
+            instance_id: instance_id_rpc,
+            metadata: Some(forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
         .await
         .unwrap();
 
@@ -3711,7 +3710,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
 
     assert_eq!(
         instance.status().network().configs_synced(),
-        rpc::SyncState::Pending
+        forge::SyncState::Pending
     );
 
     let mut txn = env.db_txn().await;
@@ -3762,31 +3761,29 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
     let _segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let initial_os = rpc::forge::OperatingSystem {
+    let initial_os = forge::OperatingSystem {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::InlineIpxe {
-                ipxe_script: "SomeRandomiPxe1".to_string(),
-                user_data: Some("SomeRandomData1".to_string()),
-            },
-        )),
+        variant: Some(forge::operating_system::Variant::Ipxe(forge::InlineIpxe {
+            ipxe_script: "SomeRandomiPxe1".to_string(),
+            user_data: Some("SomeRandomData1".to_string()),
+        })),
     };
     let ip_prefix = "192.0.5.0/25";
     let vpc_id = get_vpc_fixture_id(&env).await;
-    let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
+    let new_vpc_prefix = forge::VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
         name: String::new(),
         vpc_id: Some(vpc_id),
-        config: Some(rpc::forge::VpcPrefixConfig {
+        config: Some(forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
-        metadata: Some(rpc::forge::Metadata {
+        metadata: Some(forge::Metadata {
             name: "Test VPC prefix".into(),
             description: String::from("some description"),
-            labels: vec![rpc::forge::Label {
+            labels: vec![forge::Label {
                 key: "example_key".into(),
                 value: Some("example_value".into()),
             }],
@@ -3800,47 +3797,47 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         .unwrap()
         .into_inner();
 
-    let network = rpc::InstanceNetworkConfig {
+    let network = forge::InstanceNetworkConfig {
         interfaces: vec![
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                    .map(forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
             },
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                    .map(forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
                 virtual_function_id: Some(0),
                 ip_address: None,
             },
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                    .map(forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
                 virtual_function_id: Some(1),
                 ip_address: None,
             },
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                    .map(forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
                 virtual_function_id: Some(2),
@@ -3849,7 +3846,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         ],
     };
 
-    let initial_config = rpc::InstanceConfig {
+    let initial_config = forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
@@ -3859,7 +3856,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         dpu_extension_services: None,
     };
 
-    let initial_metadata = rpc::Metadata {
+    let initial_metadata = forge::Metadata {
         name: "Name1".to_string(),
         description: "Desc1".to_string(),
         labels: vec![],
@@ -3874,10 +3871,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
 
     let instance = tinstance.rpc_instance().await;
 
-    assert_eq!(
-        instance.status().configs_synced(),
-        rpc::forge::SyncState::Synced
-    );
+    assert_eq!(instance.status().configs_synced(), forge::SyncState::Synced);
 
     let interfaces_status = instance.status().network().interfaces.clone();
     let old_addresses = interfaces_status
@@ -3897,39 +3891,39 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         .sorted()
         .collect_vec();
 
-    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Ready);
 
-    let network = rpc::InstanceNetworkConfig {
+    let network = forge::InstanceNetworkConfig {
         interfaces: vec![
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                    .map(forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
             },
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                    .map(forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
                 virtual_function_id: Some(0),
                 ip_address: None,
             },
             // VF 1 is deleted.
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .map(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                    .map(forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
                 virtual_function_id: Some(2),
@@ -3939,10 +3933,10 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.network = Some(network);
-    let updated_metadata_1 = rpc::Metadata {
+    let updated_metadata_1 = forge::Metadata {
         name: "Name2".to_string(),
         description: "Desc2".to_string(),
-        labels: vec![rpc::forge::Label {
+        labels: vec![forge::Label {
             key: "Key1".to_string(),
             value: None,
         }],
@@ -3950,21 +3944,19 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
 
     let instance = env
         .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(tinstance.id),
-                if_version_match: None,
-                config: Some(updated_config_1.clone()),
-                metadata: Some(updated_metadata_1.clone()),
-            },
-        ))
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            instance_id: Some(tinstance.id),
+            if_version_match: None,
+            config: Some(updated_config_1.clone()),
+            metadata: Some(updated_metadata_1.clone()),
+        }))
         .await
         .unwrap()
         .into_inner();
 
     assert_eq!(
         instance.status.as_ref().unwrap().configs_synced(),
-        rpc::forge::SyncState::Pending
+        forge::SyncState::Pending
     );
 
     // SyncState::Synced means network config update is not applicable.
@@ -3972,7 +3964,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
 
     assert_eq!(
         instance.status().network().configs_synced(),
-        rpc::forge::SyncState::Pending
+        forge::SyncState::Pending
     );
 
     env.run_machine_state_controller_iteration().await;
@@ -4035,7 +4027,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
 
     let mut txn = env.db_txn().await;
     assert_eq!(
-        db::instance_address::count_by_segment_id(&mut txn, &segment_id)
+        nico_api_db::instance_address::count_by_segment_id(&mut txn, &segment_id)
             .await
             .unwrap(),
         0
@@ -4054,20 +4046,20 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
 
     let instance = tinstance.rpc_instance().await;
 
-    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Ready);
 
     assert_eq!(
         instance.status().network().configs_synced(),
-        rpc::SyncState::Synced
+        forge::SyncState::Synced
     );
 
-    let new_network_config = rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
+    let new_network_config = forge::InstanceNetworkConfig {
+        interfaces: vec![forge::InstanceInterfaceConfig {
+            function_type: forge::InterfaceFunctionType::Physical as i32,
             network_segment_id: None,
-            network_details: Some(
-                rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id2),
-            ),
+            network_details: Some(forge::instance_interface_config::NetworkDetails::SegmentId(
+                segment_id2,
+            )),
             device: None,
             device_instance: 0,
             virtual_function_id: None,
@@ -4078,26 +4070,24 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
     // Now update to change network config.
     let _ = env
         .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                if_version_match: None,
-                config: Some(rpc::InstanceConfig {
-                    tenant: Some(default_tenant_config()),
-                    os: Some(default_os_config()),
-                    network: Some(new_network_config),
-                    infiniband: None,
-                    nvlink: None,
-                    network_security_group_id: None,
-                    dpu_extension_services: None,
-                }),
-                instance_id: instance.rpc_id(),
-                metadata: Some(rpc::forge::Metadata {
-                    name: "newinstance".to_string(),
-                    description: "desc".to_string(),
-                    labels: vec![],
-                }),
-            },
-        ))
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            if_version_match: None,
+            config: Some(forge::InstanceConfig {
+                tenant: Some(default_tenant_config()),
+                os: Some(default_os_config()),
+                network: Some(new_network_config),
+                infiniband: None,
+                nvlink: None,
+                network_security_group_id: None,
+                dpu_extension_services: None,
+            }),
+            instance_id: instance.rpc_id(),
+            metadata: Some(forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
         .await
         .unwrap();
 
@@ -4157,31 +4147,29 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
     let _segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let initial_os = rpc::forge::OperatingSystem {
+    let initial_os = forge::OperatingSystem {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::InlineIpxe {
-                ipxe_script: "SomeRandomiPxe1".to_string(),
-                user_data: Some("SomeRandomData1".to_string()),
-            },
-        )),
+        variant: Some(forge::operating_system::Variant::Ipxe(forge::InlineIpxe {
+            ipxe_script: "SomeRandomiPxe1".to_string(),
+            user_data: Some("SomeRandomData1".to_string()),
+        })),
     };
     let ip_prefix = "192.1.4.0/25";
     let vpc_id = common::api_fixtures::get_vpc_fixture_id(&env).await;
-    let new_vpc_prefix = rpc::forge::VpcPrefixCreationRequest {
+    let new_vpc_prefix = forge::VpcPrefixCreationRequest {
         id: None,
         prefix: String::new(),
         name: String::new(),
         vpc_id: Some(vpc_id),
-        config: Some(rpc::forge::VpcPrefixConfig {
+        config: Some(forge::VpcPrefixConfig {
             prefix: ip_prefix.into(),
         }),
-        metadata: Some(rpc::forge::Metadata {
+        metadata: Some(forge::Metadata {
             name: "Test VPC prefix".into(),
             description: String::from("some description"),
-            labels: vec![rpc::forge::Label {
+            labels: vec![forge::Label {
                 key: "example_key".into(),
                 value: Some("example_value".into()),
             }],
@@ -4195,13 +4183,13 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         .unwrap()
         .into_inner();
 
-    let network = rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
+    let network = forge::InstanceNetworkConfig {
+        interfaces: vec![forge::InstanceInterfaceConfig {
+            function_type: forge::InterfaceFunctionType::Physical as i32,
             network_segment_id: None,
             network_details: response
                 .id
-                .map(::rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                .map(forge::instance_interface_config::NetworkDetails::VpcPrefixId),
             device: None,
             device_instance: 0,
             virtual_function_id: None,
@@ -4209,7 +4197,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         }],
     };
 
-    let initial_config = rpc::InstanceConfig {
+    let initial_config = forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(initial_os.clone()),
         network: Some(network.clone()),
@@ -4219,7 +4207,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         dpu_extension_services: None,
     };
 
-    let initial_metadata = rpc::Metadata {
+    let initial_metadata = forge::Metadata {
         name: "Name1".to_string(),
         description: "Desc1".to_string(),
         labels: vec![],
@@ -4234,32 +4222,29 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
 
     let instance = tinstance.rpc_instance().await;
 
-    assert_eq!(
-        instance.status().configs_synced(),
-        rpc::forge::SyncState::Synced
-    );
+    assert_eq!(instance.status().configs_synced(), forge::SyncState::Synced);
 
-    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Ready);
 
-    let network = rpc::InstanceNetworkConfig {
+    let network = forge::InstanceNetworkConfig {
         interfaces: vec![
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .map(::rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                    .map(forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
             },
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: None,
                 network_details: response
                     .id
-                    .map(::rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId),
+                    .map(forge::instance_interface_config::NetworkDetails::VpcPrefixId),
                 device: None,
                 device_instance: 0,
                 virtual_function_id: None,
@@ -4269,10 +4254,10 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
     };
     let mut updated_config_1 = initial_config.clone();
     updated_config_1.network = Some(network);
-    let updated_metadata_1 = rpc::Metadata {
+    let updated_metadata_1 = forge::Metadata {
         name: "Name2".to_string(),
         description: "Desc2".to_string(),
-        labels: vec![rpc::forge::Label {
+        labels: vec![forge::Label {
             key: "Key1".to_string(),
             value: None,
         }],
@@ -4280,7 +4265,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
 
     let mut txn = env.db_txn().await;
     let segments =
-        db::network_segment::find_ids(txn.as_mut(), NetworkSegmentSearchFilter::default())
+        nico_api_db::network_segment::find_ids(txn.as_mut(), NetworkSegmentSearchFilter::default())
             .await
             .unwrap();
 
@@ -4289,14 +4274,12 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
 
     let _instance = env
         .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: Some(tinstance.id),
-                if_version_match: None,
-                config: Some(updated_config_1.clone()),
-                metadata: Some(updated_metadata_1.clone()),
-            },
-        ))
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            instance_id: Some(tinstance.id),
+            if_version_match: None,
+            config: Some(updated_config_1.clone()),
+            metadata: Some(updated_metadata_1.clone()),
+        }))
         .await
         .unwrap()
         .into_inner();
@@ -4308,7 +4291,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         .expect("Unable to create transaction on database pool");
 
     let segments =
-        db::network_segment::find_ids(txn.as_mut(), NetworkSegmentSearchFilter::default())
+        nico_api_db::network_segment::find_ids(txn.as_mut(), NetworkSegmentSearchFilter::default())
             .await
             .unwrap();
 
@@ -4377,7 +4360,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
     let env = create_test_env(pool).await;
     env.create_vpc_and_tenant_segment().await;
-    let vpc = db::vpc::find_by_name(&env.pool, "test vpc 1")
+    let vpc = nico_api_db::vpc::find_by_name(&env.pool, "test vpc 1")
         .await
         .unwrap()
         .into_iter()
@@ -4386,28 +4369,24 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
 
     let vpc_prefix_id = create_tenant_overlay_prefix(&env, vpc.id).await;
 
-    let network_config = rpc::InstanceNetworkConfig {
+    let network_config = forge::InstanceNetworkConfig {
         interfaces: vec![
-            rpc::InstanceInterfaceConfig {
+            forge::InstanceInterfaceConfig {
                 function_type: 0,
                 network_segment_id: None,
                 network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(
-                        vpc_prefix_id,
-                    ),
+                    forge::instance_interface_config::NetworkDetails::VpcPrefixId(vpc_prefix_id),
                 ),
                 device: Some("BlueField SoC".to_string()),
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
             },
-            rpc::InstanceInterfaceConfig {
+            forge::InstanceInterfaceConfig {
                 function_type: 0,
                 network_segment_id: None,
                 network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(
-                        vpc_prefix_id,
-                    ),
+                    forge::instance_interface_config::NetworkDetails::VpcPrefixId(vpc_prefix_id),
                 ),
                 device: Some("BlueField SoC".to_string()),
                 device_instance: 1,
@@ -4417,8 +4396,8 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
         ],
     };
 
-    let config = rpc::InstanceConfig {
-        tenant: Some(rpc::TenantConfig {
+    let config = forge::InstanceConfig {
+        tenant: Some(forge::TenantConfig {
             tenant_organization_id: "abc".to_string(),
             hostname: Some("xyz".to_string()),
             tenant_keyset_ids: vec![],
@@ -4431,7 +4410,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
         dpu_extension_services: None,
     };
 
-    let mut config: model::instance::config::InstanceConfig = config.try_into().unwrap();
+    let mut config: nico_api_model::instance::config::InstanceConfig = config.try_into().unwrap();
 
     assert!(
         config
@@ -4463,7 +4442,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
     let mut expected_ips_iter = expected_ips.iter();
 
     for iface in config.network.interfaces {
-        let network_segment = db::network_segment::find_by(
+        let network_segment = nico_api_db::network_segment::find_by(
             txn.as_mut(),
             ObjectColumnFilter::One(IdColumn, &iface.network_segment_id.unwrap()),
             NetworkSegmentSearchConfig::default(),
@@ -4514,7 +4493,7 @@ async fn test_instance_release_backward_compatibility(_: PgPoolOptions, options:
             InstanceAllocationRequest::builder(false)
                 .machine_id(mh.id)
                 .config(config)
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: "test-backward-compat".to_string(),
                     description: "Enhanced instance release API backward compatibility test"
                         .to_string(),
@@ -4639,7 +4618,7 @@ async fn test_instance_release_repair_tenant(_: PgPoolOptions, options: PgConnec
                 InstanceAllocationRequest::builder(false)
                     .machine_id(mh.id)
                     .config(config)
-                    .metadata(rpc::Metadata {
+                    .metadata(forge::Metadata {
                         name: test_name.to_string(),
                         description: description.to_string(),
                         labels: Vec::new(),
@@ -4730,7 +4709,7 @@ async fn test_instance_release_combined_enhancements(_: PgPoolOptions, options: 
             InstanceAllocationRequest::builder(false)
                 .machine_id(mh.id)
                 .config(config)
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: "test-combined-enhancements".to_string(),
                     description: "Testing combined issue reporting and repair tenant functionality"
                         .to_string(),
@@ -4823,7 +4802,7 @@ async fn test_instance_release_auto_repair_enabled(_: PgPoolOptions, options: Pg
             InstanceAllocationRequest::builder(false)
                 .machine_id(mh.id)
                 .config(config)
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: "test-auto-repair-enabled".to_string(),
                     description: "Test auto-repair enabled scenario".to_string(),
                     labels: Vec::new(),
@@ -4892,7 +4871,7 @@ async fn test_instance_release_auto_repair_enabled(_: PgPoolOptions, options: Pg
 
     // 4. Verify the RequestRepair override content
     let repair_override = &host_machine.health_report_overrides.merges["repair-request"];
-    let repair_report: health_report::HealthReport = repair_override.clone();
+    let repair_report: nico_health_report::HealthReport = repair_override.clone();
     assert_eq!(repair_report.source, "repair-request");
     assert_eq!(repair_report.alerts.len(), 1);
     assert_eq!(repair_report.alerts[0].id.to_string(), "RequestRepair");
@@ -4947,7 +4926,7 @@ async fn test_instance_release_repair_tenant_successful_completion(
     // Regular tenant releases with issue (this creates both TenantReportedIssue and RequestRepair)
     let _release_response = env
         .api
-        .release_instance(tonic::Request::new(rpc::InstanceReleaseRequest {
+        .release_instance(tonic::Request::new(forge::InstanceReleaseRequest {
             id: Some(instance_id),
             issue: Some(Issue {
                 category: IssueCategory::Hardware as i32,
@@ -4988,7 +4967,7 @@ async fn test_instance_release_repair_tenant_successful_completion(
     };
 
     // Use the current machine version to avoid concurrent modification errors
-    db::machine::update_metadata(
+    nico_api_db::machine::update_metadata(
         &mut update_txn,
         &mh.id,
         current_machine.version,
@@ -5003,7 +4982,7 @@ async fn test_instance_release_repair_tenant_successful_completion(
     // Use the same instance_id from Step 1 but mark it as repair tenant release
     let _repair_release_response = env
         .api
-        .release_instance(tonic::Request::new(rpc::InstanceReleaseRequest {
+        .release_instance(tonic::Request::new(forge::InstanceReleaseRequest {
             id: Some(instance_id),
             issue: None,                  // No new issues - repair was successful
             is_repair_tenant: Some(true), // Repair tenant
@@ -5067,9 +5046,12 @@ async fn test_instance_creation_when_reprovision_is_triggered_parallel(
         firmware_version: "test".to_string(),
     };
 
-    db::dpu_machine_update::trigger_reprovisioning_for_managed_host(&mut txn, &[machine_update])
-        .await
-        .unwrap();
+    nico_api_db::dpu_machine_update::trigger_reprovisioning_for_managed_host(
+        &mut txn,
+        &[machine_update],
+    )
+    .await
+    .unwrap();
     txn.commit().await.unwrap();
 
     advance_created_instance_into_ready_state(&env, &mh).await;
@@ -5077,7 +5059,7 @@ async fn test_instance_creation_when_reprovision_is_triggered_parallel(
     // Step 3: Check instance state. Should be ready.
     let instance = env
         .api
-        .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+        .find_instances_by_ids(tonic::Request::new(forge::InstancesByIdsRequest {
             instance_ids: vec![allocation_response.id.unwrap()],
         }))
         .await
@@ -5092,13 +5074,13 @@ async fn test_instance_creation_when_reprovision_is_triggered_parallel(
             .tenant
             .unwrap()
             .state,
-        rpc::forge::TenantState::Ready as i32
+        forge::TenantState::Ready as i32
     );
 
     let reprov_machines = env
         .api
         .list_dpu_waiting_for_reprovisioning(tonic::Request::new(
-            rpc::forge::DpuReprovisioningListRequest {},
+            forge::DpuReprovisioningListRequest {},
         ))
         .await
         .unwrap()
@@ -5117,16 +5099,14 @@ async fn test_can_not_update_instance_config_after_deletion(
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let initial_os = rpc::forge::OperatingSystem {
+    let initial_os = forge::OperatingSystem {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
-            rpc::forge::InlineIpxe {
-                ipxe_script: "SomeRandomiPxe1".to_string(),
-                user_data: Some("SomeRandomData1".to_string()),
-            },
-        )),
+        variant: Some(forge::operating_system::Variant::Ipxe(forge::InlineIpxe {
+            ipxe_script: "SomeRandomiPxe1".to_string(),
+            user_data: Some("SomeRandomData1".to_string()),
+        })),
     };
 
     let config = InstanceConfig::default_tenant_and_os()
@@ -5142,7 +5122,7 @@ async fn test_can_not_update_instance_config_after_deletion(
     let instance = tinstance.rpc_instance().await;
     let metadata = instance.metadata().clone();
 
-    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Ready);
 
     env.api
         .release_instance(tonic::Request::new(InstanceReleaseRequest {
@@ -5153,7 +5133,7 @@ async fn test_can_not_update_instance_config_after_deletion(
         .await
         .unwrap();
     let instance = tinstance.rpc_instance().await;
-    assert_eq!(instance.status().tenant(), rpc::TenantState::Terminating);
+    assert_eq!(instance.status().tenant(), forge::TenantState::Terminating);
 
     let updated_os = initial_os.clone();
 
@@ -5161,7 +5141,7 @@ async fn test_can_not_update_instance_config_after_deletion(
     let err = env
         .api
         .update_instance_operating_system(tonic::Request::new(
-            rpc::forge::InstanceOperatingSystemUpdateRequest {
+            forge::InstanceOperatingSystemUpdateRequest {
                 instance_id: tinstance.id.into(),
                 if_version_match: None,
                 os: Some(updated_os.clone()),
@@ -5180,14 +5160,12 @@ async fn test_can_not_update_instance_config_after_deletion(
     updated_config.os = Some(updated_os.clone());
     let err = env
         .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                instance_id: tinstance.id.into(),
-                if_version_match: None,
-                config: Some(updated_config.clone()),
-                metadata: Some(metadata),
-            },
-        ))
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            instance_id: tinstance.id.into(),
+            if_version_match: None,
+            config: Some(updated_config.clone()),
+            metadata: Some(metadata),
+        }))
         .await
         .unwrap_err();
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
@@ -5237,7 +5215,7 @@ async fn test_instance_with_vf_when_vf_disabled(_: PgPoolOptions, options: PgCon
             InstanceAllocationRequest::builder(false)
                 .machine_id(managed_host.id)
                 .config(config)
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: "test-disabled-vf".to_string(),
                     description: "Testing instance creation when vf disabled".to_string(),
                     labels: Vec::new(),
@@ -5277,7 +5255,7 @@ async fn test_instance_without_vf_when_vf_disabled(_: PgPoolOptions, options: Pg
             InstanceAllocationRequest::builder(false)
                 .machine_id(managed_host.id)
                 .config(config)
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: "test-disabled-vf".to_string(),
                     description: "Testing instance creation when vf disabled".to_string(),
                     labels: Vec::new(),
@@ -5308,10 +5286,10 @@ async fn test_allocate_instance_with_extension_services(
 
     let _ = env
         .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(forge::CreateTenantRequest {
             organization_id: "best_org".to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "best_org".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -5324,12 +5302,12 @@ async fn test_allocate_instance_with_extension_services(
     let service = env
         .api
         .create_dpu_extension_service(tonic::Request::new(
-            rpc::forge::CreateDpuExtensionServiceRequest {
+            forge::CreateDpuExtensionServiceRequest {
                 service_id: None,
                 service_name: "test-service".to_string(),
                 description: Some("Test service for instance".to_string()),
                 tenant_organization_id: "best_org".to_string(),
-                service_type: rpc::forge::DpuExtensionServiceType::KubernetesPod.into(),
+                service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
                 data: create_dpu_extension_service_data("test-service"),
                 credential: None,
                 observability: None,
@@ -5338,15 +5316,15 @@ async fn test_allocate_instance_with_extension_services(
         .await?
         .into_inner();
 
-    let config = rpc::InstanceConfig {
+    let config = forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
         nvlink: None,
-        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
-            service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
+        dpu_extension_services: Some(forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![forge::InstanceDpuExtensionServiceConfig {
                 service_id: service.service_id.clone(),
                 version: service
                     .latest_version_info
@@ -5397,10 +5375,10 @@ async fn create_dpu_extension_services(
 > {
     let _ = env
         .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(forge::CreateTenantRequest {
             organization_id: "best_org".to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "best_org".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -5412,12 +5390,12 @@ async fn create_dpu_extension_services(
     let service1 = env
         .api
         .create_dpu_extension_service(tonic::Request::new(
-            rpc::forge::CreateDpuExtensionServiceRequest {
+            forge::CreateDpuExtensionServiceRequest {
                 service_id: None,
                 service_name: "test-service1".to_string(),
                 description: Some("Test service for instance".to_string()),
                 tenant_organization_id: "best_org".to_string(),
-                service_type: rpc::forge::DpuExtensionServiceType::KubernetesPod.into(),
+                service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
                 data: create_dpu_extension_service_data("test-service1-v1"),
                 credential: None,
                 observability: None,
@@ -5430,7 +5408,7 @@ async fn create_dpu_extension_services(
     let service1 = env
         .api
         .update_dpu_extension_service(tonic::Request::new(
-            rpc::forge::UpdateDpuExtensionServiceRequest {
+            forge::UpdateDpuExtensionServiceRequest {
                 service_id: service1.service_id.clone(),
                 service_name: None,
                 description: Some("Test service for instance".to_string()),
@@ -5446,12 +5424,12 @@ async fn create_dpu_extension_services(
     let service2 = env
         .api
         .create_dpu_extension_service(tonic::Request::new(
-            rpc::forge::CreateDpuExtensionServiceRequest {
+            forge::CreateDpuExtensionServiceRequest {
                 service_id: None,
                 service_name: "test-service2".to_string(),
                 description: Some("Test service for instance".to_string()),
                 tenant_organization_id: "best_org".to_string(),
-                service_type: rpc::forge::DpuExtensionServiceType::KubernetesPod.into(),
+                service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
                 data: create_dpu_extension_service_data("test-service2-v1"),
                 credential: None,
                 observability: None,
@@ -5463,12 +5441,12 @@ async fn create_dpu_extension_services(
     let service3 = env
         .api
         .create_dpu_extension_service(tonic::Request::new(
-            rpc::forge::CreateDpuExtensionServiceRequest {
+            forge::CreateDpuExtensionServiceRequest {
                 service_id: None,
                 service_name: "test-service3".to_string(),
                 description: Some("Test service for instance".to_string()),
                 tenant_organization_id: "best_org".to_string(),
-                service_type: rpc::forge::DpuExtensionServiceType::KubernetesPod.into(),
+                service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
                 data: create_dpu_extension_service_data("test-service3-v1"),
                 credential: None,
                 observability: None,
@@ -5495,18 +5473,18 @@ async fn test_allocate_instance_with_duplicate_extension_services(
 
     let instance = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+        .allocate_instance(tonic::Request::new(forge::InstanceAllocationRequest {
             machine_id: mh.id.into(),
-            config: Some(rpc::InstanceConfig {
+            config: Some(forge::InstanceConfig {
                 network_security_group_id: None,
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
                 network: Some(single_interface_network_config(segment_id)),
                 infiniband: None,
                 nvlink: None,
-                dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+                dpu_extension_services: Some(forge::InstanceDpuExtensionServicesConfig {
                     service_configs: vec![
-                        rpc::forge::InstanceDpuExtensionServiceConfig {
+                        forge::InstanceDpuExtensionServiceConfig {
                             service_id: service1.service_id.clone(),
                             version: service1
                                 .latest_version_info
@@ -5515,7 +5493,7 @@ async fn test_allocate_instance_with_duplicate_extension_services(
                                 .version
                                 .clone(),
                         },
-                        rpc::forge::InstanceDpuExtensionServiceConfig {
+                        forge::InstanceDpuExtensionServiceConfig {
                             service_id: service1.service_id.clone(),
                             version: service1
                                 .latest_version_info
@@ -5529,7 +5507,7 @@ async fn test_allocate_instance_with_duplicate_extension_services(
             }),
             instance_id: None,
             instance_type_id: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "newinstance".to_string(),
                 description: "desc".to_string(),
                 labels: vec![],
@@ -5576,15 +5554,15 @@ async fn test_update_instance_with_extension_services(
         .version
         .clone();
 
-    let config = rpc::InstanceConfig {
+    let config = forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
         nvlink: None,
-        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
-            service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
+        dpu_extension_services: Some(forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![forge::InstanceDpuExtensionServiceConfig {
                 service_id: service1.service_id.clone(),
                 version: service1_version1.clone(),
             }],
@@ -5607,30 +5585,30 @@ async fn test_update_instance_with_extension_services(
             .as_ref()
             .unwrap()
             .state
-            == rpc::forge::TenantState::Ready as i32
+            == forge::TenantState::Ready as i32
     );
 
     let instance_id = tinstance.id;
 
     // Update the extension service config
-    let updated_config = rpc::InstanceConfig {
+    let updated_config = forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
         nvlink: None,
-        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+        dpu_extension_services: Some(forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![
-                rpc::forge::InstanceDpuExtensionServiceConfig {
+                forge::InstanceDpuExtensionServiceConfig {
                     service_id: service1.service_id.clone(),
                     version: service1_version2.clone(),
                 },
-                rpc::forge::InstanceDpuExtensionServiceConfig {
+                forge::InstanceDpuExtensionServiceConfig {
                     service_id: service2.service_id.clone(),
                     version: service2_version.clone(),
                 },
-                rpc::forge::InstanceDpuExtensionServiceConfig {
+                forge::InstanceDpuExtensionServiceConfig {
                     service_id: service3.service_id.clone(),
                     version: service3_version.clone(),
                 },
@@ -5639,18 +5617,16 @@ async fn test_update_instance_with_extension_services(
     };
     let instance = env
         .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                if_version_match: None,
-                config: Some(updated_config),
-                instance_id: Some(instance_id),
-                metadata: Some(rpc::forge::Metadata {
-                    name: "newinstance".to_string(),
-                    description: "desc".to_string(),
-                    labels: vec![],
-                }),
-            },
-        ))
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            if_version_match: None,
+            config: Some(updated_config),
+            instance_id: Some(instance_id),
+            metadata: Some(forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
         .await
         .unwrap()
         .into_inner();
@@ -5664,7 +5640,7 @@ async fn test_update_instance_with_extension_services(
             .as_ref()
             .unwrap()
             .state
-            == rpc::forge::TenantState::Configuring as i32
+            == forge::TenantState::Configuring as i32
     );
 
     // The extension services config in the instance rpc response should be empty because
@@ -5720,31 +5696,29 @@ async fn test_update_instance_with_extension_services(
     );
 
     // Update the extension service config with no services
-    let updated_config = rpc::InstanceConfig {
+    let updated_config = forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
         nvlink: None,
-        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+        dpu_extension_services: Some(forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![],
         }),
     };
     let instance = env
         .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                if_version_match: None,
-                config: Some(updated_config),
-                instance_id: Some(instance_id),
-                metadata: Some(rpc::forge::Metadata {
-                    name: "newinstance".to_string(),
-                    description: "desc".to_string(),
-                    labels: vec![],
-                }),
-            },
-        ))
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            if_version_match: None,
+            config: Some(updated_config),
+            instance_id: Some(instance_id),
+            metadata: Some(forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
         .await
         .unwrap()
         .into_inner();
@@ -5798,15 +5772,15 @@ async fn test_update_instance_with_extension_services(
 
     // Update the extension service config with non-existing service version, expect error
     // Update the extension service config with fewer new service
-    let updated_config = rpc::InstanceConfig {
+    let updated_config = forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
         nvlink: None,
-        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
-            service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
+        dpu_extension_services: Some(forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![forge::InstanceDpuExtensionServiceConfig {
                 service_id: service1.service_id.clone(),
                 version: service3_version.clone(),
             }],
@@ -5814,38 +5788,36 @@ async fn test_update_instance_with_extension_services(
     };
     let instance = env
         .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                if_version_match: None,
-                config: Some(updated_config),
-                instance_id: Some(instance_id),
-                metadata: Some(rpc::forge::Metadata {
-                    name: "newinstance".to_string(),
-                    description: "desc".to_string(),
-                    labels: vec![],
-                }),
-            },
-        ))
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            if_version_match: None,
+            config: Some(updated_config),
+            instance_id: Some(instance_id),
+            metadata: Some(forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
         .await;
     assert!(instance.is_err());
     let err = instance.unwrap_err();
     assert!(err.to_string().contains("does not exist or is deleted"));
 
     // Update the extension service config with duplicate service ID, expect error
-    let updated_config = rpc::InstanceConfig {
+    let updated_config = forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
         nvlink: None,
-        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+        dpu_extension_services: Some(forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![
-                rpc::forge::InstanceDpuExtensionServiceConfig {
+                forge::InstanceDpuExtensionServiceConfig {
                     service_id: service1.service_id.clone(),
                     version: service1_version1.clone(),
                 },
-                rpc::forge::InstanceDpuExtensionServiceConfig {
+                forge::InstanceDpuExtensionServiceConfig {
                     service_id: service1.service_id.clone(),
                     version: service1_version2.clone(),
                 },
@@ -5854,18 +5826,16 @@ async fn test_update_instance_with_extension_services(
     };
     let instance = env
         .api
-        .update_instance_config(tonic::Request::new(
-            rpc::forge::InstanceConfigUpdateRequest {
-                if_version_match: None,
-                config: Some(updated_config),
-                instance_id: Some(instance_id),
-                metadata: Some(rpc::forge::Metadata {
-                    name: "newinstance".to_string(),
-                    description: "desc".to_string(),
-                    labels: vec![],
-                }),
-            },
-        ))
+        .update_instance_config(tonic::Request::new(forge::InstanceConfigUpdateRequest {
+            if_version_match: None,
+            config: Some(updated_config),
+            instance_id: Some(instance_id),
+            metadata: Some(forge::Metadata {
+                name: "newinstance".to_string(),
+                description: "desc".to_string(),
+                labels: vec![],
+            }),
+        }))
         .await;
     assert!(instance.is_err());
     let err = instance.unwrap_err();
@@ -5895,15 +5865,15 @@ async fn test_extension_service_removed_after_all_dpus_report_terminated(
         .version
         .clone();
 
-    let config = rpc::InstanceConfig {
+    let config = forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
         nvlink: None,
-        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
-            service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
+        dpu_extension_services: Some(forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![forge::InstanceDpuExtensionServiceConfig {
                 service_id: service2.service_id.clone(),
                 version: service2_version,
             }],
@@ -5918,21 +5888,21 @@ async fn test_extension_service_removed_after_all_dpus_report_terminated(
 
     // Remove all extension services from desired config.
     env.api
-        .update_instance_config(Request::new(rpc::forge::InstanceConfigUpdateRequest {
+        .update_instance_config(Request::new(forge::InstanceConfigUpdateRequest {
             if_version_match: None,
-            config: Some(rpc::InstanceConfig {
+            config: Some(forge::InstanceConfig {
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
                 network: Some(single_interface_network_config(segment_id)),
                 infiniband: None,
                 network_security_group_id: None,
                 nvlink: None,
-                dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
+                dpu_extension_services: Some(forge::InstanceDpuExtensionServicesConfig {
                     service_configs: vec![],
                 }),
             }),
             instance_id: Some(instance_id),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "newinstance".to_string(),
                 description: "desc".to_string(),
                 labels: vec![],
@@ -5966,7 +5936,7 @@ async fn test_extension_service_removed_after_all_dpus_report_terminated(
     let rpc_status = rpc_instance.status.unwrap();
     assert_eq!(
         rpc_status.tenant.unwrap().state,
-        rpc::TenantState::Configuring as i32
+        forge::TenantState::Configuring as i32
     );
 
     // The extension services status should still be tracked until fully terminated.
@@ -5977,12 +5947,12 @@ async fn test_extension_service_removed_after_all_dpus_report_terminated(
     );
     assert_eq!(
         dpu_extension_services_status.configs_synced,
-        rpc::forge::SyncState::Pending as i32
+        forge::SyncState::Pending as i32
     );
     // The status should be Unknown until the DPU reports the status.
     assert_eq!(
         dpu_extension_services_status.dpu_extension_services[0].deployment_status,
-        rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceUnknown as i32
+        forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceUnknown as i32
     );
 
     // Mock DPU reporting removed services as fully terminated.
@@ -5993,7 +5963,7 @@ async fn test_extension_service_removed_after_all_dpus_report_terminated(
         &env,
         &mh.dpu().id,
         None,
-        Some(rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated),
+        Some(forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated),
     )
     .await;
 
@@ -6030,7 +6000,7 @@ async fn test_extension_service_removed_after_all_dpus_report_terminated(
     let rpc_status = rpc_instance.status.unwrap();
     assert_eq!(
         rpc_status.tenant.unwrap().state,
-        rpc::TenantState::Ready as i32
+        forge::TenantState::Ready as i32
     );
     assert!(
         rpc_status
@@ -6061,15 +6031,15 @@ async fn test_extension_services_status_observation(
         .map(|v| v.parse::<ConfigVersion>().unwrap())
         .collect::<Vec<_>>();
 
-    let config = rpc::InstanceConfig {
+    let config = forge::InstanceConfig {
         tenant: Some(default_tenant_config()),
         os: Some(default_os_config()),
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         network_security_group_id: None,
         nvlink: None,
-        dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
-            service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
+        dpu_extension_services: Some(forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![forge::InstanceDpuExtensionServiceConfig {
                 service_id: service1.service_id.clone(),
                 version: versions[0].version_string(),
             }],
@@ -6111,7 +6081,7 @@ async fn test_extension_services_status_observation(
     assert_eq!(service_status.version, versions[0].clone());
     assert_eq!(
         service_status.overall_state,
-        model::instance::status::extension_service::ExtensionServiceDeploymentStatus::Running
+        nico_api_model::instance::status::extension_service::ExtensionServiceDeploymentStatus::Running
     );
 
     // Now verify the RPC instance status
@@ -6125,10 +6095,7 @@ async fn test_extension_services_status_observation(
         .unwrap();
 
     // Since we have matching config version observation, status should be synced
-    assert_eq!(
-        ext_status.configs_synced,
-        rpc::forge::SyncState::Synced as i32
-    );
+    assert_eq!(ext_status.configs_synced, forge::SyncState::Synced as i32);
 
     // Verify the service status
     assert_eq!(ext_status.dpu_extension_services.len(), 1,);
@@ -6138,7 +6105,7 @@ async fn test_extension_services_status_observation(
     assert_eq!(service_status.version, versions[0].to_string());
     assert_eq!(
         service_status.deployment_status,
-        rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning as i32,
+        forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning as i32,
     );
 
     // Verify DPU status details
@@ -6148,7 +6115,7 @@ async fn test_extension_services_status_observation(
     assert_eq!(dpu_status.dpu_machine_id, Some(mh.dpu().id));
     assert_eq!(
         dpu_status.status,
-        rpc::forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning as i32,
+        forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning as i32,
     );
 
     Ok(())
@@ -6169,20 +6136,20 @@ async fn test_allocate_instance_with_invalid_os_image(
     // Use a non-existent OS image ID
     let invalid_os_image_id = uuid::Uuid::new_v4();
 
-    let os_config = rpc::forge::OperatingSystem {
+    let os_config = forge::OperatingSystem {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: None,
-        variant: Some(rpc::forge::operating_system::Variant::OsImageId(
-            rpc::Uuid::from(invalid_os_image_id),
+        variant: Some(forge::operating_system::Variant::OsImageId(
+            nico_rpc::Uuid::from(invalid_os_image_id),
         )),
     };
 
     let result = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+        .allocate_instance(tonic::Request::new(forge::InstanceAllocationRequest {
             machine_id: mh.id.into(),
-            config: Some(rpc::InstanceConfig {
+            config: Some(forge::InstanceConfig {
                 network_security_group_id: None,
                 tenant: Some(default_tenant_config()),
                 os: Some(os_config),
@@ -6193,7 +6160,7 @@ async fn test_allocate_instance_with_invalid_os_image(
             }),
             instance_id: None,
             instance_type_id: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "test-invalid-os-image".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -6226,11 +6193,11 @@ async fn test_allocate_instance_with_invalid_ib_partition(
     let mh = create_managed_host(&env).await;
 
     // Use a non-existent IB partition ID
-    let invalid_partition_id = carbide_uuid::infiniband::IBPartitionId::new();
+    let invalid_partition_id = nico_uuid::infiniband::IBPartitionId::new();
 
-    let ib_config = rpc::forge::InstanceInfinibandConfig {
-        ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
-            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+    let ib_config = forge::InstanceInfinibandConfig {
+        ib_interfaces: vec![forge::InstanceIbInterfaceConfig {
+            function_type: forge::InterfaceFunctionType::Physical as i32,
             virtual_function_id: None,
             ib_partition_id: Some(invalid_partition_id),
             device: "MT2910 Family [ConnectX-7]".to_string(),
@@ -6241,9 +6208,9 @@ async fn test_allocate_instance_with_invalid_ib_partition(
 
     let result = env
         .api
-        .allocate_instance(tonic::Request::new(rpc::forge::InstanceAllocationRequest {
+        .allocate_instance(tonic::Request::new(forge::InstanceAllocationRequest {
             machine_id: mh.id.into(),
-            config: Some(rpc::InstanceConfig {
+            config: Some(forge::InstanceConfig {
                 network_security_group_id: None,
                 tenant: Some(default_tenant_config()),
                 os: Some(default_os_config()),
@@ -6254,7 +6221,7 @@ async fn test_allocate_instance_with_invalid_ib_partition(
             }),
             instance_id: None,
             instance_type_id: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "test-invalid-ib-partition".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -6292,9 +6259,9 @@ async fn test_can_not_create_instances_with_machine_in_quarantine(
 
     env.api
         .set_managed_host_quarantine_state(tonic::Request::new(
-            rpc::forge::SetManagedHostQuarantineStateRequest {
+            forge::SetManagedHostQuarantineStateRequest {
                 machine_id: Some(host_machine_id),
-                quarantine_state: Some(rpc::forge::ManagedHostQuarantineState {
+                quarantine_state: Some(forge::ManagedHostQuarantineState {
                     mode: ManagedHostQuarantineMode::BlockAllTraffic as i32,
                     reason: Some("test".to_string()),
                 }),
@@ -6310,7 +6277,7 @@ async fn test_can_not_create_instances_with_machine_in_quarantine(
                 .instance_id(instance_id)
                 .machine_id(host_machine_id)
                 .config(config.clone())
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: "test_instance".to_string(),
                     description: "tests/instance".to_string(),
                     labels: Vec::new(),

@@ -14,15 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
-use ::rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::{
     BomValidating, CleanupState, FailureCause, FailureDetails, FailureSource, InstanceState,
     MachineState, MachineValidatingState, ManagedHostState, MeasuringState, ValidationState,
     get_action_for_dpu_state,
 };
-use model::machine_validation::{MachineValidationState, MachineValidationStatus};
+use nico_api_model::machine_validation::{MachineValidationState, MachineValidationStatus};
+use nico_rpc::forge;
+use nico_rpc::forge_agent_control_response::forge_agent_control_extra_info::KeyValuePair;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -34,8 +34,8 @@ use crate::handlers::utils::convert_and_log_machine_id;
 // Called by 'forge-scout discovery' once cleanup succeeds.
 pub(crate) async fn cleanup_machine_completed(
     api: &Api,
-    request: Request<rpc::MachineCleanupInfo>,
-) -> Result<Response<rpc::MachineCleanupResult>, Status> {
+    request: Request<forge::MachineCleanupInfo>,
+) -> Result<Response<forge::MachineCleanupResult>, Status> {
     log_request_data(&request);
 
     let cleanup_info = request.into_inner();
@@ -50,7 +50,7 @@ pub(crate) async fn cleanup_machine_completed(
 
     // Check if cleanup failed
     if let Some(ref nvme_result) = cleanup_info.nvme
-        && rpc::machine_cleanup_info::CleanupResult::Error as i32 == nvme_result.result
+        && forge::machine_cleanup_info::CleanupResult::Error as i32 == nvme_result.result
     {
         // NVME Cleanup failed. Move machine to failed state.
         tracing::warn!(
@@ -58,7 +58,7 @@ pub(crate) async fn cleanup_machine_completed(
             error = %nvme_result.message,
             "NVMe cleanup failed"
         );
-        db::machine::update_failure_details(
+        nico_api_db::machine::update_failure_details(
             &machine,
             &mut txn,
             FailureDetails {
@@ -79,7 +79,7 @@ pub(crate) async fn cleanup_machine_completed(
             );
         }
         // Update cleanup time on success
-        db::machine::update_cleanup_time(&machine, &mut txn).await?;
+        nico_api_db::machine::update_cleanup_time(&machine, &mut txn).await?;
     }
 
     txn.commit().await?;
@@ -95,31 +95,31 @@ pub(crate) async fn cleanup_machine_completed(
         tracing::warn!(%err, %machine_id, "Failed to wake up state handler for machine");
     }
 
-    Ok(Response::new(rpc::MachineCleanupResult {}))
+    Ok(Response::new(forge::MachineCleanupResult {}))
 }
 
 // Invoked by forge-scout whenever a certain Machine can not be properly acted on
 pub(crate) fn report_forge_scout_error(
     _api: &Api,
-    request: Request<rpc::ForgeScoutErrorReport>,
-) -> Result<Response<rpc::ForgeScoutErrorReportResult>, Status> {
+    request: Request<forge::ForgeScoutErrorReport>,
+) -> Result<Response<forge::ForgeScoutErrorReportResult>, Status> {
     log_request_data(&request);
     let _machine_id = convert_and_log_machine_id(request.into_inner().machine_id.as_ref())?;
 
     // `log_request_data` will already provide us the error message
     // Therefore we don't have to do anything else
-    Ok(Response::new(rpc::ForgeScoutErrorReportResult {}))
+    Ok(Response::new(forge::ForgeScoutErrorReportResult {}))
 }
 
 // Called on x86 boot by 'forge-scout auto-detect --uuid=<uuid>'.
 // Tells it whether to discover or cleanup based on current machine state.
 pub(crate) async fn forge_agent_control(
     api: &Api,
-    request: Request<rpc::ForgeAgentControlRequest>,
-) -> Result<Response<rpc::ForgeAgentControlResponse>, Status> {
+    request: Request<forge::ForgeAgentControlRequest>,
+) -> Result<Response<forge::ForgeAgentControlResponse>, Status> {
     log_request_data(&request);
 
-    use ::rpc::forge_agent_control_response::Action;
+    use nico_rpc::forge_agent_control_response::Action;
 
     let machine_id = convert_and_log_machine_id(request.into_inner().machine_id.as_ref())?;
 
@@ -131,7 +131,7 @@ pub(crate) async fn forge_agent_control(
     let host_machine = if !is_dpu {
         machine.clone()
     } else {
-        db::machine::find_host_by_dpu_machine_id(&mut txn, &machine_id)
+        nico_api_db::machine::find_host_by_dpu_machine_id(&mut txn, &machine_id)
             .await?
             .ok_or(CarbideError::NotFoundError {
                 kind: "machine",
@@ -140,7 +140,7 @@ pub(crate) async fn forge_agent_control(
     };
 
     if !is_dpu {
-        db::machine::update_scout_contact_time(&machine_id, &mut txn).await?;
+        nico_api_db::machine::update_scout_contact_time(&machine_id, &mut txn).await?;
     }
 
     // Respond based on machine current state
@@ -177,7 +177,7 @@ pub(crate) async fn forge_agent_control(
                     total,
                 );
                 if *is_enabled {
-                    db::machine_validation::update_status(
+                    nico_api_db::machine_validation::update_status(
                         &mut txn,
                         id,
                         MachineValidationStatus {
@@ -187,11 +187,11 @@ pub(crate) async fn forge_agent_control(
                     )
                     .await?;
                     let machine_validation =
-                        db::machine_validation::find_by_id(&mut txn, id).await?;
+                        nico_api_db::machine_validation::find_by_id(&mut txn, id).await?;
                     (
                         Action::MachineValidation,
                         Some(
-                            rpc::forge_agent_control_response::ForgeAgentControlExtraInfo {
+                            nico_rpc::forge_agent_control_response::ForgeAgentControlExtraInfo {
                                 pair: [
                                     KeyValuePair {
                                         key: "Context".to_string(),
@@ -320,7 +320,7 @@ pub(crate) async fn forge_agent_control(
         txn.commit().await?;
     }
 
-    Ok(Response::new(rpc::ForgeAgentControlResponse {
+    Ok(Response::new(forge::ForgeAgentControlResponse {
         action: action as i32,
         data: action_data,
     }))
@@ -329,7 +329,7 @@ pub(crate) async fn forge_agent_control(
 /// Records reboot duration metric for a machine if applicable
 fn record_reboot_duration_metric(
     metric_emitter: &ApiMetricsEmitter,
-    machine: &model::machine::Machine,
+    machine: &nico_api_model::machine::Machine,
 ) {
     let Some(last_reboot_requested) = &machine.last_reboot_requested else {
         return;
@@ -338,7 +338,7 @@ fn record_reboot_duration_metric(
     // Skip recording metrics for PowerOff requests
     if matches!(
         last_reboot_requested.mode,
-        model::machine::MachineLastRebootRequestedMode::PowerOff
+        nico_api_model::machine::MachineLastRebootRequestedMode::PowerOff
     ) {
         return;
     }
@@ -376,8 +376,8 @@ fn record_reboot_duration_metric(
 // Host has rebooted
 pub(crate) async fn reboot_completed(
     api: &Api,
-    request: Request<rpc::MachineRebootCompletedRequest>,
-) -> Result<Response<rpc::MachineRebootCompletedResponse>, Status> {
+    request: Request<forge::MachineRebootCompletedRequest>,
+) -> Result<Response<forge::MachineRebootCompletedResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -389,7 +389,7 @@ pub(crate) async fn reboot_completed(
 
     record_reboot_duration_metric(&api.metric_emitter, &machine);
 
-    db::machine::update_reboot_time(&machine, &mut txn).await?;
+    nico_api_db::machine::update_reboot_time(&machine, &mut txn).await?;
 
     txn.commit().await?;
 
@@ -404,5 +404,5 @@ pub(crate) async fn reboot_completed(
         tracing::warn!(%err, %machine_id, "Failed to wake up state handler for machine");
     }
 
-    Ok(Response::new(rpc::MachineRebootCompletedResponse {}))
+    Ok(Response::new(forge::MachineRebootCompletedResponse {}))
 }

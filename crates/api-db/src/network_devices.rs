@@ -16,12 +16,12 @@
  */
 use std::ops::DerefMut;
 
-use carbide_uuid::machine::MachineId;
 use itertools::Itertools;
-use model::hardware_info::LldpSwitchData;
-use model::network_devices::{
+use nico_api_model::hardware_info::LldpSwitchData;
+use nico_api_model::network_devices::{
     DpuLocalPorts, DpuToNetworkDeviceMap, LldpError, NetworkDevice, NetworkTopologyData,
 };
+use nico_uuid::machine::MachineId;
 use sqlx::{PgConnection, PgTransaction};
 
 use super::{DatabaseError, ObjectFilter};

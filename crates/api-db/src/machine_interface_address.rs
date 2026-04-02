@@ -16,8 +16,8 @@
  */
 use std::net::IpAddr;
 
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use model::network_segment::NetworkSegmentType;
+use nico_api_model::network_segment::NetworkSegmentType;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
 use sqlx::{FromRow, PgConnection};
 
 use super::DatabaseError;

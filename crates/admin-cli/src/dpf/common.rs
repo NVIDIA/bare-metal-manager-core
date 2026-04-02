@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_uuid::machine::MachineId;
 
 #[derive(Parser, Debug)]
 pub struct DpfQuery {
@@ -35,7 +35,7 @@ impl TryFrom<&DpfQuery> for MachineId {
             ));
         };
 
-        if host.machine_type() == carbide_uuid::machine::MachineType::Dpu {
+        if host.machine_type() == nico_uuid::machine::MachineType::Dpu {
             return Err(CarbideCliError::GenericError(
                 "Only host id is expected!!".to_string(),
             ));

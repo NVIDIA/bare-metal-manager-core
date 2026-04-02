@@ -18,13 +18,13 @@
 //!
 //! `measurement journal` subcommand dispatcher + backing functions.
 
-use ::rpc::admin_cli::{
+use nico_measured_boot::bundle::MeasurementBundle;
+use nico_measured_boot::journal::MeasurementJournal;
+use nico_measured_boot::records::MeasurementJournalRecord;
+use nico_rpc::admin_cli::{
     CarbideCliError, CarbideCliResult, ToTable, cli_output, just_print_summary,
 };
-use ::rpc::protos::measured_boot::ShowMeasurementJournalRequest;
-use measured_boot::bundle::MeasurementBundle;
-use measured_boot::journal::MeasurementJournal;
-use measured_boot::records::MeasurementJournalRecord;
+use nico_rpc::protos::measured_boot::ShowMeasurementJournalRequest;
 use serde::Serialize;
 
 use crate::measurement::global;
@@ -44,7 +44,7 @@ pub async fn dispatch(
             cli_output(
                 delete(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdJournal::Show(local_args) => {
@@ -52,13 +52,13 @@ pub async fn dispatch(
                 cli_output(
                     show_by_id(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             } else {
                 cli_output(
                     show_all(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
         }
@@ -66,14 +66,14 @@ pub async fn dispatch(
             cli_output(
                 list(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdJournal::Promote(local_args) => {
             cli_output(
                 promote(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
     }

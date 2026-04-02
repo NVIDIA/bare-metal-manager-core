@@ -16,7 +16,7 @@
  */
 
 use color_eyre::Result;
-use rpc::forge as rpc;
+use nico_rpc::forge;
 
 use super::args::Args;
 use crate::cfg::runtime::RuntimeConfig;
@@ -27,7 +27,7 @@ pub async fn list_power_shelves(
     api_client: &ApiClient,
     config: &RuntimeConfig,
 ) -> Result<()> {
-    let filter = rpc::PowerShelfSearchFilter {
+    let filter = forge::PowerShelfSearchFilter {
         rack_id: None,
         deleted: args.deleted as i32,
         controller_state: args.controller_state,

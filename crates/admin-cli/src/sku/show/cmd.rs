@@ -16,8 +16,9 @@
  */
 use std::io::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::SkuList;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_rpc::forge::SkuList;
 use prettytable::{Row, Table};
 use tokio::io::AsyncWriteExt;
 
@@ -26,15 +27,15 @@ use crate::rpc::ApiClient;
 use crate::{async_write_table_as_csv, async_writeln};
 
 struct SkuWrapper {
-    sku: ::rpc::forge::Sku,
+    sku: forge::Sku,
 }
 
 struct SkusWrapper {
     skus: Vec<SkuWrapper>,
 }
 
-impl From<::rpc::forge::Sku> for SkuWrapper {
-    fn from(sku: ::rpc::forge::Sku) -> Self {
+impl From<forge::Sku> for SkuWrapper {
+    fn from(sku: forge::Sku) -> Self {
         SkuWrapper { sku }
     }
 }
@@ -85,7 +86,7 @@ fn create_table(header: Vec<&str>) -> Table {
     table
 }
 
-fn cpu_table(cpus: Vec<::rpc::forge::SkuComponentCpu>) -> Table {
+fn cpu_table(cpus: Vec<forge::SkuComponentCpu>) -> Table {
     let mut table = create_table(vec!["Vendor", "Model", "Threads", "Count"]);
 
     for cpu in cpus {
@@ -100,7 +101,7 @@ fn cpu_table(cpus: Vec<::rpc::forge::SkuComponentCpu>) -> Table {
     table
 }
 
-fn gpu_table(gpus: Vec<::rpc::forge::SkuComponentGpu>) -> Table {
+fn gpu_table(gpus: Vec<forge::SkuComponentGpu>) -> Table {
     let mut table = create_table(vec!["Vendor", "Total Memory", "Model", "Count"]);
     for gpu in gpus {
         table.add_row(Row::from(vec![
@@ -114,7 +115,7 @@ fn gpu_table(gpus: Vec<::rpc::forge::SkuComponentGpu>) -> Table {
     table
 }
 
-fn memory_table(memory: Vec<::rpc::forge::SkuComponentMemory>) -> Table {
+fn memory_table(memory: Vec<forge::SkuComponentMemory>) -> Table {
     let mut table = create_table(vec!["Type", "Capacity", "Count"]);
     for m in memory {
         table.add_row(Row::from(vec![
@@ -127,7 +128,7 @@ fn memory_table(memory: Vec<::rpc::forge::SkuComponentMemory>) -> Table {
     table
 }
 
-fn ib_device_table(devices: Vec<::rpc::forge::SkuComponentInfinibandDevices>) -> Table {
+fn ib_device_table(devices: Vec<forge::SkuComponentInfinibandDevices>) -> Table {
     let mut table = create_table(vec!["Vendor", "Model", "Count", "Inactive Devices"]);
     for dev in devices {
         let inactive_devices = serde_json::to_string(&dev.inactive_devices).unwrap();
@@ -142,7 +143,7 @@ fn ib_device_table(devices: Vec<::rpc::forge::SkuComponentInfinibandDevices>) ->
     table
 }
 
-fn storage_table(storage: Vec<::rpc::forge::SkuComponentStorage>) -> Table {
+fn storage_table(storage: Vec<forge::SkuComponentStorage>) -> Table {
     let mut table = Table::new();
     let table_format = table.get_format();
     table_format.indent(10);
@@ -157,7 +158,7 @@ fn storage_table(storage: Vec<::rpc::forge::SkuComponentStorage>) -> Table {
 pub async fn show_skus_table(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
-    skus: Vec<::rpc::forge::Sku>,
+    skus: Vec<forge::Sku>,
 ) -> CarbideCliResult<()> {
     match output_format {
         OutputFormat::Json => {
@@ -192,7 +193,7 @@ pub async fn show_sku_details(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     extended: bool,
-    sku: ::rpc::forge::Sku,
+    sku: forge::Sku,
 ) -> CarbideCliResult<()> {
     match output_format {
         OutputFormat::Json => {

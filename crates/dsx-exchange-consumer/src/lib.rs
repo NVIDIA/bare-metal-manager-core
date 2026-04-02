@@ -71,8 +71,8 @@ pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
     // Create consumer metrics
     let consumer_metrics = ConsumerMetrics::new(&meter);
 
-    let credential_manager = forge_secrets::create_credential_manager(
-        &forge_secrets::CredentialConfig::default(),
+    let credential_manager = nico_secrets::create_credential_manager(
+        &nico_secrets::CredentialConfig::default(),
         meter.clone(),
     )
     .await

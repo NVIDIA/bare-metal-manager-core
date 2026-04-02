@@ -17,13 +17,14 @@
 
 use std::str::FromStr;
 
-use db::machine::update_dpu_agent_health_report;
-use db::{self};
-use health_report::OverrideMode;
-use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
-use model::machine::{HardwareHealthReportsConfig, HostHealthConfig, LoadSnapshotOptions};
-use rpc::forge::HealthOverrideOrigin;
-use rpc::forge::forge_server::Forge;
+use nico_api_db::machine::update_dpu_agent_health_report;
+use nico_api_db::{self};
+use nico_api_model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
+use nico_api_model::machine::{HardwareHealthReportsConfig, HostHealthConfig, LoadSnapshotOptions};
+use nico_health_report::OverrideMode;
+use nico_rpc::forge;
+use nico_rpc::forge::HealthOverrideOrigin;
+use nico_rpc::forge::forge_server::Forge;
 use tonic::Request;
 
 use crate::tests::common::api_fixtures::{
@@ -111,7 +112,7 @@ async fn test_machine_health_reporting(
             .dpu_agent_health_report
             .clone()
             .unwrap(),
-        health_report::HealthReport::empty("".to_string()),
+        nico_health_report::HealthReport::empty("".to_string()),
     );
     check_reports_equal(
         &format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health"),
@@ -124,7 +125,7 @@ async fn test_machine_health_reporting(
             .next()
             .unwrap()
             .clone(),
-        health_report::HealthReport::empty("".to_string()),
+        nico_health_report::HealthReport::empty("".to_string()),
     );
 
     let m = find_machine(&env, &host_machine_id).await;
@@ -199,7 +200,7 @@ async fn test_hardware_health_reporting(
             .next()
             .unwrap()
             .clone(),
-        health_report::HealthReport::empty("".to_string()),
+        nico_health_report::HealthReport::empty("".to_string()),
     );
 
     let report_name: String = format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health");
@@ -540,19 +541,17 @@ async fn test_attempt_dpu_override(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let env = create_env(pool).await;
 
     let (_, dpu_machine_id) = create_managed_host(&env).await.into();
-    use rpc::forge::forge_server::Forge;
+    use nico_rpc::forge::forge_server::Forge;
     use tonic::Request;
     let _ = env
         .api
-        .insert_health_report_override(Request::new(
-            rpc::forge::InsertHealthReportOverrideRequest {
-                machine_id: Some(dpu_machine_id),
-                r#override: Some(rpc::forge::HealthReportOverride {
-                    report: Some(health_report::HealthReport::empty("".to_string()).into()),
-                    mode: health_report::OverrideMode::Replace as i32,
-                }),
-            },
-        ))
+        .insert_health_report_override(Request::new(forge::InsertHealthReportOverrideRequest {
+            machine_id: Some(dpu_machine_id),
+            r#override: Some(forge::HealthReportOverride {
+                report: Some(nico_health_report::HealthReport::empty("".to_string()).into()),
+                mode: nico_health_report::OverrideMode::Replace as i32,
+            }),
+        }))
         .await
         .expect_err("Should not be able to add OverrideMode::Replace on dpu");
 
@@ -574,19 +573,17 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
 
     // Inserting a Replace override then a Merge override with the same source
     // should result in the Replace override being replaced.
-    use rpc::forge::forge_server::Forge;
+    use nico_rpc::forge::forge_server::Forge;
     use tonic::Request;
     let _ = env
         .api
-        .insert_health_report_override(Request::new(
-            rpc::forge::InsertHealthReportOverrideRequest {
-                machine_id: Some(host_machine_id),
-                r#override: Some(rpc::forge::HealthReportOverride {
-                    report: Some(health_report::HealthReport::empty("over".to_string()).into()),
-                    mode: health_report::OverrideMode::Replace as i32,
-                }),
-            },
-        ))
+        .insert_health_report_override(Request::new(forge::InsertHealthReportOverrideRequest {
+            machine_id: Some(host_machine_id),
+            r#override: Some(forge::HealthReportOverride {
+                report: Some(nico_health_report::HealthReport::empty("over".to_string()).into()),
+                mode: nico_health_report::OverrideMode::Replace as i32,
+            }),
+        }))
         .await
         .unwrap();
 
@@ -596,21 +593,19 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     check_reports_equal(
         "aggregate-host-health",
         aggregate_health,
-        health_report::HealthReport::empty("".to_string()),
+        nico_health_report::HealthReport::empty("".to_string()),
     );
 
     let merge_hr = hr("over", vec![], vec![("Fan2", None, "")]);
     let _ = env
         .api
-        .insert_health_report_override(Request::new(
-            rpc::forge::InsertHealthReportOverrideRequest {
-                machine_id: Some(host_machine_id),
-                r#override: Some(rpc::forge::HealthReportOverride {
-                    report: Some(merge_hr.clone().into()),
-                    mode: health_report::OverrideMode::Merge as i32,
-                }),
-            },
-        ))
+        .insert_health_report_override(Request::new(forge::InsertHealthReportOverrideRequest {
+            machine_id: Some(host_machine_id),
+            r#override: Some(forge::HealthReportOverride {
+                report: Some(merge_hr.clone().into()),
+                mode: nico_health_report::OverrideMode::Merge as i32,
+            }),
+        }))
         .await
         .unwrap();
     let m = find_machine(&env, &host_machine_id).await;
@@ -645,16 +640,16 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
     let (host_machine_id, _) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;
-    let machine_ids = db::machine::find_machine_ids(
+    let machine_ids = nico_api_db::machine::find_machine_ids(
         txn.as_mut(),
-        model::machine::machine_search_config::MachineSearchConfig::default(),
+        nico_api_model::machine::machine_search_config::MachineSearchConfig::default(),
     )
     .await?;
-    let options = model::machine::LoadSnapshotOptions {
+    let options = nico_api_model::machine::LoadSnapshotOptions {
         include_history: false,
         include_instance_data: false,
         host_health_config: HostHealthConfig {
-            hardware_health_reports: model::machine::HardwareHealthReportsConfig::Enabled,
+            hardware_health_reports: nico_api_model::machine::HardwareHealthReportsConfig::Enabled,
             dpu_agent_version_staleness_threshold: chrono::Duration::days(1),
             prevent_allocations_on_stale_dpu_agent_version: false,
             prevent_allocations_on_scout_heartbeat_timeout: false,
@@ -662,10 +657,10 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
         },
     };
     let all_machines =
-        db::managed_host::load_by_machine_ids(txn.as_mut(), &machine_ids, options).await?;
+        nico_api_db::managed_host::load_by_machine_ids(txn.as_mut(), &machine_ids, options).await?;
 
     assert_eq!(
-        db::machine::count_healthy_unhealthy_host_machines(&all_machines),
+        nico_api_db::machine::count_healthy_unhealthy_host_machines(&all_machines),
         (1, 0)
     );
     txn.commit().await?;
@@ -692,16 +687,16 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
     .await;
 
     let mut txn = env.pool.begin().await?;
-    let machine_ids = db::machine::find_machine_ids(
+    let machine_ids = nico_api_db::machine::find_machine_ids(
         txn.as_mut(),
-        model::machine::machine_search_config::MachineSearchConfig::default(),
+        nico_api_model::machine::machine_search_config::MachineSearchConfig::default(),
     )
     .await?;
-    let options = model::machine::LoadSnapshotOptions {
+    let options = nico_api_model::machine::LoadSnapshotOptions {
         include_history: false,
         include_instance_data: false,
         host_health_config: HostHealthConfig {
-            hardware_health_reports: model::machine::HardwareHealthReportsConfig::Enabled,
+            hardware_health_reports: nico_api_model::machine::HardwareHealthReportsConfig::Enabled,
             dpu_agent_version_staleness_threshold: chrono::Duration::days(1),
             prevent_allocations_on_stale_dpu_agent_version: false,
             prevent_allocations_on_scout_heartbeat_timeout: false,
@@ -709,10 +704,10 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
         },
     };
     let all_machines =
-        db::managed_host::load_by_machine_ids(txn.as_mut(), &machine_ids, options).await?;
+        nico_api_db::managed_host::load_by_machine_ids(txn.as_mut(), &machine_ids, options).await?;
 
     assert_eq!(
-        db::machine::count_healthy_unhealthy_host_machines(&all_machines),
+        nico_api_db::machine::count_healthy_unhealthy_host_machines(&all_machines),
         (1, 1)
     );
     txn.commit().await?;
@@ -731,30 +726,32 @@ fn hr(
     source: &str,
     successes: Vec<(&str, Option<&str>)>,
     alerts: Vec<(&str, Option<&str>, &str)>,
-) -> health_report::HealthReport {
-    health_report::HealthReport {
+) -> nico_health_report::HealthReport {
+    nico_health_report::HealthReport {
         source: source.to_string(),
         triggered_by: None,
         observed_at: None,
         successes: successes
             .into_iter()
-            .map(|(id, target)| health_report::HealthProbeSuccess {
+            .map(|(id, target)| nico_health_report::HealthProbeSuccess {
                 id: id.to_string().parse().unwrap(),
                 target: target.map(|t| t.to_string()),
             })
             .collect(),
         alerts: alerts
             .into_iter()
-            .map(|(id, target, message)| health_report::HealthProbeAlert {
-                id: id.to_string().parse().unwrap(),
-                target: target.map(|t| t.to_string()),
-                in_alert_since: None,
-                message: message.to_string(),
-                tenant_message: None,
-                classifications: vec![
-                    health_report::HealthAlertClassification::prevent_host_state_changes(),
-                ],
-            })
+            .map(
+                |(id, target, message)| nico_health_report::HealthProbeAlert {
+                    id: id.to_string().parse().unwrap(),
+                    target: target.map(|t| t.to_string()),
+                    in_alert_since: None,
+                    message: message.to_string(),
+                    tenant_message: None,
+                    classifications: vec![
+                        nico_health_report::HealthAlertClassification::prevent_host_state_changes(),
+                    ],
+                },
+            )
             .collect(),
     }
 }
@@ -762,8 +759,8 @@ fn hr(
 /// Loads machine snapshot
 async fn load_snapshot(
     env: &TestEnv,
-    host_machine_id: &::carbide_uuid::machine::MachineId,
-) -> Result<model::machine::ManagedHostStateSnapshot, Box<dyn std::error::Error>> {
+    host_machine_id: &::nico_uuid::machine::MachineId,
+) -> Result<nico_api_model::machine::ManagedHostStateSnapshot, Box<dyn std::error::Error>> {
     let host_health_config = HostHealthConfig {
         hardware_health_reports: HardwareHealthReportsConfig::Enabled,
         dpu_agent_version_staleness_threshold: Default::default(),
@@ -771,7 +768,7 @@ async fn load_snapshot(
         prevent_allocations_on_scout_heartbeat_timeout: false,
         suppress_external_alerting_on_scout_heartbeat_timeout: true,
     };
-    let snapshot = db::managed_host::load_snapshot(
+    let snapshot = nico_api_db::managed_host::load_snapshot(
         &mut env.db_reader(),
         host_machine_id,
         LoadSnapshotOptions::default().with_host_health(host_health_config),
@@ -784,10 +781,10 @@ async fn load_snapshot(
 /// Calls get_machine api
 async fn find_machine(
     env: &TestEnv,
-    machine_id: &::carbide_uuid::machine::MachineId,
-) -> rpc::Machine {
+    machine_id: &::nico_uuid::machine::MachineId,
+) -> forge::Machine {
     env.api
-        .find_machines_by_ids(Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(Request::new(forge::MachinesByIdsRequest {
             machine_ids: vec![*machine_id],
             include_history: true,
         }))
@@ -800,16 +797,14 @@ async fn find_machine(
 
 async fn load_host_health_history(
     env: &TestEnv,
-    machine_id: &::carbide_uuid::machine::MachineId,
-) -> Vec<::rpc::forge::HealthHistoryRecord> {
+    machine_id: &nico_uuid::machine::MachineId,
+) -> Vec<forge::HealthHistoryRecord> {
     env.api
-        .find_machine_health_histories(tonic::Request::new(
-            ::rpc::forge::MachineHealthHistoriesRequest {
-                machine_ids: vec![*machine_id],
-                start_time: None,
-                end_time: None,
-            },
-        ))
+        .find_machine_health_histories(tonic::Request::new(forge::MachineHealthHistoriesRequest {
+            machine_ids: vec![*machine_id],
+            start_time: None,
+            end_time: None,
+        }))
         .await
         .unwrap()
         .into_inner()
@@ -820,17 +815,17 @@ async fn load_host_health_history(
 }
 
 /// Loads aggregate health via get_machine api
-fn aggregate(m: rpc::Machine) -> Option<health_report::HealthReport> {
+fn aggregate(m: forge::Machine) -> Option<nico_health_report::HealthReport> {
     m.health.map(|r| r.try_into().unwrap())
 }
 
 /// Loads aggregate health via FindMachinesByIds api
 async fn load_health_via_find_machines_by_ids(
     env: &TestEnv,
-    machine_id: &::carbide_uuid::machine::MachineId,
-) -> Option<health_report::HealthReport> {
+    machine_id: &::nico_uuid::machine::MachineId,
+) -> Option<nico_health_report::HealthReport> {
     env.api
-        .find_machines_by_ids(Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(Request::new(forge::MachinesByIdsRequest {
             machine_ids: vec![*machine_id],
             include_history: false,
         }))
@@ -845,7 +840,7 @@ async fn load_health_via_find_machines_by_ids(
 
 /// Checks that the health report was generated in the past, but less than 60
 /// seconds in the past.
-fn check_time(report: &health_report::HealthReport) {
+fn check_time(report: &nico_health_report::HealthReport) {
     let elapsed_since_report =
         chrono::Utc::now().signed_duration_since(report.observed_at.unwrap());
     assert!(
@@ -859,15 +854,15 @@ fn check_time(report: &health_report::HealthReport) {
 /// timestamps).
 fn check_reports_equal(
     source: &str,
-    reported: health_report::HealthReport,
-    mut expected: health_report::HealthReport,
+    reported: nico_health_report::HealthReport,
+    mut expected: nico_health_report::HealthReport,
 ) {
     /// Checks that 2 healthreports are equal, without taking timestamps into consideration
     fn check_health_reports_equal(
-        a: &health_report::HealthReport,
-        b: &health_report::HealthReport,
+        a: &nico_health_report::HealthReport,
+        b: &nico_health_report::HealthReport,
     ) {
-        fn erase_timestamps(report: &mut health_report::HealthReport) {
+        fn erase_timestamps(report: &mut nico_health_report::HealthReport) {
             report.observed_at = None;
             for alert in report.alerts.iter_mut() {
                 alert.in_alert_since = None;
@@ -888,19 +883,17 @@ fn check_reports_equal(
 /// Loads health alerts by time range via FindMachineHealthHistories RPC with time filtering
 async fn load_health_alerts_by_time_range(
     env: &TestEnv,
-    machine_id: &::carbide_uuid::machine::MachineId,
+    machine_id: &::nico_uuid::machine::MachineId,
     start_time: chrono::DateTime<chrono::Utc>,
     end_time: chrono::DateTime<chrono::Utc>,
-) -> Vec<::rpc::forge::HealthHistoryRecord> {
+) -> Vec<forge::HealthHistoryRecord> {
     let response = env
         .api
-        .find_machine_health_histories(tonic::Request::new(
-            ::rpc::forge::MachineHealthHistoriesRequest {
-                machine_ids: vec![*machine_id],
-                start_time: Some(start_time.into()),
-                end_time: Some(end_time.into()),
-            },
-        ))
+        .find_machine_health_histories(tonic::Request::new(forge::MachineHealthHistoriesRequest {
+            machine_ids: vec![*machine_id],
+            start_time: Some(start_time.into()),
+            end_time: Some(end_time.into()),
+        }))
         .await
         .unwrap()
         .into_inner();
@@ -916,8 +909,8 @@ async fn load_health_alerts_by_time_range(
 /// Inserts health report and processes it via state controller
 async fn insert_health_and_process(
     env: &TestEnv,
-    machine_id: &::carbide_uuid::machine::MachineId,
-    health: health_report::HealthReport,
+    machine_id: &::nico_uuid::machine::MachineId,
+    health: nico_health_report::HealthReport,
 ) {
     send_health_report_override(env, machine_id, (health, OverrideMode::Replace)).await;
     env.run_machine_state_controller_iteration().await;
@@ -931,20 +924,20 @@ async fn test_tenant_reported_issue_health_override_template(
     let (host_machine_id, _) = create_managed_host(&env).await.into();
 
     // Create a TenantReportedIssue health override using the API
-    let tenant_issue_override = health_report::HealthReport {
+    let tenant_issue_override = nico_health_report::HealthReport {
         source: "tenant-reported-issue".to_string(),
         triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
-        alerts: vec![health_report::HealthProbeAlert {
-            id: health_report::HealthProbeId::from_str("TenantReportedIssue").unwrap(),
+        alerts: vec![nico_health_report::HealthProbeAlert {
+            id: nico_health_report::HealthProbeId::from_str("TenantReportedIssue").unwrap(),
             target: Some("tenant-reported".to_string()),
             in_alert_since: None,
             message: "Customer reported intermittent network connectivity issues".to_string(),
             tenant_message: None,
             classifications: vec![
-                health_report::HealthAlertClassification::prevent_allocations(),
-                health_report::HealthAlertClassification::suppress_external_alerting(),
+                nico_health_report::HealthAlertClassification::prevent_allocations(),
+                nico_health_report::HealthAlertClassification::suppress_external_alerting(),
             ],
         }],
     };
@@ -986,12 +979,12 @@ async fn test_tenant_reported_issue_health_override_template(
     assert!(
         aggregate_health.alerts[0]
             .classifications
-            .contains(&health_report::HealthAlertClassification::prevent_allocations())
+            .contains(&nico_health_report::HealthAlertClassification::prevent_allocations())
     );
     assert!(
         aggregate_health.alerts[0]
             .classifications
-            .contains(&health_report::HealthAlertClassification::suppress_external_alerting())
+            .contains(&nico_health_report::HealthAlertClassification::suppress_external_alerting())
     );
 
     Ok(())
@@ -1005,21 +998,21 @@ async fn test_request_repair_health_override_template(
     let (host_machine_id, _) = create_managed_host(&env).await.into();
 
     // Create a RequestRepair health override using the API
-    let repair_request_override = health_report::HealthReport {
+    let repair_request_override = nico_health_report::HealthReport {
         source: "repair-request".to_string(),
         triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
-        alerts: vec![health_report::HealthProbeAlert {
-            id: health_report::HealthProbeId::from_str("RequestRepair").unwrap(),
+        alerts: vec![nico_health_report::HealthProbeAlert {
+            id: nico_health_report::HealthProbeId::from_str("RequestRepair").unwrap(),
             target: Some("repair-requested".to_string()),
             in_alert_since: None,
             message: "Hardware diagnostics indicate memory failure requiring replacement"
                 .to_string(),
             tenant_message: None,
             classifications: vec![
-                health_report::HealthAlertClassification::prevent_allocations(),
-                health_report::HealthAlertClassification::suppress_external_alerting(),
+                nico_health_report::HealthAlertClassification::prevent_allocations(),
+                nico_health_report::HealthAlertClassification::suppress_external_alerting(),
             ],
         }],
     };
@@ -1058,12 +1051,12 @@ async fn test_request_repair_health_override_template(
     assert!(
         aggregate_health.alerts[0]
             .classifications
-            .contains(&health_report::HealthAlertClassification::prevent_allocations())
+            .contains(&nico_health_report::HealthAlertClassification::prevent_allocations())
     );
     assert!(
         aggregate_health.alerts[0]
             .classifications
-            .contains(&health_report::HealthAlertClassification::suppress_external_alerting())
+            .contains(&nico_health_report::HealthAlertClassification::suppress_external_alerting())
     );
 
     Ok(())
@@ -1077,38 +1070,38 @@ async fn test_tenant_reported_issue_and_request_repair_combined(
     let (host_machine_id, _) = create_managed_host(&env).await.into();
 
     // Apply both overrides to the same machine
-    let tenant_issue_override = health_report::HealthReport {
+    let tenant_issue_override = nico_health_report::HealthReport {
         source: "tenant-reported-issue".to_string(),
         triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
-        alerts: vec![health_report::HealthProbeAlert {
-            id: health_report::HealthProbeId::from_str("TenantReportedIssue").unwrap(),
+        alerts: vec![nico_health_report::HealthProbeAlert {
+            id: nico_health_report::HealthProbeId::from_str("TenantReportedIssue").unwrap(),
             target: Some("tenant-reported".to_string()),
             in_alert_since: None,
             message: "Customer reports performance degradation".to_string(),
             tenant_message: None,
             classifications: vec![
-                health_report::HealthAlertClassification::prevent_allocations(),
-                health_report::HealthAlertClassification::suppress_external_alerting(),
+                nico_health_report::HealthAlertClassification::prevent_allocations(),
+                nico_health_report::HealthAlertClassification::suppress_external_alerting(),
             ],
         }],
     };
 
-    let repair_request_override = health_report::HealthReport {
+    let repair_request_override = nico_health_report::HealthReport {
         source: "repair-request".to_string(),
         triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
-        alerts: vec![health_report::HealthProbeAlert {
-            id: health_report::HealthProbeId::from_str("RequestRepair").unwrap(),
+        alerts: vec![nico_health_report::HealthProbeAlert {
+            id: nico_health_report::HealthProbeId::from_str("RequestRepair").unwrap(),
             target: Some("repair-requested".to_string()),
             in_alert_since: None,
             message: "Diagnostics confirm hardware issue needs repair".to_string(),
             tenant_message: None,
             classifications: vec![
-                health_report::HealthAlertClassification::prevent_allocations(),
-                health_report::HealthAlertClassification::suppress_external_alerting(),
+                nico_health_report::HealthAlertClassification::prevent_allocations(),
+                nico_health_report::HealthAlertClassification::suppress_external_alerting(),
             ],
         }],
     };
@@ -1161,15 +1154,13 @@ async fn test_tenant_reported_issue_and_request_repair_combined(
 
     // Verify all alerts have SuppressExternalAlerting
     for alert in &aggregate_health.alerts {
+        assert!(alert.classifications.contains(
+            &nico_health_report::HealthAlertClassification::suppress_external_alerting()
+        ));
         assert!(
             alert
                 .classifications
-                .contains(&health_report::HealthAlertClassification::suppress_external_alerting())
-        );
-        assert!(
-            alert
-                .classifications
-                .contains(&health_report::HealthAlertClassification::prevent_allocations())
+                .contains(&nico_health_report::HealthAlertClassification::prevent_allocations())
         );
     }
 

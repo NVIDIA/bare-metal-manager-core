@@ -25,8 +25,8 @@ mod tests;
 // This is different than others that pull in Cmd, since
 // this is just a single top-level command without any
 // subcommands.
-use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Opts;
+use nico_rpc::admin_cli::CarbideCliResult;
 
 use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::RuntimeContext;

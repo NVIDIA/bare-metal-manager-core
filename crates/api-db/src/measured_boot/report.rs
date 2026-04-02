@@ -22,18 +22,18 @@
 
 use std::collections::HashMap;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::{
-    MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId, TrustedMachineId,
-};
-use measured_boot::bundle::MeasurementBundle;
-use measured_boot::journal::MeasurementJournal;
-use measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
-use measured_boot::records::{
+use nico_measured_boot::bundle::MeasurementBundle;
+use nico_measured_boot::journal::MeasurementJournal;
+use nico_measured_boot::pcr::{PcrRegisterValue, PcrSet, parse_pcr_index_input};
+use nico_measured_boot::records::{
     MeasurementApprovedType, MeasurementBundleState, MeasurementMachineState,
     MeasurementReportRecord, MeasurementReportValueRecord,
 };
-use measured_boot::report::MeasurementReport;
+use nico_measured_boot::report::MeasurementReport;
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::{
+    MeasurementBundleId, MeasurementReportId, MeasurementSystemProfileId, TrustedMachineId,
+};
 use sqlx::{PgConnection, PgTransaction};
 
 use crate::db_read::DbReader;

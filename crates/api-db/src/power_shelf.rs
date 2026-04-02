@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-use carbide_uuid::power_shelf::PowerShelfId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use futures::StreamExt;
-use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::metadata::Metadata;
-use model::power_shelf::{NewPowerShelf, PowerShelf, PowerShelfControllerState};
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::metadata::Metadata;
+use nico_api_model::power_shelf::{NewPowerShelf, PowerShelf, PowerShelfControllerState};
+use nico_uuid::power_shelf::PowerShelfId;
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -180,7 +180,7 @@ pub async fn list_segment_ids(txn: &mut PgConnection) -> DatabaseResult<Vec<Powe
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: model::power_shelf::PowerShelfSearchFilter,
+    filter: nico_api_model::power_shelf::PowerShelfSearchFilter,
 ) -> Result<Vec<PowerShelfId>, DatabaseError> {
     if filter.rack_id.is_some() {
         return Err(DatabaseError::InvalidArgument(
@@ -197,9 +197,9 @@ pub async fn find_ids(
     qb.push(" WHERE TRUE");
 
     match filter.deleted {
-        model::DeletedFilter::Exclude => qb.push(" AND ps.deleted IS NULL"),
-        model::DeletedFilter::Only => qb.push(" AND ps.deleted IS NOT NULL"),
-        model::DeletedFilter::Include => &mut qb,
+        nico_api_model::DeletedFilter::Exclude => qb.push(" AND ps.deleted IS NULL"),
+        nico_api_model::DeletedFilter::Only => qb.push(" AND ps.deleted IS NOT NULL"),
+        nico_api_model::DeletedFilter::Include => &mut qb,
     };
 
     if let Some(state) = &filter.controller_state {

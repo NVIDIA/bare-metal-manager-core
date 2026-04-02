@@ -33,7 +33,7 @@ use inventories::ExploredInventories;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use manager::ExploredManager;
-use model::site_explorer::{
+use nico_api_model::site_explorer::{
     EndpointExplorationReport, EndpointType, InternalLockdownStatus, LockdownStatus,
     MachineSetupDiff, MachineSetupStatus,
 };

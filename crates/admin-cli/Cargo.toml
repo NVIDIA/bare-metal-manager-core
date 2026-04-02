@@ -15,14 +15,14 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-admin-cli"
+name = "nico-admin-cli"
 version = "0.0.1"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [[bin]]
-# TODO: rename to carbide-admin-cli
+# TODO: rename nico-admin-cli
 name = "carbide-admin-cli"
 path = "src/main.rs"
 
@@ -30,18 +30,18 @@ path = "src/main.rs"
 # [local-dependencies]
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 bmc-vendor = { path = "../bmc-vendor" }
-carbide-macros = { path = "../macros" }
-carbide-network = { path = "../network" }
-carbide-ssh = { path = "../ssh" }
-carbide-tls = { path = "../tls" }
-carbide-uuid = { path = "../uuid" }
-carbide-version = { path = "../version" }
-carbide-secrets = { path = "../secrets" }
-carbide-health-report = { path = "../health-report" }
-carbide-measured-boot = { path = "../measured-boot", features = ["cli"] }
-carbide-libmlx = { path = "../libmlx" }
-carbide-rpc = { path = "../rpc", features = ["cli"] }
-carbide-utils = { path = "../utils" }
+nico-macros = { path = "../macros" }
+nico-network = { path = "../network" }
+nico-ssh = { path = "../ssh" }
+nico-tls = { path = "../tls" }
+nico-uuid = { path = "../uuid" }
+nico-version = { path = "../version" }
+nico-secrets = { path = "../secrets" }
+nico-health-report = { path = "../health-report" }
+nico-measured-boot = { path = "../measured-boot", features = ["cli"] }
+nico-libmlx = { path = "../libmlx" }
+nico-rpc = { path = "../rpc", features = ["cli"] }
+nico-utils = { path = "../utils" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 chrono = { workspace = true }
@@ -76,7 +76,7 @@ zip = { workspace = true }
 
 [build-dependencies]
 clap = { workspace = true }
-carbide-version = { path = "../version" }
+nico-version = { path = "../version" }
 
 [lints]
 workspace = true

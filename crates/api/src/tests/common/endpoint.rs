@@ -18,12 +18,14 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
-use carbide_uuid::machine::MachineId;
-use db::{self, DatabaseError};
-use model::site_explorer::{
+use nico_api_db::{
+    DatabaseError, {self},
+};
+use nico_api_model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
     Inventory, PowerState, Service,
 };
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
 pub async fn insert_endpoint_version(
@@ -50,7 +52,7 @@ async fn insert_endpoint(
     model: &str,
     bmc_version: &str,
 ) -> Result<(), DatabaseError> {
-    db::explored_endpoints::insert(
+    nico_api_db::explored_endpoints::insert(
         IpAddr::V4(Ipv4Addr::from_str(addr).unwrap()),
         &build_exploration_report(vendor, model, bmc_version, machine_id_str),
         false,

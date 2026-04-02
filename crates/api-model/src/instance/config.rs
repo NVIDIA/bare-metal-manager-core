@@ -21,10 +21,9 @@ pub mod network;
 pub mod nvlink;
 pub mod tenant_config;
 
-use carbide_uuid::network_security_group::{
-    NetworkSecurityGroupId, NetworkSecurityGroupIdParseError,
-};
-use rpc::errors::RpcDataConversionError;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::network_security_group::{NetworkSecurityGroupId, NetworkSecurityGroupIdParseError};
 use serde::{Deserialize, Serialize};
 
 use crate::ConfigValidationError;
@@ -68,10 +67,10 @@ pub struct InstanceConfig {
     pub nvlink: InstanceNvLinkConfig,
 }
 
-impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
+impl TryFrom<forge::InstanceConfig> for InstanceConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: rpc::InstanceConfig) -> Result<Self, Self::Error> {
+    fn try_from(config: forge::InstanceConfig) -> Result<Self, Self::Error> {
         let os: OperatingSystem = OperatingSystem::try_from(config.os.ok_or(
             RpcDataConversionError::MissingArgument("InstanceConfig::os"),
         )?)?;
@@ -126,19 +125,19 @@ impl TryFrom<rpc::InstanceConfig> for InstanceConfig {
     }
 }
 
-impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
+impl TryFrom<InstanceConfig> for forge::InstanceConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: InstanceConfig) -> Result<rpc::InstanceConfig, Self::Error> {
-        let tenant = rpc::forge::TenantConfig::try_from(config.tenant)?;
-        let os = rpc::forge::OperatingSystem::try_from(config.os)?;
-        let network = rpc::InstanceNetworkConfig::try_from(config.network)?;
-        let infiniband = rpc::InstanceInfinibandConfig::try_from(config.infiniband)?;
+    fn try_from(config: InstanceConfig) -> Result<forge::InstanceConfig, Self::Error> {
+        let tenant = forge::TenantConfig::try_from(config.tenant)?;
+        let os = forge::OperatingSystem::try_from(config.os)?;
+        let network = forge::InstanceNetworkConfig::try_from(config.network)?;
+        let infiniband = forge::InstanceInfinibandConfig::try_from(config.infiniband)?;
         let infiniband = match infiniband.ib_interfaces.is_empty() {
             true => None,
             false => Some(infiniband),
         };
-        let nvlink = rpc::forge::InstanceNvLinkConfig::try_from(config.nvlink)?;
+        let nvlink = forge::InstanceNvLinkConfig::try_from(config.nvlink)?;
         let nvlink = match nvlink.gpu_configs.is_empty() {
             true => None,
             false => Some(nvlink),
@@ -153,14 +152,14 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
             .collect();
         let extension_services = match active_extension_services.is_empty() {
             true => None,
-            false => Some(rpc::forge::InstanceDpuExtensionServicesConfig::try_from(
+            false => Some(forge::InstanceDpuExtensionServicesConfig::try_from(
                 InstanceExtensionServicesConfig {
                     service_configs: active_extension_services,
                 },
             )?),
         };
 
-        Ok(rpc::InstanceConfig {
+        Ok(forge::InstanceConfig {
             tenant: Some(tenant),
             os: Some(os),
             network: Some(network),

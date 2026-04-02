@@ -14,8 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use model::storage::{OsImageAttributes, OsImageStatus};
-use model::tenant::TenantOrganizationId;
+use nico_api_model::storage::{OsImageAttributes, OsImageStatus};
+use nico_api_model::tenant::TenantOrganizationId;
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -27,8 +28,8 @@ use crate::api::Api;
 
 pub(crate) async fn create_os_image(
     api: &Api,
-    request: Request<crate::api::rpc::OsImageAttributes>,
-) -> Result<Response<crate::api::rpc::OsImage>, Status> {
+    request: Request<forge::OsImageAttributes>,
+) -> Result<Response<forge::OsImage>, Status> {
     let mut txn = api.txn_begin().await?;
     let attrs: OsImageAttributes = OsImageAttributes::try_from(request.into_inner())
         .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
@@ -37,18 +38,17 @@ pub(crate) async fn create_os_image(
             CarbideError::InvalidArgument("os_image url or digest is empty".to_string()).into(),
         );
     }
-    let image =
-        db::os_image::create(&mut txn, &attrs)
-            .await
-            .map_err(|e| CarbideError::Internal {
-                message: e.to_string(),
-            })?;
+    let image = nico_api_db::os_image::create(&mut txn, &attrs)
+        .await
+        .map_err(|e| CarbideError::Internal {
+            message: e.to_string(),
+        })?;
     txn.commit().await.map_err(|e| CarbideError::Internal {
         message: e.to_string(),
     })?;
 
-    let resp: crate::api::rpc::OsImage =
-        rpc::forge::OsImage::try_from(image).map_err(|e| CarbideError::Internal {
+    let resp: forge::OsImage =
+        forge::OsImage::try_from(image).map_err(|e| CarbideError::Internal {
             message: e.to_string(),
         })?;
     Ok(Response::new(resp))
@@ -56,8 +56,8 @@ pub(crate) async fn create_os_image(
 
 pub(crate) async fn list_os_image(
     api: &Api,
-    request: Request<crate::api::rpc::ListOsImageRequest>,
-) -> Result<Response<crate::api::rpc::ListOsImageResponse>, Status> {
+    request: Request<forge::ListOsImageRequest>,
+) -> Result<Response<forge::ListOsImageResponse>, Status> {
     let mut txn = api.txn_begin().await?;
     let tenant: Option<TenantOrganizationId> = match request.into_inner().tenant_organization_id {
         Some(x) => Some(
@@ -66,48 +66,45 @@ pub(crate) async fn list_os_image(
         ),
         None => None,
     };
-    let os_images =
-        db::os_image::list(&mut txn, tenant)
-            .await
-            .map_err(|e| CarbideError::Internal {
-                message: e.to_string(),
-            })?;
+    let os_images = nico_api_db::os_image::list(&mut txn, tenant)
+        .await
+        .map_err(|e| CarbideError::Internal {
+            message: e.to_string(),
+        })?;
     txn.commit().await.map_err(|e| CarbideError::Internal {
         message: e.to_string(),
     })?;
 
-    let mut images: Vec<crate::api::rpc::OsImage> = Vec::new();
+    let mut images: Vec<forge::OsImage> = Vec::new();
     for os_image in os_images.iter() {
-        let image = rpc::forge::OsImage::try_from(os_image.clone()).map_err(|e| {
-            CarbideError::Internal {
+        let image =
+            forge::OsImage::try_from(os_image.clone()).map_err(|e| CarbideError::Internal {
                 message: e.to_string(),
-            }
-        })?;
+            })?;
         images.push(image);
     }
-    let resp = crate::api::rpc::ListOsImageResponse { images };
+    let resp = forge::ListOsImageResponse { images };
     Ok(Response::new(resp))
 }
 
 pub(crate) async fn get_os_image(
     api: &Api,
-    request: Request<rpc::Uuid>,
-) -> Result<Response<crate::api::rpc::OsImage>, Status> {
+    request: Request<nico_rpc::Uuid>,
+) -> Result<Response<forge::OsImage>, Status> {
     let mut txn = api.txn_begin().await?;
     let image_id: Uuid = Uuid::try_from(request.into_inner())
         .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
-    let image =
-        db::os_image::get(&mut txn, image_id)
-            .await
-            .map_err(|e| CarbideError::Internal {
-                message: e.to_string(),
-            })?;
+    let image = nico_api_db::os_image::get(&mut txn, image_id)
+        .await
+        .map_err(|e| CarbideError::Internal {
+            message: e.to_string(),
+        })?;
     txn.commit().await.map_err(|e| CarbideError::Internal {
         message: e.to_string(),
     })?;
 
-    let resp: crate::api::rpc::OsImage =
-        rpc::forge::OsImage::try_from(image).map_err(|e| CarbideError::Internal {
+    let resp: forge::OsImage =
+        forge::OsImage::try_from(image).map_err(|e| CarbideError::Internal {
             message: e.to_string(),
         })?;
     Ok(Response::new(resp))
@@ -115,8 +112,8 @@ pub(crate) async fn get_os_image(
 
 pub(crate) async fn delete_os_image(
     api: &Api,
-    request: Request<crate::api::rpc::DeleteOsImageRequest>,
-) -> Result<Response<crate::api::rpc::DeleteOsImageResponse>, Status> {
+    request: Request<forge::DeleteOsImageRequest>,
+) -> Result<Response<forge::DeleteOsImageResponse>, Status> {
     let mut txn = api.txn_begin().await?;
     let req = request.into_inner();
     if req.id.is_none() {
@@ -126,12 +123,11 @@ pub(crate) async fn delete_os_image(
         .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
     let tenant: TenantOrganizationId = TenantOrganizationId::try_from(req.tenant_organization_id)
         .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
-    let image =
-        db::os_image::get(&mut txn, image_id)
-            .await
-            .map_err(|e| CarbideError::Internal {
-                message: e.to_string(),
-            })?;
+    let image = nico_api_db::os_image::get(&mut txn, image_id)
+        .await
+        .map_err(|e| CarbideError::Internal {
+            message: e.to_string(),
+        })?;
     if image.attributes.tenant_organization_id != tenant {
         return Err(CarbideError::InvalidArgument("os image tenant mismatch".to_string()).into());
     }
@@ -139,7 +135,7 @@ pub(crate) async fn delete_os_image(
         return Err(CarbideError::FailedPrecondition("os image busy".to_string()).into());
     }
 
-    db::os_image::delete(&image, &mut txn)
+    nico_api_db::os_image::delete(&image, &mut txn)
         .await
         .map_err(|e| CarbideError::Internal {
             message: e.to_string(),
@@ -148,19 +144,19 @@ pub(crate) async fn delete_os_image(
         message: e.to_string(),
     })?;
 
-    let resp = crate::api::rpc::DeleteOsImageResponse::default();
+    let resp = forge::DeleteOsImageResponse::default();
     Ok(Response::new(resp))
 }
 
 pub(crate) async fn update_os_image(
     api: &Api,
-    request: Request<crate::api::rpc::OsImageAttributes>,
-) -> Result<Response<crate::api::rpc::OsImage>, Status> {
+    request: Request<forge::OsImageAttributes>,
+) -> Result<Response<forge::OsImage>, Status> {
     let mut txn = api.txn_begin().await?;
 
     let new_attrs: OsImageAttributes = OsImageAttributes::try_from(request.into_inner())
         .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
-    let image = db::os_image::get(&mut txn, new_attrs.id)
+    let image = nico_api_db::os_image::get(&mut txn, new_attrs.id)
         .await
         .map_err(|e| CarbideError::Internal {
             message: e.to_string(),
@@ -178,7 +174,7 @@ pub(crate) async fn update_os_image(
         )
         .into());
     }
-    let updated = db::os_image::update(&image, &mut txn, new_attrs)
+    let updated = nico_api_db::os_image::update(&image, &mut txn, new_attrs)
         .await
         .map_err(|e| CarbideError::Internal {
             message: e.to_string(),
@@ -188,8 +184,8 @@ pub(crate) async fn update_os_image(
         message: e.to_string(),
     })?;
 
-    let resp: crate::api::rpc::OsImage =
-        rpc::forge::OsImage::try_from(updated).map_err(|e| CarbideError::Internal {
+    let resp: forge::OsImage =
+        forge::OsImage::try_from(updated).map_err(|e| CarbideError::Internal {
             message: e.to_string(),
         })?;
     Ok(Response::new(resp))

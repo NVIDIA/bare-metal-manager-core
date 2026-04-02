@@ -17,12 +17,12 @@
 
 use std::str::FromStr;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::{self as forgerpc, RemoveHealthReportOverrideRequest};
 use chrono::Utc;
-use health_report::{
+use nico_health_report::{
     HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthProbeSuccess, HealthReport,
 };
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge::{self, RemoveHealthReportOverrideRequest};
 use prettytable::{Table, row};
 
 use super::args::{Args, HealthOverrideTemplates};
@@ -165,11 +165,11 @@ pub async fn handle_override(
                 let report = r#override.report.ok_or(CarbideCliError::GenericError(
                     "missing response".to_string(),
                 ))?;
-                let mode = match ::rpc::forge::OverrideMode::try_from(r#override.mode)
+                let mode = match forge::OverrideMode::try_from(r#override.mode)
                     .map_err(|_| CarbideCliError::GenericError("invalide response".to_string()))?
                 {
-                    forgerpc::OverrideMode::Merge => "Merge",
-                    forgerpc::OverrideMode::Replace => "Replace",
+                    forge::OverrideMode::Merge => "Merge",
+                    forge::OverrideMode::Replace => "Replace",
                 };
                 rows.push((report, mode));
             }
@@ -202,7 +202,7 @@ pub async fn handle_override(
             let report = if let Some(template) = options.template {
                 get_health_report(template, options.message)
             } else if let Some(health_report) = options.health_report {
-                serde_json::from_str::<health_report::HealthReport>(&health_report)
+                serde_json::from_str::<nico_health_report::HealthReport>(&health_report)
                     .map_err(CarbideCliError::JsonError)?
             } else {
                 return Err(CarbideCliError::GenericError(
@@ -250,7 +250,7 @@ pub async fn handle_override(
 mod tests {
     use std::str::FromStr;
 
-    use health_report::{HealthAlertClassification, HealthProbeId};
+    use nico_health_report::{HealthAlertClassification, HealthProbeId};
 
     use super::*;
 

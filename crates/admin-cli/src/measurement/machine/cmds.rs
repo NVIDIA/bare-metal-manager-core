@@ -18,11 +18,11 @@
 //!
 //! `measurement mock-machine` subcommand dispatcher + backing functions.
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
-use ::rpc::protos::measured_boot::ShowCandidateMachineRequest;
-use measured_boot::machine::CandidateMachine;
-use measured_boot::records::CandidateMachineSummary;
-use measured_boot::report::MeasurementReport;
+use nico_measured_boot::machine::CandidateMachine;
+use nico_measured_boot::records::CandidateMachineSummary;
+use nico_measured_boot::report::MeasurementReport;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, ToTable, cli_output};
+use nico_rpc::protos::measured_boot::ShowCandidateMachineRequest;
 use serde::Serialize;
 
 use crate::measurement::global;
@@ -40,7 +40,7 @@ pub async fn dispatch(
             cli_output(
                 attest(cli.grpc_conn, local_args).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
         CmdMachine::Show(local_args) => {
@@ -48,13 +48,13 @@ pub async fn dispatch(
                 cli_output(
                     show_by_id(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             } else {
                 cli_output(
                     show_all(cli.grpc_conn, local_args).await?,
                     &cli.args.format,
-                    ::rpc::admin_cli::Destination::Stdout(),
+                    nico_rpc::admin_cli::Destination::Stdout(),
                 )?;
             }
         }
@@ -62,7 +62,7 @@ pub async fn dispatch(
             cli_output(
                 list(cli.grpc_conn).await?,
                 &cli.args.format,
-                ::rpc::admin_cli::Destination::Stdout(),
+                nico_rpc::admin_cli::Destination::Stdout(),
             )?;
         }
     }

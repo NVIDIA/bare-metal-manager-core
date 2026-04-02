@@ -18,19 +18,19 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::ops::Deref;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
 use futures::StreamExt;
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
-use model::address_selection_strategy::AddressSelectionStrategy;
-use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::network_segment::{
+use nico_api_model::address_selection_strategy::AddressSelectionStrategy;
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
     NewNetworkSegment,
 };
+use nico_uuid::machine::MachineId;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcId;
 use sqlx::{PgConnection, PgTransaction};
 
 use crate::db_read::DbReader;
@@ -258,7 +258,7 @@ pub async fn list_segment_ids(
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: model::network_segment::NetworkSegmentSearchFilter,
+    filter: nico_api_model::network_segment::NetworkSegmentSearchFilter,
 ) -> Result<Vec<NetworkSegmentId>, DatabaseError> {
     // build query
     let mut builder = sqlx::QueryBuilder::new("SELECT s.id FROM network_segments AS s");
@@ -316,7 +316,7 @@ where
 /// Find network segments attached to a machine through machine_interfaces, optionally of a certain type
 pub async fn find_ids_by_machine_id(
     txn: &mut PgConnection,
-    machine_id: &::carbide_uuid::machine::MachineId,
+    machine_id: &::nico_uuid::machine::MachineId,
     network_segment_type: Option<NetworkSegmentType>,
 ) -> Result<Vec<NetworkSegmentId>, DatabaseError> {
     let result = batch_find_ids_by_machine_ids(txn, &[*machine_id], network_segment_type).await?;

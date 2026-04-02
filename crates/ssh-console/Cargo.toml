@@ -15,26 +15,26 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-ssh-console"
+name = "nico-ssh-console"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [lib]
-name = "ssh_console"
+name = "nico_ssh_console"
 
 [[bin]]
-# TODO: rename to carbide-ssh-console
+# TODO: rename to nico-ssh-console
 name = "ssh-console"
 path = "src/main.rs"
 
 [dependencies]
 
 # local dependencies
-carbide-rpc = { path = "../rpc" }
-carbide-uuid = { path = "../uuid" }
-carbide-tls = { path = "../tls" }
+nico-rpc = { path = "../rpc" }
+nico-uuid = { path = "../uuid" }
+nico-tls = { path = "../tls" }
 bmc-vendor = { path = "../bmc-vendor" }
 
 ctor = { workspace = true }
@@ -75,11 +75,11 @@ size = { features = ["serde"], workspace = true }
 
 [dev-dependencies]
 bmc-mock = { path = "../bmc-mock" }
-carbide-machine-a-tron = { path = "../machine-a-tron" }
+nico-machine-a-tron = { path = "../machine-a-tron" }
 temp-dir = { workspace = true }
 futures = { workspace = true }
-carbide-api-test-helper = { path = "../api-test-helper" }
-carbide-ssh-console-mock-api-server = { path = "../ssh-console-mock-api-server" }
+nico-api-test-helper = { path = "../api-test-helper" }
+nico-ssh-console-mock-api-server = { path = "../ssh-console-mock-api-server" }
 eyre = { workspace = true }
 indoc = { workspace = true }
 prometheus-text-parser = { path = "../prometheus-text-parser" }

@@ -16,9 +16,10 @@
  */
 use common::api_fixtures::{create_managed_host, create_test_env};
 use config_version::ConfigVersion;
-use db::{self};
-use model::machine::{MachineStateHistory, ManagedHostState};
-use rpc::forge::forge_server::Forge;
+use nico_api_db::{self};
+use nico_api_model::machine::{MachineStateHistory, ManagedHostState};
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 
 use crate::tests::common;
 
@@ -64,10 +65,10 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     for machine_id in &[host_machine_id, dpu_machine_id] {
         let mut txn = env.pool.begin().await?;
 
-        let machine = db::machine::find_one(
+        let machine = nico_api_db::machine::find_one(
             txn.as_mut(),
             &dpu_machine_id,
-            model::machine::machine_search_config::MachineSearchConfig {
+            nico_api_model::machine::machine_search_config::MachineSearchConfig {
                 include_history: true,
                 ..Default::default()
             },
@@ -80,10 +81,10 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             expected_initial_states
         );
 
-        let machine = db::machine::find_one(
+        let machine = nico_api_db::machine::find_one(
             txn.as_mut(),
             &dpu_machine_id,
-            model::machine::machine_search_config::MachineSearchConfig::default(),
+            nico_api_model::machine::machine_search_config::MachineSearchConfig::default(),
         )
         .await?
         .unwrap();
@@ -95,7 +96,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         // - FindMachineStateHistories returns the expected history
         let rpc_machine = env
             .api
-            .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+            .find_machines_by_ids(tonic::Request::new(forge::MachinesByIdsRequest {
                 machine_ids: vec![*machine_id],
                 include_history: true,
             }))
@@ -116,7 +117,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let mut rpc_histories = env
             .api
             .find_machine_state_histories(tonic::Request::new(
-                rpc::forge::MachineStateHistoriesRequest {
+                forge::MachineStateHistoriesRequest {
                     machine_ids: vec![*machine_id],
                 },
             ))
@@ -142,10 +143,10 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = env.pool.begin().await?;
 
-    let machine = db::machine::find_one(
+    let machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &host_machine_id,
-        model::machine::machine_search_config::MachineSearchConfig {
+        nico_api_model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,
             ..Default::default()
         },
@@ -154,7 +155,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .unwrap();
 
     for _ in 1..300 {
-        db::machine::advance(&machine, &mut txn, &ManagedHostState::Ready, None)
+        nico_api_db::machine::advance(&machine, &mut txn, &ManagedHostState::Ready, None)
             .await
             .unwrap();
     }
@@ -162,17 +163,17 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     txn.commit().await?;
 
     let mut txn = env.pool.begin().await?;
-    let result = db::machine_state_history::for_machine(&mut txn, &host_machine_id)
+    let result = nico_api_db::machine_state_history::for_machine(&mut txn, &host_machine_id)
         .await
         .unwrap();
 
     // Count should not go beyond 250.
     assert_eq!(result.len(), 250);
 
-    let machine = db::machine::find_one(
+    let machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &host_machine_id,
-        model::machine::machine_search_config::MachineSearchConfig {
+        nico_api_model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,
             ..Default::default()
         },
@@ -181,19 +182,17 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     .unwrap();
 
     assert_eq!(machine.history.len(), 250);
-    let power_entry = db::power_options::get_all(&mut txn).await?;
+    let power_entry = nico_api_db::power_options::get_all(&mut txn).await?;
     assert!(!power_entry.is_empty());
 
     // Test whether history is retrievable for a forced deleted Machine
     env.api
-        .admin_force_delete_machine(tonic::Request::new(
-            ::rpc::forge::AdminForceDeleteMachineRequest {
-                host_query: host_machine_id.to_string(),
-                delete_interfaces: false,
-                delete_bmc_interfaces: false,
-                delete_bmc_credentials: false,
-            },
-        ))
+        .admin_force_delete_machine(tonic::Request::new(forge::AdminForceDeleteMachineRequest {
+            host_query: host_machine_id.to_string(),
+            delete_interfaces: false,
+            delete_bmc_interfaces: false,
+            delete_bmc_credentials: false,
+        }))
         .await
         .unwrap()
         .into_inner();
@@ -201,16 +200,14 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     assert!(env.find_machine(host_machine_id).await.is_empty());
 
     let mut txn = env.pool.begin().await?;
-    let power_entry = db::power_options::get_all(&mut txn).await?;
+    let power_entry = nico_api_db::power_options::get_all(&mut txn).await?;
     assert!(power_entry.is_empty());
 
     let mut rpc_histories = env
         .api
-        .find_machine_state_histories(tonic::Request::new(
-            rpc::forge::MachineStateHistoriesRequest {
-                machine_ids: vec![host_machine_id],
-            },
-        ))
+        .find_machine_state_histories(tonic::Request::new(forge::MachineStateHistoriesRequest {
+            machine_ids: vec![host_machine_id],
+        }))
         .await?
         .into_inner();
     assert_eq!(rpc_histories.histories.len(), 1);
@@ -243,10 +240,10 @@ async fn test_old_machine_state_history(
         .execute(&mut *txn)
         .await?;
 
-    let machine = db::machine::find_one(
+    let machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &host_machine_id,
-        model::machine::machine_search_config::MachineSearchConfig {
+        nico_api_model::machine::machine_search_config::MachineSearchConfig {
             include_history: true,
             ..Default::default()
         },

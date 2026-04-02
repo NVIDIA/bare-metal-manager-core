@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use forge_ssh::ssh::is_rshim_enabled;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_ssh::ssh::is_rshim_enabled;
 
 use super::super::common::SshArgs;
 

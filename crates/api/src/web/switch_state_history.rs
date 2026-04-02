@@ -22,9 +22,10 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use carbide_uuid::switch::SwitchId;
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::switch::SwitchId;
 
 use crate::api::Api;
 
@@ -101,8 +102,8 @@ pub async fn fetch_state_history_records(
     switch_id: &str,
 ) -> Result<
     (
-        carbide_uuid::switch::SwitchId,
-        Vec<::rpc::forge::SwitchStateHistoryRecord>,
+        nico_uuid::switch::SwitchId,
+        Vec<forge::SwitchStateHistoryRecord>,
     ),
     (http::StatusCode, String),
 > {
@@ -111,11 +112,9 @@ pub async fn fetch_state_history_records(
     };
 
     let mut histories = match api
-        .find_switch_state_histories(tonic::Request::new(
-            ::rpc::forge::SwitchStateHistoriesRequest {
-                switch_ids: vec![switch_id],
-            },
-        ))
+        .find_switch_state_histories(tonic::Request::new(forge::SwitchStateHistoriesRequest {
+            switch_ids: vec![switch_id],
+        }))
         .await
     {
         Ok(response) => response.into_inner().histories,

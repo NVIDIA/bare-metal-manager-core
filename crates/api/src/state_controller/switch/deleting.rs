@@ -17,9 +17,9 @@
 
 //! Handler for SwitchControllerState::Deleting.
 
-use carbide_uuid::switch::SwitchId;
-use db::switch as db_switch;
-use model::switch::{Switch, SwitchControllerState};
+use nico_api_db::switch as db_switch;
+use nico_api_model::switch::{Switch, SwitchControllerState};
+use nico_uuid::switch::SwitchId;
 
 use crate::state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,

@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::protos::measured_boot as pb;
-pub use ::rpc::{forge as rpc_forge, machine_discovery as rpc_md};
-use carbide_uuid::machine::MachineId;
-use db::attestation::secret_ak_pub;
+use nico_api_db::attestation::secret_ak_pub;
+use nico_rpc::protos::measured_boot as pb;
+pub use nico_rpc::{forge as rpc_forge, machine_discovery as rpc_md};
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 

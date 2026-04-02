@@ -20,16 +20,19 @@ use std::collections::HashSet;
 use std::str::FromStr;
 
 use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_test_env};
-use db::dhcp_entry::DhcpEntry;
-use db::{self, ObjectColumnFilter};
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::address_selection_strategy::AddressSelectionStrategy;
-use model::machine::MachineInterfaceSnapshot;
-use model::machine::machine_id::from_hardware_info;
-use model::machine_interface_address::MachineInterfaceAssociation;
-use rpc::forge::InterfaceSearchQuery;
-use rpc::forge::forge_server::Forge;
+use nico_api_db::dhcp_entry::DhcpEntry;
+use nico_api_db::{
+    ObjectColumnFilter, {self},
+};
+use nico_api_model::address_selection_strategy::AddressSelectionStrategy;
+use nico_api_model::machine::MachineInterfaceSnapshot;
+use nico_api_model::machine::machine_id::from_hardware_info;
+use nico_api_model::machine_interface_address::MachineInterfaceAssociation;
+use nico_rpc::forge;
+use nico_rpc::forge::InterfaceSearchQuery;
+use nico_rpc::forge::forge_server::Forge;
 use tokio::sync::broadcast;
 use tonic::Code;
 
@@ -49,9 +52,9 @@ async fn only_one_primary_interface_per_machine(
 
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
+    let network_segment = nico_api_db::network_segment::admin(&mut txn).await?;
 
-    let new_interface = db::machine_interface::create(
+    let new_interface = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         &dpu.oob_mac_address,
@@ -62,15 +65,16 @@ async fn only_one_primary_interface_per_machine(
     .await?;
 
     let machine_id = from_hardware_info(&host_config.borrow().into()).unwrap();
-    let new_machine = db::machine::get_or_create(&mut txn, None, &machine_id, &new_interface)
-        .await
-        .expect("Unable to create machine");
+    let new_machine =
+        nico_api_db::machine::get_or_create(&mut txn, None, &machine_id, &new_interface)
+            .await
+            .expect("Unable to create machine");
 
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
 
-    let should_failed_machine_interface = db::machine_interface::create(
+    let should_failed_machine_interface = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         &other_dpu.oob_mac_address,
@@ -80,7 +84,7 @@ async fn only_one_primary_interface_per_machine(
     )
     .await?;
 
-    let output = db::machine_interface::associate_interface_with_machine(
+    let output = nico_api_db::machine_interface::associate_interface_with_machine(
         &should_failed_machine_interface.id,
         MachineInterfaceAssociation::Machine(new_machine.id),
         &mut txn,
@@ -100,9 +104,9 @@ async fn many_non_primary_interfaces_per_machine(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
-    let network_segment = db::network_segment::admin(&mut txn).await?;
+    let network_segment = nico_api_db::network_segment::admin(&mut txn).await?;
 
-    db::machine_interface::create(
+    nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
@@ -116,7 +120,7 @@ async fn many_non_primary_interfaces_per_machine(
     txn.commit().await.unwrap();
     let mut txn = env.pool.begin().await?;
 
-    let should_be_ok_interface = db::machine_interface::create(
+    let should_be_ok_interface = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ef").as_ref().unwrap(),
@@ -145,7 +149,7 @@ async fn return_existing_machine_interface_on_rediscover(
 
     let test_mac = "ff:ff:ff:ff:ff:ff".parse().unwrap();
 
-    let new_machine = db::machine_interface::validate_existing_mac_and_create(
+    let new_machine = nico_api_db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac,
         FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
@@ -153,7 +157,7 @@ async fn return_existing_machine_interface_on_rediscover(
     )
     .await?;
 
-    let existing_machine = db::machine_interface::validate_existing_mac_and_create(
+    let existing_machine = nico_api_db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac,
         FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap(),
@@ -174,17 +178,17 @@ async fn find_all_interfaces_test_cases(
 
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
-    let domain_ids = db::dns::domain::find_by(
+    let network_segment = nico_api_db::network_segment::admin(&mut txn).await?;
+    let domain_ids = nico_api_db::dns::domain::find_by(
         txn.as_mut(),
-        ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
+        ObjectColumnFilter::<nico_api_db::dns::domain::IdColumn>::All,
     )
     .await?;
     let domain_id = domain_ids[0].id;
     let mut interfaces: Vec<MachineInterfaceSnapshot> = Vec::new();
     for i in 0..2 {
         let mut txn = env.pool.begin().await?;
-        let interface = db::machine_interface::create(
+        let interface = nico_api_db::machine_interface::create(
             &mut txn,
             &network_segment,
             MacAddress::from_str(format!("ff:ff:ff:ff:ff:0{i}").as_str())
@@ -195,7 +199,7 @@ async fn find_all_interfaces_test_cases(
             AddressSelectionStrategy::NextAvailableIp,
         )
         .await?;
-        db::dhcp_entry::persist(
+        nico_api_db::dhcp_entry::persist(
             DhcpEntry {
                 machine_interface_id: interface.id,
                 vendor_string: format!("NVIDIA {i} 1"),
@@ -203,7 +207,7 @@ async fn find_all_interfaces_test_cases(
             &mut txn,
         )
         .await?;
-        db::dhcp_entry::persist(
+        nico_api_db::dhcp_entry::persist(
             DhcpEntry {
                 machine_interface_id: interface.id,
                 vendor_string: format!("NVIDIA {i} 2"),
@@ -256,14 +260,14 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
-    let domain_ids = db::dns::domain::find_by(
+    let network_segment = nico_api_db::network_segment::admin(&mut txn).await?;
+    let domain_ids = nico_api_db::dns::domain::find_by(
         txn.as_mut(),
-        ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
+        ObjectColumnFilter::<nico_api_db::dns::domain::IdColumn>::All,
     )
     .await?;
     let domain_id = domain_ids[0].id;
-    let new_interface = db::machine_interface::create(
+    let new_interface = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         &dpu.oob_mac_address,
@@ -273,7 +277,7 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     )
     .await?;
 
-    db::dhcp_entry::persist(
+    nico_api_db::dhcp_entry::persist(
         DhcpEntry {
             machine_interface_id: new_interface.id,
             vendor_string: "NVIDIA".to_string(),
@@ -281,7 +285,7 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         &mut txn,
     )
     .await?;
-    db::dhcp_entry::persist(
+    nico_api_db::dhcp_entry::persist(
         DhcpEntry {
             machine_interface_id: new_interface.id,
             vendor_string: "NVIDIA New".to_string(),
@@ -327,7 +331,7 @@ async fn find_interfaces_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn st
 async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
-    let network = db::network_segment::admin(&mut txn).await?;
+    let network = nico_api_db::network_segment::admin(&mut txn).await?;
     txn.commit().await.unwrap();
 
     let (tx, _rx1) = broadcast::channel(10);
@@ -342,7 +346,7 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             // Let's start all threads together.
             _ = rx.recv().await.unwrap();
             let mut txn = db_pool.begin().await.unwrap();
-            db::machine_interface::create(
+            nico_api_db::machine_interface::create(
                 &mut txn,
                 &n,
                 &MacAddress::from_str(&mac).unwrap(),
@@ -354,7 +358,9 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
             .unwrap();
 
             // This call must pass. inner_txn is an illusion. Lock is still alive.
-            _ = db::machine_interface::find_all(&mut txn).await.unwrap();
+            _ = nico_api_db::machine_interface::find_all(&mut txn)
+                .await
+                .unwrap();
             txn.commit().await.unwrap();
         });
         handles.push(h);
@@ -366,7 +372,9 @@ async fn create_parallel_mi(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         _ = h.await;
     }
     let mut txn = env.pool.begin().await?;
-    let interfaces = db::machine_interface::find_all(&mut txn).await.unwrap();
+    let interfaces = nico_api_db::machine_interface::find_all(&mut txn)
+        .await
+        .unwrap();
 
     assert_eq!(interfaces.len(), max_interfaces);
     let ips = interfaces
@@ -385,8 +393,8 @@ async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
-    let interface = db::machine_interface::create(
+    let network_segment = nico_api_db::network_segment::admin(&mut txn).await?;
+    let interface = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
@@ -400,13 +408,15 @@ async fn test_find_by_ip_or_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     // By remote IP
     let remote_ip = Some(interface.addresses[0]);
     let interface_id = None;
-    let iface = db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
+    let iface =
+        nico_api_db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
     assert_eq!(iface.id, interface.id);
 
     // By interface ID
     let remote_ip = None;
     let interface_id = Some(iface.id);
-    let iface = db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
+    let iface =
+        nico_api_db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
     assert_eq!(iface.id, interface.id);
 
     Ok(())
@@ -418,7 +428,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
     let dhcp_response = env
         .api
-        .discover_dhcp(tonic::Request::new(rpc::forge::DhcpDiscovery {
+        .discover_dhcp(tonic::Request::new(forge::DhcpDiscovery {
             mac_address: "FF:FF:FF:FF:FF:AA".to_string(),
             relay_address: "192.0.2.1".to_string(),
             link_address: None,
@@ -438,7 +448,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     // Find the Machine Interface ID for our new record
     let interface = env
         .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+        .find_interfaces(tonic::Request::new(forge::InterfaceSearchQuery {
             id: None,
             ip: Some(dhcp_response.address.clone()),
         }))
@@ -450,14 +460,14 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     let interface_id = interface.id.unwrap();
 
     env.api
-        .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
+        .delete_interface(tonic::Request::new(forge::InterfaceDeleteQuery {
             id: Some(interface_id),
         }))
         .await
         .unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let _interface = db::machine_interface::find_one(txn.as_mut(), interface_id).await;
+    let _interface = nico_api_db::machine_interface::find_one(txn.as_mut(), interface_id).await;
     assert!(matches!(
         DatabaseError::FindOneReturnedNoResultsError(interface_id.into()),
         _interface
@@ -468,7 +478,7 @@ async fn test_delete_interface(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     // The next discover_dhcp should return an updated timestamp
     let dhcp_response = env
         .api
-        .discover_dhcp(tonic::Request::new(rpc::forge::DhcpDiscovery {
+        .discover_dhcp(tonic::Request::new(forge::DhcpDiscovery {
             mac_address: "FF:FF:FF:FF:FF:AA".to_string(),
             relay_address: "192.0.2.1".to_string(),
             link_address: None,
@@ -497,16 +507,17 @@ async fn test_delete_interface_with_machine(
     let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let mut txn = pool.begin().await?;
-    let interface = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
-        .await
-        .unwrap();
+    let interface =
+        nico_api_db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_machine_id])
+            .await
+            .unwrap();
 
     let interface = &interface.get(&dpu_machine_id).unwrap()[0];
     txn.commit().await.unwrap();
 
     let response = env
         .api
-        .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
+        .delete_interface(tonic::Request::new(forge::InterfaceDeleteQuery {
             id: Some(interface.id),
         }))
         .await;
@@ -540,7 +551,9 @@ async fn test_delete_bmc_interface_with_machine(
     let _rpc_machine_id = create_dpu_machine(&env, &host_config).await;
 
     let mut txn = pool.begin().await?;
-    let interfaces = db::machine_interface::find_all(&mut txn).await.unwrap();
+    let interfaces = nico_api_db::machine_interface::find_all(&mut txn)
+        .await
+        .unwrap();
     txn.commit().await.unwrap();
 
     let interfaces = interfaces
@@ -556,7 +569,7 @@ async fn test_delete_bmc_interface_with_machine(
 
     let response = env
         .api
-        .delete_interface(tonic::Request::new(rpc::forge::InterfaceDeleteQuery {
+        .delete_interface(tonic::Request::new(forge::InterfaceDeleteQuery {
             id: Some(bmc_interface.id),
         }))
         .await;
@@ -586,8 +599,8 @@ async fn test_hostname_equals_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
-    let interface = db::machine_interface::create(
+    let network_segment = nico_api_db::network_segment::admin(&mut txn).await?;
+    let interface = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
@@ -615,16 +628,16 @@ async fn test_hostname_equals_ip(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
 async fn test_max_one_interface_association(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use carbide_uuid::power_shelf::PowerShelfId;
-    use carbide_uuid::switch::SwitchId;
-    use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
-    use model::switch::{NewSwitch, SwitchConfig};
+    use nico_api_model::power_shelf::{NewPowerShelf, PowerShelfConfig};
+    use nico_api_model::switch::{NewSwitch, SwitchConfig};
+    use nico_uuid::power_shelf::PowerShelfId;
+    use nico_uuid::switch::SwitchId;
 
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
-    let interface = db::machine_interface::create(
+    let network_segment = nico_api_db::network_segment::admin(&mut txn).await?;
+    let interface = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
@@ -647,9 +660,9 @@ async fn test_max_one_interface_association(
         bmc_mac_address: None,
         metadata: None,
     };
-    db::switch::create(&mut txn, &new_switch).await?;
+    nico_api_db::switch::create(&mut txn, &new_switch).await?;
 
-    db::machine_interface::associate_interface_with_machine(
+    nico_api_db::machine_interface::associate_interface_with_machine(
         &interface.id,
         MachineInterfaceAssociation::Switch(switch_id),
         &mut txn,
@@ -668,9 +681,9 @@ async fn test_max_one_interface_association(
         },
         metadata: None,
     };
-    db::power_shelf::create(&mut txn, &new_power_shelf).await?;
+    nico_api_db::power_shelf::create(&mut txn, &new_power_shelf).await?;
 
-    let output = db::machine_interface::associate_interface_with_machine(
+    let output = nico_api_db::machine_interface::associate_interface_with_machine(
         &interface.id,
         MachineInterfaceAssociation::PowerShelf(power_shelf_id),
         &mut txn,
@@ -691,14 +704,14 @@ async fn test_max_one_interface_association(
 async fn test_power_shelf_association(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use carbide_uuid::power_shelf::PowerShelfId;
-    use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
+    use nico_api_model::power_shelf::{NewPowerShelf, PowerShelfConfig};
+    use nico_uuid::power_shelf::PowerShelfId;
 
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
-    let interface = db::machine_interface::create(
+    let network_segment = nico_api_db::network_segment::admin(&mut txn).await?;
+    let interface = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
@@ -720,10 +733,10 @@ async fn test_power_shelf_association(
         },
         metadata: None,
     };
-    db::power_shelf::create(&mut txn, &new_power_shelf).await?;
+    nico_api_db::power_shelf::create(&mut txn, &new_power_shelf).await?;
 
     // Associate the interface with the power shelf
-    let result = db::machine_interface::associate_interface_with_machine(
+    let result = nico_api_db::machine_interface::associate_interface_with_machine(
         &interface.id,
         MachineInterfaceAssociation::PowerShelf(power_shelf_id),
         &mut txn,
@@ -740,14 +753,14 @@ async fn test_power_shelf_association(
 
 #[crate::sqlx_test]
 async fn test_switch_association(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    use carbide_uuid::switch::SwitchId;
-    use model::switch::{NewSwitch, SwitchConfig};
+    use nico_api_model::switch::{NewSwitch, SwitchConfig};
+    use nico_uuid::switch::SwitchId;
 
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
 
-    let network_segment = db::network_segment::admin(&mut txn).await?;
-    let interface = db::machine_interface::create(
+    let network_segment = nico_api_db::network_segment::admin(&mut txn).await?;
+    let interface = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         MacAddress::from_str("ff:ff:ff:ff:ff:ff").as_ref().unwrap(),
@@ -770,10 +783,10 @@ async fn test_switch_association(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         bmc_mac_address: None,
         metadata: None,
     };
-    db::switch::create(&mut txn, &new_switch).await?;
+    nico_api_db::switch::create(&mut txn, &new_switch).await?;
 
     // Associate the interface with the switch
-    let result = db::machine_interface::associate_interface_with_machine(
+    let result = nico_api_db::machine_interface::associate_interface_with_machine(
         &interface.id,
         MachineInterfaceAssociation::Switch(switch_id),
         &mut txn,

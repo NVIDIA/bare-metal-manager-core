@@ -20,14 +20,15 @@ use std::collections::HashMap;
 use chrono::Utc;
 use common::api_fixtures::{create_managed_host_multi_dpu, create_test_env, reboot_completed};
 use libredfish::SystemPowerControl;
-use model::instance::status::tenant::TenantState;
-use model::machine::{
+use nico_api_model::instance::status::tenant::TenantState;
+use nico_api_model::machine::{
     DpuInitState, FailureDetails, InstallDpuOsState, InstanceState, MachineLastRebootRequestedMode,
     MachineState, ManagedHostState, ReprovisionState,
 };
-use rpc::forge::MachineArchitecture;
-use rpc::forge::dpu_reprovisioning_request::Mode;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::MachineArchitecture;
+use nico_rpc::forge::dpu_reprovisioning_request::Mode;
+use nico_rpc::forge::forge_server::Forge;
 
 use crate::redfish::test_support::RedfishSimAction;
 use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
@@ -57,7 +58,7 @@ async fn test_dpu_for_set_clear_reprovisioning(pool: sqlx::PgPool) {
     let res = env
         .api
         .list_dpu_waiting_for_reprovisioning(tonic::Request::new(
-            ::rpc::forge::DpuReprovisioningListRequest {},
+            forge::DpuReprovisioningListRequest {},
         ))
         .await
         .unwrap()
@@ -82,7 +83,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     assert!(dpu.reprovision_requested.is_none(),);
 
     let dpu_interface = mh.dpu().first_interface(&mut txn).await;
-    let dpu_arch = rpc::forge::MachineArchitecture::Arm;
+    let dpu_arch = forge::MachineArchitecture::Arm;
 
     mh.mark_machine_for_updates().await;
 
@@ -197,7 +198,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade(pool: sqlx::PgPool) {
     let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
-        rpc::forge::forge_agent_control_response::Action::Noop as i32
+        forge::forge_agent_control_response::Action::Noop as i32
     );
 
     mh.network_configured(&env).await;
@@ -241,15 +242,13 @@ async fn test_dpu_for_reprovisioning_fail_if_maintenance_not_set(pool: sqlx::PgP
 
     assert!(
         env.api
-            .trigger_dpu_reprovisioning(tonic::Request::new(
-                ::rpc::forge::DpuReprovisioningRequest {
-                    dpu_id: None,
-                    machine_id: mh.dpu().id.into(),
-                    mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
-                    initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                    update_firmware: true
-                },
-            ))
+            .trigger_dpu_reprovisioning(tonic::Request::new(forge::DpuReprovisioningRequest {
+                dpu_id: None,
+                machine_id: mh.dpu().id.into(),
+                mode: forge::dpu_reprovisioning_request::Mode::Set as i32,
+                initiator: forge::UpdateInitiator::AdminCli as i32,
+                update_firmware: true
+            },))
             .await
             .is_err()
     );
@@ -262,15 +261,13 @@ async fn test_dpu_for_reprovisioning_fail_if_state_is_not_ready(pool: sqlx::PgPo
 
     assert!(
         env.api
-            .trigger_dpu_reprovisioning(tonic::Request::new(
-                ::rpc::forge::DpuReprovisioningRequest {
-                    dpu_id: None,
-                    machine_id: dpu_machine_id.into(),
-                    mode: rpc::forge::dpu_reprovisioning_request::Mode::Set as i32,
-                    initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                    update_firmware: true
-                },
-            ))
+            .trigger_dpu_reprovisioning(tonic::Request::new(forge::DpuReprovisioningRequest {
+                dpu_id: None,
+                machine_id: dpu_machine_id.into(),
+                mode: forge::dpu_reprovisioning_request::Mode::Set as i32,
+                initiator: forge::UpdateInitiator::AdminCli as i32,
+                update_firmware: true
+            },))
             .await
             .is_err()
     );
@@ -286,7 +283,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
     assert!(dpu.reprovision_requested.is_none(),);
 
     let dpu_interface = mh.dpu().first_interface(&mut txn).await;
-    let dpu_arch = rpc::forge::MachineArchitecture::Arm;
+    let dpu_arch = forge::MachineArchitecture::Arm;
 
     mh.mark_machine_for_updates().await;
 
@@ -319,7 +316,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
     let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
-        rpc::forge::forge_agent_control_response::Action::Discovery as i32
+        forge::forge_agent_control_response::Action::Discovery as i32
     );
     mh.dpu().discovery_completed().await;
 
@@ -332,7 +329,7 @@ async fn test_dpu_for_reprovisioning_with_no_firmware_upgrade(pool: sqlx::PgPool
     let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
-        rpc::forge::forge_agent_control_response::Action::Noop as i32
+        forge::forge_agent_control_response::Action::Noop as i32
     );
 
     for state in [
@@ -381,12 +378,12 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu_interface = mh.dpu().first_interface(&mut txn).await;
-    let dpu_arch = rpc::forge::MachineArchitecture::Arm;
+    let dpu_arch = forge::MachineArchitecture::Arm;
 
     mh.mark_machine_for_updates().await;
     mh.dpu().trigger_dpu_reprovisioning(Mode::Set, true).await;
     env.api
-        .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
+        .invoke_instance_power(tonic::Request::new(forge::InstancePowerRequest {
             instance_id: tinstance.id.into(),
             machine_id: None,
             apply_updates_on_reboot: true,
@@ -480,7 +477,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
-        rpc::forge::forge_agent_control_response::Action::Discovery as i32
+        forge::forge_agent_control_response::Action::Discovery as i32
     );
     mh.dpu().discovery_completed().await;
 
@@ -592,7 +589,7 @@ async fn test_instance_reprov_with_firmware_upgrade(pool: sqlx::PgPool) {
     let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
-        rpc::forge::forge_agent_control_response::Action::Noop as i32
+        forge::forge_agent_control_response::Action::Noop as i32
     );
     mh.network_configured(&env).await;
 
@@ -687,7 +684,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
 
     mh.dpu().trigger_dpu_reprovisioning(Mode::Set, false).await;
     env.api
-        .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
+        .invoke_instance_power(tonic::Request::new(forge::InstancePowerRequest {
             instance_id: tinstance.id.into(),
             machine_id: None,
             apply_updates_on_reboot: true,
@@ -734,7 +731,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     // should be prevented from cloud itself.
     assert!(
         env.api
-            .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
+            .invoke_instance_power(tonic::Request::new(forge::InstancePowerRequest {
                 instance_id: tinstance.id.into(),
                 machine_id: None,
                 apply_updates_on_reboot: true,
@@ -766,7 +763,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
-        rpc::forge::forge_agent_control_response::Action::Discovery as i32
+        forge::forge_agent_control_response::Action::Discovery as i32
     );
     mh.dpu().discovery_completed().await;
 
@@ -810,7 +807,7 @@ async fn test_instance_reprov_without_firmware_upgrade(pool: sqlx::PgPool) {
     let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
-        rpc::forge::forge_agent_control_response::Action::Noop as i32
+        forge::forge_agent_control_response::Action::Noop as i32
     );
     mh.network_configured(&env).await;
 
@@ -853,7 +850,7 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
     let res = env
         .api
         .list_dpu_waiting_for_reprovisioning(tonic::Request::new(
-            ::rpc::forge::DpuReprovisioningListRequest {},
+            forge::DpuReprovisioningListRequest {},
         ))
         .await
         .unwrap()
@@ -862,21 +859,19 @@ async fn test_dpu_for_set_but_clear_failed(pool: sqlx::PgPool) {
     assert_eq!(res.dpus.len(), 1);
     assert_eq!(res.dpus[0].id, mh.dpu().id.into());
 
-    db::machine::update_dpu_reprovision_start_time(&mh.dpu().id, &mut txn)
+    nico_api_db::machine::update_dpu_reprovision_start_time(&mh.dpu().id, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
     assert!(
         env.api
-            .trigger_dpu_reprovisioning(tonic::Request::new(
-                ::rpc::forge::DpuReprovisioningRequest {
-                    dpu_id: None,
-                    machine_id: mh.dpu().id.into(),
-                    mode: rpc::forge::dpu_reprovisioning_request::Mode::Clear as i32,
-                    initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                    update_firmware: true
-                },
-            ))
+            .trigger_dpu_reprovisioning(tonic::Request::new(forge::DpuReprovisioningRequest {
+                dpu_id: None,
+                machine_id: mh.dpu().id.into(),
+                mode: forge::dpu_reprovisioning_request::Mode::Clear as i32,
+                initiator: forge::UpdateInitiator::AdminCli as i32,
+                update_firmware: true
+            },))
             .await
             .is_err()
     );
@@ -1109,20 +1104,20 @@ async fn test_clear_with_function_call(pool: sqlx::PgPool) {
 
     let mut txn = env.pool.begin().await.unwrap();
     assert!(
-        db::machine::clear_dpu_reprovisioning_request(&mut txn, &dpu.id, true)
+        nico_api_db::machine::clear_dpu_reprovisioning_request(&mut txn, &dpu.id, true)
             .await
             .is_ok()
     );
     txn.rollback().await.unwrap();
     let mut txn = env.pool.begin().await.unwrap();
-    db::machine::update_dpu_reprovision_start_time(&dpu.id, &mut txn)
+    nico_api_db::machine::update_dpu_reprovision_start_time(&dpu.id, &mut txn)
         .await
         .unwrap();
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await.unwrap();
     assert!(
-        db::machine::clear_dpu_reprovisioning_request(&mut txn, &dpu.id, true)
+        nico_api_db::machine::clear_dpu_reprovisioning_request(&mut txn, &dpu.id, true)
             .await
             .is_err()
     );
@@ -1145,7 +1140,7 @@ async fn test_clear_maintenance_when_reprov_is_set(pool: sqlx::PgPool) {
 
     assert!(
         env.api
-            .set_maintenance(tonic::Request::new(::rpc::forge::MaintenanceRequest {
+            .set_maintenance(tonic::Request::new(forge::MaintenanceRequest {
                 host_id: mh.id.into(),
                 operation: 1,
                 reference: Some("no reference".to_string()),
@@ -1165,14 +1160,14 @@ async fn test_dpu_reset(pool: sqlx::PgPool) {
     let agent_control_response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         agent_control_response.action,
-        rpc::forge_agent_control_response::Action::Noop as i32
+        nico_rpc::forge_agent_control_response::Action::Noop as i32
     );
 
     env.run_machine_state_controller_iteration_until_state_matches(
         &mh.host().id,
         4,
         ManagedHostState::DPUInit {
-            dpu_states: model::machine::DpuInitStates {
+            dpu_states: nico_api_model::machine::DpuInitStates {
                 states: HashMap::from([(mh.dpu().id, DpuInitState::WaitingForNetworkConfig)]),
             },
         },
@@ -1194,15 +1189,13 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
 
     assert!(
         env.api
-            .trigger_dpu_reprovisioning(tonic::Request::new(
-                ::rpc::forge::DpuReprovisioningRequest {
-                    dpu_id: None,
-                    machine_id: mh.id.into(),
-                    mode: Mode::Restart as i32,
-                    initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                    update_firmware: false,
-                },
-            ))
+            .trigger_dpu_reprovisioning(tonic::Request::new(forge::DpuReprovisioningRequest {
+                dpu_id: None,
+                machine_id: mh.id.into(),
+                mode: Mode::Restart as i32,
+                initiator: forge::UpdateInitiator::AdminCli as i32,
+                update_firmware: false,
+            },))
             .await
             .is_err()
     );
@@ -1242,7 +1235,7 @@ async fn test_restart_dpu_reprov(pool: sqlx::PgPool) {
     );
 
     let _expected_state = ManagedHostState::DPUReprovision {
-        dpu_states: model::machine::DpuReprovisionStates {
+        dpu_states: nico_api_model::machine::DpuReprovisionStates {
             states: HashMap::from([(mh.dpu().id, ReprovisionState::WaitingForNetworkInstall)]),
         },
     };
@@ -1281,7 +1274,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
     assert!(dpus[0].reprovision_requested.is_none(),);
 
     let dpu0_interface = mh.dpu_n(0).first_interface(&mut txn).await;
-    let dpu_arch = rpc::forge::MachineArchitecture::Arm;
+    let dpu_arch = forge::MachineArchitecture::Arm;
 
     mh.mark_machine_for_updates().await;
 
@@ -1380,7 +1373,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_onedpu_repro
     let response = mh.dpu_n(0).forge_agent_control().await;
     assert_eq!(
         response.action,
-        rpc::forge::forge_agent_control_response::Action::Noop as i32
+        forge::forge_agent_control_response::Action::Noop as i32
     );
     mh.network_configured(&env).await;
 
@@ -1418,7 +1411,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
     assert!(dpus[0].reprovision_requested.is_none());
 
     let dpu0_interface = mh.dpu_n(0).first_interface(&mut txn).await;
-    let dpu_arch = rpc::forge::MachineArchitecture::Arm;
+    let dpu_arch = forge::MachineArchitecture::Arm;
 
     mh.mark_machine_for_updates().await;
 
@@ -1534,7 +1527,7 @@ async fn test_dpu_for_reprovisioning_with_firmware_upgrade_multidpu_bothdpu(pool
     let response = mh.dpu_n(0).forge_agent_control().await;
     assert_eq!(
         response.action,
-        rpc::forge::forge_agent_control_response::Action::Noop as i32
+        forge::forge_agent_control_response::Action::Noop as i32
     );
     mh.network_configured(&env).await;
 
@@ -1583,7 +1576,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
 
     mh.dpu().trigger_dpu_reprovisioning(Mode::Set, false).await;
     env.api
-        .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
+        .invoke_instance_power(tonic::Request::new(forge::InstancePowerRequest {
             instance_id: tinstance.id.into(),
             machine_id: None,
             apply_updates_on_reboot: true,
@@ -1634,7 +1627,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     // should be prevented from cloud itself.
     assert!(
         env.api
-            .invoke_instance_power(tonic::Request::new(::rpc::forge::InstancePowerRequest {
+            .invoke_instance_power(tonic::Request::new(forge::InstancePowerRequest {
                 instance_id: tinstance.id.into(),
                 machine_id: None,
                 apply_updates_on_reboot: true,
@@ -1666,7 +1659,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
-        rpc::forge::forge_agent_control_response::Action::Discovery as i32
+        forge::forge_agent_control_response::Action::Discovery as i32
     );
     mh.dpu().discovery_completed().await;
 
@@ -1711,20 +1704,20 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
-        rpc::forge::forge_agent_control_response::Action::Noop as i32
+        forge::forge_agent_control_response::Action::Noop as i32
     );
 
     let mut txn = env.pool.begin().await.unwrap();
     let dpu = mh.dpu().db_machine(&mut txn).await;
     let failed_at = Utc::now();
     let deserialized = FailureDetails {
-        cause: model::machine::FailureCause::NVMECleanFailed {
+        cause: nico_api_model::machine::FailureCause::NVMECleanFailed {
             err: "error1".to_string(),
         },
-        source: model::machine::FailureSource::Scout,
+        source: nico_api_model::machine::FailureSource::Scout,
         failed_at,
     };
-    db::machine::update_failure_details(&dpu, &mut txn, deserialized)
+    nico_api_db::machine::update_failure_details(&dpu, &mut txn, deserialized)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -1735,10 +1728,10 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
         &ManagedHostState::Assigned {
             instance_state: InstanceState::Failed {
                 details: FailureDetails {
-                    cause: model::machine::FailureCause::NVMECleanFailed {
+                    cause: nico_api_model::machine::FailureCause::NVMECleanFailed {
                         err: "error1".to_string()
                     },
-                    source: model::machine::FailureSource::Scout,
+                    source: nico_api_model::machine::FailureSource::Scout,
                     failed_at
                 },
                 machine_id: dpu.id
@@ -1748,15 +1741,13 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
 
     assert!(
         env.api
-            .trigger_dpu_reprovisioning(tonic::Request::new(
-                ::rpc::forge::DpuReprovisioningRequest {
-                    dpu_id: None,
-                    machine_id: mh.id.into(),
-                    mode: Mode::Restart as i32,
-                    initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                    update_firmware: false,
-                },
-            ))
+            .trigger_dpu_reprovisioning(tonic::Request::new(forge::DpuReprovisioningRequest {
+                dpu_id: None,
+                machine_id: mh.id.into(),
+                mode: Mode::Restart as i32,
+                initiator: forge::UpdateInitiator::AdminCli as i32,
+                update_firmware: false,
+            },))
             .await
             .is_ok()
     );
@@ -1783,7 +1774,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
-        rpc::forge::forge_agent_control_response::Action::Discovery as i32
+        forge::forge_agent_control_response::Action::Discovery as i32
     );
     mh.dpu().discovery_completed().await;
 
@@ -1826,7 +1817,7 @@ async fn test_instance_reprov_restart_failed(pool: sqlx::PgPool) {
     let response = mh.dpu().forge_agent_control().await;
     assert_eq!(
         response.action,
-        rpc::forge::forge_agent_control_response::Action::Noop as i32
+        forge::forge_agent_control_response::Action::Noop as i32
     );
     mh.network_configured(&env).await;
 
@@ -1866,15 +1857,13 @@ async fn test_dpu_for_reprovisioning_cannot_restart_if_not_started(pool: sqlx::P
 
     match env
         .api
-        .trigger_dpu_reprovisioning(tonic::Request::new(
-            ::rpc::forge::DpuReprovisioningRequest {
-                dpu_id: None,
-                machine_id: mh.id.into(),
-                mode: rpc::forge::dpu_reprovisioning_request::Mode::Restart as i32,
-                initiator: ::rpc::forge::UpdateInitiator::AdminCli as i32,
-                update_firmware: true,
-            },
-        ))
+        .trigger_dpu_reprovisioning(tonic::Request::new(forge::DpuReprovisioningRequest {
+            dpu_id: None,
+            machine_id: mh.id.into(),
+            mode: forge::dpu_reprovisioning_request::Mode::Restart as i32,
+            initiator: forge::UpdateInitiator::AdminCli as i32,
+            update_firmware: true,
+        }))
         .await
     {
         Ok(_) => panic!("Request to restart provisioning should have failed"),
@@ -1888,29 +1877,29 @@ impl TestManagedHost {
     pub async fn mark_machine_for_updates(&self) {
         self.api
             .insert_health_report_override(tonic::Request::new(
-                rpc::forge::InsertHealthReportOverrideRequest {
+                forge::InsertHealthReportOverrideRequest {
                     machine_id: self.id.into(),
-                    r#override: Some(rpc::forge::HealthReportOverride {
+                    r#override: Some(forge::HealthReportOverride {
                         report: Some(
-                            health_report::HealthReport {
+                            nico_health_report::HealthReport {
                                 source: "host-update".to_string(),
                                 triggered_by: None,
                                 observed_at: None,
                                 successes: Vec::new(),
-                                alerts: vec![health_report::HealthProbeAlert {
+                                alerts: vec![nico_health_report::HealthProbeAlert {
                                     id: "HostUpdateInProgress".parse().unwrap(),
                                     target: None,
                                     in_alert_since: None,
                                     message: "Update".to_string(),
                                     tenant_message: None,
                                     classifications: vec![
-                                        health_report::HealthAlertClassification::prevent_allocations(),
+                                        nico_health_report::HealthAlertClassification::prevent_allocations(),
                                     ],
                                 }],
                             }
                             .into(),
                         ),
-                        mode: rpc::forge::OverrideMode::Merge.into(),
+                        mode: forge::OverrideMode::Merge.into(),
                     }),
                 },
             ))

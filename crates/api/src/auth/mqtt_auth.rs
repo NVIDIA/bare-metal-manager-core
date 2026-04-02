@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
+use nico_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 
 use crate::cfg::file::{MqttAuthConfig, MqttAuthMode};
 

@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::dpa_interface::DpaInterfaceId;
 use clap::Parser;
+use nico_uuid::dpa_interface::DpaInterfaceId;
 
 #[derive(Parser, Debug)]
 pub struct Args {

@@ -17,10 +17,10 @@
 
 use std::str::FromStr;
 
-use carbide_uuid::domain::DomainId;
 use chrono::{DateTime, Utc};
 use hickory_proto::rr::Name;
-use model::dns::{Domain, NewDomain, SoaSnapshot};
+use nico_api_model::dns::{Domain, NewDomain, SoaSnapshot};
+use nico_uuid::domain::DomainId;
 use sqlx::{FromRow, PgConnection};
 
 use super::super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};

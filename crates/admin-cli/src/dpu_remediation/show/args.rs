@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::dpu_remediations::RemediationId;
 use clap::Parser;
+use nico_uuid::dpu_remediations::RemediationId;
 
 #[derive(Parser, Debug)]
 pub struct Args {

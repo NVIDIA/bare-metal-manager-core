@@ -18,27 +18,24 @@
 use std::sync::Arc;
 
 use clap::Parser;
-use fmds::cfg::Options;
-use fmds::grpc_server::FmdsGrpcServer;
-use fmds::rest_server::get_fmds_router;
-use fmds::state::FmdsState;
-use forge_tls::client_config::ClientCert;
-use rpc::fmds::fmds_config_service_server::FmdsConfigServiceServer;
-use rpc::forge_tls_client::ForgeClientConfig;
+use nico_fmds::cfg::Options;
+use nico_fmds::grpc_server::FmdsGrpcServer;
+use nico_fmds::rest_server::get_fmds_router;
+use nico_fmds::state::FmdsState;
+use nico_rpc::fmds::fmds_config_service_server::FmdsConfigServiceServer;
+use nico_rpc::forge_tls_client::ForgeClientConfig;
+use nico_tls::client_config::ClientCert;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {
     let options = Options::parse();
 
     if options.version {
-        println!("{}", carbide_version::version!());
+        println!("{}", nico_version::version!());
         return Ok(());
     }
 
-    tracing::info!(
-        version = carbide_version::version!(),
-        "Starting carbide-fmds"
-    );
+    tracing::info!(version = nico_version::version!(), "Starting carbide-fmds");
 
     // Build ForgeClientConfig for phone_home if cert paths are provided
     let forge_client_config = match (&options.root_ca, &options.client_cert, &options.client_key) {

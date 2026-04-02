@@ -14,10 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use model::dpu_machine_update::DpuMachineUpdate;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostState, ReprovisionRequest};
-use model::machine_update_module::{
+use nico_api_model::dpu_machine_update::DpuMachineUpdate;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::{
+    HostHealthConfig, LoadSnapshotOptions, ManagedHostState, ReprovisionRequest,
+};
+use nico_api_model::machine_update_module::{
     AutomaticFirmwareUpdateReference, DPU_FIRMWARE_UPDATE_TARGET, DpuReprovisionInitiator,
     HOST_UPDATE_HEALTH_PROBE_ID, HOST_UPDATE_HEALTH_REPORT_SOURCE,
 };

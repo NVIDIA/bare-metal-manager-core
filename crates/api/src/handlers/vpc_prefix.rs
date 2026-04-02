@@ -15,21 +15,21 @@
  * limitations under the License.
  */
 
-use ::db::{ObjectColumnFilter, vpc_prefix as db};
-use ::rpc::forge as rpc;
-use ::rpc::forge::PrefixMatchType;
-use carbide_network::virtualization::VpcVirtualizationType;
 use ipnetwork::IpNetwork;
-use model::network_prefix::NetworkPrefix;
-use model::vpc_prefix;
+use nico_api_db::{ObjectColumnFilter, vpc_prefix as db};
+use nico_api_model::network_prefix::NetworkPrefix;
+use nico_api_model::vpc_prefix;
+use nico_network::virtualization::VpcVirtualizationType;
+use nico_rpc::forge;
+use nico_rpc::forge::PrefixMatchType;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 pub async fn create(
     api: &Api,
-    request: Request<rpc::VpcPrefixCreationRequest>,
-) -> Result<Response<rpc::VpcPrefix>, Status> {
+    request: Request<forge::VpcPrefixCreationRequest>,
+) -> Result<Response<forge::VpcPrefix>, Status> {
     log_request_data(&request);
 
     let new_prefix = vpc_prefix::NewVpcPrefix::try_from(request.into_inner())?;
@@ -65,9 +65,9 @@ pub async fn create(
 
     // IPv6 VPC prefixes are only supported for FNN VPCs.
     if new_prefix.config.prefix.is_ipv6() {
-        let vpcs = ::db::vpc::find_by(
+        let vpcs = nico_api_db::vpc::find_by(
             &mut txn,
-            ObjectColumnFilter::One(::db::vpc::IdColumn, &new_prefix.vpc_id),
+            ObjectColumnFilter::One(nico_api_db::vpc::IdColumn, &new_prefix.vpc_id),
         )
         .await?;
         let vpc = vpcs.first().ok_or_else(|| {
@@ -168,7 +168,7 @@ pub async fn create(
 
     // Associate all of the network segment prefixes with the new VPC prefix.
     for mut segment_prefix in segment_prefixes {
-        ::db::network_prefix::set_vpc_prefix(
+        nico_api_db::network_prefix::set_vpc_prefix(
             &mut segment_prefix,
             &mut txn,
             &vpc_prefix.id,
@@ -184,10 +184,10 @@ pub async fn create(
 
 pub async fn search(
     api: &Api,
-    request: Request<rpc::VpcPrefixSearchQuery>,
-) -> Result<Response<rpc::VpcPrefixIdList>, Status> {
+    request: Request<forge::VpcPrefixSearchQuery>,
+) -> Result<Response<forge::VpcPrefixIdList>, Status> {
     log_request_data(&request);
-    let rpc::VpcPrefixSearchQuery {
+    let forge::VpcPrefixSearchQuery {
         vpc_id,
         tenant_prefix_id,
         name,
@@ -218,7 +218,7 @@ pub async fn search(
                     "Unknown PrefixMatchType value: {prefix_match_type}"
                 ))
             })?;
-            use model::vpc_prefix::PrefixMatch;
+            use nico_api_model::vpc_prefix::PrefixMatch;
             let prefix_match = match prefix_match_type {
                 PrefixMatchType::PrefixExact => PrefixMatch::Exact(prefix),
                 PrefixMatchType::PrefixContains => PrefixMatch::Contains(prefix),
@@ -234,18 +234,18 @@ pub async fn search(
 
     txn.commit().await?;
 
-    Ok(tonic::Response::new(rpc::VpcPrefixIdList {
+    Ok(tonic::Response::new(forge::VpcPrefixIdList {
         vpc_prefix_ids,
     }))
 }
 
 pub async fn get(
     api: &Api,
-    request: Request<rpc::VpcPrefixGetRequest>,
-) -> Result<Response<rpc::VpcPrefixList>, Status> {
+    request: Request<forge::VpcPrefixGetRequest>,
+) -> Result<Response<forge::VpcPrefixList>, Status> {
     log_request_data(&request);
 
-    let rpc::VpcPrefixGetRequest { vpc_prefix_ids } = request.into_inner();
+    let forge::VpcPrefixGetRequest { vpc_prefix_ids } = request.into_inner();
     if vpc_prefix_ids.len() > (api.runtime_config.max_find_by_ids as usize) {
         let msg = format!(
             "Too many VPC prefix IDs were specified (the limit is {maximum})",
@@ -264,14 +264,17 @@ pub async fn get(
 
     txn.commit().await?;
 
-    let vpc_prefixes: Vec<_> = vpc_prefixes.into_iter().map(rpc::VpcPrefix::from).collect();
-    Ok(tonic::Response::new(rpc::VpcPrefixList { vpc_prefixes }))
+    let vpc_prefixes: Vec<_> = vpc_prefixes
+        .into_iter()
+        .map(forge::VpcPrefix::from)
+        .collect();
+    Ok(tonic::Response::new(forge::VpcPrefixList { vpc_prefixes }))
 }
 
 pub async fn update(
     api: &Api,
-    request: Request<rpc::VpcPrefixUpdateRequest>,
-) -> Result<Response<rpc::VpcPrefix>, Status> {
+    request: Request<forge::VpcPrefixUpdateRequest>,
+) -> Result<Response<forge::VpcPrefix>, Status> {
     log_request_data(&request);
 
     let update_prefix = vpc_prefix::UpdateVpcPrefix::try_from(request.into_inner())?;
@@ -292,8 +295,8 @@ pub async fn update(
 
 pub async fn delete(
     api: &Api,
-    request: Request<rpc::VpcPrefixDeletionRequest>,
-) -> Result<Response<rpc::VpcPrefixDeletionResult>, Status> {
+    request: Request<forge::VpcPrefixDeletionRequest>,
+) -> Result<Response<forge::VpcPrefixDeletionResult>, Status> {
     log_request_data(&request);
 
     let delete_prefix = vpc_prefix::DeleteVpcPrefix::try_from(request.into_inner())?;
@@ -309,5 +312,5 @@ pub async fn delete(
 
     txn.commit().await?;
 
-    Ok(tonic::Response::new(rpc::VpcPrefixDeletionResult {}))
+    Ok(tonic::Response::new(forge::VpcPrefixDeletionResult {}))
 }

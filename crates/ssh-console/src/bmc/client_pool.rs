@@ -19,13 +19,13 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
 use futures_util::future::join_all;
+use nico_rpc::forge;
+use nico_rpc::forge_api_client::ForgeApiClient;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Gauge, Meter, ObservableGauge};
-use rpc::forge;
-use rpc::forge_api_client::ForgeApiClient;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
 use tokio::task::JoinHandle;
@@ -319,7 +319,7 @@ impl BmcPool {
     }
 
     async fn refresh_bmcs(&mut self) -> Result<(), RefreshBmcsError> {
-        // Get all machine ID's from forge, parsing them into carbide_uuid::MachineId.
+        // Get all machine ID's from forge, parsing them into nico_uuid::MachineId.
         let machine_ids: HashSet<MachineId> = match &self.config.override_bmcs {
                 Some(override_bmcs) => {
                     override_bmcs

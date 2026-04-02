@@ -121,10 +121,10 @@ mod vpc_peering;
 mod vpc_prefix;
 mod web;
 
-pub use db::migrations::MIGRATOR;
+pub use nico_api_db::migrations::MIGRATOR;
 
 /// Make these symols available as crate::tests::MIGRATOR and crate::tests::sqlx_fixture_from_str,
-/// so that the [`carbide_macros::sqlx_test`] can delegate to them.
+/// so that the [`nico_macros::sqlx_test`] can delegate to them.
 pub use crate::tests::common::sqlx_fixtures::sqlx_fixture_from_str;
 
 /// Setup logging for tests.

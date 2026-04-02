@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use rpc::forge::ExpectedRack;
+use nico_rpc::forge::ExpectedRack;
 
 use super::args::Args;
 use crate::rpc::ApiClient;

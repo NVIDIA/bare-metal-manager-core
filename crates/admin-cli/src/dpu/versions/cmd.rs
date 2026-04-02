@@ -17,9 +17,9 @@
 
 use std::collections::HashMap;
 
-use ::rpc::Machine;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use carbide_uuid::machine::MachineId;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::{Machine, forge};
+use nico_uuid::machine::MachineId;
 use prettytable::{Row, Table};
 use serde::Serialize;
 
@@ -160,7 +160,7 @@ pub async fn handle_dpu_versions(
 
     let dpus = api_client
         .get_all_machines(
-            rpc::forge::MachineSearchConfig {
+            forge::MachineSearchConfig {
                 include_dpus: true,
                 exclude_hosts: true,
                 ..Default::default()

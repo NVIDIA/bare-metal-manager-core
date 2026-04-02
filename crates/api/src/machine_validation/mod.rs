@@ -21,7 +21,7 @@ use std::default::Default;
 use std::io;
 use std::sync::Arc;
 
-use db::ObjectFilter;
+use nico_api_db::ObjectFilter;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -91,9 +91,9 @@ impl MachineValidationManager {
     pub async fn run_single_iteration(&self) -> CarbideResult<()> {
         let mut metrics = MachineValidationMetrics::new();
 
-        let mut txn = db::Transaction::begin(&self.database_connection).await?;
+        let mut txn = nico_api_db::Transaction::begin(&self.database_connection).await?;
 
-        metrics.completed_validation = db::machine_validation::find_by(
+        metrics.completed_validation = nico_api_db::machine_validation::find_by(
             &mut txn,
             ObjectFilter::List(&["Success".to_string()]),
             "state",
@@ -101,14 +101,14 @@ impl MachineValidationManager {
         .await?
         .len();
 
-        metrics.failed_validation = db::machine_validation::find_by(
+        metrics.failed_validation = nico_api_db::machine_validation::find_by(
             &mut txn,
             ObjectFilter::List(&["Failed".to_string()]),
             "state",
         )
         .await?
         .len();
-        metrics.in_progress_validation = db::machine_validation::find_by(
+        metrics.in_progress_validation = nico_api_db::machine_validation::find_by(
             &mut txn,
             ObjectFilter::List(&["InProgress".to_string()]),
             "state",
@@ -116,9 +116,9 @@ impl MachineValidationManager {
         .await?
         .len();
 
-        metrics.tests = db::machine_validation_suites::find(
+        metrics.tests = nico_api_db::machine_validation_suites::find(
             &mut txn,
-            model::machine_validation::MachineValidationTestsGetRequest::default(),
+            nico_api_model::machine_validation::MachineValidationTestsGetRequest::default(),
         )
         .await?;
         tracing::debug!(

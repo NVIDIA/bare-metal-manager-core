@@ -16,7 +16,7 @@
  */
 
 use chrono::{DateTime, Utc};
-use model::rack_firmware::{RackFirmware, RackFirmwareApplyHistoryRecord};
+use nico_api_model::rack_firmware::{RackFirmware, RackFirmwareApplyHistoryRecord};
 use sqlx::Error::RowNotFound;
 use sqlx::postgres::PgRow;
 use sqlx::types::Json;

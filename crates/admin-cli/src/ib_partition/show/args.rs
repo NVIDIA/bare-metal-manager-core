@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::infiniband::IBPartitionId;
 use clap::Parser;
+use nico_uuid::infiniband::IBPartitionId;
 
 #[derive(Parser, Debug)]
 pub struct Args {

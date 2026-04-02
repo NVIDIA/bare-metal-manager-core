@@ -15,7 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
 
 use super::args::{
     Args, PowerShelfMetadataCommandAddLabel, PowerShelfMetadataCommandFromExpectedPowerShelf,
@@ -44,11 +45,11 @@ pub async fn metadata(
 
 async fn fetch_power_shelf(
     api_client: &ApiClient,
-    power_shelf_id: carbide_uuid::power_shelf::PowerShelfId,
-) -> CarbideCliResult<rpc::forge::PowerShelf> {
+    power_shelf_id: nico_uuid::power_shelf::PowerShelfId,
+) -> CarbideCliResult<forge::PowerShelf> {
     let response = api_client
         .0
-        .find_power_shelves(rpc::forge::PowerShelfQuery {
+        .find_power_shelves(forge::PowerShelfQuery {
             name: None,
             power_shelf_id: Some(power_shelf_id),
         })

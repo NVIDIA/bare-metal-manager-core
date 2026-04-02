@@ -20,11 +20,11 @@
 
 use std::time::Duration;
 
-use libmlx::runner::result_types::{
+use nico_libmlx::runner::result_types::{
     ComparisonResult, PlannedChange, QueriedDeviceInfo, QueriedVariable, QueryResult, SyncResult,
     VariableChange,
 };
-use libmlx::variables::value::MlxValueType;
+use nico_libmlx::variables::value::MlxValueType;
 
 use super::common;
 

@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::MachineBootOverride;
-use carbide_uuid::machine::MachineInterfaceId;
 use clap::Parser;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge::MachineBootOverride;
+use nico_uuid::machine::MachineInterfaceId;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {

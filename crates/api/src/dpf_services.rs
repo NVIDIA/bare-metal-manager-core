@@ -17,7 +17,7 @@
 
 //! Carbide-specific DPU service definitions for DPUServiceTemplate / DPUServiceConfiguration.
 
-use carbide_dpf::{
+use nico_dpf::{
     ConfigPortsServiceType, ServiceChainSwitch, ServiceConfigPort, ServiceConfigPortProtocol,
     ServiceDefinition, ServiceInterface,
 };
@@ -42,7 +42,7 @@ pub struct CarbideServiceRegistryConfig {
 impl Default for CarbideServiceRegistryConfig {
     fn default() -> Self {
         Self {
-            doca_helm_registry: carbide_dpf::services::DEFAULT_DOCA_HELM_REGISTRY.to_string(),
+            doca_helm_registry: nico_dpf::services::DEFAULT_DOCA_HELM_REGISTRY.to_string(),
             carbide_helm_registry: "https://helm.ngc.nvidia.com/nvidia/carbide".to_string(),
             carbide_image_registry: "nvcr.io/nvidia/carbide".to_string(),
         }

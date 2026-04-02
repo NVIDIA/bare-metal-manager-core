@@ -17,10 +17,10 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
-use carbide_uuid::dpu_remediations::RemediationId;
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::forge::{Remediation, RemediationList};
+use nico_uuid::dpu_remediations::RemediationId;
 use prettytable::{Table, row};
-use rpc::forge::{Remediation, RemediationList};
 
 use super::args::Args;
 use crate::rpc::ApiClient;

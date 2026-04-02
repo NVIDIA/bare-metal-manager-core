@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as forgerpc;
 use clap::Parser;
+use nico_rpc::forge;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -26,18 +26,18 @@ pub struct Args {
     pub tenant_organization_id: String,
 }
 
-impl From<Args> for forgerpc::NvLinkLogicalPartitionCreationRequest {
+impl From<Args> for forge::NvLinkLogicalPartitionCreationRequest {
     fn from(args: Args) -> Self {
-        let metadata = forgerpc::Metadata {
+        let metadata = forge::Metadata {
             name: args.name,
-            labels: vec![forgerpc::Label {
+            labels: vec![forge::Label {
                 key: "cloud-unsafe-op".to_string(),
                 value: Some("true".to_string()),
             }],
             ..Default::default()
         };
         Self {
-            config: Some(forgerpc::NvLinkLogicalPartitionConfig {
+            config: Some(forge::NvLinkLogicalPartitionConfig {
                 metadata: Some(metadata),
                 tenant_organization_id: args.tenant_organization_id,
             }),

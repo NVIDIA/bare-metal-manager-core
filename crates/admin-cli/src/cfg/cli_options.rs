@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use clap::{Parser, ValueEnum, ValueHint};
-use rpc::admin_cli::OutputFormat;
+use nico_rpc::admin_cli::OutputFormat;
 
 use crate::cfg::measurement;
 use crate::{

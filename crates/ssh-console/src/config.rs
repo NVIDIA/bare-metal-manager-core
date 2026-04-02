@@ -21,11 +21,11 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineIdParseError;
 use duration_str::deserialize_duration;
-use forge_tls::client_config::ClientCert;
-use rpc::forge_api_client::ForgeApiClient;
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use nico_rpc::forge_api_client::ForgeApiClient;
+use nico_rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use nico_tls::client_config::ClientCert;
+use nico_uuid::machine::MachineIdParseError;
 use russh::keys::ssh_key::Fingerprint;
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

@@ -22,9 +22,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use eyre::Context;
+use nico_ssh_console::POWER_RESET_COMMAND;
 use russh::ChannelMsg;
 use russh::keys::{PrivateKeyWithHashAlg, PublicKey};
-use ssh_console::POWER_RESET_COMMAND;
 use tokio::sync::oneshot;
 
 // The BMC prompt we get from mock_ssh_server (we shouldn't see this when SSH'ing in.)

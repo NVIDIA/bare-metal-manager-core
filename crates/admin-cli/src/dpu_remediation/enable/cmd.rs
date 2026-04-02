@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
+use nico_rpc::admin_cli::CarbideCliError;
 
 use super::args::Args;
 use crate::rpc::ApiClient;

@@ -22,21 +22,23 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use ::rpc::forge::{self as rpc};
-use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, ForgeTlsClient};
-use carbide_uuid::machine::MachineId;
 use chrono::Utc;
 use clap::ValueEnum;
 use eyre::{Context, Result};
 use futures::future::join_all;
 use futures::{StreamExt, stream};
+use nico_rpc::forge;
+use nico_rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, ForgeTlsClient};
+use nico_uuid::machine::MachineId;
 use regex::Regex;
 use serde::Serialize;
 use serde_json::json;
 use surge_ping::{Client, Config, PingIdentifier, PingSequence};
 use tokio::sync::{mpsc, watch};
 use tokio::task;
-use tokio::time::{self, Duration, Instant};
+use tokio::time::{
+    Duration, Instant, {self},
+};
 use tonic::async_trait;
 
 use crate::hbn;
@@ -59,10 +61,10 @@ impl fmt::Display for DpuInfo {
     }
 }
 
-impl TryFrom<rpc::DpuInfo> for DpuInfo {
+impl TryFrom<forge::DpuInfo> for DpuInfo {
     type Error = eyre::Error;
 
-    fn try_from(rpc_info: rpc::DpuInfo) -> Result<Self, Self::Error> {
+    fn try_from(rpc_info: forge::DpuInfo) -> Result<Self, Self::Error> {
         let ip = IpAddr::from_str(&rpc_info.loopback_ip)?;
         // Note: DpuInfo uses a string for machine_id, not a real MachineId, which is wrong.
         Ok(DpuInfo {
@@ -390,7 +392,7 @@ impl NetworkMonitor {
 pub(crate) async fn fetch_dpu_info_list(
     forge_api: &str,
     client_config: &ForgeClientConfig,
-) -> Result<rpc::GetDpuInfoListResponse, eyre::Report> {
+) -> Result<forge::GetDpuInfoListResponse, eyre::Report> {
     let api_config = ApiConfig::new(forge_api, client_config);
     let mut client = ForgeTlsClient::retry_build(&api_config)
         .await
@@ -400,8 +402,8 @@ pub(crate) async fn fetch_dpu_info_list(
             ))
         })?;
 
-    let request = tonic::Request::new(rpc::GetDpuInfoListRequest {});
-    let response: tonic::Response<rpc::GetDpuInfoListResponse> =
+    let request = tonic::Request::new(forge::GetDpuInfoListRequest {});
+    let response: tonic::Response<forge::GetDpuInfoListResponse> =
         client.get_dpu_info_list(request).await.map_err(|err| {
             eyre::Report::new(err)
                 .wrap_err(format!("forge_api: {forge_api}"))

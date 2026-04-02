@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::forge::{scout_stream_api_bound_message, scout_stream_scout_bound_message};
-use ::rpc::protos::forge::ScoutStreamScoutBoundMessage;
-use ::rpc::protos::mlx_device;
-use carbide_uuid::machine::MachineId;
-use libmlx::profile::serialization::SerializableProfile;
+use nico_libmlx::profile::serialization::SerializableProfile;
+use nico_rpc::forge::{scout_stream_api_bound_message, scout_stream_scout_bound_message};
+use nico_rpc::protos::forge::ScoutStreamScoutBoundMessage;
+use nico_rpc::protos::mlx_device;
+use nico_uuid::machine::MachineId;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -1218,7 +1218,7 @@ async fn handle_config_compare(
     machine_id: MachineId,
     device_id: String,
     registry_name: String,
-    assignments: Vec<rpc::protos::mlx_device::VariableAssignment>,
+    assignments: Vec<nico_rpc::protos::mlx_device::VariableAssignment>,
 ) -> Result<mlx_device::MlxAdminConfigCompareResponse, Status> {
     // Check if the machine is connected.
     if !api.scout_stream_registry.is_connected(machine_id).await {
@@ -1231,7 +1231,7 @@ async fn handle_config_compare(
 
     let request = ScoutStreamScoutBoundMessage::new_flow(
         scout_stream_scout_bound_message::Payload::MlxDeviceConfigCompareRequest(
-            rpc::protos::mlx_device::MlxDeviceConfigCompareRequest {
+            nico_rpc::protos::mlx_device::MlxDeviceConfigCompareRequest {
                 device_id: device_id.clone(),
                 registry_name: registry_name.clone(),
                 assignments,
@@ -1305,7 +1305,7 @@ async fn get_device_lockdown_key(
     //
     // In other words, device_id == pci_name.
     let dpa_interface =
-        db::dpa_interface::get_for_pci_name(&api.database_connection, &machine_id, device_id)
+        nico_api_db::dpa_interface::get_for_pci_name(&api.database_connection, &machine_id, device_id)
             .await
             .map_err(|e| {
                 CarbideError::NotFoundError {

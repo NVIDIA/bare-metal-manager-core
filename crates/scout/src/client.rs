@@ -15,8 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use forge_tls::client_config::ClientCert;
+use nico_rpc::forge_tls_client::{
+    ApiConfig, ForgeClientConfig, {self},
+};
+use nico_tls::client_config::ClientCert;
 pub use scout::{CarbideClientError, CarbideClientResult};
 
 use crate::Options;

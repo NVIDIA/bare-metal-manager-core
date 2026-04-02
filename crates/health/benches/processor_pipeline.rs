@@ -20,19 +20,19 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
-use carbide_health::metrics::MetricsManager;
-use carbide_health::processor::{
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use mac_address::MacAddress;
+use nico_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+use nico_health::metrics::MetricsManager;
+use nico_health::processor::{
     EventProcessingPipeline, EventProcessor, HealthReportProcessor, LeakEventProcessor,
     RackLeakProcessor,
 };
-use carbide_health::sink::{
+use nico_health::sink::{
     CollectorEvent, CompositeDataSink, DataSink, EventContext, SensorHealthContext,
     SensorHealthData,
 };
-use carbide_uuid::rack::RackId;
-use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use mac_address::MacAddress;
+use nico_uuid::rack::RackId;
 use nv_redfish::resource::Health as BmcHealth;
 
 const MACHINE_ID: &str = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";

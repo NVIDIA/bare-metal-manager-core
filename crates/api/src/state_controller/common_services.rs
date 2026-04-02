@@ -17,11 +17,11 @@
 
 use std::sync::Arc;
 
-use db::db_read::PgPoolReader;
 use libredfish::Redfish;
 use librms::RmsApi;
-use model::machine::Machine;
-use model::resource_pool::common::IbPools;
+use nico_api_db::db_read::PgPoolReader;
+use nico_api_model::machine::Machine;
+use nico_api_model::resource_pool::common::IbPools;
 use sqlx::PgPool;
 
 use crate::cfg::file::CarbideConfig;

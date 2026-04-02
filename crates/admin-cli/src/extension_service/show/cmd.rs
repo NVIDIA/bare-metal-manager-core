@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::admin_cli::output::OutputFormat;
-use ::rpc::forge::{DpuExtensionService, DpuExtensionServiceType};
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::admin_cli::output::OutputFormat;
+use nico_rpc::forge::{DpuExtensionService, DpuExtensionServiceType};
 use prettytable::{Table, row};
 
 use super::args::Args;

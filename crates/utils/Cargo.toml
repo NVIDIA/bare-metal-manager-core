@@ -15,20 +15,20 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-utils"
+name = "nico-utils"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
-# TODO: rename to carbide_utils in source
+# TODO: rename to nico_utils in source
 [lib]
 name = "utils"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-sqlx = ["carbide-network/sqlx", "dep:sqlx"]
+sqlx = ["nico-network/sqlx", "dep:sqlx"]
 
 [dependencies]
 byte-unit = { workspace = true }
@@ -62,10 +62,10 @@ humantime = { workspace = true }
 
 # [local-dependencies]
 config-version = { path = "../config-version" }
-carbide-health-report = { path = "../health-report" }
-carbide-network = { path = "../network" }
-carbide-uuid = { path = "../uuid" }
-carbide-rpc = { path = "../rpc" }
+nico-health-report = { path = "../health-report" }
+nico-network = { path = "../network" }
+nico-uuid = { path = "../uuid" }
+nico-rpc = { path = "../rpc" }
 
 [lints]
 workspace = true

@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-dhcp-server"
+name = "nico-dhcp-server"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -24,18 +24,18 @@ authors.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [[bin]]
-# TODO: rename to carbide-dhcp-server
+# TODO: rename to nico-dhcp-server
 name = "forge-dhcp-server"
 path = "src/main.rs"
 
 [dependencies]
 
 # [local-dependencies]
-carbide-tls = { path = "../tls" }
+nico-tls = { path = "../tls" }
 logfmt = { path = "../logfmt" }
-carbide-rpc = { path = "../rpc" }
-carbide-utils = { path = "../utils" }
-carbide-uuid = { path = "../uuid" }
+nico-rpc = { path = "../rpc" }
+nico-utils = { path = "../utils" }
+nico-uuid = { path = "../uuid" }
 
 serde_yaml = { workspace = true }
 serde = { features = ["derive"], workspace = true }

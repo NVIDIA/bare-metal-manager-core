@@ -17,8 +17,8 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
-use ::rpc::forge::{self as forgerpc};
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -51,7 +51,7 @@ pub async fn ensure(
     Ok(())
 }
 
-fn convert_dpa_to_nice_format(dpa: &forgerpc::DpaInterface) -> CarbideCliResult<String> {
+fn convert_dpa_to_nice_format(dpa: &forge::DpaInterface) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();
 

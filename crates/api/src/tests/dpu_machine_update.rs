@@ -16,13 +16,13 @@
  */
 use std::collections::HashMap;
 
-use carbide_uuid::machine::MachineId;
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
-use db::DatabaseError;
-use model::dpu_machine_update::DpuMachineUpdate;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::network::MachineNetworkStatusObservation;
-use model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
+use nico_api_db::DatabaseError;
+use nico_api_model::dpu_machine_update::DpuMachineUpdate;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::network::MachineNetworkStatusObservation;
+use nico_api_model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
 use super::common::api_fixtures::TestEnv;
@@ -67,7 +67,7 @@ async fn create_machines(
     }
     txn.commit().await.unwrap();
 
-    db::managed_host::load_by_machine_ids(
+    nico_api_db::managed_host::load_by_machine_ids(
         &mut test_env.db_reader(),
         &machines.iter().map(|m| m.id).collect::<Vec<_>>(),
         LoadSnapshotOptions {
@@ -82,7 +82,7 @@ async fn create_machines(
 
 pub async fn get_all_snapshots(test_env: &TestEnv) -> HashMap<MachineId, ManagedHostStateSnapshot> {
     let mut txn = test_env.pool.begin().await.unwrap();
-    let machine_ids = db::machine::find_machine_ids(
+    let machine_ids = nico_api_db::machine::find_machine_ids(
         txn.as_mut(),
         MachineSearchConfig {
             include_predicted_host: true,
@@ -92,7 +92,7 @@ pub async fn get_all_snapshots(test_env: &TestEnv) -> HashMap<MachineId, Managed
     .await
     .unwrap();
 
-    db::managed_host::load_by_machine_ids(
+    nico_api_db::managed_host::load_by_machine_ids(
         txn.as_mut(),
         &machine_ids,
         LoadSnapshotOptions {
@@ -141,19 +141,19 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
         extension_service_observation: None,
     };
 
-    let health_report = health_report::HealthReport {
+    let health_report = nico_health_report::HealthReport {
         source: "forge-dpu-agent".to_string(),
         triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
-        alerts: vec![health_report::HealthProbeAlert {
+        alerts: vec![nico_health_report::HealthProbeAlert {
             id: "TestFailed".parse().unwrap(),
             target: Some("t1".to_string()),
             in_alert_since: Some(chrono::Utc::now()),
             message: "Test Failed".to_string(),
             tenant_message: None,
             classifications: vec![
-                health_report::HealthAlertClassification::prevent_host_state_changes(),
+                nico_health_report::HealthAlertClassification::prevent_host_state_changes(),
             ],
         }],
     };
@@ -163,8 +163,14 @@ async fn test_find_available_outdated_dpus_with_unhealthy(
         .await
         .expect("Failed to create transaction");
 
-    db::machine::update_network_status_observation(&mut txn, &dpu_machine_id, &machine_obs).await?;
-    db::machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report).await?;
+    nico_api_db::machine::update_network_status_observation(
+        &mut txn,
+        &dpu_machine_id,
+        &machine_obs,
+    )
+    .await?;
+    nico_api_db::machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report)
+        .await?;
 
     txn.commit().await.unwrap();
 
@@ -254,7 +260,7 @@ async fn test_find_available_outdated_dpus_multidpu(
         update_nic_firmware_version(&mut txn, &dpu.id, "1.11.1000").await?;
     }
 
-    let snapshots = db::managed_host::load_by_machine_ids(
+    let snapshots = nico_api_db::managed_host::load_by_machine_ids(
         txn.as_mut(),
         &[mh.host().id],
         LoadSnapshotOptions {
@@ -287,7 +293,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
     let mh = create_managed_host_multi_dpu(&env, 2).await;
 
     let mut txn = env.pool.begin().await?;
-    db::dpu_machine_update::trigger_reprovisioning_for_managed_host(
+    nico_api_db::dpu_machine_update::trigger_reprovisioning_for_managed_host(
         &mut txn,
         &[DpuMachineUpdate {
             host_machine_id: mh.host().id,
@@ -300,7 +306,7 @@ async fn test_find_available_outdated_dpus_multidpu_one_under_reprov(
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let snapshots = db::managed_host::load_by_machine_ids(
+    let snapshots = nico_api_db::managed_host::load_by_machine_ids(
         txn.as_mut(),
         &[mh.host().id],
         LoadSnapshotOptions {
@@ -343,7 +349,7 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
 
     let mut txn = env.pool.begin().await?;
     let all_dpus = mh.dpu_db_machines(&mut txn).await;
-    db::dpu_machine_update::trigger_reprovisioning_for_managed_host(
+    nico_api_db::dpu_machine_update::trigger_reprovisioning_for_managed_host(
         &mut txn,
         &[
             DpuMachineUpdate {
@@ -363,7 +369,7 @@ async fn test_find_available_outdated_dpus_multidpu_both_under_reprov(
     txn.commit().await.unwrap();
 
     let mut txn = env.pool.begin().await?;
-    let snapshots = db::managed_host::load_by_machine_ids(
+    let snapshots = nico_api_db::managed_host::load_by_machine_ids(
         txn.as_mut(),
         &[mh.host().id],
         LoadSnapshotOptions {

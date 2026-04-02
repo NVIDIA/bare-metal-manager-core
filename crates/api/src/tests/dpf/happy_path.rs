@@ -20,8 +20,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_dpf::DpuPhase;
-use model::machine::ManagedHostState;
+use nico_api_model::machine::ManagedHostState;
+use nico_dpf::DpuPhase;
 use tokio::time::timeout;
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(30);

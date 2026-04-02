@@ -18,8 +18,8 @@
 use std::sync::Arc;
 
 use eyre::eyre;
-use forge_dpu_agent_utils::utils::create_forge_client;
-use rpc::forge::InstancePhoneHomeLastContactRequest;
+use nico_dpu_agent_utils::utils::create_forge_client;
+use nico_rpc::forge::InstancePhoneHomeLastContactRequest;
 
 use crate::state::FmdsState;
 

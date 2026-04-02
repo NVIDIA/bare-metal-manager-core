@@ -14,7 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use model::tenant::{TenantKeyset, TenantKeysetId, TenantKeysetIdentifier, UpdateTenantKeyset};
+use nico_api_model::tenant::{
+    TenantKeyset, TenantKeysetId, TenantKeysetIdentifier, UpdateTenantKeyset,
+};
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -38,7 +40,7 @@ pub async fn create(
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    filter: model::tenant::TenantKeysetSearchFilter,
+    filter: nico_api_model::tenant::TenantKeysetSearchFilter,
 ) -> Result<Vec<TenantKeysetId>, DatabaseError> {
     // build query
     let mut builder =
@@ -59,7 +61,7 @@ pub async fn find_ids(
 
 pub async fn find_by_ids(
     txn: impl DbReader<'_>,
-    ids: Vec<model::tenant::TenantKeysetIdentifier>,
+    ids: Vec<nico_api_model::tenant::TenantKeysetIdentifier>,
     include_key_data: bool,
 ) -> Result<Vec<TenantKeyset>, DatabaseError> {
     // build query

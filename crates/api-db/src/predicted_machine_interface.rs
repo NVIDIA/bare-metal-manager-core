@@ -15,7 +15,9 @@
  * limitations under the License.
  */
 use mac_address::MacAddress;
-use model::predicted_machine_interface::{NewPredictedMachineInterface, PredictedMachineInterface};
+use nico_api_model::predicted_machine_interface::{
+    NewPredictedMachineInterface, PredictedMachineInterface,
+};
 use sqlx::PgConnection;
 
 use crate::{ColumnInfo, DatabaseError, FilterableQueryBuilder, ObjectColumnFilter};
@@ -25,7 +27,7 @@ pub struct MachineIdColumn;
 
 impl ColumnInfo<'_> for crate::predicted_machine_interface::MachineIdColumn {
     type TableType = PredictedMachineInterface;
-    type ColumnType = carbide_uuid::machine::MachineId;
+    type ColumnType = nico_uuid::machine::MachineId;
     fn column_name(&self) -> &'static str {
         "machine_id"
     }

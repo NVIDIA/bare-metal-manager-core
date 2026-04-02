@@ -15,5 +15,5 @@
  * limitations under the License.
  */
 fn main() {
-    carbide_version::build();
+    nico_version::build();
 }

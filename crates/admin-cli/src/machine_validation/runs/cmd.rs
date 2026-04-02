@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
 use prettytable::{Table, row};
 
 use super::args::ShowRunsOptions;
@@ -53,7 +53,7 @@ async fn show_runs(
     Ok(())
 }
 
-fn convert_runs_to_nice_table(runs: forgerpc::MachineValidationRunList) -> Box<Table> {
+fn convert_runs_to_nice_table(runs: forge::MachineValidationRunList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row![
@@ -76,8 +76,8 @@ fn convert_runs_to_nice_table(runs: forgerpc::MachineValidationRunList) -> Box<T
             .unwrap_or_default()
             .machine_validation_state
             .unwrap_or(
-                forgerpc::machine_validation_status::MachineValidationState::Completed(
-                    forgerpc::machine_validation_status::MachineValidationCompleted::Success.into(),
+                forge::machine_validation_status::MachineValidationState::Completed(
+                    forge::machine_validation_status::MachineValidationCompleted::Success.into(),
                 ),
             );
         table.add_row(row![

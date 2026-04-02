@@ -14,10 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use model::dpu_remediation::{
+use nico_api_model::dpu_remediation::{
     ApproveRemediation, EnableRemediation, NewRemediation, RemediationApplicationStatus, Reviewer,
 };
-use rpc::forge::CreateRemediationRequest;
+use nico_rpc::forge::CreateRemediationRequest;
 
 use crate::tests::common::api_fixtures::{create_managed_host_multi_dpu, create_test_env};
 
@@ -67,8 +67,9 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         .await
         .expect("unable to create transaction on database pool");
 
-    let ids = db::dpu_remediation::find_remediation_ids(&mut txn).await?;
-    let remediations = db::dpu_remediation::find_remediations_by_ids(&mut txn, &ids).await?;
+    let ids = nico_api_db::dpu_remediation::find_remediation_ids(&mut txn).await?;
+    let remediations =
+        nico_api_db::dpu_remediation::find_remediations_by_ids(&mut txn, &ids).await?;
 
     assert_eq!(ids.len(), remediations.len());
 
@@ -80,15 +81,15 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
     // first, we test that we can apply the same remediation to two different machines concurrently.
     let next_remediation_to_apply_1 =
-        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id)
+        nico_api_db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id)
             .await?
             .expect("no remediation to apply?");
     let next_remediation_to_apply_2 =
-        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_2.id)
+        nico_api_db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_2.id)
             .await?
             .expect("no remediation to apply?");
 
-    db::dpu_remediation::remediation_applied(
+    nico_api_db::dpu_remediation::remediation_applied(
         &mut txn,
         test_dpu_1.id,
         next_remediation_to_apply_1.id,
@@ -99,7 +100,7 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     )
     .await?;
 
-    db::dpu_remediation::remediation_applied(
+    nico_api_db::dpu_remediation::remediation_applied(
         &mut txn,
         test_dpu_2.id,
         next_remediation_to_apply_2.id,
@@ -112,7 +113,7 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
     // now we validate they're applied and successful
     let applied_remediations_1 =
-        db::dpu_remediation::find_remediations_by_remediation_id_and_machine(
+        nico_api_db::dpu_remediation::find_remediations_by_remediation_id_and_machine(
             &mut txn,
             next_remediation_to_apply_1.id,
             &test_dpu_1.id,
@@ -124,7 +125,7 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     assert!(applied_remediation_1.succeeded);
 
     let applied_remediations_2 =
-        db::dpu_remediation::find_remediations_by_remediation_id_and_machine(
+        nico_api_db::dpu_remediation::find_remediations_by_remediation_id_and_machine(
             &mut txn,
             next_remediation_to_apply_2.id,
             &test_dpu_2.id,
@@ -138,11 +139,11 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     // now we test the retry logic
     // first, apply the same remediation 3 times and fail it, and validate that the 4th attempt does not give a remediation back to the DPU.
     let next_remediation_to_apply_1 =
-        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id)
+        nico_api_db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id)
             .await?
             .expect("no remediation to apply?");
     let same_id_1 = next_remediation_to_apply_1.id;
-    db::dpu_remediation::remediation_applied(
+    nico_api_db::dpu_remediation::remediation_applied(
         &mut txn,
         test_dpu_1.id,
         next_remediation_to_apply_1.id,
@@ -153,13 +154,13 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     )
     .await?;
     let next_remediation_to_apply_1 =
-        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id)
+        nico_api_db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id)
             .await?
             .expect("no remediation to apply?");
     // it should give back the same id
     assert_eq!(same_id_1, next_remediation_to_apply_1.id.clone());
 
-    db::dpu_remediation::remediation_applied(
+    nico_api_db::dpu_remediation::remediation_applied(
         &mut txn,
         test_dpu_1.id,
         next_remediation_to_apply_1.id,
@@ -170,13 +171,13 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     )
     .await?;
     let next_remediation_to_apply_1 =
-        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id)
+        nico_api_db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id)
             .await?
             .expect("no remediation to apply?");
     // it should give back the same id
     assert_eq!(same_id_1, next_remediation_to_apply_1.id.clone());
 
-    db::dpu_remediation::remediation_applied(
+    nico_api_db::dpu_remediation::remediation_applied(
         &mut txn,
         test_dpu_1.id,
         next_remediation_to_apply_1.id,
@@ -187,17 +188,18 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     )
     .await?;
     let next_remediation_to_apply_1 =
-        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id).await?;
+        nico_api_db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id)
+            .await?;
     assert!(next_remediation_to_apply_1.is_none());
 
     // finally, validate we can fail once, and then pass once, and then not get the remediation back after it succeeds
     let next_remediation_to_apply_2 =
-        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_2.id)
+        nico_api_db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_2.id)
             .await?
             .expect("no remediation to apply?");
     let same_id_2 = next_remediation_to_apply_2.id;
 
-    db::dpu_remediation::remediation_applied(
+    nico_api_db::dpu_remediation::remediation_applied(
         &mut txn,
         test_dpu_2.id,
         next_remediation_to_apply_2.id,
@@ -209,12 +211,12 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     .await?;
 
     let next_remediation_to_apply_2 =
-        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_2.id)
+        nico_api_db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_2.id)
             .await?
             .expect("no remediation to apply?");
     // it should give back the same id
     assert_eq!(same_id_2, next_remediation_to_apply_2.id.clone());
-    db::dpu_remediation::remediation_applied(
+    nico_api_db::dpu_remediation::remediation_applied(
         &mut txn,
         test_dpu_2.id,
         next_remediation_to_apply_2.id,
@@ -226,7 +228,8 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     .await?;
 
     let next_remediation_to_apply_2 =
-        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_2.id).await?;
+        nico_api_db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_2.id)
+            .await?;
     assert!(next_remediation_to_apply_2.is_none());
 
     // next up, test the enabling logic.  we should _not_ be able to enable a remediation that isn't reviewed
@@ -235,7 +238,7 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         .partition(|remediation| remediation.reviewer.is_some());
 
     let unreviewed_remediation_id = unreviewed_remediations.first().unwrap().id;
-    let result = db::dpu_remediation::persist_enable_remediation(
+    let result = nico_api_db::dpu_remediation::persist_enable_remediation(
         EnableRemediation {
             id: unreviewed_remediation_id,
         },
@@ -246,7 +249,7 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
     // and we _should_ be able to enable one that has been approved
     let reviewed_remediation_id = reviewed_remediations.first().unwrap().id;
-    db::dpu_remediation::persist_enable_remediation(
+    nico_api_db::dpu_remediation::persist_enable_remediation(
         EnableRemediation {
             id: reviewed_remediation_id,
         },
@@ -256,10 +259,10 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
     // once it has been enabled, we should be able to successfully FindNext it
     let next_remediation_to_apply_1 =
-        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id)
+        nico_api_db::dpu_remediation::find_next_remediation_for_machine(&mut txn, test_dpu_1.id)
             .await?
             .expect("no remediation to apply?");
-    db::dpu_remediation::remediation_applied(
+    nico_api_db::dpu_remediation::remediation_applied(
         &mut txn,
         test_dpu_1.id,
         next_remediation_to_apply_1.id,
@@ -271,7 +274,7 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     .await?;
     // and it should be successfully applied
     let applied_remediations_1 =
-        db::dpu_remediation::find_remediations_by_remediation_id_and_machine(
+        nico_api_db::dpu_remediation::find_remediations_by_remediation_id_and_machine(
             &mut txn,
             next_remediation_to_apply_1.id,
             &test_dpu_1.id,
@@ -285,7 +288,7 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
     // test: we should _not_ be able to review unreviewed remediations using the same reviewer as the author of the remediation
     let unreviewed_remediation_id = unreviewed_remediations.first().unwrap().id;
     let unreviewed_remediation_author = unreviewed_remediations.first().unwrap().author.clone();
-    let should_fail = db::dpu_remediation::persist_approve_remediation(
+    let should_fail = nico_api_db::dpu_remediation::persist_approve_remediation(
         ApproveRemediation {
             id: unreviewed_remediation_id,
             reviewer: Reviewer::from(unreviewed_remediation_author.to_string()),
@@ -297,7 +300,7 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
 
     // and lastly, we should be able to review a remediation, and then enable it
     let remediation_id_to_test = unreviewed_remediation_id;
-    db::dpu_remediation::persist_approve_remediation(
+    nico_api_db::dpu_remediation::persist_approve_remediation(
         ApproveRemediation {
             id: remediation_id_to_test,
             reviewer: Reviewer::from("totally_a_real_reviewer".to_string()),
@@ -305,7 +308,7 @@ async fn test_dpu_remediations(pool: sqlx::PgPool) -> Result<(), Box<dyn std::er
         &mut txn,
     )
     .await?;
-    db::dpu_remediation::persist_enable_remediation(
+    nico_api_db::dpu_remediation::persist_enable_remediation(
         EnableRemediation {
             id: remediation_id_to_test,
         },

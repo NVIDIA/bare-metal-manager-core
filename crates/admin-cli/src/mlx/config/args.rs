@@ -18,10 +18,10 @@
 // config/args.rs
 // Command-line argument definitions for config commands.
 
-use carbide_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::protos::mlx_device as mlx_device_pb;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::protos::mlx_device as mlx_device_pb;
+use nico_uuid::machine::MachineId;
 
 // ConfigCommand are the config subcommands.
 #[derive(Parser, Debug)]

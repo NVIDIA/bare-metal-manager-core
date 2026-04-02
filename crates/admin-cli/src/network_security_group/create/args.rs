@@ -16,10 +16,8 @@
  */
 
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::forge::{
-    self as forgerpc, CreateNetworkSecurityGroupRequest, NetworkSecurityGroupAttributes,
-};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge::{self, CreateNetworkSecurityGroupRequest, NetworkSecurityGroupAttributes};
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -75,7 +73,7 @@ impl TryFrom<Args> for CreateNetworkSecurityGroupRequest {
             vec![]
         };
 
-        let metadata = forgerpc::Metadata {
+        let metadata = forge::Metadata {
             name: args.name.unwrap_or_default(),
             description: args.description.unwrap_or_default(),
             labels,

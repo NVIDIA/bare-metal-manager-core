@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use model::machine_validation::MachineValidationTest;
+use nico_api_model::machine_validation::MachineValidationTest;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
 

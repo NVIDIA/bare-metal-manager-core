@@ -17,13 +17,13 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::rack::RackId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use mac_address::MacAddress;
-use rpc::Timestamp;
+use nico_rpc::{Timestamp, forge};
+use nico_uuid::machine::MachineId;
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::rack::RackId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -47,20 +47,20 @@ pub struct Rack {
     pub version: ConfigVersion,
 }
 
-impl From<Rack> for rpc::forge::Rack {
+impl From<Rack> for forge::Rack {
     fn from(value: Rack) -> Self {
         let health = derive_rack_aggregate_health(&value.health_report_overrides);
         let health_overrides = value
             .health_report_overrides
             .clone()
             .into_iter()
-            .map(|(hr, m)| rpc::forge::HealthOverrideOrigin {
+            .map(|(hr, m)| forge::HealthOverrideOrigin {
                 mode: m as i32,
                 source: hr.source,
             })
             .collect();
 
-        rpc::forge::Rack {
+        forge::Rack {
             id: Some(value.id),
             rack_state: value.controller_state.value.to_string(),
             expected_compute_trays: value
@@ -97,17 +97,19 @@ impl From<Rack> for rpc::forge::Rack {
 #[derive(Clone, Debug, Default)]
 pub struct RackSearchFilter {}
 
-impl From<rpc::forge::RackSearchFilter> for RackSearchFilter {
-    fn from(_filter: rpc::forge::RackSearchFilter) -> Self {
+impl From<forge::RackSearchFilter> for RackSearchFilter {
+    fn from(_filter: forge::RackSearchFilter) -> Self {
         RackSearchFilter {}
     }
 }
 
-fn derive_rack_aggregate_health(overrides: &HealthReportOverrides) -> health_report::HealthReport {
+fn derive_rack_aggregate_health(
+    overrides: &HealthReportOverrides,
+) -> nico_health_report::HealthReport {
     if let Some(replace) = &overrides.replace {
         return replace.clone();
     }
-    let mut output = health_report::HealthReport::empty("rack-aggregate-health".to_string());
+    let mut output = nico_health_report::HealthReport::empty("rack-aggregate-health".to_string());
     for report in overrides.merges.values() {
         output.merge(report);
     }
@@ -446,9 +448,9 @@ pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
     }
 }
 
-impl From<RackStateHistory> for rpc::forge::RackStateHistoryRecord {
-    fn from(value: RackStateHistory) -> rpc::forge::RackStateHistoryRecord {
-        rpc::forge::RackStateHistoryRecord {
+impl From<RackStateHistory> for forge::RackStateHistoryRecord {
+    fn from(value: RackStateHistory) -> forge::RackStateHistoryRecord {
+        forge::RackStateHistoryRecord {
             state: value.state,
             version: value.state_version.version_string(),
             time: Some(value.state_version.timestamp().into()),

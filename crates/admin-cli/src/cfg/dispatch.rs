@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use nico_rpc::admin_cli::CarbideCliResult;
 
 use crate::cfg::runtime::RuntimeContext;
 
@@ -31,11 +31,11 @@ pub(crate) trait Dispatch {
 
 // Re-export the derive macro so modules can import both the
 // trait and derive with: use crate::cfg::dispatch::Dispatch;
-pub(crate) use carbide_macros::Dispatch;
+pub(crate) use nico_macros::Dispatch;
 
 #[cfg(test)]
 mod tests {
-    use ::rpc::admin_cli::CarbideCliResult;
+    use nico_rpc::admin_cli::CarbideCliResult;
 
     use super::Dispatch;
     use crate::cfg::run::Run;

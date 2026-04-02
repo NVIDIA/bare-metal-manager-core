@@ -25,15 +25,15 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::{fmt, fs, io};
 
-use ::rpc::InterfaceFunctionType;
-use ::rpc::forge::{
-    self as rpc, FlatInterfaceConfig, ManagedHostNetworkConfigResponse,
-    NetworkSecurityGroupRuleAction, NetworkSecurityGroupRuleProtocol,
-};
-use carbide_network::ip::prefix::Ipv4Net;
-use carbide_network::virtualization::VpcVirtualizationType;
 use eyre::WrapErr;
 use mac_address::MacAddress;
+use nico_network::ip::prefix::Ipv4Net;
+use nico_network::virtualization::VpcVirtualizationType;
+use nico_rpc::forge::{
+    FlatInterfaceConfig, ManagedHostNetworkConfigResponse, NetworkSecurityGroupRuleAction,
+    NetworkSecurityGroupRuleProtocol,
+};
+use nico_rpc::{InterfaceFunctionType, forge};
 use serde::Deserialize;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
@@ -147,7 +147,7 @@ struct PostAction {
 pub async fn update_nvue(
     vpc_virtualization_type: VpcVirtualizationType,
     hbn_root: &Path,
-    nc: &rpc::ManagedHostNetworkConfigResponse,
+    nc: &forge::ManagedHostNetworkConfigResponse,
     // if true don't run the `nv` commands after writing the file
     skip_post: bool,
     hbn_device_names: HBNDeviceNames,
@@ -203,15 +203,12 @@ pub async fn update_nvue(
                 interface_name: physical_name,
                 is_phy: true,
                 vlan: admin_interface.vlan_id as u16,
-                vni: if nc.network_virtualization_type() == ::rpc::forge::VpcVirtualizationType::Fnn
-                {
+                vni: if nc.network_virtualization_type() == forge::VpcVirtualizationType::Fnn {
                     Some(admin_interface.vni)
                 } else {
                     None
                 },
-                l3_vni: if nc.network_virtualization_type()
-                    == ::rpc::forge::VpcVirtualizationType::Fnn
-                {
+                l3_vni: if nc.network_virtualization_type() == forge::VpcVirtualizationType::Fnn {
                     Some(admin_interface.vpc_vni)
                 } else {
                     None
@@ -224,7 +221,7 @@ pub async fn update_nvue(
                 tenant_vrf_loopback_ip: admin_interface.tenant_vrf_loopback_ip.clone(),
                 network_security_group_id: None, // NSGs are not applied on the admin network.
                 is_l2_segment: if nc.network_virtualization_type()
-                    == ::rpc::forge::VpcVirtualizationType::Fnn
+                    == forge::VpcVirtualizationType::Fnn
                 {
                     admin_interface.is_l2_segment
                 } else {
@@ -238,7 +235,7 @@ pub async fn update_nvue(
     } else {
         let mut ifs = Vec::with_capacity(nc.tenant_interfaces.len());
         for net in &nc.tenant_interfaces {
-            let name = if net.function_type == rpc::InterfaceFunctionType::Physical as i32 {
+            let name = if net.function_type == forge::InterfaceFunctionType::Physical as i32 {
                 physical_name.clone()
             } else {
                 match net.virtual_function_id {
@@ -251,7 +248,7 @@ pub async fn update_nvue(
 
             ifs.push(nvue::PortConfig {
                 interface_name: name,
-                is_phy: net.function_type == rpc::InterfaceFunctionType::Physical as i32,
+                is_phy: net.function_type == forge::InterfaceFunctionType::Physical as i32,
                 vlan: net.vlan_id as u16,
                 vni: Some(net.vni), // TODO should this be nc.vni_device?
                 l3_vni: Some(net.vpc_vni),
@@ -363,12 +360,12 @@ pub async fn update_nvue(
         // but the match will make sure we catch and adjust accordingly
         // if that changes in the future.
         use_vpc_isolation: match nc.vpc_isolation_behavior() {
-            rpc::VpcIsolationBehaviorType::VpcIsolationInvalid => {
+            forge::VpcIsolationBehaviorType::VpcIsolationInvalid => {
                 return Err(eyre::eyre!("received invalid VPC-isolation config"));
             }
-            rpc::VpcIsolationBehaviorType::VpcIsolationMutual => true,
+            forge::VpcIsolationBehaviorType::VpcIsolationMutual => true,
             //  There's no isolation.
-            rpc::VpcIsolationBehaviorType::VpcIsolationOpen => false,
+            forge::VpcIsolationBehaviorType::VpcIsolationOpen => false,
         },
 
         network_security_policy_override_rules,
@@ -376,8 +373,7 @@ pub async fn update_nvue(
         ct_l3_vni: nc.vpc_vni,
         ct_vrf_loopback: "FNN".to_string(),
         l3_domains: vec![],
-        ct_routing_profile: if nc.network_virtualization_type()
-            == ::rpc::forge::VpcVirtualizationType::Fnn
+        ct_routing_profile: if nc.network_virtualization_type() == forge::VpcVirtualizationType::Fnn
             && nc.routing_profile.is_none()
         {
             return Err(eyre::eyre!(
@@ -474,7 +470,7 @@ pub async fn update_nvue(
 
 // Update internal bridge configuration for traffic-intercept routing and bridging.
 pub async fn update_traffic_intercept_bridging(
-    nc: &rpc::ManagedHostNetworkConfigResponse,
+    nc: &forge::ManagedHostNetworkConfigResponse,
     skip_post: bool,
 ) -> eyre::Result<bool> {
     let (bridge_config, secondary_overlay_vtep_ip) = match nc
@@ -742,7 +738,7 @@ async fn stop_dhcp_via_grpc(grpc_addr: &str) -> eyre::Result<bool> {
 /// path) so callers can treat both paths uniformly.
 async fn update_dhcp_via_grpc(
     grpc_addr: &str,
-    network_config: &rpc::ManagedHostNetworkConfigResponse,
+    network_config: &forge::ManagedHostNetworkConfigResponse,
     service_addrs: &ServiceAddresses,
     hbn_device_names: HBNDeviceNames,
 ) -> eyre::Result<bool> {
@@ -820,7 +816,7 @@ async fn update_dhcp_via_grpc(
 /// already up-to-date.
 pub async fn update_dhcp(
     hbn_root: &Path,
-    network_config: &rpc::ManagedHostNetworkConfigResponse,
+    network_config: &forge::ManagedHostNetworkConfigResponse,
     // if true don't run the reload/restart commands after file update
     skip_post: bool,
     service_addrs: &ServiceAddresses,
@@ -883,15 +879,15 @@ pub async fn update_dhcp(
 
 /// Interfaces to report back to server
 pub async fn interfaces(
-    network_config: &rpc::ManagedHostNetworkConfigResponse,
+    network_config: &forge::ManagedHostNetworkConfigResponse,
     factory_mac_address: MacAddress,
-) -> eyre::Result<Vec<rpc::InstanceInterfaceStatusObservation>> {
+) -> eyre::Result<Vec<forge::InstanceInterfaceStatusObservation>> {
     let mut interfaces = vec![];
     if network_config.use_admin_network {
         let Some(iface) = network_config.admin_interface.as_ref() else {
             eyre::bail!("use_admin_network is true but admin interface is missing");
         };
-        interfaces.push(rpc::InstanceInterfaceStatusObservation {
+        interfaces.push(forge::InstanceInterfaceStatusObservation {
             function_type: iface.function_type,
             virtual_function_id: None,
             mac_address: Some(factory_mac_address.to_string()),
@@ -906,7 +902,7 @@ pub async fn interfaces(
         let fdb = if network_config
             .tenant_interfaces
             .iter()
-            .any(|iface| iface.function_type == rpc::InterfaceFunctionType::Virtual as i32)
+            .any(|iface| iface.function_type == forge::InterfaceFunctionType::Virtual as i32)
         {
             let fdb_json = hbn::run_in_container(
                 &hbn::get_hbn_container_id().await?,
@@ -920,7 +916,7 @@ pub async fn interfaces(
         };
 
         for iface in network_config.tenant_interfaces.iter() {
-            let mac = if iface.function_type == rpc::InterfaceFunctionType::Physical as i32 {
+            let mac = if iface.function_type == forge::InterfaceFunctionType::Physical as i32 {
                 Some(factory_mac_address.to_string())
             } else {
                 match fdb.get(&iface.vlan_id) {
@@ -941,21 +937,19 @@ pub async fn interfaces(
                 }
             };
 
-            let network_security_group =
-                iface
-                    .network_security_group
-                    .as_ref()
-                    .map(|nsg| rpc::NetworkSecurityGroupStatus {
-                        id: nsg.id.clone(),
-                        // If a network security group was set, then this
-                        // field must be be a valid non-default value.
-                        // The default value will be (correctly) rejected by
-                        // the server.
-                        source: nsg.source().into(),
-                        version: nsg.version.clone(),
-                    });
+            let network_security_group = iface.network_security_group.as_ref().map(|nsg| {
+                forge::NetworkSecurityGroupStatus {
+                    id: nsg.id.clone(),
+                    // If a network security group was set, then this
+                    // field must be be a valid non-default value.
+                    // The default value will be (correctly) rejected by
+                    // the server.
+                    source: nsg.source().into(),
+                    version: nsg.version.clone(),
+                }
+            });
 
-            interfaces.push(rpc::InstanceInterfaceStatusObservation {
+            interfaces.push(forge::InstanceInterfaceStatusObservation {
                 function_type: iface.function_type,
                 virtual_function_id: iface.virtual_function_id,
                 mac_address: mac,
@@ -970,7 +964,7 @@ pub async fn interfaces(
     Ok(interfaces)
 }
 
-pub fn tenant_peers(network_config: &rpc::ManagedHostNetworkConfigResponse) -> Vec<&str> {
+pub fn tenant_peers(network_config: &forge::ManagedHostNetworkConfigResponse) -> Vec<&str> {
     network_config
         .tenant_interfaces
         .iter()
@@ -1038,7 +1032,7 @@ pub async fn reset(hbn_root: &Path, skip_post: bool) {
 fn write_dhcp_v4_server_config(
     dhcp_relay_path: &FPath,
     dhcp_server_path: &DhcpServerPaths,
-    nc: &rpc::ManagedHostNetworkConfigResponse,
+    nc: &forge::ManagedHostNetworkConfigResponse,
     service_addrs: &ServiceAddresses,
     hbn_device_names: &HBNDeviceNames,
 ) -> eyre::Result<bool> {
@@ -1061,7 +1055,7 @@ fn write_dhcp_v4_server_config(
         let mut interfaces = Vec::with_capacity(nc.tenant_interfaces.len());
         for interface in &nc.tenant_interfaces {
             let interface_name = if nc.network_virtualization_type()
-                == ::rpc::forge::VpcVirtualizationType::Fnn
+                == forge::VpcVirtualizationType::Fnn
                 && !interface.is_l2_segment
             {
                 if interface.function_type() == InterfaceFunctionType::Physical {
@@ -1490,10 +1484,10 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::str::FromStr;
 
-    use ::rpc::{common as rpc_common, forge as rpc};
-    use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
     use eyre::WrapErr;
     use ipnetwork::IpNetwork;
+    use nico_network::virtualization::{VpcVirtualizationType, get_svi_ip};
+    use nico_rpc::{common as rpc_common, forge};
     use utils::models::dhcp::{DhcpConfig, HostConfig};
 
     use super::FPath;
@@ -1503,7 +1497,7 @@ mod tests {
     use crate::{HBNDeviceNames, dhcp, nvue};
     #[ctor::ctor]
     fn setup() {
-        carbide_host_support::init_logging().unwrap();
+        nico_host_support::init_logging().unwrap();
     }
 
     #[test]
@@ -1600,8 +1594,8 @@ mod tests {
             let mut cfg = netconf(virtualization_type, 32, 24, true, None, false, false);
             match cfg.managed_host_config.as_mut() {
                 Some(c) => {
-                    c.quarantine_state = Some(rpc::ManagedHostQuarantineState {
-                        mode: rpc::ManagedHostQuarantineMode::BlockAllTraffic.into(),
+                    c.quarantine_state = Some(forge::ManagedHostQuarantineState {
+                        mode: forge::ManagedHostQuarantineMode::BlockAllTraffic.into(),
                         reason: Some("test".to_string()),
                     })
                 }
@@ -1647,8 +1641,8 @@ mod tests {
             let mut cfg = netconf(virtualization_type, 32, 24, true, None, false, false);
             match cfg.managed_host_config.as_mut() {
                 Some(c) => {
-                    c.quarantine_state = Some(rpc::ManagedHostQuarantineState {
-                        mode: rpc::ManagedHostQuarantineMode::BlockAllTraffic.into(),
+                    c.quarantine_state = Some(forge::ManagedHostQuarantineState {
+                        mode: forge::ManagedHostQuarantineMode::BlockAllTraffic.into(),
                         reason: Some("test".to_string()),
                     })
                 }
@@ -1959,12 +1953,12 @@ mod tests {
         site_global_vpc_vni: Option<u32>,
         second_interface_l2: bool,
         include_network_host_route_and_default_leaking: bool,
-    ) -> rpc::ManagedHostNetworkConfigResponse {
+    ) -> forge::ManagedHostNetworkConfigResponse {
         // The config we received from API server
         // Admin won't be used
         let admin_interface_prefix: IpNetwork = "10.217.5.123/32".parse().unwrap();
-        let admin_interface = rpc::FlatInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical.into(),
+        let admin_interface = forge::FlatInterfaceConfig {
+            function_type: forge::InterfaceFunctionType::Physical.into(),
             virtual_function_id: None,
             vlan_id: 1,
             vni: 1001,
@@ -2006,8 +2000,8 @@ mod tests {
             }
         };
         let tenant_interfaces = vec![
-            rpc::FlatInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual.into(),
+            forge::FlatInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Virtual.into(),
                 virtual_function_id: Some(0),
                 vlan_id: 196,
                 vni: 1025196,
@@ -2035,8 +2029,8 @@ mod tests {
                 internal_uuid: None,
                 mtu: None,
             },
-            rpc::FlatInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical.into(),
+            forge::FlatInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical.into(),
                 virtual_function_id: None,
                 vlan_id: 185,
                 vni: 1025185,
@@ -2063,141 +2057,141 @@ mod tests {
                 network_security_group: if !include_network_security_group {
                     None
                 } else {
-                    Some(rpc::FlatInterfaceNetworkSecurityGroupConfig {
+                    Some(forge::FlatInterfaceNetworkSecurityGroupConfig {
                     id: "5b931164-d9c6-11ef-8292-232e57575621".to_string(),
                     version: "V1-1".to_string(),
-                    source: rpc::NetworkSecurityGroupSource::NsgSourceVpc.into(),
+                    source: forge::NetworkSecurityGroupSource::NsgSourceVpc.into(),
                     stateful_egress: true,
-                    rules: vec![rpc::ResolvedNetworkSecurityGroupRule {
+                    rules: vec![forge::ResolvedNetworkSecurityGroupRule {
                         src_prefixes: vec!["0.0.0.0/0".to_string()],
                         dst_prefixes: vec!["1.0.0.0/0".to_string()],
-                        rule: Some(rpc::NetworkSecurityGroupRuleAttributes {
+                        rule: Some(forge::NetworkSecurityGroupRuleAttributes {
                             id: Some("anything".to_string()),
-                            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
                                 .into(),
                             ipv6: false,
                             src_port_start: Some(80),
                             src_port_end: Some(81),
                             dst_port_start: Some(80),
                             dst_port_end: Some(81),
-                            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                             priority: 9001,
                             source_net: Some(
-                                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                                     "0.0.0.0/0".to_string(),
                                 ),
                             ),
                             destination_net: Some(
-                                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                                     "0.0.0.0/0".to_string(),
                                 ),
                             ),
                         }),
                     },
-                    rpc::ResolvedNetworkSecurityGroupRule {
+                    forge::ResolvedNetworkSecurityGroupRule {
                         src_prefixes: vec!["0.0.0.0/0".to_string()],
                         dst_prefixes: vec!["1.0.0.0/0".to_string()],
-                        rule: Some(rpc::NetworkSecurityGroupRuleAttributes {
+                        rule: Some(forge::NetworkSecurityGroupRuleAttributes {
                             id: Some("anything".to_string()),
-                            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
+                            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
                                 .into(),
                             ipv6: false,
                             src_port_start: Some(80),
                             src_port_end: Some(81),
                             dst_port_start: Some(80),
                             dst_port_end: Some(81),
-                            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                             priority: 9001,
                             source_net: Some(
-                                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                                     "1.0.0.0/0".to_string(),
                                 ),
                             ),
                             destination_net: Some(
-                                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                                     "1.0.0.0/0".to_string(),
                                 ),
                             ),
                         }),
                     },
-                    rpc::ResolvedNetworkSecurityGroupRule {
+                    forge::ResolvedNetworkSecurityGroupRule {
                         src_prefixes: vec!["0.0.0.0/0".to_string()],
                         dst_prefixes: vec!["1.0.0.0/0".to_string()],
-                        rule: Some(rpc::NetworkSecurityGroupRuleAttributes {
+                        rule: Some(forge::NetworkSecurityGroupRuleAttributes {
                             id: Some("anything".to_string()),
-                            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
+                            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
                                 .into(),
                             ipv6: false,
                             src_port_start: None,
                             src_port_end: None,
                             dst_port_start: Some(8080),
                             dst_port_end: Some(8080),
-                            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                             priority: 9001,
                             source_net: Some(
-                                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                                     "1.0.0.0/0".to_string(),
                                 ),
                             ),
                             destination_net: Some(
-                                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                                     "1.0.0.0/0".to_string(),
                                 ),
                             ),
                         }),
                     },
-                    rpc::ResolvedNetworkSecurityGroupRule {
+                    forge::ResolvedNetworkSecurityGroupRule {
                         src_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:8888/128".to_string()],
                         dst_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:9999/128".to_string()],
-                        rule: Some(rpc::NetworkSecurityGroupRuleAttributes {
+                        rule: Some(forge::NetworkSecurityGroupRuleAttributes {
                             id: Some("anything".to_string()),
-                            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
                                 .into(),
                             ipv6: true,
                             src_port_start: Some(80),
                             src_port_end: Some(81),
                             dst_port_start: Some(80),
                             dst_port_end: Some(81),
-                            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                             priority: 9001,
                             source_net: Some(
-                                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                                     "2001:db8:3333:4444:5555:6666:7777:8888/128".to_string(),
                                 ),
                             ),
                             destination_net: Some(
-                                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                                     "2001:db8:3333:4444:5555:6666:7777:9999/128".to_string(),
                                 ),
                             ),
                         }),
                     },
-                    rpc::ResolvedNetworkSecurityGroupRule {
+                    forge::ResolvedNetworkSecurityGroupRule {
                         src_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:8888/128".to_string()],
                         dst_prefixes: vec!["2001:db8:3333:4444:5555:6666:7777:9999/128".to_string()],
-                        rule: Some(rpc::NetworkSecurityGroupRuleAttributes {
+                        rule: Some(forge::NetworkSecurityGroupRuleAttributes {
                             id: Some("anything".to_string()),
-                            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
+                            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
                                 .into(),
                             ipv6: true,
                             src_port_start: Some(80),
                             src_port_end: Some(81),
                             dst_port_start: Some(80),
                             dst_port_end: Some(81),
-                            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                             priority: 9001,
                             source_net: Some(
-                                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                                     "2001:db8:3333:4444:5555:6666:7777:8888/128".to_string(),
                                 ),
                             ),
                             destination_net: Some(
-                                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                                     "2001:db8:3333:4444:5555:6666:7777:9999/128".to_string(),
                                 ),
                             ),
@@ -2224,11 +2218,11 @@ mod tests {
             tenant_interfaces[1].svi_ip
         );
 
-        let netconf = rpc::ManagedHostNetworkConfig {
+        let netconf = forge::ManagedHostNetworkConfig {
             loopback_ip: "10.217.5.39".to_string(),
             quarantine_state: None,
         };
-        rpc::ManagedHostNetworkConfigResponse {
+        forge::ManagedHostNetworkConfigResponse {
             asn: 4259912557,
             datacenter_asn: 11414,
             site_global_vpc_vni,
@@ -2242,7 +2236,7 @@ mod tests {
                 asn: 11111,
                 vni: 22222,
             }],
-            routing_profile: Some(rpc::RoutingProfile {
+            routing_profile: Some(forge::RoutingProfile {
                 leak_default_route_from_underlay: include_network_host_route_and_default_leaking,
                 leak_tenant_host_routes_to_underlay: include_network_host_route_and_default_leaking,
                 route_target_imports: vec![rpc_common::RouteTarget {
@@ -2254,28 +2248,28 @@ mod tests {
                     vni: 800,
                 }],
             }),
-            network_security_policy_overrides: vec![rpc::ResolvedNetworkSecurityGroupRule {
+            network_security_policy_overrides: vec![forge::ResolvedNetworkSecurityGroupRule {
                 src_prefixes: vec!["7.7.7.0/24".to_string()],
                 dst_prefixes: vec!["7.7.7.0/24".to_string()],
-                rule: Some(rpc::NetworkSecurityGroupRuleAttributes {
+                rule: Some(forge::NetworkSecurityGroupRuleAttributes {
                     id: Some("anything".to_string()),
-                    direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                    direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
                         .into(),
                     ipv6: false,
                     src_port_start: Some(80),
                     src_port_end: Some(81),
                     dst_port_start: Some(80),
                     dst_port_end: Some(81),
-                    protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                    action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                    protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                    action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                     priority: 0,
                     source_net: Some(
-                        rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                        forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                             "0.0.0.0/0".to_string(),
                         ),
                     ),
                     destination_net: Some(
-                        rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                             "0.0.0.0/0".to_string(),
                         ),
                     ),
@@ -2292,8 +2286,8 @@ mod tests {
             use_admin_network: false,
             admin_interface: Some(admin_interface),
 
-            traffic_intercept_config: Some(rpc::TrafficInterceptConfig {
-                bridging: Some(rpc::TrafficInterceptBridging {
+            traffic_intercept_config: Some(forge::TrafficInterceptConfig {
+                bridging: Some(forge::TrafficInterceptBridging {
                     vf_intercept_bridge_port: "dpuVf0mg".to_string(),
                     host_intercept_bridge_port: "dpuVf1mg".to_string(),
                     host_intercept_bridge_name: "br-host".to_string(),
@@ -2326,7 +2320,7 @@ mod tests {
             site_fabric_prefixes: vec!["10.217.0.0/16".into()],
             deprecated_deny_prefixes: vec![],
             enable_dhcp: true,
-            vpc_isolation_behavior: rpc::VpcIsolationBehaviorType::VpcIsolationMutual.into(),
+            vpc_isolation_behavior: forge::VpcIsolationBehaviorType::VpcIsolationMutual.into(),
             host_interface_id: Some("60cef902-9779-4666-8362-c9bb4b37185f".to_string()),
             is_primary_dpu: true,
             min_dpu_functioning_links: None,
@@ -2593,8 +2587,8 @@ mod tests {
         // The config we received from API server
         // Admin won't be used
         let admin_interface_prefix: IpNetwork = "10.217.5.123/32".parse().unwrap();
-        let admin_interface = rpc::FlatInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical.into(),
+        let admin_interface = forge::FlatInterfaceConfig {
+            function_type: forge::InterfaceFunctionType::Physical.into(),
             virtual_function_id: None,
             vlan_id: 1,
             vni: 1001,
@@ -2626,8 +2620,8 @@ mod tests {
         let svi_ip: IpAddr = IpAddr::from_str("10.217.5.2").unwrap();
 
         let tenant_interfaces = vec![
-            rpc::FlatInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual.into(),
+            forge::FlatInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Virtual.into(),
                 virtual_function_id: Some(0),
                 vlan_id: 196,
                 vni: 1025196,
@@ -2650,8 +2644,8 @@ mod tests {
                 internal_uuid: None,
                 mtu: None,
             },
-            rpc::FlatInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical.into(),
+            forge::FlatInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical.into(),
                 virtual_function_id: None,
                 vlan_id: 185,
                 vni: 1025185,
@@ -2682,7 +2676,7 @@ mod tests {
         );
         assert_eq!(tenant_interfaces[1].svi_ip, None);
 
-        let netconf = rpc::ManagedHostNetworkConfig {
+        let netconf = forge::ManagedHostNetworkConfig {
             loopback_ip: "10.217.5.39".to_string(),
             quarantine_state: None,
         };
@@ -2702,7 +2696,7 @@ mod tests {
             carbide_dhcp_server: Ipv4Addr::from([10, 217, 5, 39]),
         };
 
-        let mut network_config = rpc::ManagedHostNetworkConfigResponse {
+        let mut network_config = forge::ManagedHostNetworkConfigResponse {
             site_global_vpc_vni: None,
             asn: 4259912557,
             datacenter_asn: 11414,
@@ -2717,7 +2711,7 @@ mod tests {
 
             anycast_site_prefixes: vec!["5.255.255.0/24".to_string()],
             tenant_host_asn: Some(65100),
-            routing_profile: Some(rpc::RoutingProfile {
+            routing_profile: Some(forge::RoutingProfile {
                 leak_default_route_from_underlay: false,
                 leak_tenant_host_routes_to_underlay: false,
                 route_target_imports: vec![rpc_common::RouteTarget {
@@ -2759,7 +2753,7 @@ mod tests {
             route_servers: vec!["172.43.0.1".to_string(), "172.43.0.2".to_string()],
             deny_prefixes: vec!["192.0.2.0/24".into(), "198.51.100.0/24".into()],
             site_fabric_prefixes: vec!["10.217.0.0/16".into()],
-            vpc_isolation_behavior: rpc::VpcIsolationBehaviorType::VpcIsolationMutual.into(),
+            vpc_isolation_behavior: forge::VpcIsolationBehaviorType::VpcIsolationMutual.into(),
             deprecated_deny_prefixes: vec![],
             enable_dhcp: true,
             host_interface_id: Some("60cef902-9779-4666-8362-c9bb4b37185f".to_string()),
@@ -2912,11 +2906,11 @@ mod tests {
     // IPv6-only environment, which would be really impressive.
     #[test]
     fn test_dhcp_server_config_errors_without_ipv4_pxe() -> Result<(), Box<dyn std::error::Error>> {
-        let netconf = rpc::ManagedHostNetworkConfig {
+        let netconf = forge::ManagedHostNetworkConfig {
             loopback_ip: "10.217.5.39".to_string(),
             quarantine_state: None,
         };
-        let network_config = rpc::ManagedHostNetworkConfigResponse {
+        let network_config = forge::ManagedHostNetworkConfigResponse {
             site_global_vpc_vni: None,
             asn: 4259912557,
             datacenter_asn: 11414,
@@ -2943,7 +2937,7 @@ mod tests {
             route_servers: vec![],
             deny_prefixes: vec![],
             site_fabric_prefixes: vec![],
-            vpc_isolation_behavior: rpc::VpcIsolationBehaviorType::VpcIsolationMutual.into(),
+            vpc_isolation_behavior: forge::VpcIsolationBehaviorType::VpcIsolationMutual.into(),
             deprecated_deny_prefixes: vec![],
             enable_dhcp: true,
             host_interface_id: None,

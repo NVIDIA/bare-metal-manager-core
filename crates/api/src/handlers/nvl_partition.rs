@@ -14,8 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
-use db::{ObjectColumnFilter, nvl_partition};
+use nico_api_db::{ObjectColumnFilter, nvl_partition};
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -23,29 +23,32 @@ use crate::api::{Api, log_request_data, log_tenant_organization_id};
 
 pub(crate) async fn find_ids(
     api: &Api,
-    request: Request<rpc::NvLinkPartitionSearchFilter>,
-) -> Result<Response<rpc::NvLinkPartitionIdList>, Status> {
+    request: Request<forge::NvLinkPartitionSearchFilter>,
+) -> Result<Response<forge::NvLinkPartitionIdList>, Status> {
     log_request_data(&request);
 
-    let rpc_filter: rpc::NvLinkPartitionSearchFilter = request.into_inner();
+    let rpc_filter: forge::NvLinkPartitionSearchFilter = request.into_inner();
 
     if let Some(ref tenant_org_id_str) = rpc_filter.tenant_organization_id {
         log_tenant_organization_id(tenant_org_id_str);
     }
 
-    let filter: model::nvl_partition::NvLinkPartitionSearchFilter = rpc_filter.into();
-    let partition_ids = db::nvl_partition::find_ids(&api.database_connection, filter).await?;
+    let filter: nico_api_model::nvl_partition::NvLinkPartitionSearchFilter = rpc_filter.into();
+    let partition_ids =
+        nico_api_db::nvl_partition::find_ids(&api.database_connection, filter).await?;
 
-    Ok(Response::new(rpc::NvLinkPartitionIdList { partition_ids }))
+    Ok(Response::new(forge::NvLinkPartitionIdList {
+        partition_ids,
+    }))
 }
 
 pub(crate) async fn find_by_ids(
     api: &Api,
-    request: Request<rpc::NvLinkPartitionsByIdsRequest>,
-) -> Result<Response<rpc::NvLinkPartitionList>, Status> {
+    request: Request<forge::NvLinkPartitionsByIdsRequest>,
+) -> Result<Response<forge::NvLinkPartitionList>, Status> {
     log_request_data(&request);
 
-    let rpc::NvLinkPartitionsByIdsRequest { partition_ids, .. } = request.into_inner();
+    let forge::NvLinkPartitionsByIdsRequest { partition_ids, .. } = request.into_inner();
 
     let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
     if partition_ids.len() > max_find_by_ids {
@@ -59,7 +62,7 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let partitions = db::nvl_partition::find_by(
+    let partitions = nico_api_db::nvl_partition::find_by(
         &api.database_connection,
         ObjectColumnFilter::List(nvl_partition::IdColumn, &partition_ids),
     )
@@ -69,18 +72,18 @@ pub(crate) async fn find_by_ids(
     for ibp in partitions {
         result.push(ibp.try_into()?);
     }
-    Ok(Response::new(rpc::NvLinkPartitionList {
+    Ok(Response::new(forge::NvLinkPartitionList {
         partitions: result,
     }))
 }
 
 pub(crate) async fn for_tenant(
     api: &Api,
-    request: Request<rpc::TenantSearchQuery>,
-) -> Result<Response<rpc::NvLinkPartitionList>, Status> {
+    request: Request<forge::TenantSearchQuery>,
+) -> Result<Response<forge::NvLinkPartitionList>, Status> {
     log_request_data(&request);
 
-    let rpc::TenantSearchQuery {
+    let forge::TenantSearchQuery {
         tenant_organization_id,
     } = request.into_inner();
 
@@ -94,7 +97,7 @@ pub(crate) async fn for_tenant(
     log_tenant_organization_id(&tenant_org_id_str);
 
     let results =
-        db::nvl_partition::for_tenant(&api.database_connection, tenant_org_id_str).await?;
+        nico_api_db::nvl_partition::for_tenant(&api.database_connection, tenant_org_id_str).await?;
 
     let mut partitions = Vec::with_capacity(results.len());
 
@@ -102,13 +105,13 @@ pub(crate) async fn for_tenant(
         partitions.push(result.try_into()?);
     }
 
-    Ok(Response::new(rpc::NvLinkPartitionList { partitions }))
+    Ok(Response::new(forge::NvLinkPartitionList { partitions }))
 }
 
 pub(crate) async fn nmxm_browse(
     api: &Api,
-    request: Request<rpc::NmxmBrowseRequest>,
-) -> Result<tonic::Response<rpc::NmxmBrowseResponse>, Status> {
+    request: Request<forge::NmxmBrowseRequest>,
+) -> Result<tonic::Response<forge::NmxmBrowseResponse>, Status> {
     log_request_data(&request);
 
     let request = request.into_inner();
@@ -127,7 +130,7 @@ pub(crate) async fn nmxm_browse(
             .await
             .map_err(|e| CarbideError::internal(format!("Failed to get raw response: {e}")))?;
 
-        Ok(tonic::Response::new(::rpc::forge::NmxmBrowseResponse {
+        Ok(tonic::Response::new(forge::NmxmBrowseResponse {
             body: response.body,
             code: response.code.into(),
             headers: response

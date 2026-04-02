@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge::BmcEndpointRequest;
 use mac_address::MacAddress;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::forge::BmcEndpointRequest;
 
 use crate::rpc::ApiClient;
 

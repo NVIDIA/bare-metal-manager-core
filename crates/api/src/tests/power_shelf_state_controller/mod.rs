@@ -20,10 +20,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use carbide_uuid::power_shelf::PowerShelfId;
-use db::power_shelf as db_power_shelf;
-use model::power_shelf::{PowerShelf, PowerShelfControllerState};
-use rpc::forge::forge_server::Forge;
+use nico_api_db::power_shelf as db_power_shelf;
+use nico_api_model::power_shelf::{PowerShelf, PowerShelfControllerState};
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::power_shelf::PowerShelfId;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -39,6 +39,7 @@ use crate::tests::common::api_fixtures::create_test_env;
 
 mod fixtures;
 use fixtures::power_shelf::{mark_power_shelf_as_deleted, set_power_shelf_controller_state};
+use nico_rpc::forge;
 
 use crate::state_controller::common_services::CommonStateHandlerServices;
 
@@ -219,7 +220,7 @@ async fn test_power_shelf_deletion_flow(
     );
 
     // Delete the power shelf
-    let delete_request = rpc::forge::PowerShelfDeletionRequest {
+    let delete_request = forge::PowerShelfDeletionRequest {
         id: Some(power_shelf_id),
     };
 

@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::dpa_interface::DpaInterfaceId;
 use config_version::ConfigVersion;
-use model::dpa_interface::{DpaInterfaceControllerState, DpaInterfaceStateHistoryRecord};
+use nico_api_model::dpa_interface::{DpaInterfaceControllerState, DpaInterfaceStateHistoryRecord};
+use nico_uuid::dpa_interface::DpaInterfaceId;
 use sqlx::PgConnection;
 
 use super::DatabaseError;

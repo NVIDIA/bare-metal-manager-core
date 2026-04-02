@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-prost-builder"
+name = "nico-prost-builder"
 version = "0.1.0"
 description = "Define derive procmacro for builder for prost types"
 edition.workspace = true

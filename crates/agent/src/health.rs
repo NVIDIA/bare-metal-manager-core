@@ -21,7 +21,7 @@ use std::path::Path;
 use std::str::FromStr;
 use std::time::Duration;
 
-use health_report::HealthProbeId;
+use nico_health_report::HealthProbeId;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
 
@@ -46,7 +46,7 @@ const DHCP_SERVER_SERVICE: &str = "forge-dhcp-server-default";
 const MAX_DISK_UTILIZATION: u32 = 85;
 
 fn failed(
-    health_report: &mut health_report::HealthReport,
+    health_report: &mut nico_health_report::HealthReport,
     probe_id: impl Into<HealthProbeId>,
     probe_target: Option<String>,
     message: String,
@@ -61,15 +61,15 @@ fn make_alert(
     probe_target: Option<String>,
     message: String,
     is_critical: bool,
-) -> health_report::HealthProbeAlert {
+) -> nico_health_report::HealthProbeAlert {
     let classifications = match is_critical {
         true => vec![
-            health_report::HealthAlertClassification::prevent_allocations(),
-            health_report::HealthAlertClassification::prevent_host_state_changes(),
+            nico_health_report::HealthAlertClassification::prevent_allocations(),
+            nico_health_report::HealthAlertClassification::prevent_host_state_changes(),
         ],
         false => vec![],
     };
-    health_report::HealthProbeAlert {
+    nico_health_report::HealthProbeAlert {
         id: probe_id.into(),
         target: probe_target,
         in_alert_since: None,
@@ -80,20 +80,20 @@ fn make_alert(
 }
 
 fn passed(
-    health_report: &mut health_report::HealthReport,
+    health_report: &mut nico_health_report::HealthReport,
     probe_id: impl Into<HealthProbeId>,
     probe_target: Option<String>,
 ) {
     health_report
         .successes
-        .push(health_report::HealthProbeSuccess {
+        .push(nico_health_report::HealthProbeSuccess {
             id: probe_id.into(),
             target: probe_target,
         })
 }
 
 /// Is enough of HBN ready so that we can configure it?
-pub fn is_up(health_report: &health_report::HealthReport) -> bool {
+pub fn is_up(health_report: &nico_health_report::HealthReport) -> bool {
     let has_failed_services = health_report
         .alerts
         .iter()
@@ -121,8 +121,8 @@ pub struct HealthCheckParams<'a> {
 }
 
 /// Check the health of HBN
-pub async fn health_check(params: HealthCheckParams<'_>) -> health_report::HealthReport {
-    let mut hr = health_report::HealthReport::empty("forge-dpu-agent".to_string());
+pub async fn health_check(params: HealthCheckParams<'_>) -> nico_health_report::HealthReport {
+    let mut hr = nico_health_report::HealthReport::empty("forge-dpu-agent".to_string());
 
     // Check whether the disk is full
     check_disk_utilization(&mut hr).await;
@@ -185,7 +185,7 @@ pub async fn health_check(params: HealthCheckParams<'_>) -> health_report::Healt
 
 // HBN processes should be running
 async fn check_hbn_services_running(
-    hr: &mut health_report::HealthReport,
+    hr: &mut nico_health_report::HealthReport,
     container_id: &str,
     expected_services: &[&str],
 ) {
@@ -241,7 +241,7 @@ async fn check_hbn_services_running(
 // Very similar to check_hbn_services_running, except it happens _after_ we start configuring.
 // The other services must be up before we start configuring.
 // Out of relay and dhcp server, only and only one should be up.
-async fn check_dhcp_server(hr: &mut health_report::HealthReport, container_id: &str) {
+async fn check_dhcp_server(hr: &mut nico_health_report::HealthReport, container_id: &str) {
     // `supervisorctl status` has exit code 3 if there are stopped processes (which we expect),
     // so final param is 'false' here.
     // https://github.com/Supervisor/supervisor/issues/1223
@@ -293,7 +293,7 @@ async fn check_dhcp_server(hr: &mut health_report::HealthReport, container_id: &
 }
 
 // `ifreload` should exit code 0 and have no output
-async fn check_ifreload(hr: &mut health_report::HealthReport, container_id: &str) {
+async fn check_ifreload(hr: &mut nico_health_report::HealthReport, container_id: &str) {
     match hbn::run_in_container(container_id, &["ifreload", "--all", "--syntax-check"], true).await
     {
         Ok(stdout) => {
@@ -312,7 +312,11 @@ async fn check_ifreload(hr: &mut health_report::HealthReport, container_id: &str
 }
 
 // The files VPC creates should exist
-fn check_files(hr: &mut health_report::HealthReport, hbn_root: &Path, expected_files: &[&str]) {
+fn check_files(
+    hr: &mut nico_health_report::HealthReport,
+    hbn_root: &Path,
+    expected_files: &[&str],
+) {
     const MIN_SIZE: u64 = 100;
     let mut dhcp_server_size = 0;
     for filename in expected_files {
@@ -378,7 +382,7 @@ fn check_files(hr: &mut health_report::HealthReport, hbn_root: &Path, expected_f
 }
 
 // A DPU should be in restricted mode
-async fn check_restricted_mode(hr: &mut health_report::HealthReport) {
+async fn check_restricted_mode(hr: &mut nico_health_report::HealthReport) {
     const EXPECTED_PRIV_LEVEL: &str = "RESTRICTED";
     let mut cmd = TokioCommand::new("bash");
     cmd.arg("-c")
@@ -464,7 +468,7 @@ fn parse_mlxprivhost(s: &str) -> eyre::Result<String> {
 }
 
 // Checks whether the disk is not full
-async fn check_disk_utilization(hr: &mut health_report::HealthReport) {
+async fn check_disk_utilization(hr: &mut nico_health_report::HealthReport) {
     let mut cmd = TokioCommand::new("bash");
     cmd.arg("-c").arg("df -HP");
     cmd.kill_on_drop(true);

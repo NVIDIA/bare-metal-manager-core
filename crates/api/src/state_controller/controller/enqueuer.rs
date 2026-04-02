@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::db::DatabaseError;
+use nico_api_db::DatabaseError;
 
 use super::db;
 use crate::state_controller::io::StateControllerIO;

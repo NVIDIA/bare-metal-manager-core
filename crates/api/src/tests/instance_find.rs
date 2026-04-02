@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
 use base64::prelude::*;
-use carbide_uuid::instance::InstanceId;
-use rpc::forge_server::Forge;
+use forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_uuid::instance::InstanceId;
 
 use crate::tests::common::api_fixtures::instance::default_tenant_config;
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
@@ -31,7 +31,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
     // Find an existing instance type in the test env
     let instance_type_id = env
         .api
-        .find_instance_type_ids(tonic::Request::new(rpc::FindInstanceTypeIdsRequest {}))
+        .find_instance_type_ids(tonic::Request::new(forge::FindInstanceTypeIdsRequest {}))
         .await
         .unwrap()
         .into_inner()
@@ -48,7 +48,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
             let _ = env
                 .api
                 .associate_machines_with_instance_type(tonic::Request::new(
-                    rpc::AssociateMachinesWithInstanceTypeRequest {
+                    forge::AssociateMachinesWithInstanceTypeRequest {
                         instance_type_id: instance_type_id.clone(),
                         machine_ids: vec![mh.id.to_string()],
                     },
@@ -63,10 +63,10 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         } else {
             mh.instance_builer(&env)
                 .single_interface_network_config(segment_id)
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: format!("instance_{i}{i}{i}").to_string(),
                     description: format!("instance_{i}{i}{i} with label").to_string(),
-                    labels: vec![rpc::Label {
+                    labels: vec![forge::Label {
                         key: "label_test_key".to_string(),
                         value: Some(format!("label_value_{i}").to_string()),
                     }],
@@ -76,7 +76,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         }
     }
     let mut txn = env.pool.begin().await.unwrap();
-    let vpc_id = db::network_segment::find_by_name(&mut txn, "TENANT")
+    let vpc_id = nico_api_db::network_segment::find_by_name(&mut txn, "TENANT")
         .await
         .unwrap()
         .vpc_id
@@ -84,13 +84,13 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
 
     // test_data contains a bunch of standard inputs thanks to the fact all
     // we need to do is call `find_instance_ids` over and over with different
-    // rpc::InstanceSearchFilter inputs, and includes the expected length
+    // forge::InstanceSearchFilter inputs, and includes the expected length
     // of results.
     let test_data = [
         // Test getting all IDs.
         (
             "request_all",
-            tonic::Request::new(rpc::InstanceSearchFilter {
+            tonic::Request::new(forge::InstanceSearchFilter {
                 label: None,
                 tenant_org_id: None,
                 vpc_id: None,
@@ -101,7 +101,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         // Test getting all based on instance type.
         (
             "request_instance_type_id",
-            tonic::Request::new(rpc::InstanceSearchFilter {
+            tonic::Request::new(forge::InstanceSearchFilter {
                 label: None,
                 tenant_org_id: None,
                 vpc_id: None,
@@ -112,8 +112,8 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         // Test getting IDs based on label key.
         (
             "request_label_key",
-            tonic::Request::new(rpc::InstanceSearchFilter {
-                label: Some(rpc::Label {
+            tonic::Request::new(forge::InstanceSearchFilter {
+                label: Some(forge::Label {
                     key: "label_test_key".to_string(),
                     value: None,
                 }),
@@ -126,8 +126,8 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         // Test getting IDs based on label value.
         (
             "request_label_value",
-            tonic::Request::new(rpc::InstanceSearchFilter {
-                label: Some(rpc::Label {
+            tonic::Request::new(forge::InstanceSearchFilter {
+                label: Some(forge::Label {
                     key: "".to_string(),
                     value: Some("label_value_1".to_string()),
                 }),
@@ -140,8 +140,8 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         // Test getting IDs based on label key and value.
         (
             "request_label_key_and_value",
-            tonic::Request::new(rpc::InstanceSearchFilter {
-                label: Some(rpc::Label {
+            tonic::Request::new(forge::InstanceSearchFilter {
+                label: Some(forge::Label {
                     key: "label_test_key".to_string(),
                     value: Some("label_value_3".to_string()),
                 }),
@@ -154,7 +154,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         // Test getting IDs based on tenant_org_id.
         (
             "request_tenant_org_id",
-            tonic::Request::new(rpc::InstanceSearchFilter {
+            tonic::Request::new(forge::InstanceSearchFilter {
                 label: None,
                 tenant_org_id: Some(default_tenant_config().tenant_organization_id),
                 vpc_id: None,
@@ -165,8 +165,8 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         // Test getting IDs based on tenant_org_id and label key.
         (
             "request_tenant_org_and_label_key",
-            tonic::Request::new(rpc::InstanceSearchFilter {
-                label: Some(rpc::Label {
+            tonic::Request::new(forge::InstanceSearchFilter {
+                label: Some(forge::Label {
                     key: "label_test_key".to_string(),
                     value: None,
                 }),
@@ -179,8 +179,8 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         // Test getting IDs based on tenant_org_id and label value.
         (
             "request_tenant_org_and_label_value",
-            tonic::Request::new(rpc::InstanceSearchFilter {
-                label: Some(rpc::Label {
+            tonic::Request::new(forge::InstanceSearchFilter {
+                label: Some(forge::Label {
                     key: "".to_string(),
                     value: Some("label_value_1".to_string()),
                 }),
@@ -193,8 +193,8 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         // Test getting IDs based on tenant_org_id and label key AND value.
         (
             "request_tenant_org_and_label_key_value",
-            tonic::Request::new(rpc::InstanceSearchFilter {
-                label: Some(rpc::Label {
+            tonic::Request::new(forge::InstanceSearchFilter {
+                label: Some(forge::Label {
                     key: "label_test_key".to_string(),
                     value: Some("label_value_1".to_string()),
                 }),
@@ -213,7 +213,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         // we can test multiple VPCs here (and other places).
         (
             "request_vpc_id_only",
-            tonic::Request::new(rpc::InstanceSearchFilter {
+            tonic::Request::new(forge::InstanceSearchFilter {
                 label: None,
                 tenant_org_id: None,
                 vpc_id: Some(vpc_id.to_string()),
@@ -224,8 +224,8 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         // Test getting IDs based on vpc_id and label key.
         (
             "request_vpc_id_and_label_key",
-            tonic::Request::new(rpc::InstanceSearchFilter {
-                label: Some(rpc::Label {
+            tonic::Request::new(forge::InstanceSearchFilter {
+                label: Some(forge::Label {
                     key: "label_test_key".to_string(),
                     value: None,
                 }),
@@ -238,8 +238,8 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         // Test getting IDs based on vpc_id and label key AND value.
         (
             "request_vpc_id_and_label_key_value",
-            tonic::Request::new(rpc::InstanceSearchFilter {
-                label: Some(rpc::Label {
+            tonic::Request::new(forge::InstanceSearchFilter {
+                label: Some(forge::Label {
                     key: "label_test_key".to_string(),
                     value: Some("label_value_1".to_string()),
                 }),
@@ -252,7 +252,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         // Test providing both vpc_id AND tenant_org_id.
         (
             "request_tenant_org_and_vpc_id",
-            tonic::Request::new(rpc::InstanceSearchFilter {
+            tonic::Request::new(forge::InstanceSearchFilter {
                 label: None,
                 tenant_org_id: Some(default_tenant_config().tenant_organization_id),
                 vpc_id: Some(vpc_id.to_string()),
@@ -264,8 +264,8 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
         // Getting really crazy now!
         (
             "request_label_and_tenant_org_and_vpc_id",
-            tonic::Request::new(rpc::InstanceSearchFilter {
-                label: Some(rpc::Label {
+            tonic::Request::new(forge::InstanceSearchFilter {
+                label: Some(forge::Label {
                     key: "label_test_key".to_string(),
                     value: None,
                 }),
@@ -308,10 +308,10 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
         } else {
             mh.instance_builer(&env)
                 .single_interface_network_config(segment_id)
-                .metadata(rpc::Metadata {
+                .metadata(forge::Metadata {
                     name: format!("instance_{i}{i}{i}").to_string(),
                     description: format!("instance_{i}{i}{i} with label").to_string(),
-                    labels: vec![rpc::Label {
+                    labels: vec![forge::Label {
                         key: "label_test_key".to_string(),
                         value: Some(format!("label_value_{i}").to_string()),
                     }],
@@ -321,8 +321,8 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
         }
     }
 
-    let request_ids = tonic::Request::new(rpc::InstanceSearchFilter {
-        label: Some(rpc::Label {
+    let request_ids = tonic::Request::new(forge::InstanceSearchFilter {
+        label: Some(forge::Label {
             key: "label_test_key".to_string(),
             value: None,
         }),
@@ -339,7 +339,7 @@ async fn test_find_instances_by_ids(pool: sqlx::PgPool) {
         .unwrap();
     assert_eq!(instance_id_list.instance_ids.len(), 5);
 
-    let request_instances = tonic::Request::new(rpc::InstancesByIdsRequest {
+    let request_instances = tonic::Request::new(forge::InstancesByIdsRequest {
         instance_ids: instance_id_list.instance_ids.clone(),
     });
 
@@ -375,7 +375,7 @@ async fn test_find_instances_by_ids_over_max(pool: sqlx::PgPool) {
         .map(|_| uuid::Uuid::new_v4().into())
         .collect();
 
-    let request = tonic::Request::new(rpc::InstancesByIdsRequest { instance_ids });
+    let request = tonic::Request::new(forge::InstancesByIdsRequest { instance_ids });
 
     let response = env.api.find_instances_by_ids(request).await;
     // validate
@@ -396,7 +396,7 @@ async fn test_find_instances_by_ids_over_max(pool: sqlx::PgPool) {
 async fn test_find_instances_by_ids_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
-    let request = tonic::Request::new(rpc::InstancesByIdsRequest::default());
+    let request = tonic::Request::new(forge::InstancesByIdsRequest::default());
 
     let response = env.api.find_instances_by_ids(request).await;
     // validate

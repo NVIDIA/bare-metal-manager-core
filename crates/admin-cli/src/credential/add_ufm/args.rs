@@ -16,8 +16,8 @@
  */
 
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::{CredentialType, forge as forgerpc};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::{CredentialType, forge};
 
 use crate::credential::common::url_validator;
 
@@ -30,7 +30,7 @@ pub struct Args {
     pub token: String,
 }
 
-impl TryFrom<Args> for forgerpc::CredentialCreationRequest {
+impl TryFrom<Args> for forge::CredentialCreationRequest {
     type Error = CarbideCliError;
     fn try_from(args: Args) -> CarbideCliResult<Self> {
         let username = url_validator(args.url)?;

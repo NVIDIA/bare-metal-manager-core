@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 
 use super::override_queue::{OverrideJob, OverrideQueue};
 use super::{CollectorEvent, DataSink, EventContext};

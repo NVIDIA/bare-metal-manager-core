@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use rpc::forge_server::Forge;
+use forge::forge_server::Forge;
+use nico_rpc::forge;
 
 use crate::cfg::file::IBFabricConfig;
 use crate::tests::common::api_fixtures::{self};
@@ -27,7 +27,7 @@ async fn test_find_ib_fabric_ids_disabled(pool: sqlx::PgPool) {
 
     let ids_all = env
         .api
-        .find_ib_fabric_ids(tonic::Request::new(rpc::IbFabricSearchFilter::default()))
+        .find_ib_fabric_ids(tonic::Request::new(forge::IbFabricSearchFilter::default()))
         .await
         .map(|response| response.into_inner())
         .unwrap();
@@ -50,7 +50,7 @@ async fn test_find_ib_fabric_ids_enabled(pool: sqlx::PgPool) {
 
     let ids_all = env
         .api
-        .find_ib_fabric_ids(tonic::Request::new(rpc::IbFabricSearchFilter::default()))
+        .find_ib_fabric_ids(tonic::Request::new(forge::IbFabricSearchFilter::default()))
         .await
         .map(|response| response.into_inner())
         .unwrap();

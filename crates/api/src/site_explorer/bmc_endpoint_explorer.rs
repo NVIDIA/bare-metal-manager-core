@@ -20,16 +20,20 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use forge_secrets::credentials::{CredentialManager, Credentials};
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
-use model::expected_machine::ExpectedMachine;
-use model::expected_power_shelf::ExpectedPowerShelf;
-use model::expected_switch::ExpectedSwitch;
-use model::machine::MachineInterfaceSnapshot;
-use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, LockdownStatus};
-use tokio::fs::{self, File};
+use nico_api_model::expected_machine::ExpectedMachine;
+use nico_api_model::expected_power_shelf::ExpectedPowerShelf;
+use nico_api_model::expected_switch::ExpectedSwitch;
+use nico_api_model::machine::MachineInterfaceSnapshot;
+use nico_api_model::site_explorer::{
+    EndpointExplorationError, EndpointExplorationReport, LockdownStatus,
+};
+use nico_secrets::credentials::{CredentialManager, Credentials};
+use tokio::fs::{
+    File, {self},
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep};
@@ -467,7 +471,7 @@ impl BmcEndpointExplorer {
         let (username, password) = match credentials {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
-        let rshim_status = forge_ssh::ssh::is_rshim_enabled(bmc_ip_address, username, password)
+        let rshim_status = nico_ssh::ssh::is_rshim_enabled(bmc_ip_address, username, password)
             .await
             .map_err(|err| EndpointExplorationError::Other {
                 details: format!("failed query RSHIM status on on {bmc_ip_address}: {err}"),
@@ -485,7 +489,7 @@ impl BmcEndpointExplorer {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
 
-        forge_ssh::ssh::enable_rshim(bmc_ip_address, username, password)
+        nico_ssh::ssh::enable_rshim(bmc_ip_address, username, password)
             .await
             .map_err(|err| EndpointExplorationError::Other {
                 details: format!("failed enable RSHIM on {bmc_ip_address}: {err}"),
@@ -605,7 +609,7 @@ impl BmcEndpointExplorer {
         self.check_and_enable_rshim(bmc_ip_address, &credentials)
             .await?;
 
-        forge_ssh::ssh::copy_bfb_to_bmc_rshim(
+        nico_ssh::ssh::copy_bfb_to_bmc_rshim(
             bmc_ip_address,
             username,
             password,

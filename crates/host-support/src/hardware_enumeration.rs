@@ -23,13 +23,13 @@ use std::path::Path;
 use std::process::Command;
 use std::str::Utf8Error;
 
-use ::rpc::machine_discovery as rpc_discovery;
 use ::utils::cmd::CmdError;
 use ::utils::models::arch::{CpuArchitecture, UnsupportedCpuArchitecture};
 use base64::prelude::*;
 use libudev::Device;
+use nico_rpc::machine_discovery as rpc_discovery;
+use nico_rpc::machine_discovery::MemoryDevice;
 use procfs::{CpuInfo, FromRead};
-use rpc::machine_discovery::MemoryDevice;
 use tracing::warn;
 use uname::uname;
 use utils::{BF2_PRODUCT_NAME, BF3_PRODUCT_NAME};

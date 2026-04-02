@@ -15,14 +15,14 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-health"
+name = "nico-health"
 version = "0.0.1"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [[bin]]
-# TODO: rename to carbide-hw-health
+# TODO: rename to nico-hw-health
 name = "forge-hw-health"
 path = "src/main.rs"
 
@@ -57,16 +57,16 @@ rand = { workspace = true }
 url = { workspace = true }
 
 # [local-dependencies]
-carbide-health-report = { path = "../health-report" }
-carbide-rpc = { path = "../rpc" }
-carbide-tls = { path = "../tls" }
-carbide-version = { path = "../version" }
-carbide-utils = { path = "../utils" }
-carbide-uuid = { path = "../uuid" }
+nico-health-report = { path = "../health-report" }
+nico-rpc = { path = "../rpc" }
+nico-tls = { path = "../tls" }
+nico-version = { path = "../version" }
+nico-utils = { path = "../utils" }
+nico-uuid = { path = "../uuid" }
 logfmt = { path = "../logfmt" }
 
 [build-dependencies]
-carbide-version = { path = "../version" }
+nico-version = { path = "../version" }
 
 [features]
 bench-hooks = []

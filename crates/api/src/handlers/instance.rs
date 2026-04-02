@@ -17,32 +17,33 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
-use carbide_uuid::infiniband::IBPartitionId;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
-use db::{DatabaseError, WithTransaction, extension_service, network_security_group};
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use futures_util::FutureExt;
-use health_report::{
-    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,
-};
 use itertools::Itertools as _;
-use model::ConfigValidationError;
-use model::instance::DeleteInstance;
-use model::instance::config::InstanceConfig;
-use model::instance::config::extension_services::InstanceExtensionServicesConfig;
-use model::instance::config::infiniband::InstanceInfinibandConfig;
-use model::instance::config::network::{InstanceNetworkConfig, NetworkDetails};
-use model::instance::config::nvlink::InstanceNvLinkConfig;
-use model::instance::config::tenant_config::TenantConfig;
-use model::instance::snapshot::InstanceSnapshot;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{
+use nico_api_db::{DatabaseError, WithTransaction, extension_service, network_security_group};
+use nico_api_model::ConfigValidationError;
+use nico_api_model::instance::DeleteInstance;
+use nico_api_model::instance::config::InstanceConfig;
+use nico_api_model::instance::config::extension_services::InstanceExtensionServicesConfig;
+use nico_api_model::instance::config::infiniband::InstanceInfinibandConfig;
+use nico_api_model::instance::config::network::{InstanceNetworkConfig, NetworkDetails};
+use nico_api_model::instance::config::nvlink::InstanceNvLinkConfig;
+use nico_api_model::instance::config::tenant_config::TenantConfig;
+use nico_api_model::instance::snapshot::InstanceSnapshot;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::{
     InstanceState, LoadSnapshotOptions, ManagedHostState, ManagedHostStateSnapshot,
 };
-use model::metadata::Metadata;
-use model::os::OperatingSystem;
+use nico_api_model::metadata::Metadata;
+use nico_api_model::os::OperatingSystem;
+use nico_health_report::{
+    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,
+};
+use nico_rpc::forge;
+use nico_rpc::forge::AdminForceDeleteMachineResponse;
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey};
+use nico_uuid::infiniband::IBPartitionId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
 use serde_json::json;
 use tonic::{Request, Response, Status};
 
@@ -100,8 +101,8 @@ impl FromStr for RepairStatus {
 
 pub(crate) async fn allocate(
     api: &Api,
-    request: Request<rpc::InstanceAllocationRequest>,
-) -> Result<Response<rpc::Instance>, Status> {
+    request: Request<forge::InstanceAllocationRequest>,
+) -> Result<Response<forge::Instance>, Status> {
     log_request_data(&request);
 
     let request = InstanceAllocationRequest::try_from(request.into_inner())?;
@@ -117,8 +118,8 @@ pub(crate) async fn allocate(
 
 pub(crate) async fn batch_allocate(
     api: &Api,
-    request: Request<rpc::BatchInstanceAllocationRequest>,
-) -> Result<Response<rpc::BatchInstanceAllocationResponse>, Status> {
+    request: Request<forge::BatchInstanceAllocationRequest>,
+) -> Result<Response<forge::BatchInstanceAllocationResponse>, Status> {
     log_request_data(&request);
 
     let batch_request = request.into_inner();
@@ -173,28 +174,28 @@ pub(crate) async fn batch_allocate(
         "Successfully allocated batch of instances"
     );
 
-    Ok(Response::new(rpc::BatchInstanceAllocationResponse {
+    Ok(Response::new(forge::BatchInstanceAllocationResponse {
         instances,
     }))
 }
 
 pub(crate) async fn find_ids(
     api: &Api,
-    request: Request<rpc::InstanceSearchFilter>,
-) -> Result<Response<rpc::InstanceIdList>, Status> {
+    request: Request<forge::InstanceSearchFilter>,
+) -> Result<Response<forge::InstanceIdList>, Status> {
     log_request_data(&request);
 
-    let filter: model::instance::InstanceSearchFilter = request.into_inner().into();
+    let filter: nico_api_model::instance::InstanceSearchFilter = request.into_inner().into();
 
-    let instance_ids = db::instance::find_ids(&api.database_connection, filter).await?;
+    let instance_ids = nico_api_db::instance::find_ids(&api.database_connection, filter).await?;
 
-    Ok(tonic::Response::new(rpc::InstanceIdList { instance_ids }))
+    Ok(tonic::Response::new(forge::InstanceIdList { instance_ids }))
 }
 
 pub(crate) async fn find_by_ids(
     api: &Api,
-    request: Request<rpc::InstancesByIdsRequest>,
-) -> Result<Response<rpc::InstanceList>, Status> {
+    request: Request<forge::InstancesByIdsRequest>,
+) -> Result<Response<forge::InstanceList>, Status> {
     log_request_data(&request);
 
     let instance_ids = request.into_inner().instance_ids;
@@ -213,7 +214,7 @@ pub(crate) async fn find_by_ids(
 
     let mut txn = api.txn_begin().await?;
 
-    let snapshots = db::managed_host::load_by_instance_ids(
+    let snapshots = nico_api_db::managed_host::load_by_instance_ids(
         &mut txn,
         instance_ids.as_ref(),
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
@@ -225,20 +226,20 @@ pub(crate) async fn find_by_ids(
     }
     let _ = txn.rollback().await;
 
-    Ok(Response::new(rpc::InstanceList { instances }))
+    Ok(Response::new(forge::InstanceList { instances }))
 }
 
 pub(crate) async fn find_by_machine_id(
     api: &Api,
     request: Request<MachineId>,
-) -> Result<Response<rpc::InstanceList>, Status> {
+) -> Result<Response<forge::InstanceList>, Status> {
     log_request_data(&request);
 
     let machine_id = convert_and_log_machine_id(Some(&request.into_inner()))?;
 
     let mut txn = api.txn_begin().await?;
 
-    let mh_snapshot = match db::managed_host::load_snapshot(
+    let mh_snapshot = match nico_api_db::managed_host::load_snapshot(
         &mut txn,
         &machine_id,
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
@@ -246,12 +247,12 @@ pub(crate) async fn find_by_machine_id(
     .await
     {
         Ok(Some(snapshot)) => snapshot,
-        Ok(None) => return Ok(Response::new(rpc::InstanceList { instances: vec![] })),
+        Ok(None) => return Ok(Response::new(forge::InstanceList { instances: vec![] })),
         Err(e) => return Err(CarbideError::from(e).into()),
     };
 
     let maybe_instance =
-        Option::<rpc::Instance>::try_from(mh_snapshot).map_err(CarbideError::from)?;
+        Option::<forge::Instance>::try_from(mh_snapshot).map_err(CarbideError::from)?;
 
     let instances = if let Some(instance) = maybe_instance {
         vec![instance]
@@ -259,7 +260,7 @@ pub(crate) async fn find_by_machine_id(
         vec![]
     };
 
-    let response = Response::new(rpc::InstanceList { instances });
+    let response = Response::new(forge::InstanceList { instances });
 
     txn.commit().await?;
 
@@ -268,7 +269,7 @@ pub(crate) async fn find_by_machine_id(
 
 /// Creates a TenantReportedIssue health override template with issue details
 fn create_tenant_reported_issue_override(
-    issue: &rpc::Issue,
+    issue: &forge::Issue,
     tenant_organization_id: &str,
 ) -> HealthReport {
     HealthReport {
@@ -279,7 +280,7 @@ fn create_tenant_reported_issue_override(
                 .expect("TenantReportedIssue is a valid non-empty HealthProbeId"),
             target: Some("tenant-reported".to_string()),
             message: json!({
-                "issue_category": format!("{:?}", rpc::IssueCategory::try_from(issue.category).unwrap_or(rpc::IssueCategory::Unspecified)),
+                "issue_category": format!("{:?}", forge::IssueCategory::try_from(issue.category).unwrap_or(forge::IssueCategory::Unspecified)),
                 "summary": issue.summary,
                 "details": issue.details,
                 "tenant_organization_id": tenant_organization_id
@@ -296,7 +297,7 @@ fn create_tenant_reported_issue_override(
 }
 
 /// Creates a RequestRepair health override template
-fn create_request_repair_override(issue: &rpc::Issue) -> HealthReport {
+fn create_request_repair_override(issue: &forge::Issue) -> HealthReport {
     HealthReport {
         source: "repair-request".to_string(),
         observed_at: Some(chrono::Utc::now()),
@@ -305,7 +306,7 @@ fn create_request_repair_override(issue: &rpc::Issue) -> HealthReport {
                 .expect("RequestRepair is a valid non-empty HealthProbeId"),
             target: Some("repair-requested".to_string()),
             message: json!({
-                "issue_category": format!("{:?}", rpc::IssueCategory::try_from(issue.category).unwrap_or(rpc::IssueCategory::Unspecified)),
+                "issue_category": format!("{:?}", forge::IssueCategory::try_from(issue.category).unwrap_or(forge::IssueCategory::Unspecified)),
                 "summary": issue.summary,
                 "details": issue.details
             }).to_string(),
@@ -330,7 +331,7 @@ async fn apply_health_override(
     override_report: &HealthReport,
     operation_desc: &str,
 ) -> Result<(), CarbideError> {
-    db::machine::insert_health_report_override(
+    nico_api_db::machine::insert_health_report_override(
         txn,
         machine_id,
         OverrideMode::Merge,
@@ -363,17 +364,22 @@ async fn remove_health_override(
     source: &str,
     operation_desc: &str,
 ) -> Result<(), CarbideError> {
-    db::machine::remove_health_report_override(txn, machine_id, OverrideMode::Merge, source)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                machine_id = %machine_id,
-                error = ?e,
-                operation = %operation_desc,
-                "Failed to remove health override"
-            );
-            CarbideError::from(e)
-        })?;
+    nico_api_db::machine::remove_health_report_override(
+        txn,
+        machine_id,
+        OverrideMode::Merge,
+        source,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(
+            machine_id = %machine_id,
+            error = ?e,
+            operation = %operation_desc,
+            "Failed to remove health override"
+        );
+        CarbideError::from(e)
+    })?;
 
     tracing::info!(
         machine_id = %machine_id,
@@ -407,8 +413,8 @@ async fn remove_health_override(
 async fn handle_instance_release_from_repair_tenant(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     machine_id: &MachineId,
-    issue: Option<&rpc::Issue>,
-    machine: &model::machine::Machine,
+    issue: Option<&forge::Issue>,
+    machine: &nico_api_model::machine::Machine,
     tenant_organization_id: &str,
 ) -> Result<(), CarbideError> {
     let has_request_repair = machine
@@ -521,8 +527,8 @@ async fn handle_instance_release_from_repair_tenant(
                 repair_status = ?repair_status,
                 "Creating fallback issue for incomplete repair"
             );
-            rpc::Issue {
-                category: rpc::IssueCategory::Other as i32,
+            forge::Issue {
+                category: forge::IssueCategory::Other as i32,
                 summary: "RepairSystem processing incomplete".to_string(),
                 details: format!(
                     "Machine released by repair tenant but repair status is: {}",
@@ -564,7 +570,7 @@ async fn handle_instance_release_from_repair_tenant(
 async fn handle_instance_release_from_regular_tenant_and_report_issue(
     txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     machine_id: &MachineId,
-    issue: &rpc::Issue,
+    issue: &forge::Issue,
     auto_repair_enabled: bool,
     tenant_organization_id: &str,
 ) -> Result<(), CarbideError> {
@@ -629,14 +635,14 @@ async fn handle_instance_release_from_regular_tenant_and_report_issue(
 /// - `repair-request`: Applied when auto-repair is enabled (regular tenants only)
 pub(crate) async fn release(
     api: &Api,
-    request: Request<rpc::InstanceReleaseRequest>,
-) -> Result<Response<rpc::InstanceReleaseResult>, Status> {
+    request: Request<forge::InstanceReleaseRequest>,
+) -> Result<Response<forge::InstanceReleaseResult>, Status> {
     log_request_data(&request);
     let delete_instance = DeleteInstance::try_from(request.into_inner())?;
 
     let mut txn = api.txn_begin().await?;
 
-    let instance = db::instance::find_by_id(&mut txn, delete_instance.instance_id)
+    let instance = nico_api_db::instance::find_by_id(&mut txn, delete_instance.instance_id)
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "instance",
@@ -656,7 +662,7 @@ pub(crate) async fn release(
         );
 
         // Get machine details for repair tenant workflow
-        let machine = db::machine::find_one(
+        let machine = nico_api_db::machine::find_one(
             &mut txn,
             &instance.machine_id,
             MachineSearchConfig {
@@ -704,23 +710,23 @@ pub(crate) async fn release(
             instance_id = %delete_instance.instance_id,
             "Instance is already marked for deletion.",
         );
-        return Ok(Response::new(rpc::InstanceReleaseResult {}));
+        return Ok(Response::new(forge::InstanceReleaseResult {}));
     }
 
     // TODO: This is racy. If the instance just got deleted we still
     // see an error here that is not returned as `NotFound` error. Ideally
     // we convert this case of the DatabaseError into NotFound too.
-    db::instance::mark_as_deleted(delete_instance.instance_id, &mut txn).await?;
+    nico_api_db::instance::mark_as_deleted(delete_instance.instance_id, &mut txn).await?;
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::InstanceReleaseResult {}))
+    Ok(Response::new(forge::InstanceReleaseResult {}))
 }
 
 pub(crate) async fn update_phone_home_last_contact(
     api: &Api,
-    request: Request<rpc::InstancePhoneHomeLastContactRequest>,
-) -> Result<Response<rpc::InstancePhoneHomeLastContactResponse>, Status> {
+    request: Request<forge::InstancePhoneHomeLastContactRequest>,
+) -> Result<Response<forge::InstancePhoneHomeLastContactResponse>, Status> {
     log_request_data(&request);
     let request = request.into_inner();
     let instance_id = request
@@ -729,7 +735,7 @@ pub(crate) async fn update_phone_home_last_contact(
 
     let mut txn = api.txn_begin().await?;
 
-    let instance = db::instance::find_by_id(&mut txn, instance_id)
+    let instance = nico_api_db::instance::find_by_id(&mut txn, instance_id)
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "instance",
@@ -739,19 +745,19 @@ pub(crate) async fn update_phone_home_last_contact(
     log_machine_id(&instance.machine_id);
     log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
 
-    let res = db::instance::update_phone_home_last_contact(&mut txn, instance.id).await?;
+    let res = nico_api_db::instance::update_phone_home_last_contact(&mut txn, instance.id).await?;
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::InstancePhoneHomeLastContactResponse {
+    Ok(Response::new(forge::InstancePhoneHomeLastContactResponse {
         timestamp: Some(res.into()),
     }))
 }
 
 pub(crate) async fn invoke_power(
     api: &Api,
-    request: Request<rpc::InstancePowerRequest>,
-) -> Result<Response<rpc::InstancePowerResult>, Status> {
+    request: Request<forge::InstancePowerRequest>,
+) -> Result<Response<forge::InstancePowerResult>, Status> {
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
@@ -760,7 +766,7 @@ pub(crate) async fn invoke_power(
 
     // Search by instance ID if provided, else by machine ID
     let snapshot = if let Some(instance_id) = &request.instance_id {
-        let snapshot = db::managed_host::load_by_instance_ids(
+        let snapshot = nico_api_db::managed_host::load_by_instance_ids(
             &mut txn,
             &[*instance_id],
             LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
@@ -786,7 +792,7 @@ pub(crate) async fn invoke_power(
     } else if let Some(machine_id) = &request.machine_id {
         log_machine_id(machine_id);
 
-        let snapshot = db::managed_host::load_snapshot(
+        let snapshot = nico_api_db::managed_host::load_snapshot(
             &mut txn,
             machine_id,
             LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
@@ -860,14 +866,14 @@ pub(crate) async fn invoke_power(
         || request.boot_with_custom_ipxe);
 
     if use_state_machine_for_reboot {
-        db::instance::set_custom_pxe_reboot_requested(&machine_id, true, &mut txn).await?;
+        nico_api_db::instance::set_custom_pxe_reboot_requested(&machine_id, true, &mut txn).await?;
     }
 
     // For non-always-PXE instances, set use_custom_pxe_on_boot based on the request.
     // This tells the iPXE handler whether to serve the custom script or return "exit".
     // If we are using the state machine for a custom pxe reboot, let the state machine set the use_custom_ipxe_on_next_boot flag.
     if !use_state_machine_for_reboot && !run_provisioning_instructions_on_every_boot {
-        db::instance::use_custom_ipxe_on_next_boot(
+        nico_api_db::instance::use_custom_ipxe_on_next_boot(
             &machine_id,
             request.boot_with_custom_ipxe,
             &mut txn,
@@ -894,7 +900,7 @@ pub(crate) async fn invoke_power(
             reprovision_handled = true;
 
             // This will trigger DPU reprovisioning/update via state machine.
-            db::machine::approve_dpu_reprovision_request(&dpu_snapshot.id, &mut txn)
+            nico_api_db::machine::approve_dpu_reprovision_request(&dpu_snapshot.id, &mut txn)
                 .await
                 .map_err(|err| {
                     // print actual error for debugging, but don't leak internal info to user.
@@ -909,16 +915,17 @@ pub(crate) async fn invoke_power(
         if snapshot.host_snapshot.host_reprovision_requested.is_some() {
             reprovision_handled = true;
 
-            db::machine::approve_host_reprovision_request(&snapshot.host_snapshot.id, &mut txn)
-                .await
-                .map_err(|err| {
-                    // print actual error for debugging, but don't leak internal info to user.
-                    tracing::error!(machine=%machine_id, "{:?}", err);
+            nico_api_db::machine::approve_host_reprovision_request(
+                &snapshot.host_snapshot.id,
+                &mut txn,
+            )
+            .await
+            .map_err(|err| {
+                // print actual error for debugging, but don't leak internal info to user.
+                tracing::error!(machine=%machine_id, "{:?}", err);
 
-                    CarbideError::internal(
-                        "Internal Failure. Try again after some time.".to_string(),
-                    )
-                })?;
+                CarbideError::internal("Internal Failure. Try again after some time.".to_string())
+            })?;
         }
     }
 
@@ -926,7 +933,7 @@ pub(crate) async fn invoke_power(
 
     if reprovision_handled {
         // Host will reboot once DPU reprovisioning is successfully finished.
-        return Ok(Response::new(rpc::InstancePowerResult {}));
+        return Ok(Response::new(forge::InstancePowerResult {}));
     }
 
     // If using state machine for reboot, return early. The flag was set above and the
@@ -938,7 +945,7 @@ pub(crate) async fn invoke_power(
             boot_with_custom_ipxe = request.boot_with_custom_ipxe,
             "Delegating reboot to state machine for boot order verification"
         );
-        return Ok(Response::new(rpc::InstancePowerResult {}));
+        return Ok(Response::new(forge::InstancePowerResult {}));
     }
 
     let bmc_mac_address =
@@ -972,13 +979,13 @@ pub(crate) async fn invoke_power(
         .await
         .map_err(|e| CarbideError::internal(format!("Failed redfish ForceRestart subtask: {e}")))?;
 
-    Ok(Response::new(rpc::InstancePowerResult {}))
+    Ok(Response::new(forge::InstancePowerResult {}))
 }
 
 pub(crate) async fn update_operating_system(
     api: &Api,
-    request: Request<rpc::InstanceOperatingSystemUpdateRequest>,
-) -> Result<Response<rpc::Instance>, Status> {
+    request: Request<forge::InstanceOperatingSystemUpdateRequest>,
+) -> Result<Response<forge::Instance>, Status> {
     log_request_data(&request);
 
     let request = request.into_inner();
@@ -994,7 +1001,7 @@ pub(crate) async fn update_operating_system(
 
     let mut txn = api.txn_begin().await?;
 
-    let instance = db::instance::find_by_id(&mut txn, instance_id)
+    let instance = nico_api_db::instance::find_by_id(&mut txn, instance_id)
         .await?
         .ok_or(CarbideError::NotFoundError {
             kind: "instance",
@@ -1016,9 +1023,9 @@ pub(crate) async fn update_operating_system(
         None => instance.config_version,
     };
 
-    db::instance::update_os(&mut txn, instance.id, expected_version, os).await?;
+    nico_api_db::instance::update_os(&mut txn, instance.id, expected_version, os).await?;
 
-    let mh_snapshot = db::managed_host::load_snapshot(
+    let mh_snapshot = nico_api_db::managed_host::load_snapshot(
         &mut txn,
         &instance.machine_id,
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
@@ -1037,8 +1044,8 @@ pub(crate) async fn update_operating_system(
 
 pub(crate) async fn update_instance_config(
     api: &Api,
-    request: tonic::Request<rpc::InstanceConfigUpdateRequest>,
-) -> Result<tonic::Response<rpc::Instance>, Status> {
+    request: tonic::Request<forge::InstanceConfigUpdateRequest>,
+) -> Result<tonic::Response<forge::Instance>, Status> {
     log_request_data(&request);
 
     let request = request.into_inner();
@@ -1078,7 +1085,7 @@ pub(crate) async fn update_instance_config(
 
     let mut txn = api.txn_begin().await?;
 
-    let instance = db::instance::find_by_id(&mut txn, instance_id)
+    let instance = nico_api_db::instance::find_by_id(&mut txn, instance_id)
         .await?
         .ok_or(CarbideError::NotFoundError {
             kind: "instance",
@@ -1088,7 +1095,7 @@ pub(crate) async fn update_instance_config(
     log_machine_id(&instance.machine_id);
     log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
 
-    let mh_snapshot = db::managed_host::load_snapshot(
+    let mh_snapshot = nico_api_db::managed_host::load_snapshot(
         &mut txn,
         &instance.machine_id,
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
@@ -1239,9 +1246,10 @@ pub(crate) async fn update_instance_config(
     );
     update_instance_nvlink_config(&mh_snapshot, &instance, &config.nvlink, &mut txn).await?;
 
-    db::instance::update_config(&mut txn, instance.id, expected_version, config, metadata).await?;
+    nico_api_db::instance::update_config(&mut txn, instance.id, expected_version, config, metadata)
+        .await?;
 
-    let mh_snapshot = db::managed_host::load_snapshot(
+    let mh_snapshot = nico_api_db::managed_host::load_snapshot(
         &mut txn,
         &instance.machine_id,
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
@@ -1307,7 +1315,7 @@ async fn update_instance_network_config(
         .validate(allow_instance_vf)
         .map_err(CarbideError::from)?;
 
-    let mh_snapshot = db::managed_host::load_snapshot(
+    let mh_snapshot = nico_api_db::managed_host::load_snapshot(
         txn.as_mut(),
         &instance.machine_id,
         LoadSnapshotOptions::default(),
@@ -1319,7 +1327,7 @@ async fn update_instance_network_config(
     })?;
 
     // Allocate IPs and add them to the network config
-    let updated_network_config = db::instance_network_config::with_allocated_ips(
+    let updated_network_config = nico_api_db::instance_network_config::with_allocated_ips(
         network.clone(),
         txn,
         instance.id,
@@ -1328,7 +1336,7 @@ async fn update_instance_network_config(
     .await?;
 
     // Update network config in db.
-    db::instance::trigger_update_network_config_request(
+    nico_api_db::instance::trigger_update_network_config_request(
         &instance.id,
         &instance.config.network,
         &updated_network_config,
@@ -1380,7 +1388,7 @@ async fn update_instance_infiniband_config(
 
     // Persist the GUID for Infiniband configuration.
     // We need to increment the version number.
-    db::instance::update_ib_config(
+    nico_api_db::instance::update_ib_config(
         txn,
         instance.id,
         instance.ib_config_version,
@@ -1426,7 +1434,7 @@ async fn update_instance_extension_services_config(
         .calculate_new_extension_services_config(extension_services);
 
     // Persist the extension services config.
-    db::instance::update_extension_services_config(
+    nico_api_db::instance::update_extension_services_config(
         txn,
         instance.id,
         instance.extension_services_config_version,
@@ -1441,13 +1449,13 @@ async fn update_instance_extension_services_config(
 /// Extracts the RPC representation of Instances from a ManagedHost snapshot
 ///
 /// This method expects that the snapshot must contain an instance definition.
-/// If this is not required, then `Option::<rpc::Instance>::try_from(mh_snapshot)`
+/// If this is not required, then `Option::<forge::Instance>::try_from(mh_snapshot)`
 /// can be utilized.
 fn snapshot_to_instance(
     mh_snapshot: ManagedHostStateSnapshot,
-) -> Result<rpc::Instance, CarbideError> {
+) -> Result<forge::Instance, CarbideError> {
     let machine_id = mh_snapshot.host_snapshot.id;
-    Option::<rpc::Instance>::try_from(mh_snapshot)
+    Option::<forge::Instance>::try_from(mh_snapshot)
         .map_err(CarbideError::from)?
         .ok_or_else(|| {
             CarbideError::internal(format!(
@@ -1461,7 +1469,7 @@ pub async fn force_delete_instance(
     api: &Api,
     response: &mut AdminForceDeleteMachineResponse,
 ) -> CarbideResult<()> {
-    let instance = db::instance::find_by_id(&api.database_connection, instance_id)
+    let instance = nico_api_db::instance::find_by_id(&api.database_connection, instance_id)
         .await?
         .ok_or_else(|| {
             CarbideError::internal(format!("Could not find an instance for {instance_id}"))
@@ -1473,7 +1481,7 @@ pub async fn force_delete_instance(
     // Delete the instance and allocated address
     // TODO: This might need some changes with the new state machine
     let mut txn = api.txn_begin().await?;
-    db::instance::delete(instance_id, &mut txn).await?;
+    nico_api_db::instance::delete(instance_id, &mut txn).await?;
 
     let mut network_segment_ids_with_vpc = vec![];
     if let Some(update_network_req) = &instance.update_network_config_request {
@@ -1493,7 +1501,7 @@ pub async fn force_delete_instance(
                 .flat_map(|x| x.ip_addrs.values().collect_vec()),
         );
 
-        db::instance_address::delete_addresses(&mut txn, &addresses).await?;
+        nico_api_db::instance_address::delete_addresses(&mut txn, &addresses).await?;
 
         network_segment_ids_with_vpc = update_network_req
             .new_config
@@ -1523,17 +1531,20 @@ pub async fn force_delete_instance(
         },
     ));
 
-    let network_segments_set: std::collections::HashSet<::carbide_uuid::network::NetworkSegmentId> =
+    let network_segments_set: std::collections::HashSet<::nico_uuid::network::NetworkSegmentId> =
         network_segment_ids_with_vpc.drain(..).collect();
     network_segment_ids_with_vpc.extend(network_segments_set.into_iter());
 
     // Mark all network ready for delete which were created for vpc_prefixes.
     if !network_segment_ids_with_vpc.is_empty() {
-        db::network_segment::mark_as_deleted_no_validation(&mut txn, &network_segment_ids_with_vpc)
-            .await?;
+        nico_api_db::network_segment::mark_as_deleted_no_validation(
+            &mut txn,
+            &network_segment_ids_with_vpc,
+        )
+        .await?;
     }
 
-    let snapshot = db::managed_host::load_snapshot(
+    let snapshot = nico_api_db::managed_host::load_snapshot(
         &mut txn,
         &instance.machine_id,
         LoadSnapshotOptions::default(),
@@ -1585,7 +1596,7 @@ pub async fn update_instance_nvlink_config(
     }
 
     // Update config in db.
-    db::instance::update_nvlink_config(
+    nico_api_db::instance::update_nvlink_config(
         txn,
         instance.id,
         instance.nvlink_config_version,
@@ -1627,7 +1638,8 @@ async fn unbind_all_instance_ib_ports(
                 let mut result = Vec::with_capacity(ib_config_map.len());
                 for (ib_partition_id, guids) in ib_config_map.into_iter() {
                     if let Some(pkey) =
-                        db::ib_partition::find_pkey_by_partition_id(txn, ib_partition_id).await?
+                        nico_api_db::ib_partition::find_pkey_by_partition_id(txn, ib_partition_id)
+                            .await?
                     {
                         result.push((pkey, guids))
                     }
@@ -1641,7 +1653,7 @@ async fn unbind_all_instance_ib_ports(
     // Then, tell UFM to unbind the port for each pkey we found
     let ib_fabric = api
         .ib_fabric_manager
-        .new_client(model::ib::DEFAULT_IB_FABRIC_NAME)
+        .new_client(nico_api_model::ib::DEFAULT_IB_FABRIC_NAME)
         .await?;
 
     let mut ufm_unregistrations = 0;

@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
 use clap::{Parser, ValueEnum};
-use rpc::forge::{self as forgerpc, PowerOptionUpdateRequest};
+use nico_rpc::forge::{self, PowerOptionUpdateRequest};
+use nico_uuid::machine::MachineId;
 
 #[derive(Parser, Debug)]
 pub enum Args {
@@ -46,9 +46,9 @@ pub struct UpdatePowerOptions {
 impl From<UpdatePowerOptions> for PowerOptionUpdateRequest {
     fn from(args: UpdatePowerOptions) -> Self {
         let power_state = match args.desired_power_state {
-            DesiredPowerState::On => forgerpc::PowerState::On,
-            DesiredPowerState::Off => forgerpc::PowerState::Off,
-            DesiredPowerState::PowerManagerDisabled => forgerpc::PowerState::PowerManagerDisabled,
+            DesiredPowerState::On => forge::PowerState::On,
+            DesiredPowerState::Off => forge::PowerState::Off,
+            DesiredPowerState::PowerManagerDisabled => forge::PowerState::PowerManagerDisabled,
         };
         Self {
             machine_id: Some(args.machine),

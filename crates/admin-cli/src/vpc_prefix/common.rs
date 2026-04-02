@@ -17,11 +17,12 @@
 
 use std::str::FromStr;
 
-use ::rpc::admin_cli::CarbideCliError;
-use ::rpc::admin_cli::CarbideCliError::GenericError;
-use carbide_uuid::vpc::VpcPrefixId;
 use ipnet::IpNet;
-use rpc::forge::{PrefixMatchType, VpcPrefix, VpcPrefixSearchQuery};
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::admin_cli::CarbideCliError::GenericError;
+use nico_rpc::forge;
+use nico_rpc::forge::{PrefixMatchType, VpcPrefix, VpcPrefixSearchQuery};
+use nico_uuid::vpc::VpcPrefixId;
 
 use crate::rpc::ApiClient;
 
@@ -108,7 +109,7 @@ pub async fn get_by_ids(
 ) -> Result<Vec<VpcPrefix>, CarbideCliError> {
     let mut vpc_prefixes = Vec::with_capacity(ids.len());
     for ids in ids.chunks(batch_size) {
-        let vpc_id_list = rpc::forge::VpcPrefixGetRequest {
+        let vpc_id_list = forge::VpcPrefixGetRequest {
             vpc_prefix_ids: ids.to_owned(),
         };
         let prefixes_batch = api_client

@@ -17,18 +17,18 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use carbide_uuid::machine::MachineId;
 use chrono::Utc;
 use futures_util::stream::StreamExt;
 use itertools::Itertools;
-use model::hardware_info::HardwareInfo;
-use model::machine::Machine;
-use model::machine::capabilities::{MachineCapabilitiesSet, MachineCapabilityInfiniband};
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::sku::{
+use nico_api_model::hardware_info::HardwareInfo;
+use nico_api_model::machine::Machine;
+use nico_api_model::machine::capabilities::{MachineCapabilitiesSet, MachineCapabilityInfiniband};
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::sku::{
     Sku, SkuComponentChassis, SkuComponentCpu, SkuComponentGpu, SkuComponentInfinibandDevices,
     SkuComponentMemory, SkuComponentStorage, SkuComponentTpm, SkuComponents, diff_skus,
 };
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;

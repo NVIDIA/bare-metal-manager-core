@@ -18,8 +18,8 @@
 use std::borrow::Cow;
 use std::fmt;
 
-use rpc::PciDeviceProperties;
-use rpc::machine_discovery::{Gpu, GpuPlatformInfo, InfinibandInterface, MemoryDevice};
+use nico_rpc::PciDeviceProperties;
+use nico_rpc::machine_discovery::{Gpu, GpuPlatformInfo, InfinibandInterface, MemoryDevice};
 
 use crate::redfish;
 

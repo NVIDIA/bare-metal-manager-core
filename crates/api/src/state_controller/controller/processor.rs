@@ -19,15 +19,17 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use ::db::DatabaseError;
-use model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_db::DatabaseError;
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
 use super::db;
-use crate::logging::sqlx_query_tracing::{self, SqlxQueryDataAggregation};
+use crate::logging::sqlx_query_tracing::{
+    SqlxQueryDataAggregation, {self},
+};
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::io::StateControllerIO;

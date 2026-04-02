@@ -15,13 +15,14 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::forge;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn grow(data: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let rpc_req: ::rpc::forge::GrowResourcePoolRequest = data.try_into()?;
+    let rpc_req: forge::GrowResourcePoolRequest = data.try_into()?;
     api_client.0.admin_grow_resource_pool(rpc_req).await?;
     Ok(())
 }

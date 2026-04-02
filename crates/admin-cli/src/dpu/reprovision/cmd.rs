@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::DpuReprovisioningRequest;
-use carbide_uuid::machine::MachineType;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge;
+use nico_rpc::forge::DpuReprovisioningRequest;
+use nico_uuid::machine::MachineType;
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -50,7 +51,7 @@ pub async fn reprovision(api_client: &ApiClient, reprov: Args) -> CarbideCliResu
 
 async fn apply_health_override(
     api_client: &ApiClient,
-    id: carbide_uuid::machine::MachineId,
+    id: nico_uuid::machine::MachineId,
     update_message: String,
 ) -> CarbideCliResult<()> {
     // Set a HostUpdateInProgress health override on the Host
@@ -116,7 +117,7 @@ pub async fn list_dpus_pending(api_client: &ApiClient) -> CarbideCliResult<()> {
     Ok(())
 }
 
-fn print_pending_dpus(dpus: ::rpc::forge::DpuReprovisioningListResponse) {
+fn print_pending_dpus(dpus: forge::DpuReprovisioningListResponse) {
     let mut table = Table::new();
 
     table.set_titles(row![

@@ -17,14 +17,17 @@
 use std::ops::DerefMut;
 use std::time::SystemTime;
 
-use ::rpc::forge::{
+use common::api_fixtures::{
+    create_managed_host, dpu, network_configured_with_health, {self},
+};
+use nico_api_model::machine::network::ManagedHostQuarantineMode;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{
     CreateDpuExtensionServiceRequest, DpuExtensionServiceType, DpuNetworkStatus,
     InstanceDpuExtensionServiceConfig, InstanceDpuExtensionServicesConfig,
     ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
 };
-use common::api_fixtures::{self, create_managed_host, dpu, network_configured_with_health};
-use model::machine::network::ManagedHostQuarantineMode;
-use rpc::forge::forge_server::Forge;
 
 use crate::tests::common;
 
@@ -88,9 +91,9 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     let mh = create_managed_host(&env).await;
 
     // Add an instance
-    let instance_network = rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
+    let instance_network = forge::InstanceNetworkConfig {
+        interfaces: vec![forge::InstanceInterfaceConfig {
+            function_type: forge::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some(segment_id),
             network_details: None,
             device: None,
@@ -116,16 +119,16 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     assert_eq!(response.all.len(), 1);
 
     // Tell API about latest network config and machine health
-    let dpu_health = rpc::health::HealthReport {
+    let dpu_health = nico_rpc::health::HealthReport {
         source: "should-get-updated".to_string(),
         triggered_by: None,
         observed_at: None,
         successes: vec![
-            rpc::health::HealthProbeSuccess {
+            nico_rpc::health::HealthProbeSuccess {
                 id: "ContainerExists".to_string(),
                 target: Some("c1".to_string()),
             },
-            rpc::health::HealthProbeSuccess {
+            nico_rpc::health::HealthProbeSuccess {
                 id: "checkTwo".to_string(),
                 target: None,
             },
@@ -137,7 +140,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     // Query the aggregate health.
     let reported_health = env
         .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(tonic::Request::new(forge::MachinesByIdsRequest {
             machine_ids: vec![mh.dpu().id],
             include_history: false,
         }))
@@ -168,7 +171,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
     );
     assert_eq!(
         instance.status.as_ref().unwrap().configs_synced,
-        rpc::SyncState::Synced as i32
+        forge::SyncState::Synced as i32
     );
 }
 
@@ -187,9 +190,9 @@ async fn test_managed_host_network_config_with_extension_services(pool: sqlx::Pg
     let dpu_1_id = mh.dpu_ids[0];
 
     // Add an instance
-    let instance_network = rpc::InstanceNetworkConfig {
-        interfaces: vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as i32,
+    let instance_network = forge::InstanceNetworkConfig {
+        interfaces: vec![forge::InstanceInterfaceConfig {
+            function_type: forge::InterfaceFunctionType::Physical as i32,
             network_segment_id: Some(segment_id),
             network_details: None,
             device: None,
@@ -202,10 +205,10 @@ async fn test_managed_host_network_config_with_extension_services(pool: sqlx::Pg
     let default_tenant_org = "best_org";
     let _ = env
         .api
-        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(forge::CreateTenantRequest {
             organization_id: default_tenant_org.to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: default_tenant_org.to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -337,7 +340,7 @@ async fn test_dpu_health_is_required(pool: sqlx::PgPool) {
             instance_id: None,
             instance_config_version: None,
             instance_network_config_version: None,
-            interfaces: vec![rpc::InstanceInterfaceStatusObservation {
+            interfaces: vec![forge::InstanceInterfaceStatusObservation {
                 function_type: admin_if.function_type,
                 virtual_function_id: None,
                 mac_address: None,
@@ -368,22 +371,23 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
-    let dpu_health = rpc::health::HealthReport {
+    let dpu_health = nico_rpc::health::HealthReport {
         source: "should-get-updated".to_string(),
         triggered_by: None,
         observed_at: None,
-        successes: vec![rpc::health::HealthProbeSuccess {
+        successes: vec![nico_rpc::health::HealthProbeSuccess {
             id: "SuccessA".to_string(),
             target: None,
         }],
-        alerts: vec![rpc::health::HealthProbeAlert {
+        alerts: vec![nico_rpc::health::HealthProbeAlert {
             id: "AlertA".to_string(),
             target: None,
             in_alert_since: None,
             message: "AlertA".to_string(),
             tenant_message: None,
             classifications: vec![
-                health_report::HealthAlertClassification::prevent_host_state_changes().to_string(),
+                nico_health_report::HealthAlertClassification::prevent_host_state_changes()
+                    .to_string(),
             ],
         }],
     };
@@ -393,7 +397,7 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     // Query the new HealthReport format
     let reported_health = env
         .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(tonic::Request::new(forge::MachinesByIdsRequest {
             machine_ids: vec![dpu_machine_id],
             include_history: false,
         }))
@@ -420,7 +424,7 @@ async fn test_retain_in_alert_since(pool: sqlx::PgPool) {
     network_configured_with_health(&env, &dpu_machine_id, Some(dpu_health.clone())).await;
     let reported_health = env
         .api
-        .find_machines_by_ids(tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+        .find_machines_by_ids(tonic::Request::new(forge::MachinesByIdsRequest {
             machine_ids: vec![dpu_machine_id],
             include_history: false,
         }))
@@ -445,17 +449,19 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let env = api_fixtures::create_test_env(pool).await;
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
-    let network_config_version =
-        db::machine::get_network_config(env.pool.begin().await?.deref_mut(), &host_machine_id)
-            .await?
-            .version;
+    let network_config_version = nico_api_db::machine::get_network_config(
+        env.pool.begin().await?.deref_mut(),
+        &host_machine_id,
+    )
+    .await?
+    .version;
 
     // Get, make sure it's not set yet
     {
         let quarantine_state = env
             .api
             .get_managed_host_quarantine_state(tonic::Request::new(
-                rpc::forge::GetManagedHostQuarantineStateRequest {
+                forge::GetManagedHostQuarantineStateRequest {
                     machine_id: Some(host_machine_id),
                 },
             ))
@@ -473,7 +479,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     {
         let ids = env
             .api
-            .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            .find_machine_ids(tonic::Request::new(forge::MachineSearchConfig {
                 only_quarantine: true,
                 ..Default::default()
             }))
@@ -491,10 +497,10 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let set_result = env
             .api
             .set_managed_host_quarantine_state(tonic::Request::new(
-                rpc::forge::SetManagedHostQuarantineStateRequest {
+                forge::SetManagedHostQuarantineStateRequest {
                     machine_id: Some(host_machine_id),
-                    quarantine_state: Some(rpc::forge::ManagedHostQuarantineState {
-                        mode: rpc::forge::ManagedHostQuarantineMode::BlockAllTraffic as i32,
+                    quarantine_state: Some(forge::ManagedHostQuarantineState {
+                        mode: forge::ManagedHostQuarantineMode::BlockAllTraffic as i32,
                         reason: Some("test reason 1".to_string()),
                     }),
                 },
@@ -512,7 +518,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     {
         let ids = env
             .api
-            .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            .find_machine_ids(tonic::Request::new(forge::MachineSearchConfig {
                 only_quarantine: true,
                 ..Default::default()
             }))
@@ -527,9 +533,11 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     }
 
     // Make sure the version got bumped
-    let network_config =
-        db::machine::get_network_config(env.pool.begin().await?.deref_mut(), &host_machine_id)
-            .await?;
+    let network_config = nico_api_db::machine::get_network_config(
+        env.pool.begin().await?.deref_mut(),
+        &host_machine_id,
+    )
+    .await?;
     assert_eq!(
         network_config.version.version_nr(),
         network_config_version.version_nr() + 1,
@@ -548,7 +556,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let quarantine_state = env
             .api
             .get_managed_host_quarantine_state(tonic::Request::new(
-                rpc::forge::GetManagedHostQuarantineStateRequest {
+                forge::GetManagedHostQuarantineStateRequest {
                     machine_id: Some(host_machine_id),
                 },
             ))
@@ -572,10 +580,10 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let set_result = env
             .api
             .set_managed_host_quarantine_state(tonic::Request::new(
-                rpc::forge::SetManagedHostQuarantineStateRequest {
+                forge::SetManagedHostQuarantineStateRequest {
                     machine_id: Some(host_machine_id),
-                    quarantine_state: Some(rpc::forge::ManagedHostQuarantineState {
-                        mode: rpc::forge::ManagedHostQuarantineMode::BlockAllTraffic as i32,
+                    quarantine_state: Some(forge::ManagedHostQuarantineState {
+                        mode: forge::ManagedHostQuarantineMode::BlockAllTraffic as i32,
                         reason: Some("test reason 2".to_string()),
                     }),
                 },
@@ -594,9 +602,11 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     }
 
     // Make sure the version got bumped again
-    let network_config =
-        db::machine::get_network_config(env.pool.begin().await?.deref_mut(), &host_machine_id)
-            .await?;
+    let network_config = nico_api_db::machine::get_network_config(
+        env.pool.begin().await?.deref_mut(),
+        &host_machine_id,
+    )
+    .await?;
     assert_eq!(
         network_config.version.version_nr(),
         network_config_version.version_nr() + 1,
@@ -615,7 +625,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let quarantine_state = env
             .api
             .get_managed_host_quarantine_state(tonic::Request::new(
-                rpc::forge::GetManagedHostQuarantineStateRequest {
+                forge::GetManagedHostQuarantineStateRequest {
                     machine_id: Some(host_machine_id),
                 },
             ))
@@ -639,7 +649,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         let clear_result = env
             .api
             .clear_managed_host_quarantine_state(tonic::Request::new(
-                rpc::forge::ClearManagedHostQuarantineStateRequest {
+                forge::ClearManagedHostQuarantineStateRequest {
                     machine_id: Some(host_machine_id),
                 },
             ))
@@ -657,9 +667,11 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     }
 
     // Make sure the network config version bumps again on clear
-    let network_config =
-        db::machine::get_network_config(env.pool.begin().await?.deref_mut(), &host_machine_id)
-            .await?;
+    let network_config = nico_api_db::machine::get_network_config(
+        env.pool.begin().await?.deref_mut(),
+        &host_machine_id,
+    )
+    .await?;
     assert_eq!(
         network_config.version.version_nr(),
         network_config_version.version_nr() + 1,
@@ -673,7 +685,7 @@ async fn test_quarantine_state_crud(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     {
         let ids = env
             .api
-            .find_machine_ids(tonic::Request::new(rpc::forge::MachineSearchConfig {
+            .find_machine_ids(tonic::Request::new(forge::MachineSearchConfig {
                 only_quarantine: true,
                 ..Default::default()
             }))

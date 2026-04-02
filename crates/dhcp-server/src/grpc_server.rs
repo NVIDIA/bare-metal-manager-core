@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 
-use carbide_uuid::machine::MachineInterfaceId;
+use nico_uuid::machine::MachineInterfaceId;
 use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 use utils::models::dhcp::{

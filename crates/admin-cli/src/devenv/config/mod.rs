@@ -17,10 +17,10 @@
 
 mod apply;
 
-use ::rpc::admin_cli::CarbideCliResult;
 #[cfg(test)]
 pub use apply::args::NetworkChoice;
 use clap::Parser;
+use nico_rpc::admin_cli::CarbideCliResult;
 
 use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;

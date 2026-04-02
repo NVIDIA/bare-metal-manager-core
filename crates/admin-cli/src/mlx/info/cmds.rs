@@ -18,11 +18,11 @@
 // info/cmds.rs
 // Command handlers for info operations.
 
-use libmlx::device::info::MlxDeviceInfo;
-use libmlx::device::report::MlxDeviceReport;
+use nico_libmlx::device::info::MlxDeviceInfo;
+use nico_libmlx::device::report::MlxDeviceReport;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::protos::mlx_device as mlx_device_pb;
 use prettytable::{Cell, Row, Table};
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use rpc::protos::mlx_device as mlx_device_pb;
 
 use super::args::{InfoCommand, InfoDeviceCommand, InfoMachineCommand};
 use crate::mlx::{CliContext, wrap_text};

@@ -17,8 +17,8 @@
 
 use clap::Parser;
 use mac_address::MacAddress;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::{CredentialType, forge as forgerpc};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::{CredentialType, forge};
 
 use crate::credential::common::{BmcCredentialType, password_validator};
 
@@ -39,7 +39,7 @@ pub struct Args {
     pub mac_address: Option<MacAddress>,
 }
 
-impl TryFrom<Args> for forgerpc::CredentialCreationRequest {
+impl TryFrom<Args> for forge::CredentialCreationRequest {
     type Error = CarbideCliError;
     fn try_from(args: Args) -> CarbideCliResult<Self> {
         let password = password_validator(args.password)?;

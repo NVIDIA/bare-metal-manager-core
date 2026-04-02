@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::domain::DomainId;
+use nico_uuid::domain::DomainId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,9 +28,9 @@ pub struct DomainInfo {
     pub masters: Vec<String>,
 }
 
-impl From<DomainInfo> for rpc::protos::dns::DomainInfo {
+impl From<DomainInfo> for nico_rpc::protos::dns::DomainInfo {
     fn from(domain: DomainInfo) -> Self {
-        rpc::protos::dns::DomainInfo {
+        nico_rpc::protos::dns::DomainInfo {
             id: Some(domain.id),
             zone: domain.zone,
             kind: domain.kind,

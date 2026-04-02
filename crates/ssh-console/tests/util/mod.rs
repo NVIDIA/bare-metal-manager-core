@@ -21,12 +21,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bmc_mock::HostnameQuerying;
-use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use eyre::Context;
 use futures::future::join_all;
 use futures_util::future::BoxFuture;
-use machine_a_tron::{MockSshServerHandle, PromptBehavior};
-use ssh_console_mock_api_server::{MockApiServerHandle, MockHost};
+use nico_machine_a_tron::{MockSshServerHandle, PromptBehavior};
+use nico_ssh_console_mock_api_server::{MockApiServerHandle, MockHost};
+use nico_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use uuid::Uuid;
 
@@ -43,7 +43,7 @@ pub mod ssh_console_test_helper;
 pub mod fixtures {
     use std::path::PathBuf;
 
-    use api_test_helper::utils::REPO_ROOT;
+    use nico_api_test_helper::utils::REPO_ROOT;
 
     lazy_static::lazy_static! {
         pub static ref BMC_MOCK_CERTS_DIR: PathBuf = REPO_ROOT
@@ -115,7 +115,7 @@ pub async fn run_baseline_test_environment(
     let mock_bmc_handles: Vec<(MockBmcHandle, MachineId)> =
         join_all(machines.iter().map(|bmc_type| {
             // Generate random machine ID's for each mocked host
-            let machine_id = carbide_uuid::machine::MachineId::new(
+            let machine_id = nico_uuid::machine::MachineId::new(
                 MachineIdSource::Tpm,
                 rand::random(),
                 match bmc_type {
@@ -128,11 +128,11 @@ pub async fn run_baseline_test_environment(
                 let bmc_handle = match bmc_type {
                     ssh_type @ MockBmcType::Ssh | ssh_type @ MockBmcType::DpuSsh => {
                         Ok::<MockBmcHandle, eyre::Error>(MockBmcHandle::Ssh(
-                            machine_a_tron::spawn_mock_ssh_server(
+                            nico_machine_a_tron::spawn_mock_ssh_server(
                                 IpAddr::from_str("127.0.0.1").unwrap(),
                                 None,
                                 Arc::new(KnownHostname(machine_id.to_string())),
-                                Some(machine_a_tron::MockSshCredentials {
+                                Some(nico_machine_a_tron::MockSshCredentials {
                                     user: "root".to_string(),
                                     password: "password".to_string(),
                                 }),
@@ -186,7 +186,7 @@ pub async fn run_baseline_test_environment(
 
     tracing::debug!("baseline test mock hosts: {mock_hosts:?}");
 
-    let api_server_handle = ssh_console_mock_api_server::MockApiServer {
+    let api_server_handle = nico_ssh_console_mock_api_server::MockApiServer {
         mock_hosts: mock_hosts.clone(),
     }
     .spawn()

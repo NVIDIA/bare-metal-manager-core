@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::power_shelf::PowerShelfId;
-use model::power_shelf::PowerShelfControllerState;
+use nico_api_model::power_shelf::PowerShelfControllerState;
+use nico_uuid::power_shelf::PowerShelfId;
 use sqlx::PgConnection;
 
 /// Helper function to set power shelf controller state directly in database

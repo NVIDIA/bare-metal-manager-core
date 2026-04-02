@@ -28,10 +28,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use carbide_dpf::DpuPhase;
-use carbide_uuid::machine::MachineId;
 use libredfish::SystemPowerControl;
-use model::machine::{DpfState, DpuInitState, ManagedHostState};
+use nico_api_model::machine::{DpfState, DpuInitState, ManagedHostState};
+use nico_dpf::DpuPhase;
+use nico_uuid::machine::MachineId;
 use tokio::time::timeout;
 
 use crate::dpf::MockDpfOperations;
@@ -77,7 +77,7 @@ async fn reset_host_to_waiting_for_ready(
     dpu_id: &MachineId,
 ) {
     let state = ManagedHostState::DPUInit {
-        dpu_states: model::machine::DpuInitStates {
+        dpu_states: nico_api_model::machine::DpuInitStates {
             states: HashMap::from([(
                 *dpu_id,
                 DpuInitState::DpfStates {

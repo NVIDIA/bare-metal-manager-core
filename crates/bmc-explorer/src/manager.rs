@@ -17,10 +17,10 @@
 
 use std::str::FromStr;
 
-use carbide_network::deserialize_input_mac_to_address;
-use model::site_explorer::{
+use nico_api_model::site_explorer::{
     EthernetInterface as ModelEthernetInterface, Manager as ModelManager, UefiDevicePath,
 };
+use nico_network::deserialize_input_mac_to_address;
 use nv_redfish::ethernet_interface::EthernetInterface;
 use nv_redfish::host_interface::HostInterface;
 use nv_redfish::manager::Manager;

@@ -19,12 +19,12 @@ use std::net::Ipv4Addr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use ::rpc::protos::dpa_rpc::{DpaMetadata, Pfvni, SetVni};
 use config_version::ConfigVersion;
 use mac_address::MacAddress;
-use model::dpa_interface::DpaInterfaceNetworkStatusObservation;
 use mqttea::client::{ClientOptions, MqtteaClient};
 use mqttea::registry::traits::ProtobufRegistration;
+use nico_api_model::dpa_interface::DpaInterfaceNetworkStatusObservation;
+use nico_rpc::protos::dpa_rpc::{DpaMetadata, Pfvni, SetVni};
 use rumqttc::QoS;
 use tokio::task::JoinSet;
 use tokio::time::{Duration, sleep};
@@ -76,13 +76,14 @@ async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) 
         }
     };
 
-    let mut dpa_ifs = match db::dpa_interface::find_by_mac_addr(txn.as_mut(), &macaddr).await {
-        Ok(ifs) => ifs,
-        Err(e) => {
-            error!("handle_dpa_message -  Error from find_by_mac_addr {e}");
-            return;
-        }
-    };
+    let mut dpa_ifs =
+        match nico_api_db::dpa_interface::find_by_mac_addr(txn.as_mut(), &macaddr).await {
+            Ok(ifs) => ifs,
+            Err(e) => {
+                error!("handle_dpa_message -  Error from find_by_mac_addr {e}");
+                return;
+            }
+        };
 
     if dpa_ifs.len() != 1 {
         error!(
@@ -114,7 +115,9 @@ async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) 
         network_config_version: Some(ncv),
     };
 
-    match db::dpa_interface::update_network_observation(&dpa_if, &mut txn, &observation).await {
+    match nico_api_db::dpa_interface::update_network_observation(&dpa_if, &mut txn, &observation)
+        .await
+    {
         Ok(_r) => {
             let res = txn.commit().await;
             if res.is_err() {
@@ -196,8 +199,8 @@ pub async fn start_dpa_handler(
         if let Some(ref dpa_config) = api_service.runtime_config.dpa_config
             && let Some(provider) = crate::auth::mqtt_auth::build_credentials_provider(
                 &dpa_config.auth,
-                forge_secrets::credentials::CredentialKey::MqttAuth {
-                    credential_type: forge_secrets::credentials::MqttCredentialType::Dpa,
+                nico_secrets::credentials::CredentialKey::MqttAuth {
+                    credential_type: nico_secrets::credentials::MqttCredentialType::Dpa,
                 },
                 api_service.credential_manager.clone(),
             )

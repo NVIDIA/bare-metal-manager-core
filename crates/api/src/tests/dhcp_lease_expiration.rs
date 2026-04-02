@@ -19,8 +19,8 @@ use std::str::FromStr;
 
 use common::api_fixtures::{FIXTURE_DHCP_RELAY_ADDRESS, create_test_env};
 use mac_address::MacAddress;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{ExpireDhcpLeaseRequest, ExpireDhcpLeaseStatus};
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{ExpireDhcpLeaseRequest, ExpireDhcpLeaseStatus};
 use tonic::Request;
 
 use crate::tests::common;
@@ -35,7 +35,7 @@ async fn test_expire_releases_allocation(
 
     // Create an interface with an allocated IP
     let mut txn = env.pool.begin().await?;
-    let interface = db::machine_interface::validate_existing_mac_and_create(
+    let interface = nico_api_db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         MacAddress::from_str("aa:bb:cc:dd:ee:01").unwrap(),
         relay,
@@ -60,10 +60,11 @@ async fn test_expire_releases_allocation(
     // Verify the address was deleted but the interface preserved
     let mut txn = env.pool.begin().await?;
     let result =
-        db::machine_interface_address::find_ipv4_for_interface(&mut txn, interface.id).await;
+        nico_api_db::machine_interface_address::find_ipv4_for_interface(&mut txn, interface.id)
+            .await;
     assert!(result.is_err(), "address should have been deleted");
 
-    let iface = db::machine_interface::find_one(&mut *txn, interface.id).await?;
+    let iface = nico_api_db::machine_interface::find_one(&mut *txn, interface.id).await?;
     assert_eq!(
         iface.id, interface.id,
         "interface should still exist (only the address is removed)"

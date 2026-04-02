@@ -23,22 +23,24 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_uuid::infiniband::IBPartitionId;
-use carbide_uuid::machine::MachineId;
 use chrono::Utc;
-use db::work_lock_manager::WorkLockManagerHandle;
-use db::{self, DatabaseError};
-use health_report::OverrideMode;
 use metrics::{
     AppliedChange, FabricMetrics, IbFabricMonitorMetrics, UfmOperation, UfmOperationStatus,
 };
-use model::ib::{IBNetwork, IBPort, IBPortMembership, IBPortState};
-use model::ib_partition::{IBPartition, IbPartitionSearchFilter, PartitionKey};
-use model::machine::infiniband::{
+use nico_api_db::work_lock_manager::WorkLockManagerHandle;
+use nico_api_db::{
+    DatabaseError, {self},
+};
+use nico_api_model::ib::{IBNetwork, IBPort, IBPortMembership, IBPortState};
+use nico_api_model::ib_partition::{IBPartition, IbPartitionSearchFilter, PartitionKey};
+use nico_api_model::machine::infiniband::{
     MachineIbInterfaceStatusObservation, MachineInfinibandStatusObservation,
 };
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::{HostHealthConfig, LoadSnapshotOptions, ManagedHostStateSnapshot};
+use nico_health_report::OverrideMode;
+use nico_uuid::infiniband::IBPartitionId;
+use nico_uuid::machine::MachineId;
 use sqlx::{PgConnection, PgPool};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -439,7 +441,7 @@ impl IbFabricMonitor {
         &self,
         txn: &mut PgConnection,
     ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
-        let machine_ids = db::machine::find_machine_ids(
+        let machine_ids = nico_api_db::machine::find_machine_ids(
             &mut *txn,
             MachineSearchConfig {
                 include_predicted_host: true,
@@ -447,7 +449,7 @@ impl IbFabricMonitor {
             },
         )
         .await?;
-        db::managed_host::load_by_machine_ids(
+        nico_api_db::managed_host::load_by_machine_ids(
             txn,
             &machine_ids,
             LoadSnapshotOptions {
@@ -620,7 +622,7 @@ async fn get_partition_information(
 async fn get_tenant_partitions(
     txn: &mut PgConnection,
 ) -> Result<HashMap<IBPartitionId, IBPartition>, CarbideError> {
-    let partition_ids = db::ib_partition::find_ids(
+    let partition_ids = nico_api_db::ib_partition::find_ids(
         &mut *txn,
         IbPartitionSearchFilter {
             tenant_org_id: None,
@@ -635,9 +637,9 @@ async fn get_tenant_partitions(
     while offset != partition_ids.len() {
         let page_size = PAGE_SIZE.min(partition_ids.len() - offset);
         let next_ids = &partition_ids[offset..offset + page_size];
-        let partition_data = db::ib_partition::find_by(
+        let partition_data = nico_api_db::ib_partition::find_by(
             &mut *txn,
-            db::ObjectColumnFilter::List(db::ib_partition::IdColumn, next_ids),
+            nico_api_db::ObjectColumnFilter::List(nico_api_db::ib_partition::IdColumn, next_ids),
         )
         .await?;
 
@@ -974,7 +976,8 @@ async fn record_machine_infiniband_status_observation(
             .acquire()
             .await
             .map_err(|e| DatabaseError::new("acquire connection", e))?;
-        db::machine::update_infiniband_status_observation(&mut conn, machine_id, &cur).await?;
+        nico_api_db::machine::update_infiniband_status_observation(&mut conn, machine_id, &cur)
+            .await?;
         metrics.num_machine_ib_status_updates += 1;
         mh_snapshot.host_snapshot.infiniband_status_observation = Some(cur);
     }
@@ -992,7 +995,7 @@ async fn clear_ib_cleanup_alert(
         .await
         .map_err(|e| DatabaseError::new("acquire connection", e))?;
 
-    db::machine::remove_health_report_override(
+    nico_api_db::machine::remove_health_report_override(
         &mut conn,
         machine_id,
         OverrideMode::Merge,
@@ -1102,7 +1105,7 @@ mod tests {
     // ============================================================
 
     fn make_fabric_definition(ranges: Vec<(&str, &str)>) -> IbFabricDefinition {
-        use model::resource_pool::define::Range;
+        use nico_api_model::resource_pool::define::Range;
         IbFabricDefinition {
             endpoints: vec![],
             pkeys: ranges

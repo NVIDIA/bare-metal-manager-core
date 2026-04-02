@@ -27,9 +27,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use carbide_dpf::DpuPhase;
-use carbide_uuid::machine::MachineId;
-use model::machine::{DpfState, DpuInitState, FailureCause, FailureDetails, ManagedHostState};
+use nico_api_model::machine::{
+    DpfState, DpuInitState, FailureCause, FailureDetails, ManagedHostState,
+};
+use nico_dpf::DpuPhase;
+use nico_uuid::machine::MachineId;
 use tokio::time::timeout;
 
 use crate::dpf::MockDpfOperations;
@@ -63,7 +65,7 @@ fn provisioning_mock_with_labels_valid(labels_valid: Arc<AtomicBool>) -> MockDpf
 
 async fn reset_host_to_provisioning(pool: &sqlx::PgPool, host_id: &MachineId, dpu_id: &MachineId) {
     let state = ManagedHostState::DPUInit {
-        dpu_states: model::machine::DpuInitStates {
+        dpu_states: nico_api_model::machine::DpuInitStates {
             states: HashMap::from([(
                 *dpu_id,
                 DpuInitState::DpfStates {
@@ -97,7 +99,7 @@ async fn reset_host_to_waiting_for_ready(
     dpu_id: &MachineId,
 ) {
     let state = ManagedHostState::DPUInit {
-        dpu_states: model::machine::DpuInitStates {
+        dpu_states: nico_api_model::machine::DpuInitStates {
             states: HashMap::from([(
                 *dpu_id,
                 DpuInitState::DpfStates {

@@ -15,8 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::{FindComputeAllocationsByIdsRequest, UpdateComputeAllocationRequest};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_rpc::forge::{FindComputeAllocationsByIdsRequest, UpdateComputeAllocationRequest};
 
 use super::args::Args;
 use crate::compute_allocation::common::convert_compute_allocations_to_table;
@@ -69,7 +70,7 @@ pub async fn update(
             id: Some(args.id),
             tenant_organization_id: args.tenant_organization_id,
             metadata: Some(metadata),
-            attributes: Some(::rpc::forge::ComputeAllocationAttributes {
+            attributes: Some(forge::ComputeAllocationAttributes {
                 instance_type_id: attributes.instance_type_id,
                 count: attributes.count,
             }),

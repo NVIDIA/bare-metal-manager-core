@@ -14,20 +14,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge::{self as rpc, GetMachineValidationExternalConfigResponse};
 use config_version::ConfigVersion;
-use db::{self, machine_validation_suites};
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{
+use nico_api_db::{
+    machine_validation_suites, {self},
+};
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::{
     FailureCause, FailureDetails, FailureSource, MachineValidationFilter, ManagedHostState,
     ValidationState,
 };
-use model::machine_validation::{
+use nico_api_model::machine_validation::{
     MachineValidation, MachineValidationResult, MachineValidationState, MachineValidationStatus,
     MachineValidationTestAddRequest as ModelTestAddRequest,
     MachineValidationTestUpdateRequest as ModelTestUpdateRequest,
     MachineValidationTestsGetRequest as ModelTestsGetRequest,
 };
+use nico_rpc::forge;
+use nico_rpc::forge::GetMachineValidationExternalConfigResponse;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -39,8 +42,8 @@ use crate::handlers::utils::convert_and_log_machine_id;
 // machine has completed validation
 pub(crate) async fn mark_machine_validation_complete(
     api: &Api,
-    request: Request<rpc::MachineValidationCompletedRequest>,
-) -> Result<Response<rpc::MachineValidationCompletedResponse>, Status> {
+    request: Request<forge::MachineValidationCompletedRequest>,
+) -> Result<Response<forge::MachineValidationCompletedResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -56,7 +59,7 @@ pub(crate) async fn mark_machine_validation_complete(
 
     let mut txn = api.txn_begin().await?;
 
-    let machine = match db::machine::find_by_validation_id(&mut txn, &uuid).await? {
+    let machine = match nico_api_db::machine::find_by_validation_id(&mut txn, &uuid).await? {
         Some(machine) => machine,
         None => {
             tracing::error!(%uuid, "validation id not found");
@@ -76,7 +79,7 @@ pub(crate) async fn mark_machine_validation_complete(
 
     let machine_validation_results = match req.machine_validation_error {
         Some(machine_validation_error) => {
-            db::machine::update_failure_details_by_machine_id(
+            nico_api_db::machine::update_failure_details_by_machine_id(
                 &machine_id,
                 &mut txn,
                 FailureDetails {
@@ -96,7 +99,7 @@ pub(crate) async fn mark_machine_validation_complete(
             updated_validation_health_report.observed_at = Some(chrono::Utc::now());
             updated_validation_health_report
                 .alerts
-                .push(health_report::HealthProbeAlert {
+                .push(nico_health_report::HealthProbeAlert {
                     id: "FailedValidationTestCompletion".parse().unwrap(),
                     target: None,
                     in_alert_since: Some(chrono::Utc::now()),
@@ -105,11 +108,11 @@ pub(crate) async fn mark_machine_validation_complete(
                     ),
                     tenant_message: None,
                     classifications: vec![
-                        health_report::HealthAlertClassification::prevent_allocations(),
+                        nico_health_report::HealthAlertClassification::prevent_allocations(),
                     ],
                 });
 
-            db::machine::update_machine_validation_health_report(
+            nico_api_db::machine::update_machine_validation_health_report(
                 &mut txn,
                 &machine.id,
                 &updated_validation_health_report,
@@ -122,9 +125,11 @@ pub(crate) async fn mark_machine_validation_complete(
     };
 
     let result =
-        match db::machine_validation_result::validate_current_context(&mut txn, &uuid).await? {
+        match nico_api_db::machine_validation_result::validate_current_context(&mut txn, &uuid)
+            .await?
+        {
             Some(error_message) => {
-                db::machine::update_failure_details_by_machine_id(
+                nico_api_db::machine::update_failure_details_by_machine_id(
                     &machine_id,
                     &mut txn,
                     FailureDetails {
@@ -142,7 +147,7 @@ pub(crate) async fn mark_machine_validation_complete(
             None => "Success".to_owned(),
         };
 
-    db::machine_validation::mark_machine_validation_complete(
+    nico_api_db::machine_validation::mark_machine_validation_complete(
         &mut txn,
         &machine_id,
         &uuid,
@@ -162,12 +167,12 @@ pub(crate) async fn mark_machine_validation_complete(
         %machine_id,
         machine_validation_results, "machine_validation_completed",
     );
-    Ok(Response::new(rpc::MachineValidationCompletedResponse {}))
+    Ok(Response::new(forge::MachineValidationCompletedResponse {}))
 }
 
 pub(crate) async fn persist_validation_result(
     api: &Api,
-    request: tonic::Request<rpc::MachineValidationResultPostRequest>,
+    request: tonic::Request<forge::MachineValidationResultPostRequest>,
 ) -> Result<tonic::Response<()>, Status> {
     let Some(result) = request.into_inner().result else {
         return Err(CarbideError::InvalidArgument("Validation Result".to_string()).into());
@@ -179,17 +184,18 @@ pub(crate) async fn persist_validation_result(
 
     let mut txn = api.txn_begin().await?;
 
-    let machine =
-        match db::machine::find_by_validation_id(&mut txn, &validation_result.validation_id).await?
-        {
-            Some(machine) => machine,
-            None => {
-                tracing::error!(%validation_result.validation_id, "validation id not found");
-                return Err(
-                    CarbideError::InvalidArgument("wrong validation ID".to_string()).into(),
-                );
-            }
-        };
+    let machine = match nico_api_db::machine::find_by_validation_id(
+        &mut txn,
+        &validation_result.validation_id,
+    )
+    .await?
+    {
+        Some(machine) => machine,
+        None => {
+            tracing::error!(%validation_result.validation_id, "validation id not found");
+            return Err(CarbideError::InvalidArgument("wrong validation ID".to_string()).into());
+        }
+    };
     // Check state
     match machine.current_state() {
         ManagedHostState::Validation { validation_state } => {
@@ -214,7 +220,7 @@ pub(crate) async fn persist_validation_result(
     if validation_result.exit_code != 0 {
         updated_validation_health_report
             .alerts
-            .push(health_report::HealthProbeAlert {
+            .push(nico_health_report::HealthProbeAlert {
                 id: "FailedValidationTest".parse().unwrap(),
                 target: Some(validation_result.name.clone()),
                 in_alert_since: Some(chrono::Utc::now()),
@@ -224,29 +230,29 @@ pub(crate) async fn persist_validation_result(
                 ),
                 tenant_message: None,
                 classifications: vec![
-                    health_report::HealthAlertClassification::prevent_allocations(),
+                    nico_health_report::HealthAlertClassification::prevent_allocations(),
                 ],
             });
     }
 
-    db::machine::update_machine_validation_health_report(
+    nico_api_db::machine::update_machine_validation_health_report(
         &mut txn,
         &machine.id,
         &updated_validation_health_report,
     )
     .await?;
 
-    db::machine_validation_result::create(validation_result, &mut txn).await?;
+    nico_api_db::machine_validation_result::create(validation_result, &mut txn).await?;
     txn.commit().await.unwrap();
     Ok(tonic::Response::new(()))
 }
 
 pub(crate) async fn get_machine_validation_results(
     api: &Api,
-    request: tonic::Request<rpc::MachineValidationGetRequest>,
-) -> Result<tonic::Response<rpc::MachineValidationResultList>, Status> {
+    request: tonic::Request<forge::MachineValidationGetRequest>,
+) -> Result<tonic::Response<forge::MachineValidationResultList>, Status> {
     log_request_data(&request);
-    let req: rpc::MachineValidationGetRequest = request.into_inner();
+    let req: forge::MachineValidationGetRequest = request.into_inner();
 
     let machine_id = match req.machine_id {
         Some(id) => Some(convert_and_log_machine_id(Some(&id))?),
@@ -269,7 +275,7 @@ pub(crate) async fn get_machine_validation_results(
     let mut db_reader = api.db_reader();
     let mut db_results: Vec<MachineValidationResult> = Vec::new();
     if let Some(machine_id) = machine_id.as_ref() {
-        db_results = db::machine_validation_result::find_by_machine_id(
+        db_results = nico_api_db::machine_validation_result::find_by_machine_id(
             &mut db_reader,
             machine_id,
             req.include_history,
@@ -280,7 +286,7 @@ pub(crate) async fn get_machine_validation_results(
             db_results.retain(|x| x.validation_id == validation_id)
         }
     } else if let Some(validation_id) = validation_id {
-        db_results = db::machine_validation_result::find_by_validation_id(
+        db_results = nico_api_db::machine_validation_result::find_by_validation_id(
             &api.database_connection,
             &validation_id,
         )
@@ -289,43 +295,45 @@ pub(crate) async fn get_machine_validation_results(
 
     let vec_rest = db_results
         .into_iter()
-        .map(rpc::MachineValidationResult::from)
+        .map(forge::MachineValidationResult::from)
         .collect();
 
-    Ok(tonic::Response::new(rpc::MachineValidationResultList {
+    Ok(tonic::Response::new(forge::MachineValidationResultList {
         results: vec_rest,
     }))
 }
 
 pub(crate) async fn get_machine_validation_external_config(
     api: &Api,
-    request: tonic::Request<rpc::GetMachineValidationExternalConfigRequest>,
-) -> Result<tonic::Response<rpc::GetMachineValidationExternalConfigResponse>, Status> {
+    request: tonic::Request<forge::GetMachineValidationExternalConfigRequest>,
+) -> Result<tonic::Response<forge::GetMachineValidationExternalConfigResponse>, Status> {
     log_request_data(&request);
 
-    let req: rpc::GetMachineValidationExternalConfigRequest = request.into_inner();
-    let ret =
-        db::machine_validation_config::find_config_by_name(&api.database_connection, &req.name)
-            .await?;
+    let req: forge::GetMachineValidationExternalConfigRequest = request.into_inner();
+    let ret = nico_api_db::machine_validation_config::find_config_by_name(
+        &api.database_connection,
+        &req.name,
+    )
+    .await?;
 
     Ok(tonic::Response::new(
         GetMachineValidationExternalConfigResponse {
-            config: Some(rpc::MachineValidationExternalConfig::from(ret)),
+            config: Some(forge::MachineValidationExternalConfig::from(ret)),
         },
     ))
 }
 
 pub(crate) async fn add_update_machine_validation_external_config(
     api: &Api,
-    request: tonic::Request<rpc::AddUpdateMachineValidationExternalConfigRequest>,
+    request: tonic::Request<forge::AddUpdateMachineValidationExternalConfigRequest>,
 ) -> Result<tonic::Response<()>, Status> {
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
 
-    let req: rpc::AddUpdateMachineValidationExternalConfigRequest = request.into_inner();
+    let req: forge::AddUpdateMachineValidationExternalConfigRequest = request.into_inner();
 
-    let _ = db::machine_validation_config::create_or_update(
+    let _ = nico_api_db::machine_validation_config::create_or_update(
         &mut txn,
         &req.name,
         &req.description.unwrap_or_default(),
@@ -339,16 +347,16 @@ pub(crate) async fn add_update_machine_validation_external_config(
 
 pub(crate) async fn get_machine_validation_runs(
     api: &Api,
-    request: tonic::Request<rpc::MachineValidationRunListGetRequest>,
-) -> Result<tonic::Response<rpc::MachineValidationRunList>, Status> {
+    request: tonic::Request<forge::MachineValidationRunListGetRequest>,
+) -> Result<tonic::Response<forge::MachineValidationRunList>, Status> {
     log_request_data(&request);
-    let machine_validation_run_request: rpc::MachineValidationRunListGetRequest =
+    let machine_validation_run_request: forge::MachineValidationRunListGetRequest =
         request.into_inner();
     let mut db_reader = api.db_reader();
     let db_runs = match machine_validation_run_request.machine_id {
         Some(id) => {
             let machine_id = convert_and_log_machine_id(Some(&id))?;
-            db::machine_validation::find(
+            nico_api_db::machine_validation::find(
                 &mut db_reader,
                 &machine_id,
                 machine_validation_run_request.include_history,
@@ -357,15 +365,15 @@ pub(crate) async fn get_machine_validation_runs(
         }
         None => {
             tracing::info!("no machine ID");
-            db::machine_validation::find_all(&api.database_connection).await
+            nico_api_db::machine_validation::find_all(&api.database_connection).await
         }
     };
     let ret = db_runs
         .map(
-            |runs: Vec<MachineValidation>| rpc::MachineValidationRunList {
+            |runs: Vec<MachineValidation>| forge::MachineValidationRunList {
                 runs: runs
                     .into_iter()
-                    .map(rpc::MachineValidationRun::from)
+                    .map(forge::MachineValidationRun::from)
                     .collect(),
             },
         )
@@ -376,18 +384,18 @@ pub(crate) async fn get_machine_validation_runs(
 
 pub(crate) async fn on_demand_machine_validation(
     api: &Api,
-    request: tonic::Request<rpc::MachineValidationOnDemandRequest>,
-) -> Result<tonic::Response<rpc::MachineValidationOnDemandResponse>, Status> {
+    request: tonic::Request<forge::MachineValidationOnDemandRequest>,
+) -> Result<tonic::Response<forge::MachineValidationOnDemandResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
     let machine_id = convert_and_log_machine_id(req.machine_id.as_ref())?;
 
     match req.action() {
-        rpc::machine_validation_on_demand_request::Action::Start => {
+        forge::machine_validation_on_demand_request::Action::Start => {
             let mut txn = api.txn_begin().await?;
 
-            let machine = db::machine::find_one(
+            let machine = nico_api_db::machine::find_one(
                 &mut txn,
                 &machine_id,
                 MachineSearchConfig {
@@ -427,7 +435,7 @@ pub(crate) async fn on_demand_machine_validation(
                         .into_iter()
                         .map(|t| t.to_ascii_lowercase())
                         .collect();
-                    let validation_id = db::machine_validation::create_new_run(
+                    let validation_id = nico_api_db::machine_validation::create_new_run(
                         &mut txn,
                         &machine_id,
                         "OnDemand".to_string(),
@@ -442,13 +450,17 @@ pub(crate) async fn on_demand_machine_validation(
                     tracing::trace!(validation_id = %validation_id);
 
                     // Update machine_validation_request.
-                    db::machine::set_machine_validation_request(&mut txn, &machine_id, true)
-                        .await?;
+                    nico_api_db::machine::set_machine_validation_request(
+                        &mut txn,
+                        &machine_id,
+                        true,
+                    )
+                    .await?;
 
                     txn.commit().await?;
 
                     Ok(tonic::Response::new(
-                        rpc::MachineValidationOnDemandResponse {
+                        forge::MachineValidationOnDemandResponse {
                             validation_id: Some(validation_id.into()),
                         },
                     ))
@@ -464,7 +476,7 @@ pub(crate) async fn on_demand_machine_validation(
                 }
             }
         }
-        rpc::machine_validation_on_demand_request::Action::Stop => {
+        forge::machine_validation_on_demand_request::Action::Stop => {
             Err(CarbideError::InvalidArgument(
                 "Cannot stop an on-demand validation request".to_string(),
             )
@@ -475,16 +487,17 @@ pub(crate) async fn on_demand_machine_validation(
 
 pub(crate) async fn get_machine_validation_external_configs(
     api: &Api,
-    request: tonic::Request<rpc::GetMachineValidationExternalConfigsRequest>,
-) -> Result<tonic::Response<rpc::GetMachineValidationExternalConfigsResponse>, Status> {
+    request: tonic::Request<forge::GetMachineValidationExternalConfigsRequest>,
+) -> Result<tonic::Response<forge::GetMachineValidationExternalConfigsResponse>, Status> {
     log_request_data(&request);
 
-    let ret = db::machine_validation_config::find_configs(&api.database_connection).await?;
+    let ret =
+        nico_api_db::machine_validation_config::find_configs(&api.database_connection).await?;
     Ok(tonic::Response::new(
-        rpc::GetMachineValidationExternalConfigsResponse {
+        forge::GetMachineValidationExternalConfigsResponse {
             configs: ret
                 .into_iter()
-                .map(rpc::MachineValidationExternalConfig::from)
+                .map(forge::MachineValidationExternalConfig::from)
                 .collect(),
         },
     ))
@@ -492,14 +505,14 @@ pub(crate) async fn get_machine_validation_external_configs(
 
 pub(crate) async fn remove_machine_validation_external_config(
     api: &Api,
-    request: tonic::Request<rpc::RemoveMachineValidationExternalConfigRequest>,
+    request: tonic::Request<forge::RemoveMachineValidationExternalConfigRequest>,
 ) -> Result<tonic::Response<()>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
     let mut txn = api.txn_begin().await?;
 
-    let _ = db::machine_validation_config::remove_config(&mut txn, &req.name).await?;
+    let _ = nico_api_db::machine_validation_config::remove_config(&mut txn, &req.name).await?;
     txn.commit().await.unwrap();
 
     Ok(tonic::Response::new(()))
@@ -507,14 +520,14 @@ pub(crate) async fn remove_machine_validation_external_config(
 
 pub(crate) async fn update_machine_validation_test(
     api: &Api,
-    request: tonic::Request<rpc::MachineValidationTestUpdateRequest>,
-) -> Result<tonic::Response<rpc::MachineValidationTestAddUpdateResponse>, Status> {
+    request: tonic::Request<forge::MachineValidationTestUpdateRequest>,
+) -> Result<tonic::Response<forge::MachineValidationTestAddUpdateResponse>, Status> {
     let req = request.into_inner();
     let mut txn = api.txn_begin().await?;
 
     // let existing = machine_validation_suites::find(
     //     &mut txn,
-    //     rpc::MachineValidationTestsGetRequest {
+    //     forge::MachineValidationTestsGetRequest {
     //         test_id: Some(req.test_id.clone()),
     //         version: Some(req.version.clone()),
     //         ..rpc::MachineValidationTestsGetRequest::default()
@@ -533,7 +546,7 @@ pub(crate) async fn update_machine_validation_test(
     txn.commit().await?;
 
     Ok(tonic::Response::new(
-        rpc::MachineValidationTestAddUpdateResponse {
+        forge::MachineValidationTestAddUpdateResponse {
             test_id,
             version: req.version,
         },
@@ -542,8 +555,8 @@ pub(crate) async fn update_machine_validation_test(
 
 pub(crate) async fn add_machine_validation_test(
     api: &Api,
-    request: tonic::Request<rpc::MachineValidationTestAddRequest>,
-) -> Result<tonic::Response<rpc::MachineValidationTestAddUpdateResponse>, Status> {
+    request: tonic::Request<forge::MachineValidationTestAddRequest>,
+) -> Result<tonic::Response<forge::MachineValidationTestAddUpdateResponse>, Status> {
     let req = request.into_inner();
     let mut txn = api.txn_begin().await?;
 
@@ -565,7 +578,7 @@ pub(crate) async fn add_machine_validation_test(
     txn.commit().await?;
 
     Ok(tonic::Response::new(
-        rpc::MachineValidationTestAddUpdateResponse {
+        forge::MachineValidationTestAddUpdateResponse {
             test_id,
             version: version.version_string(),
         },
@@ -574,18 +587,18 @@ pub(crate) async fn add_machine_validation_test(
 
 pub(crate) async fn get_machine_validation_tests(
     api: &Api,
-    request: tonic::Request<rpc::MachineValidationTestsGetRequest>,
-) -> Result<tonic::Response<rpc::MachineValidationTestsGetResponse>, Status> {
+    request: tonic::Request<forge::MachineValidationTestsGetRequest>,
+) -> Result<tonic::Response<forge::MachineValidationTestsGetResponse>, Status> {
     log_request_data(&request);
     let req: ModelTestsGetRequest = request.into_inner().into();
 
     let tests = machine_validation_suites::find(&api.database_connection, req).await?;
 
     Ok(tonic::Response::new(
-        rpc::MachineValidationTestsGetResponse {
+        forge::MachineValidationTestsGetResponse {
             tests: tests
                 .into_iter()
-                .map(rpc::MachineValidationTest::from)
+                .map(forge::MachineValidationTest::from)
                 .collect(),
         },
     ))
@@ -593,8 +606,8 @@ pub(crate) async fn get_machine_validation_tests(
 
 pub(crate) async fn machine_validation_test_verfied(
     api: &Api,
-    request: tonic::Request<rpc::MachineValidationTestVerfiedRequest>,
-) -> Result<tonic::Response<rpc::MachineValidationTestVerfiedResponse>, Status> {
+    request: tonic::Request<forge::MachineValidationTestVerfiedRequest>,
+) -> Result<tonic::Response<forge::MachineValidationTestVerfiedResponse>, Status> {
     let req = request.into_inner();
     let mut txn = api.txn_begin().await?;
 
@@ -613,15 +626,15 @@ pub(crate) async fn machine_validation_test_verfied(
     txn.commit().await?;
 
     Ok(tonic::Response::new(
-        rpc::MachineValidationTestVerfiedResponse {
+        forge::MachineValidationTestVerfiedResponse {
             message: "Success".to_string(),
         },
     ))
 }
 pub(crate) async fn machine_validation_test_next_version(
     api: &Api,
-    request: tonic::Request<rpc::MachineValidationTestNextVersionRequest>,
-) -> Result<tonic::Response<rpc::MachineValidationTestNextVersionResponse>, Status> {
+    request: tonic::Request<forge::MachineValidationTestNextVersionRequest>,
+) -> Result<tonic::Response<forge::MachineValidationTestNextVersionResponse>, Status> {
     let req = request.into_inner();
     let mut txn = api.txn_begin().await?;
 
@@ -638,7 +651,7 @@ pub(crate) async fn machine_validation_test_next_version(
     txn.commit().await?;
 
     Ok(tonic::Response::new(
-        rpc::MachineValidationTestNextVersionResponse {
+        forge::MachineValidationTestNextVersionResponse {
             test_id,
             version: next_version.version_string(),
         },
@@ -647,8 +660,8 @@ pub(crate) async fn machine_validation_test_next_version(
 
 pub(crate) async fn machine_validation_test_enable_disable_test(
     api: &Api,
-    request: tonic::Request<rpc::MachineValidationTestEnableDisableTestRequest>,
-) -> Result<tonic::Response<rpc::MachineValidationTestEnableDisableTestResponse>, Status> {
+    request: tonic::Request<forge::MachineValidationTestEnableDisableTestRequest>,
+) -> Result<tonic::Response<forge::MachineValidationTestEnableDisableTestResponse>, Status> {
     let req = request.into_inner();
     let mut txn = api.txn_begin().await?;
 
@@ -673,7 +686,7 @@ pub(crate) async fn machine_validation_test_enable_disable_test(
     txn.commit().await?;
 
     Ok(tonic::Response::new(
-        rpc::MachineValidationTestEnableDisableTestResponse {
+        forge::MachineValidationTestEnableDisableTestResponse {
             message: "Success".to_string(),
         },
     ))
@@ -681,8 +694,8 @@ pub(crate) async fn machine_validation_test_enable_disable_test(
 
 pub(crate) async fn update_machine_validation_run(
     api: &Api,
-    request: tonic::Request<rpc::MachineValidationRunRequest>,
-) -> Result<tonic::Response<rpc::MachineValidationRunResponse>, Status> {
+    request: tonic::Request<forge::MachineValidationRunRequest>,
+) -> Result<tonic::Response<forge::MachineValidationRunResponse>, Status> {
     let req = request.into_inner();
     let mut txn = api.txn_begin().await?;
 
@@ -693,7 +706,7 @@ pub(crate) async fn update_machine_validation_run(
         }
     };
 
-    db::machine_validation::update_run(
+    nico_api_db::machine_validation::update_run(
         &mut txn,
         &validation_id,
         req.total
@@ -705,7 +718,7 @@ pub(crate) async fn update_machine_validation_run(
 
     txn.commit().await?;
 
-    Ok(tonic::Response::new(rpc::MachineValidationRunResponse {
+    Ok(tonic::Response::new(forge::MachineValidationRunResponse {
         message: "Success".to_string(),
     }))
 }

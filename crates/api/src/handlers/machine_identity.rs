@@ -18,7 +18,8 @@
 //! gRPC handler for machine identity (JWT-SVID SignMachineIdentity).
 //! Business logic lives in the `crate::machine_identity` module.
 
-use ::rpc::forge::{self as rpc, MachineIdentityResponse};
+use nico_rpc::forge;
+use nico_rpc::forge::MachineIdentityResponse;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -33,7 +34,7 @@ use crate::auth::AuthContext;
 #[allow(dead_code, clippy::unused_async)]
 pub(crate) async fn sign_machine_identity(
     api: &Api,
-    request: Request<rpc::MachineIdentityRequest>,
+    request: Request<forge::MachineIdentityRequest>,
 ) -> Result<Response<MachineIdentityResponse>, Status> {
     log_request_data(&request);
 
@@ -55,7 +56,7 @@ pub(crate) async fn sign_machine_identity(
 
     tracing::info!(machine_id = %machine_id_str, "Processing machine identity request");
 
-    let _machine_id: carbide_uuid::machine::MachineId = machine_id_str
+    let _machine_id: nico_uuid::machine::MachineId = machine_id_str
         .parse()
         .map_err(|e| CarbideError::InvalidArgument(format!("Invalid machine ID format: {}", e)))?;
 

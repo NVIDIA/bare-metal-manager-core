@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::network::NetworkSegmentId;
 use config_version::ConfigVersion;
-use model::network_segment::NetworkSegmentControllerState;
+use nico_api_model::network_segment::NetworkSegmentControllerState;
+use nico_uuid::network::NetworkSegmentId;
 use sqlx::PgConnection;
 
 use super::DatabaseError;
@@ -25,7 +25,10 @@ use super::DatabaseError;
 pub async fn for_segment(
     txn: &mut PgConnection,
     segment_id: &NetworkSegmentId,
-) -> Result<Vec<model::network_segment_state_history::NetworkSegmentStateHistory>, DatabaseError> {
+) -> Result<
+    Vec<nico_api_model::network_segment_state_history::NetworkSegmentStateHistory>,
+    DatabaseError,
+> {
     let query = "SELECT id, segment_id, state::TEXT, state_version, timestamp
             FROM network_segment_state_history
             WHERE segment_id=$1

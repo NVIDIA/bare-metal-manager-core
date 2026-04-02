@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
 use clap::Parser;
 use mac_address::MacAddress;
+use nico_rpc::forge;
+use nico_uuid::rack::RackId;
 use serde::{Deserialize, Serialize};
 
 use crate::metadata::parse_rpc_labels;
@@ -84,15 +85,15 @@ pub struct Args {
     pub ip_address: Option<String>,
 }
 
-impl From<Args> for rpc::forge::ExpectedPowerShelf {
+impl From<Args> for forge::ExpectedPowerShelf {
     fn from(value: Args) -> Self {
         let labels = parse_rpc_labels(value.labels.unwrap_or_default());
-        let metadata = rpc::forge::Metadata {
+        let metadata = forge::Metadata {
             name: value.meta_name.unwrap_or_default(),
             description: value.meta_description.unwrap_or_default(),
             labels,
         };
-        rpc::forge::ExpectedPowerShelf {
+        forge::ExpectedPowerShelf {
             expected_power_shelf_id: None,
             bmc_mac_address: value.bmc_mac_address.to_string(),
             bmc_username: value.bmc_username,

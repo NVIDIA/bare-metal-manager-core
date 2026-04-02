@@ -14,11 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersion;
-use rpc::errors::RpcDataConversionError;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::instance_type::InstanceTypeId;
+use nico_uuid::machine::MachineId;
 
 use crate::instance::config::InstanceConfig;
 use crate::metadata::{LabelFilter, Metadata};
@@ -35,8 +36,8 @@ pub struct InstanceSearchFilter {
     pub instance_type_id: Option<String>,
 }
 
-impl From<rpc::forge::InstanceSearchFilter> for InstanceSearchFilter {
-    fn from(filter: rpc::forge::InstanceSearchFilter) -> Self {
+impl From<forge::InstanceSearchFilter> for InstanceSearchFilter {
+    fn from(filter: forge::InstanceSearchFilter) -> Self {
         InstanceSearchFilter {
             label: filter.label.map(LabelFilter::from),
             tenant_org_id: filter.tenant_org_id,
@@ -68,14 +69,14 @@ pub struct NewInstance<'a> {
 
 pub struct DeleteInstance {
     pub instance_id: InstanceId,
-    pub issue: Option<rpc::forge::Issue>,
+    pub issue: Option<forge::Issue>,
     pub is_repair_tenant: Option<bool>,
 }
 
-impl TryFrom<rpc::InstanceReleaseRequest> for DeleteInstance {
+impl TryFrom<forge::InstanceReleaseRequest> for DeleteInstance {
     type Error = RpcDataConversionError;
 
-    fn try_from(value: rpc::InstanceReleaseRequest) -> Result<Self, Self::Error> {
+    fn try_from(value: forge::InstanceReleaseRequest) -> Result<Self, Self::Error> {
         let instance_id = value
             .id
             .ok_or(RpcDataConversionError::MissingArgument("id"))?;
@@ -89,7 +90,7 @@ impl TryFrom<rpc::InstanceReleaseRequest> for DeleteInstance {
 
 #[cfg(test)]
 mod tests {
-    use rpc::forge as rpc_forge;
+    use nico_rpc::forge as rpc_forge;
 
     use super::*;
 

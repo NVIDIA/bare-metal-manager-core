@@ -19,9 +19,9 @@ use std::fmt::Write;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use ::rpc::forge as rpc;
 use async_trait::async_trait;
 use eyre::{Result, WrapErr};
+use nico_rpc::forge;
 use serde_json::Value as Json;
 use serde_yaml::Value;
 use tokio::fs;
@@ -396,14 +396,14 @@ impl KubernetesPodServicesHandler {
         pod_status: &str,
         statuses: &[String],
         expected_deploy: bool,
-    ) -> rpc::DpuExtensionServiceDeploymentStatus {
+    ) -> forge::DpuExtensionServiceDeploymentStatus {
         if statuses.is_empty() {
             return if expected_deploy {
-                rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending
+                forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending
             } else if pod_status == "SANDBOX_NOTREADY" {
-                rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminating
+                forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminating
             } else {
-                rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated
+                forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated
             };
         }
 
@@ -417,30 +417,30 @@ impl KubernetesPodServicesHandler {
 
         if expected_deploy {
             if all_running {
-                return rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning;
+                return forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning;
             }
             if any_exited {
-                return rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceError;
+                return forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceError;
             }
             if any_created {
-                return rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending;
+                return forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending;
             }
             if any_unknown {
-                return rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceUnknown;
+                return forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceUnknown;
             }
-            rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending
+            forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending
         } else {
             if any_unknown {
-                return rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceUnknown;
+                return forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceUnknown;
             }
             // We expect it gone
             if any_running || any_created {
-                return rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminating;
+                return forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminating;
             }
             if statuses.is_empty() || all_exited {
-                return rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated;
+                return forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated;
             }
-            rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated
+            forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated
         }
     }
 
@@ -466,7 +466,7 @@ impl KubernetesPodServicesHandler {
     async fn get_pod_status(
         &self,
         service: &ServiceConfig,
-    ) -> Result<rpc::DpuExtensionServiceStatusObservation> {
+    ) -> Result<forge::DpuExtensionServiceStatusObservation> {
         let expected_deploy = service.removed.is_none();
 
         let _pod_spec_path =
@@ -477,12 +477,12 @@ impl KubernetesPodServicesHandler {
             Ok(Some(pod_id)) => pod_id,
             Ok(None) => {
                 let state_enum = match expected_deploy {
-                    true => rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending,
+                    true => forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending,
                     false => {
-                        rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated
+                        forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated
                     }
                 };
-                return Ok(rpc::DpuExtensionServiceStatusObservation {
+                return Ok(forge::DpuExtensionServiceStatusObservation {
                     service_id: service.id.to_string(),
                     service_type: service.service_type as i32,
                     service_name: service.id.to_string(),
@@ -494,13 +494,13 @@ impl KubernetesPodServicesHandler {
                 });
             }
             Err(e) => {
-                return Ok(rpc::DpuExtensionServiceStatusObservation {
+                return Ok(forge::DpuExtensionServiceStatusObservation {
                     service_id: service.id.to_string(),
                     service_type: service.service_type as i32,
                     service_name: service.id.to_string(),
                     version: service.version.to_string(),
                     removed: service.removed.clone(),
-                    state: rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceError
+                    state: forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceError
                         as i32,
                     components: Vec::new(),
                     message: format!("Failed to find pod ID: {}", e),
@@ -512,13 +512,13 @@ impl KubernetesPodServicesHandler {
         let pod_state = match self.get_pod_sandbox_status(&pod_id).await {
             Ok(pod_state) => pod_state,
             Err(e) => {
-                return Ok(rpc::DpuExtensionServiceStatusObservation {
+                return Ok(forge::DpuExtensionServiceStatusObservation {
                     service_id: service.id.to_string(),
                     service_type: service.service_type as i32,
                     service_name: service.id.to_string(),
                     version: service.version.to_string(),
                     removed: service.removed.clone(),
-                    state: rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceError
+                    state: forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceError
                         as i32,
                     components: Vec::new(),
                     message: format!("Failed to inspect pod status pod {}: {}", pod_id, e),
@@ -559,7 +559,7 @@ impl KubernetesPodServicesHandler {
                 None => ("".to_string(), "".to_string()),
             };
 
-            components.push(rpc::DpuExtensionServiceComponent {
+            components.push(forge::DpuExtensionServiceComponent {
                 name: container_name.to_string(),
                 version: image_version,
                 url: image_url,
@@ -578,7 +578,7 @@ impl KubernetesPodServicesHandler {
             None => format!("pod state: {}", pod_state),
         };
 
-        Ok(rpc::DpuExtensionServiceStatusObservation {
+        Ok(forge::DpuExtensionServiceStatusObservation {
             service_id: service.id.to_string(),
             service_type: service.service_type as i32,
             service_name: service.id.to_string(),
@@ -1139,17 +1139,17 @@ impl ExtensionServiceHandler for KubernetesPodServicesHandler {
     async fn get_service_status(
         &self,
         service: &ServiceConfig,
-    ) -> Result<rpc::DpuExtensionServiceStatusObservation> {
+    ) -> Result<forge::DpuExtensionServiceStatusObservation> {
         let res = self.get_pod_status(service).await;
         match res {
             Ok(status) => Ok(status),
-            Err(e) => Ok(rpc::DpuExtensionServiceStatusObservation {
+            Err(e) => Ok(forge::DpuExtensionServiceStatusObservation {
                 service_id: service.id.to_string(),
                 service_type: service.service_type as i32,
                 service_name: service.id.to_string(),
                 version: service.version.to_string(),
                 removed: service.removed.clone(),
-                state: rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceError as i32,
+                state: forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceError as i32,
                 components: Vec::new(),
                 message: e.to_string(),
             }),
@@ -1429,7 +1429,7 @@ spec:
         let status = handler.aggregate_status("SANDBOX_READY", &statuses, true);
         assert_eq!(
             status,
-            rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning
+            forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceRunning
         );
     }
 
@@ -1442,14 +1442,14 @@ spec:
         let status = handler.aggregate_status("SANDBOX_READY", &statuses, true);
         assert_eq!(
             status,
-            rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending
+            forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServicePending
         );
 
         // Not expected to be deployed: should be TERMINATED
         let status = handler.aggregate_status("SANDBOX_READY", &statuses, false);
         assert_eq!(
             status,
-            rpc::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated
+            forge::DpuExtensionServiceDeploymentStatus::DpuExtensionServiceTerminated
         );
     }
 

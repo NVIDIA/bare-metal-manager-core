@@ -19,8 +19,8 @@ use std::fmt::{Debug, Display};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum_client_ip::Rejection;
-use carbide_uuid::UuidConversionError;
-use rpc::errors::RpcDataConversionError;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_uuid::UuidConversionError;
 
 pub enum PxeRequestError {
     CarbideApiError(tonic::Status),

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use health_report::HealthProbeId;
+use nico_health_report::HealthProbeId;
 
 lazy_static::lazy_static! {
     pub static ref ContainerExists: HealthProbeId = "ContainerExists".parse().unwrap();

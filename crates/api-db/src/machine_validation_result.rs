@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::machine::MachineId;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine_validation::MachineValidationResult;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine_validation::MachineValidationResult;
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;

@@ -18,16 +18,19 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use carbide_network::ip::IpAddressFamily;
-use carbide_uuid::machine::MachineInterfaceId;
 use common::api_fixtures::{
     FIXTURE_DHCP_RELAY_ADDRESS, TestEnv, create_managed_host, create_test_env, dpu,
 };
-use db::{self, ObjectColumnFilter, dhcp_entry};
 use itertools::Itertools;
 use mac_address::MacAddress;
-use rpc::forge::ManagedHostNetworkConfigRequest;
-use rpc::forge::forge_server::Forge;
+use nico_api_db::{
+    ObjectColumnFilter, dhcp_entry, {self},
+};
+use nico_network::ip::IpAddressFamily;
+use nico_rpc::forge;
+use nico_rpc::forge::ManagedHostNetworkConfigRequest;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::machine::MachineInterfaceId;
 
 use crate::DatabaseError;
 use crate::tests::common;
@@ -41,7 +44,7 @@ async fn test_machine_dhcp(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error:
     let test_mac_address = MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap();
     let test_gateway_address = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
 
-    db::machine_interface::validate_existing_mac_and_create(
+    nico_api_db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac_address,
         test_gateway_address,
@@ -64,7 +67,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
     let test_mac_address = MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap();
     let test_gateway_address = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
 
-    db::machine_interface::validate_existing_mac_and_create(
+    nico_api_db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac_address,
         test_gateway_address,
@@ -73,7 +76,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
     .await?;
 
     // Test a second time after initial creation on the same segment should not cause issues
-    db::machine_interface::validate_existing_mac_and_create(
+    nico_api_db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac_address,
         test_gateway_address,
@@ -82,7 +85,7 @@ async fn test_machine_dhcp_from_wrong_vlan_fails(
     .await?;
 
     // expect this to error out
-    let output = db::machine_interface::validate_existing_mac_and_create(
+    let output = nico_api_db::machine_interface::validate_existing_mac_and_create(
         &mut txn,
         test_mac_address,
         "192.0.1.1".parse().unwrap(),
@@ -106,7 +109,7 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // Inititially 0 addresses are allocated on the segment
     let mut txn = env.pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
+        nico_api_db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
             .await
             .unwrap(),
         0
@@ -134,7 +137,7 @@ async fn test_machine_dhcp_with_api(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     // After DHCP, 1 address is allocated on the segment
     let mut txn = pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
+        nico_api_db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
             .await
             .unwrap(),
         1
@@ -152,7 +155,7 @@ async fn test_multiple_machines_dhcp_with_api(
     // Inititially 0 addresses are allocated on the segment
     let mut txn = pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
+        nico_api_db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
             .await
             .unwrap(),
         0
@@ -182,7 +185,7 @@ async fn test_multiple_machines_dhcp_with_api(
 
     let mut txn = pool.begin().await?;
     assert_eq!(
-        db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
+        nico_api_db::machine_interface::count_by_segment_id(&mut txn, &env.admin_segment.unwrap())
             .await
             .unwrap(),
         NUM_MACHINES
@@ -199,10 +202,10 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
     let (segment_id_1, segment_id_2) = env.create_vpc_and_dual_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let network = rpc::InstanceNetworkConfig {
+    let network = forge::InstanceNetworkConfig {
         interfaces: vec![
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 network_segment_id: Some(segment_id_1),
                 network_details: None,
                 device: None,
@@ -210,8 +213,8 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
                 virtual_function_id: None,
                 ip_address: None,
             },
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: Some(segment_id_2),
                 network_details: None,
                 device: None,
@@ -287,7 +290,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
         expected: &[&str],
     ) {
         let mut txn = pool.clone().begin().await.unwrap();
-        let entry = db::dhcp_entry::find_by(
+        let entry = nico_api_db::dhcp_entry::find_by(
             &mut txn,
             ObjectColumnFilter::One(dhcp_entry::MachineInterfaceIdColumn, interface_id),
         )
@@ -302,7 +305,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
         );
 
         // Also check via the MachineInterface API
-        let iface = db::machine_interface::find_one(txn.as_mut(), *interface_id)
+        let iface = nico_api_db::machine_interface::find_one(txn.as_mut(), *interface_id)
             .await
             .unwrap();
         assert_eq!(iface.vendors, expected);
@@ -314,7 +317,7 @@ async fn machine_interface_discovery_persists_vendor_strings(
         env: &TestEnv,
         mac_address: MacAddress,
         vendor_string: Option<&str>,
-    ) -> rpc::protos::forge::DhcpRecord {
+    ) -> nico_rpc::protos::forge::DhcpRecord {
         let builder = DhcpDiscovery::builder(mac_address, FIXTURE_DHCP_RELAY_ADDRESS);
         let builder = if let Some(vendor_string) = vendor_string {
             builder.vendor_string(vendor_string)
@@ -410,7 +413,8 @@ async fn test_dhcp_record_address_family(
     // Insert an IPv6 address for the same interface, simulating dual-stack.
     let mut txn = pool.begin().await?;
     let parsed_mac: MacAddress = mac_address.parse().unwrap();
-    let interfaces = db::machine_interface::find_by_mac_address(txn.as_mut(), parsed_mac).await?;
+    let interfaces =
+        nico_api_db::machine_interface::find_by_mac_address(txn.as_mut(), parsed_mac).await?;
     let interface = &interfaces[0];
 
     let ipv6_addr: IpAddr = "fd00::42".parse().unwrap();
@@ -435,7 +439,7 @@ async fn test_dhcp_record_address_family(
 
     // Now test find_by_mac_address with IPv4 — should return only the IPv4 record.
     let mut txn = pool.begin().await?;
-    let ipv4_record = db::dhcp_record::find_by_mac_address(
+    let ipv4_record = nico_api_db::dhcp_record::find_by_mac_address(
         &mut txn,
         &parsed_mac,
         &segment_id,
@@ -452,7 +456,7 @@ async fn test_dhcp_record_address_family(
 
     // And with IPv6 — should return only the IPv6 record.
     let mut txn = pool.begin().await?;
-    let ipv6_record = db::dhcp_record::find_by_mac_address(
+    let ipv6_record = nico_api_db::dhcp_record::find_by_mac_address(
         &mut txn,
         &parsed_mac,
         &segment_id,

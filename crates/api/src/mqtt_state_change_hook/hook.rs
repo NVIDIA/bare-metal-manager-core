@@ -20,9 +20,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineId;
-use model::machine::ManagedHostState;
 use mqttea::{MqtteaClient, MqtteaClientError};
+use nico_api_model::machine::ManagedHostState;
+use nico_uuid::machine::MachineId;
 use opentelemetry::metrics::Meter;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
@@ -196,7 +196,7 @@ mod tests {
     }
 
     fn test_machine_id() -> MachineId {
-        use carbide_uuid::machine::{MachineIdSource, MachineType};
+        use nico_uuid::machine::{MachineIdSource, MachineType};
         MachineId::new(
             MachineIdSource::ProductBoardChassisSerial,
             [0; 32],

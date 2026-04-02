@@ -18,11 +18,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use backon::{ExponentialBuilder, Retryable};
-use carbide_host_support::agent_config::AgentConfig;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use forge_dpu_agent_utils::utils::create_forge_client;
-use rpc::forge::MachineInterface;
-use rpc::forge_tls_client::{ForgeClientConfig, ForgeClientT};
+use nico_dpu_agent_utils::utils::create_forge_client;
+use nico_host_support::agent_config::AgentConfig;
+use nico_rpc::forge;
+use nico_rpc::forge::MachineInterface;
+use nico_rpc::forge_tls_client::{ForgeClientConfig, ForgeClientT};
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
 
 use crate::periodic_config_fetcher::PeriodicConfigFetcher;
 
@@ -30,7 +31,7 @@ async fn get_interface(
     client: &mut ForgeClientT,
     interface_id: MachineInterfaceId,
 ) -> Result<MachineInterface, eyre::Error> {
-    let request = tonic::Request::new(rpc::forge::InterfaceSearchQuery {
+    let request = tonic::Request::new(forge::InterfaceSearchQuery {
         id: Some(interface_id),
         ip: None,
     });

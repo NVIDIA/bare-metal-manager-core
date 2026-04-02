@@ -17,8 +17,8 @@
 
 //! Database access methods used in the StateController framework
 
-use db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
-use db::{BIND_LIMIT, DatabaseError};
+use nico_api_db::work_lock_manager::{AcquireLockError, WorkLockManagerHandle};
+use nico_api_db::{BIND_LIMIT, DatabaseError};
 use sqlx::{PgConnection, PgPool};
 
 use crate::api::TransactionVending;

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use rpc::protos::mlx_device::FirmwareFlashReport as FirmwareFlashReportPb;
+use nico_rpc::protos::mlx_device::FirmwareFlashReport as FirmwareFlashReportPb;
 use serde::{Deserialize, Serialize};
 
 // FirmwareFlashReport captures the outcome of each step in the

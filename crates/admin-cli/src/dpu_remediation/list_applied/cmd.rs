@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use carbide_uuid::dpu_remediations::RemediationId;
-use carbide_uuid::machine::MachineId;
-use prettytable::{Table, row};
-use rpc::forge::{
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge::{
     AppliedRemediationIdList, AppliedRemediationList, FindAppliedRemediationIdsRequest,
     FindAppliedRemediationsRequest,
 };
+use nico_uuid::dpu_remediations::RemediationId;
+use nico_uuid::machine::MachineId;
+use prettytable::{Table, row};
 
 use super::args::Args;
 use crate::rpc::ApiClient;

@@ -32,21 +32,22 @@ use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use ipnetwork::{IpNetwork, Ipv4Network};
 use itertools::Itertools;
-use libmlx::firmware::config::FirmwareFlasherProfile;
-use libmlx::profile::profile::MlxConfigProfile;
-use libmlx::profile::serialization::{
-    deserialize_option_profile_map, serialize_option_profile_map,
-};
-use model::DpuModel;
-use model::firmware::{
+use nico_api_model::DpuModel;
+use nico_api_model::firmware::{
     AgentUpgradePolicyChoice, Firmware, FirmwareComponent, FirmwareComponentType, FirmwareEntry,
 };
-use model::ib::{IBMtu, IBRateLimit, IBServiceLevel};
-use model::machine::HostHealthConfig;
-use model::network_security_group::NetworkSecurityGroupRule;
-use model::network_segment::NetworkDefinition;
-use model::resource_pool::define::ResourcePoolDef;
-use model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
+use nico_api_model::ib::{IBMtu, IBRateLimit, IBServiceLevel};
+use nico_api_model::machine::HostHealthConfig;
+use nico_api_model::network_security_group::NetworkSecurityGroupRule;
+use nico_api_model::network_segment::NetworkDefinition;
+use nico_api_model::resource_pool::define::ResourcePoolDef;
+use nico_api_model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
+use nico_libmlx::firmware::config::FirmwareFlasherProfile;
+use nico_libmlx::profile::profile::MlxConfigProfile;
+use nico_libmlx::profile::serialization::{
+    deserialize_option_profile_map, serialize_option_profile_map,
+};
+use nico_rpc::forge;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use utils::HostPortPair;
@@ -68,7 +69,7 @@ static BF3_UEFI: &str = "4.13.0-26-g337fea6bfd";
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CarbideConfig {
     /// Socket address for the gRPC API server, used by
-    /// clients and nico-admin-cli to connect.
+    /// clients and carbide-admin-cli to connect.
     /// Default is `[::]:1079`.
     #[serde(default = "default_listen")]
     pub listen: SocketAddr,
@@ -211,7 +212,7 @@ pub struct CarbideConfig {
     /// The policy we use to decide whether a specific nico-dpu-agent
     /// should be upgraded.
     ///
-    /// Also settable via a `nico-admin-cli` command.
+    /// Also settable via a `carbide-admin-cli` command.
     pub initial_dpu_agent_upgrade_policy: Option<AgentUpgradePolicyChoice>,
 
     /// Deprecated, use machine_updater
@@ -486,7 +487,7 @@ pub struct CarbideConfig {
     /// and/or co-exist with a DCIM providing us an entire config as part of
     /// the ingestion call.
     #[serde(default)]
-    pub rack_types: model::rack_type::RackTypeConfig,
+    pub rack_types: nico_api_model::rack_type::RackTypeConfig,
 
     /// Treat any dpu found as a regular NIC and skip configuring it as a managed dpu.
     /// This is specifically for dev labs to allow using GB200/300 and VR compute
@@ -692,7 +693,7 @@ impl Default for MachineIdentityConfig {
     }
 }
 
-impl From<MachineIdentityConfig> for model::tenant::IdentityConfigValidationBounds {
+impl From<MachineIdentityConfig> for nico_api_model::tenant::IdentityConfigValidationBounds {
     fn from(mi: MachineIdentityConfig) -> Self {
         Self {
             token_ttl_min_sec: mi.token_ttl_min_sec,
@@ -896,7 +897,7 @@ impl CarbideConfig {
         &self,
         part_number: &str,
         psid: &str,
-    ) -> Option<&libmlx::firmware::config::FirmwareFlasherProfile> {
+    ) -> Option<&nico_libmlx::firmware::config::FirmwareFlasherProfile> {
         self.supernic_firmware_profiles.get(part_number)?.get(psid)
     }
 
@@ -906,7 +907,7 @@ impl CarbideConfig {
     pub fn get_mlxconfig_profile(
         &self,
         name: &str,
-    ) -> Option<&libmlx::profile::profile::MlxConfigProfile> {
+    ) -> Option<&nico_libmlx::profile::profile::MlxConfigProfile> {
         self.mlxconfig_profiles.as_ref()?.get(name)
     }
 
@@ -1895,7 +1896,7 @@ pub struct AuthConfig {
     /// The Casbin policy file (in CSV format).
     pub casbin_policy_file: Option<PathBuf>,
 
-    /// Additional nico-admin-cli certs allowed.  This does not include actually allowing the cert to connect, just that certs that can be verified which match these criteria can do GRPC requests.
+    /// Additional carbide-admin-cli certs allowed.  This does not include actually allowing the cert to connect, just that certs that can be verified which match these criteria can do GRPC requests.
     pub cli_certs: Option<AllowedCertCriteria>,
 
     /// Configuration for the root of trust for client cert auth
@@ -2613,7 +2614,7 @@ pub struct IbFabricDefinition {
     /// pkey ranges used for the fabric
     /// Note that editing the pkey ranges will never shrink the currently defined
     /// ranges. It can only be used to expand the range
-    pub pkeys: Vec<model::resource_pool::define::Range>,
+    pub pkeys: Vec<nico_api_model::resource_pool::define::Range>,
 }
 
 /// Controls which machine validation tests are active.
@@ -2708,21 +2709,19 @@ impl std::fmt::Display for VpcIsolationBehaviorType {
     }
 }
 
-impl From<VpcIsolationBehaviorType> for rpc::forge::VpcIsolationBehaviorType {
+impl From<VpcIsolationBehaviorType> for forge::VpcIsolationBehaviorType {
     fn from(b: VpcIsolationBehaviorType) -> Self {
         match b {
-            VpcIsolationBehaviorType::Open => {
-                rpc::forge::VpcIsolationBehaviorType::VpcIsolationOpen
-            }
+            VpcIsolationBehaviorType::Open => forge::VpcIsolationBehaviorType::VpcIsolationOpen,
             VpcIsolationBehaviorType::MutualIsolation => {
-                rpc::forge::VpcIsolationBehaviorType::VpcIsolationMutual
+                forge::VpcIsolationBehaviorType::VpcIsolationMutual
             }
         }
     }
 }
 
 #[allow(deprecated)] // nvue_enabled proto field is deprecated but still set for backwards compat
-impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
+impl From<CarbideConfig> for forge::RuntimeConfig {
     fn from(value: CarbideConfig) -> Self {
         Self {
             listen: value.listen.to_string(),
@@ -3157,9 +3156,9 @@ mod tests {
     use chrono::Datelike;
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};
-    use libmlx::variables::value::MlxValueType;
     use libredfish::model::service_root::RedfishVendor;
-    use model::resource_pool;
+    use nico_api_model::resource_pool;
+    use nico_libmlx::variables::value::MlxValueType;
 
     use super::*;
 
@@ -3648,7 +3647,8 @@ mod tests {
         assert_eq!(
             config.host_health,
             HostHealthConfig {
-                hardware_health_reports: model::machine::HardwareHealthReportsConfig::Disabled,
+                hardware_health_reports:
+                    nico_api_model::machine::HardwareHealthReportsConfig::Disabled,
                 dpu_agent_version_staleness_threshold: Duration::days(1),
                 prevent_allocations_on_stale_dpu_agent_version: true,
                 prevent_allocations_on_scout_heartbeat_timeout: true,
@@ -3950,7 +3950,8 @@ mod tests {
         assert_eq!(
             config.host_health,
             HostHealthConfig {
-                hardware_health_reports: model::machine::HardwareHealthReportsConfig::Disabled,
+                hardware_health_reports:
+                    nico_api_model::machine::HardwareHealthReportsConfig::Disabled,
                 dpu_agent_version_staleness_threshold: Duration::days(1),
                 prevent_allocations_on_stale_dpu_agent_version: true,
                 prevent_allocations_on_scout_heartbeat_timeout: true,

@@ -17,15 +17,15 @@
 
 //! Contains host related fixtures
 
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use db::{ObjectColumnFilter, network_prefix};
-use model::hardware_info::HardwareInfo;
-use model::machine::MachineState::UefiSetup;
-use model::machine::{ManagedHostState, UefiSetupInfo, UefiSetupState};
-use rpc::forge::forge_agent_control_response::Action;
-use rpc::forge::forge_server::Forge;
-use rpc::machine_discovery::AttestKeyInfo;
-use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
+use nico_api_db::{ObjectColumnFilter, network_prefix};
+use nico_api_model::hardware_info::HardwareInfo;
+use nico_api_model::machine::MachineState::UefiSetup;
+use nico_api_model::machine::{ManagedHostState, UefiSetupInfo, UefiSetupState};
+use nico_rpc::forge::forge_agent_control_response::Action;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::machine_discovery::AttestKeyInfo;
+use nico_rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
 use strum::IntoEnumIterator;
 use tonic::Request;
 
@@ -58,12 +58,13 @@ pub async fn host_discover_dhcp(
 ) -> MachineInterfaceId {
     let mut txn = env.pool.begin().await.unwrap();
     let loopback_ip = super::dpu::loopback_ip(&mut txn, dpu_machine_id).await;
-    let predicted_host = db::machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let predicted_host =
+        nico_api_db::machine::find_host_by_dpu_machine_id(&mut txn, dpu_machine_id)
+            .await
+            .unwrap()
+            .unwrap();
 
-    let prefix = db::network_prefix::find_by(
+    let prefix = nico_api_db::network_prefix::find_by(
         &mut txn,
         ObjectColumnFilter::One(
             network_prefix::SegmentIdColumn,

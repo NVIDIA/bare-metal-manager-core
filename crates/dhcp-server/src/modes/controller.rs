@@ -17,15 +17,16 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::forge::DhcpDiscovery;
 use lru::LruCache;
-use rpc::forge::DhcpRecord;
+use nico_rpc::forge::{DhcpDiscovery, DhcpRecord};
 use tokio::sync::Mutex;
 use tonic::async_trait;
 
 use super::DhcpMode;
 use crate::Config;
-use crate::cache::{self, CacheEntry};
+use crate::cache::{
+    CacheEntry, {self},
+};
 use crate::errors::DhcpError;
 use crate::rpc::client::discover_dhcp;
 use crate::vendor_class::VendorClass;

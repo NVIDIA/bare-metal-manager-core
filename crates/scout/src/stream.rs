@@ -17,10 +17,11 @@
 
 use std::time::Duration;
 
-use carbide_uuid::machine::MachineId;
-use libmlx::profile::error::MlxProfileError;
-use rpc::forge::ScoutStreamApiBoundMessage;
-use rpc::protos::forge::{scout_stream_api_bound_message, scout_stream_scout_bound_message};
+use nico_libmlx::profile::error::MlxProfileError;
+use nico_rpc::forge;
+use nico_rpc::forge::ScoutStreamApiBoundMessage;
+use nico_rpc::protos::forge::{scout_stream_api_bound_message, scout_stream_scout_bound_message};
+use nico_uuid::machine::MachineId;
 use tokio::sync::mpsc;
 
 use crate::cfg::Options;
@@ -99,7 +100,7 @@ async fn run_scout_stream_loop(
         // Init doesn't take a flow_uuid.
         flow_uuid: None,
         payload: Some(scout_stream_api_bound_message::Payload::Init(
-            rpc::protos::forge::ScoutStreamInitRequest {
+            nico_rpc::protos::forge::ScoutStreamInitRequest {
                 machine_id: machine_id.into(),
             },
         )),
@@ -264,12 +265,12 @@ fn handle_scout_stream_api_bound_message(
 // handle_ping handles a scout stream agent ping
 pub fn handle_ping(
     machine_id: MachineId,
-    _request: rpc::forge::ScoutStreamAgentPingRequest,
-) -> rpc::forge::ScoutStreamAgentPingResponse {
+    _request: forge::ScoutStreamAgentPingRequest,
+) -> forge::ScoutStreamAgentPingResponse {
     tracing::info!("[scout_stream::ping] ping requested",);
 
-    rpc::forge::ScoutStreamAgentPingResponse {
-        reply: Some(rpc::forge::scout_stream_agent_ping_response::Reply::Pong(
+    forge::ScoutStreamAgentPingResponse {
+        reply: Some(forge::scout_stream_agent_ping_response::Reply::Pong(
             format!("pong from {machine_id}"),
         )),
     }

@@ -18,9 +18,9 @@
 use std::str::FromStr;
 use std::time::Duration;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::AdminForceDeleteMachineRequest;
-use carbide_uuid::machine::MachineId;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge::AdminForceDeleteMachineRequest;
+use nico_uuid::machine::MachineId;
 
 use super::args::Args;
 use crate::rpc::ApiClient;

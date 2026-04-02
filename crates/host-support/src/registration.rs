@@ -17,13 +17,13 @@
 
 use std::time::Duration;
 
-use ::rpc::forge::{AttestQuoteRequest, MachineCertificate};
-use ::rpc::forge_tls_client::{ForgeClientConfig, ForgeClientT, ForgeTlsClient};
-use ::rpc::{MachineDiscoveryInfo, forge as rpc, machine_discovery as rpc_discovery};
-use carbide_uuid::machine::MachineId;
 use eyre::WrapErr;
-use forge_tls::client_config::ClientCert;
-use forge_tls::default as tls_default;
+use nico_rpc::forge::{AttestQuoteRequest, MachineCertificate};
+use nico_rpc::forge_tls_client::{ForgeClientConfig, ForgeClientT, ForgeTlsClient};
+use nico_rpc::{MachineDiscoveryInfo, forge, machine_discovery as rpc_discovery};
+use nico_tls::client_config::ClientCert;
+use nico_tls::default as tls_default;
+use nico_uuid::machine::MachineId;
 use tryhard::RetryFutureConfig;
 
 #[derive(thiserror::Error, Debug)]
@@ -126,7 +126,7 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
         &self,
         info: MachineDiscoveryInfo,
         attempt: u32,
-    ) -> Result<rpc::MachineDiscoveryResult, RegistrationError> {
+    ) -> Result<forge::MachineDiscoveryResult, RegistrationError> {
         tracing::info!("Attempting to discover_machine (attempt: {})", attempt);
 
         // Create a new connection off of the ForgeTlsClient.
@@ -155,7 +155,7 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
     pub async fn discover_machine(
         &mut self,
         info: MachineDiscoveryInfo,
-    ) -> Result<rpc::MachineDiscoveryResult, RegistrationError> {
+    ) -> Result<forge::MachineDiscoveryResult, RegistrationError> {
         // The retry config is currently hard-coded in here to be
         // every minute for a week. Basically, keep trying every
         // minute for a while. This could probably become something
@@ -174,7 +174,7 @@ impl<'a, 'c> RegistrationClient<'a, 'c> {
     async fn attest_quote(
         &self,
         quote: &AttestQuoteRequest,
-    ) -> Result<rpc::AttestQuoteResponse, RegistrationError> {
+    ) -> Result<forge::AttestQuoteResponse, RegistrationError> {
         // Create a new connection off of the ForgeTlsClient.
         let mut connection = self.connect("attest_quote").await?;
 
@@ -227,14 +227,14 @@ pub async fn register_machine(
 ) -> Result<
     (
         RegistrationData,
-        Option<rpc::AttestKeyBindChallenge>,
+        Option<forge::AttestKeyBindChallenge>,
         Option<uuid::Uuid>,
     ),
     RegistrationError,
 > {
-    let info = rpc::MachineDiscoveryInfo {
+    let info = forge::MachineDiscoveryInfo {
         machine_interface_id: machine_interface_id.map(|mid| mid.into()),
-        discovery_data: Some(::rpc::forge::machine_discovery_info::DiscoveryData::Info(
+        discovery_data: Some(forge::machine_discovery_info::DiscoveryData::Info(
             hardware_info,
         )),
         create_machine,

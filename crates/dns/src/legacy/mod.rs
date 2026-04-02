@@ -28,8 +28,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use eyre::Report;
-use rpc::forge_tls_client::{ApiConfig, ForgeClientT, ForgeTlsClient};
-use rpc::protos::forge;
+use nico_rpc::forge_tls_client::{ApiConfig, ForgeClientT, ForgeTlsClient};
+use nico_rpc::protos::forge;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
@@ -190,7 +190,7 @@ impl LegacyDnsServer {
         info!(
             "Started legacy DNS server on {} version {}",
             listen,
-            carbide_version::version!()
+            nico_version::version!()
         );
 
         match server.block_until_done().await {

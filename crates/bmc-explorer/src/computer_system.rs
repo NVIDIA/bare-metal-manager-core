@@ -18,14 +18,14 @@
 use std::convert::identity;
 use std::str::FromStr;
 
-use carbide_network::{deserialize_input_mac_to_address, sanitized_mac};
 use mac_address::MacAddress;
-use model::site_explorer::{
+use nico_api_model::site_explorer::{
     BootOption as ModelBootOption, BootOrder as ModelBootOrder,
     ComputerSystem as ModelComputerSystem, ComputerSystemAttributes,
     EthernetInterface as ModelEthernetInterface, MachineSetupDiff, NicMode, PCIeDevice,
     PowerState as ModelPowerState, SecureBootStatus, UefiDevicePath as ModelUefiDevicePath,
 };
+use nico_network::{deserialize_input_mac_to_address, sanitized_mac};
 use nv_redfish::computer_system::boot_option::UefiDevicePath as BootOptionUefiDevicePath;
 use nv_redfish::computer_system::{
     Bios, BootOption, ComputerSystem, SecureBoot, SecureBootCurrentBootType,
@@ -515,7 +515,7 @@ fn pcie_device_to_model<B: Bmc>(
             }
         }),
         // TODO: Should not be converted to string....
-        status: status.map(|status| model::site_explorer::SystemStatus {
+        status: status.map(|status| nico_api_model::site_explorer::SystemStatus {
             health: status.health.map(|v| {
                 match v {
                     nv_redfish::resource::Health::Ok => "OK",

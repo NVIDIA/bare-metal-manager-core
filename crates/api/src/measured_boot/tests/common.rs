@@ -21,10 +21,10 @@
 
 use std::str::FromStr;
 
-use carbide_uuid::machine::MachineId;
-use measured_boot::machine::CandidateMachine;
-use model::hardware_info::HardwareInfo;
-use model::machine::ManagedHostState;
+use nico_api_model::hardware_info::HardwareInfo;
+use nico_api_model::machine::ManagedHostState;
+use nico_measured_boot::machine::CandidateMachine;
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
 use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
@@ -46,7 +46,7 @@ pub async fn create_test_machine(
     topology: &HardwareInfo,
 ) -> eyre::Result<CandidateMachine> {
     let machine_id = MachineId::from_str(machine_id)?;
-    db::machine::create(
+    nico_api_db::machine::create(
         txn,
         None,
         &machine_id,
@@ -55,8 +55,8 @@ pub async fn create_test_machine(
         CURRENT_STATE_MODEL_VERSION,
     )
     .await?;
-    db::machine_topology::create_or_update(txn, &machine_id, topology).await?;
-    let machine = db::measured_boot::machine::from_id(txn, machine_id).await?;
+    nico_api_db::machine_topology::create_or_update(txn, &machine_id, topology).await?;
+    let machine = nico_api_db::measured_boot::machine::from_id(txn, machine_id).await?;
     assert_eq!(machine_id, machine.machine_id);
     Ok(machine)
 }

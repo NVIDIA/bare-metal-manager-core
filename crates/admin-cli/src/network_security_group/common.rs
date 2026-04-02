@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::{self as forgerpc};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge;
 use prettytable::{Table, row};
 
 /// Produces a table for printing a non-JSON representation of a
@@ -25,7 +25,7 @@ use prettytable::{Table, row};
 /// * `nsgs`    - A reference to an active DB transaction
 /// * `verbose` - A bool to select more verbose output (e.g., include full rule details)
 pub fn convert_nsgs_to_table(
-    nsgs: &[forgerpc::NetworkSecurityGroup],
+    nsgs: &[forge::NetworkSecurityGroup],
     verbose: bool,
 ) -> CarbideCliResult<Box<Table>> {
     let mut table = Box::new(Table::new());
@@ -72,7 +72,7 @@ pub fn convert_nsgs_to_table(
             })
             .collect::<Vec<_>>();
 
-        let default_attributes = forgerpc::NetworkSecurityGroupAttributes {
+        let default_attributes = forge::NetworkSecurityGroupAttributes {
             stateful_egress: false,
             rules: vec![],
         };

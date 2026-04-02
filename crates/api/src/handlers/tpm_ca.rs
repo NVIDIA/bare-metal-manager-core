@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use db::attestation as db_attest;
+use nico_api_db::attestation as db_attest;
+use nico_rpc::forge;
 use tonic::{Request, Response};
 use x509_parser::prelude::FromDer;
 use x509_parser::x509::X509Name;
@@ -26,8 +26,8 @@ use crate::{CarbideError, attestation as attest};
 
 pub(crate) async fn tpm_add_ca_cert(
     api: &Api,
-    request: Request<rpc::TpmCaCert>,
-) -> Result<Response<rpc::TpmCaAddedCaStatus>, tonic::Status> {
+    request: Request<forge::TpmCaCert>,
+) -> Result<Response<forge::TpmCaAddedCaStatus>, tonic::Status> {
     log_request_data(&request);
 
     let payload = request.into_inner();
@@ -79,8 +79,8 @@ pub(crate) async fn tpm_add_ca_cert(
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::TpmCaAddedCaStatus {
-        id: Some(rpc::TpmCaCertId {
+    Ok(Response::new(forge::TpmCaAddedCaStatus {
+        id: Some(forge::TpmCaCertId {
             ca_cert_id: db_ca_cert.id,
         }),
         matched_ek_certs: ek_certs_updated as i32,
@@ -90,7 +90,7 @@ pub(crate) async fn tpm_add_ca_cert(
 pub(crate) async fn tpm_show_ca_certs(
     api: &Api,
     request: &Request<()>,
-) -> Result<Response<rpc::TpmCaCertDetailCollection>, tonic::Status> {
+) -> Result<Response<forge::TpmCaCertDetailCollection>, tonic::Status> {
     log_request_data(request);
 
     let mut txn = api.txn_begin().await?;
@@ -101,7 +101,7 @@ pub(crate) async fn tpm_show_ca_certs(
 
     let ca_cert_details = ca_certs
         .iter()
-        .map(|entry| rpc::TpmCaCertDetail {
+        .map(|entry| forge::TpmCaCertDetail {
             ca_cert_id: entry.id,
             not_valid_before: entry.not_valid_before.to_rfc2822(),
             not_valid_after: entry.not_valid_after.to_rfc2822(),
@@ -111,7 +111,7 @@ pub(crate) async fn tpm_show_ca_certs(
         })
         .collect();
 
-    Ok(Response::new(rpc::TpmCaCertDetailCollection {
+    Ok(Response::new(forge::TpmCaCertDetailCollection {
         tpm_ca_cert_details: ca_cert_details,
     }))
 }
@@ -119,7 +119,7 @@ pub(crate) async fn tpm_show_ca_certs(
 pub(crate) async fn tpm_show_unmatched_ek_certs(
     api: &Api,
     request: &Request<()>,
-) -> Result<Response<rpc::TpmEkCertStatusCollection>, tonic::Status> {
+) -> Result<Response<forge::TpmEkCertStatusCollection>, tonic::Status> {
     log_request_data(request);
 
     let mut txn = api.txn_begin().await?;
@@ -131,7 +131,7 @@ pub(crate) async fn tpm_show_unmatched_ek_certs(
 
     let unmatched_eks = unmatched_ek_statuses
         .iter()
-        .map(|entry| rpc::TpmEkCertStatus {
+        .map(|entry| forge::TpmEkCertStatus {
             serial_num: entry.serial_num.clone(),
             machine_id: entry.machine_id.into(),
             issuer: X509Name::from_der(&entry.issuer)
@@ -141,14 +141,14 @@ pub(crate) async fn tpm_show_unmatched_ek_certs(
         })
         .collect();
 
-    Ok(Response::new(rpc::TpmEkCertStatusCollection {
+    Ok(Response::new(forge::TpmEkCertStatusCollection {
         tpm_ek_cert_statuses: unmatched_eks,
     }))
 }
 
 pub(crate) async fn tpm_delete_ca_cert(
     api: &Api,
-    request: Request<rpc::TpmCaCertId>,
+    request: Request<forge::TpmCaCertId>,
 ) -> Result<Response<()>, tonic::Status> {
     log_request_data(&request);
 

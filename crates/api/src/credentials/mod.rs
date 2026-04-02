@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::forge::MachineCredentialsUpdateResponse;
-use ::rpc::forge::machine_credentials_update_request::{CredentialPurpose, Credentials};
-use carbide_uuid::machine::MachineId;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialWriter};
 use mac_address::MacAddress;
+use nico_rpc::forge::MachineCredentialsUpdateResponse;
+use nico_rpc::forge::machine_credentials_update_request::{CredentialPurpose, Credentials};
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialWriter};
+use nico_uuid::machine::MachineId;
 
 use crate::{CarbideError, CarbideResult};
 
@@ -58,7 +58,7 @@ impl UpdateCredentials {
             credential_writer
                 .set_credentials(
                     &key,
-                    &forge_secrets::credentials::Credentials::UsernamePassword {
+                    &nico_secrets::credentials::Credentials::UsernamePassword {
                         username: credential.user.clone(),
                         password: credential.password.clone(),
                     },

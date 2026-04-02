@@ -18,9 +18,9 @@ use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
-use carbide_uuid::machine::MachineInterfaceId;
 use mac_address::MacAddress;
-use rpc::forge::ManagedHostNetworkConfigResponse;
+use nico_rpc::forge::ManagedHostNetworkConfigResponse;
+use nico_uuid::machine::MachineInterfaceId;
 use tokio::sync::{RwLock, mpsc, oneshot};
 
 use crate::api_client::{ApiClient, ClientApiError};

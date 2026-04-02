@@ -101,7 +101,7 @@ fn expand_dispatch(input: DeriveInput) -> syn::Result<TokenStream> {
             async fn dispatch(
                 self,
                 mut ctx: crate::cfg::runtime::RuntimeContext,
-            ) -> ::rpc::admin_cli::CarbideCliResult<()> {
+            ) -> nico_rpc::admin_cli::CarbideCliResult<()> {
                 use crate::cfg::run::Run;
                 #dispatch_import
                 match self {
@@ -135,7 +135,7 @@ fn expand_dispatch(input: DeriveInput) -> syn::Result<TokenStream> {
 ///
 /// # Specifying fixtures
 ///
-/// - Fixtures are specified with `#[carbide_macros::sqlx_test(fixtures("fixture1", ...))]` (or
+/// - Fixtures are specified with `#[nico_macros::sqlx_test(fixtures("fixture1", ...))]` (or
 ///   wherever `crate::tests::sqlx_fixture_from_str` loads them.)
 /// - All fixtures are relative to api/src/tests/fixtures.
 ///
@@ -154,7 +154,7 @@ fn expand_dispatch(input: DeriveInput) -> syn::Result<TokenStream> {
 ///
 /// ```ignore
 /// // before:
-/// #[carbide_macros::sqlx_test(fixtures("my_fixture"))]
+/// #[nico_macros::sqlx_test(fixtures("my_fixture"))]
 /// async fn the_test(pool: sqlx::PgPool) { /* the test */ }
 ///
 /// // after:

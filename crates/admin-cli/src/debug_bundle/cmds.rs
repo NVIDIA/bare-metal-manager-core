@@ -27,11 +27,12 @@ use std::fs::File;
 use std::io::Write;
 use std::str::FromStr;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::BmcEndpointRequest;
-use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Local, NaiveDateTime, NaiveTime, Utc};
-use rpc::admin_cli::CarbideCliError::InvalidDateTimeFromUserInput;
+use nico_rpc::admin_cli::CarbideCliError::InvalidDateTimeFromUserInput;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge;
+use nico_rpc::forge::BmcEndpointRequest;
+use nico_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use zip::CompressionMethod;
@@ -567,16 +568,16 @@ struct GrafanaDatasource {
 
 // Site Controller Details - Holds BMC endpoint exploration data
 struct SiteControllerAnalysis {
-    exploration_report: ::rpc::site_explorer::EndpointExplorationReport,
-    credential_status: ::rpc::forge::BmcCredentialStatusResponse,
+    exploration_report: nico_rpc::site_explorer::EndpointExplorationReport,
+    credential_status: forge::BmcCredentialStatusResponse,
     bmc_ip: String,
     bmc_mac: Option<String>,
 }
 
 // Machine Info - Holds machine state machine data
 struct MachineAnalysis {
-    machine: ::rpc::forge::Machine,
-    validation_results: Vec<::rpc::forge::MachineValidationResult>,
+    machine: forge::Machine,
+    validation_results: Vec<forge::MachineValidationResult>,
 }
 
 /// Helper function to get BMC IP and MAC address from machine_id
@@ -1007,10 +1008,10 @@ async fn get_health_alerts(
     api_client: &ApiClient,
     host_id: &str,
     time_range: &TimeRange,
-) -> CarbideCliResult<::rpc::forge::HealthHistories> {
+) -> CarbideCliResult<forge::HealthHistories> {
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
+    use nico_uuid::machine::MachineId;
 
     // Parse machine ID
     let machine_id = MachineId::from_str(host_id).map_err(|e| {
@@ -1021,12 +1022,12 @@ async fn get_health_alerts(
     let start_dt = time_range.start;
     let end_dt = time_range.end;
 
-    // Convert DateTime → Protobuf Timestamp (using rpc::Timestamp's From implementation)
-    let start_time_proto: ::rpc::Timestamp = start_dt.into();
-    let end_time_proto: ::rpc::Timestamp = end_dt.into();
+    // Convert DateTime → Protobuf Timestamp (using forge::Timestamp's From implementation)
+    let start_time_proto: nico_rpc::Timestamp = start_dt.into();
+    let end_time_proto: nico_rpc::Timestamp = end_dt.into();
 
     // Build request with time filtering
-    let request = ::rpc::forge::MachineHealthHistoriesRequest {
+    let request = forge::MachineHealthHistoriesRequest {
         machine_ids: vec![machine_id],
         start_time: Some(start_time_proto),
         end_time: Some(end_time_proto),
@@ -1046,10 +1047,10 @@ async fn get_health_alerts(
 async fn get_alert_overrides(
     api_client: &ApiClient,
     host_id: &str,
-) -> CarbideCliResult<::rpc::forge::ListHealthReportOverrideResponse> {
+) -> CarbideCliResult<forge::ListHealthReportOverrideResponse> {
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
+    use nico_uuid::machine::MachineId;
 
     // Parse machine ID
     let machine_id = MachineId::from_str(host_id).map_err(|e| {
@@ -1362,8 +1363,8 @@ impl<'a> ZipBundleCreator<'a> {
         carbide_batch_links: &[(String, String, usize, String)],
         dpu_batch_links: &[(String, String, usize, String)],
         loki_uid: Option<&str>,
-        health_alerts: &::rpc::forge::HealthHistories,
-        alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
+        health_alerts: &forge::HealthHistories,
+        alert_overrides: &forge::ListHealthReportOverrideResponse,
         site_controller_analysis: &SiteControllerAnalysis,
         machine_analysis: &MachineAnalysis,
     ) -> CarbideCliResult<String> {
@@ -1450,7 +1451,7 @@ impl<'a> ZipBundleCreator<'a> {
     fn add_alerts_json(
         &self,
         zip: &mut ZipWriter<File>,
-        health_alerts: &::rpc::forge::HealthHistories,
+        health_alerts: &forge::HealthHistories,
         options: FileOptions,
     ) -> CarbideCliResult<()> {
         zip.start_file("health_alerts.json", options).map_err(|e| {
@@ -1520,7 +1521,7 @@ impl<'a> ZipBundleCreator<'a> {
     fn add_alert_overrides_json(
         &self,
         zip: &mut ZipWriter<File>,
-        alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
+        alert_overrides: &forge::ListHealthReportOverrideResponse,
         options: FileOptions,
     ) -> CarbideCliResult<()> {
         zip.start_file("health_alert_overrides.json", options)
@@ -1815,8 +1816,8 @@ impl<'a> ZipBundleCreator<'a> {
         carbide_batch_links: &[(String, String, usize, String)],
         dpu_batch_links: &[(String, String, usize, String)],
         loki_uid: Option<&str>,
-        health_alerts: &::rpc::forge::HealthHistories,
-        alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
+        health_alerts: &forge::HealthHistories,
+        alert_overrides: &forge::ListHealthReportOverrideResponse,
         site_controller_analysis: &SiteControllerAnalysis,
         machine_analysis: &MachineAnalysis,
         options: FileOptions,
@@ -2070,8 +2071,8 @@ fn create_debug_bundle_zip(
     carbide_batch_links: &[(String, String, usize, String)],
     dpu_batch_links: &[(String, String, usize, String)],
     loki_uid: Option<&str>,
-    health_alerts: &::rpc::forge::HealthHistories,
-    alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
+    health_alerts: &forge::HealthHistories,
+    alert_overrides: &forge::ListHealthReportOverrideResponse,
     site_controller_analysis: &SiteControllerAnalysis,
     machine_analysis: &MachineAnalysis,
 ) -> CarbideCliResult<()> {

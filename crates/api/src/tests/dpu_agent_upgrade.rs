@@ -16,11 +16,11 @@
  */
 use std::time::SystemTime;
 
-use ::rpc::forge as rpc;
-use ::rpc::forge::forge_server::Forge;
 use chrono::{Duration, Utc};
 use common::api_fixtures::create_test_env;
-use health_report::{HealthAlertClassification, HealthProbeAlert, HealthProbeId};
+use nico_health_report::{HealthAlertClassification, HealthProbeAlert, HealthProbeId};
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{
@@ -36,14 +36,14 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Set the upgrade policy
     let response = env
         .api
-        .dpu_agent_upgrade_policy_action(tonic::Request::new(rpc::DpuAgentUpgradePolicyRequest {
-            new_policy: Some(rpc::AgentUpgradePolicy::UpOnly as i32),
+        .dpu_agent_upgrade_policy_action(tonic::Request::new(forge::DpuAgentUpgradePolicyRequest {
+            new_policy: Some(forge::AgentUpgradePolicy::UpOnly as i32),
         }))
         .await?
         .into_inner();
     assert_eq!(
         response.active_policy,
-        rpc::AgentUpgradePolicy::UpOnly as i32,
+        forge::AgentUpgradePolicy::UpOnly as i32,
         "Policy should be what we set"
     );
     assert!(response.did_change, "Policy should have changed");
@@ -53,7 +53,7 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(
-            rpc::ManagedHostNetworkConfigRequest {
+            forge::ManagedHostNetworkConfigRequest {
                 dpu_machine_id: dpu_machine_id.into(),
             },
         ))
@@ -64,13 +64,13 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // That should trigger marking us for upgrade
     let network_config_version = response.managed_host_config_version.clone();
     env.api
-        .record_dpu_network_status(tonic::Request::new(rpc::DpuNetworkStatus {
+        .record_dpu_network_status(tonic::Request::new(forge::DpuNetworkStatus {
             dpu_machine_id: dpu_machine_id.into(),
             // BEGIN This is the important line for this test
             dpu_agent_version: Some("v2023.06-rc2-1-gc5c05de3".to_string()),
             // END
             observed_at: None,
-            dpu_health: Some(::rpc::health::HealthReport {
+            dpu_health: Some(nico_rpc::health::HealthReport {
                 source: "forge-dpu-agent".to_string(),
                 triggered_by: None,
                 observed_at: None,
@@ -81,8 +81,8 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
             instance_id: None,
             instance_config_version: None,
             instance_network_config_version: None,
-            interfaces: vec![rpc::InstanceInterfaceStatusObservation {
-                function_type: rpc::InterfaceFunctionType::Physical as i32,
+            interfaces: vec![nico_rpc::InstanceInterfaceStatusObservation {
+                function_type: forge::InterfaceFunctionType::Physical as i32,
                 virtual_function_id: None,
                 mac_address: None,
                 addresses: vec!["1.2.3.4".to_string()],
@@ -104,7 +104,7 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
     // Check if we need to upgrade - answer should be yes
     let response = env
         .api
-        .dpu_agent_upgrade_check(tonic::Request::new(rpc::DpuAgentUpgradeCheckRequest {
+        .dpu_agent_upgrade_check(tonic::Request::new(forge::DpuAgentUpgradeCheckRequest {
             machine_id: dpu_machine_id.to_string(),
             current_agent_version: "v2023.06-rc2-1-gc5c05de3".to_string(),
             binary_mtime: Some(SystemTime::now().into()),
@@ -117,7 +117,7 @@ async fn test_upgrade_check(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
         resp.should_upgrade,
         "DPU reported old version so should be asked to upgrade"
     );
-    let current_version = carbide_version::v!(build_version);
+    let current_version = nico_version::v!(build_version);
     assert_eq!(
         resp.package_version,
         current_version[1..],
@@ -142,21 +142,21 @@ async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), e
 
     let stale_version = "stale_version";
     let recently_superseded_version = "recently_superseded_version";
-    let current_version = carbide_version::v!(build_version);
+    let current_version = nico_version::v!(build_version);
     let stale_time = Utc::now() - Duration::hours(25);
     let recently_superseded_time = Utc::now() - Duration::hours(23);
 
     {
         let mut txn = env.pool.begin().await?;
-        db::carbide_version::make_mock_observation(&mut txn, stale_version, Some(stale_time))
+        nico_api_db::nico_version::make_mock_observation(&mut txn, stale_version, Some(stale_time))
             .await?;
-        db::carbide_version::make_mock_observation(
+        nico_api_db::nico_version::make_mock_observation(
             &mut txn,
             recently_superseded_version,
             Some(recently_superseded_time),
         )
         .await?;
-        db::carbide_version::make_mock_observation(&mut txn, current_version, None).await?;
+        nico_api_db::nico_version::make_mock_observation(&mut txn, current_version, None).await?;
         txn.commit().await?;
     }
 
@@ -167,7 +167,7 @@ async fn test_dpu_agent_version_staleness(db_pool: sqlx::PgPool) -> Result<(), e
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(
-            rpc::ManagedHostNetworkConfigRequest {
+            forge::ManagedHostNetworkConfigRequest {
                 dpu_machine_id: mh.dpu().id.into(),
             },
         ))
@@ -248,11 +248,11 @@ impl TestManagedHost {
     ) -> Option<HealthProbeAlert> {
         test_env
             .api
-            .record_dpu_network_status(tonic::Request::new(rpc::DpuNetworkStatus {
+            .record_dpu_network_status(tonic::Request::new(forge::DpuNetworkStatus {
                 dpu_machine_id: self.dpu().id.into(),
                 dpu_agent_version: agent_version.map(Into::into),
                 observed_at: None,
-                dpu_health: Some(::rpc::health::HealthReport {
+                dpu_health: Some(nico_rpc::health::HealthReport {
                     source: "forge-dpu-agent".to_string(),
                     triggered_by: None,
                     observed_at: None,
@@ -263,8 +263,8 @@ impl TestManagedHost {
                 instance_id: None,
                 instance_config_version: None,
                 instance_network_config_version: None,
-                interfaces: vec![rpc::InstanceInterfaceStatusObservation {
-                    function_type: rpc::InterfaceFunctionType::Physical as i32,
+                interfaces: vec![nico_rpc::InstanceInterfaceStatusObservation {
+                    function_type: forge::InterfaceFunctionType::Physical as i32,
                     virtual_function_id: None,
                     mac_address: None,
                     addresses: vec!["1.2.3.4".to_string()],
@@ -287,7 +287,7 @@ impl TestManagedHost {
 
         let alerts = test_env
             .api
-            .find_machines_by_ids(tonic::Request::new(rpc::MachinesByIdsRequest {
+            .find_machines_by_ids(tonic::Request::new(forge::MachinesByIdsRequest {
                 machine_ids: vec![self.id],
                 include_history: false,
             }))

@@ -18,17 +18,16 @@
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 
-use ::rpc::common::SystemPowerControl;
-use ::rpc::forge as rpc;
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::switch::SwitchId;
 use component_manager::component_manager::ComponentManager;
 use component_manager::error::ComponentManagerError;
 use component_manager::nv_switch_manager::SwitchEndpoint;
 use component_manager::power_shelf_manager::{PowerShelfEndpoint, PowerShelfVendor};
 use component_manager::types::{NvSwitchComponent, PowerAction, PowerShelfComponent};
-use db;
 use mac_address::MacAddress;
+use nico_rpc::common::SystemPowerControl;
+use nico_rpc::forge;
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::switch::SwitchId;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
@@ -52,48 +51,48 @@ fn component_manager_error_to_status(err: ComponentManagerError) -> Status {
 
 fn make_result(
     id: &str,
-    status: rpc::ComponentManagerStatusCode,
+    status: forge::ComponentManagerStatusCode,
     error: Option<String>,
-) -> rpc::ComponentResult {
-    rpc::ComponentResult {
+) -> forge::ComponentResult {
+    forge::ComponentResult {
         component_id: id.to_owned(),
         status: status as i32,
         error: error.unwrap_or_default(),
     }
 }
 
-fn success_result(id: &str) -> rpc::ComponentResult {
-    make_result(id, rpc::ComponentManagerStatusCode::Success, None)
+fn success_result(id: &str) -> forge::ComponentResult {
+    make_result(id, forge::ComponentManagerStatusCode::Success, None)
 }
 
-fn not_found_result(id: &str) -> rpc::ComponentResult {
+fn not_found_result(id: &str) -> forge::ComponentResult {
     make_result(
         id,
-        rpc::ComponentManagerStatusCode::NotFound,
+        forge::ComponentManagerStatusCode::NotFound,
         Some(format!("no explored endpoint found for {id}")),
     )
 }
 
-fn error_result(id: &str, error: String) -> rpc::ComponentResult {
+fn error_result(id: &str, error: String) -> forge::ComponentResult {
     make_result(
         id,
-        rpc::ComponentManagerStatusCode::InternalError,
+        forge::ComponentManagerStatusCode::InternalError,
         Some(error),
     )
 }
 
 fn build_inventory_entries(
     id_strings: &[String],
-    report_by_id: &HashMap<String, model::site_explorer::EndpointExplorationReport>,
-) -> Vec<rpc::ComponentInventoryEntry> {
+    report_by_id: &HashMap<String, nico_api_model::site_explorer::EndpointExplorationReport>,
+) -> Vec<forge::ComponentInventoryEntry> {
     id_strings
         .iter()
         .map(|id| match report_by_id.get(id) {
-            Some(report) => rpc::ComponentInventoryEntry {
+            Some(report) => forge::ComponentInventoryEntry {
                 result: Some(success_result(id)),
                 report: Some(report.clone().into()),
             },
-            None => rpc::ComponentInventoryEntry {
+            None => forge::ComponentInventoryEntry {
                 result: Some(not_found_result(id)),
                 report: None,
             },
@@ -117,12 +116,12 @@ fn map_power_action(raw: i32) -> Result<PowerAction, Status> {
 
 fn map_nv_switch_components(raw: &[i32]) -> Result<Vec<NvSwitchComponent>, Status> {
     raw.iter()
-        .filter(|&&v| v != rpc::NvSwitchComponent::Unknown as i32)
-        .map(|&v| match rpc::NvSwitchComponent::try_from(v) {
-            Ok(rpc::NvSwitchComponent::Bmc) => Ok(NvSwitchComponent::Bmc),
-            Ok(rpc::NvSwitchComponent::Cpld) => Ok(NvSwitchComponent::Cpld),
-            Ok(rpc::NvSwitchComponent::Bios) => Ok(NvSwitchComponent::Bios),
-            Ok(rpc::NvSwitchComponent::Nvos) => Ok(NvSwitchComponent::Nvos),
+        .filter(|&&v| v != forge::NvSwitchComponent::Unknown as i32)
+        .map(|&v| match forge::NvSwitchComponent::try_from(v) {
+            Ok(forge::NvSwitchComponent::Bmc) => Ok(NvSwitchComponent::Bmc),
+            Ok(forge::NvSwitchComponent::Cpld) => Ok(NvSwitchComponent::Cpld),
+            Ok(forge::NvSwitchComponent::Bios) => Ok(NvSwitchComponent::Bios),
+            Ok(forge::NvSwitchComponent::Nvos) => Ok(NvSwitchComponent::Nvos),
             _ => Err(Status::invalid_argument(format!(
                 "unknown NV-Switch component: {v}"
             ))),
@@ -132,10 +131,10 @@ fn map_nv_switch_components(raw: &[i32]) -> Result<Vec<NvSwitchComponent>, Statu
 
 fn map_power_shelf_components(raw: &[i32]) -> Result<Vec<PowerShelfComponent>, Status> {
     raw.iter()
-        .filter(|&&v| v != rpc::PowerShelfComponent::Unknown as i32)
-        .map(|&v| match rpc::PowerShelfComponent::try_from(v) {
-            Ok(rpc::PowerShelfComponent::Pmc) => Ok(PowerShelfComponent::Pmc),
-            Ok(rpc::PowerShelfComponent::Psu) => Ok(PowerShelfComponent::Psu),
+        .filter(|&&v| v != forge::PowerShelfComponent::Unknown as i32)
+        .map(|&v| match forge::PowerShelfComponent::try_from(v) {
+            Ok(forge::PowerShelfComponent::Pmc) => Ok(PowerShelfComponent::Pmc),
+            Ok(forge::PowerShelfComponent::Psu) => Ok(PowerShelfComponent::Psu),
             _ => Err(Status::invalid_argument(format!(
                 "unknown power shelf component: {v}"
             ))),
@@ -159,7 +158,7 @@ async fn resolve_switch_endpoints(
     api: &Api,
     switch_ids: &[SwitchId],
 ) -> Result<SwitchEndpoints, Status> {
-    let rows = db::switch::find_switch_endpoints_by_ids(&mut api.db_reader(), switch_ids)
+    let rows = nico_api_db::switch::find_switch_endpoints_by_ids(&mut api.db_reader(), switch_ids)
         .await
         .map_err(|e| Status::internal(format!("db error resolving switch endpoints: {e}")))?;
 
@@ -225,12 +224,12 @@ async fn resolve_power_shelf_endpoints(
     api: &Api,
     power_shelf_ids: &[PowerShelfId],
 ) -> Result<PowerShelfEndpoints, Status> {
-    let rows =
-        db::power_shelf::find_power_shelf_endpoints_by_ids(&mut api.db_reader(), power_shelf_ids)
-            .await
-            .map_err(|e| {
-                Status::internal(format!("db error resolving power shelf endpoints: {e}"))
-            })?;
+    let rows = nico_api_db::power_shelf::find_power_shelf_endpoints_by_ids(
+        &mut api.db_reader(),
+        power_shelf_ids,
+    )
+    .await
+    .map_err(|e| Status::internal(format!("db error resolving power shelf endpoints: {e}")))?;
 
     let mut endpoints = Vec::with_capacity(rows.len());
     let mut mac_to_id = HashMap::with_capacity(rows.len());
@@ -288,13 +287,13 @@ fn ps_mac_to_id_str(mac: &MacAddress, mac_to_id: &HashMap<MacAddress, PowerShelf
 fn map_fw_state(state: component_manager::types::FirmwareState) -> i32 {
     use component_manager::types::FirmwareState;
     match state {
-        FirmwareState::Unknown => rpc::FirmwareUpdateState::FwStateUnknown as i32,
-        FirmwareState::Queued => rpc::FirmwareUpdateState::FwStateQueued as i32,
-        FirmwareState::InProgress => rpc::FirmwareUpdateState::FwStateInProgress as i32,
-        FirmwareState::Verifying => rpc::FirmwareUpdateState::FwStateVerifying as i32,
-        FirmwareState::Completed => rpc::FirmwareUpdateState::FwStateCompleted as i32,
-        FirmwareState::Failed => rpc::FirmwareUpdateState::FwStateFailed as i32,
-        FirmwareState::Cancelled => rpc::FirmwareUpdateState::FwStateCancelled as i32,
+        FirmwareState::Unknown => forge::FirmwareUpdateState::FwStateUnknown as i32,
+        FirmwareState::Queued => forge::FirmwareUpdateState::FwStateQueued as i32,
+        FirmwareState::InProgress => forge::FirmwareUpdateState::FwStateInProgress as i32,
+        FirmwareState::Verifying => forge::FirmwareUpdateState::FwStateVerifying as i32,
+        FirmwareState::Completed => forge::FirmwareUpdateState::FwStateCompleted as i32,
+        FirmwareState::Failed => forge::FirmwareUpdateState::FwStateFailed as i32,
+        FirmwareState::Cancelled => forge::FirmwareUpdateState::FwStateCancelled as i32,
     }
 }
 
@@ -302,8 +301,8 @@ fn map_fw_state(state: component_manager::types::FirmwareState) -> i32 {
 
 pub(crate) async fn component_power_control(
     api: &Api,
-    request: Request<rpc::ComponentPowerControlRequest>,
-) -> Result<Response<rpc::ComponentPowerControlResponse>, Status> {
+    request: Request<forge::ComponentPowerControlRequest>,
+) -> Result<Response<forge::ComponentPowerControlResponse>, Status> {
     log_request_data(&request);
     let cm = require_component_manager(api)?;
     let req = request.into_inner();
@@ -315,7 +314,7 @@ pub(crate) async fn component_power_control(
         .ok_or_else(|| Status::invalid_argument("target is required"))?;
 
     let results = match target {
-        rpc::component_power_control_request::Target::SwitchIds(list) => {
+        forge::component_power_control_request::Target::SwitchIds(list) => {
             let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
 
             let mut results: Vec<_> = endpoints
@@ -350,7 +349,7 @@ pub(crate) async fn component_power_control(
             }));
             results
         }
-        rpc::component_power_control_request::Target::PowerShelfIds(list) => {
+        forge::component_power_control_request::Target::PowerShelfIds(list) => {
             let endpoints = resolve_power_shelf_endpoints(api, &list.ids).await?;
 
             let mut results: Vec<_> = endpoints
@@ -385,14 +384,14 @@ pub(crate) async fn component_power_control(
             }));
             results
         }
-        rpc::component_power_control_request::Target::MachineIds(_list) => {
+        forge::component_power_control_request::Target::MachineIds(_list) => {
             return Err(Status::unimplemented(
                 "machine power control should use AdminPowerControl",
             ));
         }
     };
 
-    Ok(Response::new(rpc::ComponentPowerControlResponse {
+    Ok(Response::new(forge::ComponentPowerControlResponse {
         results,
     }))
 }
@@ -401,8 +400,8 @@ pub(crate) async fn component_power_control(
 
 pub(crate) async fn get_component_inventory(
     api: &Api,
-    request: Request<rpc::GetComponentInventoryRequest>,
-) -> Result<Response<rpc::GetComponentInventoryResponse>, Status> {
+    request: Request<forge::GetComponentInventoryRequest>,
+) -> Result<Response<forge::GetComponentInventoryResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -411,9 +410,9 @@ pub(crate) async fn get_component_inventory(
         .ok_or_else(|| Status::invalid_argument("target is required"))?;
 
     let entries = match target {
-        rpc::get_component_inventory_request::Target::SwitchIds(list) => {
+        forge::get_component_inventory_request::Target::SwitchIds(list) => {
             let id_ip_pairs =
-                db::switch::find_bmc_ips_by_switch_ids(&mut api.db_reader(), &list.ids)
+                nico_api_db::switch::find_bmc_ips_by_switch_ids(&mut api.db_reader(), &list.ids)
                     .await
                     .map_err(|e| Status::internal(format!("db error: {e}")))?;
 
@@ -424,7 +423,7 @@ pub(crate) async fn get_component_inventory(
 
             let id_strings: Vec<String> = list.ids.iter().map(|id| id.to_string()).collect();
             let ips: Vec<IpAddr> = ip_to_id.keys().copied().collect();
-            let endpoints = db::explored_endpoints::find_by_ips(&mut api.db_reader(), ips)
+            let endpoints = nico_api_db::explored_endpoints::find_by_ips(&mut api.db_reader(), ips)
                 .await
                 .map_err(|e| Status::internal(format!("db error: {e}")))?;
 
@@ -438,11 +437,13 @@ pub(crate) async fn get_component_inventory(
 
             build_inventory_entries(&id_strings, &report_by_id)
         }
-        rpc::get_component_inventory_request::Target::PowerShelfIds(list) => {
-            let id_ip_pairs =
-                db::power_shelf::find_bmc_ips_by_power_shelf_ids(&mut api.db_reader(), &list.ids)
-                    .await
-                    .map_err(|e| Status::internal(format!("db error: {e}")))?;
+        forge::get_component_inventory_request::Target::PowerShelfIds(list) => {
+            let id_ip_pairs = nico_api_db::power_shelf::find_bmc_ips_by_power_shelf_ids(
+                &mut api.db_reader(),
+                &list.ids,
+            )
+            .await
+            .map_err(|e| Status::internal(format!("db error: {e}")))?;
 
             let ip_to_id: HashMap<IpAddr, String> = id_ip_pairs
                 .into_iter()
@@ -451,7 +452,7 @@ pub(crate) async fn get_component_inventory(
 
             let id_strings: Vec<String> = list.ids.iter().map(|id| id.to_string()).collect();
             let ips: Vec<IpAddr> = ip_to_id.keys().copied().collect();
-            let endpoints = db::explored_endpoints::find_by_ips(&mut api.db_reader(), ips)
+            let endpoints = nico_api_db::explored_endpoints::find_by_ips(&mut api.db_reader(), ips)
                 .await
                 .map_err(|e| Status::internal(format!("db error: {e}")))?;
 
@@ -465,7 +466,7 @@ pub(crate) async fn get_component_inventory(
 
             build_inventory_entries(&id_strings, &report_by_id)
         }
-        rpc::get_component_inventory_request::Target::MachineIds(list) => {
+        forge::get_component_inventory_request::Target::MachineIds(list) => {
             let id_strings: Vec<String> =
                 list.machine_ids.iter().map(|id| id.to_string()).collect();
 
@@ -474,7 +475,7 @@ pub(crate) async fn get_component_inventory(
                 .await
                 .map_err(|e| Status::internal(format!("db error: {e}")))?;
 
-            let bmc_pairs = db::machine_topology::find_machine_bmc_pairs_by_machine_id(
+            let bmc_pairs = nico_api_db::machine_topology::find_machine_bmc_pairs_by_machine_id(
                 &mut txn,
                 list.machine_ids.clone(),
             )
@@ -494,7 +495,7 @@ pub(crate) async fn get_component_inventory(
                 .collect();
 
             let ips: Vec<IpAddr> = ip_to_id.keys().copied().collect();
-            let endpoints = db::explored_endpoints::find_by_ips(&mut api.db_reader(), ips)
+            let endpoints = nico_api_db::explored_endpoints::find_by_ips(&mut api.db_reader(), ips)
                 .await
                 .map_err(|e| Status::internal(format!("db error: {e}")))?;
 
@@ -510,7 +511,7 @@ pub(crate) async fn get_component_inventory(
         }
     };
 
-    Ok(Response::new(rpc::GetComponentInventoryResponse {
+    Ok(Response::new(forge::GetComponentInventoryResponse {
         entries,
     }))
 }
@@ -519,8 +520,8 @@ pub(crate) async fn get_component_inventory(
 
 pub(crate) async fn update_component_firmware(
     api: &Api,
-    request: Request<rpc::UpdateComponentFirmwareRequest>,
-) -> Result<Response<rpc::UpdateComponentFirmwareResponse>, Status> {
+    request: Request<forge::UpdateComponentFirmwareRequest>,
+) -> Result<Response<forge::UpdateComponentFirmwareResponse>, Status> {
     log_request_data(&request);
     let cm = require_component_manager(api)?;
     let req = request.into_inner();
@@ -530,7 +531,7 @@ pub(crate) async fn update_component_firmware(
         .ok_or_else(|| Status::invalid_argument("target is required"))?;
 
     let results = match target {
-        rpc::update_component_firmware_request::Target::Switches(t) => {
+        forge::update_component_firmware_request::Target::Switches(t) => {
             let list = t
                 .switch_ids
                 .ok_or_else(|| Status::invalid_argument("switch_ids is required"))?;
@@ -567,7 +568,7 @@ pub(crate) async fn update_component_firmware(
             }));
             results
         }
-        rpc::update_component_firmware_request::Target::PowerShelves(t) => {
+        forge::update_component_firmware_request::Target::PowerShelves(t) => {
             let list = t
                 .power_shelf_ids
                 .ok_or_else(|| Status::invalid_argument("power_shelf_ids is required"))?;
@@ -604,14 +605,14 @@ pub(crate) async fn update_component_firmware(
             }));
             results
         }
-        rpc::update_component_firmware_request::Target::ComputeTrays(_) => {
+        forge::update_component_firmware_request::Target::ComputeTrays(_) => {
             return Err(Status::unimplemented(
                 "compute tray firmware updates are not yet supported",
             ));
         }
     };
 
-    Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
+    Ok(Response::new(forge::UpdateComponentFirmwareResponse {
         results,
     }))
 }
@@ -620,8 +621,8 @@ pub(crate) async fn update_component_firmware(
 
 pub(crate) async fn get_component_firmware_status(
     api: &Api,
-    request: Request<rpc::GetComponentFirmwareStatusRequest>,
-) -> Result<Response<rpc::GetComponentFirmwareStatusResponse>, Status> {
+    request: Request<forge::GetComponentFirmwareStatusRequest>,
+) -> Result<Response<forge::GetComponentFirmwareStatusResponse>, Status> {
     log_request_data(&request);
     let cm = require_component_manager(api)?;
     let req = request.into_inner();
@@ -631,18 +632,18 @@ pub(crate) async fn get_component_firmware_status(
         .ok_or_else(|| Status::invalid_argument("target is required"))?;
 
     let statuses = match target {
-        rpc::get_component_firmware_status_request::Target::SwitchIds(list) => {
+        forge::get_component_firmware_status_request::Target::SwitchIds(list) => {
             let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
 
             let mut statuses: Vec<_> = endpoints
                 .unresolved
                 .iter()
-                .map(|id| rpc::FirmwareUpdateStatus {
+                .map(|id| forge::FirmwareUpdateStatus {
                     result: Some(error_result(
                         &id.to_string(),
                         "could not resolve endpoint for switch".into(),
                     )),
-                    state: rpc::FirmwareUpdateState::FwStateUnknown as i32,
+                    state: forge::FirmwareUpdateState::FwStateUnknown as i32,
                     target_version: String::new(),
                     updated_at: None,
                 })
@@ -655,7 +656,7 @@ pub(crate) async fn get_component_firmware_status(
                 .map_err(component_manager_error_to_status)?;
             statuses.extend(backend_statuses.into_iter().map(|s| {
                 let id = switch_mac_to_id_str(&s.bmc_mac, &endpoints.resolved.mac_to_id);
-                rpc::FirmwareUpdateStatus {
+                forge::FirmwareUpdateStatus {
                     result: Some(if s.error.is_none() {
                         success_result(&id)
                     } else {
@@ -668,18 +669,18 @@ pub(crate) async fn get_component_firmware_status(
             }));
             statuses
         }
-        rpc::get_component_firmware_status_request::Target::PowerShelfIds(list) => {
+        forge::get_component_firmware_status_request::Target::PowerShelfIds(list) => {
             let endpoints = resolve_power_shelf_endpoints(api, &list.ids).await?;
 
             let mut statuses: Vec<_> = endpoints
                 .unresolved
                 .iter()
-                .map(|id| rpc::FirmwareUpdateStatus {
+                .map(|id| forge::FirmwareUpdateStatus {
                     result: Some(error_result(
                         &id.to_string(),
                         "could not resolve endpoint for power shelf".into(),
                     )),
-                    state: rpc::FirmwareUpdateState::FwStateUnknown as i32,
+                    state: forge::FirmwareUpdateState::FwStateUnknown as i32,
                     target_version: String::new(),
                     updated_at: None,
                 })
@@ -692,7 +693,7 @@ pub(crate) async fn get_component_firmware_status(
                 .map_err(component_manager_error_to_status)?;
             statuses.extend(backend_statuses.into_iter().map(|s| {
                 let id = ps_mac_to_id_str(&s.pmc_mac, &endpoints.resolved.mac_to_id);
-                rpc::FirmwareUpdateStatus {
+                forge::FirmwareUpdateStatus {
                     result: Some(if s.error.is_none() {
                         success_result(&id)
                     } else {
@@ -705,14 +706,14 @@ pub(crate) async fn get_component_firmware_status(
             }));
             statuses
         }
-        rpc::get_component_firmware_status_request::Target::MachineIds(_) => {
+        forge::get_component_firmware_status_request::Target::MachineIds(_) => {
             return Err(Status::unimplemented(
                 "machine firmware status is not supported via this RPC",
             ));
         }
     };
 
-    Ok(Response::new(rpc::GetComponentFirmwareStatusResponse {
+    Ok(Response::new(forge::GetComponentFirmwareStatusResponse {
         statuses,
     }))
 }
@@ -721,8 +722,8 @@ pub(crate) async fn get_component_firmware_status(
 
 pub(crate) async fn list_component_firmware_versions(
     api: &Api,
-    request: Request<rpc::ListComponentFirmwareVersionsRequest>,
-) -> Result<Response<rpc::ListComponentFirmwareVersionsResponse>, Status> {
+    request: Request<forge::ListComponentFirmwareVersionsRequest>,
+) -> Result<Response<forge::ListComponentFirmwareVersionsResponse>, Status> {
     log_request_data(&request);
     let cm = require_component_manager(api)?;
     let req = request.into_inner();
@@ -732,13 +733,13 @@ pub(crate) async fn list_component_firmware_versions(
         .ok_or_else(|| Status::invalid_argument("target is required"))?;
 
     match target {
-        rpc::list_component_firmware_versions_request::Target::SwitchIds(list) => {
+        forge::list_component_firmware_versions_request::Target::SwitchIds(list) => {
             let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
 
-            let mut devices: Vec<rpc::DeviceFirmwareVersions> = endpoints
+            let mut devices: Vec<forge::DeviceFirmwareVersions> = endpoints
                 .unresolved
                 .iter()
-                .map(|id| rpc::DeviceFirmwareVersions {
+                .map(|id| forge::DeviceFirmwareVersions {
                     result: Some(error_result(
                         &id.to_string(),
                         "could not resolve endpoint for switch".into(),
@@ -760,23 +761,23 @@ pub(crate) async fn list_component_firmware_versions(
                     .get(&ep.bmc_mac)
                     .map(|id| id.to_string())
                     .unwrap_or_default();
-                devices.push(rpc::DeviceFirmwareVersions {
+                devices.push(forge::DeviceFirmwareVersions {
                     result: Some(success_result(&id)),
                     versions: versions.clone(),
                 });
             }
 
-            Ok(Response::new(rpc::ListComponentFirmwareVersionsResponse {
-                devices,
-            }))
+            Ok(Response::new(
+                forge::ListComponentFirmwareVersionsResponse { devices },
+            ))
         }
-        rpc::list_component_firmware_versions_request::Target::PowerShelfIds(list) => {
+        forge::list_component_firmware_versions_request::Target::PowerShelfIds(list) => {
             let endpoints = resolve_power_shelf_endpoints(api, &list.ids).await?;
 
-            let mut devices: Vec<rpc::DeviceFirmwareVersions> = endpoints
+            let mut devices: Vec<forge::DeviceFirmwareVersions> = endpoints
                 .unresolved
                 .iter()
-                .map(|id| rpc::DeviceFirmwareVersions {
+                .map(|id| forge::DeviceFirmwareVersions {
                     result: Some(error_result(
                         &id.to_string(),
                         "could not resolve endpoint for power shelf".into(),
@@ -803,17 +804,17 @@ pub(crate) async fn list_component_firmware_versions(
                 } else {
                     success_result(&id)
                 };
-                devices.push(rpc::DeviceFirmwareVersions {
+                devices.push(forge::DeviceFirmwareVersions {
                     result: Some(result),
                     versions: fv.versions,
                 });
             }
 
-            Ok(Response::new(rpc::ListComponentFirmwareVersionsResponse {
-                devices,
-            }))
+            Ok(Response::new(
+                forge::ListComponentFirmwareVersionsResponse { devices },
+            ))
         }
-        rpc::list_component_firmware_versions_request::Target::MachineIds(_) => Err(
+        forge::list_component_firmware_versions_request::Target::MachineIds(_) => Err(
             Status::unimplemented("machine firmware versions are not supported via this RPC"),
         ),
     }
@@ -905,7 +906,7 @@ mod tests {
 
     #[test]
     fn power_action_unset_defaults_to_zero_and_is_rejected() {
-        let req = rpc::ComponentPowerControlRequest::default();
+        let req = forge::ComponentPowerControlRequest::default();
         assert_eq!(req.action, 0);
         let err = map_power_action(req.action).unwrap_err();
         assert_eq!(err.code(), Code::InvalidArgument);
@@ -922,31 +923,31 @@ mod tests {
         let cases = [
             (
                 FirmwareState::Unknown,
-                rpc::FirmwareUpdateState::FwStateUnknown as i32,
+                forge::FirmwareUpdateState::FwStateUnknown as i32,
             ),
             (
                 FirmwareState::Queued,
-                rpc::FirmwareUpdateState::FwStateQueued as i32,
+                forge::FirmwareUpdateState::FwStateQueued as i32,
             ),
             (
                 FirmwareState::InProgress,
-                rpc::FirmwareUpdateState::FwStateInProgress as i32,
+                forge::FirmwareUpdateState::FwStateInProgress as i32,
             ),
             (
                 FirmwareState::Verifying,
-                rpc::FirmwareUpdateState::FwStateVerifying as i32,
+                forge::FirmwareUpdateState::FwStateVerifying as i32,
             ),
             (
                 FirmwareState::Completed,
-                rpc::FirmwareUpdateState::FwStateCompleted as i32,
+                forge::FirmwareUpdateState::FwStateCompleted as i32,
             ),
             (
                 FirmwareState::Failed,
-                rpc::FirmwareUpdateState::FwStateFailed as i32,
+                forge::FirmwareUpdateState::FwStateFailed as i32,
             ),
             (
                 FirmwareState::Cancelled,
-                rpc::FirmwareUpdateState::FwStateCancelled as i32,
+                forge::FirmwareUpdateState::FwStateCancelled as i32,
             ),
         ];
         for (input, expected) in cases {
@@ -958,25 +959,25 @@ mod tests {
     fn make_result_fields() {
         let r = make_result(
             "sw-1",
-            rpc::ComponentManagerStatusCode::Success,
+            forge::ComponentManagerStatusCode::Success,
             Some("info".into()),
         );
         assert_eq!(r.component_id, "sw-1");
-        assert_eq!(r.status, rpc::ComponentManagerStatusCode::Success as i32);
+        assert_eq!(r.status, forge::ComponentManagerStatusCode::Success as i32);
         assert_eq!(r.error, "info");
     }
 
     #[test]
     fn success_result_has_no_error() {
         let r = success_result("sw-2");
-        assert_eq!(r.status, rpc::ComponentManagerStatusCode::Success as i32);
+        assert_eq!(r.status, forge::ComponentManagerStatusCode::Success as i32);
         assert!(r.error.is_empty());
     }
 
     #[test]
     fn not_found_result_has_error_message() {
         let r = not_found_result("sw-3");
-        assert_eq!(r.status, rpc::ComponentManagerStatusCode::NotFound as i32);
+        assert_eq!(r.status, forge::ComponentManagerStatusCode::NotFound as i32);
         assert!(r.error.contains("sw-3"));
     }
 
@@ -985,18 +986,18 @@ mod tests {
         let r = error_result("sw-4", "boom".into());
         assert_eq!(
             r.status,
-            rpc::ComponentManagerStatusCode::InternalError as i32,
+            forge::ComponentManagerStatusCode::InternalError as i32,
         );
         assert_eq!(r.error, "boom");
     }
 
     fn test_switch_id() -> SwitchId {
-        use carbide_uuid::switch::{SwitchIdSource, SwitchType};
+        use nico_uuid::switch::{SwitchIdSource, SwitchType};
         SwitchId::new(SwitchIdSource::Tpm, [0u8; 32], SwitchType::NvLink)
     }
 
     fn test_power_shelf_id() -> PowerShelfId {
-        use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
+        use nico_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
         PowerShelfId::new(PowerShelfIdSource::Tpm, [0u8; 32], PowerShelfType::Rack)
     }
 
@@ -1040,7 +1041,7 @@ mod tests {
         assert_eq!(r.component_id, id.to_string());
         assert_eq!(
             r.status,
-            rpc::ComponentManagerStatusCode::InternalError as i32,
+            forge::ComponentManagerStatusCode::InternalError as i32,
         );
         assert!(r.error.contains("could not resolve endpoint"));
     }
@@ -1055,7 +1056,7 @@ mod tests {
         assert_eq!(r.component_id, id.to_string());
         assert_eq!(
             r.status,
-            rpc::ComponentManagerStatusCode::InternalError as i32,
+            forge::ComponentManagerStatusCode::InternalError as i32,
         );
         assert!(r.error.contains("could not resolve endpoint"));
     }

@@ -16,8 +16,8 @@
  */
 
 use clap::Parser;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::forge::DeleteOsImageRequest;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge::DeleteOsImageRequest;
 
 use crate::os_image::common::str_to_rpc_uuid;
 

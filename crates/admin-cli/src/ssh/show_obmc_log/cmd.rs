@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use forge_ssh::ssh::read_obmc_console_log;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_ssh::ssh::read_obmc_console_log;
 
 use super::super::common::SshArgs;
 

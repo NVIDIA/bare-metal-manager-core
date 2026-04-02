@@ -15,7 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
 
 use super::super::common::CreateSkuOptions;
 use crate::rpc::ApiClient;
@@ -28,7 +29,7 @@ pub async fn replace(
     output_format: &OutputFormat,
 ) -> CarbideCliResult<()> {
     let file_data = std::fs::read_to_string(args.filename)?;
-    let mut sku: rpc::forge::Sku = serde_json::de::from_str(&file_data)?;
+    let mut sku: forge::Sku = serde_json::de::from_str(&file_data)?;
     sku.id = args.id.unwrap_or(sku.id);
 
     let updated_sku = api_client.0.replace_sku(sku).await?;

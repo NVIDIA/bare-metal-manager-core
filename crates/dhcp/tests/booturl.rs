@@ -17,8 +17,8 @@
 use std::net::UdpSocket;
 use std::time::Duration;
 
-use dhcp::mock_api_server;
 use dhcproto::{Decodable, Decoder, v4};
+use nico_dhcp::mock_api_server;
 
 mod common;
 

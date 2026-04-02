@@ -17,9 +17,9 @@
 
 //! Message types for the MQTT state change hook.
 
-use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
-use model::machine::ManagedHostState;
+use nico_api_model::machine::ManagedHostState;
+use nico_uuid::machine::MachineId;
 use serde::Serialize;
 
 /// MQTT message for managed host state changes.
@@ -45,7 +45,7 @@ impl<'a> ManagedHostStateChangeMessage<'a> {
 
 #[cfg(test)]
 mod tests {
-    use model::machine::InstanceState;
+    use nico_api_model::machine::InstanceState;
 
     use super::*;
 

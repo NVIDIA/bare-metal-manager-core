@@ -17,7 +17,7 @@
 
 use clap::Parser;
 use mac_address::MacAddress;
-use rpc::{CredentialType, forge as forgerpc};
+use nico_rpc::{CredentialType, forge};
 
 use crate::credential::common::BmcCredentialType;
 
@@ -34,7 +34,7 @@ pub struct Args {
     pub mac_address: Option<MacAddress>,
 }
 
-impl From<Args> for forgerpc::CredentialDeletionRequest {
+impl From<Args> for forge::CredentialDeletionRequest {
     fn from(args: Args) -> Self {
         Self {
             credential_type: CredentialType::from(args.kind).into(),

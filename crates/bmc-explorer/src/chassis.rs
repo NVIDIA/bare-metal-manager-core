@@ -17,7 +17,7 @@
 
 use std::convert::identity;
 
-use model::site_explorer::Chassis;
+use nico_api_model::site_explorer::Chassis;
 use nv_redfish::assembly::Model as AssemblyModel;
 use nv_redfish::chassis::Chassis as NvChassis;
 use nv_redfish::hardware_id::{Manufacturer, Model};

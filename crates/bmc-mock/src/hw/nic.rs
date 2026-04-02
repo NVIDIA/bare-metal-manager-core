@@ -18,7 +18,7 @@
 use std::borrow::Cow;
 
 use mac_address::MacAddress;
-use rpc::machine_discovery::{NetworkInterface, PciDeviceProperties};
+use nico_rpc::machine_discovery::{NetworkInterface, PciDeviceProperties};
 pub type SlotNumber = usize;
 
 pub struct Nic<'a> {

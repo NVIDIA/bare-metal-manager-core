@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
 use common::api_fixtures::dpu::{TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION};
 use common::api_fixtures::{create_managed_host, create_test_env};
+use nico_rpc::forge;
 
 use crate::tests::common;
 
@@ -28,14 +28,14 @@ async fn test_create_inventory(db_pool: sqlx::PgPool) -> Result<(), eyre::Report
 
     assert_eq!(
         dpu_machine.inventory,
-        Some(rpc::MachineInventory {
+        Some(forge::MachineInventory {
             components: vec![
-                rpc::MachineInventorySoftwareComponent {
+                forge::MachineInventorySoftwareComponent {
                     name: "doca-hbn".to_string(),
                     version: TEST_DOCA_HBN_VERSION.to_string(),
                     url: "nvcr.io/nvidia/doca/".to_string(),
                 },
-                rpc::MachineInventorySoftwareComponent {
+                forge::MachineInventorySoftwareComponent {
                     name: "doca-telemetry".to_string(),
                     version: TEST_DOCA_TELEMETRY_VERSION.to_string(),
                     url: "nvcr.io/nvidia/doca/".to_string(),

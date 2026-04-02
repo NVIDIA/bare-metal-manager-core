@@ -20,9 +20,9 @@ use std::process::Stdio;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use futures_util::FutureExt;
+use nico_uuid::machine::MachineId;
 use opentelemetry::KeyValue;
 use russh::ChannelMsg;
 use tokio::net::TcpStream;
@@ -31,7 +31,9 @@ use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 
 use crate::bmc::client_pool::BmcPoolMetrics;
-use crate::bmc::connection::{self, AtomicConnectionState, ConnectionDetails};
+use crate::bmc::connection::{
+    AtomicConnectionState, ConnectionDetails, {self},
+};
 use crate::bmc::message_proxy::{
     ConnectionChangeMessage, ExecReply, ToBmcMessage, ToFrontendMessage,
 };

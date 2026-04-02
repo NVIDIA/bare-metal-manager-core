@@ -17,13 +17,13 @@
 
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::rack::RackId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use mac_address::MacAddress;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::rack::RackId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -42,9 +42,9 @@ pub struct NewPowerShelf {
     pub metadata: Option<Metadata>,
 }
 
-impl TryFrom<rpc::PowerShelfCreationRequest> for NewPowerShelf {
+impl TryFrom<forge::PowerShelfCreationRequest> for NewPowerShelf {
     type Error = RpcDataConversionError;
-    fn try_from(value: rpc::PowerShelfCreationRequest) -> Result<Self, Self::Error> {
+    fn try_from(value: forge::PowerShelfCreationRequest) -> Result<Self, Self::Error> {
         let conf = match value.config {
             Some(c) => c,
             None => {
@@ -130,10 +130,10 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
     }
 }
 
-impl TryFrom<rpc::PowerShelfConfig> for PowerShelfConfig {
+impl TryFrom<forge::PowerShelfConfig> for PowerShelfConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(conf: rpc::PowerShelfConfig) -> Result<Self, Self::Error> {
+    fn try_from(conf: forge::PowerShelfConfig) -> Result<Self, Self::Error> {
         Ok(PowerShelfConfig {
             name: conf.name,
             capacity: conf.capacity.map(|c| c as u32),
@@ -143,15 +143,15 @@ impl TryFrom<rpc::PowerShelfConfig> for PowerShelfConfig {
     }
 }
 
-impl TryFrom<PowerShelf> for rpc::PowerShelf {
+impl TryFrom<PowerShelf> for forge::PowerShelf {
     type Error = RpcDataConversionError;
 
     fn try_from(src: PowerShelf) -> Result<Self, Self::Error> {
         let controller_state = serde_json::to_string(&src.controller_state.value).unwrap();
         let status = Some(match src.status {
-            Some(s) => rpc::PowerShelfStatus {
+            Some(s) => forge::PowerShelfStatus {
                 state_reason: None, // TODO: implement state_reason
-                state_sla: Some(rpc::StateSla {
+                state_sla: Some(forge::StateSla {
                     sla: None,
                     time_in_state_above_sla: false,
                 }),
@@ -160,9 +160,9 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
                 health_status: Some(s.health_status),
                 controller_state: Some(controller_state.clone()),
             },
-            None => rpc::PowerShelfStatus {
+            None => forge::PowerShelfStatus {
                 state_reason: None,
-                state_sla: Some(rpc::StateSla {
+                state_sla: Some(forge::StateSla {
                     sla: None,
                     time_in_state_above_sla: false,
                 }),
@@ -173,7 +173,7 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
             },
         });
 
-        let config = rpc::PowerShelfConfig {
+        let config = forge::PowerShelfConfig {
             name: src.config.name,
             capacity: src.config.capacity.map(|c| c as i32),
             voltage: src.config.voltage.map(|v| v as i32),
@@ -186,7 +186,7 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
             None
         };
         let state_version = src.controller_state.version.to_string();
-        Ok(rpc::PowerShelf {
+        Ok(forge::PowerShelf {
             id: Some(src.id),
             config: Some(config),
             status,
@@ -262,9 +262,9 @@ pub struct PowerShelfStateHistoryRecord {
     pub state_version: ConfigVersion,
 }
 
-impl From<PowerShelfStateHistoryRecord> for rpc::PowerShelfStateHistoryRecord {
-    fn from(value: PowerShelfStateHistoryRecord) -> rpc::PowerShelfStateHistoryRecord {
-        rpc::PowerShelfStateHistoryRecord {
+impl From<PowerShelfStateHistoryRecord> for forge::PowerShelfStateHistoryRecord {
+    fn from(value: PowerShelfStateHistoryRecord) -> forge::PowerShelfStateHistoryRecord {
+        forge::PowerShelfStateHistoryRecord {
             state: value.state,
             version: value.state_version.version_string(),
             time: Some(value.state_version.timestamp().into()),
@@ -280,8 +280,8 @@ pub struct PowerShelfSearchFilter {
     pub bmc_mac: Option<MacAddress>,
 }
 
-impl From<rpc::PowerShelfSearchFilter> for PowerShelfSearchFilter {
-    fn from(filter: rpc::PowerShelfSearchFilter) -> Self {
+impl From<forge::PowerShelfSearchFilter> for PowerShelfSearchFilter {
+    fn from(filter: forge::PowerShelfSearchFilter) -> Self {
         PowerShelfSearchFilter {
             rack_id: filter.rack_id,
             deleted: crate::DeletedFilter::from(filter.deleted),

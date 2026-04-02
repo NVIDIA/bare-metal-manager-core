@@ -24,10 +24,10 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum_template::TemplateEngine;
 use base64::Engine as _;
-use carbide_host_support::agent_config;
-use carbide_uuid::machine::MachineInterfaceId;
-use rpc::forge;
-use rpc::forge::PxeDomain;
+use nico_host_support::agent_config;
+use nico_rpc::forge;
+use nico_rpc::forge::PxeDomain;
+use nico_uuid::machine::MachineInterfaceId;
 
 use crate::common::{AppState, Machine};
 /// Generates the content of the /etc/forge/config.toml file

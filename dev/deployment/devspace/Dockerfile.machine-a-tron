@@ -12,7 +12,7 @@ COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
   --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
   --mount=type=cache,target=/cargo-target,sharing=locked \
-  cargo build -p carbide-machine-a-tron --bin machine-a-tron --locked && \
+  cargo build -p nico-machine-a-tron --bin machine-a-tron --locked && \
   mkdir -p /artifacts && \
   cp /cargo-target/debug/machine-a-tron /artifacts/machine-a-tron
 

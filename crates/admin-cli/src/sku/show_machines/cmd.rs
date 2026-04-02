@@ -15,8 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::SkuList;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_rpc::forge::SkuList;
 use prettytable::{Row, Table};
 use tokio::io::AsyncWriteExt;
 
@@ -26,7 +27,7 @@ use crate::rpc::ApiClient;
 async fn show_machine_table(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
-    skus: Vec<::rpc::forge::Sku>,
+    skus: Vec<forge::Sku>,
 ) -> CarbideCliResult<()> {
     if *output_format != OutputFormat::AsciiTable {
         return Err(CarbideCliError::GenericError(

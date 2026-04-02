@@ -17,9 +17,10 @@
 
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::machine::MachineId;
 use config_version::Versioned;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use crate::instance::config::InstanceConfig;
@@ -70,17 +71,17 @@ pub struct InstanceStatus {
     pub reprovision_request: Option<ReprovisionRequest>,
 }
 
-impl TryFrom<InstanceStatus> for rpc::InstanceStatus {
+impl TryFrom<InstanceStatus> for forge::InstanceStatus {
     type Error = RpcDataConversionError;
 
     fn try_from(status: InstanceStatus) -> Result<Self, Self::Error> {
-        Ok(rpc::InstanceStatus {
+        Ok(forge::InstanceStatus {
             tenant: status.tenant.map(|status| status.try_into()).transpose()?,
             network: Some(status.network.try_into()?),
             infiniband: Some(status.infiniband.try_into()?),
             dpu_extension_services: Some(status.extension_services.try_into()?),
             nvlink: Some(status.nvlink.try_into()?),
-            configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
+            configs_synced: forge::SyncState::try_from(status.configs_synced)? as i32,
             update: status.reprovision_request.map(|request| request.into()),
         })
     }
@@ -288,13 +289,13 @@ pub enum SyncState {
     Pending,
 }
 
-impl TryFrom<SyncState> for rpc::SyncState {
+impl TryFrom<SyncState> for forge::SyncState {
     type Error = RpcDataConversionError;
 
     fn try_from(state: SyncState) -> Result<Self, Self::Error> {
         Ok(match state {
-            SyncState::Synced => rpc::SyncState::Synced,
-            SyncState::Pending => rpc::SyncState::Pending,
+            SyncState::Synced => forge::SyncState::Synced,
+            SyncState::Pending => forge::SyncState::Pending,
         })
     }
 }

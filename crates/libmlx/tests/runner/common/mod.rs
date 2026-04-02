@@ -18,10 +18,10 @@
 // tests/common/mod.rs
 // Shared test utilities for mlxconfig-runner tests.
 
-use libmlx::runner::result_types::QueriedDeviceInfo;
-use libmlx::variables::registry::MlxVariableRegistry;
-use libmlx::variables::spec::MlxVariableSpec;
-use libmlx::variables::variable::MlxConfigVariable;
+use nico_libmlx::runner::result_types::QueriedDeviceInfo;
+use nico_libmlx::variables::registry::MlxVariableRegistry;
+use nico_libmlx::variables::spec::MlxVariableSpec;
+use nico_libmlx::variables::variable::MlxConfigVariable;
 use serde_json::json;
 
 /// Creates a test registry with common variable types for testing

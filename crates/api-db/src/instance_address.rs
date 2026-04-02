@@ -18,22 +18,22 @@ use std::collections::HashSet;
 use std::net::IpAddr;
 use std::ops::DerefMut;
 
-use carbide_network::virtualization::get_host_ip;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use model::ConfigValidationError;
-use model::address_selection_strategy::AddressSelectionStrategy;
-use model::instance::config::network::{
+use nico_api_model::ConfigValidationError;
+use nico_api_model::address_selection_strategy::AddressSelectionStrategy;
+use nico_api_model::instance::config::network::{
     InstanceInterfaceConfig, InstanceNetworkConfig, NetworkDetails,
 };
-use model::instance_address::InstanceAddress;
-use model::machine::Machine;
-use model::network_prefix::NetworkPrefix;
-use model::network_segment::{
+use nico_api_model::instance_address::InstanceAddress;
+use nico_api_model::machine::Machine;
+use nico_api_model::network_prefix::NetworkPrefix;
+use nico_api_model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
 };
+use nico_network::virtualization::get_host_ip;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::network::{NetworkPrefixId, NetworkSegmentId};
 use sqlx::{FromRow, PgConnection, PgTransaction, query_as};
 
 use super::{ObjectColumnFilter, network_segment};
@@ -592,11 +592,11 @@ mod tests {
     use std::collections::HashMap;
     use std::str::FromStr;
 
-    use carbide_uuid::vpc::VpcId;
     use chrono::Utc;
     use config_version::{ConfigVersion, Versioned};
-    use model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
-    use model::network_segment::NetworkSegmentType;
+    use nico_api_model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
+    use nico_api_model::network_segment::NetworkSegmentType;
+    use nico_uuid::vpc::VpcId;
     use uuid::Uuid;
 
     use super::*;
@@ -647,7 +647,7 @@ mod tests {
                     function_id,
                     network_segment_id: Some(network_segment_id),
                     network_details: Some(
-                        model::instance::config::network::NetworkDetails::NetworkSegment(
+                        nico_api_model::instance::config::network::NetworkDetails::NetworkSegment(
                             network_segment_id,
                         ),
                     ),

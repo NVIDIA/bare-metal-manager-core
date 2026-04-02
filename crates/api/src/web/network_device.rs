@@ -22,8 +22,8 @@ use axum::Json;
 use axum::extract::State as AxumState;
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 
 use super::filters;
 use crate::api::Api;
@@ -44,8 +44,8 @@ struct NetworkDeviceDisplay {
     connected_dpus: Vec<ConnectedDPU>,
 }
 
-impl From<forgerpc::NetworkDevice> for NetworkDeviceDisplay {
-    fn from(mut network_device: forgerpc::NetworkDevice) -> Self {
+impl From<forge::NetworkDevice> for NetworkDeviceDisplay {
+    fn from(mut network_device: forge::NetworkDevice) -> Self {
         let mut connected_dpus = Vec::new();
         for device in network_device.devices.drain(..) {
             connected_dpus.push(ConnectedDPU {
@@ -113,10 +113,8 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(network_devices)).into_response()
 }
 
-async fn fetch_network_devices(
-    api: Arc<Api>,
-) -> Result<Vec<forgerpc::NetworkDevice>, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::NetworkTopologyRequest { id: None });
+async fn fetch_network_devices(api: Arc<Api>) -> Result<Vec<forge::NetworkDevice>, tonic::Status> {
+    let request = tonic::Request::new(forge::NetworkTopologyRequest { id: None });
     let mut topology = api
         .get_network_topology(request)
         .await

@@ -15,7 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
 
 use super::args::{
     Args, RackMetadataCommandAddLabel, RackMetadataCommandFromExpectedRack,
@@ -59,8 +60,8 @@ async fn metadata_show(
 
 async fn fetch_rack(
     api_client: &ApiClient,
-    rack_id: carbide_uuid::rack::RackId,
-) -> CarbideCliResult<rpc::forge::Rack> {
+    rack_id: nico_uuid::rack::RackId,
+) -> CarbideCliResult<forge::Rack> {
     let mut racks = api_client.get_one_rack(rack_id.clone()).await?.racks;
     racks.pop().ok_or_else(|| {
         CarbideCliError::GenericError(format!("Rack with ID {} was not found", rack_id))

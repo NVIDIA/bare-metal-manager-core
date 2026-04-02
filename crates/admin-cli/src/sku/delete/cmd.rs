@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use rpc::forge::SkuIdList;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::forge::SkuIdList;
 
 use crate::rpc::ApiClient;
 

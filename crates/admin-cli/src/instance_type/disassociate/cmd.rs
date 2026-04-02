@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::TenantState;
-use rpc::forge::RemoveMachineInstanceTypeAssociationRequest;
+use nico_rpc::TenantState;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge::RemoveMachineInstanceTypeAssociationRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;

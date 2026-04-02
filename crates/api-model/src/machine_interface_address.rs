@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::switch::SwitchId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::switch::SwitchId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type, serde::Serialize, serde::Deserialize)]
 #[sqlx(type_name = "association_type")]

@@ -17,36 +17,36 @@
 
 use std::collections::{HashMap, HashSet};
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::infiniband::IBPartitionId;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::vpc::VpcPrefixId;
 use config_version::ConfigVersion;
-use db::{
-    self, ObjectColumnFilter, ObjectFilter, compute_allocation, extension_service, ib_partition,
-    network_security_group,
-};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use model::ConfigValidationError;
-use model::hardware_info::InfinibandInterface;
-use model::instance::NewInstance;
-use model::instance::config::InstanceConfig;
-use model::instance::config::infiniband::InstanceInfinibandConfig;
-use model::instance::config::network::{
+use nico_api_db::{
+    ObjectColumnFilter, ObjectFilter, compute_allocation, extension_service, ib_partition,
+    network_security_group, {self},
+};
+use nico_api_model::ConfigValidationError;
+use nico_api_model::hardware_info::InfinibandInterface;
+use nico_api_model::instance::NewInstance;
+use nico_api_model::instance::config::InstanceConfig;
+use nico_api_model::instance::config::infiniband::InstanceInfinibandConfig;
+use nico_api_model::instance::config::network::{
     InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
 };
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::{
     HostHealthConfig, LoadSnapshotOptions, Machine, ManagedHostStateSnapshot, NotAllocatableReason,
 };
-use model::metadata::Metadata;
-use model::os::OperatingSystemVariant;
-use model::tenant::TenantOrganizationId;
-use model::vpc_prefix::VpcPrefix;
+use nico_api_model::metadata::Metadata;
+use nico_api_model::os::OperatingSystemVariant;
+use nico_api_model::tenant::TenantOrganizationId;
+use nico_api_model::vpc_prefix::VpcPrefix;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::infiniband::IBPartitionId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::instance_type::InstanceTypeId;
+use nico_uuid::machine::MachineId;
+use nico_uuid::vpc::VpcPrefixId;
 use sqlx::PgConnection;
 
 use crate::api::Api;
@@ -76,10 +76,10 @@ pub struct InstanceAllocationRequest {
     pub allow_unhealthy_machine: bool,
 }
 
-impl TryFrom<rpc::InstanceAllocationRequest> for InstanceAllocationRequest {
+impl TryFrom<forge::InstanceAllocationRequest> for InstanceAllocationRequest {
     type Error = CarbideError;
 
-    fn try_from(request: rpc::InstanceAllocationRequest) -> Result<Self, Self::Error> {
+    fn try_from(request: forge::InstanceAllocationRequest) -> Result<Self, Self::Error> {
         let machine_id = request
             .machine_id
             .ok_or(RpcDataConversionError::MissingArgument("machine_id"))?;
@@ -152,7 +152,7 @@ pub async fn allocate_network(
     }
 
     let mut vpc_prefixes: HashMap<VpcPrefixId, VpcPrefix> =
-        db::vpc_prefix::get_by_id_with_row_lock(txn, &vpc_prefix_ids)
+        nico_api_db::vpc_prefix::get_by_id_with_row_lock(txn, &vpc_prefix_ids)
             .await?
             .iter()
             .map(|x| (x.id, x.clone()))
@@ -248,7 +248,8 @@ pub async fn allocate_network(
         let Some(last_used_prefix) = vpc_prefix.status.last_used_prefix else {
             continue;
         };
-        db::vpc_prefix::update_last_used_prefix(txn, &vpc_prefix.id, last_used_prefix).await?;
+        nico_api_db::vpc_prefix::update_last_used_prefix(txn, &vpc_prefix.id, last_used_prefix)
+            .await?;
     }
 
     Ok(())
@@ -470,15 +471,17 @@ pub async fn batch_allocate_instances(
         // Now we need to grab the count of instances for the tenant for this instance type.
         // We will need to compare the count+1 against new allocation total to make sure a
         // new instance won't exceed it.
-        let filter = model::instance::InstanceSearchFilter {
+        let filter = nico_api_model::instance::InstanceSearchFilter {
             label: None,
             tenant_org_id: Some(tenant_organization_id.to_string()),
             vpc_id: None,
             instance_type_id: Some(instance_type_id.to_string()),
         };
 
-        let new_total_instance_count =
-            req_count + db::instance::find_ids(&mut txn, filter).await?.len();
+        let new_total_instance_count = req_count
+            + nico_api_db::instance::find_ids(&mut txn, filter)
+                .await?
+                .len();
 
         if new_total_instance_count > compute_allocation_total as usize {
             // # enforce_if_present:  Instance type required in creation request.  If allocations are found for instance type ID, enforce it; otherwise, it's like no limits.
@@ -509,7 +512,7 @@ pub async fn batch_allocate_instances(
     let machine_ids: Vec<_> = requests.iter().map(|r| r.machine_id).collect();
 
     // Grab a row-level locks on the requested machines
-    let machines = db::machine::find(
+    let machines = nico_api_db::machine::find(
         &mut txn,
         ObjectFilter::List(&machine_ids),
         MachineSearchConfig {
@@ -534,7 +537,7 @@ pub async fn batch_allocate_instances(
     }
 
     // ==== Phase 4: Batch load managed host snapshots ====
-    let mut snapshot_map = db::managed_host::load_by_machine_ids(
+    let mut snapshot_map = nico_api_db::managed_host::load_by_machine_ids(
         &mut txn,
         &machine_ids,
         LoadSnapshotOptions::default().with_host_health(host_health_config),
@@ -681,7 +684,7 @@ pub async fn batch_allocate_instances(
                 "Image ID is required for image based storage".to_string(),
             ));
         }
-        if let Err(e) = db::os_image::get(&mut txn, *os_image_id).await {
+        if let Err(e) = nico_api_db::os_image::get(&mut txn, *os_image_id).await {
             return if e.is_not_found() {
                 Err(CarbideError::FailedPrecondition(format!(
                     "Image OS `{}` does not exist",
@@ -712,7 +715,7 @@ pub async fn batch_allocate_instances(
 
     // Batch query inband segments for all machines
     let inband_segments_map =
-        db::instance_network_config::batch_get_inband_segments_by_machine_ids(
+        nico_api_db::instance_network_config::batch_get_inband_segments_by_machine_ids(
             &mut txn,
             &machine_ids,
         )
@@ -770,25 +773,26 @@ pub async fn batch_allocate_instances(
         })
         .collect();
 
-    let _persisted_instances = db::instance::batch_persist(new_instances, &mut txn).await?;
+    let _persisted_instances =
+        nico_api_db::instance::batch_persist(new_instances, &mut txn).await?;
 
     // ==== Phase 7: Process configs (IPs, inband interfaces, IB GUIDs) ====
     // These need to be done per-instance but we collect results for batch update
     // Tuple format: (instance_id, expected_version, config)
     let mut network_config_updates: Vec<(
-        carbide_uuid::instance::InstanceId,
+        nico_uuid::instance::InstanceId,
         ConfigVersion,
-        model::instance::config::network::InstanceNetworkConfig,
+        nico_api_model::instance::config::network::InstanceNetworkConfig,
     )> = Vec::with_capacity(request_count);
     let mut ib_config_updates: Vec<(
-        carbide_uuid::instance::InstanceId,
+        nico_uuid::instance::InstanceId,
         ConfigVersion,
-        model::instance::config::infiniband::InstanceInfinibandConfig,
+        nico_api_model::instance::config::infiniband::InstanceInfinibandConfig,
     )> = Vec::with_capacity(request_count);
     let mut nvlink_config_updates: Vec<(
-        carbide_uuid::instance::InstanceId,
+        nico_uuid::instance::InstanceId,
         ConfigVersion,
-        model::instance::config::nvlink::InstanceNvLinkConfig,
+        nico_api_model::instance::config::nvlink::InstanceNvLinkConfig,
     )> = Vec::with_capacity(request_count);
 
     for (request, mh_snapshot) in &processed_requests {
@@ -799,13 +803,14 @@ pub async fn batch_allocate_instances(
             .get(&mh_snapshot.host_snapshot.id)
             .map(|v| v.as_slice())
             .unwrap_or(&[]);
-        let updated_network_config = db::instance_network_config::add_inband_interfaces_to_config(
-            request.config.network.clone(),
-            inband_segment_ids,
-        );
+        let updated_network_config =
+            nico_api_db::instance_network_config::add_inband_interfaces_to_config(
+                request.config.network.clone(),
+                inband_segment_ids,
+            );
 
         // Allocate IPs
-        let updated_network_config = db::instance_network_config::with_allocated_ips(
+        let updated_network_config = nico_api_db::instance_network_config::with_allocated_ips(
             updated_network_config,
             &mut txn,
             instance_id,
@@ -843,26 +848,27 @@ pub async fn batch_allocate_instances(
         .iter()
         .map(|(id, ver, cfg)| (*id, *ver, cfg))
         .collect();
-    db::instance::batch_update_network_config(&mut txn, &network_refs, false).await?;
+    nico_api_db::instance::batch_update_network_config(&mut txn, &network_refs, false).await?;
 
     let ib_refs: Vec<_> = ib_config_updates
         .iter()
         .map(|(id, ver, cfg)| (*id, *ver, cfg))
         .collect();
-    db::instance::batch_update_ib_config(&mut txn, &ib_refs, false).await?;
+    nico_api_db::instance::batch_update_ib_config(&mut txn, &ib_refs, false).await?;
 
     let nvlink_refs: Vec<_> = nvlink_config_updates
         .iter()
         .map(|(id, ver, cfg)| (*id, *ver, cfg))
         .collect();
-    db::instance::batch_update_nvlink_config(&mut txn, &nvlink_refs, false).await?;
+    nico_api_db::instance::batch_update_nvlink_config(&mut txn, &nvlink_refs, false).await?;
 
     // ==== Phase 9: Load final instances ====
     let machine_id_refs: Vec<&MachineId> = processed_requests
         .iter()
         .map(|(r, _)| &r.machine_id)
         .collect();
-    let final_instances = db::instance::find_by_machine_ids(&mut txn, &machine_id_refs).await?;
+    let final_instances =
+        nico_api_db::instance::find_by_machine_ids(&mut txn, &machine_id_refs).await?;
     let mut final_instance_map: HashMap<_, _> = final_instances
         .into_iter()
         .map(|i| (i.machine_id, i))
@@ -908,7 +914,7 @@ pub async fn batch_validate_ib_partition_ownership(
         .into_iter()
         .collect();
 
-    let partitions = db::ib_partition::find_by(
+    let partitions = nico_api_db::ib_partition::find_by(
         txn,
         ObjectColumnFilter::List(ib_partition::IdColumn, &unique_partition_ids),
     )
@@ -955,7 +961,8 @@ fn test_sort_ib_by_slot() {
         "/../api-model/src/hardware_info/test_data/x86_info.json"
     ));
 
-    let hw_info = serde_json::from_slice::<model::hardware_info::HardwareInfo>(data).unwrap();
+    let hw_info =
+        serde_json::from_slice::<nico_api_model::hardware_info::HardwareInfo>(data).unwrap();
     assert!(!hw_info.infiniband_interfaces.is_empty());
 
     let prev = sort_ib_by_slot(hw_info.infiniband_interfaces.as_ref());

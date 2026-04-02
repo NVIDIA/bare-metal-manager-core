@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use model::site_explorer::{Inventory as ModelInventory, Service as ModelService};
+use nico_api_model::site_explorer::{Inventory as ModelInventory, Service as ModelService};
 use nv_redfish::update_service::SoftwareInventory;
 use nv_redfish::{Bmc, Resource, ServiceRoot};
 

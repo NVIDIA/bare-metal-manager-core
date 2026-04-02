@@ -17,16 +17,18 @@
 
 use std::collections::HashSet;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::network_security_group::NetworkSecurityGroupId;
-use carbide_uuid::vpc::VpcId;
 use config_version::ConfigVersion;
-use db::network_security_group;
-use model::metadata::Metadata;
-use model::network_security_group::{NetworkSecurityGroupRule, NetworkSecurityGroupRuleNet};
-use model::tenant::{InvalidTenantOrg, TenantOrganizationId};
+use nico_api_db::network_security_group;
+use nico_api_model::metadata::Metadata;
+use nico_api_model::network_security_group::{
+    NetworkSecurityGroupRule, NetworkSecurityGroupRuleNet,
+};
+use nico_api_model::tenant::{InvalidTenantOrg, TenantOrganizationId};
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::network_security_group::NetworkSecurityGroupId;
+use nico_uuid::vpc::VpcId;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -35,8 +37,8 @@ use crate::api::{Api, log_request_data, log_tenant_organization_id};
 
 pub(crate) async fn create(
     api: &Api,
-    request: Request<rpc::CreateNetworkSecurityGroupRequest>,
-) -> Result<Response<rpc::CreateNetworkSecurityGroupResponse>, Status> {
+    request: Request<forge::CreateNetworkSecurityGroupRequest>,
+) -> Result<Response<forge::CreateNetworkSecurityGroupResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -112,7 +114,7 @@ pub(crate) async fn create(
     .await?;
 
     // Prepare the response to send back
-    let rpc_out = rpc::CreateNetworkSecurityGroupResponse {
+    let rpc_out = forge::CreateNetworkSecurityGroupResponse {
         network_security_group: Some(network_security_group.try_into()?),
     };
 
@@ -125,8 +127,8 @@ pub(crate) async fn create(
 
 pub(crate) async fn find_ids(
     api: &Api,
-    request: Request<rpc::FindNetworkSecurityGroupIdsRequest>,
-) -> Result<Response<rpc::FindNetworkSecurityGroupIdsResponse>, Status> {
+    request: Request<forge::FindNetworkSecurityGroupIdsRequest>,
+) -> Result<Response<forge::FindNetworkSecurityGroupIdsResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -154,7 +156,7 @@ pub(crate) async fn find_ids(
     )
     .await?;
 
-    let rpc_out = rpc::FindNetworkSecurityGroupIdsResponse {
+    let rpc_out = forge::FindNetworkSecurityGroupIdsResponse {
         network_security_group_ids: network_security_group_ids
             .iter()
             .map(|i| i.to_string())
@@ -168,8 +170,8 @@ pub(crate) async fn find_ids(
 
 pub(crate) async fn find_by_ids(
     api: &Api,
-    request: Request<rpc::FindNetworkSecurityGroupsByIdsRequest>,
-) -> Result<Response<rpc::FindNetworkSecurityGroupsByIdsResponse>, Status> {
+    request: Request<forge::FindNetworkSecurityGroupsByIdsRequest>,
+) -> Result<Response<forge::FindNetworkSecurityGroupsByIdsResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -233,10 +235,10 @@ pub(crate) async fn find_by_ids(
     let rpc_network_security_groups = network_security_groups
         .into_iter()
         .map(|i| i.try_into())
-        .collect::<Result<Vec<rpc::NetworkSecurityGroup>, _>>()?;
+        .collect::<Result<Vec<forge::NetworkSecurityGroup>, _>>()?;
 
     // Prepare the response message
-    let rpc_out = rpc::FindNetworkSecurityGroupsByIdsResponse {
+    let rpc_out = forge::FindNetworkSecurityGroupsByIdsResponse {
         network_security_groups: rpc_network_security_groups,
     };
 
@@ -249,8 +251,8 @@ pub(crate) async fn find_by_ids(
 
 pub(crate) async fn update(
     api: &Api,
-    request: Request<rpc::UpdateNetworkSecurityGroupRequest>,
-) -> Result<Response<rpc::UpdateNetworkSecurityGroupResponse>, Status> {
+    request: Request<forge::UpdateNetworkSecurityGroupRequest>,
+) -> Result<Response<forge::UpdateNetworkSecurityGroupResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -382,7 +384,7 @@ pub(crate) async fn update(
     .await?;
 
     // Prepare the response to send back
-    let rpc_out = rpc::UpdateNetworkSecurityGroupResponse {
+    let rpc_out = forge::UpdateNetworkSecurityGroupResponse {
         network_security_group: Some(network_security_group.try_into()?),
     };
 
@@ -395,8 +397,8 @@ pub(crate) async fn update(
 
 pub(crate) async fn delete(
     api: &Api,
-    request: Request<rpc::DeleteNetworkSecurityGroupRequest>,
-) -> Result<Response<rpc::DeleteNetworkSecurityGroupResponse>, Status> {
+    request: Request<forge::DeleteNetworkSecurityGroupRequest>,
+) -> Result<Response<forge::DeleteNetworkSecurityGroupResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -481,7 +483,7 @@ pub(crate) async fn delete(
     let _id = network_security_group::soft_delete(&mut txn, &id, &tenant_organization_id).await?;
 
     // Prepare the response message
-    let rpc_out = rpc::DeleteNetworkSecurityGroupResponse {};
+    let rpc_out = forge::DeleteNetworkSecurityGroupResponse {};
 
     // Commit if nothing has gone wrong up to now
     txn.commit().await?;
@@ -492,8 +494,8 @@ pub(crate) async fn delete(
 
 pub(crate) async fn get_propagation_status(
     api: &Api,
-    request: Request<rpc::GetNetworkSecurityGroupPropagationStatusRequest>,
-) -> Result<Response<rpc::GetNetworkSecurityGroupPropagationStatusResponse>, Status> {
+    request: Request<forge::GetNetworkSecurityGroupPropagationStatusRequest>,
+) -> Result<Response<forge::GetNetworkSecurityGroupPropagationStatusResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -554,7 +556,7 @@ pub(crate) async fn get_propagation_status(
     .await?;
 
     // Prepare the response message
-    let rpc_out = rpc::GetNetworkSecurityGroupPropagationStatusResponse {
+    let rpc_out = forge::GetNetworkSecurityGroupPropagationStatusResponse {
         vpcs: vpcs.into_iter().map(|v| v.into()).collect(),
         instances: instances.into_iter().map(|v| v.into()).collect(),
     };
@@ -568,8 +570,8 @@ pub(crate) async fn get_propagation_status(
 
 pub(crate) async fn get_attachments(
     api: &Api,
-    request: Request<rpc::GetNetworkSecurityGroupAttachmentsRequest>,
-) -> Result<Response<rpc::GetNetworkSecurityGroupAttachmentsResponse>, Status> {
+    request: Request<forge::GetNetworkSecurityGroupAttachmentsRequest>,
+) -> Result<Response<forge::GetNetworkSecurityGroupAttachmentsResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -610,7 +612,7 @@ pub(crate) async fn get_attachments(
     .await?;
 
     // Prepare the response message
-    let rpc_out = rpc::GetNetworkSecurityGroupAttachmentsResponse {
+    let rpc_out = forge::GetNetworkSecurityGroupAttachmentsResponse {
         attachments: attachments.into_iter().map(|a| a.into()).collect(),
     };
 

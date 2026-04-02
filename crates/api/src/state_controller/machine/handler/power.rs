@@ -17,8 +17,8 @@
 
 use chrono::Utc;
 use libredfish::SystemPowerControl;
-use model::machine::ManagedHostStateSnapshot;
-use model::power_manager::{
+use nico_api_model::machine::ManagedHostStateSnapshot;
+use nico_api_model::power_manager::{
     PowerHandlingOutcome, PowerOptions, PowerState, UsablePowerState,
     are_all_dpus_up_after_power_operation, get_updated_power_options_for_desired_on_state_off,
     update_power_options_for_desired_on_state_on,
@@ -38,10 +38,10 @@ pub async fn handle_power(
 ) -> Result<PowerHandlingOutcome, StateHandlerError> {
     if let Some(power_options) = &mh_snapshot.host_snapshot.power_options {
         match power_options.desired_power_state {
-            model::power_manager::PowerState::On => {
+            nico_api_model::power_manager::PowerState::On => {
                 handle_power_desired_on(power_options, mh_snapshot, ctx, power_options_config).await
             }
-            model::power_manager::PowerState::Off => {
+            nico_api_model::power_manager::PowerState::Off => {
                 get_updated_power_options_desired_off(
                     power_options,
                     mh_snapshot,
@@ -50,7 +50,7 @@ pub async fn handle_power(
                 )
                 .await
             }
-            model::power_manager::PowerState::PowerManagerDisabled => {
+            nico_api_model::power_manager::PowerState::PowerManagerDisabled => {
                 // Nothing to do
                 Ok(PowerHandlingOutcome::new(None, true, None))
             }

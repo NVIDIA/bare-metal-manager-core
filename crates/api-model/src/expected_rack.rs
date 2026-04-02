@@ -17,8 +17,9 @@
 
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::rack::RackId;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::rack::RackId;
 use serde::Deserialize;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -67,9 +68,9 @@ impl<'r> FromRow<'r, PgRow> for ExpectedRack {
     }
 }
 
-impl From<ExpectedRack> for rpc::forge::ExpectedRack {
+impl From<ExpectedRack> for forge::ExpectedRack {
     fn from(expected_rack: ExpectedRack) -> Self {
-        rpc::forge::ExpectedRack {
+        forge::ExpectedRack {
             rack_id: Some(expected_rack.rack_id),
             rack_type: expected_rack.rack_type,
             metadata: Some(expected_rack.metadata.into()),
@@ -77,10 +78,10 @@ impl From<ExpectedRack> for rpc::forge::ExpectedRack {
     }
 }
 
-impl TryFrom<rpc::forge::ExpectedRack> for ExpectedRack {
+impl TryFrom<forge::ExpectedRack> for ExpectedRack {
     type Error = RpcDataConversionError;
 
-    fn try_from(rpc: rpc::forge::ExpectedRack) -> Result<Self, Self::Error> {
+    fn try_from(rpc: forge::ExpectedRack) -> Result<Self, Self::Error> {
         let rack_id = rpc
             .rack_id
             .ok_or(RpcDataConversionError::MissingArgument("rack_id"))?;

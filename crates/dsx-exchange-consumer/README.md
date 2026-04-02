@@ -69,16 +69,16 @@ Exposed on the configured metrics endpoint (default `:9009`):
 
 ```bash
 # With config file
-cargo run -p carbide-dsx-exchange-consumer -- --config config.toml
+cargo run -p nico-dsx-exchange-consumer -- --config config.toml
 
 # With environment variables only
-CARBIDE_DSX_CONSUMER__MQTT__ENDPOINT=localhost cargo run -p carbide-dsx-exchange-consumer
+CARBIDE_DSX_CONSUMER__MQTT__ENDPOINT=localhost cargo run -p nico-dsx-exchange-consumer
 ```
 
 ## Testing
 
 ```bash
-cargo test -p carbide-dsx-exchange-consumer
+cargo test -p nico-dsx-exchange-consumer
 ```
 
 ## Disabling the API Client

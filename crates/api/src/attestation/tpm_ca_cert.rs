@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
-use db::attestation as db_attest;
-use db::attestation::ek_cert_verification_status;
-use model::hardware_info::TpmEkCertificate;
+use nico_api_db::attestation as db_attest;
+use nico_api_db::attestation::ek_cert_verification_status;
+use nico_api_model::hardware_info::TpmEkCertificate;
+use nico_uuid::machine::MachineId;
 use sha2::{Digest, Sha256};
 use sqlx::PgConnection;
 use x509_parser::certificate::X509Certificate;

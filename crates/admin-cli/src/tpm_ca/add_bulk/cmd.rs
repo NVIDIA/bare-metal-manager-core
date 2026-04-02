@@ -18,7 +18,7 @@
 use std::fs;
 use std::path::Path;
 
-use ::rpc::admin_cli::CarbideCliResult;
+use nico_rpc::admin_cli::CarbideCliResult;
 
 use super::super::add::cmd::add_individual;
 use crate::rpc::ApiClient;
@@ -30,7 +30,7 @@ pub async fn add_bulk(dirname: &str, api_client: &ApiClient) -> CarbideCliResult
     // call add individually for each one of them
 
     let dir_entry_iter = fs::read_dir(dirpath)
-        .map_err(::rpc::admin_cli::CarbideCliError::IOError)?
+        .map_err(nico_rpc::admin_cli::CarbideCliError::IOError)?
         .flatten();
 
     for dir_entry in dir_entry_iter {

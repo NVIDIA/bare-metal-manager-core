@@ -17,18 +17,22 @@
 
 use std::collections::HashMap;
 
-use carbide_uuid::infiniband::IBPartitionId;
-use db::db_read::PgPoolReader;
-use db::{self, ObjectColumnFilter};
-use model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
-use model::ib_partition::{IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition};
-use model::metadata::Metadata;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{Label, TenantState};
+use nico_api_db::db_read::PgPoolReader;
+use nico_api_db::{
+    ObjectColumnFilter, {self},
+};
+use nico_api_model::ib::{IBMtu, IBNetwork, IBQosConf, IBRateLimit, IBServiceLevel};
+use nico_api_model::ib_partition::{
+    IBPartition, IBPartitionConfig, IBPartitionStatus, NewIBPartition,
+};
+use nico_api_model::metadata::Metadata;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{IbPartitionConfig, Label, TenantState};
+use nico_uuid::infiniband::IBPartitionId;
 use tonic::Request;
 
 use crate::api::Api;
-use crate::api::rpc::IbPartitionConfig;
 use crate::cfg::file::IBFabricConfig;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env};
@@ -39,15 +43,15 @@ const FIXTURE_TENANT_ORG_ID: &str = "tenant";
 async fn create_ib_partition_with_api(
     api: &Api,
     name: String,
-) -> Result<tonic::Response<rpc::IbPartition>, tonic::Status> {
-    let request = rpc::forge::IbPartitionCreationRequest {
+) -> Result<tonic::Response<forge::IbPartition>, tonic::Status> {
+    let request = forge::IbPartitionCreationRequest {
         id: None,
         config: Some(IbPartitionConfig {
             name: name.clone(),
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
             pkey: None,
         }),
-        metadata: Some(rpc::Metadata {
+        metadata: Some(forge::Metadata {
             name,
             labels: vec![Label {
                 key: "example_key".into(),
@@ -62,7 +66,7 @@ async fn create_ib_partition_with_api(
 
 async fn get_partition_state(api: &Api, ib_partition_id: IBPartitionId) -> TenantState {
     let segment = api
-        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+        .find_ib_partitions_by_ids(Request::new(forge::IbPartitionsByIdsRequest {
             ib_partition_ids: vec![ib_partition_id],
             include_history: false,
         }))
@@ -122,7 +126,7 @@ async fn test_ib_partition_lifecycle_impl(
     );
 
     env.api
-        .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
+        .delete_ib_partition(Request::new(forge::IbPartitionDeletionRequest {
             id: partition.id,
         }))
         .await
@@ -136,7 +140,7 @@ async fn test_ib_partition_lifecycle_impl(
 
     // Deletion is idempotent
     env.api
-        .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
+        .delete_ib_partition(Request::new(forge::IbPartitionDeletionRequest {
             id: partition.id,
         }))
         .await
@@ -148,7 +152,7 @@ async fn test_ib_partition_lifecycle_impl(
 
     let partitions = env
         .api
-        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+        .find_ib_partitions_by_ids(Request::new(forge::IbPartitionsByIdsRequest {
             ib_partition_ids: vec![partition.id.unwrap()],
             include_history: false,
         }))
@@ -163,7 +167,7 @@ async fn test_ib_partition_lifecycle_impl(
     // Calling the API again in this state should be a noop
     let err = env
         .api
-        .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
+        .delete_ib_partition(Request::new(forge::IbPartitionDeletionRequest {
             id: partition.id,
         }))
         .await
@@ -207,7 +211,7 @@ async fn test_find_ib_partition_for_tenant(
 
     let find_ib_partition = env
         .api
-        .ib_partitions_for_tenant(Request::new(rpc::forge::TenantSearchQuery {
+        .ib_partitions_for_tenant(Request::new(forge::TenantSearchQuery {
             tenant_organization_id: Some(FIXTURE_TENANT_ORG_ID.to_string()),
         }))
         .await
@@ -275,14 +279,14 @@ async fn test_reject_create_with_invalid_metadata(
     )
     .await;
 
-    let request = rpc::forge::IbPartitionCreationRequest {
+    let request = forge::IbPartitionCreationRequest {
         id: None,
         config: Some(IbPartitionConfig {
             name: "partition1".into(),
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
             pkey: None,
         }),
-        metadata: Some(rpc::Metadata {
+        metadata: Some(forge::Metadata {
             name: "".into(), // Invalid name
             labels: vec![Label {
                 key: "example_key".into(),
@@ -325,14 +329,14 @@ async fn create_ib_partition_with_api_with_id(
     // This should fail.
     let _ = env
         .api
-        .create_ib_partition(Request::new(rpc::forge::IbPartitionCreationRequest {
+        .create_ib_partition(Request::new(forge::IbPartitionCreationRequest {
             id: Some(IBPartitionId::new()),
             config: Some(IbPartitionConfig {
                 name: "partition1".into(),
                 tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                 pkey: Some("ABCDEFG".to_string()),
             }),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "partition1".into(),
                 labels: vec![Label {
                     key: "example_label".into(),
@@ -349,14 +353,14 @@ async fn create_ib_partition_with_api_with_id(
     // This should fail.
     let _ = env
         .api
-        .create_ib_partition(Request::new(rpc::forge::IbPartitionCreationRequest {
+        .create_ib_partition(Request::new(forge::IbPartitionCreationRequest {
             id: Some(IBPartitionId::new()),
             config: Some(IbPartitionConfig {
                 name: "partition1".into(),
                 tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                 pkey: Some("0x05".to_string()),
             }),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "partition1".into(),
                 labels: vec![Label {
                     key: "example_label".into(),
@@ -375,14 +379,14 @@ async fn create_ib_partition_with_api_with_id(
 
     let partition = env
         .api
-        .create_ib_partition(Request::new(rpc::forge::IbPartitionCreationRequest {
+        .create_ib_partition(Request::new(forge::IbPartitionCreationRequest {
             id: Some(id),
             config: Some(IbPartitionConfig {
                 name: "partition1".into(),
                 tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                 pkey: Some("0x96".to_string()), // 150
             }),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "partition1".into(),
                 labels: vec![Label {
                     key: "example_label".into(),
@@ -398,14 +402,14 @@ async fn create_ib_partition_with_api_with_id(
     assert_eq!(partition.id, Some(id));
 
     let id = IBPartitionId::new();
-    let request = rpc::forge::IbPartitionCreationRequest {
+    let request = forge::IbPartitionCreationRequest {
         id: Some(id),
         config: Some(IbPartitionConfig {
             name: "partition1".into(),
             tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
             pkey: None,
         }),
-        metadata: Some(rpc::Metadata {
+        metadata: Some(forge::Metadata {
             name: "partition1".into(),
             labels: vec![Label {
                 key: "example_label".into(),
@@ -446,7 +450,7 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         },
     };
     let mut txn = pool.begin().await?;
-    let mut partition: IBPartition = db::ib_partition::create(
+    let mut partition: IBPartition = nico_api_db::ib_partition::create(
         new_partition,
         &mut txn,
         10,
@@ -461,7 +465,8 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     .await?;
     txn.commit().await?;
 
-    let results = db::ib_partition::for_tenant(&pool, FIXTURE_TENANT_ORG_ID.to_string()).await?;
+    let results =
+        nico_api_db::ib_partition::for_tenant(&pool, FIXTURE_TENANT_ORG_ID.to_string()).await?;
 
     assert_eq!(results.len(), 1);
     assert_eq!(partition.config, results[0].config);
@@ -491,12 +496,12 @@ async fn test_update_ib_partition(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
     });
     // What we're testing
     let mut txn = pool.begin().await?;
-    db::ib_partition::update(&partition, &mut txn).await?;
+    nico_api_db::ib_partition::update(&partition, &mut txn).await?;
     txn.commit().await?;
 
-    let partition2 = db::ib_partition::find_by(
+    let partition2 = nico_api_db::ib_partition::find_by(
         &mut PgPoolReader::from(pool.clone()),
-        ObjectColumnFilter::One(db::ib_partition::IdColumn, &partition.id),
+        ObjectColumnFilter::One(nico_api_db::ib_partition::IdColumn, &partition.id),
     )
     .await?
     .remove(0);
@@ -527,7 +532,7 @@ async fn test_reject_update_with_invalid_metadata(
         },
     };
     let mut txn = pool.begin().await?;
-    let mut partition: IBPartition = db::ib_partition::create(
+    let mut partition: IBPartition = nico_api_db::ib_partition::create(
         new_partition,
         &mut txn,
         10,
@@ -545,7 +550,7 @@ async fn test_reject_update_with_invalid_metadata(
     partition.metadata.name = "".to_string(); // Invalid name
 
     let mut txn = pool.begin().await?;
-    let result = db::ib_partition::update(&partition, &mut txn).await;
+    let result = nico_api_db::ib_partition::update(&partition, &mut txn).await;
     txn.commit().await?;
 
     let error = result
@@ -565,14 +570,14 @@ async fn test_duplicate_ib_partition(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
     let p = env
         .api
-        .create_ib_partition(Request::new(rpc::forge::IbPartitionCreationRequest {
+        .create_ib_partition(Request::new(forge::IbPartitionCreationRequest {
             id: None,
             config: Some(IbPartitionConfig {
                 name: "p1".to_string(),
                 tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                 pkey: None,
             }),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "p1".to_string(),
                 labels: vec![Label {
                     key: "example_key".into(),
@@ -591,14 +596,14 @@ async fn test_duplicate_ib_partition(pool: sqlx::PgPool) {
     // This should fail.
     let _ = env
         .api
-        .create_ib_partition(Request::new(rpc::forge::IbPartitionCreationRequest {
+        .create_ib_partition(Request::new(forge::IbPartitionCreationRequest {
             id: None,
             config: Some(IbPartitionConfig {
                 name: "p2".to_string(),
                 tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                 pkey: p.status.unwrap().pkey,
             }),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "p2".to_string(),
                 labels: vec![Label {
                     key: "example_key".into(),
@@ -615,14 +620,14 @@ async fn test_duplicate_ib_partition(pool: sqlx::PgPool) {
     // Create another partition with a valid, explicit PKEY.
     let p = env
         .api
-        .create_ib_partition(Request::new(rpc::forge::IbPartitionCreationRequest {
+        .create_ib_partition(Request::new(forge::IbPartitionCreationRequest {
             id: None,
             config: Some(IbPartitionConfig {
                 name: "p3".to_string(),
                 tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                 pkey: Some(pkey.to_string()),
             }),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "p3".to_string(),
                 labels: vec![Label {
                     key: "example_key".into(),
@@ -645,14 +650,14 @@ async fn test_duplicate_ib_partition(pool: sqlx::PgPool) {
     // going to change it anyway.
     let p2 = env
         .api
-        .create_ib_partition(Request::new(rpc::forge::IbPartitionCreationRequest {
+        .create_ib_partition(Request::new(forge::IbPartitionCreationRequest {
             id: None,
             config: Some(IbPartitionConfig {
                 name: "p4".to_string(),
                 tenant_organization_id: FIXTURE_TENANT_ORG_ID.to_string(),
                 pkey: None,
             }),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "p4".to_string(),
                 labels: vec![Label {
                     key: "example_key".into(),
@@ -669,9 +674,9 @@ async fn test_duplicate_ib_partition(pool: sqlx::PgPool) {
     // Updates to the PKEY of the partition shouldn't be possible, but
     // we perform status updates, and pkey is part of status.
 
-    let mut partition = db::ib_partition::find_by(
+    let mut partition = nico_api_db::ib_partition::find_by(
         &mut PgPoolReader::from(pool.clone()),
-        ObjectColumnFilter::One(db::ib_partition::IdColumn, p2.id.as_ref().unwrap()),
+        ObjectColumnFilter::One(nico_api_db::ib_partition::IdColumn, p2.id.as_ref().unwrap()),
     )
     .await
     .unwrap()
@@ -680,7 +685,7 @@ async fn test_duplicate_ib_partition(pool: sqlx::PgPool) {
     status.pkey = Some(pkey.to_string().parse().unwrap());
 
     let mut txn = pool.begin().await.unwrap();
-    db::ib_partition::update(&partition, &mut txn)
+    nico_api_db::ib_partition::update(&partition, &mut txn)
         .await
         .unwrap_err();
     txn.rollback().await.unwrap();
@@ -710,7 +715,7 @@ async fn test_handler_update_ib_partition_success(
 
     let updated = env
         .api
-        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+        .update_ib_partition(Request::new(forge::IbPartitionUpdateRequest {
             id: created.id,
             config: Some(IbPartitionConfig {
                 name: created_config.name.clone(),
@@ -718,7 +723,7 @@ async fn test_handler_update_ib_partition_success(
                 pkey: None,
             }),
             if_version_match: None,
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "updated_name".into(),
                 labels: vec![Label {
                     key: "new_key".into(),
@@ -747,7 +752,7 @@ async fn test_handler_update_ib_partition_missing_id(
 
     let err = env
         .api
-        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+        .update_ib_partition(Request::new(forge::IbPartitionUpdateRequest {
             id: None,
             config: Some(IbPartitionConfig {
                 name: "x".into(),
@@ -755,7 +760,7 @@ async fn test_handler_update_ib_partition_missing_id(
                 pkey: None,
             }),
             if_version_match: None,
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "x".into(),
                 labels: vec![],
                 description: "".into(),
@@ -781,11 +786,11 @@ async fn test_handler_update_ib_partition_missing_config(
 
     let err = env
         .api
-        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+        .update_ib_partition(Request::new(forge::IbPartitionUpdateRequest {
             id: Some(IBPartitionId::new()),
             config: None,
             if_version_match: None,
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "x".into(),
                 labels: vec![],
                 description: "".into(),
@@ -811,7 +816,7 @@ async fn test_handler_update_ib_partition_missing_metadata(
 
     let err = env
         .api
-        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+        .update_ib_partition(Request::new(forge::IbPartitionUpdateRequest {
             id: Some(IBPartitionId::new()),
             config: Some(IbPartitionConfig {
                 name: "x".into(),
@@ -841,7 +846,7 @@ async fn test_handler_update_ib_partition_not_found(
 
     let err = env
         .api
-        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+        .update_ib_partition(Request::new(forge::IbPartitionUpdateRequest {
             id: Some(IBPartitionId::new()),
             config: Some(IbPartitionConfig {
                 name: "x".into(),
@@ -849,7 +854,7 @@ async fn test_handler_update_ib_partition_not_found(
                 pkey: None,
             }),
             if_version_match: None,
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "x".into(),
                 labels: vec![],
                 description: "".into(),
@@ -887,7 +892,7 @@ async fn test_handler_update_ib_partition_version_mismatch(
 
     let err = env
         .api
-        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+        .update_ib_partition(Request::new(forge::IbPartitionUpdateRequest {
             id: created.id,
             config: Some(IbPartitionConfig {
                 name: created_config.name.clone(),
@@ -895,7 +900,7 @@ async fn test_handler_update_ib_partition_version_mismatch(
                 pkey: None,
             }),
             if_version_match: Some("V999-T0".to_string()),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "updated".into(),
                 labels: vec![],
                 description: "".into(),
@@ -934,7 +939,7 @@ async fn test_handler_update_ib_partition_version_match(
 
     let updated = env
         .api
-        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+        .update_ib_partition(Request::new(forge::IbPartitionUpdateRequest {
             id: created.id,
             config: Some(IbPartitionConfig {
                 name: created_config.name.clone(),
@@ -942,7 +947,7 @@ async fn test_handler_update_ib_partition_version_match(
                 pkey: None,
             }),
             if_version_match: Some(version),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "updated_with_version".into(),
                 labels: vec![],
                 description: "".into(),
@@ -980,7 +985,7 @@ async fn test_handler_update_ib_partition_reject_tenant_org_change(
 
     let err = env
         .api
-        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+        .update_ib_partition(Request::new(forge::IbPartitionUpdateRequest {
             id: created.id,
             config: Some(IbPartitionConfig {
                 name: created_config.name.clone(),
@@ -988,7 +993,7 @@ async fn test_handler_update_ib_partition_reject_tenant_org_change(
                 pkey: None,
             }),
             if_version_match: None,
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "updated".into(),
                 labels: vec![],
                 description: "".into(),
@@ -1031,7 +1036,7 @@ async fn test_handler_update_ib_partition_reject_pkey_change(
 
     let err = env
         .api
-        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+        .update_ib_partition(Request::new(forge::IbPartitionUpdateRequest {
             id: created.id,
             config: Some(IbPartitionConfig {
                 name: created_config.name.clone(),
@@ -1039,7 +1044,7 @@ async fn test_handler_update_ib_partition_reject_pkey_change(
                 pkey: Some("0xFFFF".to_string()),
             }),
             if_version_match: None,
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "updated".into(),
                 labels: vec![],
                 description: "".into(),
@@ -1081,7 +1086,7 @@ async fn test_handler_update_ib_partition_reject_invalid_metadata(
 
     let err = env
         .api
-        .update_ib_partition(Request::new(rpc::forge::IbPartitionUpdateRequest {
+        .update_ib_partition(Request::new(forge::IbPartitionUpdateRequest {
             id: created.id,
             config: Some(IbPartitionConfig {
                 name: created_config.name.clone(),
@@ -1089,7 +1094,7 @@ async fn test_handler_update_ib_partition_reject_invalid_metadata(
                 pkey: None,
             }),
             if_version_match: None,
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "".into(),
                 labels: vec![],
                 description: "".into(),

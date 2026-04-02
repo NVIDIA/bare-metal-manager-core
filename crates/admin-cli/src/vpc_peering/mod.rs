@@ -22,10 +22,10 @@ mod show;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 use clap::Parser;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::forge::VpcPeering;
 use prettytable::{Table, row};
-use rpc::forge::VpcPeering;
 
 use crate::cfg::dispatch::Dispatch;
 

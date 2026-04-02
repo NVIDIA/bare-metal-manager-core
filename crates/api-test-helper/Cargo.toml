@@ -15,29 +15,29 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-api-test-helper"
+name = "nico-api-test-helper"
 version = "0.0.0"
-description = "Helpers to launch carbide-api for integration testing"
+description = "Helpers to launch nico-api for integration testing"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [lib]
-name = "api_test_helper"
+name = "nico_api_test_helper"
 
 [dependencies]
 
 # [local-dependencies]
 bmc-mock = { path = "../bmc-mock" }
-carbide-api = { path = "../api", default-features = false }
-carbide-version = { path = "../version" }
-carbide-rpc = { path = "../rpc" }
-carbide-machine-a-tron = { path = "../machine-a-tron" }
-carbide-tls = { path = "../tls" }
-carbide-secrets = { path = "../secrets" }
-carbide-utils = { path = "../utils" }
+nico-api = { path = "../api", default-features = false }
+nico-version = { path = "../version" }
+nico-rpc = { path = "../rpc" }
+nico-machine-a-tron = { path = "../machine-a-tron" }
+nico-tls = { path = "../tls" }
+nico-secrets = { path = "../secrets" }
+nico-utils = { path = "../utils" }
 metrics-endpoint = { path = "../metrics-endpoint" }
-carbide-uuid = { path = "../uuid" }
+nico-uuid = { path = "../uuid" }
 
 chrono = { workspace = true }
 eyre = { workspace = true }
@@ -73,7 +73,7 @@ uuid = { workspace = true }
 thiserror = { workspace = true }
 
 [build-dependencies]
-carbide-version = { path = "../version" }
+nico-version = { path = "../version" }
 
 [lints]
 workspace = true

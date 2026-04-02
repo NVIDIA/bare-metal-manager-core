@@ -17,10 +17,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use carbide_uuid::machine::MachineId;
 use common::api_fixtures::create_managed_host;
-use model::ib::{IBNetwork, IBQosConf};
-use model::ib_partition::PartitionKey;
+use nico_api_model::ib::{IBNetwork, IBQosConf};
+use nico_api_model::ib_partition::PartitionKey;
+use nico_uuid::machine::MachineId;
 
 use crate::cfg::file::IBFabricConfig;
 use crate::ib::{GetPartitionOptions, IBFabric, IBMtu, IBRateLimit, IBServiceLevel};

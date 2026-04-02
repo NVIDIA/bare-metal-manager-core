@@ -16,7 +16,7 @@
  */
 use std::collections::BTreeMap;
 
-use health_report::{HealthReport, OverrideMode};
+use nico_health_report::{HealthReport, OverrideMode};
 use serde::{Deserialize, Serialize};
 
 /// All health report overrides stored as JSON in postgres.
@@ -33,7 +33,7 @@ pub const HARDWARE_HEALTH_OVERRIDE_PREFIX: &str = "hardware-health.";
 
 pub struct MaintenanceOverride {
     pub maintenance_reference: String,
-    pub maintenance_start_time: Option<rpc::Timestamp>,
+    pub maintenance_start_time: Option<nico_rpc::Timestamp>,
 }
 
 impl HealthReportOverrides {
@@ -57,7 +57,7 @@ impl HealthReportOverrides {
             .find(|alert| alert.id == maintenance_alert_id)?;
         Some(MaintenanceOverride {
             maintenance_reference: alert.message.clone(),
-            maintenance_start_time: alert.in_alert_since.map(rpc::Timestamp::from),
+            maintenance_start_time: alert.in_alert_since.map(nico_rpc::Timestamp::from),
         })
     }
 

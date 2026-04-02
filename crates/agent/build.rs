@@ -16,7 +16,7 @@
  */
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    carbide_version::build();
+    nico_version::build();
     tonic_prost_build::configure()
         .build_server(false)
         .build_client(true)

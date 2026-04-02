@@ -15,13 +15,14 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-dsx-exchange-consumer"
+name = "nico-dsx-exchange-consumer"
 version = "0.0.1"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [[bin]]
+# TODO: rename to nico-dsx-exchange-consumer
 name = "carbide-dsx-exchange-consumer"
 path = "src/main.rs"
 
@@ -45,18 +46,18 @@ tracing-subscriber = { features = [
 url = { workspace = true }
 
 # [local-dependencies]
-carbide-health-report = { path = "../health-report" }
-carbide-rpc = { path = "../rpc" }
-carbide-secrets = { path = "../secrets" }
-carbide-uuid = { path = "../uuid" }
-carbide-tls = { path = "../tls" }
-carbide-version = { path = "../version" }
+nico-health-report = { path = "../health-report" }
+nico-rpc = { path = "../rpc" }
+nico-secrets = { path = "../secrets" }
+nico-uuid = { path = "../uuid" }
+nico-tls = { path = "../tls" }
+nico-version = { path = "../version" }
 logfmt = { path = "../logfmt" }
 metrics-endpoint = { path = "../metrics-endpoint" }
 mqttea = { path = "../mqttea" }
 
 [build-dependencies]
-carbide-version = { path = "../version" }
+nico-version = { path = "../version" }
 
 [lints]
 workspace = true

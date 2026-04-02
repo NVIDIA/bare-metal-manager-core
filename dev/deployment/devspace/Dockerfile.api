@@ -12,7 +12,7 @@ COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
   --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
   --mount=type=cache,target=/cargo-target,sharing=locked \
-  cargo build -p carbide-api --bin carbide-api --locked && \
+  cargo build -p nico-api --bin carbide-api --locked && \
   mkdir -p /artifacts && \
   cp /cargo-target/debug/carbide-api /artifacts/carbide-api
 

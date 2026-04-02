@@ -15,16 +15,18 @@
  * limitations under the License.
  */
 use std::collections::HashMap;
-use std::fmt::{self, Display, Formatter};
+use std::fmt::{
+    Display, Formatter, {self},
+};
 use std::str::FromStr;
 
-use carbide_uuid::UuidConversionError;
-use carbide_uuid::instance::InstanceId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
 use itertools::Itertools;
-use rpc::errors::RpcDataConversionError;
-use rpc::forge as rpc_forge;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::{forge as rpc_forge, forge};
+use nico_uuid::UuidConversionError;
+use nico_uuid::instance::InstanceId;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use sqlx::postgres::PgRow;
@@ -38,8 +40,8 @@ pub struct TenantSearchFilter {
     pub tenant_organization_name: Option<String>,
 }
 
-impl From<rpc::forge::TenantSearchFilter> for TenantSearchFilter {
-    fn from(filter: rpc::forge::TenantSearchFilter) -> Self {
+impl From<forge::TenantSearchFilter> for TenantSearchFilter {
+    fn from(filter: forge::TenantSearchFilter) -> Self {
         TenantSearchFilter {
             tenant_organization_name: filter.tenant_organization_name,
         }
@@ -51,8 +53,8 @@ pub struct TenantKeysetSearchFilter {
     pub tenant_org_id: Option<String>,
 }
 
-impl From<rpc::forge::TenantKeysetSearchFilter> for TenantKeysetSearchFilter {
-    fn from(filter: rpc::forge::TenantKeysetSearchFilter) -> Self {
+impl From<forge::TenantKeysetSearchFilter> for TenantKeysetSearchFilter {
+    fn from(filter: forge::TenantKeysetSearchFilter) -> Self {
         TenantKeysetSearchFilter {
             tenant_org_id: filter.tenant_org_id,
         }
@@ -73,7 +75,7 @@ pub struct Tenant {
     pub version: ConfigVersion,
 }
 
-impl TryFrom<Tenant> for rpc::forge::Tenant {
+impl TryFrom<Tenant> for forge::Tenant {
     type Error = RpcDataConversionError;
 
     fn try_from(src: Tenant) -> Result<Self, Self::Error> {
@@ -89,10 +91,10 @@ impl TryFrom<Tenant> for rpc::forge::Tenant {
     }
 }
 
-impl TryFrom<rpc::forge::Tenant> for Tenant {
+impl TryFrom<forge::Tenant> for Tenant {
     type Error = RpcDataConversionError;
 
-    fn try_from(src: rpc::forge::Tenant) -> Result<Self, Self::Error> {
+    fn try_from(src: forge::Tenant) -> Result<Self, Self::Error> {
         let routing_profile_type = Some(src.routing_profile_type().try_into()?);
         let metadata = src
             .metadata
@@ -116,31 +118,31 @@ impl TryFrom<rpc::forge::Tenant> for Tenant {
     }
 }
 
-impl TryFrom<Tenant> for rpc::forge::CreateTenantResponse {
+impl TryFrom<Tenant> for forge::CreateTenantResponse {
     type Error = RpcDataConversionError;
 
     fn try_from(value: Tenant) -> Result<Self, Self::Error> {
-        Ok(rpc::forge::CreateTenantResponse {
+        Ok(forge::CreateTenantResponse {
             tenant: Some(value.try_into()?),
         })
     }
 }
 
-impl TryFrom<Tenant> for rpc::forge::FindTenantResponse {
+impl TryFrom<Tenant> for forge::FindTenantResponse {
     type Error = RpcDataConversionError;
 
     fn try_from(value: Tenant) -> Result<Self, Self::Error> {
-        Ok(rpc::forge::FindTenantResponse {
+        Ok(forge::FindTenantResponse {
             tenant: Some(value.try_into()?),
         })
     }
 }
 
-impl TryFrom<Tenant> for rpc::forge::UpdateTenantResponse {
+impl TryFrom<Tenant> for forge::UpdateTenantResponse {
     type Error = RpcDataConversionError;
 
     fn try_from(value: Tenant) -> Result<Self, Self::Error> {
-        Ok(rpc::forge::UpdateTenantResponse {
+        Ok(forge::UpdateTenantResponse {
             tenant: Some(value.try_into()?),
         })
     }
@@ -222,8 +224,8 @@ impl FromStr for PublicKey {
     }
 }
 
-impl From<rpc::forge::TenantPublicKey> for TenantPublicKey {
-    fn from(src: rpc::forge::TenantPublicKey) -> Self {
+impl From<forge::TenantPublicKey> for TenantPublicKey {
+    fn from(src: forge::TenantPublicKey) -> Self {
         let public_key: PublicKey = src.public_key.parse().expect("Key parsing can never fail.");
         Self {
             public_key,
@@ -232,7 +234,7 @@ impl From<rpc::forge::TenantPublicKey> for TenantPublicKey {
     }
 }
 
-impl From<TenantPublicKey> for rpc::forge::TenantPublicKey {
+impl From<TenantPublicKey> for forge::TenantPublicKey {
     fn from(src: TenantPublicKey) -> Self {
         Self {
             public_key: src.public_key.to_string(),
@@ -241,15 +243,15 @@ impl From<TenantPublicKey> for rpc::forge::TenantPublicKey {
     }
 }
 
-impl From<rpc::forge::TenantKeysetContent> for TenantKeysetContent {
-    fn from(src: rpc::forge::TenantKeysetContent) -> Self {
+impl From<forge::TenantKeysetContent> for TenantKeysetContent {
+    fn from(src: forge::TenantKeysetContent) -> Self {
         Self {
             public_keys: src.public_keys.into_iter().map(|x| x.into()).collect(),
         }
     }
 }
 
-impl From<TenantKeysetContent> for rpc::forge::TenantKeysetContent {
+impl From<TenantKeysetContent> for forge::TenantKeysetContent {
     fn from(src: TenantKeysetContent) -> Self {
         Self {
             public_keys: src.public_keys.into_iter().map(|x| x.into()).collect(),
@@ -257,10 +259,10 @@ impl From<TenantKeysetContent> for rpc::forge::TenantKeysetContent {
     }
 }
 
-impl TryFrom<rpc::forge::TenantKeysetIdentifier> for TenantKeysetIdentifier {
+impl TryFrom<forge::TenantKeysetIdentifier> for TenantKeysetIdentifier {
     type Error = RpcDataConversionError;
 
-    fn try_from(src: rpc::forge::TenantKeysetIdentifier) -> Result<Self, Self::Error> {
+    fn try_from(src: forge::TenantKeysetIdentifier) -> Result<Self, Self::Error> {
         Ok(Self {
             organization_id: src
                 .organization_id
@@ -272,7 +274,7 @@ impl TryFrom<rpc::forge::TenantKeysetIdentifier> for TenantKeysetIdentifier {
     }
 }
 
-impl From<TenantKeysetIdentifier> for rpc::forge::TenantKeysetIdentifier {
+impl From<TenantKeysetIdentifier> for forge::TenantKeysetIdentifier {
     fn from(src: TenantKeysetIdentifier) -> Self {
         Self {
             organization_id: src.organization_id.to_string(),
@@ -281,10 +283,10 @@ impl From<TenantKeysetIdentifier> for rpc::forge::TenantKeysetIdentifier {
     }
 }
 
-impl TryFrom<rpc::forge::TenantKeyset> for TenantKeyset {
+impl TryFrom<forge::TenantKeyset> for TenantKeyset {
     type Error = RpcDataConversionError;
 
-    fn try_from(src: rpc::forge::TenantKeyset) -> Result<Self, Self::Error> {
+    fn try_from(src: forge::TenantKeyset) -> Result<Self, Self::Error> {
         let keyset_identifier: TenantKeysetIdentifier = src
             .keyset_identifier
             .ok_or(RpcDataConversionError::MissingArgument(
@@ -308,7 +310,7 @@ impl TryFrom<rpc::forge::TenantKeyset> for TenantKeyset {
     }
 }
 
-impl From<TenantKeyset> for rpc::forge::TenantKeyset {
+impl From<TenantKeyset> for forge::TenantKeyset {
     fn from(src: TenantKeyset) -> Self {
         Self {
             keyset_identifier: Some(src.keyset_identifier.into()),
@@ -318,10 +320,10 @@ impl From<TenantKeyset> for rpc::forge::TenantKeyset {
     }
 }
 
-impl TryFrom<rpc::forge::CreateTenantKeysetRequest> for TenantKeyset {
+impl TryFrom<forge::CreateTenantKeysetRequest> for TenantKeyset {
     type Error = RpcDataConversionError;
 
-    fn try_from(src: rpc::forge::CreateTenantKeysetRequest) -> Result<Self, Self::Error> {
+    fn try_from(src: forge::CreateTenantKeysetRequest) -> Result<Self, Self::Error> {
         let keyset_identifier: TenantKeysetIdentifier = src
             .keyset_identifier
             .ok_or(RpcDataConversionError::MissingArgument(
@@ -354,10 +356,10 @@ pub struct UpdateTenantKeyset {
     pub if_version_match: Option<String>,
 }
 
-impl TryFrom<rpc::forge::UpdateTenantKeysetRequest> for UpdateTenantKeyset {
+impl TryFrom<forge::UpdateTenantKeysetRequest> for UpdateTenantKeyset {
     type Error = RpcDataConversionError;
 
-    fn try_from(src: rpc::forge::UpdateTenantKeysetRequest) -> Result<Self, Self::Error> {
+    fn try_from(src: forge::UpdateTenantKeysetRequest) -> Result<Self, Self::Error> {
         let keyset_identifier: TenantKeysetIdentifier = src
             .keyset_identifier
             .ok_or(RpcDataConversionError::MissingArgument(
@@ -738,7 +740,9 @@ impl TryFrom<TenantIdentityConfig> for rpc_forge::TokenDelegationResponse {
             ),
         };
 
-        let created_at = value.token_delegation_created_at.map(rpc::Timestamp::from);
+        let created_at = value
+            .token_delegation_created_at
+            .map(nico_rpc::Timestamp::from);
 
         Ok(rpc_forge::TokenDelegationResponse {
             organization_id: value.organization_id.as_str().to_string(),
@@ -746,7 +750,7 @@ impl TryFrom<TenantIdentityConfig> for rpc_forge::TokenDelegationResponse {
             auth_method_config,
             subject_token_audience: value.subject_token_audience.unwrap_or_default(),
             created_at,
-            updated_at: Some(rpc::Timestamp::from(value.updated_at)),
+            updated_at: Some(nico_rpc::Timestamp::from(value.updated_at)),
         })
     }
 }
@@ -756,9 +760,9 @@ pub struct TenantPublicKeyValidationRequest {
     pub public_key: String,
 }
 
-impl TryFrom<rpc::forge::ValidateTenantPublicKeyRequest> for TenantPublicKeyValidationRequest {
+impl TryFrom<forge::ValidateTenantPublicKeyRequest> for TenantPublicKeyValidationRequest {
     type Error = UuidConversionError;
-    fn try_from(value: rpc::forge::ValidateTenantPublicKeyRequest) -> Result<Self, Self::Error> {
+    fn try_from(value: forge::ValidateTenantPublicKeyRequest) -> Result<Self, Self::Error> {
         let instance_id = InstanceId::from_str(&value.instance_id)?;
         Ok(TenantPublicKeyValidationRequest {
             instance_id,
@@ -787,8 +791,8 @@ impl TenantPublicKeyValidationRequest {
 
 #[cfg(test)]
 mod tests {
-    use rpc::forge as rpc_forge;
-    use rpc::forge::token_delegation_response::AuthMethodConfig;
+    use nico_rpc::forge as rpc_forge;
+    use nico_rpc::forge::token_delegation_response::AuthMethodConfig;
 
     use super::*;
 
@@ -1213,7 +1217,7 @@ pub struct TenantKeysetId {
     pub keyset_id: String,
 }
 
-impl From<TenantKeysetId> for rpc::forge::TenantKeysetIdentifier {
+impl From<TenantKeysetId> for forge::TenantKeysetIdentifier {
     fn from(src: TenantKeysetId) -> Self {
         Self {
             organization_id: src.organization_id,

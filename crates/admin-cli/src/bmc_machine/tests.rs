@@ -217,7 +217,7 @@ fn parse_create_bmc_user() {
 // AdminPowerControlAction converts to protobuf.
 #[test]
 fn admin_power_control_action_to_proto() {
-    use rpc::forge::admin_power_control_request::SystemPowerControl;
+    use nico_rpc::forge::admin_power_control_request::SystemPowerControl;
 
     assert!(matches!(
         SystemPowerControl::from(AdminPowerControlAction::On),

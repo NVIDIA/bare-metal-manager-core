@@ -19,16 +19,16 @@
 //! Identity config: issuer, audiences, TTL, signing key (Get/Set/Delete).
 //! Token delegation: token exchange config for external IdP (Get/Set/Delete).
 
-use ::rpc::Timestamp;
-use ::rpc::forge::{
+use nico_api_db::{WithTransaction, tenant, tenant_identity_config};
+use nico_api_model::tenant::{
+    IdentityConfig, IdentityConfigValidationError, InvalidTenantOrg, TenantOrganizationId,
+    TokenDelegation, TokenDelegationValidationError,
+};
+use nico_rpc::Timestamp;
+use nico_rpc::forge::{
     GetIdentityConfigRequest, GetTokenDelegationRequest, IdentityConfig as ProtoIdentityConfig,
     IdentityConfigRequest, IdentityConfigResponse, TokenDelegationRequest, TokenDelegationResponse,
     token_delegation,
-};
-use db::{WithTransaction, tenant, tenant_identity_config};
-use model::tenant::{
-    IdentityConfig, IdentityConfigValidationError, InvalidTenantOrg, TenantOrganizationId,
-    TokenDelegation, TokenDelegationValidationError,
 };
 use tonic::{Request, Response, Status};
 
@@ -154,7 +154,7 @@ pub(crate) async fn delete_identity_configuration(
                 if deleted {
                     tenant::increment_version(org_id.as_str(), txn).await?;
                 }
-                Ok::<_, db::DatabaseError>(deleted)
+                Ok::<_, nico_api_db::DatabaseError>(deleted)
             })
         })
         .await??;
@@ -193,7 +193,7 @@ pub(crate) async fn set_identity_configuration(
         .and_then(|c| {
             IdentityConfig::try_from_proto(
                 c,
-                &model::tenant::IdentityConfigValidationBounds::from(
+                &nico_api_model::tenant::IdentityConfigValidationBounds::from(
                     api.runtime_config.machine_identity.clone(),
                 ),
             )
@@ -216,7 +216,7 @@ pub(crate) async fn set_identity_configuration(
             Box::pin(async move {
                 let tenant_exists = tenant::find(org_id.as_str(), false, txn).await?;
                 if tenant_exists.is_none() {
-                    return Err(db::DatabaseError::NotFoundError {
+                    return Err(nico_api_db::DatabaseError::NotFoundError {
                         kind: "Tenant",
                         id: org_id.as_str().to_string(),
                     });
@@ -338,7 +338,7 @@ pub(crate) async fn set_token_delegation(
             Box::pin(async move {
                 let tenant_exists = tenant::find(org_id.as_str(), false, txn).await?;
                 if tenant_exists.is_none() {
-                    return Err(db::DatabaseError::NotFoundError {
+                    return Err(nico_api_db::DatabaseError::NotFoundError {
                         kind: "Tenant",
                         id: org_id.as_str().to_string(),
                     });
@@ -385,7 +385,7 @@ pub(crate) async fn delete_token_delegation(
                 if result.is_some() {
                     tenant::increment_version(org_id.as_str(), txn).await?;
                 }
-                Ok::<_, db::DatabaseError>(())
+                Ok::<_, nico_api_db::DatabaseError>(())
             })
         })
         .await??;

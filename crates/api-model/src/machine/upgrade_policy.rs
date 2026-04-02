@@ -18,6 +18,8 @@
 use std::cmp::Ordering;
 use std::fmt;
 
+use nico_rpc::forge;
+
 use crate::firmware::AgentUpgradePolicyChoice;
 
 /// How we decide whether a DPU should upgrade its forge-dpu-agent
@@ -99,7 +101,7 @@ impl From<&str> for AgentUpgradePolicy {
 // From the RPC
 impl From<i32> for AgentUpgradePolicy {
     fn from(rpc_policy: i32) -> Self {
-        use rpc::forge::AgentUpgradePolicy::*;
+        use nico_rpc::forge::AgentUpgradePolicy::*;
         match rpc_policy {
             n if n == Off as i32 => AgentUpgradePolicy::Off,
             n if n == UpOnly as i32 => AgentUpgradePolicy::UpOnly,
@@ -116,9 +118,9 @@ impl From<AgentUpgradePolicy> for i32 {
     fn from(p: AgentUpgradePolicy) -> Self {
         use AgentUpgradePolicy::*;
         match p {
-            Off => rpc::forge::AgentUpgradePolicy::Off as i32,
-            UpOnly => rpc::forge::AgentUpgradePolicy::UpOnly as i32,
-            UpDown => rpc::forge::AgentUpgradePolicy::UpDown as i32,
+            Off => forge::AgentUpgradePolicy::Off as i32,
+            UpOnly => forge::AgentUpgradePolicy::UpOnly as i32,
+            UpDown => forge::AgentUpgradePolicy::UpDown as i32,
         }
     }
 }

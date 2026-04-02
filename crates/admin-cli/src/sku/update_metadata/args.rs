@@ -16,6 +16,7 @@
  */
 
 use clap::{ArgGroup, Parser};
+use nico_rpc::forge;
 
 #[derive(Parser, Debug)]
 #[clap(group(ArgGroup::new("group").required(true).multiple(true).args(&["description", "device_type"])))]
@@ -28,9 +29,9 @@ pub struct Args {
     pub device_type: Option<String>,
 }
 
-impl From<Args> for ::rpc::forge::SkuUpdateMetadataRequest {
+impl From<Args> for forge::SkuUpdateMetadataRequest {
     fn from(value: Args) -> Self {
-        ::rpc::forge::SkuUpdateMetadataRequest {
+        forge::SkuUpdateMetadataRequest {
             sku_id: value.sku_id,
             description: value.description,
             device_type: value.device_type,

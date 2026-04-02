@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
-use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::forge;
+use nico_uuid::rack::RackId;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -110,7 +111,7 @@ pub struct Args {
     pub ip_address: Option<String>,
 }
 
-impl TryFrom<Args> for rpc::forge::ExpectedPowerShelf {
+impl TryFrom<Args> for forge::ExpectedPowerShelf {
     type Error = CarbideCliError;
 
     fn try_from(args: Args) -> Result<Self, Self::Error> {
@@ -134,8 +135,8 @@ impl TryFrom<Args> for rpc::forge::ExpectedPowerShelf {
                 "One of the following options must be specified: bmc-user-name and bmc-password or shelf-serial-number".to_string(),
             ));
         }
-        Ok(rpc::forge::ExpectedPowerShelf {
-            expected_power_shelf_id: args.id.map(|id| ::rpc::common::Uuid {
+        Ok(forge::ExpectedPowerShelf {
+            expected_power_shelf_id: args.id.map(|id| nico_rpc::common::Uuid {
                 value: id.to_string(),
             }),
             bmc_mac_address: args
@@ -146,7 +147,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedPowerShelf {
             bmc_password: args.bmc_password.unwrap_or_default(),
             shelf_serial_number: args.shelf_serial_number.unwrap_or_default(),
             ip_address: args.ip_address.unwrap_or_default(),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: args.meta_name.unwrap_or_default(),
                 description: args.meta_description.unwrap_or_default(),
                 labels: crate::metadata::parse_rpc_labels(args.labels.unwrap_or_default()),

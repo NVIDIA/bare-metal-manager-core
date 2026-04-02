@@ -16,9 +16,9 @@
  */
 use std::collections::HashSet;
 
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::{Metadata, forge};
 use prettytable::{Row, Table};
-use rpc::Metadata;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 
 use crate::{async_write, async_writeln};
 
@@ -102,7 +102,7 @@ pub(crate) fn apply_add_label(
         CarbideCliError::GenericError("Entity does not carry Metadata that can be patched".into())
     })?;
     metadata.labels.retain_mut(|l| l.key != key);
-    metadata.labels.push(rpc::forge::Label { key, value });
+    metadata.labels.push(forge::Label { key, value });
     Ok(metadata)
 }
 
@@ -144,15 +144,15 @@ pub(crate) fn get_nice_labels_from_rpc_metadata(metadata: Option<&Metadata>) -> 
 /// format) into RPC Label structs. A label without
 /// a `:` separator is treated as a key-only label
 /// with no value.
-pub(crate) fn parse_rpc_labels(labels: Vec<String>) -> Vec<rpc::forge::Label> {
+pub(crate) fn parse_rpc_labels(labels: Vec<String>) -> Vec<forge::Label> {
     labels
         .into_iter()
         .map(|label| match label.split_once(':') {
-            Some((k, v)) => rpc::forge::Label {
+            Some((k, v)) => forge::Label {
                 key: k.trim().to_string(),
                 value: Some(v.trim().to_string()),
             },
-            None => rpc::forge::Label {
+            None => forge::Label {
                 key: if label.contains(char::is_whitespace) {
                     label.trim().to_string()
                 } else {
@@ -169,14 +169,14 @@ pub(crate) fn parse_rpc_labels(labels: Vec<String>) -> Vec<rpc::forge::Label> {
 mod tests {
     use super::*;
 
-    fn label(key: &str, value: Option<&str>) -> rpc::forge::Label {
-        rpc::forge::Label {
+    fn label(key: &str, value: Option<&str>) -> forge::Label {
+        forge::Label {
             key: key.to_string(),
             value: value.map(str::to_string),
         }
     }
 
-    fn metadata_with(name: &str, desc: &str, labels: Vec<rpc::forge::Label>) -> Metadata {
+    fn metadata_with(name: &str, desc: &str, labels: Vec<forge::Label>) -> Metadata {
         Metadata {
             name: name.to_string(),
             description: desc.to_string(),

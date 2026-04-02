@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
 use clap::Parser;
 use mac_address::MacAddress;
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::forge;
 use uuid::Uuid;
 
 #[derive(Parser, Debug)]
@@ -29,7 +30,7 @@ pub struct Args {
     pub id: Option<Uuid>,
 }
 
-impl TryFrom<Args> for ::rpc::forge::ExpectedMachineRequest {
+impl TryFrom<Args> for forge::ExpectedMachineRequest {
     type Error = CarbideCliError;
     fn try_from(args: Args) -> Result<Self, Self::Error> {
         match (args.bmc_mac_address, args.id) {
@@ -40,7 +41,7 @@ impl TryFrom<Args> for ::rpc::forge::ExpectedMachineRequest {
             )),
             (None, Some(id)) => Ok(Self {
                 bmc_mac_address: String::new(),
-                id: Some(::rpc::common::Uuid {
+                id: Some(nico_rpc::common::Uuid {
                     value: id.to_string(),
                 }),
             }),

@@ -16,7 +16,7 @@
  */
 use std::collections::{HashMap, HashSet};
 
-use ::rpc::machine_discovery as rpc_discovery;
+use nico_rpc::machine_discovery as rpc_discovery;
 
 pub fn aggregate_cpus(cpus: &[rpc_discovery::Cpu]) -> Vec<rpc_discovery::CpuInfo> {
     //

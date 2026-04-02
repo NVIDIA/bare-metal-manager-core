@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_rpc::forge::TenantByOrganizationIdsRequest;
 use prettytable::{Table, row};
-use rpc::forge::TenantByOrganizationIdsRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -27,9 +27,7 @@ use crate::rpc::ApiClient;
 /// tenant to standard out.
 ///
 /// * `tenants`    - A slice of tenants
-pub(crate) fn convert_tenants_to_table(
-    tenants: &[forgerpc::Tenant],
-) -> CarbideCliResult<Box<Table>> {
+pub(crate) fn convert_tenants_to_table(tenants: &[forge::Tenant]) -> CarbideCliResult<Box<Table>> {
     let mut table = Box::new(Table::new());
     let default_metadata = Default::default();
 
@@ -79,7 +77,7 @@ pub async fn show(
     api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<()> {
-    let req: Option<rpc::forge::FindTenantRequest> = (&args).into();
+    let req: Option<forge::FindTenantRequest> = (&args).into();
 
     let tenants = if let Some(req) = req {
         let id = req.tenant_organization_id.clone();
@@ -94,7 +92,7 @@ pub async fn show(
     } else {
         let all_tenant_orgs = api_client
             .0
-            .find_tenant_organization_ids(rpc::forge::TenantSearchFilter {
+            .find_tenant_organization_ids(forge::TenantSearchFilter {
                 tenant_organization_name: None,
             })
             .await?

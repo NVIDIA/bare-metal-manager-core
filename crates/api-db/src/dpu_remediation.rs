@@ -16,13 +16,13 @@
  */
 use std::ops::DerefMut;
 
-use carbide_uuid::dpu_remediations::RemediationId;
-use carbide_uuid::machine::MachineId;
-use model::dpu_remediation::{
+use nico_api_model::dpu_remediation::{
     AppliedRemediation, ApproveRemediation, DisableRemediation, EnableRemediation,
     NewAppliedRemediation, NewRemediation, Remediation, RemediationApplicationStatus,
     RevokeRemediation,
 };
+use nico_uuid::dpu_remediations::RemediationId;
+use nico_uuid::machine::MachineId;
 use sqlx::Postgres;
 
 use super::{ColumnInfo, FilterableQueryBuilder, ObjectColumnFilter};

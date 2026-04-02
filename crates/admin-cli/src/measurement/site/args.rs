@@ -29,18 +29,18 @@
  *  - `site trusted-profile list`: List all trusted profile approvals.
  */
 
-use ::rpc::protos::measured_boot::{
+use clap::Parser;
+use nico_measured_boot::records::MeasurementApprovedType;
+use nico_rpc::protos::measured_boot::{
     AddMeasurementTrustedMachineRequest, AddMeasurementTrustedProfileRequest,
     MeasurementApprovedTypePb, RemoveMeasurementTrustedMachineRequest,
     RemoveMeasurementTrustedProfileRequest, remove_measurement_trusted_machine_request,
     remove_measurement_trusted_profile_request,
 };
-use carbide_uuid::measured_boot::{
+use nico_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
     TrustedMachineId,
 };
-use clap::Parser;
-use measured_boot::records::MeasurementApprovedType;
 
 /// CmdSite provides a container for the `site` subcommand, which itself
 /// contains other subcommands for working with the site (i.e. export

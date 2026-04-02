@@ -18,10 +18,11 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::rack::RackId;
 use serde::Deserialize;
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -65,11 +66,11 @@ impl<'r> FromRow<'r, PgRow> for ExpectedPowerShelf {
     }
 }
 
-impl From<ExpectedPowerShelf> for rpc::forge::ExpectedPowerShelf {
+impl From<ExpectedPowerShelf> for forge::ExpectedPowerShelf {
     fn from(expected_power_shelf: ExpectedPowerShelf) -> Self {
-        rpc::forge::ExpectedPowerShelf {
+        forge::ExpectedPowerShelf {
             expected_power_shelf_id: expected_power_shelf.expected_power_shelf_id.map(|u| {
-                ::rpc::common::Uuid {
+                nico_rpc::common::Uuid {
                     value: u.to_string(),
                 }
             }),
@@ -87,10 +88,10 @@ impl From<ExpectedPowerShelf> for rpc::forge::ExpectedPowerShelf {
     }
 }
 
-impl TryFrom<rpc::forge::ExpectedPowerShelf> for ExpectedPowerShelf {
+impl TryFrom<forge::ExpectedPowerShelf> for ExpectedPowerShelf {
     type Error = RpcDataConversionError;
 
-    fn try_from(rpc: rpc::forge::ExpectedPowerShelf) -> Result<Self, Self::Error> {
+    fn try_from(rpc: forge::ExpectedPowerShelf) -> Result<Self, Self::Error> {
         let bmc_mac_address = MacAddress::try_from(rpc.bmc_mac_address.as_str())
             .map_err(|_| RpcDataConversionError::InvalidMacAddress(rpc.bmc_mac_address.clone()))?;
         let expected_power_shelf_id = rpc
@@ -137,10 +138,10 @@ pub struct ExpectedPowerShelfRequest {
     pub bmc_mac_address: Option<MacAddress>,
 }
 
-impl TryFrom<rpc::forge::ExpectedPowerShelfRequest> for ExpectedPowerShelfRequest {
+impl TryFrom<forge::ExpectedPowerShelfRequest> for ExpectedPowerShelfRequest {
     type Error = RpcDataConversionError;
 
-    fn try_from(rpc: rpc::forge::ExpectedPowerShelfRequest) -> Result<Self, Self::Error> {
+    fn try_from(rpc: forge::ExpectedPowerShelfRequest) -> Result<Self, Self::Error> {
         let expected_power_shelf_id = rpc
             .expected_power_shelf_id
             .map(|u| {
@@ -164,13 +165,13 @@ impl TryFrom<rpc::forge::ExpectedPowerShelfRequest> for ExpectedPowerShelfReques
     }
 }
 
-impl From<LinkedExpectedPowerShelf> for rpc::forge::LinkedExpectedPowerShelf {
-    fn from(l: LinkedExpectedPowerShelf) -> rpc::forge::LinkedExpectedPowerShelf {
-        rpc::forge::LinkedExpectedPowerShelf {
+impl From<LinkedExpectedPowerShelf> for forge::LinkedExpectedPowerShelf {
+    fn from(l: LinkedExpectedPowerShelf) -> forge::LinkedExpectedPowerShelf {
+        forge::LinkedExpectedPowerShelf {
             shelf_serial_number: l.serial_number,
             bmc_mac_address: l.bmc_mac_address.to_string(),
             power_shelf_id: l.power_shelf_id,
-            expected_power_shelf_id: l.expected_power_shelf_id.map(|id| ::rpc::common::Uuid {
+            expected_power_shelf_id: l.expected_power_shelf_id.map(|id| nico_rpc::common::Uuid {
                 value: id.to_string(),
             }),
             explored_endpoint_address: l.address,

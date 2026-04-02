@@ -19,13 +19,14 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::net::IpAddr;
 
-use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
-use carbide_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use mac_address::MacAddress;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
+use nico_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+use nico_uuid::vpc::VpcPrefixId;
 use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -39,22 +40,22 @@ pub enum InterfaceFunctionType {
     Virtual = 1,
 }
 
-impl TryFrom<rpc::InterfaceFunctionType> for InterfaceFunctionType {
+impl TryFrom<nico_rpc::InterfaceFunctionType> for InterfaceFunctionType {
     type Error = RpcDataConversionError;
 
-    fn try_from(function_type: rpc::InterfaceFunctionType) -> Result<Self, Self::Error> {
+    fn try_from(function_type: nico_rpc::InterfaceFunctionType) -> Result<Self, Self::Error> {
         Ok(match function_type {
-            rpc::InterfaceFunctionType::Physical => InterfaceFunctionType::Physical,
-            rpc::InterfaceFunctionType::Virtual => InterfaceFunctionType::Virtual,
+            nico_rpc::InterfaceFunctionType::Physical => InterfaceFunctionType::Physical,
+            nico_rpc::InterfaceFunctionType::Virtual => InterfaceFunctionType::Virtual,
         })
     }
 }
 
-impl From<InterfaceFunctionType> for rpc::InterfaceFunctionType {
-    fn from(function_type: InterfaceFunctionType) -> rpc::InterfaceFunctionType {
+impl From<InterfaceFunctionType> for nico_rpc::InterfaceFunctionType {
+    fn from(function_type: InterfaceFunctionType) -> nico_rpc::InterfaceFunctionType {
         match function_type {
-            InterfaceFunctionType::Physical => rpc::InterfaceFunctionType::Physical,
-            InterfaceFunctionType::Virtual => rpc::InterfaceFunctionType::Virtual,
+            InterfaceFunctionType::Physical => nico_rpc::InterfaceFunctionType::Physical,
+            InterfaceFunctionType::Virtual => nico_rpc::InterfaceFunctionType::Virtual,
         }
     }
 }
@@ -390,10 +391,10 @@ enum VFAllocationType {
 }
 
 type DeviceVFIdsMap =
-    HashMap<(Option<String>, u32), Vec<(rpc::InterfaceFunctionType, Option<u32>)>>;
+    HashMap<(Option<String>, u32), Vec<(nico_rpc::InterfaceFunctionType, Option<u32>)>>;
 
 fn validate_virtual_function_ids_and_get_allocation_method(
-    interfaces: &[rpc::InstanceInterfaceConfig],
+    interfaces: &[nico_rpc::InstanceInterfaceConfig],
 ) -> Result<VFAllocationType, RpcDataConversionError> {
     let mut device_vf_ids: DeviceVFIdsMap = HashMap::new();
 
@@ -408,7 +409,7 @@ fn validate_virtual_function_ids_and_get_allocation_method(
     let all_vf_ids = device_vf_ids
         .values()
         .flatten()
-        .filter(|x| x.0 == rpc::InterfaceFunctionType::Virtual)
+        .filter(|x| x.0 == nico_rpc::InterfaceFunctionType::Virtual)
         .collect_vec();
 
     if all_vf_ids.is_empty() {
@@ -433,7 +434,7 @@ fn validate_virtual_function_ids_and_get_allocation_method(
         let vf_ids = vf_info
             .iter()
             .filter_map(|(ft, vf_id)| {
-                if let rpc::InterfaceFunctionType::Virtual = ft {
+                if let nico_rpc::InterfaceFunctionType::Virtual = ft {
                     Some(*vf_id)
                 } else {
                     None
@@ -462,10 +463,10 @@ fn validate_virtual_function_ids_and_get_allocation_method(
     Ok(VFAllocationType::Cloud)
 }
 
-impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
+impl TryFrom<forge::InstanceNetworkConfig> for InstanceNetworkConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: rpc::InstanceNetworkConfig) -> Result<Self, Self::Error> {
+    fn try_from(config: forge::InstanceNetworkConfig) -> Result<Self, Self::Error> {
         // try_from for interfaces:
         let mut assigned_vfs_map: HashMap<(Option<String>, u32), u8> = HashMap::default();
         let mut interfaces = Vec::with_capacity(config.interfaces.len());
@@ -475,7 +476,7 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
         let allocation_type =
             validate_virtual_function_ids_and_get_allocation_method(&config.interfaces)?;
         for iface in config.interfaces.into_iter() {
-            let rpc_iface_type = rpc::InterfaceFunctionType::try_from(iface.function_type)
+            let rpc_iface_type = nico_rpc::InterfaceFunctionType::try_from(iface.function_type)
                 .map_err(|_| {
                     RpcDataConversionError::InvalidInterfaceFunctionType(iface.function_type)
                 })?;
@@ -567,16 +568,18 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
     }
 }
 
-impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
+impl TryFrom<InstanceNetworkConfig> for forge::InstanceNetworkConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: InstanceNetworkConfig) -> Result<rpc::InstanceNetworkConfig, Self::Error> {
+    fn try_from(
+        config: InstanceNetworkConfig,
+    ) -> Result<forge::InstanceNetworkConfig, Self::Error> {
         let mut interfaces = Vec::with_capacity(config.interfaces.len());
         for iface in config.interfaces.into_iter() {
             let function_type = iface.function_id.function_type();
 
             // Update network segment id based on network details.
-            let network_details: Option<rpc::forge::instance_interface_config::NetworkDetails> =
+            let network_details: Option<forge::instance_interface_config::NetworkDetails> =
                 iface.network_details.map(|x| x.into());
             let network_segment_id = iface.network_segment_id;
 
@@ -590,8 +593,8 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
                 InterfaceFunctionId::Virtual { id } => Some(id as u32),
             };
 
-            interfaces.push(rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::from(function_type) as i32,
+            interfaces.push(forge::InstanceInterfaceConfig {
+                function_type: nico_rpc::InterfaceFunctionType::from(function_type) as i32,
                 network_segment_id,
                 network_details,
                 device,
@@ -601,7 +604,7 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
             });
         }
 
-        Ok(rpc::InstanceNetworkConfig { interfaces })
+        Ok(forge::InstanceNetworkConfig { interfaces })
     }
 }
 
@@ -690,28 +693,28 @@ pub enum NetworkDetails {
     VpcPrefixId(VpcPrefixId),
 }
 
-impl From<NetworkDetails> for rpc::forge::instance_interface_config::NetworkDetails {
+impl From<NetworkDetails> for forge::instance_interface_config::NetworkDetails {
     fn from(value: NetworkDetails) -> Self {
         match value {
             NetworkDetails::NetworkSegment(network_segment_id) => {
-                rpc::forge::instance_interface_config::NetworkDetails::SegmentId(network_segment_id)
+                forge::instance_interface_config::NetworkDetails::SegmentId(network_segment_id)
             }
             NetworkDetails::VpcPrefixId(uuid) => {
-                rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(uuid)
+                forge::instance_interface_config::NetworkDetails::VpcPrefixId(uuid)
             }
         }
     }
 }
 
-impl TryFrom<rpc::forge::instance_interface_config::NetworkDetails> for NetworkDetails {
+impl TryFrom<forge::instance_interface_config::NetworkDetails> for NetworkDetails {
     fn try_from(
-        value: rpc::forge::instance_interface_config::NetworkDetails,
+        value: forge::instance_interface_config::NetworkDetails,
     ) -> Result<Self, Self::Error> {
         Ok(match value {
-            rpc::forge::instance_interface_config::NetworkDetails::SegmentId(ns_id) => {
+            forge::instance_interface_config::NetworkDetails::SegmentId(ns_id) => {
                 NetworkDetails::NetworkSegment(ns_id)
             }
-            rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(vpc_prefix_id) => {
+            forge::instance_interface_config::NetworkDetails::VpcPrefixId(vpc_prefix_id) => {
                 NetworkDetails::VpcPrefixId(vpc_prefix_id)
             }
         })
@@ -980,9 +983,9 @@ mod tests {
 
     #[test]
     fn assign_ids_from_rpc_config_pf_only() {
-        let config = rpc::InstanceNetworkConfig {
-            interfaces: vec![rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as _,
+        let config = forge::InstanceNetworkConfig {
+            interfaces: vec![forge::InstanceInterfaceConfig {
+                function_type: nico_rpc::InterfaceFunctionType::Physical as _,
                 network_segment_id: Some(NetworkSegmentId::from(BASE_SEGMENT_ID)),
                 network_details: None,
                 device: None,
@@ -1012,8 +1015,8 @@ mod tests {
 
     #[test]
     fn assign_ids_from_rpc_config_pf_and_vf() {
-        let mut interfaces = vec![rpc::InstanceInterfaceConfig {
-            function_type: rpc::InterfaceFunctionType::Physical as _,
+        let mut interfaces = vec![forge::InstanceInterfaceConfig {
+            function_type: nico_rpc::InterfaceFunctionType::Physical as _,
             network_segment_id: Some(BASE_SEGMENT_ID.into()),
             network_details: None,
             device: None,
@@ -1022,8 +1025,8 @@ mod tests {
             ip_address: None,
         }];
         for vfid in INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX {
-            interfaces.push(rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as _,
+            interfaces.push(forge::InstanceInterfaceConfig {
+                function_type: nico_rpc::InterfaceFunctionType::Virtual as _,
                 network_segment_id: Some(offset_segment_id(vfid + 1)),
                 network_details: None,
                 device: None,
@@ -1033,7 +1036,7 @@ mod tests {
             });
         }
 
-        let config = rpc::InstanceNetworkConfig { interfaces };
+        let config = forge::InstanceNetworkConfig { interfaces };
         let netconfig: InstanceNetworkConfig = config.try_into().unwrap();
         let mut netconf_interfaces_iter = netconfig.interfaces.iter();
 
@@ -1108,56 +1111,48 @@ mod tests {
         assert!(config.validate(true).is_err());
     }
 
-    fn get_rpc_instance_network_config() -> Vec<rpc::InstanceInterfaceConfig> {
+    fn get_rpc_instance_network_config() -> Vec<forge::InstanceInterfaceConfig> {
         vec![
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Physical as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: nico_rpc::InterfaceFunctionType::Physical as i32,
                 network_segment_id: None,
                 virtual_function_id: None,
-                network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                        offset_segment_id(0),
-                    ),
-                ),
+                network_details: Some(forge::instance_interface_config::NetworkDetails::SegmentId(
+                    offset_segment_id(0),
+                )),
                 device: None,
                 device_instance: 0u32,
                 ip_address: None,
             },
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: nico_rpc::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: None,
                 virtual_function_id: Some(0),
-                network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                        offset_segment_id(1),
-                    ),
-                ),
+                network_details: Some(forge::instance_interface_config::NetworkDetails::SegmentId(
+                    offset_segment_id(1),
+                )),
                 device: None,
                 device_instance: 0u32,
                 ip_address: None,
             },
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: nico_rpc::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: None,
                 virtual_function_id: Some(1),
-                network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                        offset_segment_id(2),
-                    ),
-                ),
+                network_details: Some(forge::instance_interface_config::NetworkDetails::SegmentId(
+                    offset_segment_id(2),
+                )),
                 device: None,
                 device_instance: 0u32,
                 ip_address: None,
             },
-            rpc::InstanceInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+            forge::InstanceInterfaceConfig {
+                function_type: nico_rpc::InterfaceFunctionType::Virtual as i32,
                 network_segment_id: None,
                 virtual_function_id: Some(2),
-                network_details: Some(
-                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
-                        offset_segment_id(3),
-                    ),
-                ),
+                network_details: Some(forge::instance_interface_config::NetworkDetails::SegmentId(
+                    offset_segment_id(3),
+                )),
                 device: None,
                 device_instance: 0u32,
                 ip_address: None,
@@ -1169,7 +1164,7 @@ mod tests {
     fn test_validate_virtual_function_ids() {
         let interfaces = get_rpc_instance_network_config();
 
-        let network_config = rpc::InstanceNetworkConfig { interfaces };
+        let network_config = forge::InstanceNetworkConfig { interfaces };
         let network_config: InstanceNetworkConfig = network_config.try_into().unwrap();
 
         let vf_ids = network_config.interfaces.iter().filter_map(|x| {
@@ -1192,7 +1187,7 @@ mod tests {
         let mut interfaces = get_rpc_instance_network_config();
         interfaces.remove(2);
 
-        let network_config = rpc::InstanceNetworkConfig { interfaces };
+        let network_config = forge::InstanceNetworkConfig { interfaces };
         let network_config: InstanceNetworkConfig = network_config.try_into().unwrap();
 
         let vf_ids = network_config.interfaces.iter().filter_map(|x| {
@@ -1215,7 +1210,7 @@ mod tests {
         let mut interfaces = get_rpc_instance_network_config();
         interfaces = vec![interfaces[0].clone()];
 
-        let network_config = rpc::InstanceNetworkConfig { interfaces };
+        let network_config = forge::InstanceNetworkConfig { interfaces };
         let network_config: InstanceNetworkConfig = network_config.try_into().unwrap();
 
         let vf_ids = network_config
@@ -1238,7 +1233,7 @@ mod tests {
         let mut interfaces = get_rpc_instance_network_config();
         interfaces[2].virtual_function_id = Some(0);
 
-        let network_config = rpc::InstanceNetworkConfig { interfaces };
+        let network_config = forge::InstanceNetworkConfig { interfaces };
         let network_config: Result<InstanceNetworkConfig, RpcDataConversionError> =
             network_config.try_into();
 
@@ -1250,7 +1245,7 @@ mod tests {
         let mut interfaces = get_rpc_instance_network_config();
         interfaces[2].virtual_function_id = None;
 
-        let network_config = rpc::InstanceNetworkConfig { interfaces };
+        let network_config = forge::InstanceNetworkConfig { interfaces };
         let network_config: Result<InstanceNetworkConfig, RpcDataConversionError> =
             network_config.try_into();
 

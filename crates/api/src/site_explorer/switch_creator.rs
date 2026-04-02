@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use carbide_uuid::switch::SwitchId;
-use db::DatabaseError;
-use model::expected_switch::ExpectedSwitch;
-use model::site_explorer::ExploredManagedSwitch;
+use nico_api_db::DatabaseError;
+use nico_api_model::expected_switch::ExpectedSwitch;
+use nico_api_model::site_explorer::ExploredManagedSwitch;
+use nico_uuid::switch::SwitchId;
 use sqlx::{PgConnection, PgPool};
 
 use crate::CarbideResult;
@@ -114,7 +114,7 @@ impl SwitchCreator {
         if !explored_managed_switch.nv_os_mac_addresses.is_empty() {
             let explored_macs = explored_managed_switch.nv_os_mac_addresses.clone();
             if *explored_macs != expected_switch.nvos_mac_addresses {
-                db::expected_switch::update_nvos_mac_addresses(
+                nico_api_db::expected_switch::update_nvos_mac_addresses(
                     &mut *txn,
                     expected_switch.bmc_mac_address,
                     &explored_macs,
@@ -130,7 +130,7 @@ impl SwitchCreator {
 
         tracing::info!(%switch_id, "switch ID generated");
 
-        let existing_switch = db::switch::find_by_id(txn, &switch_id).await?;
+        let existing_switch = nico_api_db::switch::find_by_id(txn, &switch_id).await?;
 
         if let Some(_existing_switch) = existing_switch {
             tracing::warn!(
@@ -156,20 +156,20 @@ impl SwitchCreator {
             false => expected_switch.metadata.name.to_string(),
         };
 
-        let config = model::switch::SwitchConfig {
+        let config = nico_api_model::switch::SwitchConfig {
             name,
             enable_nmxc: false,
             fabric_manager_config: None,
             location: Some("US/CA/DC/San Jose/1000 N Mathilda Ave".to_string()),
         };
-        let new_switch = model::switch::NewSwitch {
+        let new_switch = nico_api_model::switch::NewSwitch {
             id: switch_id,
             config,
             bmc_mac_address: Some(expected_switch.bmc_mac_address),
             metadata: Some(expected_switch.metadata.clone()),
         };
 
-        _ = db::switch::create(txn, &new_switch).await?;
+        _ = nico_api_db::switch::create(txn, &new_switch).await?;
 
         Ok(())
     }

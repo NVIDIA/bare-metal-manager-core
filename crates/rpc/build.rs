@@ -37,34 +37,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .extern_path(".google.protobuf.Duration", "crate::Duration")
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
-        .extern_path(".common.DomainId", "::carbide_uuid::domain::DomainId")
-        .extern_path(".common.DpaInterfaceId", "::carbide_uuid::dpa_interface::DpaInterfaceId")
-        .extern_path(".common.IBPartitionId", "::carbide_uuid::infiniband::IBPartitionId")
-        .extern_path(".common.InstanceId", "::carbide_uuid::instance::InstanceId")
-        .extern_path(".common.MachineId", "::carbide_uuid::machine::MachineId")
-        .extern_path(".common.MachineInterfaceId", "::carbide_uuid::machine::MachineInterfaceId")
-        .extern_path(".common.NetworkPrefixId", "::carbide_uuid::network::NetworkPrefixId")
-        .extern_path(".common.NetworkSegmentId", "::carbide_uuid::network::NetworkSegmentId")
-        .extern_path(".common.PowerShelfId", "::carbide_uuid::power_shelf::PowerShelfId")
-        .extern_path(".common.RackId", "::carbide_uuid::rack::RackId")
-        .extern_path(".common.NVLinkPartitionId", "::carbide_uuid::nvlink::NvLinkPartitionId")
-        .extern_path(".common.NVLinkLogicalPartitionId", "::carbide_uuid::nvlink::NvLinkLogicalPartitionId")
-        .extern_path(".common.NVLinkDomainId", "::carbide_uuid::nvlink::NvLinkDomainId")
-        .extern_path(".common.RemediationId", "carbide_uuid::dpu_remediations::RemediationId")
-        .extern_path(".common.SwitchId", "::carbide_uuid::switch::SwitchId")
-        .extern_path(".common.VpcId", "::carbide_uuid::vpc::VpcId")
-        .extern_path(".common.VpcPeeringId", "::carbide_uuid::vpc_peering::VpcPeeringId")
-        .extern_path(".common.VpcPrefixId", "::carbide_uuid::vpc::VpcPrefixId")
-        .extern_path(".common.ComputeAllocationId", "::carbide_uuid::compute_allocation::ComputeAllocationId")
-        .extern_path(".measured_boot.MeasurementSystemProfileId", "::carbide_uuid::measured_boot::MeasurementSystemProfileId")
-        .extern_path(".measured_boot.MeasurementSystemProfileAttrId", "::carbide_uuid::measured_boot::MeasurementSystemProfileAttrId")
-        .extern_path(".measured_boot.MeasurementBundleId", "::carbide_uuid::measured_boot::MeasurementBundleId")
-        .extern_path(".measured_boot.MeasurementBundleValueId", "::carbide_uuid::measured_boot::MeasurementBundleValueId")
-        .extern_path(".measured_boot.MeasurementReportId", "::carbide_uuid::measured_boot::MeasurementReportId")
-        .extern_path(".measured_boot.MeasurementReportValueId", "::carbide_uuid::measured_boot::MeasurementReportValueId")
-        .extern_path(".measured_boot.MeasurementJournalId", "::carbide_uuid::measured_boot::MeasurementJournalId")
-        .extern_path(".measured_boot.MeasurementApprovedMachineId", "::carbide_uuid::measured_boot::MeasurementApprovedMachineId")
-        .extern_path(".measured_boot.MeasurementApprovedProfileId", "::carbide_uuid::measured_boot::MeasurementApprovedProfileId")
+        .extern_path(".common.DomainId", "::nico_uuid::domain::DomainId")
+        .extern_path(".common.DpaInterfaceId", "::nico_uuid::dpa_interface::DpaInterfaceId")
+        .extern_path(".common.IBPartitionId", "::nico_uuid::infiniband::IBPartitionId")
+        .extern_path(".common.InstanceId", "::nico_uuid::instance::InstanceId")
+        .extern_path(".common.MachineId", "::nico_uuid::machine::MachineId")
+        .extern_path(".common.MachineInterfaceId", "::nico_uuid::machine::MachineInterfaceId")
+        .extern_path(".common.NetworkPrefixId", "::nico_uuid::network::NetworkPrefixId")
+        .extern_path(".common.NetworkSegmentId", "::nico_uuid::network::NetworkSegmentId")
+        .extern_path(".common.PowerShelfId", "::nico_uuid::power_shelf::PowerShelfId")
+        .extern_path(".common.RackId", "::nico_uuid::rack::RackId")
+        .extern_path(".common.NVLinkPartitionId", "::nico_uuid::nvlink::NvLinkPartitionId")
+        .extern_path(".common.NVLinkLogicalPartitionId", "::nico_uuid::nvlink::NvLinkLogicalPartitionId")
+        .extern_path(".common.NVLinkDomainId", "::nico_uuid::nvlink::NvLinkDomainId")
+        .extern_path(".common.RemediationId", "nico_uuid::dpu_remediations::RemediationId")
+        .extern_path(".common.SwitchId", "::nico_uuid::switch::SwitchId")
+        .extern_path(".common.VpcId", "::nico_uuid::vpc::VpcId")
+        .extern_path(".common.VpcPeeringId", "::nico_uuid::vpc_peering::VpcPeeringId")
+        .extern_path(".common.VpcPrefixId", "::nico_uuid::vpc::VpcPrefixId")
+        .extern_path(".common.ComputeAllocationId", "::nico_uuid::compute_allocation::ComputeAllocationId")
+        .extern_path(".measured_boot.MeasurementSystemProfileId", "::nico_uuid::measured_boot::MeasurementSystemProfileId")
+        .extern_path(".measured_boot.MeasurementSystemProfileAttrId", "::nico_uuid::measured_boot::MeasurementSystemProfileAttrId")
+        .extern_path(".measured_boot.MeasurementBundleId", "::nico_uuid::measured_boot::MeasurementBundleId")
+        .extern_path(".measured_boot.MeasurementBundleValueId", "::nico_uuid::measured_boot::MeasurementBundleValueId")
+        .extern_path(".measured_boot.MeasurementReportId", "::nico_uuid::measured_boot::MeasurementReportId")
+        .extern_path(".measured_boot.MeasurementReportValueId", "::nico_uuid::measured_boot::MeasurementReportValueId")
+        .extern_path(".measured_boot.MeasurementJournalId", "::nico_uuid::measured_boot::MeasurementJournalId")
+        .extern_path(".measured_boot.MeasurementApprovedMachineId", "::nico_uuid::measured_boot::MeasurementApprovedMachineId")
+        .extern_path(".measured_boot.MeasurementApprovedProfileId", "::nico_uuid::measured_boot::MeasurementApprovedProfileId")
         .include_file("prost_common.rs")
         .type_attribute(".health", "#[derive(serde::Deserialize, serde::Serialize)]")
         .type_attribute(
@@ -799,96 +799,96 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         include_paths: vec!["proto".to_string()],
         generated_types_path_within_crate: "protos".to_string(),
         extern_paths: vec![
-            (".common.MachineId", "::carbide_uuid::machine::MachineId"),
-            (".common.DomainId", "::carbide_uuid::domain::DomainId"),
+            (".common.MachineId", "::nico_uuid::machine::MachineId"),
+            (".common.DomainId", "::nico_uuid::domain::DomainId"),
             (
                 ".common.RemediationId",
-                "::carbide_uuid::dpu_remediations::RemediationId",
+                "::nico_uuid::dpu_remediations::RemediationId",
             ),
             (
                 ".common.MachineInterfaceId",
-                "::carbide_uuid::machine::MachineInterfaceId",
+                "::nico_uuid::machine::MachineInterfaceId",
             ),
-            (".common.VpcId", "::carbide_uuid::vpc::VpcId"),
-            (".common.VpcPrefixId", "::carbide_uuid::vpc::VpcPrefixId"),
+            (".common.VpcId", "::nico_uuid::vpc::VpcId"),
+            (".common.VpcPrefixId", "::nico_uuid::vpc::VpcPrefixId"),
             (
                 ".common.VpcPeeringId",
-                "::carbide_uuid::vpc_peering::VpcPeeringId",
+                "::nico_uuid::vpc_peering::VpcPeeringId",
             ),
             (
                 ".common.IBPartitionId",
-                "::carbide_uuid::infiniband::IBPartitionId",
+                "::nico_uuid::infiniband::IBPartitionId",
             ),
-            (".common.InstanceId", "::carbide_uuid::instance::InstanceId"),
+            (".common.InstanceId", "::nico_uuid::instance::InstanceId"),
             (
                 ".common.NetworkSegmentId",
-                "::carbide_uuid::network::NetworkSegmentId",
+                "::nico_uuid::network::NetworkSegmentId",
             ),
             (
                 ".common.DpaInterfaceId",
-                "::carbide_uuid::dpa_interface::DpaInterfaceId",
+                "::nico_uuid::dpa_interface::DpaInterfaceId",
             ),
             (
                 ".common.NetworkPrefixId",
-                "::carbide_uuid::network::NetworkPrefixId",
+                "::nico_uuid::network::NetworkPrefixId",
             ),
-            (".common.SwitchId", "::carbide_uuid::switch::SwitchId"),
+            (".common.SwitchId", "::nico_uuid::switch::SwitchId"),
             (
                 ".common.PowerShelfId",
-                "::carbide_uuid::power_shelf::PowerShelfId",
+                "::nico_uuid::power_shelf::PowerShelfId",
             ),
             (
                 ".common.ComputeAllocationId",
-                "::carbide_uuid::compute_allocation::ComputeAllocationId",
+                "::nico_uuid::compute_allocation::ComputeAllocationId",
             ),
-            (".common.RackId", "::carbide_uuid::rack::RackId"),
+            (".common.RackId", "::nico_uuid::rack::RackId"),
             (
                 ".common.NVLinkPartitionId",
-                "::carbide_uuid::nvlink::NvLinkPartitionId",
+                "::nico_uuid::nvlink::NvLinkPartitionId",
             ),
             (
                 ".common.NVLinkLogicalPartitionId",
-                "::carbide_uuid::nvlink::NvLinkLogicalPartitionId",
+                "::nico_uuid::nvlink::NvLinkLogicalPartitionId",
             ),
             (
                 ".common.NVLinkDomainId",
-                "::carbide_uuid::nvlink::NvLinkDomainId",
+                "::nico_uuid::nvlink::NvLinkDomainId",
             ),
             (
                 ".measured_boot.MeasurementSystemProfileId",
-                "::carbide_uuid::measured_boot::MeasurementSystemProfileId",
+                "::nico_uuid::measured_boot::MeasurementSystemProfileId",
             ),
             (
                 ".measured_boot.MeasurementSystemProfileAttrId",
-                "::carbide_uuid::measured_boot::MeasurementSystemProfileAttrId",
+                "::nico_uuid::measured_boot::MeasurementSystemProfileAttrId",
             ),
             (
                 ".measured_boot.MeasurementBundleId",
-                "::carbide_uuid::measured_boot::MeasurementBundleId",
+                "::nico_uuid::measured_boot::MeasurementBundleId",
             ),
             (
                 ".measured_boot.MeasurementBundleValueId",
-                "::carbide_uuid::measured_boot::MeasurementBundleValueId",
+                "::nico_uuid::measured_boot::MeasurementBundleValueId",
             ),
             (
                 ".measured_boot.MeasurementReportId",
-                "::carbide_uuid::measured_boot::MeasurementReportId",
+                "::nico_uuid::measured_boot::MeasurementReportId",
             ),
             (
                 ".measured_boot.MeasurementReportValueId",
-                "::carbide_uuid::measured_boot::MeasurementReportValueId",
+                "::nico_uuid::measured_boot::MeasurementReportValueId",
             ),
             (
                 ".measured_boot.MeasurementJournalId",
-                "::carbide_uuid::measured_boot::MeasurementJournalId",
+                "::nico_uuid::measured_boot::MeasurementJournalId",
             ),
             (
                 ".measured_boot.MeasurementApprovedMachineId",
-                "::carbide_uuid::measured_boot::MeasurementApprovedMachineId",
+                "::nico_uuid::measured_boot::MeasurementApprovedMachineId",
             ),
             (
                 ".measured_boot.MeasurementApprovedProfileId",
-                "::carbide_uuid::measured_boot::MeasurementApprovedProfileId",
+                "::nico_uuid::measured_boot::MeasurementApprovedProfileId",
             ),
         ],
     })?;

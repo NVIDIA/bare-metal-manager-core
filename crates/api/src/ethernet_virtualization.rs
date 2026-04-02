@@ -14,20 +14,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
-use carbide_network::virtualization::{VpcVirtualizationType, get_svi_ip};
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use db::vpc::{self};
-use db::vpc_peering::get_prefixes_by_vpcs;
-use db::{self, ObjectColumnFilter, network_security_group};
 use ipnetwork::{IpNetwork, Ipv4Network};
-use model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
-use model::network_security_group::{
+use nico_api_db::vpc::{self};
+use nico_api_db::vpc_peering::get_prefixes_by_vpcs;
+use nico_api_db::{
+    ObjectColumnFilter, network_security_group, {self},
+};
+use nico_api_model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
+use nico_api_model::network_security_group::{
     NetworkSecurityGroup, NetworkSecurityGroupRule, NetworkSecurityGroupRuleNet,
 };
-use model::network_segment::NetworkSegment;
-use model::resource_pool::common::CommonPools;
+use nico_api_model::network_segment::NetworkSegment;
+use nico_api_model::resource_pool::common::CommonPools;
+use nico_network::virtualization::{VpcVirtualizationType, get_svi_ip};
+use nico_rpc::forge;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
 use sqlx::PgConnection;
 
 use crate::CarbideError;
@@ -85,8 +87,8 @@ pub async fn admin_network(
     fnn_enabled_on_admin: bool,
     common_pools: &CommonPools,
     booturl: &Option<String>,
-) -> Result<(rpc::FlatInterfaceConfig, MachineInterfaceId), tonic::Status> {
-    let admin_segment = db::network_segment::admin(txn).await?;
+) -> Result<(forge::FlatInterfaceConfig, MachineInterfaceId), tonic::Status> {
+    let admin_segment = nico_api_db::network_segment::admin(txn).await?;
 
     let prefix = match admin_segment.prefixes.first() {
         Some(p) => p,
@@ -103,7 +105,7 @@ pub async fn admin_network(
 
     let domain = match admin_segment.subdomain_id {
         Some(domain_id) => {
-            db::dns::domain::find_by_uuid(&mut *txn, domain_id)
+            nico_api_db::dns::domain::find_by_uuid(&mut *txn, domain_id)
                 .await
                 .map_err(CarbideError::from)?
                 .ok_or_else(|| CarbideError::NotFoundError {
@@ -115,9 +117,12 @@ pub async fn admin_network(
         None => "unknowndomain".to_string(),
     };
 
-    let interfaces =
-        db::machine_interface::find_by_machine_and_segment(txn, host_machine_id, admin_segment.id)
-            .await?;
+    let interfaces = nico_api_db::machine_interface::find_by_machine_and_segment(
+        txn,
+        host_machine_id,
+        admin_segment.id,
+    )
+    .await?;
 
     let interface = interfaces.into_iter().find(|x| {
         if let Some(id) = &x.attached_dpu_machine_id {
@@ -134,7 +139,8 @@ pub async fn admin_network(
         .into());
     };
 
-    let address = db::machine_interface_address::find_ipv4_for_interface(txn, interface.id).await?;
+    let address =
+        nico_api_db::machine_interface_address::find_ipv4_for_interface(txn, interface.id).await?;
 
     // On the admin network, the interface_prefix is always
     // just going to be a /32 derived from the machine interface
@@ -167,9 +173,11 @@ pub async fn admin_network(
     } else {
         match admin_segment.vpc_id {
             Some(vpc_id) => {
-                let mut vpcs =
-                    db::vpc::find_by(&mut *txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
-                        .await?;
+                let mut vpcs = nico_api_db::vpc::find_by(
+                    &mut *txn,
+                    ObjectColumnFilter::One(vpc::IdColumn, &vpc_id),
+                )
+                .await?;
                 if vpcs.is_empty() {
                     return Err(CarbideError::FindOneReturnedNoResultsError(vpc_id.into()).into());
                 }
@@ -177,7 +185,7 @@ pub async fn admin_network(
                 match vpc.status.and_then(|v| v.vni) {
                     Some(vpc_vni) => {
                         let tenant_loopback_ip =
-                            db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
+                            nico_api_db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
                                 common_pools,
                                 txn,
                                 dpu_machine_id,
@@ -206,8 +214,8 @@ pub async fn admin_network(
         }
     };
 
-    let cfg = rpc::FlatInterfaceConfig {
-        function_type: rpc::InterfaceFunctionType::Physical.into(),
+    let cfg = forge::FlatInterfaceConfig {
+        function_type: forge::InterfaceFunctionType::Physical.into(),
         virtual_function_id: None,
         vlan_id: admin_segment.vlan_id.unwrap_or_default() as u32,
         vni: if fnn_enabled_on_admin {
@@ -252,7 +260,7 @@ pub async fn tenant_network(
     segment: &NetworkSegment,
     vpc_peering_policy_on_existing: Option<VpcPeeringPolicy>,
     booturl: &Option<String>,
-) -> Result<rpc::FlatInterfaceConfig, tonic::Status> {
+) -> Result<forge::FlatInterfaceConfig, tonic::Status> {
     // Any stretchable segment is treated as L2 segment by FNN.
     let is_l2_segment = segment.can_stretch.unwrap_or(true);
 
@@ -295,11 +303,11 @@ pub async fn tenant_network(
 
     let vpc_prefixes: Vec<String> = match segment.vpc_id {
         Some(vpc_id) => {
-            let vpc_prefixes = db::vpc_prefix::find_by_vpc(txn, vpc_id)
+            let vpc_prefixes = nico_api_db::vpc_prefix::find_by_vpc(txn, vpc_id)
                 .await?
                 .into_iter()
                 .map(|vpc_prefix| vpc_prefix.config.prefix.to_string());
-            let vpc_segment_prefixes = db::network_prefix::find_by_vpc(txn, vpc_id)
+            let vpc_segment_prefixes = nico_api_db::network_prefix::find_by_vpc(txn, vpc_id)
                 .await?
                 .into_iter()
                 .map(|segment_prefix| segment_prefix.prefix.to_string());
@@ -317,7 +325,7 @@ pub async fn tenant_network(
             VpcPeeringPolicy::Exclusive => {
                 // Under exclusive policy, VPC only allowed to peer with VPC of same network virtualization type.
                 let allowed_network_virtualization_types = vec![network_virtualization_type];
-                let vpc_peers = db::vpc_peering::get_vpc_peer_vnis(
+                let vpc_peers = nico_api_db::vpc_peering::get_vpc_peer_vnis(
                     txn,
                     vpc_id,
                     allowed_network_virtualization_types,
@@ -332,11 +340,11 @@ pub async fn tenant_network(
             }
             VpcPeeringPolicy::Mixed => {
                 // Any combination of VPC peering allowed
-                let vpc_peer_ids = db::vpc_peering::get_vpc_peer_ids(txn, vpc_id).await?;
+                let vpc_peer_ids = nico_api_db::vpc_peering::get_vpc_peer_ids(txn, vpc_id).await?;
                 vpc_peer_prefixes = get_prefixes_by_vpcs(txn, &vpc_peer_ids).await?;
                 if network_virtualization_type == VpcVirtualizationType::Fnn {
                     // Get vnis of all FNN peers for route import
-                    vpc_peer_vnis = db::vpc_peering::get_vpc_peer_vnis(
+                    vpc_peer_vnis = nico_api_db::vpc_peering::get_vpc_peer_vnis(
                         txn,
                         vpc_id,
                         vec![VpcVirtualizationType::Fnn],
@@ -353,9 +361,11 @@ pub async fn tenant_network(
 
     let vpc = match segment.vpc_id {
         Some(vpc_id) => {
-            let mut vpcs =
-                db::vpc::find_by(&mut *txn, ObjectColumnFilter::One(vpc::IdColumn, &vpc_id))
-                    .await?;
+            let mut vpcs = nico_api_db::vpc::find_by(
+                &mut *txn,
+                ObjectColumnFilter::One(vpc::IdColumn, &vpc_id),
+            )
+            .await?;
             if vpcs.is_empty() {
                 return Err(CarbideError::FindOneReturnedNoResultsError(vpc_id.into()).into());
             }
@@ -369,7 +379,7 @@ pub async fn tenant_network(
         .and_then(|v| v.status.as_ref().and_then(|vs| vs.vni))
         .unwrap_or_default() as u32;
 
-    let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
+    let rpc_ft: forge::InterfaceFunctionType = iface.function_id.function_type().into();
     let svi_ip = get_svi_ip(
         &v4_prefix.svi_ip,
         network_virtualization_type,
@@ -413,7 +423,7 @@ pub async fn tenant_network(
                     })?;
 
                     Some((
-                        i32::from(rpc::NetworkSecurityGroupSource::NsgSourceVpc),
+                        i32::from(forge::NetworkSecurityGroupSource::NsgSourceVpc),
                         network_security_group,
                     ))
                 }
@@ -428,7 +438,7 @@ pub async fn tenant_network(
         _ => None,
     };
 
-    Ok(rpc::FlatInterfaceConfig {
+    Ok(forge::FlatInterfaceConfig {
         function_type: rpc_ft.into(),
         virtual_function_id: match iface.function_id {
             InterfaceFunctionId::Physical {} => None,
@@ -454,7 +464,7 @@ pub async fn tenant_network(
         network_security_group: network_security_group_details
             .map(|(source, nsg)| {
                 Ok(
-                        rpc::FlatInterfaceNetworkSecurityGroupConfig {
+                        forge::FlatInterfaceNetworkSecurityGroupConfig {
                             id: nsg.id.to_string(),
                             version: nsg.version.to_string(),
                             source,
@@ -464,7 +474,7 @@ pub async fn tenant_network(
                                     .into_iter()
                                     .map(resolve_security_group_rule)
                                     .collect::<Result<
-                                        Vec<rpc::ResolvedNetworkSecurityGroupRule>,
+                                        Vec<forge::ResolvedNetworkSecurityGroupRule>,
                                         CarbideError,
                                     >>()?,
                         },
@@ -483,8 +493,8 @@ pub async fn tenant_network(
 
 pub fn resolve_security_group_rule(
     rule: NetworkSecurityGroupRule,
-) -> Result<rpc::ResolvedNetworkSecurityGroupRule, CarbideError> {
-    Ok(rpc::ResolvedNetworkSecurityGroupRule {
+) -> Result<forge::ResolvedNetworkSecurityGroupRule, CarbideError> {
+    Ok(forge::ResolvedNetworkSecurityGroupRule {
         // When we decide to allow object references,
         // they would be resolved to their actual prefix
         // lists and stored here.

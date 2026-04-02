@@ -16,9 +16,9 @@
  */
 use std::ops::DerefMut;
 
-use ::rpc::forge as rpc;
-use carbide_uuid::vpc::VpcId;
-use rpc::forge_server::Forge;
+use forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_uuid::vpc::VpcId;
 
 use crate::tests::common::api_fixtures::instance::default_tenant_config;
 use crate::tests::common::api_fixtures::vpc::create_vpc;
@@ -34,7 +34,7 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     }
 
     // test getting all ids
-    let request_all = tonic::Request::new(rpc::VpcSearchFilter {
+    let request_all = tonic::Request::new(forge::VpcSearchFilter {
         name: None,
         tenant_org_id: None,
         label: None,
@@ -49,7 +49,7 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     assert_eq!(vpc_ids_all.vpc_ids.len(), 4);
 
     // test getting ids based on name
-    let request_name = tonic::Request::new(rpc::VpcSearchFilter {
+    let request_name = tonic::Request::new(forge::VpcSearchFilter {
         name: Some("vpc_2".to_string()),
         tenant_org_id: None,
         label: None,
@@ -64,7 +64,7 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     assert_eq!(vpc_ids_name.vpc_ids.len(), 1);
 
     // test search by tenant_org_id
-    let request_tenant = tonic::Request::new(rpc::VpcSearchFilter {
+    let request_tenant = tonic::Request::new(forge::VpcSearchFilter {
         name: None,
         tenant_org_id: Some(default_tenant_config().tenant_organization_id),
         label: None,
@@ -79,7 +79,7 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
     assert_eq!(vpc_ids_tenant.vpc_ids.len(), 4);
 
     // test search by tenant_org_id and name
-    let request_tenant_name = tonic::Request::new(rpc::VpcSearchFilter {
+    let request_tenant_name = tonic::Request::new(forge::VpcSearchFilter {
         name: Some("vpc_2".to_string()),
         tenant_org_id: Some(default_tenant_config().tenant_organization_id),
         label: None,
@@ -98,7 +98,7 @@ async fn test_find_vpc_ids(pool: sqlx::PgPool) {
 async fn test_find_vpcs_by_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
-    let mut vpc3 = rpc::Vpc::default();
+    let mut vpc3 = forge::Vpc::default();
     for i in 0..4 {
         let (_vpc_id, vpc) = create_vpc(&env, format!("vpc_{i}"), None, None).await;
         if i == 3 {
@@ -106,7 +106,7 @@ async fn test_find_vpcs_by_ids(pool: sqlx::PgPool) {
         }
     }
 
-    let request_ids = tonic::Request::new(rpc::VpcSearchFilter {
+    let request_ids = tonic::Request::new(forge::VpcSearchFilter {
         name: Some("vpc_3".to_string()),
         tenant_org_id: None,
         label: None,
@@ -120,7 +120,7 @@ async fn test_find_vpcs_by_ids(pool: sqlx::PgPool) {
         .unwrap();
     assert_eq!(vpc_ids_list.vpc_ids.len(), 1);
 
-    let request_vpcs = tonic::Request::new(rpc::VpcsByIdsRequest {
+    let request_vpcs = tonic::Request::new(forge::VpcsByIdsRequest {
         vpc_ids: vpc_ids_list.vpc_ids.clone(),
     });
 
@@ -144,7 +144,7 @@ async fn test_find_vpcs_by_ids_over_max(pool: sqlx::PgPool) {
     let end_index: u32 = env.config.max_find_by_ids + 1;
     let vpc_ids = (1..=end_index).map(|_| VpcId::default()).collect();
 
-    let request = tonic::Request::new(rpc::VpcsByIdsRequest { vpc_ids });
+    let request = tonic::Request::new(forge::VpcsByIdsRequest { vpc_ids });
 
     let response = env.api.find_vpcs_by_ids(request).await;
     // validate
@@ -165,7 +165,7 @@ async fn test_find_vpcs_by_ids_over_max(pool: sqlx::PgPool) {
 async fn test_find_vpcs_by_ids_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
-    let request = tonic::Request::new(rpc::VpcsByIdsRequest::default());
+    let request = tonic::Request::new(forge::VpcsByIdsRequest::default());
 
     let response = env.api.find_vpcs_by_ids(request).await;
     // validate
@@ -188,7 +188,7 @@ async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
         INSERT INTO vpcs (id, name, organization_id, version) VALUES ($1, 'test vpc 1', '2829bbe3-c169-4cd9-8b2a-19a8b1618a93', 'V1-T1666644937952267');
     "#).bind(vpc_id).execute(txn.deref_mut()).await?;
 
-    let some_vpc = db::vpc::find_by_name(txn.as_mut(), "test vpc 1").await?;
+    let some_vpc = nico_api_db::vpc::find_by_name(txn.as_mut(), "test vpc 1").await?;
 
     assert_eq!(1, some_vpc.len());
 
@@ -201,10 +201,10 @@ async fn find_vpc_by_name(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::
 
 async fn find_vpc_by_request(
     env: &TestEnv,
-    label: rpc::Label,
+    label: forge::Label,
     name: Option<String>,
-) -> rpc::VpcList {
-    let request = tonic::Request::new(rpc::VpcSearchFilter {
+) -> forge::VpcList {
+    let request = tonic::Request::new(forge::VpcSearchFilter {
         name,
         tenant_org_id: None,
         label: Some(label),
@@ -220,14 +220,14 @@ async fn find_vpc_by_request(
 
     if !vpc_id.is_empty() {
         env.api
-            .find_vpcs_by_ids(tonic::Request::new(rpc::VpcsByIdsRequest {
+            .find_vpcs_by_ids(tonic::Request::new(forge::VpcsByIdsRequest {
                 vpc_ids: vec![vpc_id.remove(0)],
             }))
             .await
             .map(|response| response.into_inner())
             .unwrap()
     } else {
-        rpc::VpcList { vpcs: vec![] }
+        forge::VpcList { vpcs: vec![] }
     }
 }
 
@@ -239,15 +239,15 @@ async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
         env.api
             .create_vpc(
                 VpcCreationRequest::builder("", "Forge_unit_tests")
-                    .metadata(rpc::Metadata {
+                    .metadata(forge::Metadata {
                         name: format!("VPC_{i}{i}{i}").to_string(),
                         description: format!("VPC_{i}{i}{i} have labels").to_string(),
                         labels: vec![
-                            rpc::Label {
+                            forge::Label {
                                 key: format!("key_A_{i}{i}{i}").to_string(),
                                 value: Some(format!("value_A_{i}{i}{i}").to_string()),
                             },
-                            rpc::Label {
+                            forge::Label {
                                 key: format!("key_B_{i}{i}{i}").to_string(),
                                 value: None,
                             },
@@ -261,7 +261,7 @@ async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
     }
 
     // Test searching based on value.
-    let search_label = rpc::Label {
+    let search_label = forge::Label {
         key: "".to_string(),
         value: Some("value_A_000".to_string()),
     };
@@ -273,7 +273,7 @@ async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
     assert_eq!(vpc_matched_by_label.metadata.unwrap().name, "VPC_000");
 
     // Test searching based on key.
-    let search_label = rpc::Label {
+    let search_label = forge::Label {
         key: "key_A_111".to_string(),
         value: None,
     };
@@ -285,7 +285,7 @@ async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
     assert_eq!(vpc_matched_by_label.metadata.unwrap().name, "VPC_111");
 
     // Test searching based on key and value.
-    let search_label = rpc::Label {
+    let search_label = forge::Label {
         key: "key_A_222".to_string(),
         value: Some("value_A_222".to_string()),
     };
@@ -297,7 +297,7 @@ async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
     assert_eq!(vpc_matched_by_label.metadata.unwrap().name, "VPC_222");
 
     // Test searching based on key and name.
-    let search_label = rpc::Label {
+    let search_label = forge::Label {
         key: "key_A_222".to_string(),
         value: None,
     };
@@ -309,7 +309,7 @@ async fn test_vpc_search_based_on_labels(pool: sqlx::PgPool) {
     assert_eq!(vpc_matched_by_label.metadata.unwrap().name, "VPC_222");
 
     // Test searching based on key and name.
-    let search_label = rpc::Label {
+    let search_label = forge::Label {
         key: "key_A_333".to_string(),
         value: None,
     };
@@ -324,13 +324,13 @@ async fn test_vpc_find_by_segment(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
 
-    let vpc_id = db::vpc::find_by_name(&env.pool, "test vpc 1")
+    let vpc_id = nico_api_db::vpc::find_by_name(&env.pool, "test vpc 1")
         .await
         .unwrap()
         .first()
         .unwrap()
         .id;
-    let vpc = db::vpc::find_by_segment(&env.pool, segment_id)
+    let vpc = nico_api_db::vpc::find_by_segment(&env.pool, segment_id)
         .await
         .unwrap();
     assert_eq!(vpc.id.to_string(), vpc_id.to_string());

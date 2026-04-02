@@ -17,13 +17,13 @@
 
 //! State Controller IO implementation for Racks
 
-use carbide_uuid::rack::RackId;
 use config_version::{ConfigVersion, Versioned};
-use db::rack::IdColumn;
-use db::{DatabaseError, ObjectColumnFilter, rack as db_rack};
-use model::StateSla;
-use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::rack::{Rack, RackSearchFilter, RackState, RackValidationState, state_sla};
+use nico_api_db::rack::IdColumn;
+use nico_api_db::{DatabaseError, ObjectColumnFilter, rack as db_rack};
+use nico_api_model::StateSla;
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::rack::{Rack, RackSearchFilter, RackState, RackValidationState, state_sla};
+use nico_uuid::rack::RackId;
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
@@ -103,7 +103,7 @@ impl StateControllerIO for RackStateControllerIO {
         new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::rack_state_history::persist(txn, rack_id, new_state, new_version).await?;
+        nico_api_db::rack_state_history::persist(txn, rack_id, new_state, new_version).await?;
         Ok(())
     }
 

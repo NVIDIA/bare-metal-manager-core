@@ -16,9 +16,9 @@
  */
 use std::str::FromStr;
 
-use libmlx::device::filters::{DeviceField, DeviceFilter, DeviceFilterSet, MatchMode};
-use libmlx::device::info::MlxDeviceInfo;
 use mac_address::MacAddress;
+use nico_libmlx::device::filters::{DeviceField, DeviceFilter, DeviceFilterSet, MatchMode};
+use nico_libmlx::device::info::MlxDeviceInfo;
 
 /// create_test_device creates a sample device for testing purposes.
 fn create_test_device() -> MlxDeviceInfo {

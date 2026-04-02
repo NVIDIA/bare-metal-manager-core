@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use clap::Parser;
-use libmlx::device::cmd::{Cli, dispatch_command};
+use nico_libmlx::device::cmd::{Cli, dispatch_command};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();

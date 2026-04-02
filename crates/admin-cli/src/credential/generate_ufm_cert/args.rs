@@ -16,7 +16,7 @@
  */
 
 use clap::Parser;
-use rpc::{CredentialType, forge as forgerpc};
+use nico_rpc::{CredentialType, forge};
 
 use crate::credential::common::DEFAULT_IB_FABRIC_NAME;
 
@@ -26,7 +26,7 @@ pub struct Args {
     pub fabric: String,
 }
 
-impl From<Args> for forgerpc::CredentialCreationRequest {
+impl From<Args> for forge::CredentialCreationRequest {
     fn from(args: Args) -> Self {
         Self {
             credential_type: CredentialType::Ufm.into(),

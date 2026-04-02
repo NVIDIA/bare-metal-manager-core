@@ -18,8 +18,9 @@
 pub mod args;
 pub mod cmd;
 
-use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Args;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::forge;
 
 use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
@@ -30,7 +31,7 @@ impl Run for Args {
             eprintln!("Duplicate values not allowed for --fallback-dpu-serial-number");
             return Ok(());
         }
-        let expected_machine: rpc::forge::ExpectedMachine = self.try_into()?;
+        let expected_machine: forge::ExpectedMachine = self.try_into()?;
         ctx.api_client
             .0
             .add_expected_machine(expected_machine)

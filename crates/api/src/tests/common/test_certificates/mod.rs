@@ -18,8 +18,8 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use forge_secrets::SecretsError;
-use forge_secrets::certificates::{Certificate, CertificateProvider};
+use nico_secrets::SecretsError;
+use nico_secrets::certificates::{Certificate, CertificateProvider};
 use tokio::sync::Mutex;
 
 #[derive(Debug, Default)]

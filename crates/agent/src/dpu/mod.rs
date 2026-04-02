@@ -18,8 +18,8 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::time::Duration;
 
-use carbide_host_support::agent_config::FmdsDpuNetworkingConfig;
 use ipnetwork::IpNetwork;
+use nico_host_support::agent_config::FmdsDpuNetworkingConfig;
 
 pub mod interface;
 pub mod link;

@@ -22,11 +22,31 @@
 /// be short lived.
 ///
 /// The cache is a static because we are called from Kea's hooks, potentially from multiple threads.
-use std::{
-    net::IpAddr,
-    sync::Mutex,
-    time::{Duration, Instant},
-};
+use std::net::IpAddr;
+/// Cache DHCP responses from API server
+///
+/// We usually get about four DHCP requests from the same host in rapid succession, so this
+/// prevents us asking the API server every time. Cache is optional, and contents should
+/// be short lived.
+///
+/// The cache is a static because we are called from Kea's hooks, potentially from multiple threads.
+use std::sync::Mutex;
+/// Cache DHCP responses from API server
+///
+/// We usually get about four DHCP requests from the same host in rapid succession, so this
+/// prevents us asking the API server every time. Cache is optional, and contents should
+/// be short lived.
+///
+/// The cache is a static because we are called from Kea's hooks, potentially from multiple threads.
+use std::time::Duration;
+/// Cache DHCP responses from API server
+///
+/// We usually get about four DHCP requests from the same host in rapid succession, so this
+/// prevents us asking the API server every time. Cache is optional, and contents should
+/// be short lived.
+///
+/// The cache is a static because we are called from Kea's hooks, potentially from multiple threads.
+use std::time::Instant;
 
 use lazy_static::lazy_static;
 use lru::LruCache;

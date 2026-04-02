@@ -16,7 +16,7 @@
  */
 
 use clap::Parser;
-use rpc::forge::DeleteInstanceTypeRequest;
+use nico_rpc::forge::DeleteInstanceTypeRequest;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {

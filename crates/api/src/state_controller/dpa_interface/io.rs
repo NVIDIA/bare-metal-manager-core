@@ -17,12 +17,16 @@
 
 //! State Controller IO implementation for dpa interfaces
 
-use carbide_uuid::dpa_interface::DpaInterfaceId;
 use config_version::{ConfigVersion, Versioned};
-use db::{self, DatabaseError};
-use model::StateSla;
-use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::dpa_interface::{self, DpaInterface, DpaInterfaceControllerState};
+use nico_api_db::{
+    DatabaseError, {self},
+};
+use nico_api_model::StateSla;
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::dpa_interface::{
+    DpaInterface, DpaInterfaceControllerState, {self},
+};
+use nico_uuid::dpa_interface::DpaInterfaceId;
 use sqlx::PgConnection;
 
 use crate::state_controller::dpa_interface::context::DpaInterfaceStateHandlerContextObjects;
@@ -50,7 +54,7 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        db::dpa_interface::find_ids(txn).await
+        nico_api_db::dpa_interface::find_ids(txn).await
     }
 
     /// Loads a state snapshot from the database
@@ -59,7 +63,8 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
         txn: &mut PgConnection,
         interface_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
-        let mut interfaces = db::dpa_interface::find_by_ids(txn, &[*interface_id], false).await?;
+        let mut interfaces =
+            nico_api_db::dpa_interface::find_by_ids(txn, &[*interface_id], false).await?;
         if interfaces.is_empty() {
             tracing::debug!("DPA load_object_state empty ifid: {:#?}", interface_id);
             return Ok(None);
@@ -103,7 +108,7 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
         new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<bool, DatabaseError> {
-        db::dpa_interface::try_update_controller_state(
+        nico_api_db::dpa_interface::try_update_controller_state(
             txn,
             *object_id,
             old_version,
@@ -120,7 +125,8 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
         new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::dpa_interface_state_history::persist(txn, *object_id, new_state, new_version).await?;
+        nico_api_db::dpa_interface_state_history::persist(txn, *object_id, new_state, new_version)
+            .await?;
         Ok(())
     }
 
@@ -130,7 +136,7 @@ impl StateControllerIO for DpaInterfaceStateControllerIO {
         object_id: &Self::ObjectId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
-        db::dpa_interface::update_controller_state_outcome(txn, *object_id, outcome).await
+        nico_api_db::dpa_interface::update_controller_state_outcome(txn, *object_id, outcome).await
     }
 
     fn metric_state_names(state: &DpaInterfaceControllerState) -> (&'static str, &'static str) {

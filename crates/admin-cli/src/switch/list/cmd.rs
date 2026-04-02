@@ -18,7 +18,7 @@
 use std::borrow::Cow;
 
 use color_eyre::Result;
-use rpc::forge as rpc;
+use nico_rpc::forge;
 
 use super::args::Args;
 use crate::cfg::runtime::RuntimeConfig;
@@ -29,7 +29,7 @@ pub async fn list_switches(
     api_client: &ApiClient,
     config: &RuntimeConfig,
 ) -> Result<()> {
-    let filter = rpc::SwitchSearchFilter {
+    let filter = forge::SwitchSearchFilter {
         rack_id: None,
         deleted: args.deleted as i32,
         controller_state: args.controller_state,

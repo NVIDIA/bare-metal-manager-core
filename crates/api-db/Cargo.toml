@@ -15,30 +15,30 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-api-db"
+name = "nico-api-db"
 version = "0.0.0"
 edition.workspace = true
-description = "Database functions for carbide-api"
+description = "Database functions for nico-api"
 license.workspace = true
 authors.workspace = true
 
 [lib]
-name = "db"
+name = "nico_api_db"
 
 [dependencies]
 # [local-dependencies]
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 config-version = { path = "../config-version", features = ["sqlx"] }
-carbide-host-support = { path = "../host-support", default-features = false }
-carbide-libmlx = { path = "../libmlx" }
-carbide-network = { path = "../network", features = ["sqlx"] }
-carbide-version = { path = "../version" }
-carbide-health-report = { path = "../health-report" }
-carbide-utils = { path = "../utils", features = ["sqlx"] }
-carbide-uuid = { path = "../uuid", features = ["sqlx"] }
-carbide-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
+nico-host-support = { path = "../host-support", default-features = false }
+nico-libmlx = { path = "../libmlx" }
+nico-network = { path = "../network", features = ["sqlx"] }
+nico-version = { path = "../version" }
+nico-health-report = { path = "../health-report" }
+nico-utils = { path = "../utils", features = ["sqlx"] }
+nico-uuid = { path = "../uuid", features = ["sqlx"] }
+nico-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
 dns-record = { path = "../dns-record" }
-carbide-api-model = { path = "../api-model", default-features = false }
+nico-api-model = { path = "../api-model", default-features = false }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized
@@ -83,12 +83,12 @@ version-compare = { workspace = true }
 #these are alphabetized
 
 [build-dependencies]
-carbide-version = { path = "../version" }
+nico-version = { path = "../version" }
 
 [dev-dependencies]
 lazy_static = { workspace = true }
-carbide-macros = { path = "../macros" }
-carbide-sqlx-testing = { path = "../sqlx-testing" }
+nico-macros = { path = "../macros" }
+nico-sqlx-testing = { path = "../sqlx-testing" }
 tracing-subscriber = { workspace = true }
 ctor = { workspace = true }
 

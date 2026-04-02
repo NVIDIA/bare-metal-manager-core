@@ -22,8 +22,8 @@ use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 use uuid::Uuid;
 
 use super::filters;
@@ -43,8 +43,8 @@ struct DpaRowDisplay {
     macaddr: String,
 }
 
-impl From<forgerpc::DpaInterface> for DpaRowDisplay {
-    fn from(dpa: forgerpc::DpaInterface) -> Self {
+impl From<forge::DpaInterface> for DpaRowDisplay {
+    fn from(dpa: forge::DpaInterface) -> Self {
         Self {
             id: dpa.id.map(|i| i.to_string()).unwrap_or_default(),
             machine_id: dpa.machine_id.map(|i| i.to_string()).unwrap_or_default(),
@@ -82,7 +82,7 @@ pub async fn show_dpas_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(dpas)).into_response()
 }
 
-async fn fetch_dpas(api: Arc<Api>) -> Result<Vec<forgerpc::DpaInterface>, tonic::Status> {
+async fn fetch_dpas(api: Arc<Api>) -> Result<Vec<forge::DpaInterface>, tonic::Status> {
     let request = tonic::Request::new(());
 
     let dpa_ids = api
@@ -97,7 +97,7 @@ async fn fetch_dpas(api: Arc<Api>) -> Result<Vec<forgerpc::DpaInterface>, tonic:
         const PAGE_SIZE: usize = 100;
         let page_size = PAGE_SIZE.min(dpa_ids.len() - offset);
         let next_ids = &dpa_ids[offset..offset + page_size];
-        let request = tonic::Request::new(forgerpc::DpaInterfacesByIdsRequest {
+        let request = tonic::Request::new(forge::DpaInterfacesByIdsRequest {
             ids: next_ids.to_vec(),
             include_history: false,
         });
@@ -145,8 +145,8 @@ struct DpaDetail {
     history: DpaStateHistoryTable,
 }
 
-impl From<forgerpc::DpaInterface> for DpaDetail {
-    fn from(dpa: forgerpc::DpaInterface) -> Self {
+impl From<forge::DpaInterface> for DpaDetail {
+    fn from(dpa: forge::DpaInterface) -> Self {
         let mut history_records = Vec::new();
 
         for e in dpa.history.into_iter().rev() {
@@ -200,7 +200,7 @@ pub async fn detail(
         }
     };
 
-    let request = tonic::Request::new(forgerpc::DpaInterfacesByIdsRequest {
+    let request = tonic::Request::new(forge::DpaInterfacesByIdsRequest {
         ids: vec![dpaid.into()],
         include_history: true,
     });

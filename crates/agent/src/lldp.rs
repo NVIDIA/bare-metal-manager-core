@@ -18,7 +18,7 @@ use std::fmt::Write;
 use std::path::PathBuf;
 use std::process::Command;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 
 // FIXME: This should probably be configurable and come from the API's config
 // file.

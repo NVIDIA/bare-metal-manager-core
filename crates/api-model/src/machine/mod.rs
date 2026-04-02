@@ -20,24 +20,25 @@ use std::fmt::Display;
 use std::net::{IpAddr, SocketAddr};
 use std::ops::Deref;
 
-use ::rpc::errors::RpcDataConversionError;
 use base64::prelude::*;
-use carbide_uuid::domain::DomainId;
-use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::rack::RackId;
-use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
 use duration_str::deserialize_duration_chrono;
-use health_report::HealthReport;
 use json::MachineSnapshotPgJson;
 use libredfish::{PowerState, SystemPowerControl};
 use mac_address::MacAddress;
-use rpc::forge::HealthOverrideOrigin;
-use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
+use nico_health_report::HealthReport;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_rpc::forge::HealthOverrideOrigin;
+use nico_rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
+use nico_uuid::domain::DomainId;
+use nico_uuid::instance_type::InstanceTypeId;
+use nico_uuid::machine::{MachineId, MachineInterfaceId, MachineType};
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::rack::RackId;
+use nico_uuid::switch::SwitchId;
 use serde::{Deserialize, Serialize, Serializer};
 use sqlx::postgres::PgRow;
 use sqlx::{Column, FromRow, Row};
@@ -86,9 +87,9 @@ pub struct DpuInfo {
     pub loopback_ip: String,
 }
 
-impl From<DpuInfo> for rpc::forge::DpuInfo {
+impl From<DpuInfo> for forge::DpuInfo {
     fn from(info: DpuInfo) -> Self {
-        rpc::forge::DpuInfo {
+        forge::DpuInfo {
             id: info.id,
             loopback_ip: info.loopback_ip,
         }
@@ -120,7 +121,7 @@ pub struct ManagedHostStateSnapshot {
     pub instance: Option<InstanceSnapshot>,
     pub managed_state: ManagedHostState,
     /// Aggregated health. This is calculated based on the health of Hosts and DPUs
-    pub aggregate_health: health_report::HealthReport,
+    pub aggregate_health: nico_health_report::HealthReport,
     /// Health overrides inherited from the rack this host belongs to (if any).
     /// Populated at read time; not stored on the machines table.
     pub rack_health_overrides: Option<HealthReportOverrides>,
@@ -197,7 +198,7 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
             rack_health_overrides,
             // This will need to be modified by callers, as its value depends on a
             // HardwareHealthReportsConfig being specified.
-            aggregate_health: health_report::HealthReport::empty("".to_string()),
+            aggregate_health: nico_health_report::HealthReport::empty("".to_string()),
         };
 
         result.sort_dpu_snapshots()?;
@@ -220,7 +221,7 @@ pub enum NotAllocatableReason {
     #[error("The Machine is in Maintenance Mode")]
     MaintenanceMode,
     #[error("A Health Alert prevents the Machine from being allocated: {0:?}")]
-    HealthAlert(Box<health_report::HealthProbeAlert>),
+    HealthAlert(Box<nico_health_report::HealthProbeAlert>),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -294,7 +295,7 @@ impl ManagedHostStateSnapshot {
 
         if !allow_unhealthy
             && let Some(alert) = self.aggregate_health.find_alert_by_classification(
-                &health_report::HealthAlertClassification::prevent_allocations(),
+                &nico_health_report::HealthAlertClassification::prevent_allocations(),
             )
         {
             return Err(NotAllocatableReason::HealthAlert(Box::new(alert.clone())));
@@ -321,7 +322,7 @@ impl ManagedHostStateSnapshot {
             return;
         }
 
-        let mut output = health_report::HealthReport::empty("".to_string());
+        let mut output = nico_health_report::HealthReport::empty("".to_string());
         output.merge(&self.host_snapshot.machine_validation_health_report);
 
         if let Some(sku_validation_health_report) =
@@ -426,13 +427,10 @@ impl ManagedHostStateSnapshot {
     }
 
     /// Creates an RPC Machine representation for either the Host or one of the DPUs
-    pub fn rpc_machine_state(
-        &self,
-        dpu_machine_id: Option<&MachineId>,
-    ) -> Option<rpc::forge::Machine> {
+    pub fn rpc_machine_state(&self, dpu_machine_id: Option<&MachineId>) -> Option<forge::Machine> {
         match dpu_machine_id {
             None => {
-                let mut rpc_machine: rpc::forge::Machine = self.host_snapshot.clone().into();
+                let mut rpc_machine: forge::Machine = self.host_snapshot.clone().into();
                 let state = &self.host_snapshot.state.value;
                 let version = &self.host_snapshot.state.version;
                 rpc_machine.health = Some(self.aggregate_health.clone().into());
@@ -452,7 +450,7 @@ impl ManagedHostStateSnapshot {
                     .dpu_snapshots
                     .iter()
                     .find(|dpu| dpu.id == *dpu_machine_id)?;
-                let mut rpc_machine: rpc::forge::Machine = dpu_snapshot.clone().into();
+                let mut rpc_machine: forge::Machine = dpu_snapshot.clone().into();
                 // In case the DPU does not know the associated Host - we can backfill the data here
                 rpc_machine.associated_host_machine_id = Some(self.host_snapshot.id);
                 Some(rpc_machine)
@@ -560,7 +558,7 @@ impl ManagedHostStateSnapshot {
     }
 }
 
-impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
+impl TryFrom<ManagedHostStateSnapshot> for Option<forge::Instance> {
     type Error = RpcDataConversionError;
 
     fn try_from(mut snapshot: ManagedHostStateSnapshot) -> Result<Self, Self::Error> {
@@ -596,7 +594,7 @@ impl TryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
             snapshot.host_snapshot.nvlink_status_observation.as_ref(),
         )?;
 
-        Ok(Some(rpc::Instance {
+        Ok(Some(forge::Instance {
             id: Some(instance.id),
             machine_id: Some(instance.machine_id),
             config: Some(instance.config.try_into()?),
@@ -825,7 +823,7 @@ pub struct Dpf {
     pub used_for_ingestion: bool,
 }
 
-impl From<Machine> for ::rpc::forge::dpf_state_response::DpfState {
+impl From<Machine> for forge::dpf_state_response::DpfState {
     fn from(value: Machine) -> Self {
         Self {
             machine_id: value.id.into(),
@@ -941,7 +939,7 @@ impl Machine {
         true
     }
 
-    pub fn instance_network_restrictions(&self) -> rpc::forge::InstanceNetworkRestrictions {
+    pub fn instance_network_restrictions(&self) -> forge::InstanceNetworkRestrictions {
         let inband_interfaces = self
             .interfaces
             .iter()
@@ -951,9 +949,9 @@ impl Machine {
         // If there are no HostInband interfaces, this currently means this machine has DPUs and is
         // not restricted to being in particular network segments
         if inband_interfaces.is_empty() {
-            return rpc::forge::InstanceNetworkRestrictions {
+            return forge::InstanceNetworkRestrictions {
                 network_segment_membership_type:
-                    rpc::forge::InstanceNetworkSegmentMembershipType::TenantConfigurable as i32,
+                    forge::InstanceNetworkSegmentMembershipType::TenantConfigurable as i32,
                 network_segment_ids: vec![],
             };
         }
@@ -967,9 +965,9 @@ impl Machine {
             .map(|iface| iface.segment_id)
             .collect::<HashSet<_>>();
 
-        rpc::forge::InstanceNetworkRestrictions {
-            network_segment_membership_type:
-                rpc::forge::InstanceNetworkSegmentMembershipType::Static as i32,
+        forge::InstanceNetworkRestrictions {
+            network_segment_membership_type: forge::InstanceNetworkSegmentMembershipType::Static
+                as i32,
             network_segment_ids: inband_network_segment_ids.into_iter().collect(),
         }
     }
@@ -1051,25 +1049,25 @@ impl Machine {
     }
 }
 
-pub struct RpcMachineTypeWrapper(rpc::forge::MachineType);
+pub struct RpcMachineTypeWrapper(forge::MachineType);
 
 impl From<MachineType> for RpcMachineTypeWrapper {
     fn from(value: MachineType) -> Self {
         RpcMachineTypeWrapper(match value {
-            MachineType::PredictedHost | MachineType::Host => rpc::forge::MachineType::Host,
-            MachineType::Dpu => rpc::forge::MachineType::Dpu,
+            MachineType::PredictedHost | MachineType::Host => forge::MachineType::Host,
+            MachineType::Dpu => forge::MachineType::Dpu,
         })
     }
 }
 
 impl Deref for RpcMachineTypeWrapper {
-    type Target = rpc::forge::MachineType;
+    type Target = forge::MachineType;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<Machine> for rpc::forge::Machine {
+impl From<Machine> for forge::Machine {
     fn from(mut machine: Machine) -> Self {
         let health = match machine.is_dpu() {
             true => {
@@ -1111,7 +1109,7 @@ impl From<Machine> for rpc::forge::Machine {
         let associated_dpu_machine_ids = machine.associated_dpu_machine_ids();
         let instance_network_restrictions = Some(machine.instance_network_restrictions());
 
-        rpc::Machine {
+        forge::Machine {
             id: Some(machine.id),
             rack_id: machine.rack_id.clone(),
             state: if machine.is_dpu() {
@@ -2047,10 +2045,10 @@ pub struct UpgradeDecision {
     pub last_updated: DateTime<Utc>,
 }
 
-impl From<ReprovisionRequest> for ::rpc::forge::InstanceUpdateStatus {
+impl From<ReprovisionRequest> for forge::InstanceUpdateStatus {
     fn from(value: ReprovisionRequest) -> Self {
-        ::rpc::forge::InstanceUpdateStatus {
-            module: ::rpc::forge::instance_update_status::Module::Dpu as i32,
+        forge::InstanceUpdateStatus {
+            module: forge::instance_update_status::Module::Dpu as i32,
             initiator: value.initiator,
             trigger_received_at: Some(value.requested_at.into()),
             update_triggered_at: value.started_at.map(|x| x.into()),
@@ -2349,9 +2347,9 @@ impl MachineInterfaceSnapshot {
     }
 }
 
-impl From<MachineInterfaceSnapshot> for rpc::MachineInterface {
-    fn from(machine_interface: MachineInterfaceSnapshot) -> rpc::MachineInterface {
-        rpc::MachineInterface {
+impl From<MachineInterfaceSnapshot> for forge::MachineInterface {
+    fn from(machine_interface: MachineInterfaceSnapshot) -> forge::MachineInterface {
+        forge::MachineInterface {
             id: Some(machine_interface.id),
             attached_dpu_machine_id: machine_interface.attached_dpu_machine_id,
             machine_id: machine_interface.machine_id,
@@ -2453,9 +2451,9 @@ pub struct MachineStateHistory {
     pub state_version: ConfigVersion,
 }
 
-impl From<MachineStateHistory> for rpc::MachineEvent {
-    fn from(value: MachineStateHistory) -> rpc::MachineEvent {
-        rpc::MachineEvent {
+impl From<MachineStateHistory> for forge::MachineEvent {
+    fn from(value: MachineStateHistory) -> forge::MachineEvent {
+        forge::MachineEvent {
             event: value.state,
             version: value.state_version.version_string(),
             time: Some(value.state_version.timestamp().into()),
@@ -2472,9 +2470,9 @@ pub fn state_sla(
     machine_id: &MachineId,
     state: &ManagedHostState,
     state_version: &ConfigVersion,
-    aggregate_health: &health_report::HealthReport,
+    aggregate_health: &nico_health_report::HealthReport,
 ) -> StateSla {
-    let exclude = health_report::HealthAlertClassification::exclude_from_state_machine_sla();
+    let exclude = nico_health_report::HealthAlertClassification::exclude_from_state_machine_sla();
     if aggregate_health
         .alerts
         .iter()
@@ -2911,10 +2909,10 @@ mod tests {
     }
 
     fn alert_with_classifications(
-        classifications: Vec<health_report::HealthAlertClassification>,
-    ) -> health_report::HealthProbeAlert {
-        health_report::HealthProbeAlert {
-            id: health_report::HealthProbeId::heartbeat_timeout(),
+        classifications: Vec<nico_health_report::HealthAlertClassification>,
+    ) -> nico_health_report::HealthProbeAlert {
+        nico_health_report::HealthProbeAlert {
+            id: nico_health_report::HealthProbeId::heartbeat_timeout(),
             target: None,
             in_alert_since: Some(chrono::Utc::now()),
             message: "test alert".to_string(),
@@ -2924,9 +2922,9 @@ mod tests {
     }
 
     fn health_report_with_alerts(
-        alerts: Vec<health_report::HealthProbeAlert>,
-    ) -> health_report::HealthReport {
-        health_report::HealthReport {
+        alerts: Vec<nico_health_report::HealthProbeAlert>,
+    ) -> nico_health_report::HealthReport {
+        nico_health_report::HealthReport {
             source: "test".to_string(),
             triggered_by: None,
             observed_at: Some(chrono::Utc::now()),
@@ -2945,7 +2943,7 @@ mod tests {
         let state = ManagedHostState::Created;
         let state_version = ConfigVersion::initial();
         let health = health_report_with_alerts(vec![alert_with_classifications(vec![
-            health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
+            nico_health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
         ])]);
 
         let sla = state_sla(&machine_id, &state, &state_version, &health);
@@ -2969,11 +2967,11 @@ mod tests {
         let health = health_report_with_alerts(vec![
             // Alert without the exclusion classification
             alert_with_classifications(vec![
-                health_report::HealthAlertClassification::prevent_allocations(),
+                nico_health_report::HealthAlertClassification::prevent_allocations(),
             ]),
             // Alert with the exclusion classification
             alert_with_classifications(vec![
-                health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
+                nico_health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
             ]),
         ]);
 
@@ -2996,7 +2994,7 @@ mod tests {
         let state = ManagedHostState::Created;
         let state_version = ConfigVersion::initial();
         let health = health_report_with_alerts(vec![alert_with_classifications(vec![
-            health_report::HealthAlertClassification::prevent_allocations(),
+            nico_health_report::HealthAlertClassification::prevent_allocations(),
         ])]);
 
         let sla = state_sla(&machine_id, &state, &state_version, &health);
@@ -3044,7 +3042,7 @@ mod tests {
         };
         let state_version = ConfigVersion::initial();
         let health = health_report_with_alerts(vec![alert_with_classifications(vec![
-            health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
+            nico_health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
         ])]);
 
         let sla = state_sla(&machine_id, &state, &state_version, &health);
@@ -3094,7 +3092,7 @@ mod tests {
             id: "dpu-123".to_string(),
             loopback_ip: "10.0.0.1".to_string(),
         };
-        let rpc_info: rpc::forge::DpuInfo = info.into();
+        let rpc_info: forge::DpuInfo = info.into();
         assert_eq!(rpc_info.id, "dpu-123");
         assert_eq!(rpc_info.loopback_ip, "10.0.0.1");
     }

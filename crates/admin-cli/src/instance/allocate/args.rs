@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::vpc::VpcPrefixId;
 use clap::{ArgGroup, Parser};
-use rpc::forge::OperatingSystem;
+use nico_rpc::forge::OperatingSystem;
+use nico_uuid::machine::MachineId;
+use nico_uuid::vpc::VpcPrefixId;
 
 #[derive(Parser, Debug)]
 #[clap(group(ArgGroup::new("selector").required(true).args(&["subnet", "vpc_prefix_id"])))]

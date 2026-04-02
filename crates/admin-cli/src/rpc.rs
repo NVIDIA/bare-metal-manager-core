@@ -17,32 +17,32 @@
 
 use std::collections::HashMap;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::instance_interface_config::NetworkDetails;
-use ::rpc::forge::{
-    self as rpc, BmcEndpointRequest, FindInstanceTypesByIdsRequest,
-    FindNetworkSecurityGroupsByIdsRequest, GetDpfStateRequest,
-    GetNetworkSecurityGroupAttachmentsRequest, GetNetworkSecurityGroupPropagationStatusRequest,
-    IdentifySerialRequest, MachineHardwareInfo, MachineHardwareInfoUpdateType,
-    ModifyDpfStateRequest, NetworkPrefix, NetworkSecurityGroupAttributes,
-    NetworkSegmentCreationRequest, NetworkSegmentType, Remediation, RemediationIdList,
-    RemediationList, UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest,
-    VpcCreationRequest, VpcSearchFilter, VpcVirtualizationType, VpcsByIdsRequest,
-};
-use ::rpc::forge_api_client::ForgeApiClient;
-use ::rpc::{Machine, NetworkSegment};
-use carbide_uuid::dpa_interface::DpaInterfaceId;
-use carbide_uuid::dpu_remediations::RemediationId;
-use carbide_uuid::infiniband::IBPartitionId;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
-use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::rack::RackId;
-use carbide_uuid::switch::SwitchId;
-use carbide_uuid::vpc::VpcId;
 use mac_address::MacAddress;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge::instance_interface_config::NetworkDetails;
+use nico_rpc::forge::{
+    BmcEndpointRequest, FindInstanceTypesByIdsRequest, FindNetworkSecurityGroupsByIdsRequest,
+    GetDpfStateRequest, GetNetworkSecurityGroupAttachmentsRequest,
+    GetNetworkSecurityGroupPropagationStatusRequest, IdentifySerialRequest, MachineHardwareInfo,
+    MachineHardwareInfoUpdateType, ModifyDpfStateRequest, NetworkPrefix,
+    NetworkSecurityGroupAttributes, NetworkSegmentCreationRequest, NetworkSegmentType, Remediation,
+    RemediationIdList, RemediationList, UpdateMachineHardwareInfoRequest,
+    UpdateNetworkSecurityGroupRequest, VpcCreationRequest, VpcSearchFilter, VpcVirtualizationType,
+    VpcsByIdsRequest,
+};
+use nico_rpc::forge_api_client::ForgeApiClient;
+use nico_rpc::{Machine, NetworkSegment, forge};
+use nico_uuid::dpa_interface::DpaInterfaceId;
+use nico_uuid::dpu_remediations::RemediationId;
+use nico_uuid::infiniband::IBPartitionId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
+use nico_uuid::power_shelf::PowerShelfId;
+use nico_uuid::rack::RackId;
+use nico_uuid::switch::SwitchId;
+use nico_uuid::vpc::VpcId;
 
 use crate::IntoOnlyOne;
 use crate::expected_machines::common::ExpectedMachineJson;
@@ -64,10 +64,10 @@ pub struct ApiClient(pub ForgeApiClient);
 // other conveniences. 90% of these methods no longer justify their existence... we probably don't
 // need to add more.)
 impl ApiClient {
-    pub async fn get_machine(&self, id: MachineId) -> CarbideCliResult<rpc::Machine> {
+    pub async fn get_machine(&self, id: MachineId) -> CarbideCliResult<forge::Machine> {
         let mut machines = self
             .0
-            .find_machines_by_ids(::rpc::forge::MachinesByIdsRequest {
+            .find_machines_by_ids(forge::MachinesByIdsRequest {
                 machine_ids: vec![id],
                 include_history: true,
             })
@@ -84,11 +84,11 @@ impl ApiClient {
 
     pub async fn get_all_machines(
         &self,
-        request: rpc::MachineSearchConfig,
+        request: forge::MachineSearchConfig,
         page_size: usize,
-    ) -> CarbideCliResult<rpc::MachineList> {
+    ) -> CarbideCliResult<forge::MachineList> {
         let all_machine_ids = self.0.find_machine_ids(request).await?;
-        let mut all_machines = rpc::MachineList {
+        let mut all_machines = forge::MachineList {
             machines: Vec::with_capacity(all_machine_ids.machine_ids.len()),
         };
 
@@ -100,8 +100,8 @@ impl ApiClient {
         Ok(all_machines)
     }
 
-    pub async fn identify_uuid(&self, u: uuid::Uuid) -> CarbideCliResult<rpc::UuidType> {
-        let request = rpc::IdentifyUuidRequest {
+    pub async fn identify_uuid(&self, u: uuid::Uuid) -> CarbideCliResult<forge::UuidType> {
+        let request = forge::IdentifyUuidRequest {
             uuid: Some(u.into()),
         };
 
@@ -115,7 +115,7 @@ impl ApiClient {
                 return Err(CarbideCliError::GenericError(err.to_string()));
             }
         };
-        let object_type = match rpc::UuidType::try_from(uuid_details.object_type) {
+        let object_type = match forge::UuidType::try_from(uuid_details.object_type) {
             Ok(ot) => ot,
             Err(e) => {
                 tracing::error!(
@@ -132,8 +132,8 @@ impl ApiClient {
     pub async fn identify_mac(
         &self,
         mac_address: MacAddress,
-    ) -> CarbideCliResult<(rpc::MacOwner, String)> {
-        let request = rpc::IdentifyMacRequest {
+    ) -> CarbideCliResult<(forge::MacOwner, String)> {
+        let request = forge::IdentifyMacRequest {
             mac_address: mac_address.to_string(),
         };
 
@@ -147,7 +147,7 @@ impl ApiClient {
                 return Err(CarbideCliError::GenericError(err.to_string()));
             }
         };
-        let object_type = match rpc::MacOwner::try_from(mac_details.object_type) {
+        let object_type = match forge::MacOwner::try_from(mac_details.object_type) {
             Ok(ot) => ot,
             Err(e) => {
                 tracing::error!(
@@ -199,7 +199,7 @@ impl ApiClient {
         label_value: Option<String>,
         instance_type_id: Option<String>,
         page_size: usize,
-    ) -> CarbideCliResult<rpc::InstanceList> {
+    ) -> CarbideCliResult<forge::InstanceList> {
         let all_ids = self
             .get_instance_ids(
                 tenant_org_id,
@@ -209,7 +209,7 @@ impl ApiClient {
                 instance_type_id,
             )
             .await?;
-        let mut all_list = rpc::InstanceList {
+        let mut all_list = forge::InstanceList {
             instances: Vec::with_capacity(all_ids.instance_ids.len()),
         };
 
@@ -224,7 +224,7 @@ impl ApiClient {
     pub async fn get_one_instance(
         &self,
         instance_id: InstanceId,
-    ) -> CarbideCliResult<rpc::InstanceList> {
+    ) -> CarbideCliResult<forge::InstanceList> {
         let instances = self.0.find_instances_by_ids(vec![instance_id]).await?;
 
         Ok(instances)
@@ -237,15 +237,15 @@ impl ApiClient {
         label_key: Option<String>,
         label_value: Option<String>,
         instance_type_id: Option<String>,
-    ) -> CarbideCliResult<rpc::InstanceIdList> {
-        let request = rpc::InstanceSearchFilter {
+    ) -> CarbideCliResult<forge::InstanceIdList> {
+        let request = forge::InstanceSearchFilter {
             tenant_org_id,
             vpc_id,
             instance_type_id,
             label: if label_key.is_none() && label_value.is_none() {
                 None
             } else {
-                Some(rpc::Label {
+                Some(forge::Label {
                     key: label_key.unwrap_or_default(),
                     value: label_value,
                 })
@@ -254,9 +254,9 @@ impl ApiClient {
         Ok(self.0.find_instance_ids(request).await?)
     }
 
-    pub async fn get_all_racks(&self, page_size: usize) -> CarbideCliResult<rpc::RackList> {
+    pub async fn get_all_racks(&self, page_size: usize) -> CarbideCliResult<forge::RackList> {
         let all_ids = self.get_rack_ids().await?;
-        let mut all_list = rpc::RackList {
+        let mut all_list = forge::RackList {
             racks: Vec::with_capacity(all_ids.rack_ids.len()),
         };
 
@@ -268,30 +268,30 @@ impl ApiClient {
         Ok(all_list)
     }
 
-    pub async fn get_one_rack(&self, rack_id: RackId) -> CarbideCliResult<rpc::RackList> {
+    pub async fn get_one_rack(&self, rack_id: RackId) -> CarbideCliResult<forge::RackList> {
         let racks = self.0.find_racks_by_ids(vec![rack_id]).await?;
 
         Ok(racks)
     }
 
-    async fn get_rack_ids(&self) -> CarbideCliResult<rpc::RackIdList> {
+    async fn get_rack_ids(&self) -> CarbideCliResult<forge::RackIdList> {
         Ok(self.0.find_rack_ids().await?)
     }
 
     pub async fn get_all_switches(
         &self,
-        filter: rpc::SwitchSearchFilter,
+        filter: forge::SwitchSearchFilter,
         page_size: usize,
-    ) -> CarbideCliResult<rpc::SwitchList> {
+    ) -> CarbideCliResult<forge::SwitchList> {
         let all_ids = self.0.find_switch_ids(filter).await?;
-        let mut all_list = rpc::SwitchList {
+        let mut all_list = forge::SwitchList {
             switches: Vec::with_capacity(all_ids.ids.len()),
         };
 
         for ids in all_ids.ids.chunks(page_size) {
             let list = self
                 .0
-                .find_switches_by_ids(rpc::SwitchesByIdsRequest {
+                .find_switches_by_ids(forge::SwitchesByIdsRequest {
                     switch_ids: ids.to_vec(),
                 })
                 .await?;
@@ -301,10 +301,10 @@ impl ApiClient {
         Ok(all_list)
     }
 
-    pub async fn get_one_switch(&self, switch_id: SwitchId) -> CarbideCliResult<rpc::SwitchList> {
+    pub async fn get_one_switch(&self, switch_id: SwitchId) -> CarbideCliResult<forge::SwitchList> {
         Ok(self
             .0
-            .find_switches_by_ids(rpc::SwitchesByIdsRequest {
+            .find_switches_by_ids(forge::SwitchesByIdsRequest {
                 switch_ids: vec![switch_id],
             })
             .await?)
@@ -312,18 +312,18 @@ impl ApiClient {
 
     pub async fn get_all_power_shelves(
         &self,
-        filter: rpc::PowerShelfSearchFilter,
+        filter: forge::PowerShelfSearchFilter,
         page_size: usize,
-    ) -> CarbideCliResult<rpc::PowerShelfList> {
+    ) -> CarbideCliResult<forge::PowerShelfList> {
         let all_ids = self.0.find_power_shelf_ids(filter).await?;
-        let mut all_list = rpc::PowerShelfList {
+        let mut all_list = forge::PowerShelfList {
             power_shelves: Vec::with_capacity(all_ids.ids.len()),
         };
 
         for ids in all_ids.ids.chunks(page_size) {
             let list = self
                 .0
-                .find_power_shelves_by_ids(rpc::PowerShelvesByIdsRequest {
+                .find_power_shelves_by_ids(forge::PowerShelvesByIdsRequest {
                     power_shelf_ids: ids.to_vec(),
                 })
                 .await?;
@@ -336,10 +336,10 @@ impl ApiClient {
     pub async fn get_one_power_shelf(
         &self,
         power_shelf_id: PowerShelfId,
-    ) -> CarbideCliResult<rpc::PowerShelfList> {
+    ) -> CarbideCliResult<forge::PowerShelfList> {
         Ok(self
             .0
-            .find_power_shelves_by_ids(rpc::PowerShelvesByIdsRequest {
+            .find_power_shelves_by_ids(forge::PowerShelvesByIdsRequest {
                 power_shelf_ids: vec![power_shelf_id],
             })
             .await?)
@@ -350,9 +350,9 @@ impl ApiClient {
         tenant_org_id: Option<String>,
         name: Option<String>,
         page_size: usize,
-    ) -> CarbideCliResult<rpc::NetworkSegmentList> {
+    ) -> CarbideCliResult<forge::NetworkSegmentList> {
         let all_ids = self.get_segment_ids(tenant_org_id, name).await?;
-        let mut all_list = rpc::NetworkSegmentList {
+        let mut all_list = forge::NetworkSegmentList {
             network_segments: Vec::with_capacity(all_ids.network_segments_ids.len()),
         };
 
@@ -367,7 +367,7 @@ impl ApiClient {
     pub async fn get_one_segment(
         &self,
         segment_id: NetworkSegmentId,
-    ) -> CarbideCliResult<rpc::NetworkSegmentList> {
+    ) -> CarbideCliResult<forge::NetworkSegmentList> {
         let segments = self.get_segments_by_ids(&[segment_id]).await?;
 
         Ok(segments)
@@ -377,8 +377,8 @@ impl ApiClient {
         &self,
         tenant_org_id: Option<String>,
         name: Option<String>,
-    ) -> CarbideCliResult<rpc::NetworkSegmentIdList> {
-        let request = rpc::NetworkSegmentSearchFilter {
+    ) -> CarbideCliResult<forge::NetworkSegmentIdList> {
+        let request = forge::NetworkSegmentSearchFilter {
             tenant_org_id,
             name,
         };
@@ -388,8 +388,8 @@ impl ApiClient {
     pub async fn get_segments_by_ids(
         &self,
         network_segments_ids: &[NetworkSegmentId],
-    ) -> CarbideCliResult<rpc::NetworkSegmentList> {
-        let request = rpc::NetworkSegmentsByIdsRequest {
+    ) -> CarbideCliResult<forge::NetworkSegmentList> {
+        let request = forge::NetworkSegmentsByIdsRequest {
             network_segments_ids: network_segments_ids.to_vec(),
             include_history: network_segments_ids.len() == 1, // only request it when getting data for single resource
             include_num_free_ips: true,
@@ -399,26 +399,26 @@ impl ApiClient {
 
     pub async fn get_domains(
         &self,
-        id: Option<::carbide_uuid::domain::DomainId>,
-    ) -> CarbideCliResult<::rpc::protos::dns::DomainList> {
-        let request = ::rpc::protos::dns::DomainSearchQuery { id, name: None };
+        id: Option<::nico_uuid::domain::DomainId>,
+    ) -> CarbideCliResult<nico_rpc::protos::dns::DomainList> {
+        let request = nico_rpc::protos::dns::DomainSearchQuery { id, name: None };
         Ok(self.0.find_domain(request).await?)
     }
 
     pub async fn machine_insert_health_report_override(
         &self,
         id: MachineId,
-        report: ::rpc::health::HealthReport,
+        report: nico_rpc::health::HealthReport,
         replace: bool,
     ) -> CarbideCliResult<()> {
-        let request = ::rpc::forge::InsertHealthReportOverrideRequest {
+        let request = forge::InsertHealthReportOverrideRequest {
             machine_id: Some(id),
-            r#override: Some(rpc::HealthReportOverride {
+            r#override: Some(forge::HealthReportOverride {
                 report: Some(report),
                 mode: if replace {
-                    rpc::OverrideMode::Replace
+                    forge::OverrideMode::Replace
                 } else {
-                    rpc::OverrideMode::Merge
+                    forge::OverrideMode::Merge
                 } as i32,
             }),
         };
@@ -429,9 +429,9 @@ impl ApiClient {
         &self,
         bmc_endpoint_request: Option<BmcEndpointRequest>,
         machine_id: Option<String>,
-        action: ::rpc::forge::admin_power_control_request::SystemPowerControl,
-    ) -> CarbideCliResult<rpc::AdminPowerControlResponse> {
-        let request = rpc::AdminPowerControlRequest {
+        action: forge::admin_power_control_request::SystemPowerControl,
+    ) -> CarbideCliResult<forge::AdminPowerControlResponse> {
+        let request = forge::AdminPowerControlRequest {
             bmc_endpoint_request,
             machine_id,
             action: action.into(),
@@ -442,15 +442,15 @@ impl ApiClient {
     pub async fn get_all_machines_interfaces(
         &self,
         id: Option<MachineInterfaceId>,
-    ) -> CarbideCliResult<rpc::InterfaceList> {
-        let request = rpc::InterfaceSearchQuery { id, ip: None };
+    ) -> CarbideCliResult<forge::InterfaceList> {
+        let request = forge::InterfaceSearchQuery { id, ip: None };
         Ok(self.0.find_interfaces(request).await?)
     }
 
     pub async fn get_site_exploration_report(
         &self,
         page_size: usize,
-    ) -> CarbideCliResult<::rpc::site_explorer::SiteExplorationReport> {
+    ) -> CarbideCliResult<nico_rpc::site_explorer::SiteExplorationReport> {
         // grab endpoints
         let endpoint_ids = match self.0.find_explored_endpoint_ids().await {
             Ok(endpoint_ids) => endpoint_ids,
@@ -462,7 +462,7 @@ impl ApiClient {
                 };
             }
         };
-        let mut all_endpoints = ::rpc::site_explorer::ExploredEndpointList {
+        let mut all_endpoints = nico_rpc::site_explorer::ExploredEndpointList {
             endpoints: Vec::with_capacity(endpoint_ids.endpoint_ids.len()),
         };
         for ids in endpoint_ids.endpoint_ids.chunks(page_size) {
@@ -473,7 +473,7 @@ impl ApiClient {
         // grab managed hosts
         let all_hosts = self.get_all_explored_managed_hosts(page_size).await?;
 
-        Ok(::rpc::site_explorer::SiteExplorationReport {
+        Ok(nico_rpc::site_explorer::SiteExplorationReport {
             endpoints: all_endpoints.endpoints,
             managed_hosts: all_hosts,
         })
@@ -482,8 +482,8 @@ impl ApiClient {
     pub async fn get_explored_endpoints_by_ids(
         &self,
         endpoint_ids: &[String],
-    ) -> CarbideCliResult<::rpc::site_explorer::ExploredEndpointList> {
-        let request = ::rpc::site_explorer::ExploredEndpointsByIdsRequest {
+    ) -> CarbideCliResult<nico_rpc::site_explorer::ExploredEndpointList> {
+        let request = nico_rpc::site_explorer::ExploredEndpointsByIdsRequest {
             endpoint_ids: endpoint_ids.to_vec(),
         };
         Ok(self.0.find_explored_endpoints_by_ids(request).await?)
@@ -492,7 +492,7 @@ impl ApiClient {
     pub async fn get_all_explored_managed_hosts(
         &self,
         page_size: usize,
-    ) -> CarbideCliResult<Vec<::rpc::site_explorer::ExploredManagedHost>> {
+    ) -> CarbideCliResult<Vec<nico_rpc::site_explorer::ExploredManagedHost>> {
         let host_ids = match self.0.find_explored_managed_host_ids().await {
             Ok(host_ids) => host_ids,
             Err(status) if status.code() == tonic::Code::Unimplemented => {
@@ -501,7 +501,7 @@ impl ApiClient {
             }
             Err(e) => return Err(e.into()),
         };
-        let mut all_hosts = ::rpc::site_explorer::ExploredManagedHostList {
+        let mut all_hosts = nico_rpc::site_explorer::ExploredManagedHostList {
             managed_hosts: Vec::with_capacity(host_ids.host_ids.len()),
         };
         for ids in host_ids.host_ids.chunks(page_size) {
@@ -514,8 +514,8 @@ impl ApiClient {
     pub async fn get_machines_by_ids(
         &self,
         machine_ids: &[MachineId],
-    ) -> CarbideCliResult<rpc::MachineList> {
-        let request = ::rpc::forge::MachinesByIdsRequest {
+    ) -> CarbideCliResult<forge::MachineList> {
+        let request = forge::MachinesByIdsRequest {
             machine_ids: Vec::from(machine_ids),
             ..Default::default()
         };
@@ -524,11 +524,11 @@ impl ApiClient {
 
     pub async fn set_dynamic_config(
         &self,
-        feature: rpc::ConfigSetting,
+        feature: forge::ConfigSetting,
         value: String,
         expiry: Option<String>,
     ) -> CarbideCliResult<()> {
-        let request = rpc::SetDynamicConfigRequest {
+        let request = forge::SetDynamicConfigRequest {
             setting: feature.into(),
             value,
             expiry,
@@ -563,11 +563,11 @@ impl ApiClient {
                     "--id",
                 ));
             }
-            (_, Some(id)) => ::rpc::forge::ExpectedMachineRequest {
+            (_, Some(id)) => forge::ExpectedMachineRequest {
                 bmc_mac_address: String::new(),
-                id: Some(::rpc::common::Uuid { value: id }),
+                id: Some(nico_rpc::common::Uuid { value: id }),
             },
-            (Some(mac), None) => ::rpc::forge::ExpectedMachineRequest {
+            (Some(mac), None) => forge::ExpectedMachineRequest {
                 bmc_mac_address: mac.to_string(),
                 id: None,
             },
@@ -587,11 +587,11 @@ impl ApiClient {
                     let mut proto_labels = Vec::new();
                     for label in label_list {
                         let proto_label = match label.split_once(':') {
-                            Some((k, v)) => ::rpc::forge::Label {
+                            Some((k, v)) => forge::Label {
                                 key: k.trim().to_string(),
                                 value: Some(v.trim().to_string()),
                             },
-                            None => ::rpc::forge::Label {
+                            None => forge::Label {
                                 key: label.trim().to_string(),
                                 value: None,
                             },
@@ -603,7 +603,7 @@ impl ApiClient {
                     existing.labels
                 };
 
-                Some(::rpc::forge::Metadata {
+                Some(forge::Metadata {
                     name: meta_name.unwrap_or(existing.name),
                     description: meta_description.unwrap_or(existing.description),
                     labels: merged_labels,
@@ -612,7 +612,7 @@ impl ApiClient {
                 expected_machine.metadata
             };
 
-        let request = rpc::ExpectedMachine {
+        let request = forge::ExpectedMachine {
             bmc_mac_address: mac_str,
             bmc_username: bmc_username.unwrap_or(expected_machine.bmc_username),
             bmc_password: bmc_password.unwrap_or(expected_machine.bmc_password),
@@ -638,11 +638,11 @@ impl ApiClient {
         &self,
         expected_machine_list: Vec<ExpectedMachineJson>,
     ) -> Result<(), CarbideCliError> {
-        let request = rpc::ExpectedMachineList {
+        let request = forge::ExpectedMachineList {
             expected_machines: expected_machine_list
                 .into_iter()
-                .map(|machine| rpc::ExpectedMachine {
-                    id: machine.id.map(|s| ::rpc::common::Uuid { value: s }),
+                .map(|machine| forge::ExpectedMachine {
+                    id: machine.id.map(|s| nico_rpc::common::Uuid { value: s }),
                     bmc_mac_address: machine.bmc_mac_address.to_string(),
                     bmc_username: machine.bmc_username,
                     bmc_password: machine.bmc_password,
@@ -670,10 +670,10 @@ impl ApiClient {
         &self,
         expected_power_shelf_list: Vec<crate::expected_power_shelf::common::ExpectedPowerShelfJson>,
     ) -> Result<(), CarbideCliError> {
-        let request = rpc::ExpectedPowerShelfList {
+        let request = forge::ExpectedPowerShelfList {
             expected_power_shelves: expected_power_shelf_list
                 .into_iter()
-                .map(|power_shelf| rpc::ExpectedPowerShelf {
+                .map(|power_shelf| forge::ExpectedPowerShelf {
                     expected_power_shelf_id: None,
                     bmc_mac_address: power_shelf.bmc_mac_address.to_string(),
                     bmc_username: power_shelf.bmc_username,
@@ -695,10 +695,10 @@ impl ApiClient {
         &self,
         expected_switch_list: Vec<crate::expected_switch::common::ExpectedSwitchJson>,
     ) -> Result<(), CarbideCliError> {
-        let request = rpc::ExpectedSwitchList {
+        let request = forge::ExpectedSwitchList {
             expected_switches: expected_switch_list
                 .into_iter()
-                .map(|switch| rpc::ExpectedSwitch {
+                .map(|switch| forge::ExpectedSwitch {
                     expected_switch_id: None,
                     bmc_mac_address: switch.bmc_mac_address.to_string(),
                     bmc_username: switch.bmc_username,
@@ -729,11 +729,11 @@ impl ApiClient {
         page_size: usize,
         label_key: Option<String>,
         label_value: Option<String>,
-    ) -> CarbideCliResult<rpc::VpcList> {
+    ) -> CarbideCliResult<forge::VpcList> {
         let all_ids = self
             .get_vpc_ids(tenant_org_id, name, label_key, label_value)
             .await?;
-        let mut all_list = rpc::VpcList {
+        let mut all_list = forge::VpcList {
             vpcs: Vec::with_capacity(all_ids.vpc_ids.len()),
         };
 
@@ -746,16 +746,19 @@ impl ApiClient {
     }
 
     // Get all the DPA interfaces and return the vector of DPA interfaces
-    pub async fn get_all_dpas(&self, page_size: usize) -> CarbideCliResult<rpc::DpaInterfaceList> {
+    pub async fn get_all_dpas(
+        &self,
+        page_size: usize,
+    ) -> CarbideCliResult<forge::DpaInterfaceList> {
         let all_ids = self.get_dpa_ids().await?;
-        let mut all_list = rpc::DpaInterfaceList {
+        let mut all_list = forge::DpaInterfaceList {
             interfaces: Vec::with_capacity(all_ids.ids.len()),
         };
 
         let include_history = all_ids.ids.len() == 1;
 
         for ids in all_ids.ids.chunks(page_size) {
-            let request = rpc::DpaInterfacesByIdsRequest {
+            let request = forge::DpaInterfacesByIdsRequest {
                 ids: ids.to_vec(),
                 include_history,
             };
@@ -771,8 +774,8 @@ impl ApiClient {
     pub async fn get_one_dpa(
         &self,
         dpa_id: DpaInterfaceId,
-    ) -> CarbideCliResult<rpc::DpaInterfaceList> {
-        let request = rpc::DpaInterfacesByIdsRequest {
+    ) -> CarbideCliResult<forge::DpaInterfaceList> {
+        let request = forge::DpaInterfacesByIdsRequest {
             ids: vec![dpa_id],
             include_history: true,
         };
@@ -780,7 +783,7 @@ impl ApiClient {
         Ok(self.0.find_dpa_interfaces_by_ids(request).await?)
     }
 
-    pub async fn get_vpc_by_name(&self, name: &str) -> CarbideCliResult<rpc::VpcList> {
+    pub async fn get_vpc_by_name(&self, name: &str) -> CarbideCliResult<forge::VpcList> {
         let vpc_ids = self
             .0
             .find_vpc_ids(VpcSearchFilter {
@@ -792,7 +795,7 @@ impl ApiClient {
             .vpc_ids;
 
         Ok(if vpc_ids.is_empty() {
-            rpc::VpcList { vpcs: vec![] }
+            forge::VpcList { vpcs: vec![] }
         } else {
             self.0
                 .find_vpcs_by_ids(VpcsByIdsRequest { vpc_ids })
@@ -800,7 +803,7 @@ impl ApiClient {
         })
     }
 
-    pub async fn create_vpc(&self, name: &str, vpc_id: VpcId) -> CarbideCliResult<rpc::Vpc> {
+    pub async fn create_vpc(&self, name: &str, vpc_id: VpcId) -> CarbideCliResult<forge::Vpc> {
         let vpc = match self
             .0
             .create_vpc(VpcCreationRequest {
@@ -813,7 +816,7 @@ impl ApiClient {
                     VpcVirtualizationType::EthernetVirtualizerWithNvue.into(),
                 ),
                 id: Some(vpc_id),
-                metadata: Some(rpc::Metadata {
+                metadata: Some(forge::Metadata {
                     name: name.to_string(),
                     description: "test vpc".to_string(),
                     labels: vec![],
@@ -858,7 +861,7 @@ impl ApiClient {
     }
 
     // Fetch from Carbide and return a vector of Dpa interface IDs
-    async fn get_dpa_ids(&self) -> CarbideCliResult<rpc::DpaInterfaceIdList> {
+    async fn get_dpa_ids(&self) -> CarbideCliResult<forge::DpaInterfaceIdList> {
         Ok(self.0.get_all_dpa_interface_ids().await?)
     }
 
@@ -868,14 +871,14 @@ impl ApiClient {
         name: Option<String>,
         label_key: Option<String>,
         label_value: Option<String>,
-    ) -> CarbideCliResult<rpc::VpcIdList> {
-        let request = rpc::VpcSearchFilter {
+    ) -> CarbideCliResult<forge::VpcIdList> {
+        let request = forge::VpcSearchFilter {
             tenant_org_id,
             name,
             label: if label_key.is_none() && label_value.is_none() {
                 None
             } else {
-                Some(rpc::Label {
+                Some(forge::Label {
                     key: label_key.unwrap_or_default(),
                     value: label_value,
                 })
@@ -891,10 +894,10 @@ impl ApiClient {
     /// do this with an empty VPC).
     pub async fn set_vpc_network_virtualization_type(
         &self,
-        vpc: rpc::Vpc,
+        vpc: forge::Vpc,
         virtualizer: VpcVirtualizationType,
     ) -> CarbideCliResult<()> {
-        let request = rpc::VpcUpdateVirtualizationRequest {
+        let request = forge::VpcUpdateVirtualizationRequest {
             id: vpc.id,
             if_version_match: None,
             network_virtualization_type: Some(virtualizer.into()),
@@ -909,9 +912,9 @@ impl ApiClient {
         tenant_org_id: Option<String>,
         name: Option<String>,
         page_size: usize,
-    ) -> CarbideCliResult<rpc::IbPartitionList> {
+    ) -> CarbideCliResult<forge::IbPartitionList> {
         let all_ids = self.get_ib_partition_ids(tenant_org_id, name).await?;
-        let mut all_list = rpc::IbPartitionList {
+        let mut all_list = forge::IbPartitionList {
             ib_partitions: Vec::with_capacity(all_ids.ib_partition_ids.len()),
         };
 
@@ -926,7 +929,7 @@ impl ApiClient {
     pub async fn get_one_ib_partition(
         &self,
         ib_partition_id: IBPartitionId,
-    ) -> CarbideCliResult<rpc::IbPartitionList> {
+    ) -> CarbideCliResult<forge::IbPartitionList> {
         let partitions = self.get_ib_partitions_by_ids(&[ib_partition_id]).await?;
 
         Ok(partitions)
@@ -936,8 +939,8 @@ impl ApiClient {
         &self,
         tenant_org_id: Option<String>,
         name: Option<String>,
-    ) -> CarbideCliResult<rpc::IbPartitionIdList> {
-        let request = rpc::IbPartitionSearchFilter {
+    ) -> CarbideCliResult<forge::IbPartitionIdList> {
+        let request = forge::IbPartitionSearchFilter {
             tenant_org_id,
             name,
         };
@@ -947,8 +950,8 @@ impl ApiClient {
     async fn get_ib_partitions_by_ids(
         &self,
         ids: &[IBPartitionId],
-    ) -> CarbideCliResult<rpc::IbPartitionList> {
-        let request = rpc::IbPartitionsByIdsRequest {
+    ) -> CarbideCliResult<forge::IbPartitionList> {
+        let request = forge::IbPartitionsByIdsRequest {
             ib_partition_ids: Vec::from(ids),
             include_history: ids.len() == 1,
         };
@@ -959,9 +962,9 @@ impl ApiClient {
         &self,
         tenant_org_id: Option<String>,
         page_size: usize,
-    ) -> CarbideCliResult<rpc::TenantKeySetList> {
+    ) -> CarbideCliResult<forge::TenantKeySetList> {
         let all_ids = self.get_keyset_ids(tenant_org_id).await?;
-        let mut all_list = rpc::TenantKeySetList {
+        let mut all_list = forge::TenantKeySetList {
             keyset: Vec::with_capacity(all_ids.keyset_ids.len()),
         };
 
@@ -975,8 +978,8 @@ impl ApiClient {
 
     pub async fn get_one_keyset(
         &self,
-        keyset_id: rpc::TenantKeysetIdentifier,
-    ) -> CarbideCliResult<rpc::TenantKeySetList> {
+        keyset_id: forge::TenantKeysetIdentifier,
+    ) -> CarbideCliResult<forge::TenantKeySetList> {
         let keysets = self
             .get_keysets_by_ids(std::slice::from_ref(&keyset_id))
             .await?;
@@ -987,16 +990,16 @@ impl ApiClient {
     async fn get_keyset_ids(
         &self,
         tenant_org_id: Option<String>,
-    ) -> CarbideCliResult<rpc::TenantKeysetIdList> {
-        let request = rpc::TenantKeysetSearchFilter { tenant_org_id };
+    ) -> CarbideCliResult<forge::TenantKeysetIdList> {
+        let request = forge::TenantKeysetSearchFilter { tenant_org_id };
         Ok(self.0.find_tenant_keyset_ids(request).await?)
     }
 
     async fn get_keysets_by_ids(
         &self,
-        identifiers: &[rpc::TenantKeysetIdentifier],
-    ) -> CarbideCliResult<rpc::TenantKeySetList> {
-        let request = rpc::TenantKeysetsByIdsRequest {
+        identifiers: &[forge::TenantKeysetIdentifier],
+    ) -> CarbideCliResult<forge::TenantKeySetList> {
+        let request = forge::TenantKeysetsByIdsRequest {
             keyset_ids: Vec::from(identifiers),
             include_key_data: true,
         };
@@ -1006,15 +1009,15 @@ impl ApiClient {
     pub async fn machine_set_auto_update(
         &self,
         req: MachineAutoupdate,
-    ) -> CarbideCliResult<::rpc::forge::MachineSetAutoUpdateResponse> {
+    ) -> CarbideCliResult<forge::MachineSetAutoUpdateResponse> {
         let action = if req.enable {
-            ::rpc::forge::machine_set_auto_update_request::SetAutoupdateAction::Enable
+            forge::machine_set_auto_update_request::SetAutoupdateAction::Enable
         } else if req.disable {
-            ::rpc::forge::machine_set_auto_update_request::SetAutoupdateAction::Disable
+            forge::machine_set_auto_update_request::SetAutoupdateAction::Disable
         } else {
-            ::rpc::forge::machine_set_auto_update_request::SetAutoupdateAction::Clear
+            forge::machine_set_auto_update_request::SetAutoupdateAction::Clear
         };
-        let request = ::rpc::forge::MachineSetAutoUpdateRequest {
+        let request = forge::MachineSetAutoUpdateRequest {
             machine_id: Some(req.machine),
             action: action.into(),
         };
@@ -1028,7 +1031,7 @@ impl ApiClient {
         // find all the segment ids for the specified subnets.
         let mut network_segment_ids = Vec::default();
         for network_segment_name in subnets {
-            let segment_request = rpc::NetworkSegmentSearchFilter {
+            let segment_request = forge::NetworkSegmentSearchFilter {
                 name: Some(network_segment_name.clone()),
                 tenant_org_id: None,
             };
@@ -1056,7 +1059,7 @@ impl ApiClient {
         allocate_instance: &AllocateInstance,
         instance_name: &str,
         modified_by: Option<String>,
-    ) -> CarbideCliResult<rpc::InstanceAllocationRequest> {
+    ) -> CarbideCliResult<forge::InstanceAllocationRequest> {
         let mut vf_function_id = 0;
         let (interface_configs, tenant_org) = if !allocate_instance.subnet.is_empty() {
             if !allocate_instance.vf_vpc_prefix_id.is_empty() {
@@ -1120,8 +1123,8 @@ impl ApiClient {
                     .and_modify(|i| *i += 1)
                     .or_insert(0) as u32;
 
-                interface_config.push(rpc::InstanceInterfaceConfig {
-                    function_type: rpc::InterfaceFunctionType::Physical as i32,
+                interface_config.push(forge::InstanceInterfaceConfig {
+                    function_type: forge::InterfaceFunctionType::Physical as i32,
                     network_segment_id: Some(network_segment_id), // to support legacy.
                     network_details: Some(NetworkDetails::SegmentId(network_segment_id)),
                     device: Some(device.to_string()),
@@ -1132,8 +1135,8 @@ impl ApiClient {
 
                 if let Some(vf_network_segment_chunks) = vf_chunk_iter.next() {
                     for vf_network_segment_id in vf_network_segment_chunks {
-                        interface_config.push(rpc::InstanceInterfaceConfig {
-                            function_type: rpc::InterfaceFunctionType::Virtual as i32,
+                        interface_config.push(forge::InstanceInterfaceConfig {
+                            function_type: forge::InterfaceFunctionType::Virtual as i32,
                             network_segment_id: Some(*vf_network_segment_id), // to support legacy.
                             network_details: Some(NetworkDetails::SegmentId(
                                 *vf_network_segment_id,
@@ -1196,8 +1199,8 @@ impl ApiClient {
                         .and_modify(|c| *c += 1)
                         .or_insert(0u32);
 
-                    let new_interface = rpc::InstanceInterfaceConfig {
-                        function_type: rpc::InterfaceFunctionType::Physical as i32,
+                    let new_interface = forge::InstanceInterfaceConfig {
+                        function_type: forge::InterfaceFunctionType::Physical as i32,
                         network_segment_id: None,
                         network_details: Some(NetworkDetails::VpcPrefixId(*vpc_prefix_id)),
                         device: Some(pci_properties.device.clone()),
@@ -1211,8 +1214,8 @@ impl ApiClient {
 
                     if let Some(vf_prefix_chunks) = vf_chunk_iter.next() {
                         for vf_vpc_prefix_id in vf_prefix_chunks {
-                            let new_interface = rpc::InstanceInterfaceConfig {
-                                function_type: rpc::InterfaceFunctionType::Virtual as i32,
+                            let new_interface = forge::InstanceInterfaceConfig {
+                                function_type: forge::InterfaceFunctionType::Virtual as i32,
                                 network_segment_id: None,
                                 network_details: Some(NetworkDetails::VpcPrefixId(
                                     *vf_vpc_prefix_id,
@@ -1257,16 +1260,16 @@ impl ApiClient {
                     .to_string(),
             ));
         }
-        let tenant_config = rpc::TenantConfig {
+        let tenant_config = forge::TenantConfig {
             tenant_organization_id: tenant_org.to_string(),
             tenant_keyset_ids: vec![],
             hostname: None,
         };
 
-        let instance_config = rpc::InstanceConfig {
+        let instance_config = forge::InstanceConfig {
             tenant: Some(tenant_config),
             os: allocate_instance.os.clone(),
-            network: Some(rpc::InstanceNetworkConfig {
+            network: Some(forge::InstanceNetworkConfig {
                 interfaces: interface_configs,
             }),
             network_security_group_id: allocate_instance.network_security_group_id.clone(),
@@ -1276,11 +1279,11 @@ impl ApiClient {
         };
 
         let mut labels = vec![
-            rpc::Label {
+            forge::Label {
                 key: String::from("cloud-unsafe-op"),
                 value: None,
             },
-            rpc::Label {
+            forge::Label {
                 key: String::from("admin-cli-last-modified-by"),
                 value: modified_by,
             },
@@ -1290,20 +1293,20 @@ impl ApiClient {
             (None, Some(_)) => {
                 tracing::error!("label key cannot be empty while value is not empty.");
             }
-            (Some(key), value) => labels.push(rpc::Label {
+            (Some(key), value) => labels.push(forge::Label {
                 key: key.to_string(),
                 value: value.clone(),
             }),
             (None, None) => {}
         }
 
-        let instance_request = rpc::InstanceAllocationRequest {
+        let instance_request = forge::InstanceAllocationRequest {
             instance_id: None,
             machine_id: machine.id,
 
             instance_type_id: allocate_instance.instance_type_id.clone(),
             config: Some(instance_config),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: instance_name.to_string(),
                 description: "instance created from admin-cli".to_string(),
                 labels,
@@ -1321,7 +1324,7 @@ impl ApiClient {
         allocate_instance: &AllocateInstance,
         instance_name: &str,
         modified_by: Option<String>,
-    ) -> CarbideCliResult<rpc::Instance> {
+    ) -> CarbideCliResult<forge::Instance> {
         let request = self
             .build_instance_request(machine, allocate_instance, instance_name, modified_by)
             .await?;
@@ -1331,11 +1334,11 @@ impl ApiClient {
     /// Batch allocate instances (all-or-nothing).
     pub async fn allocate_instances(
         &self,
-        requests: Vec<rpc::InstanceAllocationRequest>,
-    ) -> CarbideCliResult<Vec<rpc::Instance>> {
+        requests: Vec<forge::InstanceAllocationRequest>,
+    ) -> CarbideCliResult<Vec<forge::Instance>> {
         let response = self
             .0
-            .allocate_instances(rpc::BatchInstanceAllocationRequest {
+            .allocate_instances(forge::BatchInstanceAllocationRequest {
                 instance_requests: requests,
             })
             .await?;
@@ -1350,10 +1353,10 @@ impl ApiClient {
     pub async fn update_instance_config_with(
         &self,
         instance_id: InstanceId,
-        modify_config: impl FnOnce(&mut rpc::InstanceConfig),
-        modify_metadata: impl FnOnce(&mut rpc::Metadata),
+        modify_config: impl FnOnce(&mut forge::InstanceConfig),
+        modify_metadata: impl FnOnce(&mut forge::Metadata),
         modified_by: Option<String>,
-    ) -> CarbideCliResult<rpc::Instance> {
+    ) -> CarbideCliResult<forge::Instance> {
         let find_response = self.0.find_instances_by_ids(vec![instance_id]).await?;
 
         let instance = find_response
@@ -1372,16 +1375,16 @@ impl ApiClient {
         let metadata = instance.metadata.map(|mut m| {
             modify_metadata(&mut m);
 
-            let mut labels: Vec<rpc::Label> = m
+            let mut labels: Vec<forge::Label> = m
                 .labels
                 .into_iter()
                 .filter(|l| l.key != "cloud-unsafe-op" && l.key != "admin-cli-last-modified-by")
                 .collect();
-            labels.push(rpc::Label {
+            labels.push(forge::Label {
                 key: String::from("cloud-unsafe-op"),
                 value: None,
             });
-            labels.push(rpc::Label {
+            labels.push(forge::Label {
                 key: String::from("admin-cli-last-modified-by"),
                 value: modified_by,
             });
@@ -1390,7 +1393,7 @@ impl ApiClient {
             m
         });
 
-        let update_instance_request = rpc::InstanceConfigUpdateRequest {
+        let update_instance_request = forge::InstanceConfigUpdateRequest {
             instance_id: Some(instance_id),
             if_version_match: Some(instance.config_version),
             config,
@@ -1408,7 +1411,7 @@ impl ApiClient {
         description: String,
         config: Vec<u8>,
     ) -> CarbideCliResult<()> {
-        let request = rpc::AddUpdateMachineValidationExternalConfigRequest {
+        let request = forge::AddUpdateMachineValidationExternalConfigRequest {
             name,
             description: Some(description),
             config,
@@ -1424,12 +1427,12 @@ impl ApiClient {
         machine_id: Option<MachineId>,
         history: bool,
         arg_validation_id: Option<String>,
-    ) -> CarbideCliResult<rpc::MachineValidationResultList> {
-        let mut validation_id: Option<::rpc::common::Uuid> = None;
+    ) -> CarbideCliResult<forge::MachineValidationResultList> {
+        let mut validation_id: Option<nico_rpc::common::Uuid> = None;
         if let Some(value) = arg_validation_id {
-            validation_id = Some(::rpc::common::Uuid { value })
+            validation_id = Some(nico_rpc::common::Uuid { value })
         }
-        let request = rpc::MachineValidationGetRequest {
+        let request = forge::MachineValidationGetRequest {
             machine_id,
             include_history: history,
             validation_id,
@@ -1441,8 +1444,8 @@ impl ApiClient {
         &self,
         machine_id: Option<MachineId>,
         include_history: bool,
-    ) -> CarbideCliResult<rpc::MachineValidationRunList> {
-        let request = rpc::MachineValidationRunListGetRequest {
+    ) -> CarbideCliResult<forge::MachineValidationRunList> {
+        let request = forge::MachineValidationRunListGetRequest {
             machine_id,
             include_history,
         };
@@ -1456,17 +1459,17 @@ impl ApiClient {
         allowed_tests: Option<Vec<String>>,
         run_unverfied_tests: bool,
         contexts: Option<Vec<String>>,
-    ) -> CarbideCliResult<rpc::MachineValidationOnDemandResponse> {
+    ) -> CarbideCliResult<forge::MachineValidationOnDemandResponse> {
         let allowed_tests: Vec<String> = allowed_tests
             .unwrap_or_default()
             .into_iter()
             .map(|t| t.to_ascii_lowercase())
             .collect();
-        let request = rpc::MachineValidationOnDemandRequest {
+        let request = forge::MachineValidationOnDemandRequest {
             machine_id: Some(machine_id),
             tags: tags.unwrap_or_default(),
             allowed_tests,
-            action: rpc::machine_validation_on_demand_request::Action::Start.into(),
+            action: forge::machine_validation_on_demand_request::Action::Start.into(),
             run_unverfied_tests,
             contexts: contexts.unwrap_or_default(),
         };
@@ -1476,8 +1479,8 @@ impl ApiClient {
     pub async fn list_os_image(
         &self,
         tenant_organization_id: Option<String>,
-    ) -> CarbideCliResult<Vec<rpc::OsImage>> {
-        let request = rpc::ListOsImageRequest {
+    ) -> CarbideCliResult<Vec<forge::OsImage>> {
+        let request = forge::ListOsImageRequest {
             tenant_organization_id,
         };
         let response = self.0.list_os_image(request).await?;
@@ -1486,12 +1489,12 @@ impl ApiClient {
 
     pub async fn update_os_image(
         &self,
-        id: ::rpc::common::Uuid,
+        id: nico_rpc::common::Uuid,
         auth_type: Option<String>,
         auth_token: Option<String>,
         name: Option<String>,
         description: Option<String>,
-    ) -> CarbideCliResult<rpc::OsImage> {
+    ) -> CarbideCliResult<forge::OsImage> {
         let os_image = self.0.get_os_image(id).await?;
         let Some(mut new_attrs) = os_image.attributes else {
             return Err(CarbideCliError::Empty);
@@ -1515,10 +1518,10 @@ impl ApiClient {
         &self,
         instance_id: InstanceId,
         version: String,
-        config: rpc::InstanceConfig,
-        metadata: Option<rpc::Metadata>,
-    ) -> CarbideCliResult<rpc::Instance> {
-        let request = rpc::InstanceConfigUpdateRequest {
+        config: forge::InstanceConfig,
+        metadata: Option<forge::Metadata>,
+    ) -> CarbideCliResult<forge::Instance> {
+        let request = forge::InstanceConfigUpdateRequest {
             instance_id: Some(instance_id),
             if_version_match: Some(version),
             config: Some(config),
@@ -1532,10 +1535,10 @@ impl ApiClient {
         vpc_id: VpcId,
         version: String,
         name: String,
-        metadata: Option<rpc::Metadata>,
+        metadata: Option<forge::Metadata>,
         network_security_group_id: Option<String>,
-    ) -> CarbideCliResult<rpc::Vpc> {
-        let request = rpc::VpcUpdateRequest {
+    ) -> CarbideCliResult<forge::Vpc> {
+        let request = forge::VpcUpdateRequest {
             name,
             id: Some(vpc_id),
             if_version_match: Some(version),
@@ -1556,14 +1559,14 @@ impl ApiClient {
         platforms: Vec<String>,
         contexts: Vec<String>,
         show_un_verified: bool,
-    ) -> CarbideCliResult<rpc::MachineValidationTestsGetResponse> {
+    ) -> CarbideCliResult<forge::MachineValidationTestsGetResponse> {
         let verified = if show_un_verified { None } else { Some(true) };
-        let request = rpc::MachineValidationTestsGetRequest {
+        let request = forge::MachineValidationTestsGetRequest {
             supported_platforms: platforms,
             contexts,
             test_id,
             verified,
-            ..rpc::MachineValidationTestsGetRequest::default()
+            ..forge::MachineValidationTestsGetRequest::default()
         };
         Ok(self.0.get_machine_validation_tests(request).await?)
     }
@@ -1571,10 +1574,10 @@ impl ApiClient {
     pub async fn update_machine_metadata(
         &self,
         machine_id: MachineId,
-        metadata: ::rpc::forge::Metadata,
+        metadata: forge::Metadata,
         current_version: String,
     ) -> CarbideCliResult<()> {
-        let request = ::rpc::forge::MachineMetadataUpdateRequest {
+        let request = forge::MachineMetadataUpdateRequest {
             machine_id: Some(machine_id),
             if_version_match: Some(current_version),
             metadata: Some(metadata),
@@ -1585,10 +1588,10 @@ impl ApiClient {
     pub async fn update_rack_metadata(
         &self,
         rack_id: RackId,
-        metadata: ::rpc::forge::Metadata,
+        metadata: forge::Metadata,
         current_version: String,
     ) -> CarbideCliResult<()> {
-        let request = ::rpc::forge::RackMetadataUpdateRequest {
+        let request = forge::RackMetadataUpdateRequest {
             rack_id: Some(rack_id),
             if_version_match: Some(current_version),
             metadata: Some(metadata),
@@ -1599,10 +1602,10 @@ impl ApiClient {
     pub async fn update_switch_metadata(
         &self,
         switch_id: SwitchId,
-        metadata: ::rpc::forge::Metadata,
+        metadata: forge::Metadata,
         current_version: String,
     ) -> CarbideCliResult<()> {
-        let request = ::rpc::forge::SwitchMetadataUpdateRequest {
+        let request = forge::SwitchMetadataUpdateRequest {
             switch_id: Some(switch_id),
             if_version_match: Some(current_version),
             metadata: Some(metadata),
@@ -1613,10 +1616,10 @@ impl ApiClient {
     pub async fn update_power_shelf_metadata(
         &self,
         power_shelf_id: PowerShelfId,
-        metadata: ::rpc::forge::Metadata,
+        metadata: forge::Metadata,
         current_version: String,
     ) -> CarbideCliResult<()> {
-        let request = ::rpc::forge::PowerShelfMetadataUpdateRequest {
+        let request = forge::PowerShelfMetadataUpdateRequest {
             power_shelf_id: Some(power_shelf_id),
             if_version_match: Some(current_version),
             metadata: Some(metadata),
@@ -1627,7 +1630,7 @@ impl ApiClient {
     pub async fn get_single_network_security_group(
         &self,
         id: String,
-    ) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
+    ) -> CarbideCliResult<forge::NetworkSecurityGroup> {
         self.0
             .find_network_security_groups_by_ids(FindNetworkSecurityGroupsByIdsRequest {
                 tenant_organization_id: None,
@@ -1642,7 +1645,7 @@ impl ApiClient {
     pub async fn get_network_security_group_attachments(
         &self,
         id: String,
-    ) -> CarbideCliResult<rpc::NetworkSecurityGroupAttachments> {
+    ) -> CarbideCliResult<forge::NetworkSecurityGroupAttachments> {
         self.0
             .get_network_security_group_attachments(GetNetworkSecurityGroupAttachmentsRequest {
                 network_security_group_ids: vec![id],
@@ -1659,14 +1662,14 @@ impl ApiClient {
         vpc_ids: Option<Vec<String>>,
         instance_ids: Option<Vec<String>>,
     ) -> CarbideCliResult<(
-        Vec<rpc::NetworkSecurityGroupPropagationObjectStatus>,
-        Vec<rpc::NetworkSecurityGroupPropagationObjectStatus>,
+        Vec<forge::NetworkSecurityGroupPropagationObjectStatus>,
+        Vec<forge::NetworkSecurityGroupPropagationObjectStatus>,
     )> {
         let nsg = self
             .0
             .get_network_security_group_propagation_status(
                 GetNetworkSecurityGroupPropagationStatusRequest {
-                    network_security_group_ids: Some(rpc::NetworkSecurityGroupIdList {
+                    network_security_group_ids: Some(forge::NetworkSecurityGroupIdList {
                         ids: vec![id],
                     }),
                     vpc_ids: vpc_ids.unwrap_or_default(),
@@ -1681,10 +1684,10 @@ impl ApiClient {
     pub async fn get_all_network_security_groups(
         &self,
         page_size: usize,
-    ) -> CarbideCliResult<Vec<rpc::NetworkSecurityGroup>> {
+    ) -> CarbideCliResult<Vec<forge::NetworkSecurityGroup>> {
         let all_nsg_ids = self
             .0
-            .find_network_security_group_ids(rpc::FindNetworkSecurityGroupIdsRequest {
+            .find_network_security_group_ids(forge::FindNetworkSecurityGroupIdsRequest {
                 name: None,
                 tenant_organization_id: None,
             })
@@ -1712,11 +1715,11 @@ impl ApiClient {
         &self,
         id: String,
         tenant_organization_id: String,
-        metadata: rpc::Metadata,
+        metadata: forge::Metadata,
         if_version_match: Option<String>,
         stateful_egress: bool,
-        rules: Vec<rpc::NetworkSecurityGroupRuleAttributes>,
-    ) -> CarbideCliResult<rpc::NetworkSecurityGroup> {
+        rules: Vec<forge::NetworkSecurityGroupRuleAttributes>,
+    ) -> CarbideCliResult<forge::NetworkSecurityGroup> {
         let request = UpdateNetworkSecurityGroupRequest {
             id,
             tenant_organization_id,
@@ -1740,7 +1743,7 @@ impl ApiClient {
         &self,
         id: MachineId,
         hardware_info_update_type: MachineHardwareInfoUpdateType,
-        gpus: Vec<::rpc::machine_discovery::Gpu>,
+        gpus: Vec<nico_rpc::machine_discovery::Gpu>,
     ) -> CarbideCliResult<()> {
         let hardware_info = MachineHardwareInfo { gpus };
         Ok(self
@@ -1756,11 +1759,11 @@ impl ApiClient {
     pub async fn update_machine_nvlink_info(
         &self,
         machine_id: MachineId,
-        nvlink_info: rpc::MachineNvLinkInfo,
+        nvlink_info: forge::MachineNvLinkInfo,
     ) -> CarbideCliResult<()> {
         Ok(self
             .0
-            .update_machine_nv_link_info(rpc::UpdateMachineNvLinkInfoRequest {
+            .update_machine_nv_link_info(forge::UpdateMachineNvLinkInfoRequest {
                 machine_id: Some(machine_id),
                 nvlink_info: Some(nvlink_info),
             })
@@ -1770,7 +1773,7 @@ impl ApiClient {
     pub async fn get_all_instance_types(
         &self,
         page_size: usize,
-    ) -> CarbideCliResult<Vec<rpc::InstanceType>> {
+    ) -> CarbideCliResult<Vec<forge::InstanceType>> {
         let all_ids = self.0.find_instance_type_ids().await?.instance_type_ids;
 
         let mut all_itypes = Vec::with_capacity(all_ids.len());
@@ -1794,10 +1797,10 @@ impl ApiClient {
     pub async fn get_power_options(
         &self,
         machine_id: Vec<MachineId>,
-    ) -> CarbideCliResult<Vec<rpc::PowerOptions>> {
+    ) -> CarbideCliResult<Vec<forge::PowerOptions>> {
         let all_options = self
             .0
-            .get_power_options(rpc::PowerOptionRequest { machine_id })
+            .get_power_options(forge::PowerOptionRequest { machine_id })
             .await?
             .response;
 
@@ -1809,9 +1812,9 @@ impl ApiClient {
         tenant_org_id: Option<String>,
         name: Option<String>,
         page_size: usize,
-    ) -> CarbideCliResult<rpc::NvLinkPartitionList> {
+    ) -> CarbideCliResult<forge::NvLinkPartitionList> {
         let all_ids = self.get_nv_link_partition_ids(tenant_org_id, name).await?;
-        let mut all_list = rpc::NvLinkPartitionList {
+        let mut all_list = forge::NvLinkPartitionList {
             partitions: Vec::with_capacity(all_ids.partition_ids.len()),
         };
 
@@ -1826,7 +1829,7 @@ impl ApiClient {
     pub async fn get_one_nv_link_partition(
         &self,
         nvl_partition_id: NvLinkPartitionId,
-    ) -> CarbideCliResult<rpc::NvLinkPartition> {
+    ) -> CarbideCliResult<forge::NvLinkPartition> {
         let partitions = self
             .get_nv_link_partitions_by_ids(std::slice::from_ref(&nvl_partition_id))
             .await?;
@@ -1840,8 +1843,8 @@ impl ApiClient {
         &self,
         tenant_organization_id: Option<String>,
         name: Option<String>,
-    ) -> CarbideCliResult<rpc::NvLinkPartitionIdList> {
-        let request = rpc::NvLinkPartitionSearchFilter {
+    ) -> CarbideCliResult<forge::NvLinkPartitionIdList> {
+        let request = forge::NvLinkPartitionSearchFilter {
             tenant_organization_id,
             name,
         };
@@ -1854,8 +1857,8 @@ impl ApiClient {
     async fn get_nv_link_partitions_by_ids(
         &self,
         ids: &[NvLinkPartitionId],
-    ) -> CarbideCliResult<rpc::NvLinkPartitionList> {
-        let request = rpc::NvLinkPartitionsByIdsRequest {
+    ) -> CarbideCliResult<forge::NvLinkPartitionList> {
+        let request = forge::NvLinkPartitionsByIdsRequest {
             partition_ids: Vec::from(ids),
             include_history: ids.len() == 1,
         };
@@ -1869,9 +1872,9 @@ impl ApiClient {
         &self,
         name: Option<String>,
         page_size: usize,
-    ) -> CarbideCliResult<rpc::NvLinkLogicalPartitionList> {
+    ) -> CarbideCliResult<forge::NvLinkLogicalPartitionList> {
         let all_ids = self.get_logical_partition_ids(name).await?;
-        let mut all_list = rpc::NvLinkLogicalPartitionList {
+        let mut all_list = forge::NvLinkLogicalPartitionList {
             partitions: Vec::with_capacity(all_ids.partition_ids.len()),
         };
 
@@ -1886,7 +1889,7 @@ impl ApiClient {
     pub async fn get_one_logical_partition(
         &self,
         partition_id: NvLinkLogicalPartitionId,
-    ) -> CarbideCliResult<rpc::NvLinkLogicalPartition> {
+    ) -> CarbideCliResult<forge::NvLinkLogicalPartition> {
         let partitions = self
             .get_logical_partitions_by_ids(std::slice::from_ref(&partition_id))
             .await?;
@@ -1901,8 +1904,8 @@ impl ApiClient {
     async fn get_logical_partition_ids(
         &self,
         name: Option<String>,
-    ) -> CarbideCliResult<rpc::NvLinkLogicalPartitionIdList> {
-        let request = rpc::NvLinkLogicalPartitionSearchFilter { name };
+    ) -> CarbideCliResult<forge::NvLinkLogicalPartitionIdList> {
+        let request = forge::NvLinkLogicalPartitionSearchFilter { name };
         self.0
             .find_nv_link_logical_partition_ids(request)
             .await
@@ -1912,8 +1915,8 @@ impl ApiClient {
     async fn get_logical_partitions_by_ids(
         &self,
         ids: &[NvLinkLogicalPartitionId],
-    ) -> CarbideCliResult<rpc::NvLinkLogicalPartitionList> {
-        let request = rpc::NvLinkLogicalPartitionsByIdsRequest {
+    ) -> CarbideCliResult<forge::NvLinkLogicalPartitionList> {
+        let request = forge::NvLinkLogicalPartitionsByIdsRequest {
             partition_ids: Vec::from(ids),
             include_history: ids.len() == 1,
         };
@@ -1927,8 +1930,8 @@ impl ApiClient {
         &self,
         bmc_endpoint_request: Option<BmcEndpointRequest>,
         machine_id: Option<String>,
-    ) -> CarbideCliResult<rpc::EnableInfiniteBootResponse> {
-        let request = rpc::EnableInfiniteBootRequest {
+    ) -> CarbideCliResult<forge::EnableInfiniteBootResponse> {
+        let request = forge::EnableInfiniteBootRequest {
             bmc_endpoint_request,
             machine_id,
         };
@@ -1939,9 +1942,9 @@ impl ApiClient {
         &self,
         bmc_endpoint_request: Option<BmcEndpointRequest>,
         machine_id: MachineId,
-        action: rpc::LockdownAction,
-    ) -> CarbideCliResult<rpc::LockdownResponse> {
-        let request = rpc::LockdownRequest {
+        action: forge::LockdownAction,
+    ) -> CarbideCliResult<forge::LockdownResponse> {
+        let request = forge::LockdownRequest {
             bmc_endpoint_request,
             machine_id: Some(machine_id),
             action: Some(action as i32),
@@ -1994,20 +1997,20 @@ impl ApiClient {
         name: Option<String>,
         tenant_organization_id: Option<String>,
         page_size: usize,
-    ) -> CarbideCliResult<rpc::DpuExtensionServiceList> {
-        let filter = rpc::DpuExtensionServiceSearchFilter {
+    ) -> CarbideCliResult<forge::DpuExtensionServiceList> {
+        let filter = forge::DpuExtensionServiceSearchFilter {
             service_type,
             name,
             tenant_organization_id,
         };
         let ids_response = self.0.find_dpu_extension_service_ids(filter).await?;
 
-        let mut all_list = rpc::DpuExtensionServiceList {
+        let mut all_list = forge::DpuExtensionServiceList {
             services: Vec::with_capacity(ids_response.service_ids.len()),
         };
 
         for ids in ids_response.service_ids.chunks(page_size) {
-            let request = rpc::DpuExtensionServicesByIdsRequest {
+            let request = forge::DpuExtensionServicesByIdsRequest {
                 service_ids: ids.to_vec(),
             };
             let list = self.0.find_dpu_extension_services_by_ids(request).await?;
@@ -2020,8 +2023,8 @@ impl ApiClient {
     pub async fn get_extension_service_by_id(
         &self,
         service_id: String,
-    ) -> CarbideCliResult<rpc::DpuExtensionService> {
-        let request = rpc::DpuExtensionServicesByIdsRequest {
+    ) -> CarbideCliResult<forge::DpuExtensionService> {
+        let request = forge::DpuExtensionServicesByIdsRequest {
             service_ids: vec![service_id],
         };
 
@@ -2055,7 +2058,7 @@ impl ApiClient {
         &self,
         machine_ids: Vec<MachineId>,
         page_size: usize,
-    ) -> CarbideCliResult<Vec<rpc::dpf_state_response::DpfState>> {
+    ) -> CarbideCliResult<Vec<forge::dpf_state_response::DpfState>> {
         let mut all_dpf_states = Vec::with_capacity(machine_ids.len());
 
         for machine_ids in machine_ids.chunks(page_size) {

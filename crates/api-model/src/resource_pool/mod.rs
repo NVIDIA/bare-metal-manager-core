@@ -23,7 +23,8 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 pub use define::{Range, ResourcePoolDef, ResourcePoolType};
-use rpc::errors::RpcDataConversionError;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 
@@ -108,9 +109,9 @@ impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ResourcePoolSnapshot {
     }
 }
 
-impl From<ResourcePoolSnapshot> for rpc::forge::ResourcePool {
+impl From<ResourcePoolSnapshot> for forge::ResourcePool {
     fn from(rp: ResourcePoolSnapshot) -> Self {
-        rpc::forge::ResourcePool {
+        forge::ResourcePool {
             name: rp.name,
             min: rp.min,
             max: rp.max,

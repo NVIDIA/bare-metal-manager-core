@@ -22,9 +22,10 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use carbide_uuid::switch::SwitchId;
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::switch::SwitchId;
 
 use super::filters;
 use crate::api::Api;
@@ -65,7 +66,7 @@ pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
 
 async fn fetch_switches(api: &Api) -> Result<Vec<SwitchRecord>, (http::StatusCode, String)> {
     let response = match api
-        .find_switches(tonic::Request::new(rpc::forge::SwitchQuery {
+        .find_switches(tonic::Request::new(forge::SwitchQuery {
             name: None,
             switch_id: None,
         }))
@@ -126,10 +127,10 @@ struct SwitchDetail {
     name: String,
     location: String,
     enable_nmxc: bool,
-    state_reason: Option<rpc::forge::ControllerStateReason>,
+    state_reason: Option<forge::ControllerStateReason>,
     power_state: Option<String>,
     health_status: Option<String>,
-    bmc_info: Option<rpc::forge::BmcInfo>,
+    bmc_info: Option<forge::BmcInfo>,
     metadata_detail: super::MetadataDetail,
 }
 
@@ -147,7 +148,7 @@ struct SwitchDetailJson {
 }
 
 impl SwitchDetail {
-    fn new(switch: rpc::forge::Switch) -> Self {
+    fn new(switch: forge::Switch) -> Self {
         let id = switch
             .id
             .as_ref()
@@ -221,14 +222,14 @@ pub async fn detail(
     (StatusCode::OK, Html(detail.render().unwrap())).into_response()
 }
 
-async fn fetch_switch(api: &Api, switch_id: &str) -> Result<Option<rpc::forge::Switch>, Response> {
+async fn fetch_switch(api: &Api, switch_id: &str) -> Result<Option<forge::Switch>, Response> {
     let switch_id_parsed = match SwitchId::from_str(switch_id) {
         Ok(id) => id,
         Err(_) => return Err((StatusCode::BAD_REQUEST, "Invalid switch ID").into_response()),
     };
 
     let response = match api
-        .find_switches(tonic::Request::new(rpc::forge::SwitchQuery {
+        .find_switches(tonic::Request::new(forge::SwitchQuery {
             name: None,
             switch_id: Some(switch_id_parsed),
         }))

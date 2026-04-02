@@ -16,6 +16,7 @@
  */
 
 use clap::{ArgGroup, Parser};
+use nico_rpc::forge;
 
 #[derive(Parser, Debug)]
 #[clap(group(
@@ -27,7 +28,7 @@ pub struct Args {
     pub filename: String,
 }
 
-impl TryFrom<Args> for ::rpc::forge::GrowResourcePoolRequest {
+impl TryFrom<Args> for forge::GrowResourcePoolRequest {
     type Error = std::io::Error;
 
     fn try_from(args: Args) -> Result<Self, Self::Error> {

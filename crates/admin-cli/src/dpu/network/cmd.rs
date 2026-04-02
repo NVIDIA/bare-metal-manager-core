@@ -17,9 +17,10 @@
 
 use std::collections::HashMap;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge::ManagedHostNetworkConfigResponse;
-use carbide_uuid::machine::MachineId;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_rpc::forge::ManagedHostNetworkConfigResponse;
+use nico_uuid::machine::MachineId;
 use prettytable::{Table, format, row};
 
 use crate::async_write;
@@ -96,7 +97,7 @@ pub async fn show_dpu_network_config(
                     .unwrap_or_default()
             ]);
 
-            let virt_type = ::rpc::forge::VpcVirtualizationType::try_from(
+            let virt_type = forge::VpcVirtualizationType::try_from(
                 config.network_virtualization_type.unwrap_or_default(),
             )
             .unwrap_or_default()

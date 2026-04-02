@@ -18,13 +18,13 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineId;
-use db::machine_interface::find_by_ip;
 use libredfish::RoleId;
 use mac_address::MacAddress;
-use model::machine::machine_id::try_parse_machine_id;
-use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot};
+use nico_api_db::machine_interface::find_by_ip;
+use nico_api_model::machine::machine_id::try_parse_machine_id;
+use nico_api_model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot};
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 use tokio::net::lookup_host;
 use tonic::{Request, Response, Status};
@@ -34,8 +34,8 @@ use crate::api::{Api, log_machine_id, log_request_data};
 
 pub(crate) async fn admin_bmc_reset(
     api: &Api,
-    request: Request<rpc::AdminBmcResetRequest>,
-) -> Result<Response<rpc::AdminBmcResetResponse>, Status> {
+    request: Request<forge::AdminBmcResetRequest>,
+) -> Result<Response<forge::AdminBmcResetResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -74,13 +74,13 @@ pub(crate) async fn admin_bmc_reset(
         endpoint_address
     );
 
-    Ok(Response::new(rpc::AdminBmcResetResponse {}))
+    Ok(Response::new(forge::AdminBmcResetResponse {}))
 }
 
 pub(crate) async fn disable_secure_boot(
     api: &Api,
-    request: Request<rpc::BmcEndpointRequest>,
-) -> Result<Response<rpc::DisableSecureBootResponse>, Status> {
+    request: Request<forge::BmcEndpointRequest>,
+) -> Result<Response<forge::DisableSecureBootResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -105,19 +105,19 @@ pub(crate) async fn disable_secure_boot(
         endpoint_address
     );
 
-    Ok(Response::new(rpc::DisableSecureBootResponse {}))
+    Ok(Response::new(forge::DisableSecureBootResponse {}))
 }
 
 pub(crate) async fn lockdown(
     api: &Api,
-    request: Request<rpc::LockdownRequest>,
-) -> Result<Response<rpc::LockdownResponse>, Status> {
+    request: Request<forge::LockdownRequest>,
+) -> Result<Response<forge::LockdownResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
     let action = req.action();
     let action = match action {
-        rpc::LockdownAction::Enable => libredfish::EnabledDisabled::Enabled,
-        rpc::LockdownAction::Disable => libredfish::EnabledDisabled::Disabled,
+        forge::LockdownAction::Enable => libredfish::EnabledDisabled::Enabled,
+        forge::LockdownAction::Disable => libredfish::EnabledDisabled::Disabled,
     };
 
     let mut txn = api.txn_begin().await?;
@@ -146,13 +146,13 @@ pub(crate) async fn lockdown(
         endpoint_address
     );
 
-    Ok(Response::new(rpc::LockdownResponse {}))
+    Ok(Response::new(forge::LockdownResponse {}))
 }
 
 pub(crate) async fn lockdown_status(
     api: &Api,
-    request: Request<rpc::LockdownStatusRequest>,
-) -> Result<Response<::rpc::site_explorer::LockdownStatus>, Status> {
+    request: Request<forge::LockdownStatusRequest>,
+) -> Result<Response<nico_rpc::site_explorer::LockdownStatus>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -181,8 +181,8 @@ pub(crate) async fn lockdown_status(
 
 pub(crate) async fn enable_infinite_boot(
     api: &Api,
-    request: Request<rpc::EnableInfiniteBootRequest>,
-) -> Result<Response<rpc::EnableInfiniteBootResponse>, Status> {
+    request: Request<forge::EnableInfiniteBootRequest>,
+) -> Result<Response<forge::EnableInfiniteBootResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -215,13 +215,13 @@ pub(crate) async fn enable_infinite_boot(
         endpoint_address
     );
 
-    Ok(Response::new(rpc::EnableInfiniteBootResponse {}))
+    Ok(Response::new(forge::EnableInfiniteBootResponse {}))
 }
 
 pub(crate) async fn is_infinite_boot_enabled(
     api: &Api,
-    request: Request<rpc::IsInfiniteBootEnabledRequest>,
-) -> Result<Response<rpc::IsInfiniteBootEnabledResponse>, Status> {
+    request: Request<forge::IsInfiniteBootEnabledRequest>,
+) -> Result<Response<forge::IsInfiniteBootEnabledResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -255,15 +255,15 @@ pub(crate) async fn is_infinite_boot_enabled(
         is_enabled
     );
 
-    Ok(Response::new(rpc::IsInfiniteBootEnabledResponse {
+    Ok(Response::new(forge::IsInfiniteBootEnabledResponse {
         is_enabled,
     }))
 }
 
 pub(crate) async fn machine_setup(
     api: &Api,
-    request: Request<rpc::MachineSetupRequest>,
-) -> Result<Response<rpc::MachineSetupResponse>, Status> {
+    request: Request<forge::MachineSetupRequest>,
+) -> Result<Response<forge::MachineSetupResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -300,13 +300,13 @@ pub(crate) async fn machine_setup(
 
     tracing::info!("Machine Setup request succeeded to {}", endpoint_address);
 
-    Ok(Response::new(rpc::MachineSetupResponse {}))
+    Ok(Response::new(forge::MachineSetupResponse {}))
 }
 
 pub(crate) async fn set_dpu_first_boot_order(
     api: &Api,
-    request: Request<rpc::SetDpuFirstBootOrderRequest>,
-) -> Result<Response<rpc::SetDpuFirstBootOrderResponse>, Status> {
+    request: Request<forge::SetDpuFirstBootOrderRequest>,
+) -> Result<Response<forge::SetDpuFirstBootOrderResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -353,13 +353,13 @@ pub(crate) async fn set_dpu_first_boot_order(
         endpoint_address
     );
 
-    Ok(Response::new(rpc::SetDpuFirstBootOrderResponse {}))
+    Ok(Response::new(forge::SetDpuFirstBootOrderResponse {}))
 }
 
 pub(crate) async fn admin_power_control(
     api: &Api,
-    request: Request<rpc::AdminPowerControlRequest>,
-) -> Result<Response<rpc::AdminPowerControlResponse>, Status> {
+    request: Request<forge::AdminPowerControlRequest>,
+) -> Result<Response<forge::AdminPowerControlResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -379,22 +379,22 @@ pub(crate) async fn admin_power_control(
             .await?;
 
     let action = match action {
-        rpc::admin_power_control_request::SystemPowerControl::On => {
+        forge::admin_power_control_request::SystemPowerControl::On => {
             libredfish::SystemPowerControl::On
         }
-        rpc::admin_power_control_request::SystemPowerControl::GracefulShutdown => {
+        forge::admin_power_control_request::SystemPowerControl::GracefulShutdown => {
             libredfish::SystemPowerControl::GracefulShutdown
         }
-        rpc::admin_power_control_request::SystemPowerControl::ForceOff => {
+        forge::admin_power_control_request::SystemPowerControl::ForceOff => {
             libredfish::SystemPowerControl::ForceOff
         }
-        rpc::admin_power_control_request::SystemPowerControl::GracefulRestart => {
+        forge::admin_power_control_request::SystemPowerControl::GracefulRestart => {
             libredfish::SystemPowerControl::GracefulRestart
         }
-        rpc::admin_power_control_request::SystemPowerControl::ForceRestart => {
+        forge::admin_power_control_request::SystemPowerControl::ForceRestart => {
             libredfish::SystemPowerControl::ForceRestart
         }
-        rpc::admin_power_control_request::SystemPowerControl::AcPowercycle => {
+        forge::admin_power_control_request::SystemPowerControl::AcPowercycle => {
             libredfish::SystemPowerControl::ACPowercycle
         }
     };
@@ -403,7 +403,7 @@ pub(crate) async fn admin_power_control(
     if let Some(machine_id) = machine_id {
         let power_manager_enabled = api.runtime_config.power_manager_options.enabled;
         if power_manager_enabled {
-            let snapshot = db::managed_host::load_snapshot(
+            let snapshot = nico_api_db::managed_host::load_snapshot(
                 &mut txn,
                 &machine_id,
                 LoadSnapshotOptions {
@@ -422,7 +422,7 @@ pub(crate) async fn admin_power_control(
                 .host_snapshot
                 .power_options
                 .map(|x| x.desired_power_state)
-                && power_state == model::power_manager::PowerState::On
+                && power_state == nico_api_model::power_manager::PowerState::On
                 && action == libredfish::SystemPowerControl::ForceOff
             {
                 msg = Some(
@@ -436,14 +436,14 @@ pub(crate) async fn admin_power_control(
 
     redfish_power_control(api, bmc_endpoint_request, action).await?;
 
-    Ok(Response::new(rpc::AdminPowerControlResponse { msg }))
+    Ok(Response::new(forge::AdminPowerControlResponse { msg }))
 }
 
 // Ad-hoc BMC exploration
 pub(crate) async fn explore(
     api: &Api,
-    request: tonic::Request<rpc::BmcEndpointRequest>,
-) -> Result<Response<::rpc::site_explorer::EndpointExplorationReport>, Status> {
+    request: tonic::Request<forge::BmcEndpointRequest>,
+) -> Result<Response<nico_rpc::site_explorer::EndpointExplorationReport>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &req).await?;
@@ -458,10 +458,11 @@ pub(crate) async fn explore(
 
     // Look up boot_interface_mac from existing explored endpoint if available
     let mut txn = api.txn_begin().await?;
-    let boot_interface_mac = db::explored_endpoints::find_by_ips(&mut txn, vec![bmc_addr.ip()])
-        .await?
-        .first()
-        .and_then(|ep| ep.boot_interface_mac);
+    let boot_interface_mac =
+        nico_api_db::explored_endpoints::find_by_ips(&mut txn, vec![bmc_addr.ip()])
+            .await?
+            .first()
+            .and_then(|ep| ep.boot_interface_mac);
     txn.commit().await?;
 
     let report = api
@@ -483,7 +484,7 @@ pub(crate) async fn explore(
 
 async fn redfish_reset_bmc(
     api: &Api,
-    request: rpc::BmcEndpointRequest,
+    request: forge::BmcEndpointRequest,
 ) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
@@ -498,7 +499,7 @@ async fn redfish_reset_bmc(
 
 async fn ipmitool_reset_bmc(
     api: &Api,
-    request: rpc::BmcEndpointRequest,
+    request: forge::BmcEndpointRequest,
 ) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
@@ -513,7 +514,7 @@ async fn ipmitool_reset_bmc(
 
 async fn redfish_power_control(
     api: &Api,
-    request: rpc::BmcEndpointRequest,
+    request: forge::BmcEndpointRequest,
     action: libredfish::SystemPowerControl,
 ) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &request).await?;
@@ -529,8 +530,8 @@ async fn redfish_power_control(
 
 pub(crate) async fn bmc_credential_status(
     api: &Api,
-    request: tonic::Request<rpc::BmcEndpointRequest>,
-) -> Result<Response<rpc::BmcCredentialStatusResponse>, Status> {
+    request: tonic::Request<forge::BmcEndpointRequest>,
+) -> Result<Response<forge::BmcCredentialStatusResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
     let (_bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &req).await?;
@@ -541,14 +542,14 @@ pub(crate) async fn bmc_credential_status(
         .have_credentials(&machine_interface)
         .await;
 
-    Ok(Response::new(rpc::BmcCredentialStatusResponse {
+    Ok(Response::new(forge::BmcCredentialStatusResponse {
         have_credentials,
     }))
 }
 
 pub(crate) async fn copy_bfb_to_dpu_rshim(
     api: &Api,
-    request: Request<rpc::CopyBfbToDpuRshimRequest>,
+    request: Request<forge::CopyBfbToDpuRshimRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
@@ -563,7 +564,7 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
                     format!("{}:22", bmc_request.ip_address)
                 };
 
-                rpc::BmcEndpointRequest {
+                forge::BmcEndpointRequest {
                     ip_address,
                     mac_address: bmc_request.mac_address,
                 }
@@ -584,7 +585,7 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
 
 async fn resolve_bmc_interface(
     api: &Api,
-    request: &rpc::BmcEndpointRequest,
+    request: &forge::BmcEndpointRequest,
 ) -> Result<(SocketAddr, MacAddress), Status> {
     let address = if request.ip_address.contains(':') {
         request.ip_address.clone()
@@ -620,7 +621,7 @@ async fn resolve_bmc_interface(
 
 async fn do_copy_bfb_to_dpu_rshim(
     api: &Api,
-    request: &rpc::BmcEndpointRequest,
+    request: &forge::BmcEndpointRequest,
 ) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, request).await?;
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
@@ -669,8 +670,8 @@ async fn do_copy_bfb_to_dpu_rshim(
 
 pub(crate) async fn create_bmc_user(
     api: &Api,
-    request: Request<rpc::CreateBmcUserRequest>,
-) -> Result<Response<rpc::CreateBmcUserResponse>, Status> {
+    request: Request<forge::CreateBmcUserRequest>,
+) -> Result<Response<forge::CreateBmcUserResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -723,13 +724,13 @@ pub(crate) async fn create_bmc_user(
         req.create_username
     );
 
-    Ok(Response::new(rpc::CreateBmcUserResponse {}))
+    Ok(Response::new(forge::CreateBmcUserResponse {}))
 }
 
 pub(crate) async fn delete_bmc_user(
     api: &Api,
-    request: Request<rpc::DeleteBmcUserRequest>,
-) -> Result<Response<rpc::DeleteBmcUserResponse>, Status> {
+    request: Request<forge::DeleteBmcUserRequest>,
+) -> Result<Response<forge::DeleteBmcUserResponse>, Status> {
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -761,12 +762,12 @@ pub(crate) async fn delete_bmc_user(
         req.delete_username
     );
 
-    Ok(Response::new(rpc::DeleteBmcUserResponse {}))
+    Ok(Response::new(forge::DeleteBmcUserResponse {}))
 }
 
 async fn do_create_bmc_user(
     api: &Api,
-    request: &rpc::BmcEndpointRequest,
+    request: &forge::BmcEndpointRequest,
     create_username: &str,
     create_password: &str,
     create_role_id: RoleId,
@@ -790,7 +791,7 @@ async fn do_create_bmc_user(
 
 async fn do_delete_bmc_user(
     api: &Api,
-    request: &rpc::BmcEndpointRequest,
+    request: &forge::BmcEndpointRequest,
     delete_user: &str,
 ) -> Result<Response<()>, Status> {
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, request).await?;
@@ -811,12 +812,12 @@ async fn do_delete_bmc_user(
 /// * `machine_id`           - Optional machine ID that can be used to build a new BmcEndpointRequest.
 pub(crate) async fn validate_and_complete_bmc_endpoint_request(
     txn: &mut PgConnection,
-    bmc_endpoint_request: Option<rpc::BmcEndpointRequest>,
+    bmc_endpoint_request: Option<forge::BmcEndpointRequest>,
     machine_id: Option<MachineId>,
-) -> Result<(rpc::BmcEndpointRequest, Option<MachineId>), CarbideError> {
+) -> Result<(forge::BmcEndpointRequest, Option<MachineId>), CarbideError> {
     match (bmc_endpoint_request, machine_id) {
         (Some(bmc_endpoint_request), _) => {
-            let interface = db::machine_interface::find_by_ip(
+            let interface = nico_api_db::machine_interface::find_by_ip(
                 txn,
                 bmc_endpoint_request.ip_address.parse().unwrap(),
             )
@@ -849,7 +850,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
             };
 
             Ok((
-                rpc::BmcEndpointRequest {
+                forge::BmcEndpointRequest {
                     ip_address: bmc_endpoint_request.ip_address,
                     mac_address: Some(bmc_mac),
                 },
@@ -861,7 +862,8 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
             log_machine_id(&machine_id);
 
             let mut topologies =
-                db::machine_topology::find_latest_by_machine_ids(txn, &[machine_id]).await?;
+                nico_api_db::machine_topology::find_latest_by_machine_ids(txn, &[machine_id])
+                    .await?;
 
             let topology =
                 topologies
@@ -882,7 +884,7 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
             })?;
 
             Ok((
-                rpc::BmcEndpointRequest {
+                forge::BmcEndpointRequest {
                     ip_address: bmc_ip.to_owned(),
                     mac_address: Some(bmc_mac_address.to_string()),
                 },

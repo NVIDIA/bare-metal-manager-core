@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
-use model::expected_rack::ExpectedRack;
+use nico_api_model::expected_rack::ExpectedRack;
+use nico_uuid::rack::RackId;
 use sqlx::PgConnection;
 
 use crate::{DatabaseError, DatabaseResult};

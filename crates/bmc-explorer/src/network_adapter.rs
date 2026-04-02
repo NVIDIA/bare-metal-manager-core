@@ -16,7 +16,7 @@
  */
 
 use mac_address::MacAddress;
-use model::site_explorer::NetworkAdapter as ModelNetworkAdapter;
+use nico_api_model::site_explorer::NetworkAdapter as ModelNetworkAdapter;
 use nv_redfish::chassis::{Chassis, NetworkAdapter};
 use nv_redfish::network_device_function::NetworkDeviceFunction;
 use nv_redfish::{Bmc, Resource};

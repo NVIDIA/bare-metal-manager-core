@@ -15,7 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
+use nico_rpc::forge;
+use nico_uuid::rack::RackId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,5 +24,5 @@ pub struct ExpectedRackJson {
     pub rack_id: RackId,
     pub rack_type: String,
     #[serde(default)]
-    pub metadata: Option<rpc::forge::Metadata>,
+    pub metadata: Option<forge::Metadata>,
 }

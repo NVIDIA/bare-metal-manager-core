@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use db::{DatabaseError, expected_power_shelf as db_expected_power_shelf};
 use mac_address::MacAddress;
-use model::expected_power_shelf::{ExpectedPowerShelf, ExpectedPowerShelfRequest};
+use nico_api_db::{DatabaseError, expected_power_shelf as db_expected_power_shelf};
+use nico_api_model::expected_power_shelf::{ExpectedPowerShelf, ExpectedPowerShelfRequest};
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -26,14 +26,14 @@ use crate::api::Api;
 
 pub async fn add_expected_power_shelf(
     api: &Api,
-    request: Request<rpc::ExpectedPowerShelf>,
+    request: Request<forge::ExpectedPowerShelf>,
 ) -> Result<Response<()>, Status> {
     let rpc_power_shelf = request.into_inner();
     let request_rack_id = rpc_power_shelf.rack_id.clone();
     let power_shelf: ExpectedPowerShelf =
         rpc_power_shelf
             .try_into()
-            .map_err(|e: ::rpc::errors::RpcDataConversionError| {
+            .map_err(|e: nico_rpc::errors::RpcDataConversionError| {
                 CarbideError::InvalidArgument(e.to_string())
             })?;
     let bmc_mac_address = power_shelf.bmc_mac_address;
@@ -51,9 +51,10 @@ pub async fn add_expected_power_shelf(
         .map_err(CarbideError::from)?;
 
     if let Some(ref rack_id) = request_rack_id {
-        let adopted = db::rack::adopt_expected_power_shelf(&mut txn, rack_id, bmc_mac_address)
-            .await
-            .map_err(CarbideError::from)?;
+        let adopted =
+            nico_api_db::rack::adopt_expected_power_shelf(&mut txn, rack_id, bmc_mac_address)
+                .await
+                .map_err(CarbideError::from)?;
         if !adopted {
             tracing::debug!(
                 "rack {} does not exist yet, power shelf {} will be adopted later.",
@@ -72,15 +73,11 @@ pub async fn add_expected_power_shelf(
 
 pub async fn delete_expected_power_shelf(
     api: &Api,
-    request: Request<rpc::ExpectedPowerShelfRequest>,
+    request: Request<forge::ExpectedPowerShelfRequest>,
 ) -> Result<Response<()>, Status> {
-    let req: ExpectedPowerShelfRequest =
-        request
-            .into_inner()
-            .try_into()
-            .map_err(|e: ::rpc::errors::RpcDataConversionError| {
-                CarbideError::InvalidArgument(e.to_string())
-            })?;
+    let req: ExpectedPowerShelfRequest = request.into_inner().try_into().map_err(
+        |e: nico_rpc::errors::RpcDataConversionError| CarbideError::InvalidArgument(e.to_string()),
+    )?;
 
     let mut txn = api
         .database_connection
@@ -105,15 +102,11 @@ pub async fn delete_expected_power_shelf(
 
 pub async fn update_expected_power_shelf(
     api: &Api,
-    request: Request<rpc::ExpectedPowerShelf>,
+    request: Request<forge::ExpectedPowerShelf>,
 ) -> Result<Response<()>, Status> {
-    let power_shelf: ExpectedPowerShelf =
-        request
-            .into_inner()
-            .try_into()
-            .map_err(|e: ::rpc::errors::RpcDataConversionError| {
-                CarbideError::InvalidArgument(e.to_string())
-            })?;
+    let power_shelf: ExpectedPowerShelf = request.into_inner().try_into().map_err(
+        |e: nico_rpc::errors::RpcDataConversionError| CarbideError::InvalidArgument(e.to_string()),
+    )?;
 
     let mut txn = api
         .database_connection
@@ -136,15 +129,11 @@ pub async fn update_expected_power_shelf(
 
 pub async fn get_expected_power_shelf(
     api: &Api,
-    request: Request<rpc::ExpectedPowerShelfRequest>,
-) -> Result<Response<rpc::ExpectedPowerShelf>, Status> {
-    let req: ExpectedPowerShelfRequest =
-        request
-            .into_inner()
-            .try_into()
-            .map_err(|e: ::rpc::errors::RpcDataConversionError| {
-                CarbideError::InvalidArgument(e.to_string())
-            })?;
+    request: Request<forge::ExpectedPowerShelfRequest>,
+) -> Result<Response<forge::ExpectedPowerShelf>, Status> {
+    let req: ExpectedPowerShelfRequest = request.into_inner().try_into().map_err(
+        |e: nico_rpc::errors::RpcDataConversionError| CarbideError::InvalidArgument(e.to_string()),
+    )?;
 
     let mut txn = api
         .database_connection
@@ -170,14 +159,14 @@ pub async fn get_expected_power_shelf(
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
-    let response = rpc::ExpectedPowerShelf::from(expected_power_shelf);
+    let response = forge::ExpectedPowerShelf::from(expected_power_shelf);
     Ok(Response::new(response))
 }
 
 pub async fn get_all_expected_power_shelves(
     api: &Api,
     _request: Request<()>,
-) -> Result<Response<rpc::ExpectedPowerShelfList>, Status> {
+) -> Result<Response<forge::ExpectedPowerShelfList>, Status> {
     let mut txn = api
         .database_connection
         .begin()
@@ -194,19 +183,19 @@ pub async fn get_all_expected_power_shelves(
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
-    let expected_power_shelves: Vec<rpc::ExpectedPowerShelf> = expected_power_shelves
+    let expected_power_shelves: Vec<forge::ExpectedPowerShelf> = expected_power_shelves
         .into_iter()
-        .map(rpc::ExpectedPowerShelf::from)
+        .map(forge::ExpectedPowerShelf::from)
         .collect();
 
-    Ok(Response::new(rpc::ExpectedPowerShelfList {
+    Ok(Response::new(forge::ExpectedPowerShelfList {
         expected_power_shelves,
     }))
 }
 
 pub async fn replace_all_expected_power_shelves(
     api: &Api,
-    request: Request<rpc::ExpectedPowerShelfList>,
+    request: Request<forge::ExpectedPowerShelfList>,
 ) -> Result<Response<()>, Status> {
     let req = request.into_inner();
 
@@ -228,7 +217,7 @@ pub async fn replace_all_expected_power_shelves(
         let power_shelf: ExpectedPowerShelf =
             rpc_power_shelf
                 .try_into()
-                .map_err(|e: ::rpc::errors::RpcDataConversionError| {
+                .map_err(|e: nico_rpc::errors::RpcDataConversionError| {
                     CarbideError::InvalidArgument(e.to_string())
                 })?;
         db_expected_power_shelf::create(&mut txn, power_shelf)
@@ -271,7 +260,7 @@ pub async fn delete_all_expected_power_shelves(
 pub async fn get_all_expected_power_shelves_linked(
     api: &Api,
     _request: Request<()>,
-) -> Result<Response<rpc::LinkedExpectedPowerShelfList>, Status> {
+) -> Result<Response<forge::LinkedExpectedPowerShelfList>, Status> {
     let mut txn = api
         .database_connection
         .begin()
@@ -288,13 +277,13 @@ pub async fn get_all_expected_power_shelves_linked(
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
-    let linked_expected_power_shelves: Vec<rpc::LinkedExpectedPowerShelf> =
+    let linked_expected_power_shelves: Vec<forge::LinkedExpectedPowerShelf> =
         linked_expected_power_shelves
             .into_iter()
-            .map(rpc::LinkedExpectedPowerShelf::from)
+            .map(forge::LinkedExpectedPowerShelf::from)
             .collect();
 
-    Ok(Response::new(rpc::LinkedExpectedPowerShelfList {
+    Ok(Response::new(forge::LinkedExpectedPowerShelfList {
         expected_power_shelves: linked_expected_power_shelves,
     }))
 }
@@ -304,7 +293,7 @@ pub async fn get_all_expected_power_shelves_linked(
 pub(crate) async fn query(
     api: &Api,
     mac: MacAddress,
-) -> Result<Option<model::expected_power_shelf::ExpectedPowerShelf>, CarbideError> {
+) -> Result<Option<nico_api_model::expected_power_shelf::ExpectedPowerShelf>, CarbideError> {
     let mut txn = api.database_connection.begin().await.map_err(|e| {
         CarbideError::from(DatabaseError::new("begin find_many_by_bmc_mac_address", e))
     })?;

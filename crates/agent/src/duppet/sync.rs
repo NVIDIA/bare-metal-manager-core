@@ -16,8 +16,12 @@
  */
 
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::{self, Read, Write};
+use std::fs::{
+    File, {self},
+};
+use std::io::{
+    Read, Write, {self},
+};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 

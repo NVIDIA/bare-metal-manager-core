@@ -14,10 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::rack::RackId;
 use config_version::ConfigVersion;
-use model::rack::{RackState, RackStateHistory};
-use model::rack_state_history::DbRackStateHistory;
+use nico_api_model::rack::{RackState, RackStateHistory};
+use nico_api_model::rack_state_history::DbRackStateHistory;
+use nico_uuid::rack::RackId;
 use sqlx::PgConnection;
 
 use crate::{DatabaseError, DatabaseResult};

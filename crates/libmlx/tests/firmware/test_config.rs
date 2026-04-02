@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use libmlx::firmware::config::FirmwareFlasherProfile;
+use nico_libmlx::firmware::config::FirmwareFlasherProfile;
 
 #[test]
 fn test_minimal_config() {

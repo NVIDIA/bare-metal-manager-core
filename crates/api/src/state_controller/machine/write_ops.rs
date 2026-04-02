@@ -1,11 +1,11 @@
 use std::net::IpAddr;
 
 use async_trait::async_trait;
-use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
-use health_report::{HealthReport, OverrideMode};
-use model::machine::{MachineLastRebootRequested, MachineLastRebootRequestedMode};
+use nico_api_model::machine::{MachineLastRebootRequested, MachineLastRebootRequestedMode};
+use nico_health_report::{HealthReport, OverrideMode};
+use nico_uuid::machine::MachineId;
 use sqlx::PgTransaction;
 
 use crate::state_controller::db_write_batch::WriteOp;
@@ -106,16 +106,21 @@ impl WriteOp for MachineWriteOp {
                 mode,
                 time,
             } => {
-                db::machine::update_reboot_requested_explicit_time(&machine_id, txn, mode, time)
-                    .await?
+                nico_api_db::machine::update_reboot_requested_explicit_time(
+                    &machine_id,
+                    txn,
+                    mode,
+                    time,
+                )
+                .await?
             }
             PersistMachineHealthHistory {
                 machine_id,
                 health_report,
             } => {
-                db::health_history::persist(
+                nico_api_db::health_history::persist(
                     txn,
-                    db::health_history::HealthHistoryTableId::Machine,
+                    nico_api_db::health_history::HealthHistoryTableId::Machine,
                     &machine_id,
                     &health_report,
                 )
@@ -125,7 +130,7 @@ impl WriteOp for MachineWriteOp {
                 machine_id,
                 clear_reset,
             } => {
-                db::host_machine_update::reset_host_reprovisioning_request(
+                nico_api_db::host_machine_update::reset_host_reprovisioning_request(
                     txn,
                     &machine_id,
                     clear_reset,
@@ -133,15 +138,23 @@ impl WriteOp for MachineWriteOp {
                 .await?
             }
             UpdateDpuReprovisionStartTime { machine_id, time } => {
-                db::machine::update_dpu_reprovision_explicit_start_time(&machine_id, time, txn)
-                    .await?
+                nico_api_db::machine::update_dpu_reprovision_explicit_start_time(
+                    &machine_id,
+                    time,
+                    txn,
+                )
+                .await?
             }
             UpdateHostReprovisionStartTime { machine_id, time } => {
-                db::machine::update_host_reprovision_explicit_start_time(&machine_id, time, txn)
-                    .await?
+                nico_api_db::machine::update_host_reprovision_explicit_start_time(
+                    &machine_id,
+                    time,
+                    txn,
+                )
+                .await?
             }
             ClearFailureDetails { machine_id } => {
-                db::machine::clear_failure_details(&machine_id, txn).await?
+                nico_api_db::machine::clear_failure_details(&machine_id, txn).await?
             }
             UpdateRestartVerificationStatus {
                 machine_id,
@@ -149,7 +162,7 @@ impl WriteOp for MachineWriteOp {
                 verified,
                 attempts,
             } => {
-                db::machine::update_restart_verification_status(
+                nico_api_db::machine::update_restart_verification_status(
                     &machine_id,
                     current_reboot,
                     verified,
@@ -163,7 +176,7 @@ impl WriteOp for MachineWriteOp {
                 bmc_version,
                 bios_version,
             } => {
-                db::machine_topology::update_firmware_version_by_bmc_address(
+                nico_api_db::machine_topology::update_firmware_version_by_bmc_address(
                     txn,
                     &bmc_address,
                     &bmc_version,
@@ -172,18 +185,22 @@ impl WriteOp for MachineWriteOp {
                 .await?
             }
             SetTopologyUpdateNeeded { machine_id, value } => {
-                db::machine_topology::set_topology_update_needed(txn, &machine_id, value).await?
+                nico_api_db::machine_topology::set_topology_update_needed(txn, &machine_id, value)
+                    .await?
             }
             SetCustomPxeRebootRequested {
                 machine_id,
                 requested,
-            } => db::instance::set_custom_pxe_reboot_requested(&machine_id, requested, txn).await?,
+            } => {
+                nico_api_db::instance::set_custom_pxe_reboot_requested(&machine_id, requested, txn)
+                    .await?
+            }
             InsertHealthReportOverride {
                 machine_id,
                 mode,
                 health_report,
             } => {
-                db::machine::insert_health_report_override(
+                nico_api_db::machine::insert_health_report_override(
                     txn,
                     &machine_id,
                     mode,
@@ -193,15 +210,21 @@ impl WriteOp for MachineWriteOp {
                 .await?
             }
             ReExploreIfVersionMatches { address, version } => {
-                db::explored_endpoints::re_explore_if_version_matches(address, version, txn)
-                    .await?;
+                nico_api_db::explored_endpoints::re_explore_if_version_matches(
+                    address, version, txn,
+                )
+                .await?;
             }
             UseCustomIpxeOnNextBoot {
                 machine_id,
                 boot_with_custom_ipxe,
             } => {
-                db::instance::use_custom_ipxe_on_next_boot(&machine_id, boot_with_custom_ipxe, txn)
-                    .await?;
+                nico_api_db::instance::use_custom_ipxe_on_next_boot(
+                    &machine_id,
+                    boot_with_custom_ipxe,
+                    txn,
+                )
+                .await?;
             }
         };
         Ok(())

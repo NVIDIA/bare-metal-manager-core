@@ -17,7 +17,7 @@
 
 use std::net::SocketAddr;
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 
 use super::grpcurl::{grpcurl, grpcurl_id};
 use super::machine::wait_for_state;

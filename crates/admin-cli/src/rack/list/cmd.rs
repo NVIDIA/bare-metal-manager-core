@@ -16,8 +16,8 @@
  */
 
 use color_eyre::Result;
+use nico_rpc::admin_cli::OutputFormat;
 use prettytable::{Cell, Row, Table};
-use rpc::admin_cli::OutputFormat;
 
 use crate::cfg::runtime::RuntimeConfig;
 use crate::rpc::ApiClient;

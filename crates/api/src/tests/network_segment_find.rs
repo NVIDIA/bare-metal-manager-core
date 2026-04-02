@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use carbide_uuid::network::NetworkSegmentId;
-use rpc::forge_server::Forge;
+use forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_uuid::network::NetworkSegmentId;
 
 use crate::tests::common::api_fixtures::network_segment::create_network_segment;
 use crate::tests::common::api_fixtures::vpc::create_vpc;
@@ -44,7 +44,7 @@ async fn test_find_network_segment_ids(pool: sqlx::PgPool) {
             format!("segment_{i}").as_str(),
             format!("192.0.{}.0/24", i + 1).as_str(),
             format!("192.0.{}.1", i + 1).as_str(),
-            rpc::NetworkSegmentType::Underlay,
+            forge::NetworkSegmentType::Underlay,
             Some(vpc_id),
             true,
         )
@@ -52,7 +52,7 @@ async fn test_find_network_segment_ids(pool: sqlx::PgPool) {
     }
 
     // test getting all ids
-    let request_all = tonic::Request::new(rpc::NetworkSegmentSearchFilter {
+    let request_all = tonic::Request::new(forge::NetworkSegmentSearchFilter {
         name: None,
         tenant_org_id: None,
     });
@@ -66,7 +66,7 @@ async fn test_find_network_segment_ids(pool: sqlx::PgPool) {
     assert_eq!(ids_all.network_segments_ids.len(), 4);
 
     // test getting ids based on name
-    let request_name = tonic::Request::new(rpc::NetworkSegmentSearchFilter {
+    let request_name = tonic::Request::new(forge::NetworkSegmentSearchFilter {
         name: Some("segment_2".to_string()),
         tenant_org_id: None,
     });
@@ -80,7 +80,7 @@ async fn test_find_network_segment_ids(pool: sqlx::PgPool) {
     assert_eq!(ids_name.network_segments_ids.len(), 1);
 
     // test search by tenant_org_id
-    let request_tenant = tonic::Request::new(rpc::NetworkSegmentSearchFilter {
+    let request_tenant = tonic::Request::new(forge::NetworkSegmentSearchFilter {
         name: None,
         tenant_org_id: Some("tenant_org_2".to_string()),
     });
@@ -94,7 +94,7 @@ async fn test_find_network_segment_ids(pool: sqlx::PgPool) {
     assert_eq!(ids_tenant.network_segments_ids.len(), 2);
 
     // test search by tenant_org_id and name
-    let request_tenant_name = tonic::Request::new(rpc::NetworkSegmentSearchFilter {
+    let request_tenant_name = tonic::Request::new(forge::NetworkSegmentSearchFilter {
         name: Some("segment_3".to_string()),
         tenant_org_id: Some("tenant_org_2".to_string()),
     });
@@ -129,14 +129,14 @@ async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
             format!("segment_{i}").as_str(),
             format!("192.0.{}.0/24", i + 1).as_str(),
             format!("192.0.{}.1", i + 1).as_str(),
-            rpc::NetworkSegmentType::Underlay,
+            forge::NetworkSegmentType::Underlay,
             Some(vpc_id),
             true,
         )
         .await;
     }
 
-    let request_ids = tonic::Request::new(rpc::NetworkSegmentSearchFilter {
+    let request_ids = tonic::Request::new(forge::NetworkSegmentSearchFilter {
         name: None,
         tenant_org_id: Some("tenant_org_2".to_string()),
     });
@@ -149,7 +149,7 @@ async fn test_find_network_segment_by_ids(pool: sqlx::PgPool) {
         .unwrap();
     assert_eq!(ids_list.network_segments_ids.len(), 2);
 
-    let seg_request = tonic::Request::new(rpc::NetworkSegmentsByIdsRequest {
+    let seg_request = tonic::Request::new(forge::NetworkSegmentsByIdsRequest {
         network_segments_ids: ids_list.network_segments_ids.clone(),
         include_history: true,
         include_num_free_ips: true,
@@ -182,7 +182,7 @@ async fn test_find_network_segments_by_ids_over_max(pool: sqlx::PgPool) {
         .map(|_| uuid::Uuid::new_v4().into())
         .collect();
 
-    let request = tonic::Request::new(rpc::NetworkSegmentsByIdsRequest {
+    let request = tonic::Request::new(forge::NetworkSegmentsByIdsRequest {
         network_segments_ids,
         include_history: false,
         include_num_free_ips: false,
@@ -207,7 +207,7 @@ async fn test_find_network_segments_by_ids_over_max(pool: sqlx::PgPool) {
 async fn test_find_network_segments_by_ids_none(pool: sqlx::PgPool) {
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::no_network_segments()).await;
 
-    let request = tonic::Request::new(rpc::NetworkSegmentsByIdsRequest::default());
+    let request = tonic::Request::new(forge::NetworkSegmentsByIdsRequest::default());
 
     let response = env.api.find_network_segments_by_ids(request).await;
     // validate

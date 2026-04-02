@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use nico_rpc::forge;
 
 /// Returns a set of testcases in order to check whether validating Metadata
 /// on various Forge objects works as intended.
@@ -23,14 +24,14 @@
 /// 2. Expected part of error message
 pub fn invalid_metadata_testcases(
     include_min_length_test_cases: bool,
-) -> Vec<(rpc::forge::Metadata, String)> {
+) -> Vec<(forge::Metadata, String)> {
     let mut results = [
         (
             // Missing Label Key
-            rpc::forge::Metadata {
+            forge::Metadata {
                 name: "abc".to_string(),
                 description: "def".to_string(),
-                labels: vec![rpc::forge::Label {
+                labels: vec![forge::Label {
                     key: "".to_string(),
                     value: None,
                 }],
@@ -39,15 +40,15 @@ pub fn invalid_metadata_testcases(
         ),
         (
             // Duplicated Key
-            rpc::forge::Metadata {
+            forge::Metadata {
                 name: "abc".to_string(),
                 description: "def".to_string(),
                 labels: vec![
-                    rpc::forge::Label {
+                    forge::Label {
                         key: "a".to_string(),
                         value: None,
                     },
-                    rpc::forge::Label {
+                    forge::Label {
                         key: "a".to_string(),
                         value: Some("other".to_string()),
                     },
@@ -57,7 +58,7 @@ pub fn invalid_metadata_testcases(
         ),
         (
             // Name is longer than limit
-            rpc::forge::Metadata {
+            forge::Metadata {
                 name: String::from_utf8(vec![b'A'; 257]).unwrap(),
                 description: "def".to_string(),
                 labels: vec![],
@@ -68,7 +69,7 @@ pub fn invalid_metadata_testcases(
         ),
         (
             // Description is longer than limit
-            rpc::forge::Metadata {
+            forge::Metadata {
                 name: "name".to_string(),
                 description: String::from_utf8(vec![b'A'; 1025]).unwrap(),
                 labels: vec![],
@@ -77,7 +78,7 @@ pub fn invalid_metadata_testcases(
         ),
         (
             // Invalid Chars in Name
-            rpc::forge::Metadata {
+            forge::Metadata {
                 name: "asdf😊".to_string(),
                 description: "a\u{211D}".to_string(),
                 labels: vec![],
@@ -86,10 +87,10 @@ pub fn invalid_metadata_testcases(
         ),
         (
             // Overlong Key
-            rpc::forge::Metadata {
+            forge::Metadata {
                 name: "aa".to_string(),
                 description: "".to_string(),
-                labels: vec![rpc::forge::Label {
+                labels: vec![forge::Label {
                     key: concat!(
                         "0123456789012345678901234567890123456789012345678901234567890123456789",
                         "0123456789012345678901234567890123456789012345678901234567890123456789",
@@ -110,10 +111,10 @@ pub fn invalid_metadata_testcases(
         ),
         (
             // Overlong Value
-            rpc::forge::Metadata {
+            forge::Metadata {
                 name: "aa".to_string(),
                 description: "".to_string(),
-                labels: vec![rpc::forge::Label {
+                labels: vec![forge::Label {
                     key: "abc".to_string(),
                     value: Some(
                         concat!(
@@ -136,50 +137,50 @@ pub fn invalid_metadata_testcases(
         ),
         (
             // Maximum of 10 labels
-            rpc::forge::Metadata {
+            forge::Metadata {
                 name: "aa".to_string(),
                 description: "".to_string(),
-                labels: vec![rpc::forge::Label {
+                labels: vec![forge::Label {
                     key: "key1".to_string(),
                     value: Some("value1".to_string()),
                 },
-                rpc::forge::Label {
+                forge::Label {
                     key: "key2".to_string(),
                     value: None,
                 },
-                rpc::forge::Label {
+                forge::Label {
                     key: "key3".to_string(),
                     value: None,
                 },
-                rpc::forge::Label {
+                forge::Label {
                     key: "key4".to_string(),
                     value: None,
                 },
-                rpc::forge::Label {
+                forge::Label {
                     key: "key5".to_string(),
                     value: None,
                 },
-                rpc::forge::Label {
+                forge::Label {
                     key: "key6".to_string(),
                     value: None,
                 },
-                rpc::forge::Label {
+                forge::Label {
                     key: "key7".to_string(),
                     value: None,
                 },
-                rpc::forge::Label {
+                forge::Label {
                     key: "key8".to_string(),
                     value: None,
                 },
-                rpc::forge::Label {
+                forge::Label {
                     key: "key9".to_string(),
                     value: None,
                 },
-                rpc::forge::Label {
+                forge::Label {
                     key: "key10".to_string(),
                     value: None,
                 },
-                rpc::forge::Label {
+                forge::Label {
                     key: "key11".to_string(),
                     value: None,
                 },],
@@ -192,7 +193,7 @@ pub fn invalid_metadata_testcases(
         results.extend([
             (
                 // Name is empty
-                rpc::forge::Metadata {
+                forge::Metadata {
                     name: String::new(),
                     description: "def".to_string(),
                     labels: vec![],
@@ -202,7 +203,7 @@ pub fn invalid_metadata_testcases(
             ),
             (
                 // Name is shorter than limit
-                rpc::forge::Metadata {
+                forge::Metadata {
                     name: "A".to_string(),
                     description: "def".to_string(),
                     labels: vec![],

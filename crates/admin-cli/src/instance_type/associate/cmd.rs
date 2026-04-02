@@ -15,13 +15,14 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::forge;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
 pub async fn create_association(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
-    let req: ::rpc::forge::AssociateMachinesWithInstanceTypeRequest = args.try_into()?;
+    let req: forge::AssociateMachinesWithInstanceTypeRequest = args.try_into()?;
     api_client
         .0
         .associate_machines_with_instance_type(req)

@@ -22,8 +22,8 @@ use axum::Router;
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::routing::get;
-use forge_tls::client_config::ClientCert;
-use rpc::forge_tls_client::ForgeClientConfig;
+use nico_rpc::forge_tls_client::ForgeClientConfig;
+use nico_tls::client_config::ClientCert;
 
 use crate::common::{AppState, Machine, MachineInterface};
 use crate::routes::RpcContext;

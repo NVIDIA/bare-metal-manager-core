@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
-use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_uuid::rack::RackId;
 use serde::{Deserialize, Serialize};
 use utils::has_duplicates;
 use uuid::Uuid;

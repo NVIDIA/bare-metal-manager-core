@@ -16,9 +16,9 @@
  */
 use std::path::{Path, PathBuf};
 
-use forge_tls::client_config::ClientCert;
 use local_ip_address::local_ip;
-use rpc::forge_tls_client::ForgeClientConfig;
+use nico_rpc::forge_tls_client::ForgeClientConfig;
+use nico_tls::client_config::ClientCert;
 use serde::{Deserialize, Serialize};
 use tonic::codegen::http;
 

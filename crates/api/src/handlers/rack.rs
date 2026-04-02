@@ -16,13 +16,14 @@
  */
 use std::str::FromStr;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge::{self as rpc, HealthReportOverride};
-use carbide_uuid::rack::RackId;
-use db::{ObjectColumnFilter, WithTransaction, rack as db_rack};
 use futures_util::FutureExt;
-use health_report::OverrideMode;
-use model::metadata::Metadata;
+use nico_api_db::{ObjectColumnFilter, WithTransaction, rack as db_rack};
+use nico_api_model::metadata::Metadata;
+use nico_health_report::OverrideMode;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_rpc::forge::HealthReportOverride;
+use nico_uuid::rack::RackId;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -31,8 +32,8 @@ use crate::auth::AuthContext;
 
 pub async fn get_rack(
     api: &Api,
-    request: Request<rpc::GetRackRequest>,
-) -> Result<Response<rpc::GetRackResponse>, Status> {
+    request: Request<forge::GetRackRequest>,
+) -> Result<Response<forge::GetRackResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -51,26 +52,26 @@ pub async fn get_rack(
             .map(|x| x.into())
             .collect()
     };
-    Ok(Response::new(rpc::GetRackResponse { rack }))
+    Ok(Response::new(forge::GetRackResponse { rack }))
 }
 
 pub async fn find_ids(
     api: &Api,
-    request: Request<rpc::RackSearchFilter>,
-) -> Result<Response<rpc::RackIdList>, Status> {
+    request: Request<forge::RackSearchFilter>,
+) -> Result<Response<forge::RackIdList>, Status> {
     log_request_data(&request);
 
-    let filter: model::rack::RackSearchFilter = request.into_inner().into();
+    let filter: nico_api_model::rack::RackSearchFilter = request.into_inner().into();
 
-    let rack_ids = db::rack::find_ids(&api.database_connection, filter).await?;
+    let rack_ids = nico_api_db::rack::find_ids(&api.database_connection, filter).await?;
 
-    Ok(Response::new(rpc::RackIdList { rack_ids }))
+    Ok(Response::new(forge::RackIdList { rack_ids }))
 }
 
 pub async fn find_by_ids(
     api: &Api,
-    request: Request<rpc::RacksByIdsRequest>,
-) -> Result<Response<rpc::RackList>, Status> {
+    request: Request<forge::RacksByIdsRequest>,
+) -> Result<Response<forge::RackList>, Status> {
     log_request_data(&request);
 
     let rack_ids = request.into_inner().rack_ids;
@@ -89,9 +90,9 @@ pub async fn find_by_ids(
 
     let mut txn = api.txn_begin().await?;
 
-    let racks = db::rack::find_by(
+    let racks = nico_api_db::rack::find_by(
         &mut txn,
-        ObjectColumnFilter::List(db::rack::IdColumn, &rack_ids),
+        ObjectColumnFilter::List(nico_api_db::rack::IdColumn, &rack_ids),
     )
     .await?;
 
@@ -102,13 +103,13 @@ pub async fn find_by_ids(
         result.push(rack.into());
     }
 
-    Ok(Response::new(rpc::RackList { racks: result }))
+    Ok(Response::new(forge::RackList { racks: result }))
 }
 
 pub async fn find_rack_state_histories(
     api: &Api,
-    request: Request<rpc::RackStateHistoriesRequest>,
-) -> Result<Response<rpc::RackStateHistories>, Status> {
+    request: Request<forge::RackStateHistoriesRequest>,
+) -> Result<Response<forge::RackStateHistories>, Status> {
     log_request_data(&request);
     let request = request.into_inner();
     let rack_ids = request.rack_ids;
@@ -127,15 +128,15 @@ pub async fn find_rack_state_histories(
 
     let mut txn = api.txn_begin().await?;
 
-    let results = db::rack_state_history::find_by_rack_ids(&mut txn, &rack_ids)
+    let results = nico_api_db::rack_state_history::find_by_rack_ids(&mut txn, &rack_ids)
         .await
         .map_err(CarbideError::from)?;
 
-    let mut response = rpc::RackStateHistories::default();
+    let mut response = forge::RackStateHistories::default();
     for (rack_id, records) in results {
         response.histories.insert(
             rack_id.to_string(),
-            ::rpc::forge::RackStateHistoryRecords {
+            forge::RackStateHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
         );
@@ -148,7 +149,7 @@ pub async fn find_rack_state_histories(
 
 pub async fn delete_rack(
     api: &Api,
-    request: Request<rpc::DeleteRackRequest>,
+    request: Request<forge::DeleteRackRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
@@ -178,8 +179,8 @@ pub async fn delete_rack(
 
 pub async fn list_rack_health_report_overrides(
     api: &Api,
-    request: Request<rpc::ListRackHealthReportOverridesRequest>,
-) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
+    request: Request<forge::ListRackHealthReportOverridesRequest>,
+) -> Result<Response<forge::ListHealthReportOverrideResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -191,7 +192,7 @@ pub async fn list_rack_health_report_overrides(
         .await
         .map_err(CarbideError::from)?;
 
-    Ok(Response::new(rpc::ListHealthReportOverrideResponse {
+    Ok(Response::new(forge::ListHealthReportOverrideResponse {
         overrides: rack
             .health_report_overrides
             .into_iter()
@@ -205,7 +206,7 @@ pub async fn list_rack_health_report_overrides(
 
 pub async fn insert_rack_health_report_override(
     api: &Api,
-    request: Request<rpc::InsertRackHealthReportOverrideRequest>,
+    request: Request<forge::InsertRackHealthReportOverrideRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
@@ -215,9 +216,9 @@ pub async fn insert_rack_health_report_override(
         .and_then(|ctx| ctx.get_external_user_name())
         .map(String::from);
 
-    let rpc::InsertRackHealthReportOverrideRequest {
+    let forge::InsertRackHealthReportOverrideRequest {
         rack_id,
-        r#override: Some(rpc::HealthReportOverride { report, mode }),
+        r#override: Some(forge::HealthReportOverride { report, mode }),
     } = request.into_inner()
     else {
         return Err(CarbideError::MissingArgument("override").into());
@@ -227,7 +228,7 @@ pub async fn insert_rack_health_report_override(
     let Some(report) = report else {
         return Err(CarbideError::MissingArgument("report").into());
     };
-    let Ok(mode) = rpc::OverrideMode::try_from(mode) else {
+    let Ok(mode) = forge::OverrideMode::try_from(mode) else {
         return Err(CarbideError::InvalidArgument("mode".to_string()).into());
     };
     let mode: OverrideMode = mode.into();
@@ -238,7 +239,7 @@ pub async fn insert_rack_health_report_override(
         .await
         .map_err(CarbideError::from)?;
 
-    let mut report = health_report::HealthReport::try_from(report.clone())
+    let mut report = nico_health_report::HealthReport::try_from(report.clone())
         .map_err(|e| CarbideError::internal(e.to_string()))?;
     if report.observed_at.is_none() {
         report.observed_at = Some(chrono::Utc::now());
@@ -260,11 +261,11 @@ pub async fn insert_rack_health_report_override(
 
 pub async fn remove_rack_health_report_override(
     api: &Api,
-    request: Request<rpc::RemoveRackHealthReportOverrideRequest>,
+    request: Request<forge::RemoveRackHealthReportOverrideRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
-    let rpc::RemoveRackHealthReportOverrideRequest { rack_id, source } = request.into_inner();
+    let forge::RemoveRackHealthReportOverrideRequest { rack_id, source } = request.into_inner();
     let rack_id = rack_id.ok_or_else(|| CarbideError::MissingArgument("rack_id"))?;
 
     let mut txn = api.txn_begin().await?;
@@ -280,8 +281,8 @@ pub async fn remove_rack_health_report_override(
 }
 
 async fn remove_rack_override_by_source(
-    rack: &model::rack::Rack,
-    txn: &mut db::Transaction<'_>,
+    rack: &nico_api_model::rack::Rack,
+    txn: &mut nico_api_db::Transaction<'_>,
     source: String,
 ) -> Result<(), CarbideError> {
     let mode = if rack
@@ -308,7 +309,7 @@ async fn remove_rack_override_by_source(
 
 pub(crate) async fn update_rack_metadata(
     api: &Api,
-    request: Request<rpc::RackMetadataUpdateRequest>,
+    request: Request<forge::RackMetadataUpdateRequest>,
 ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
     let request = request.into_inner();

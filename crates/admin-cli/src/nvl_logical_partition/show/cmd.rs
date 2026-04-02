@@ -17,9 +17,9 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
-use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_uuid::nvlink::NvLinkLogicalPartitionId;
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -80,9 +80,7 @@ async fn show_logical_partition_details(
     Ok(())
 }
 
-fn convert_partitions_to_nice_table(
-    partitions: forgerpc::NvLinkLogicalPartitionList,
-) -> Box<Table> {
+fn convert_partitions_to_nice_table(partitions: forge::NvLinkLogicalPartitionList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row!["Id", "State",]);
@@ -90,7 +88,7 @@ fn convert_partitions_to_nice_table(
     for partition in partitions.partitions {
         table.add_row(row![
             partition.id.unwrap_or_default(),
-            forgerpc::TenantState::try_from(partition.status.unwrap_or_default().state,)
+            forge::TenantState::try_from(partition.status.unwrap_or_default().state,)
                 .unwrap_or_default()
                 .as_str_name()
                 .to_string()
@@ -101,7 +99,7 @@ fn convert_partitions_to_nice_table(
 }
 
 fn convert_partition_to_nice_format(
-    partition: forgerpc::NvLinkLogicalPartition,
+    partition: forge::NvLinkLogicalPartition,
 ) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();
@@ -126,7 +124,7 @@ fn convert_partition_to_nice_format(
         ),
         (
             "STATUS",
-            forgerpc::TenantState::try_from(partition.status.unwrap_or_default().state)
+            forge::TenantState::try_from(partition.status.unwrap_or_default().state)
                 .unwrap_or_default()
                 .as_str_name()
                 .to_string(),

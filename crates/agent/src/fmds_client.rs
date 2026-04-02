@@ -17,9 +17,9 @@
 
 use std::sync::Arc;
 
-use rpc::fmds::fmds_config_service_client::FmdsConfigServiceClient;
-use rpc::fmds::{FmdsConfigUpdate, IbDevice, IbInstance, UpdateConfigRequest};
-use rpc::forge::ManagedHostNetworkConfigResponse;
+use nico_rpc::fmds::fmds_config_service_client::FmdsConfigServiceClient;
+use nico_rpc::fmds::{FmdsConfigUpdate, IbDevice, IbInstance, UpdateConfigRequest};
+use nico_rpc::forge::ManagedHostNetworkConfigResponse;
 use tonic::transport::Channel;
 
 use crate::instance_metadata_endpoint::InstanceMetadataRouterStateImpl;

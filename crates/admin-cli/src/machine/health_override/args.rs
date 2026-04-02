@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
 use clap::{ArgGroup, Parser, ValueEnum};
+use nico_uuid::machine::MachineId;
 
 #[derive(Parser, Debug)]
 pub enum Args {

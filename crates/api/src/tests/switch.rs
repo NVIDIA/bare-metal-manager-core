@@ -14,11 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::switch::SwitchId;
-use db::switch as db_switch;
-use model::switch::{NewSwitch, SwitchConfig, SwitchControllerState, SwitchStatus};
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{SwitchDeletionRequest, SwitchQuery};
+use nico_api_db::switch as db_switch;
+use nico_api_model::switch::{NewSwitch, SwitchConfig, SwitchControllerState, SwitchStatus};
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{SwitchDeletionRequest, SwitchQuery};
+use nico_uuid::switch::SwitchId;
 use tonic::Code;
 
 use crate::tests::common::api_fixtures::create_test_env;
@@ -123,7 +124,7 @@ async fn test_delete_switch_success(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let env = create_test_env(pool).await;
 
     // First create a switch
-    let switch_config = rpc::forge::SwitchConfig {
+    let switch_config = forge::SwitchConfig {
         name: "Switch1".to_string(),
         enable_nmxc: false,
         fabric_manager_config: None,
@@ -223,7 +224,7 @@ async fn test_switch_database_operations(
     // Test finding the switch
     let found_switches = db_switch::find_by(
         &mut txn,
-        db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
+        nico_api_db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
         db_switch::SwitchSearchConfig::default(),
     )
     .await?;
@@ -332,7 +333,7 @@ async fn test_switch_controller_state_transitions(
     // Verify the state was updated
     let updated_switches = db_switch::find_by(
         &mut txn,
-        db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
+        nico_api_db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
         db_switch::SwitchSearchConfig::default(),
     )
     .await?;
@@ -417,7 +418,7 @@ async fn test_switch_conversion_roundtrip(
     db_switch::update(&switch, &mut txn).await?;
 
     // Test conversion to RPC format
-    let rpc_switch = rpc::forge::Switch::try_from(switch.clone())?;
+    let rpc_switch = forge::Switch::try_from(switch.clone())?;
 
     assert_eq!(rpc_switch.id.unwrap().to_string(), switch_id.to_string());
     assert_eq!(rpc_switch.config.as_ref().unwrap().name, "Switch1");
@@ -503,15 +504,16 @@ async fn test_switch_controller_state_outcome(
     let _switch = db_switch::create(&mut txn, &new_switch).await?;
 
     // Test updating controller state outcome
-    let outcome =
-        model::controller_outcome::PersistentStateHandlerOutcome::Transition { source_ref: None };
+    let outcome = nico_api_model::controller_outcome::PersistentStateHandlerOutcome::Transition {
+        source_ref: None,
+    };
 
     db_switch::update_controller_state_outcome(&mut txn, switch_id, outcome).await?;
 
     // Verify the outcome was updated
     let updated_switches = db_switch::find_by(
         &mut txn,
-        db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
+        nico_api_db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
         db_switch::SwitchSearchConfig::default(),
     )
     .await?;
@@ -523,7 +525,7 @@ async fn test_switch_controller_state_outcome(
     let updated_outcome = updated_switch.controller_state_outcome.as_ref().unwrap();
     assert!(matches!(
         updated_outcome,
-        model::controller_outcome::PersistentStateHandlerOutcome::Transition { .. }
+        nico_api_model::controller_outcome::PersistentStateHandlerOutcome::Transition { .. }
     ));
 
     txn.rollback().await?;

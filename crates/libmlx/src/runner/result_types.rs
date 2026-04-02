@@ -28,8 +28,8 @@
 
 use std::time::Duration;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::protos::mlx_device::{
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::protos::mlx_device::{
     ComparisonResult as ComparisonResultPb, PlannedChange as PlannedChangePb,
     QueriedDeviceInfo as QueriedDeviceInfoPb, QueriedVariable as QueriedVariablePb,
     QueryResult as QueryResultPb, SyncResult as SyncResultPb, VariableChange as VariableChangePb,

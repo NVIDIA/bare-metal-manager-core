@@ -17,20 +17,20 @@
 use std::backtrace::{Backtrace, BacktraceStatus};
 use std::net::IpAddr;
 
-use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersionParseError;
-use db::ip_allocator::DhcpError;
-use db::resource_pool::ResourcePoolDatabaseError;
-use db::{AnnotatedSqlxError, DatabaseError};
 use librms::RackManagerError;
 use mac_address::MacAddress;
-use model::errors::ModelError;
-use model::hardware_info::HardwareInfoError;
-use model::network_devices::LldpError;
-use model::site_explorer::EndpointExplorationError;
-use model::tenant::TenantError;
-use model::{ConfigValidationError, resource_pool};
+use nico_api_db::ip_allocator::DhcpError;
+use nico_api_db::resource_pool::ResourcePoolDatabaseError;
+use nico_api_db::{AnnotatedSqlxError, DatabaseError};
+use nico_api_model::errors::ModelError;
+use nico_api_model::hardware_info::HardwareInfoError;
+use nico_api_model::network_devices::LldpError;
+use nico_api_model::site_explorer::EndpointExplorationError;
+use nico_api_model::tenant::TenantError;
+use nico_api_model::{ConfigValidationError, resource_pool};
+use nico_rpc::errors::RpcDataConversionError;
+use nico_uuid::machine::MachineId;
 use tonic::Status;
 
 use crate::redfish::RedfishClientCreationError;
@@ -59,7 +59,7 @@ pub enum CarbideError {
     UuidConversionError(#[from] uuid::Error),
 
     #[error("RPC Uuid type conversion error: {0}")]
-    RpcUuidConversionError(#[from] carbide_uuid::UuidConversionError),
+    RpcUuidConversionError(#[from] nico_uuid::UuidConversionError),
 
     #[error("{kind} already exists: {id}")]
     AlreadyFoundError {
@@ -238,7 +238,7 @@ pub enum CarbideError {
     MaxOneInterfaceAssociation,
 
     #[error("DPF error: {0}")]
-    DpfError(#[from] carbide_dpf::DpfError),
+    DpfError(#[from] nico_dpf::DpfError),
 
     #[error("Service unavailable: {0}")]
     UnavailableError(String),
@@ -320,8 +320,8 @@ fn test_carbide_error() {
     );
 }
 
-impl From<::measured_boot::Error> for CarbideError {
-    fn from(value: measured_boot::Error) -> Self {
+impl From<nico_measured_boot::Error> for CarbideError {
+    fn from(value: nico_measured_boot::Error) -> Self {
         CarbideError::internal(value.to_string())
     }
 }

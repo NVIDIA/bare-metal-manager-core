@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliError;
-use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
 use mac_address::MacAddress;
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::forge;
+use nico_uuid::rack::RackId;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -105,7 +106,7 @@ pub struct Args {
     pub rack_id: Option<RackId>,
 }
 
-impl TryFrom<Args> for rpc::forge::ExpectedSwitch {
+impl TryFrom<Args> for forge::ExpectedSwitch {
     type Error = CarbideCliError;
 
     fn try_from(args: Args) -> Result<Self, Self::Error> {
@@ -131,8 +132,8 @@ impl TryFrom<Args> for rpc::forge::ExpectedSwitch {
                 "One of the following options must be specified: bmc-user-name and bmc-password or switch-serial-number or nvos-username and nvos-password".to_string(),
             ));
         }
-        Ok(rpc::forge::ExpectedSwitch {
-            expected_switch_id: args.id.map(|id| ::rpc::common::Uuid {
+        Ok(forge::ExpectedSwitch {
+            expected_switch_id: args.id.map(|id| nico_rpc::common::Uuid {
                 value: id.to_string(),
             }),
             bmc_mac_address: args
@@ -144,7 +145,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedSwitch {
             switch_serial_number: args.switch_serial_number.unwrap_or_default(),
             nvos_username: args.nvos_username,
             nvos_password: args.nvos_password,
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: args.meta_name.unwrap_or_default(),
                 description: args.meta_description.unwrap_or_default(),
                 labels: crate::metadata::parse_rpc_labels(args.labels.unwrap_or_default()),

@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 
+// TODO(k82cn): It's better to move FunctionId/FunctionType to a standalone model.
 use std::collections::HashSet;
 
-use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::infiniband::IBPartitionId;
-use rpc::forge as rpc;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::infiniband::IBPartitionId;
 use serde::{Deserialize, Serialize};
 
-// TODO(k82cn): It's better to move FunctionId/FunctionType to a standalone model.
 use super::network::{InterfaceFunctionId, InterfaceFunctionType};
 use crate::ConfigValidationError;
 
@@ -80,15 +80,15 @@ impl InstanceInfinibandConfig {
     }
 }
 
-impl TryFrom<rpc::InstanceInfinibandConfig> for InstanceInfinibandConfig {
+impl TryFrom<forge::InstanceInfinibandConfig> for InstanceInfinibandConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: rpc::InstanceInfinibandConfig) -> Result<Self, Self::Error> {
+    fn try_from(config: forge::InstanceInfinibandConfig) -> Result<Self, Self::Error> {
         // try_from for ib_interfaces:
         let mut assigned_vfs: u8 = 0;
         let mut ib_interfaces = Vec::with_capacity(config.ib_interfaces.len());
         for iface in config.ib_interfaces.into_iter() {
-            let rpc_iface_type = rpc::InterfaceFunctionType::try_from(iface.function_type)
+            let rpc_iface_type = forge::InterfaceFunctionType::try_from(iface.function_type)
                 .map_err(|_| {
                     RpcDataConversionError::InvalidInterfaceFunctionType(iface.function_type)
                 })?;
@@ -127,18 +127,18 @@ impl TryFrom<rpc::InstanceInfinibandConfig> for InstanceInfinibandConfig {
     }
 }
 
-impl TryFrom<InstanceInfinibandConfig> for rpc::InstanceInfinibandConfig {
+impl TryFrom<InstanceInfinibandConfig> for forge::InstanceInfinibandConfig {
     type Error = RpcDataConversionError;
 
     fn try_from(
         config: InstanceInfinibandConfig,
-    ) -> Result<rpc::InstanceInfinibandConfig, Self::Error> {
+    ) -> Result<forge::InstanceInfinibandConfig, Self::Error> {
         let mut ib_interfaces = Vec::with_capacity(config.ib_interfaces.len());
         for iface in config.ib_interfaces.into_iter() {
             let function_type = iface.function_id.function_type();
 
-            ib_interfaces.push(rpc::InstanceIbInterfaceConfig {
-                function_type: rpc::InterfaceFunctionType::from(function_type) as i32,
+            ib_interfaces.push(forge::InstanceIbInterfaceConfig {
+                function_type: forge::InterfaceFunctionType::from(function_type) as i32,
                 virtual_function_id: None,
                 ib_partition_id: Some(iface.ib_partition_id),
                 device: iface.device,
@@ -147,7 +147,7 @@ impl TryFrom<InstanceInfinibandConfig> for rpc::InstanceInfinibandConfig {
             });
         }
 
-        Ok(rpc::InstanceInfinibandConfig { ib_interfaces })
+        Ok(forge::InstanceInfinibandConfig { ib_interfaces })
     }
 }
 

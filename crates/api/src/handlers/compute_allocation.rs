@@ -17,15 +17,15 @@
 
 use std::num::TryFromIntError;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::compute_allocation::ComputeAllocationId;
-use carbide_uuid::instance_type::InstanceTypeId;
 use config_version::ConfigVersion;
-use db::{compute_allocation, instance, instance_type, machine};
-use model::compute_allocation::MAX_COMPUTE_ALLOCATION_SIZE;
-use model::metadata::Metadata;
-use model::tenant::{InvalidTenantOrg, TenantOrganizationId};
+use nico_api_db::{compute_allocation, instance, instance_type, machine};
+use nico_api_model::compute_allocation::MAX_COMPUTE_ALLOCATION_SIZE;
+use nico_api_model::metadata::Metadata;
+use nico_api_model::tenant::{InvalidTenantOrg, TenantOrganizationId};
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::compute_allocation::ComputeAllocationId;
+use nico_uuid::instance_type::InstanceTypeId;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -34,8 +34,8 @@ use crate::api::{Api, log_request_data};
 
 pub(crate) async fn create(
     api: &Api,
-    request: Request<rpc::CreateComputeAllocationRequest>,
-) -> Result<Response<rpc::CreateComputeAllocationResponse>, Status> {
+    request: Request<forge::CreateComputeAllocationRequest>,
+) -> Result<Response<forge::CreateComputeAllocationResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -162,7 +162,7 @@ pub(crate) async fn create(
     .await?;
 
     // Prepare the response to send back
-    let rpc_out = rpc::CreateComputeAllocationResponse {
+    let rpc_out = forge::CreateComputeAllocationResponse {
         allocation: Some(compute_allocation.try_into()?),
     };
 
@@ -175,8 +175,8 @@ pub(crate) async fn create(
 
 pub(crate) async fn find_ids(
     api: &Api,
-    request: Request<rpc::FindComputeAllocationIdsRequest>,
-) -> Result<Response<rpc::FindComputeAllocationIdsResponse>, Status> {
+    request: Request<forge::FindComputeAllocationIdsRequest>,
+) -> Result<Response<forge::FindComputeAllocationIdsResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -207,7 +207,7 @@ pub(crate) async fn find_ids(
     )
     .await?;
 
-    let rpc_out = rpc::FindComputeAllocationIdsResponse {
+    let rpc_out = forge::FindComputeAllocationIdsResponse {
         ids: allocation_ids,
     };
 
@@ -218,8 +218,8 @@ pub(crate) async fn find_ids(
 
 pub(crate) async fn find_by_ids(
     api: &Api,
-    request: Request<rpc::FindComputeAllocationsByIdsRequest>,
-) -> Result<Response<rpc::FindComputeAllocationsByIdsResponse>, Status> {
+    request: Request<forge::FindComputeAllocationsByIdsRequest>,
+) -> Result<Response<forge::FindComputeAllocationsByIdsResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -252,10 +252,10 @@ pub(crate) async fn find_by_ids(
     let rpc_compute_allocations = compute_allocations
         .into_iter()
         .map(|i| i.try_into())
-        .collect::<Result<Vec<rpc::ComputeAllocation>, _>>()?;
+        .collect::<Result<Vec<forge::ComputeAllocation>, _>>()?;
 
     // Prepare the response message
-    let rpc_out = rpc::FindComputeAllocationsByIdsResponse {
+    let rpc_out = forge::FindComputeAllocationsByIdsResponse {
         allocations: rpc_compute_allocations,
     };
 
@@ -268,8 +268,8 @@ pub(crate) async fn find_by_ids(
 
 pub(crate) async fn update(
     api: &Api,
-    request: Request<rpc::UpdateComputeAllocationRequest>,
-) -> Result<Response<rpc::UpdateComputeAllocationResponse>, Status> {
+    request: Request<forge::UpdateComputeAllocationRequest>,
+) -> Result<Response<forge::UpdateComputeAllocationResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -444,7 +444,7 @@ pub(crate) async fn update(
         // Now we need to grab the count of instances for the tenant for this instance type.
         // We will need to compare the count against the new allocation total to make sure the
         // total isn't dropping below the count of already-created instances.
-        let filter = model::instance::InstanceSearchFilter {
+        let filter = nico_api_model::instance::InstanceSearchFilter {
             label: None,
             tenant_org_id: Some(req.tenant_organization_id),
             vpc_id: None,
@@ -502,7 +502,7 @@ pub(crate) async fn update(
     .await?;
 
     // Prepare the response to send back
-    let rpc_out = rpc::UpdateComputeAllocationResponse {
+    let rpc_out = forge::UpdateComputeAllocationResponse {
         allocation: Some(compute_allocation.try_into()?),
     };
 
@@ -515,8 +515,8 @@ pub(crate) async fn update(
 
 pub(crate) async fn delete(
     api: &Api,
-    request: Request<rpc::DeleteComputeAllocationRequest>,
-) -> Result<Response<rpc::DeleteComputeAllocationResponse>, Status> {
+    request: Request<forge::DeleteComputeAllocationRequest>,
+) -> Result<Response<forge::DeleteComputeAllocationResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -587,7 +587,7 @@ pub(crate) async fn delete(
         // Now we need to grab the count of instances for the tenant for this instance type.
         // We will need to compare the count against the new allocation total to make sure the
         // total isn't dropping below the count of already-created instances.
-        let filter = model::instance::InstanceSearchFilter {
+        let filter = nico_api_model::instance::InstanceSearchFilter {
             label: None,
             tenant_org_id: Some(req.tenant_organization_id),
             vpc_id: None,
@@ -616,7 +616,7 @@ pub(crate) async fn delete(
     }
 
     // Prepare the response message
-    let rpc_out = rpc::DeleteComputeAllocationResponse {};
+    let rpc_out = forge::DeleteComputeAllocationResponse {};
 
     // Commit if nothing has gone wrong up to now
     txn.commit().await?;

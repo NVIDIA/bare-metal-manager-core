@@ -18,10 +18,10 @@
 // registry/cmds.rs
 // Command handlers for registry operations.
 
-use libmlx::variables::registry::MlxVariableRegistry;
+use nico_libmlx::variables::registry::MlxVariableRegistry;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::protos::mlx_device as mlx_device_pb;
 use prettytable::{Cell, Row, Table};
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use rpc::protos::mlx_device as mlx_device_pb;
 
 use super::args::{RegistryCommand, RegistryListCommand, RegistryShowCommand};
 use crate::mlx::{CliContext, wrap_text};

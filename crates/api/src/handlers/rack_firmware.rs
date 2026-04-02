@@ -18,15 +18,16 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use db::{DatabaseError, rack_firmware as rack_firmware_db};
-use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
-use rpc::forge::{
+use nico_api_db::{DatabaseError, rack_firmware as rack_firmware_db};
+use nico_rpc::forge;
+use nico_rpc::forge::{
     DeviceUpdateResult, NodeJobInfo, RackFirmware, RackFirmwareApplyRequest,
     RackFirmwareApplyResponse, RackFirmwareCreateRequest, RackFirmwareDeleteRequest,
     RackFirmwareGetRequest, RackFirmwareHistoryRecords, RackFirmwareHistoryRequest,
     RackFirmwareHistoryResponse, RackFirmwareJobStatusRequest, RackFirmwareJobStatusResponse,
     RackFirmwareList, RackFirmwareListRequest,
 };
+use nico_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::task::JoinSet;
@@ -982,14 +983,14 @@ pub async fn apply(
             serde_json::json!({})
         });
 
-    let rack = db::rack::get(&api.database_connection, &rack_id)
+    let rack = nico_api_db::rack::get(&api.database_connection, &rack_id)
         .await
         .map_err(|e| CarbideError::Internal {
             message: format!("Failed to get rack: {}", e),
         })?;
 
     // Convert rack to proto to get device IDs
-    let rack_proto: rpc::forge::Rack = rack.into();
+    let rack_proto: forge::Rack = rack.into();
 
     let has_compute_trays = !rack_proto.compute_trays.is_empty();
     let has_power_shelves = !rack_proto.power_shelves.is_empty();
@@ -1211,7 +1212,7 @@ pub async fn apply(
         .acquire()
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new("acquire for apply history", e)))?;
-    db::rack_firmware::record_apply_history(
+    nico_api_db::rack_firmware::record_apply_history(
         &mut conn,
         &req.firmware_id,
         &rack_id_str,
@@ -1385,10 +1386,13 @@ pub async fn get_history(
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new("acquire for history", e)))?;
 
-    let records =
-        db::rack_firmware::list_apply_history(&mut conn, firmware_id_filter, &req.rack_ids)
-            .await
-            .map_err(CarbideError::from)?;
+    let records = nico_api_db::rack_firmware::list_apply_history(
+        &mut conn,
+        firmware_id_filter,
+        &req.rack_ids,
+    )
+    .await
+    .map_err(CarbideError::from)?;
 
     // Group results by rack_id
     let mut histories: std::collections::HashMap<String, Vec<_>> = std::collections::HashMap::new();

@@ -20,15 +20,15 @@
  *  tables in the database, leveraging the site-specific record types.
  */
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::{
+use nico_measured_boot::records::{
+    MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
+};
+use nico_measured_boot::site::MachineAttestationSummary;
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::{
     MeasurementApprovedMachineId, MeasurementApprovedProfileId, MeasurementSystemProfileId,
     TrustedMachineId,
 };
-use measured_boot::records::{
-    MeasurementApprovedMachineRecord, MeasurementApprovedProfileRecord, MeasurementApprovedType,
-};
-use measured_boot::site::MachineAttestationSummary;
 use sqlx::PgConnection;
 
 use crate::DatabaseError;

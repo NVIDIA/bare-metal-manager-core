@@ -20,19 +20,19 @@
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::{OData, PCIeDevice};
 use mac_address::MacAddress;
-use model::hardware_info::HardwareInfo;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::site_explorer::{
+use nico_api_model::hardware_info::HardwareInfo;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationError,
     EndpointExplorationReport, EndpointType, EthernetInterface, Inventory, Manager, PowerState,
     Service, UefiDevicePath,
 };
-use rpc::forge::forge_server::Forge;
-use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo, forge};
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
 use sqlx::PgConnection;
 use tonic::Request;
 
@@ -267,7 +267,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
 pub async fn create_dpu_machine(
     env: &TestEnv,
     host_config: &ManagedHostConfig,
-) -> carbide_uuid::machine::MachineId {
+) -> nico_uuid::machine::MachineId {
     site_explorer::new_dpu(env, host_config.clone())
         .await
         .unwrap()
@@ -285,16 +285,16 @@ pub async fn create_dpu_machine_in_waiting_for_network_install(
 pub async fn create_machine_inventory(env: &TestEnv, machine_id: MachineId) {
     tracing::debug!("Creating machine inventory for {}", machine_id);
     env.api
-        .update_agent_reported_inventory(Request::new(rpc::forge::DpuAgentInventoryReport {
+        .update_agent_reported_inventory(Request::new(forge::DpuAgentInventoryReport {
             machine_id: Some(machine_id),
-            inventory: Some(rpc::forge::MachineInventory {
+            inventory: Some(forge::MachineInventory {
                 components: vec![
-                    rpc::forge::MachineInventorySoftwareComponent {
+                    forge::MachineInventorySoftwareComponent {
                         name: "doca-hbn".to_string(),
                         version: TEST_DOCA_HBN_VERSION.to_string(),
                         url: "nvcr.io/nvidia/doca/".to_string(),
                     },
-                    rpc::forge::MachineInventorySoftwareComponent {
+                    forge::MachineInventorySoftwareComponent {
                         name: "doca-telemetry".to_string(),
                         version: TEST_DOCA_TELEMETRY_VERSION.to_string(),
                         url: "nvcr.io/nvidia/doca/".to_string(),
@@ -330,7 +330,7 @@ pub async fn dpu_discover_machine(
     env: &TestEnv,
     dpu_config: &DpuConfig,
     machine_interface_id: MachineInterfaceId,
-) -> carbide_uuid::machine::MachineId {
+) -> nico_uuid::machine::MachineId {
     let response = env
         .api
         .discover_machine(Request::new(MachineDiscoveryInfo {
@@ -349,7 +349,7 @@ pub async fn dpu_discover_machine(
 
 // Convenience method for the tests to get a machine's loopback IP
 pub async fn loopback_ip(txn: &mut PgConnection, dpu_machine_id: &MachineId) -> IpAddr {
-    let dpu = db::machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default())
+    let dpu = nico_api_db::machine::find_one(txn, dpu_machine_id, MachineSearchConfig::default())
         .await
         .unwrap()
         .unwrap();

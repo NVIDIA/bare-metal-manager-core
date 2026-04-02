@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
 use clap::Parser;
+use nico_uuid::machine::MachineId;
 
 #[derive(Parser, Debug, Clone)]
 pub struct MachineQuery {

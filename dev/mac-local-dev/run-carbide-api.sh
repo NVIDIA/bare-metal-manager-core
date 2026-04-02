@@ -172,7 +172,7 @@ ok "Resolved config written to $CARBIDE_TMP_CONFIG"
 # -----------------------------------------------------------------------------
 echo ""
 echo "=== Running migrations ==="
-cargo run --package carbide-api --no-default-features migrate || die "Database migrations failed; fix the issue above and re-run this script."
+cargo run --package nico-api --no-default-features migrate || die "Database migrations failed; fix the issue above and re-run this script."
 
 echo ""
 echo "=== Starting Carbide API ==="
@@ -183,5 +183,5 @@ echo "   Web UI: https://localhost:1079/admin"
 echo "   gRPC:   grpcurl -insecure localhost:1079 list"
 echo ""
 
-exec env RUST_BACKTRACE=1 cargo run --package carbide-api --no-default-features -- run \
+exec env RUST_BACKTRACE=1 cargo run --package nico-api --no-default-features -- run \
   --config-path "$CARBIDE_TMP_CONFIG"

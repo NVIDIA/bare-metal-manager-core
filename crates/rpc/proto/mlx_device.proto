@@ -365,7 +365,7 @@ message SerializableMlxConfigProfile {
 
 // FirmwareCredentials represents authentication credentials for
 // accessing firmware or device config resources. Maps to the Rust
-// Credentials enum in libmlx::firmware::credentials.
+// Credentials enum in nico_libmlx::firmware::credentials.
 message FirmwareCredentials {
   oneof credential_type {
     BearerTokenCredentials bearer_token = 1;

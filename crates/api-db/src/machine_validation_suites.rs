@@ -16,7 +16,7 @@
  */
 
 use config_version::ConfigVersion;
-use model::machine_validation::{
+use nico_api_model::machine_validation::{
     MachineValidationTest, MachineValidationTestAddRequest, MachineValidationTestUpdatePayload,
     MachineValidationTestUpdateRequest, MachineValidationTestsGetRequest,
 };

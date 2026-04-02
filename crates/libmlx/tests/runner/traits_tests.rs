@@ -18,8 +18,10 @@
 // tests/traits_tests.rs
 // Tests for MlxConfigSettable and MlxConfigQueryable traits
 
-use libmlx::runner::traits::{self, MlxConfigQueryable, MlxConfigSettable};
-use libmlx::variables::value::MlxValueType;
+use nico_libmlx::runner::traits::{
+    MlxConfigQueryable, MlxConfigSettable, {self},
+};
+use nico_libmlx::variables::value::MlxValueType;
 
 use super::common;
 
@@ -239,7 +241,9 @@ fn test_mlx_config_settable_variable_not_found() {
     let result = assignments.to_config_values(&registry);
     assert!(result.is_err());
 
-    if let Err(libmlx::runner::error::MlxRunnerError::VariableNotFound { variable_name }) = result {
+    if let Err(nico_libmlx::runner::error::MlxRunnerError::VariableNotFound { variable_name }) =
+        result
+    {
         assert_eq!(variable_name, "NONEXISTENT_VAR");
     } else {
         panic!("Expected VariableNotFound error");
@@ -354,7 +358,9 @@ fn test_mlx_config_queryable_variable_not_found() {
     let result = variables.to_variable_names(&registry);
 
     assert!(result.is_err());
-    if let Err(libmlx::runner::error::MlxRunnerError::VariableNotFound { variable_name }) = result {
+    if let Err(nico_libmlx::runner::error::MlxRunnerError::VariableNotFound { variable_name }) =
+        result
+    {
         assert_eq!(variable_name, "NONEXISTENT_VAR");
     } else {
         panic!("Expected VariableNotFound error");
@@ -524,8 +530,10 @@ fn test_build_sparse_array_value_out_of_bounds() {
     let result = traits::build_sparse_array_value(gpio_var, indices);
 
     assert!(result.is_err());
-    if let Err(libmlx::runner::error::MlxRunnerError::ArraySizeMismatch {
-        expected, found, ..
+    if let Err(nico_libmlx::runner::error::MlxRunnerError::ArraySizeMismatch {
+        expected,
+        found,
+        ..
     }) = result
     {
         assert_eq!(expected, 4);
@@ -548,7 +556,7 @@ fn test_build_sparse_array_value_invalid_enum() {
 
 #[test]
 fn test_get_array_size_from_spec() {
-    use libmlx::variables::spec::MlxVariableSpec;
+    use nico_libmlx::variables::spec::MlxVariableSpec;
 
     // Test boolean array
     let spec = MlxVariableSpec::builder()
@@ -700,7 +708,7 @@ fn test_mlx_config_queryable_array_index_out_of_bounds() {
     let result = variables.to_variable_names(&registry);
 
     assert!(result.is_err());
-    if let Err(libmlx::runner::error::MlxRunnerError::ArraySizeMismatch {
+    if let Err(nico_libmlx::runner::error::MlxRunnerError::ArraySizeMismatch {
         variable_name,
         expected,
         found,
@@ -723,7 +731,9 @@ fn test_mlx_config_queryable_array_index_base_variable_not_found() {
     let result = variables.to_variable_names(&registry);
 
     assert!(result.is_err());
-    if let Err(libmlx::runner::error::MlxRunnerError::VariableNotFound { variable_name }) = result {
+    if let Err(nico_libmlx::runner::error::MlxRunnerError::VariableNotFound { variable_name }) =
+        result
+    {
         assert_eq!(variable_name, "NONEXISTENT_ARRAY");
     } else {
         panic!("Expected VariableNotFound error");

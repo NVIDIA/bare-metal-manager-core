@@ -15,7 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
 
 use super::args::Args;
 use crate::network_security_group::common::convert_nsgs_to_table;
@@ -31,7 +32,7 @@ pub async fn create(
 ) -> CarbideCliResult<()> {
     let is_json = output_format == OutputFormat::Json;
 
-    let req: ::rpc::forge::CreateNetworkSecurityGroupRequest = args.try_into()?;
+    let req: forge::CreateNetworkSecurityGroupRequest = args.try_into()?;
     let nsg = api_client
         .0
         .create_network_security_group(req)

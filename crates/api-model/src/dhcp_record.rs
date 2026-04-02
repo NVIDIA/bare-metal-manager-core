@@ -16,11 +16,12 @@
  */
 use std::net::IpAddr;
 
-use carbide_uuid::domain::DomainId;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
-use carbide_uuid::network::NetworkSegmentId;
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
+use nico_rpc::forge;
+use nico_uuid::domain::DomainId;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
+use nico_uuid::network::NetworkSegmentId;
 use sqlx::FromRow;
 
 ///
@@ -48,7 +49,7 @@ pub struct DhcpRecord {
     pub last_invalidation_time: chrono::DateTime<chrono::Utc>,
 }
 
-impl From<DhcpRecord> for rpc::forge::DhcpRecord {
+impl From<DhcpRecord> for forge::DhcpRecord {
     fn from(record: DhcpRecord) -> Self {
         Self {
             machine_id: record.machine_id,

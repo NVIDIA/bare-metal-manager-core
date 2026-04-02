@@ -18,9 +18,9 @@
 // lockdown/cmds.rs
 // Command handlers for lockdown operations.
 
-use libmlx::lockdown::lockdown::StatusReport;
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use rpc::protos::mlx_device as mlx_device_pb;
+use nico_libmlx::lockdown::lockdown::StatusReport;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::protos::mlx_device as mlx_device_pb;
 
 use super::args::{
     LockdownCommand, LockdownLockCommand, LockdownStatusCommand, LockdownUnlockCommand,

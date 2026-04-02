@@ -14,9 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
-use carbide_uuid::machine::MachineInterfaceId;
+use nico_rpc::forge;
+use nico_rpc::forge_tls_client::{
+    ApiConfig, ForgeClientConfig, {self},
+};
+use nico_uuid::machine::MachineInterfaceId;
 
 pub(crate) mod cloud_init;
 pub(crate) mod ipxe;
@@ -27,7 +29,7 @@ pub struct RpcContext;
 
 impl RpcContext {
     async fn get_pxe_instructions(
-        arch: rpc::MachineArchitecture,
+        arch: forge::MachineArchitecture,
         interface_id: MachineInterfaceId,
         product: Option<String>,
         url: &str,
@@ -37,7 +39,7 @@ impl RpcContext {
         let mut client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
             .await
             .map_err(|err| err.to_string())?;
-        let request = tonic::Request::new(rpc::PxeInstructionRequest {
+        let request = tonic::Request::new(forge::PxeInstructionRequest {
             arch: arch as i32,
             interface_id: Some(interface_id),
             product,

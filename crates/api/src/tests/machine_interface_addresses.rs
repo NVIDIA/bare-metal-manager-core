@@ -20,9 +20,9 @@ use std::str::FromStr;
 
 use ipnetwork::IpNetwork;
 use mac_address::MacAddress;
-use model::address_selection_strategy::AddressSelectionStrategy;
-use model::network_prefix::NewNetworkPrefix;
-use model::network_segment::{
+use nico_api_model::address_selection_strategy::AddressSelectionStrategy;
+use nico_api_model::network_prefix::NewNetworkPrefix;
+use nico_api_model::network_segment::{
     NetworkSegmentControllerState, NetworkSegmentType, NewNetworkSegment,
 };
 
@@ -32,7 +32,7 @@ use crate::tests::common::api_fixtures::create_test_env;
 async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let mut txn = env.pool.begin().await?;
-    let domain = db::dns::domain::find_by_name(txn.as_mut(), "dwrt1.com")
+    let domain = nico_api_db::dns::domain::find_by_name(txn.as_mut(), "dwrt1.com")
         .await?
         .into_iter()
         .next()
@@ -55,11 +55,14 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
         id: uuid::uuid!("f9860f19-37d5-44f6-b637-84de4648cd39").into(),
         can_stretch: None,
     };
-    let network_segment =
-        db::network_segment::persist(new_ns, &mut txn, NetworkSegmentControllerState::Ready)
-            .await?;
+    let network_segment = nico_api_db::network_segment::persist(
+        new_ns,
+        &mut txn,
+        NetworkSegmentControllerState::Ready,
+    )
+    .await?;
     // An interface that isn't attached to a Machine. This is what BMC interfaces are.
-    let interface = db::machine_interface::create(
+    let interface = nico_api_db::machine_interface::create(
         &mut txn,
         &network_segment,
         &MacAddress::from_str("ff:ff:ff:ff:ff:ff").unwrap(),
@@ -70,7 +73,9 @@ async fn find_by_address_bmc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::erro
     .await?;
     let bmc_ip = interface.addresses.iter().find(|x| x.is_ipv4()).copied();
     assert!(bmc_ip.is_some());
-    let res = db::machine_interface_address::find_by_address(txn.as_mut(), bmc_ip.unwrap()).await?;
+    let res =
+        nico_api_db::machine_interface_address::find_by_address(txn.as_mut(), bmc_ip.unwrap())
+            .await?;
     assert!(res.is_some());
     assert_eq!(res.unwrap().id, interface.id);
 

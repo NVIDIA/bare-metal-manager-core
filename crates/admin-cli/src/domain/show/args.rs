@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::domain::DomainId;
 use clap::Parser;
+use nico_uuid::domain::DomainId;
 
 #[derive(Parser, Debug)]
 pub struct Args {

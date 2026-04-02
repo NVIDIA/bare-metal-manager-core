@@ -21,7 +21,8 @@ use askama::Template;
 use axum::extract::{Query as AxumQuery, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 use serde::Deserialize;
 
 use crate::api::Api;
@@ -85,7 +86,7 @@ pub async fn query(
     };
 
     let response = match state
-        .ufm_browse(tonic::Request::new(rpc::forge::UfmBrowseRequest {
+        .ufm_browse(tonic::Request::new(forge::UfmBrowseRequest {
             fabric_id: browser.fabric_id.clone(),
             path: browser.path.clone(),
         }))

@@ -17,11 +17,11 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 
-use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
-use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use model::network_prefix::{NetworkPrefix, NewNetworkPrefix};
+use nico_api_model::network_prefix::{NetworkPrefix, NewNetworkPrefix};
+use nico_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+use nico_uuid::vpc::{VpcId, VpcPrefixId};
 use sqlx::PgConnection;
 
 use super::DatabaseError;

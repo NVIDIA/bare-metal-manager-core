@@ -16,6 +16,7 @@
  */
 
 use clap::Parser;
+use nico_rpc::forge;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -25,7 +26,7 @@ pub struct Args {
     pub identifier: String,
 }
 
-impl From<Args> for ::rpc::forge::DeleteRackRequest {
+impl From<Args> for forge::DeleteRackRequest {
     fn from(args: Args) -> Self {
         Self {
             id: args.identifier,

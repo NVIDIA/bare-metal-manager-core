@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::infiniband::IBPartitionId;
-use model::ib::{DEFAULT_IB_FABRIC_NAME, IBQosConf};
-use model::ib_partition::{IBPartition, IBPartitionControllerState, IBPartitionStatus};
+use nico_api_model::ib::{DEFAULT_IB_FABRIC_NAME, IBQosConf};
+use nico_api_model::ib_partition::{IBPartition, IBPartitionControllerState, IBPartitionStatus};
+use nico_uuid::infiniband::IBPartitionId;
 
 use crate::CarbideError;
 use crate::ib::{GetPartitionOptions, IBFabricManagerConfig};
@@ -95,7 +95,7 @@ impl StateHandler for IBPartitionStateHandler {
                                     // the instance state handler tries to unbind ports.
                                     let mut txn = ctx.services.db_pool.begin().await?;
                                     let instance_count =
-                                        db::ib_partition::count_instances_referencing_partition(
+                                        nico_api_db::ib_partition::count_instances_referencing_partition(
                                             txn.as_mut(),
                                             *partition_id,
                                         )
@@ -126,10 +126,18 @@ impl StateHandler for IBPartitionStateHandler {
                                                 "pkey pool for fabric \"{DEFAULT_IB_FABRIC_NAME}\" was not found"
                                             )})?;
 
-                                    db::ib_partition::final_delete(*partition_id, &mut txn).await?;
+                                    nico_api_db::ib_partition::final_delete(
+                                        *partition_id,
+                                        &mut txn,
+                                    )
+                                    .await?;
 
-                                    db::resource_pool::release(pkey_pool, &mut txn, pkey.into())
-                                        .await?;
+                                    nico_api_db::resource_pool::release(
+                                        pkey_pool,
+                                        &mut txn,
+                                        pkey.into(),
+                                    )
+                                    .await?;
                                     Ok(StateHandlerOutcome::deleted().with_txn(txn))
                                 }
                                 _ => Err(StateHandlerError::IBFabricError {
@@ -218,7 +226,7 @@ impl StateHandler for IBPartitionStateHandler {
                                 };
 
                                 let mut txn = ctx.services.db_pool.begin().await?;
-                                db::ib_partition::update(state, &mut txn).await?;
+                                nico_api_db::ib_partition::update(state, &mut txn).await?;
 
                                 if let Err(e) = ib_result {
                                     return Ok(StateHandlerOutcome::transition(

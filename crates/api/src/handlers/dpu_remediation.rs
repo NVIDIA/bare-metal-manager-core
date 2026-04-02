@@ -14,11 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
-use db::dpu_remediation::AppliedRemediationIdQueryType;
-use model::dpu_remediation::{
+use nico_api_db::dpu_remediation::AppliedRemediationIdQueryType;
+use nico_api_model::dpu_remediation::{
     ApproveRemediation, DisableRemediation, EnableRemediation, NewRemediation, RevokeRemediation,
 };
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
@@ -47,18 +47,18 @@ pub fn external_user_name<T>(request: &Request<T>) -> Result<String, CarbideErro
 
 pub(crate) async fn create(
     api: &Api,
-    request: Request<rpc::CreateRemediationRequest>,
-) -> Result<Response<rpc::CreateRemediationResponse>, Status> {
+    request: Request<forge::CreateRemediationRequest>,
+) -> Result<Response<forge::CreateRemediationResponse>, Status> {
     crate::api::log_request_data(&request);
     let authored_by = external_user_name(&request)?;
 
     let mut txn = api.txn_begin().await?;
-    let response = Ok(db::dpu_remediation::persist_remediation(
+    let response = Ok(nico_api_db::dpu_remediation::persist_remediation(
         NewRemediation::try_from((request.into_inner(), authored_by))?,
         &mut txn,
     )
     .await
-    .map(rpc::CreateRemediationResponse::from)
+    .map(forge::CreateRemediationResponse::from)
     .map(Response::new)?);
 
     txn.commit().await?;
@@ -68,14 +68,14 @@ pub(crate) async fn create(
 
 pub(crate) async fn approve(
     api: &Api,
-    request: Request<rpc::ApproveRemediationRequest>,
+    request: Request<forge::ApproveRemediationRequest>,
 ) -> Result<Response<()>, Status> {
     crate::api::log_request_data(&request);
     let approved_by = external_user_name(&request)?;
 
     let mut txn = api.txn_begin().await?;
 
-    db::dpu_remediation::persist_approve_remediation(
+    nico_api_db::dpu_remediation::persist_approve_remediation(
         ApproveRemediation::try_from((request.into_inner(), approved_by))?,
         &mut txn,
     )
@@ -88,14 +88,14 @@ pub(crate) async fn approve(
 
 pub(crate) async fn revoke(
     api: &Api,
-    request: Request<rpc::RevokeRemediationRequest>,
+    request: Request<forge::RevokeRemediationRequest>,
 ) -> Result<Response<()>, Status> {
     crate::api::log_request_data(&request);
     let revoked_by = external_user_name(&request)?;
 
     let mut txn = api.txn_begin().await?;
 
-    db::dpu_remediation::persist_revoke_remediation(
+    nico_api_db::dpu_remediation::persist_revoke_remediation(
         RevokeRemediation::try_from((request.into_inner(), revoked_by))?,
         &mut txn,
     )
@@ -108,14 +108,14 @@ pub(crate) async fn revoke(
 
 pub(crate) async fn enable(
     api: &Api,
-    request: Request<rpc::EnableRemediationRequest>,
+    request: Request<forge::EnableRemediationRequest>,
 ) -> Result<Response<()>, Status> {
     crate::api::log_request_data(&request);
     let enabled_by = external_user_name(&request)?;
 
     let mut txn = api.txn_begin().await?;
 
-    db::dpu_remediation::persist_enable_remediation(
+    nico_api_db::dpu_remediation::persist_enable_remediation(
         EnableRemediation::try_from((request.into_inner(), enabled_by))?,
         &mut txn,
     )
@@ -128,14 +128,14 @@ pub(crate) async fn enable(
 
 pub(crate) async fn disable(
     api: &Api,
-    request: Request<rpc::DisableRemediationRequest>,
+    request: Request<forge::DisableRemediationRequest>,
 ) -> Result<Response<()>, Status> {
     crate::api::log_request_data(&request);
     let disabled_by = external_user_name(&request)?;
 
     let mut txn = api.txn_begin().await?;
 
-    db::dpu_remediation::persist_disable_remediation(
+    nico_api_db::dpu_remediation::persist_disable_remediation(
         DisableRemediation::try_from((request.into_inner(), disabled_by))?,
         &mut txn,
     )
@@ -149,12 +149,12 @@ pub(crate) async fn disable(
 pub(crate) async fn find_remediation_ids(
     api: &Api,
     request: Request<()>,
-) -> Result<Response<rpc::RemediationIdList>, Status> {
+) -> Result<Response<forge::RemediationIdList>, Status> {
     crate::api::log_request_data(&request);
     let mut txn = api.txn_begin().await?;
 
-    let remediation_ids = db::dpu_remediation::find_remediation_ids(&mut txn).await?;
-    let response = rpc::RemediationIdList { remediation_ids };
+    let remediation_ids = nico_api_db::dpu_remediation::find_remediation_ids(&mut txn).await?;
+    let response = forge::RemediationIdList { remediation_ids };
 
     txn.commit().await?;
 
@@ -163,8 +163,8 @@ pub(crate) async fn find_remediation_ids(
 
 pub(crate) async fn find_remediations_by_ids(
     api: &Api,
-    request: Request<rpc::RemediationIdList>,
-) -> Result<Response<rpc::RemediationList>, Status> {
+    request: Request<forge::RemediationIdList>,
+) -> Result<Response<forge::RemediationList>, Status> {
     crate::api::log_request_data(&request);
     let mut txn = api.txn_begin().await?;
 
@@ -183,12 +183,12 @@ pub(crate) async fn find_remediations_by_ids(
     }
 
     let db_remediations =
-        db::dpu_remediation::find_remediations_by_ids(&mut txn, &remediation_ids).await?;
+        nico_api_db::dpu_remediation::find_remediations_by_ids(&mut txn, &remediation_ids).await?;
 
-    let response = Response::new(rpc::RemediationList {
+    let response = Response::new(forge::RemediationList {
         remediations: db_remediations
             .into_iter()
-            .map(rpc::Remediation::from)
+            .map(forge::Remediation::from)
             .collect::<Vec<_>>(),
     });
 
@@ -199,8 +199,8 @@ pub(crate) async fn find_remediations_by_ids(
 
 pub(crate) async fn find_applied_remediation_ids(
     api: &Api,
-    request: Request<rpc::FindAppliedRemediationIdsRequest>,
-) -> Result<Response<rpc::AppliedRemediationIdList>, Status> {
+    request: Request<forge::FindAppliedRemediationIdsRequest>,
+) -> Result<Response<forge::AppliedRemediationIdList>, Status> {
     crate::api::log_request_data(&request);
     let mut txn = api.txn_begin().await?;
 
@@ -228,9 +228,9 @@ pub(crate) async fn find_applied_remediation_ids(
     }?;
 
     let (remediation_ids, dpu_machine_ids) =
-        db::dpu_remediation::find_applied_remediation_ids(&mut txn, id_query_args).await?;
+        nico_api_db::dpu_remediation::find_applied_remediation_ids(&mut txn, id_query_args).await?;
 
-    let response = rpc::AppliedRemediationIdList {
+    let response = forge::AppliedRemediationIdList {
         remediation_ids,
         dpu_machine_ids,
     };
@@ -242,8 +242,8 @@ pub(crate) async fn find_applied_remediation_ids(
 
 pub(crate) async fn find_applied_remediations(
     api: &Api,
-    request: Request<rpc::FindAppliedRemediationsRequest>,
-) -> Result<Response<rpc::AppliedRemediationList>, Status> {
+    request: Request<forge::FindAppliedRemediationsRequest>,
+) -> Result<Response<forge::AppliedRemediationList>, Status> {
     crate::api::log_request_data(&request);
     let mut txn = api.txn_begin().await?;
 
@@ -257,7 +257,7 @@ pub(crate) async fn find_applied_remediations(
         .ok_or(CarbideError::MissingArgument("dpu machine id"))?;
 
     let applied_remediations =
-        db::dpu_remediation::find_remediations_by_remediation_id_and_machine(
+        nico_api_db::dpu_remediation::find_remediations_by_remediation_id_and_machine(
             &mut txn,
             remediation_id,
             &machine_id,
@@ -267,7 +267,7 @@ pub(crate) async fn find_applied_remediations(
         .map(|x| x.into())
         .collect();
 
-    let response = rpc::AppliedRemediationList {
+    let response = forge::AppliedRemediationList {
         applied_remediations,
     };
 
@@ -278,8 +278,8 @@ pub(crate) async fn find_applied_remediations(
 
 pub(crate) async fn get_next_remediation_for_machine(
     api: &Api,
-    request: Request<rpc::GetNextRemediationForMachineRequest>,
-) -> Result<Response<rpc::GetNextRemediationForMachineResponse>, Status> {
+    request: Request<forge::GetNextRemediationForMachineRequest>,
+) -> Result<Response<forge::GetNextRemediationForMachineResponse>, Status> {
     crate::api::log_request_data(&request);
     let mut txn = api.txn_begin().await?;
 
@@ -289,12 +289,13 @@ pub(crate) async fn get_next_remediation_for_machine(
         .ok_or(CarbideError::MissingArgument("machine id"))?;
 
     let remediation_to_apply =
-        db::dpu_remediation::find_next_remediation_for_machine(&mut txn, machine_id).await?;
+        nico_api_db::dpu_remediation::find_next_remediation_for_machine(&mut txn, machine_id)
+            .await?;
 
     let remediation_id = remediation_to_apply.as_ref().map(|r| r.id);
     let remediation_script = remediation_to_apply.map(|r| r.script);
 
-    let response = Response::new(rpc::GetNextRemediationForMachineResponse {
+    let response = Response::new(forge::GetNextRemediationForMachineResponse {
         remediation_id,
         remediation_script,
     });
@@ -306,7 +307,7 @@ pub(crate) async fn get_next_remediation_for_machine(
 
 pub(crate) async fn remediation_applied(
     api: &Api,
-    request: Request<rpc::RemediationAppliedRequest>,
+    request: Request<forge::RemediationAppliedRequest>,
 ) -> Result<Response<()>, Status> {
     crate::api::log_request_data(&request);
     let mut txn = api.txn_begin().await?;
@@ -318,12 +319,13 @@ pub(crate) async fn remediation_applied(
     let machine_id = request
         .dpu_machine_id
         .ok_or(CarbideError::MissingArgument("machine id"))?;
-    let status: model::dpu_remediation::RemediationApplicationStatus = request
+    let status: nico_api_model::dpu_remediation::RemediationApplicationStatus = request
         .status
         .ok_or(CarbideError::MissingArgument("status"))?
         .try_into()?;
 
-    db::dpu_remediation::remediation_applied(&mut txn, machine_id, remediation_id, status).await?;
+    nico_api_db::dpu_remediation::remediation_applied(&mut txn, machine_id, remediation_id, status)
+        .await?;
 
     txn.commit().await?;
 

@@ -20,10 +20,10 @@
  *  tables in the database, leveraging the report-specific record types.
  */
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::MeasurementReportId;
-use measured_boot::pcr::PcrRegisterValue;
-use measured_boot::records::{MeasurementReportRecord, MeasurementReportValueRecord};
+use nico_measured_boot::pcr::PcrRegisterValue;
+use nico_measured_boot::records::{MeasurementReportRecord, MeasurementReportValueRecord};
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::MeasurementReportId;
 use sqlx::{PgConnection, Postgres, QueryBuilder};
 
 use crate::DatabaseError;

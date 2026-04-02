@@ -21,14 +21,14 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
-use carbide_health::metrics::MetricsManager;
-use carbide_health::sink::{
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use mac_address::MacAddress;
+use nico_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+use nico_health::metrics::MetricsManager;
+use nico_health::sink::{
     CollectorEvent, CompositeDataSink, DataSink, EventContext, FirmwareInfo, LogRecord,
     PrometheusSink, SensorHealthData,
 };
-use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use mac_address::MacAddress;
 
 const MACHINE_ID: &str = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
 

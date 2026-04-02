@@ -24,14 +24,14 @@ use std::io::Read;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use carbide_dpf::repository::{DpuRepository, K8sConfigRepository};
-use carbide_dpf::{
-    DpfError, DpfSdk, DpfSdkBuilder, DpuDeviceInfo, DpuNodeInfo, InitDpfResourcesConfig,
-    KubeRepository, NAMESPACE, ServiceDefinition, dpu_node_cr_name,
-};
 use clap::{Parser, Subcommand};
 use libredfish::model::BootProgressTypes;
 use libredfish::{Redfish, SystemPowerControl};
+use nico_dpf::repository::{DpuRepository, K8sConfigRepository};
+use nico_dpf::{
+    DpfError, DpfSdk, DpfSdkBuilder, DpuDeviceInfo, DpuNodeInfo, InitDpfResourcesConfig,
+    KubeRepository, NAMESPACE, ServiceDefinition, dpu_node_cr_name,
+};
 use serde::Deserialize;
 
 const BMC_SECRET_NAME: &str = "bmc-shared-password";
@@ -781,7 +781,7 @@ async fn wait_for_dpu_created_after(
     created_after: SystemTime,
     timeout: Duration,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    use carbide_dpf::crds::dpus_generated::DPU;
+    use nico_dpf::crds::dpus_generated::DPU;
     let cutoff = created_after
         .checked_sub(CREATED_AFTER_TOLERANCE)
         .unwrap_or(UNIX_EPOCH);
@@ -917,7 +917,7 @@ async fn show_status(
     namespace: &str,
     host_bmc_ip: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use carbide_dpf::repository::{
+    use nico_dpf::repository::{
         BfbRepository, DpuDeploymentRepository, DpuDeviceRepository, DpuNodeRepository,
         DpuRepository, DpuServiceConfigurationRepository, DpuServiceTemplateRepository,
     };

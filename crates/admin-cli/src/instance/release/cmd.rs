@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::InstanceReleaseRequest;
-use carbide_uuid::instance::InstanceId;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge::InstanceReleaseRequest;
+use nico_uuid::instance::InstanceId;
 
 use super::args::Args;
 use crate::instance::common::GlobalOptions;

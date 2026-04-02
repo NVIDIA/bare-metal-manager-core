@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use db::ObjectFilter;
-use db::managed_host::load_snapshot;
-use model::machine::LoadSnapshotOptions;
-use model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_db::ObjectFilter;
+use nico_api_db::managed_host::load_snapshot;
+use nico_api_model::machine::LoadSnapshotOptions;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -28,7 +28,7 @@ use crate::handlers::utils::convert_and_log_machine_id;
 
 pub(crate) async fn modify_dpf_state(
     api: &Api,
-    request: Request<rpc::ModifyDpfStateRequest>,
+    request: Request<forge::ModifyDpfStateRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
     let request = request.get_ref();
@@ -47,11 +47,11 @@ pub(crate) async fn modify_dpf_state(
             id: machine_id.to_string(),
         })?;
 
-    db::machine::modify_dpf_state(&mut txn, &machine_id, request.dpf_enabled).await?;
+    nico_api_db::machine::modify_dpf_state(&mut txn, &machine_id, request.dpf_enabled).await?;
 
     // Keep DPUs also in sync.
     for dpu in machine_snapshot.dpu_snapshots {
-        db::machine::modify_dpf_state(&mut txn, &dpu.id, request.dpf_enabled).await?;
+        nico_api_db::machine::modify_dpf_state(&mut txn, &dpu.id, request.dpf_enabled).await?;
     }
     txn.commit().await?;
 
@@ -61,8 +61,8 @@ pub(crate) async fn modify_dpf_state(
 // Since this function sends only a bool with ids, we might not need pagination for this.
 pub(crate) async fn get_dpf_state(
     api: &Api,
-    request: Request<rpc::GetDpfStateRequest>,
-) -> Result<Response<rpc::DpfStateResponse>, Status> {
+    request: Request<forge::GetDpfStateRequest>,
+) -> Result<Response<forge::DpfStateResponse>, Status> {
     log_request_data(&request);
     let request = request.get_ref();
 
@@ -81,10 +81,11 @@ pub(crate) async fn get_dpf_state(
         ObjectFilter::List(&request.machine_ids)
     };
 
-    let dpf_states = db::machine::find(&mut txn, filter, MachineSearchConfig::default()).await?;
+    let dpf_states =
+        nico_api_db::machine::find(&mut txn, filter, MachineSearchConfig::default()).await?;
     txn.commit().await?;
 
-    Ok(Response::new(rpc::DpfStateResponse {
+    Ok(Response::new(forge::DpfStateResponse {
         dpf_states: dpf_states
             .into_iter()
             .map(|machine| machine.into())

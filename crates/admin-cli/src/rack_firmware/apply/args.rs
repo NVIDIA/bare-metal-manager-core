@@ -15,8 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
 use clap::Parser;
+use nico_rpc::forge;
+use nico_uuid::rack::RackId;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -30,7 +31,7 @@ pub struct Args {
     pub firmware_type: String,
 }
 
-impl From<Args> for rpc::forge::RackFirmwareApplyRequest {
+impl From<Args> for forge::RackFirmwareApplyRequest {
     fn from(args: Args) -> Self {
         Self {
             rack_id: Some(args.rack_id),

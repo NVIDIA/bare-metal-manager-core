@@ -21,14 +21,14 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_uuid::dpu_remediations::RemediationId;
-use carbide_uuid::machine::MachineId;
-use rand::Rng;
-use rpc::Metadata;
-use rpc::forge::{
+use nico_rpc::forge::{
     GetNextRemediationForMachineRequest, RemediationApplicationStatus, RemediationAppliedRequest,
 };
-use rpc::forge_tls_client::ForgeClientConfig;
+use nico_rpc::forge_tls_client::ForgeClientConfig;
+use nico_rpc::{Metadata, forge};
+use nico_uuid::dpu_remediations::RemediationId;
+use nico_uuid::machine::MachineId;
+use rand::Rng;
 
 const MIN_INITIAL_DELAY_TIME_SECS: u64 = 48; // 80% of 60
 const MAX_INITIAL_DELAY_TIME_SECS: u64 = 72; // 120% of 60
@@ -80,7 +80,7 @@ impl RemediationExecutor {
         &self,
         remediation_id: RemediationId,
         script: String,
-        mut client: rpc::forge_tls_client::ForgeClientT,
+        mut client: nico_rpc::forge_tls_client::ForgeClientT,
     ) -> Result<(), Box<dyn Error>> {
         // setup tmp dir with new random UUID
         let tmp_dir_location = format!("/tmp/remediations/{}", uuid::Uuid::new_v4());
@@ -159,7 +159,7 @@ impl RemediationExecutor {
         } else {
             let labels = results
                 .into_iter()
-                .map(|(k, v)| rpc::forge::Label {
+                .map(|(k, v)| forge::Label {
                     key: k,
                     value: Some(v),
                 })
@@ -194,7 +194,7 @@ impl RemediationExecutor {
 
         // setup log rotation for tmpdir so we don't fill the disk
         loop {
-            match forge_dpu_agent_utils::utils::create_forge_client(
+            match nico_dpu_agent_utils::utils::create_forge_client(
                 self.forge_api_server.as_str(),
                 &self.forge_client_config,
             )

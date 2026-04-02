@@ -22,9 +22,9 @@ use std::time::Duration;
 use std::{env, path};
 
 use eyre::Report;
-use forge_secrets::credentials::{CredentialKey, CredentialType, CredentialWriter, Credentials};
-use forge_secrets::{CredentialConfig, VaultConfig, create_credential_manager};
 use metrics_endpoint::MetricsSetup;
+use nico_secrets::credentials::{CredentialKey, CredentialType, CredentialWriter, Credentials};
+use nico_secrets::{CredentialConfig, VaultConfig, create_credential_manager};
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{Pool, Postgres};
 use tokio::task::JoinHandle;
@@ -230,8 +230,8 @@ pub async fn start_api_server(
     // We should setup logging here but:
     // - try_init sets a global logger and can only be called once.
     // Error is: "a global default trace dispatcher has already been set".
-    // carbide_host_support::init_logging() calls try_init, but so does carbide-api when it starts.
-    // - Even if we could get around that (carbide_host_support::subscriber().set_default() should
+    // nico_host_support::init_logging() calls try_init, but so does carbide-api when it starts.
+    // - Even if we could get around that (nico_host_support::subscriber().set_default() should
     // set a thread-specific logger), tracing will attempt to initialize the `log` crate (via tracing-log)
     // which can also only be initialized once. What a mess.
     // Error is: "attempted to set a logger after the logging system was already initialized"
@@ -292,7 +292,7 @@ pub async fn populate_initial_vault_secrets(
     credential_manager
         .set_credentials(
             &CredentialKey::BmcCredentials {
-                credential_type: forge_secrets::credentials::BmcCredentialType::SiteWideRoot,
+                credential_type: nico_secrets::credentials::BmcCredentialType::SiteWideRoot,
             },
             &Credentials::UsernamePassword {
                 username: "root".to_string(),

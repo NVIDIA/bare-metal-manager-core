@@ -14,13 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::protos::dns::{
+use nico_api_db::dns::domain;
+use nico_api_db::{
+    ObjectColumnFilter, {self},
+};
+use nico_api_model::dns::NewDomain;
+use nico_rpc::protos::dns::{
     CreateDomainRequest, Domain, DomainDeletionRequest, DomainDeletionResult, DomainList,
     DomainSearchQuery, UpdateDomainRequest,
 };
-use db::dns::domain;
-use db::{self, ObjectColumnFilter};
-use model::dns::NewDomain;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -136,7 +138,7 @@ pub(crate) async fn find(
     };
 
     let result = domains
-        .map(|domain| ::rpc::protos::dns::DomainList {
+        .map(|domain| nico_rpc::protos::dns::DomainList {
             domains: domain.into_iter().map(Domain::from).collect(),
         })
         .map(Response::new)
@@ -152,7 +154,7 @@ pub(crate) async fn find(
 // TODO: Remove these once clients have migrated
 // ============================================================================
 
-use ::rpc::protos::forge::{
+use nico_rpc::protos::forge::{
     DomainDeletionLegacy, DomainDeletionResultLegacy, DomainLegacy, DomainListLegacy,
     DomainSearchQueryLegacy,
 };

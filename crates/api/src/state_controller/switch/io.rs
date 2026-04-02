@@ -17,13 +17,13 @@
 
 //! State Controller IO implementation for Switches
 
-use carbide_uuid::switch::SwitchId;
 use config_version::{ConfigVersion, Versioned};
-use db::switch::SwitchSearchConfig;
-use db::{DatabaseError, ObjectColumnFilter, switch as db_switch};
-use model::StateSla;
-use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::switch::{Switch, SwitchControllerState, state_sla};
+use nico_api_db::switch::SwitchSearchConfig;
+use nico_api_db::{DatabaseError, ObjectColumnFilter, switch as db_switch};
+use nico_api_model::StateSla;
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::switch::{Switch, SwitchControllerState, state_sla};
+use nico_uuid::switch::SwitchId;
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
@@ -62,7 +62,7 @@ impl StateControllerIO for SwitchStateControllerIO {
     ) -> Result<Option<Self::State>, DatabaseError> {
         let mut switches = db_switch::find_by(
             txn,
-            ObjectColumnFilter::One(db::switch::IdColumn, switch_id),
+            ObjectColumnFilter::One(nico_api_db::switch::IdColumn, switch_id),
             SwitchSearchConfig::default(),
         )
         .await?;
@@ -112,7 +112,7 @@ impl StateControllerIO for SwitchStateControllerIO {
         new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::switch_state_history::persist(txn, object_id, new_state, new_version).await?;
+        nico_api_db::switch_state_history::persist(txn, object_id, new_state, new_version).await?;
         Ok(())
     }
 

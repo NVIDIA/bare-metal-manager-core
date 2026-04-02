@@ -21,7 +21,6 @@
 
 pub mod attestation;
 pub mod bmc_metadata;
-pub mod carbide_version;
 pub mod compute_allocation;
 pub mod db_read;
 pub mod desired_firmware;
@@ -66,6 +65,7 @@ pub mod network_prefix;
 pub mod network_security_group;
 pub mod network_segment;
 pub mod network_segment_state_history;
+pub mod nico_version;
 pub mod nvl_logical_partition;
 pub mod nvl_partition;
 pub mod os_image;
@@ -101,12 +101,12 @@ use std::ops::{Deref, DerefMut};
 use std::panic::Location;
 use std::pin::Pin;
 
-#[cfg(test)]
-pub(crate) use carbide_macros::sqlx_test;
 use mac_address::MacAddress;
-use model::ConfigValidationError;
-use model::hardware_info::HardwareInfoError;
-use model::tenant::TenantError;
+use nico_api_model::ConfigValidationError;
+use nico_api_model::hardware_info::HardwareInfoError;
+use nico_api_model::tenant::TenantError;
+#[cfg(test)]
+pub(crate) use nico_macros::sqlx_test;
 use sqlx::{Acquire, PgPool, PgTransaction, Postgres};
 use tonic::Status;
 
@@ -345,7 +345,7 @@ pub enum DatabaseError {
     #[error("Uuid type conversion error: {0}")]
     UuidConversionError(#[from] uuid::Error),
     #[error("RPC Uuid type conversion error: {0}")]
-    RpcUuidConversionError(#[from] carbide_uuid::UuidConversionError),
+    RpcUuidConversionError(#[from] nico_uuid::UuidConversionError),
     #[error(
         "An object of type {0} was intended to be modified did not have the expected version {1}"
     )]
@@ -363,7 +363,7 @@ pub enum DatabaseError {
     #[error("Invalid configuration: {0}")]
     InvalidConfiguration(#[from] ConfigValidationError),
     #[error("Resource pool error: {0}")]
-    ResourcePoolError(#[from] model::resource_pool::ResourcePoolError),
+    ResourcePoolError(#[from] nico_api_model::resource_pool::ResourcePoolError),
     #[error("Only one interface per machine can be marked as primary")]
     OnePrimaryInterface,
     #[error("Duplicate MAC address for network: {0}")]
@@ -579,8 +579,8 @@ impl From<ResourcePoolDatabaseError> for DatabaseError {
         }
     }
 }
-impl From<::measured_boot::Error> for DatabaseError {
-    fn from(value: ::measured_boot::Error) -> Self {
+impl From<nico_measured_boot::Error> for DatabaseError {
+    fn from(value: nico_measured_boot::Error) -> Self {
         DatabaseError::internal(value.to_string())
     }
 }

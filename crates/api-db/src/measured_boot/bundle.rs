@@ -22,15 +22,15 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use itertools::Itertools;
-use measured_boot::bundle::MeasurementBundle;
-use measured_boot::journal::MeasurementJournal;
-use measured_boot::pcr::PcrRegisterValue;
-use measured_boot::records::{
+use nico_measured_boot::bundle::MeasurementBundle;
+use nico_measured_boot::journal::MeasurementJournal;
+use nico_measured_boot::pcr::PcrRegisterValue;
+use nico_measured_boot::records::{
     MeasurementBundleRecord, MeasurementBundleState, MeasurementBundleValueRecord,
 };
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use sqlx::{PgConnection, PgTransaction};
 
 use crate::db_read::DbReader;
@@ -793,7 +793,7 @@ fn get_matching_bundles(
 
 #[cfg(test)]
 mod tests {
-    use carbide_uuid::measured_boot::MeasurementBundleValueId;
+    use nico_uuid::measured_boot::MeasurementBundleValueId;
 
     use super::*;
 

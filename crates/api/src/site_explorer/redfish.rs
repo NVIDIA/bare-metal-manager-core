@@ -20,18 +20,18 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_network::deserialize_input_mac_to_address;
-use forge_secrets::credentials::Credentials;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use libredfish::{Redfish, RedfishError};
 use mac_address::MacAddress;
-use model::site_explorer::{
+use nico_api_model::site_explorer::{
     BootOption, BootOrder, Chassis, ComputerSystem, ComputerSystemAttributes,
     EndpointExplorationError, EndpointExplorationReport, EndpointType, EthernetInterface,
     InternalLockdownStatus, Inventory, LockdownStatus, MachineSetupDiff, MachineSetupStatus,
     Manager, NetworkAdapter, PCIeDevice, SecureBootStatus, Service, UefiDevicePath,
 };
+use nico_network::deserialize_input_mac_to_address;
+use nico_secrets::credentials::Credentials;
 use nv_redfish::oem::hpe::ilo_service_ext::ManagerType as HpeManagerType;
 use regex::Regex;
 

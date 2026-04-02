@@ -18,11 +18,11 @@
 use std::fs::File;
 use std::io::Write;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialType, Credentials};
 use mac_address::MacAddress;
-use model::ib::DEFAULT_IB_FABRIC_NAME;
+use nico_api_model::ib::DEFAULT_IB_FABRIC_NAME;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialType, Credentials};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -37,15 +37,15 @@ pub const DEFAULT_NMX_M_NAME: &str = "forge-nmx-m";
 
 pub(crate) async fn create_credential(
     api: &Api,
-    request: tonic::Request<rpc::CredentialCreationRequest>,
-) -> Result<tonic::Response<rpc::CredentialCreationResult>, tonic::Status> {
+    request: tonic::Request<forge::CredentialCreationRequest>,
+) -> Result<tonic::Response<forge::CredentialCreationResult>, tonic::Status> {
     // Do not log_request_data as credentials contain sensitive information
     // crate::api::log_request_data(&request);
 
     let req = request.into_inner();
     let password = req.password;
 
-    let credential_type = rpc::CredentialType::try_from(req.credential_type).map_err(|_| {
+    let credential_type = forge::CredentialType::try_from(req.credential_type).map_err(|_| {
         CarbideError::NotFoundError {
             kind: "credential_type",
             id: req.credential_type.to_string(),
@@ -53,12 +53,12 @@ pub(crate) async fn create_credential(
     })?;
 
     match credential_type {
-        rpc::CredentialType::HostBmc | rpc::CredentialType::Dpubmc => {
+        forge::CredentialType::HostBmc | forge::CredentialType::Dpubmc => {
             return Err(CarbideError::InvalidArgument(
                 "Forge no longer maintains separate paths for Host and DPU site-wide BMC root credentials. This has been unified.".into(),
             ).into());
         }
-        rpc::CredentialType::SiteWideBmcRoot => {
+        forge::CredentialType::SiteWideBmcRoot => {
             set_sitewide_bmc_root_credentials(api, password)
                 .await
                 .map_err(|e| {
@@ -67,7 +67,7 @@ pub(crate) async fn create_credential(
                     ))
                 })?;
         }
-        rpc::CredentialType::Ufm => {
+        forge::CredentialType::Ufm => {
             if let Some(username) = req.username {
                 api.credential_manager
                     .set_credentials(
@@ -93,7 +93,7 @@ pub(crate) async fn create_credential(
                 return Err(CarbideError::InvalidArgument("missing UFM Url".to_string()).into());
             }
         }
-        rpc::CredentialType::DpuUefi => {
+        forge::CredentialType::DpuUefi => {
             if (api
                 .credential_manager
                 .get_credentials(&CredentialKey::DpuUefi {
@@ -122,7 +122,7 @@ pub(crate) async fn create_credential(
                     CarbideError::internal(format!("Error setting credential for DPU UEFI: {e:?} "))
                 })?
         }
-        rpc::CredentialType::HostUefi => {
+        forge::CredentialType::HostUefi => {
             if api
                 .credential_manager
                 .get_credentials(&CredentialKey::HostUefi {
@@ -151,7 +151,7 @@ pub(crate) async fn create_credential(
                     CarbideError::internal(format!("Error setting credential for Host UEFI: {e:?}"))
                 })?
         }
-        rpc::CredentialType::HostBmcFactoryDefault => {
+        forge::CredentialType::HostBmcFactoryDefault => {
             let Some(username) = req.username else {
                 return Err(CarbideError::InvalidArgument("missing username".to_string()).into());
             };
@@ -173,7 +173,7 @@ pub(crate) async fn create_credential(
                     ))
                 })?
         }
-        rpc::CredentialType::DpuBmcFactoryDefault => {
+        forge::CredentialType::DpuBmcFactoryDefault => {
             let Some(username) = req.username else {
                 return Err(CarbideError::InvalidArgument("missing username".to_string()).into());
             };
@@ -191,7 +191,7 @@ pub(crate) async fn create_credential(
                     ))
                 })?
         }
-        rpc::CredentialType::RootBmcByMacAddress => {
+        forge::CredentialType::RootBmcByMacAddress => {
             let Some(mac_address) = req.mac_address else {
                 return Err(CarbideError::InvalidArgument("mac address".to_string()).into());
             };
@@ -208,14 +208,14 @@ pub(crate) async fn create_credential(
                     ))
                 })?;
         }
-        rpc::CredentialType::BmcForgeAdminByMacAddress => {
+        forge::CredentialType::BmcForgeAdminByMacAddress => {
             // TODO: support credential creation for forge-admin
             return Err(CarbideError::InvalidArgument(
                 "Forge does not support creating forge-admin credentials yet.".into(),
             )
             .into());
         }
-        rpc::CredentialType::NmxM => {
+        forge::CredentialType::NmxM => {
             if let Some(username) = req.username {
                 api.credential_manager
                     .set_credentials(
@@ -241,17 +241,17 @@ pub(crate) async fn create_credential(
         }
     };
 
-    Ok(Response::new(rpc::CredentialCreationResult {}))
+    Ok(Response::new(forge::CredentialCreationResult {}))
 }
 
 pub(crate) async fn delete_credential(
     api: &Api,
-    request: tonic::Request<rpc::CredentialDeletionRequest>,
-) -> Result<tonic::Response<rpc::CredentialDeletionResult>, tonic::Status> {
+    request: tonic::Request<forge::CredentialDeletionRequest>,
+) -> Result<tonic::Response<forge::CredentialDeletionResult>, tonic::Status> {
     crate::api::log_request_data(&request);
     let req = request.into_inner();
 
-    let credential_type = rpc::CredentialType::try_from(req.credential_type).map_err(|_| {
+    let credential_type = forge::CredentialType::try_from(req.credential_type).map_err(|_| {
         CarbideError::NotFoundError {
             kind: "credential_type",
             id: req.credential_type.to_string(),
@@ -259,7 +259,7 @@ pub(crate) async fn delete_credential(
     })?;
 
     match credential_type {
-        rpc::CredentialType::Ufm => {
+        forge::CredentialType::Ufm => {
             if let Some(username) = req.username {
                 api.credential_manager
                     .set_credentials(
@@ -283,11 +283,11 @@ pub(crate) async fn delete_credential(
                 return Err(CarbideError::InvalidArgument("missing UFM Url".to_string()).into());
             }
         }
-        rpc::CredentialType::SiteWideBmcRoot => {
+        forge::CredentialType::SiteWideBmcRoot => {
             // TODO: actually delete entry from vault instead of setting to empty string
             set_sitewide_bmc_root_credentials(api, "".to_string()).await?;
         }
-        rpc::CredentialType::RootBmcByMacAddress => match req.mac_address {
+        forge::CredentialType::RootBmcByMacAddress => match req.mac_address {
             Some(mac_address) => {
                 let parsed_mac: MacAddress = mac_address
                     .parse::<MacAddress>()
@@ -302,25 +302,25 @@ pub(crate) async fn delete_credential(
                 .into());
             }
         },
-        rpc::CredentialType::HostBmc
-        | rpc::CredentialType::Dpubmc
-        | rpc::CredentialType::DpuUefi
-        | rpc::CredentialType::HostUefi
-        | rpc::CredentialType::HostBmcFactoryDefault
-        | rpc::CredentialType::DpuBmcFactoryDefault
-        | rpc::CredentialType::BmcForgeAdminByMacAddress
-        | rpc::CredentialType::NmxM => {
+        forge::CredentialType::HostBmc
+        | forge::CredentialType::Dpubmc
+        | forge::CredentialType::DpuUefi
+        | forge::CredentialType::HostUefi
+        | forge::CredentialType::HostBmcFactoryDefault
+        | forge::CredentialType::DpuBmcFactoryDefault
+        | forge::CredentialType::BmcForgeAdminByMacAddress
+        | forge::CredentialType::NmxM => {
             // Not support delete credential for these types
         }
     };
 
-    Ok(Response::new(rpc::CredentialDeletionResult {}))
+    Ok(Response::new(forge::CredentialDeletionResult {}))
 }
 
 pub(crate) async fn update_machine_credentials(
     api: &Api,
-    request: tonic::Request<rpc::MachineCredentialsUpdateRequest>,
-) -> Result<Response<rpc::MachineCredentialsUpdateResponse>, tonic::Status> {
+    request: tonic::Request<forge::MachineCredentialsUpdateRequest>,
+) -> Result<Response<forge::MachineCredentialsUpdateResponse>, tonic::Status> {
     // Note that we don't log the request here via `log_request_data`.
     // Doing that would make credentials show up in the log stream
     tracing::Span::current().record("request", "MachineCredentialsUpdateRequest { }");
@@ -353,8 +353,8 @@ pub(crate) async fn update_machine_credentials(
 /// in future this function should support SessionToken if available
 pub(crate) async fn get_bmc_credentals(
     api: &Api,
-    request: tonic::Request<rpc::GetBmcCredentialsRequest>,
-) -> Result<Response<rpc::GetBmcCredentialsResponse>, tonic::Status> {
+    request: tonic::Request<forge::GetBmcCredentialsRequest>,
+) -> Result<Response<forge::GetBmcCredentialsResponse>, tonic::Status> {
     crate::api::log_request_data(&request);
 
     let req = request.into_inner();
@@ -377,10 +377,10 @@ pub(crate) async fn get_bmc_credentals(
         Credentials::UsernamePassword { username, password } => (username, password),
     };
 
-    Ok(Response::new(rpc::GetBmcCredentialsResponse {
-        credentials: Some(rpc::BmcCredentials {
-            r#type: Some(rpc::bmc_credentials::Type::UsernamePassword(
-                rpc::UsernamePassword { username, password },
+    Ok(Response::new(forge::GetBmcCredentialsResponse {
+        credentials: Some(forge::BmcCredentials {
+            r#type: Some(forge::bmc_credentials::Type::UsernamePassword(
+                forge::UsernamePassword { username, password },
             )),
         }),
     }))
@@ -506,8 +506,8 @@ pub async fn write_ufm_certs(api: &Api, fabric: String) -> Result<(), CarbideErr
 
 pub(crate) async fn renew_machine_certificate(
     api: &Api,
-    request: Request<rpc::MachineCertificateRenewRequest>,
-) -> Result<Response<rpc::MachineCertificateResult>, Status> {
+    request: Request<forge::MachineCertificateRenewRequest>,
+) -> Result<Response<forge::MachineCertificateResult>, Status> {
     if let Some(machine_identity) = request
         .extensions()
         .get::<crate::auth::AuthContext>()
@@ -521,7 +521,7 @@ pub(crate) async fn renew_machine_certificate(
             .await
             .map_err(|err| CarbideError::ClientCertificateError(err.to_string()))?;
 
-        return Ok(Response::new(rpc::MachineCertificateResult {
+        return Ok(Response::new(forge::MachineCertificateResult {
             machine_certificate: Some(certificate.into()),
         }));
     }

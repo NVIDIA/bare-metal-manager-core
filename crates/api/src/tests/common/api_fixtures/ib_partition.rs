@@ -15,12 +15,13 @@
  * limitations under the License.
  */
 
-use carbide_uuid::infiniband::IBPartitionId;
+use forge::forge_server::Forge;
+use forge::{IbPartitionConfig, IbPartitionCreationRequest};
+use nico_rpc::forge;
+use nico_uuid::infiniband::IBPartitionId;
 use tonic::Request;
 
 use super::TestEnv;
-use crate::api::rpc::forge_server::Forge;
-use crate::api::rpc::{IbPartitionConfig, IbPartitionCreationRequest};
 
 pub const DEFAULT_TENANT: &str = "Tenant1";
 
@@ -28,7 +29,7 @@ pub async fn create_ib_partition(
     env: &TestEnv,
     name: String,
     tenant: String,
-) -> (IBPartitionId, rpc::IbPartition) {
+) -> (IBPartitionId, forge::IbPartition) {
     let ib_partition = env
         .api
         .create_ib_partition(Request::new(IbPartitionCreationRequest {
@@ -38,7 +39,7 @@ pub async fn create_ib_partition(
                 tenant_organization_id: tenant,
                 pkey: None,
             }),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name,
                 labels: Default::default(),
                 description: "".to_string(),
@@ -54,7 +55,7 @@ pub async fn create_ib_partition(
 
     let ib_partition = env
         .api
-        .find_ib_partitions_by_ids(Request::new(rpc::forge::IbPartitionsByIdsRequest {
+        .find_ib_partitions_by_ids(Request::new(forge::IbPartitionsByIdsRequest {
             ib_partition_ids: vec![ib_partition_id],
             include_history: false,
         }))
@@ -66,7 +67,7 @@ pub async fn create_ib_partition(
 
     // check the IB partition status to make sure it is ready.
     let status = ib_partition.status.clone().unwrap();
-    assert_eq!(status.state, rpc::TenantState::Ready as i32);
+    assert_eq!(status.state, forge::TenantState::Ready as i32);
 
     (ib_partition_id, ib_partition)
 }

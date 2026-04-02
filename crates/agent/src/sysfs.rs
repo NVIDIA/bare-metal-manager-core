@@ -15,7 +15,9 @@
  * limitations under the License.
  */
 use std::ffi::OsString;
-use std::fs::{self, DirEntry, File};
+use std::fs::{
+    DirEntry, File, {self},
+};
 use std::io::{Read, Result};
 
 const SYSFS_NET_BASE: &str = "/sys/class/net";

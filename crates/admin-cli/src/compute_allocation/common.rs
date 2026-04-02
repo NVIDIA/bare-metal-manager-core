@@ -15,14 +15,14 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge as forgerpc;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::forge;
 use prettytable::{Table, row};
 
 /// Produces a table for printing a non-JSON representation of a
 /// compute allocation to standard out.
 pub fn convert_compute_allocations_to_table(
-    allocations: Vec<forgerpc::ComputeAllocation>,
+    allocations: Vec<forge::ComputeAllocation>,
     verbose: bool,
 ) -> CarbideCliResult<Box<Table>> {
     let mut table = Box::new(Table::new());

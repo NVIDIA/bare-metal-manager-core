@@ -18,10 +18,10 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use ::rpc::forge as rpc_forge;
-use carbide_uuid::infiniband::IBPartitionId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
+use nico_rpc::{forge, forge as rpc_forge};
+use nico_uuid::infiniband::IBPartitionId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -40,8 +40,8 @@ pub struct IbPartitionSearchFilter {
     pub name: Option<String>,
 }
 
-impl From<rpc::forge::IbPartitionSearchFilter> for IbPartitionSearchFilter {
-    fn from(filter: rpc::forge::IbPartitionSearchFilter) -> Self {
+impl From<forge::IbPartitionSearchFilter> for IbPartitionSearchFilter {
+    fn from(filter: forge::IbPartitionSearchFilter) -> Self {
         IbPartitionSearchFilter {
             tenant_org_id: filter.tenant_org_id,
             name: filter.name,
@@ -166,10 +166,10 @@ pub struct NewIBPartition {
 }
 
 impl TryFrom<rpc_forge::IbPartitionCreationRequest> for NewIBPartition {
-    type Error = rpc::errors::RpcDataConversionError;
+    type Error = nico_rpc::errors::RpcDataConversionError;
     fn try_from(value: rpc_forge::IbPartitionCreationRequest) -> Result<Self, Self::Error> {
         let conf = value.config.ok_or_else(|| {
-            rpc::errors::RpcDataConversionError::InvalidArgument(
+            nico_rpc::errors::RpcDataConversionError::InvalidArgument(
                 "IBPartition configuration is empty".to_string(),
             )
         })?;
@@ -213,18 +213,20 @@ impl From<IBPartitionConfig> for rpc_forge::IbPartitionConfig {
 }
 
 impl TryFrom<rpc_forge::IbPartitionConfig> for IBPartitionConfig {
-    type Error = rpc::errors::RpcDataConversionError;
+    type Error = nico_rpc::errors::RpcDataConversionError;
 
     fn try_from(conf: rpc_forge::IbPartitionConfig) -> Result<Self, Self::Error> {
         if conf.tenant_organization_id.is_empty() {
-            return Err(rpc::errors::RpcDataConversionError::InvalidArgument(
+            return Err(nico_rpc::errors::RpcDataConversionError::InvalidArgument(
                 "IBPartition organization_id is empty".to_string(),
             ));
         }
 
         let tenant_organization_id =
             TenantOrganizationId::try_from(conf.tenant_organization_id.clone()).map_err(|_| {
-                rpc::errors::RpcDataConversionError::InvalidArgument(conf.tenant_organization_id)
+                nico_rpc::errors::RpcDataConversionError::InvalidArgument(
+                    conf.tenant_organization_id,
+                )
             })?;
 
         Ok(IBPartitionConfig {
@@ -354,7 +356,7 @@ impl<'r> FromRow<'r, PgRow> for IBPartition {
 }
 
 impl TryFrom<IBPartition> for rpc_forge::IbPartition {
-    type Error = rpc::errors::RpcDataConversionError;
+    type Error = nico_rpc::errors::RpcDataConversionError;
     fn try_from(src: IBPartition) -> Result<Self, Self::Error> {
         let mut state = match &src.controller_state.value {
             IBPartitionControllerState::Provisioning => rpc_forge::TenantState::Provisioning,

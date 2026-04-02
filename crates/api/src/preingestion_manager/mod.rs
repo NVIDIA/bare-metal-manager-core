@@ -22,17 +22,17 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use db::work_lock_manager::WorkLockManagerHandle;
-use db::{DatabaseError, WithTransaction};
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use futures_util::FutureExt;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
 use libredfish::{PowerState, RedfishError, SystemPowerControl};
-use model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
-use model::site_explorer::{
+use nico_api_db::work_lock_manager::WorkLockManagerHandle;
+use nico_api_db::{DatabaseError, WithTransaction};
+use nico_api_model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
+use nico_api_model::site_explorer::{
     ExploredEndpoint, InitialResetPhase, PowerDrainState, PreingestionState, TimeSyncResetPhase,
 };
+use nico_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use opentelemetry::metrics::Meter;
 use sqlx::PgPool;
 use tokio::fs::File;
@@ -184,7 +184,7 @@ impl PreingestionManager {
             }
         };
 
-        let items = db::explored_endpoints::find_preingest_not_waiting_not_error(&db)
+        let items = nico_api_db::explored_endpoints::find_preingest_not_waiting_not_error(&db)
             .boxed()
             .await?;
 
@@ -240,12 +240,13 @@ impl PreingestionManager {
         }
 
         metrics.machines_in_preingestion =
-            db::explored_endpoints::find_preingest_not_waiting_not_error(&db)
+            nico_api_db::explored_endpoints::find_preingest_not_waiting_not_error(&db)
                 .await?
                 .len();
-        metrics.waiting_for_installation = db::explored_endpoints::find_preingest_installing(&db)
-            .await?
-            .len();
+        metrics.waiting_for_installation =
+            nico_api_db::explored_endpoints::find_preingest_installing(&db)
+                .await?
+                .len();
 
         tracing::debug!(
             "Preingestion metrics: in_preingestion {} waiting {} delayed {}",
@@ -298,7 +299,7 @@ async fn one_endpoint(
                             endpoint.address
                         );
                         db.with_txn(|txn| {
-                            db::explored_endpoints::set_preingestion_failed(
+                            nico_api_db::explored_endpoints::set_preingestion_failed(
                                 endpoint.address,
                                 format!("Failed to check BMC time sync: {message}"),
                                 txn,
@@ -434,7 +435,11 @@ impl PreingestionManagerStatic {
                 // No desired firmware description found for this host, nothing to do.
                 // This is the expected path for DPUs.
                 db.with_txn(|txn| {
-                    db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).boxed()
+                    nico_api_db::explored_endpoints::set_preingestion_complete(
+                        endpoint.address,
+                        txn,
+                    )
+                    .boxed()
                 })
                 .await??;
                 return Ok(false);
@@ -477,7 +482,8 @@ impl PreingestionManagerStatic {
         );
         // Good enough for now at least, proceed with ingestion.
         db.with_txn(|txn| {
-            db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).boxed()
+            nico_api_db::explored_endpoints::set_preingestion_complete(endpoint.address, txn)
+                .boxed()
         })
         .await??;
         Ok(false)
@@ -510,7 +516,8 @@ impl PreingestionManagerStatic {
                 endpoint.address
             );
             db.with_txn(|txn| {
-                db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).boxed()
+                nico_api_db::explored_endpoints::set_preingestion_complete(endpoint.address, txn)
+                    .boxed()
             })
             .await??;
             return Ok(false);
@@ -554,7 +561,8 @@ impl PreingestionManagerStatic {
 
         // Nothing needed to be updated, we're complete.
         db.with_txn(|txn| {
-            db::explored_endpoints::set_preingestion_complete(endpoint.address, txn).boxed()
+            nico_api_db::explored_endpoints::set_preingestion_complete(endpoint.address, txn)
+                .boxed()
         })
         .await??;
 
@@ -705,7 +713,7 @@ impl PreingestionManagerStatic {
                             &endpoint.address
                         );
                         db.with_txn(|txn| {
-                            db::explored_endpoints::set_preingestion_reset_for_new_firmware(
+                            nico_api_db::explored_endpoints::set_preingestion_reset_for_new_firmware(
                                 endpoint.address,
                                 final_version,
                                 upgrade_type,
@@ -751,13 +759,13 @@ impl PreingestionManagerStatic {
                             async move {
                                 // Wait for site explorer to refresh it then try again after that.
                                 // Someday, we should generate metrics for visiblity if something fails multiple times.
-                                db::explored_endpoints::set_preingestion_recheck_versions_reason(
+                                nico_api_db::explored_endpoints::set_preingestion_recheck_versions_reason(
                                     endpoint.address,
                                     msg,
                                     txn,
                                 )
                                 .await?;
-                                db::explored_endpoints::re_explore_if_version_matches(
+                                nico_api_db::explored_endpoints::re_explore_if_version_matches(
                                     endpoint.address,
                                     endpoint.report_version,
                                     txn,
@@ -765,7 +773,7 @@ impl PreingestionManagerStatic {
                                 .await?;
 
                                 // We need site explorer to requery the version
-                                db::explored_endpoints::set_waiting_for_explorer_refresh(
+                                nico_api_db::explored_endpoints::set_waiting_for_explorer_refresh(
                                     endpoint.address,
                                     txn,
                                 )
@@ -800,7 +808,7 @@ impl PreingestionManagerStatic {
                                 &endpoint.address
                             );
                             db.with_txn(|txn| {
-                                db::explored_endpoints::set_preingestion_recheck_versions(
+                                nico_api_db::explored_endpoints::set_preingestion_recheck_versions(
                                     endpoint.address,
                                     txn,
                                 )
@@ -907,7 +915,7 @@ impl PreingestionManagerStatic {
                             time::Duration::seconds(0)
                         };
                         db.with_txn(|txn| {
-                            db::explored_endpoints::set_preingestion_reset_for_new_firmware(
+                            nico_api_db::explored_endpoints::set_preingestion_reset_for_new_firmware(
                                 endpoint.address,
                                 final_version,
                                 upgrade_type,
@@ -937,7 +945,7 @@ impl PreingestionManagerStatic {
                         time::Duration::seconds(0)
                     };
                     db.with_txn(|txn| {
-                        db::explored_endpoints::set_preingestion_reset_for_new_firmware(
+                        nico_api_db::explored_endpoints::set_preingestion_reset_for_new_firmware(
                             endpoint.address,
                             final_version,
                             upgrade_type,
@@ -963,7 +971,7 @@ impl PreingestionManagerStatic {
                         time::Duration::seconds(0)
                     };
                     db.with_txn(|txn| {
-                        db::explored_endpoints::set_preingestion_reset_for_new_firmware(
+                        nico_api_db::explored_endpoints::set_preingestion_reset_for_new_firmware(
                             endpoint.address,
                             final_version,
                             upgrade_type,
@@ -988,7 +996,7 @@ impl PreingestionManagerStatic {
                 return Ok(());
             }
             db.with_txn(|txn| {
-                db::explored_endpoints::set_preingestion_new_reported_wait(
+                nico_api_db::explored_endpoints::set_preingestion_new_reported_wait(
                     endpoint.address,
                     final_version,
                     upgrade_type,
@@ -1015,7 +1023,7 @@ impl PreingestionManagerStatic {
                 return Ok(());
             }
             db.with_txn(|txn| {
-                db::explored_endpoints::set_preingestion_new_reported_wait(
+                nico_api_db::explored_endpoints::set_preingestion_new_reported_wait(
                     endpoint.address,
                     final_version,
                     upgrade_type,
@@ -1051,8 +1059,11 @@ impl PreingestionManagerStatic {
 
         if need_wait {
             db.with_txn(|txn| {
-                db::explored_endpoints::set_waiting_for_explorer_refresh(endpoint.address, txn)
-                    .boxed()
+                nico_api_db::explored_endpoints::set_waiting_for_explorer_refresh(
+                    endpoint.address,
+                    txn,
+                )
+                .boxed()
             })
             .await??;
             return Ok(());
@@ -1075,7 +1086,7 @@ impl PreingestionManagerStatic {
         }
         // No need for resets or reboots, go right to waiting for the new version to show up, and we might as well check right away.
         db.with_txn(|txn| {
-            db::explored_endpoints::set_preingestion_new_reported_wait(
+            nico_api_db::explored_endpoints::set_preingestion_new_reported_wait(
                 endpoint.address,
                 final_version,
                 upgrade_type,
@@ -1120,7 +1131,7 @@ impl PreingestionManagerStatic {
                         return Box::pin(self.in_reset_for_new_firmware(db, endpoint, state)).await;
                     }
                     db.with_txn(|txn| {
-                        db::explored_endpoints::set_waiting_for_explorer_refresh(
+                        nico_api_db::explored_endpoints::set_waiting_for_explorer_refresh(
                             endpoint.address,
                             txn,
                         )
@@ -1148,8 +1159,11 @@ impl PreingestionManagerStatic {
                 );
                 // Make sure we wait for the new version
                 db.with_txn(|txn| {
-                    db::explored_endpoints::set_waiting_for_explorer_refresh(endpoint.address, txn)
-                        .boxed()
+                    nico_api_db::explored_endpoints::set_waiting_for_explorer_refresh(
+                        endpoint.address,
+                        txn,
+                    )
+                    .boxed()
                 })
                 .await??;
             }
@@ -1163,15 +1177,22 @@ impl PreingestionManagerStatic {
             );
             // Make sure we wait for the new version
             db.with_txn(|txn| {
-                db::explored_endpoints::set_waiting_for_explorer_refresh(endpoint.address, txn)
-                    .boxed()
+                nico_api_db::explored_endpoints::set_waiting_for_explorer_refresh(
+                    endpoint.address,
+                    txn,
+                )
+                .boxed()
             })
             .await??;
         }
 
         // Go back to checking versions as there may be other things that need upgrading
         db.with_txn(|txn| {
-            db::explored_endpoints::set_preingestion_recheck_versions(endpoint.address, txn).boxed()
+            nico_api_db::explored_endpoints::set_preingestion_recheck_versions(
+                endpoint.address,
+                txn,
+            )
+            .boxed()
         })
         .await??;
 
@@ -1301,7 +1322,7 @@ impl PreingestionManagerStatic {
                 }
                 tracing::info!("{} initial reset BMC reset intiated", endpoint.address);
                 db.with_txn(|txn| {
-                    db::explored_endpoints::set_preingestion_initial_reset(
+                    nico_api_db::explored_endpoints::set_preingestion_initial_reset(
                         endpoint.address,
                         InitialResetPhase::BMCWasReset,
                         txn,
@@ -1323,7 +1344,7 @@ impl PreingestionManagerStatic {
                     endpoint.address
                 );
                 db.with_txn(|txn| {
-                    db::explored_endpoints::set_preingestion_initial_reset(
+                    nico_api_db::explored_endpoints::set_preingestion_initial_reset(
                         endpoint.address,
                         InitialResetPhase::WaitHostBoot,
                         txn,
@@ -1340,8 +1361,11 @@ impl PreingestionManagerStatic {
                 // Now we can actually proceed with the upgrade.  Go back to checking firmware so we don't have to store all of that info.
                 tracing::info!("{} initial reset complete", endpoint.address);
                 db.with_txn(|txn| {
-                    db::explored_endpoints::set_preingestion_recheck_versions(endpoint.address, txn)
-                        .boxed()
+                    nico_api_db::explored_endpoints::set_preingestion_recheck_versions(
+                        endpoint.address,
+                        txn,
+                    )
+                    .boxed()
                 })
                 .await??;
                 Ok(())
@@ -1382,7 +1406,7 @@ impl PreingestionManagerStatic {
                 }
                 tracing::info!("{} time sync reset BMC reset initiated", endpoint.address);
                 db.with_txn(|txn| {
-                    db::explored_endpoints::set_preingestion_time_sync_reset(
+                    nico_api_db::explored_endpoints::set_preingestion_time_sync_reset(
                         endpoint.address,
                         TimeSyncResetPhase::BMCWasReset,
                         txn,
@@ -1404,7 +1428,7 @@ impl PreingestionManagerStatic {
                     endpoint.address
                 );
                 db.with_txn(|txn| {
-                    db::explored_endpoints::set_preingestion_time_sync_reset(
+                    nico_api_db::explored_endpoints::set_preingestion_time_sync_reset(
                         endpoint.address,
                         TimeSyncResetPhase::WaitHostBoot,
                         txn,
@@ -1441,7 +1465,7 @@ impl PreingestionManagerStatic {
                             endpoint.address
                         );
                         db.with_txn(|txn| {
-                            db::explored_endpoints::set_preingestion_failed(
+                            nico_api_db::explored_endpoints::set_preingestion_failed(
                                 endpoint.address,
                                 "BMC time synchronization failed after reset attempt. Time difference exceeds 5 minutes threshold.".to_string(),
                                 txn,
@@ -1459,7 +1483,7 @@ impl PreingestionManagerStatic {
                                 endpoint.address
                             );
                             db.with_txn(|txn| {
-                                db::explored_endpoints::set_preingestion_failed(
+                                nico_api_db::explored_endpoints::set_preingestion_failed(
                                     endpoint.address,
                                     format!("Failed to check BMC time sync after reset: {message}"),
                                     txn,
@@ -1494,7 +1518,8 @@ impl PreingestionManagerStatic {
         let upgrade_script_state = self.upgrade_script_state.clone();
         let (username, password) = if let Some(credential_reader) = &self.credential_reader {
             // We need to backtrack from the IP address to get the MAC address, which is what the credentials database is keyed on
-            let interface = db::machine_interface::find_by_ip(db, endpoint_address).await?;
+            let interface =
+                nico_api_db::machine_interface::find_by_ip(db, endpoint_address).await?;
             let Some(interface) = interface else {
                 tracing::warn!(
                     "Unable to run update script for {address}: MAC address not retrievable"
@@ -1594,7 +1619,8 @@ impl PreingestionManagerStatic {
         });
 
         db.with_txn(|txn| {
-            db::explored_endpoints::set_preingestion_script_running(endpoint_address, txn).boxed()
+            nico_api_db::explored_endpoints::set_preingestion_script_running(endpoint_address, txn)
+                .boxed()
         })
         .await??;
         Ok(())
@@ -1615,11 +1641,11 @@ impl PreingestionManagerStatic {
             self.upgrade_script_state.clear(&address);
 
             if success {
-                db::explored_endpoints::set_preingestion_recheck_versions(endpoint.address, txn)
+                nico_api_db::explored_endpoints::set_preingestion_recheck_versions(endpoint.address, txn)
                     .await?;
                 Ok(())
             } else {
-                db::explored_endpoints::set_preingestion_failed(endpoint.address,format!(
+                nico_api_db::explored_endpoints::set_preingestion_failed(endpoint.address,format!(
                     "The upgrade script failed.  Search the log for \"Upgrade script {}\" for script output.  Force delete the explored endpoint to retry.",
                     endpoint.address
                 ), txn).await?;
@@ -1893,7 +1919,7 @@ async fn initiate_update(
 
     db_pool
         .with_txn(|txn| {
-            Box::pin(db::explored_endpoints::set_preingestion_waittask(
+            Box::pin(nico_api_db::explored_endpoints::set_preingestion_waittask(
                 endpoint_clone.address,
                 task,
                 &to_install.version,

@@ -15,11 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::OutputFormat;
-use libmlx::runner::result_types::{ComparisonResult, QueryResult, SyncResult};
+use nico_libmlx::runner::result_types::{ComparisonResult, QueryResult, SyncResult};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::protos::mlx_device as mlx_device_pb;
 use prettytable::{Cell, Row, Table};
-use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use rpc::protos::mlx_device as mlx_device_pb;
 
 use super::super::{
     CliContext, print_comparison_result_csv, print_comparison_result_table, print_sync_result_csv,

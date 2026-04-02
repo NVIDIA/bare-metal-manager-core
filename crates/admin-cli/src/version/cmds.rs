@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use nico_rpc::admin_cli::{CarbideCliError, OutputFormat};
 use prettytable::{Cell, Row, Table, row};
 
 use super::Opts;
@@ -64,7 +64,7 @@ pub async fn handle_show_version(
     );
     // Same as running `forge-admin-cli --version`
     println!();
-    println!("forge-admin-cli:\n\t{}", carbide_version::version!());
+    println!("forge-admin-cli:\n\t{}", nico_version::version!());
 
     if opts.show_runtime_config {
         let config = v

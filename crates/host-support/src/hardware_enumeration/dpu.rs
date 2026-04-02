@@ -19,8 +19,8 @@ use std::collections::HashMap;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use nico_rpc::machine_discovery::{DpuData, LldpSwitchData};
 use regex::Regex;
-use rpc::machine_discovery::{DpuData, LldpSwitchData};
 use serde::{Deserialize, Serialize};
 use serde_with::{OneOrMany, serde_as};
 use tracing::{debug, warn};

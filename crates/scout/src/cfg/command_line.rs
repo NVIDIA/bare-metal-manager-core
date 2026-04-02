@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 use clap::{Parser, Subcommand, ValueEnum};
-use forge_tls::default as tls_default;
-use libmlx::device::cmd::device::args::DeviceAction;
-use libmlx::lockdown::cmd::args::LockdownAction;
+use nico_libmlx::device::cmd::device::args::DeviceAction;
+use nico_libmlx::lockdown::cmd::args::LockdownAction;
+use nico_tls::default as tls_default;
 
 #[derive(ValueEnum, Clone, Debug, Copy, PartialEq)]
 pub(crate) enum Mode {

@@ -17,9 +17,9 @@
 
 use std::fmt::Write;
 
-use ::rpc::Timestamp;
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use carbide_uuid::domain::DomainId;
+use nico_rpc::Timestamp;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_uuid::domain::DomainId;
 use prettytable::{Table, row};
 use tracing::warn;
 
@@ -41,7 +41,9 @@ fn timestamp_or_default(ts: &Option<Timestamp>, default: &Timestamp) -> String {
     ts.as_ref().unwrap_or(default).to_string()
 }
 
-fn convert_domain_to_nice_format(domain: &::rpc::protos::dns::Domain) -> CarbideCliResult<String> {
+fn convert_domain_to_nice_format(
+    domain: &nico_rpc::protos::dns::Domain,
+) -> CarbideCliResult<String> {
     let width = 10;
     let mut lines = String::new();
 
@@ -66,7 +68,7 @@ fn convert_domain_to_nice_format(domain: &::rpc::protos::dns::Domain) -> Carbide
     Ok(lines)
 }
 
-fn convert_domain_to_nice_table(domains: ::rpc::protos::dns::DomainList) -> Box<Table> {
+fn convert_domain_to_nice_table(domains: nico_rpc::protos::dns::DomainList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row!["Id", "Name", "Created",]);

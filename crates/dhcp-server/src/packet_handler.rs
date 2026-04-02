@@ -23,7 +23,7 @@ use dhcproto::v4::{Decodable, Decoder, DhcpOption, Message, MessageType, OptionC
 use dhcproto::{Encodable, Encoder};
 use ipnetwork::IpNetwork;
 use lru::LruCache;
-use rpc::forge::{DhcpDiscovery, DhcpRecord};
+use nico_rpc::forge::{DhcpDiscovery, DhcpRecord};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 use utils::models::dhcp::{HostConfig, InterfaceInfo};
@@ -576,7 +576,7 @@ mod test {
 
         let host_config: utils::models::dhcp::HostConfig = utils::models::dhcp::HostConfig {
             host_interface_id:
-                <carbide_uuid::machine::MachineInterfaceId as std::str::FromStr>::from_str(
+                <nico_uuid::machine::MachineInterfaceId as std::str::FromStr>::from_str(
                     "959888da-cdc8-4079-8d23-8a09832447ce",
                 )
                 .ok()

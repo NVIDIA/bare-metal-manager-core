@@ -21,17 +21,17 @@
 
 use std::str::FromStr;
 
-use carbide_uuid::machine::MachineId;
-use db::measured_boot::interface::journal::{
+use nico_api_db::measured_boot::interface::journal::{
     get_measurement_journal_records, get_measurement_journal_records_for_machine_id,
 };
-use rpc::protos::measured_boot::{
+use nico_rpc::protos::measured_boot::{
     DeleteMeasurementJournalRequest, DeleteMeasurementJournalResponse,
     ListMeasurementJournalRequest, ListMeasurementJournalResponse, MeasurementJournalRecordPb,
     ShowMeasurementJournalRequest, ShowMeasurementJournalResponse, ShowMeasurementJournalsRequest,
     ShowMeasurementJournalsResponse, list_measurement_journal_request,
     show_measurement_journal_request,
 };
+use nico_uuid::machine::MachineId;
 use tonic::Status;
 
 use crate::api::Api;
@@ -44,7 +44,7 @@ pub async fn handle_delete_measurement_journal(
     req: DeleteMeasurementJournalRequest,
 ) -> Result<DeleteMeasurementJournalResponse, Status> {
     let mut txn = api.txn_begin().await?;
-    let journal = db::measured_boot::journal::delete_where_id(
+    let journal = nico_api_db::measured_boot::journal::delete_where_id(
         &mut txn,
         req.journal_id
             .ok_or(CarbideError::MissingArgument("journal_id"))?,
@@ -74,14 +74,14 @@ pub async fn handle_show_measurement_journal(
     let journal = match req.selector {
         Some(selector) => match selector {
             show_measurement_journal_request::Selector::JournalId(journal_id) => {
-                db::measured_boot::journal::from_id(&mut txn, journal_id)
+                nico_api_db::measured_boot::journal::from_id(&mut txn, journal_id)
                     .await
                     .map_err(|e| CarbideError::Internal {
                         message: format!("{e}"),
                     })?
             }
             show_measurement_journal_request::Selector::LatestForMachineId(machine_id) => {
-                match db::measured_boot::journal::get_latest_journal_for_id(
+                match nico_api_db::measured_boot::journal::get_latest_journal_for_id(
                     &mut txn,
                     MachineId::from_str(&machine_id).map_err(|e| {
                         CarbideError::InvalidArgument(format!("Could not parse MachineId: {e}"))
@@ -119,7 +119,7 @@ pub async fn handle_show_measurement_journals(
     _req: ShowMeasurementJournalsRequest,
 ) -> Result<ShowMeasurementJournalsResponse, Status> {
     Ok(ShowMeasurementJournalsResponse {
-        journals: db::measured_boot::journal::get_all(&api.database_connection)
+        journals: nico_api_db::measured_boot::journal::get_all(&api.database_connection)
             .await
             .map_err(|e| CarbideError::Internal {
                 message: format!("failed to fetch journals: {e}"),

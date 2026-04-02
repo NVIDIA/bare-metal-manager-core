@@ -18,15 +18,15 @@
 //! State Controller IO implementation for dpa interfaces
 
 use config_version::{ConfigVersion, Versioned};
-use db::DatabaseError;
-use db::attestation::spdm::{
+use nico_api_db::DatabaseError;
+use nico_api_db::attestation::spdm::{
     load_snapshot_for_machine_and_device_id, load_snapshot_for_machine_with_no_device,
 };
-use model::StateSla;
-use model::attestation::spdm::{
+use nico_api_model::StateSla;
+use nico_api_model::attestation::spdm::{
     AttestationState, SpdmMachineSnapshot, SpdmMachineStateSnapshot, SpdmObjectId,
 };
-use model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
@@ -54,7 +54,7 @@ impl StateControllerIO for SpdmStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        db::attestation::spdm::find_machine_ids_for_attestation(txn).await
+        nico_api_db::attestation::spdm::find_machine_ids_for_attestation(txn).await
     }
 
     /// Loads a state snapshot from the database
@@ -91,7 +91,7 @@ impl StateControllerIO for SpdmStateControllerIO {
         _new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<bool, DatabaseError> {
-        db::attestation::spdm::persist_controller_state(txn, object_id, new_state).await
+        nico_api_db::attestation::spdm::persist_controller_state(txn, object_id, new_state).await
     }
 
     async fn persist_state_history(
@@ -101,7 +101,7 @@ impl StateControllerIO for SpdmStateControllerIO {
         _new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<(), DatabaseError> {
-        db::attestation::spdm::update_history(txn, object_id, new_state).await
+        nico_api_db::attestation::spdm::update_history(txn, object_id, new_state).await
     }
 
     async fn persist_outcome(
@@ -110,11 +110,11 @@ impl StateControllerIO for SpdmStateControllerIO {
         object_id: &Self::ObjectId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
-        db::attestation::spdm::persist_outcome(txn, object_id, outcome).await
+        nico_api_db::attestation::spdm::persist_outcome(txn, object_id, outcome).await
     }
 
     fn metric_state_names(
-        state: &model::attestation::spdm::SpdmMachineStateSnapshot,
+        state: &nico_api_model::attestation::spdm::SpdmMachineStateSnapshot,
     ) -> (&'static str, &'static str) {
         match state.machine_state {
             AttestationState::CheckIfAttestationSupported => ("checkifattestationsupported", ""),

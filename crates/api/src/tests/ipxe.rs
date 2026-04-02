@@ -16,15 +16,16 @@
  */
 use std::collections::HashMap;
 
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use chrono::Utc;
 use common::api_fixtures::{TestEnv, create_test_env};
-use db::{self};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
-use model::machine::{DpuInitState, HostReprovisionState, MachineState, ManagedHostState};
-use rpc::forge::CloudInitInstructionsRequest;
-use rpc::forge::forge_server::Forge;
+use nico_api_db::{self};
+use nico_api_model::machine::{DpuInitState, HostReprovisionState, MachineState, ManagedHostState};
+use nico_rpc::forge;
+use nico_rpc::forge::CloudInitInstructionsRequest;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
@@ -41,16 +42,16 @@ async fn move_machine_to_needed_state(
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let machine = db::machine::find_one(
+    let machine = nico_api_db::machine::find_one(
         txn.as_mut(),
         &machine_id,
-        model::machine::machine_search_config::MachineSearchConfig::default(),
+        nico_api_model::machine::machine_search_config::MachineSearchConfig::default(),
     )
     .await
     .unwrap()
     .unwrap();
 
-    db::machine::advance(&machine, &mut txn, state, None)
+    nico_api_db::machine::advance(&machine, &mut txn, state, None)
         .await
         .unwrap();
     txn.commit().await.unwrap();
@@ -59,11 +60,11 @@ async fn move_machine_to_needed_state(
 async fn get_pxe_instructions(
     env: &TestEnv,
     interface_id: MachineInterfaceId,
-    arch: rpc::forge::MachineArchitecture,
+    arch: forge::MachineArchitecture,
     product: Option<String>,
-) -> rpc::forge::PxeInstructions {
+) -> forge::PxeInstructions {
     env.api
-        .get_pxe_instructions(tonic::Request::new(rpc::forge::PxeInstructionRequest {
+        .get_pxe_instructions(tonic::Request::new(forge::PxeInstructionRequest {
             arch: arch as i32,
             interface_id: Some(interface_id),
             product,
@@ -84,7 +85,7 @@ async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let dpu_interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_id])
+    let dpu_interface_id = nico_api_db::machine_interface::find_by_machine_ids(&mut txn, &[dpu_id])
         .await
         .unwrap()[&dpu_id][0]
         .id;
@@ -93,7 +94,7 @@ async fn test_pxe_dpu_ready(pool: sqlx::PgPool) {
     let instructions = get_pxe_instructions(
         &env,
         dpu_interface_id,
-        rpc::forge::MachineArchitecture::Arm,
+        forge::MachineArchitecture::Arm,
         Some("Fake Bluefield".to_string()),
     )
     .await;
@@ -124,7 +125,7 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
     assert_eq!(
         machine.current_state(),
         &ManagedHostState::DPUInit {
-            dpu_states: model::machine::DpuInitStates {
+            dpu_states: nico_api_model::machine::DpuInitStates {
                 states: HashMap::from([(mh.dpu().id, DpuInitState::WaitingForNetworkConfig,)]),
             },
         }
@@ -133,7 +134,7 @@ async fn test_pxe_dpu_waiting_for_network_install(pool: sqlx::PgPool) {
     let instructions = get_pxe_instructions(
         &env,
         machine.interfaces.first().unwrap().id,
-        rpc::forge::MachineArchitecture::Arm,
+        forge::MachineArchitecture::Arm,
         Some("Fake Bluefield".to_string()),
     )
     .await;
@@ -180,7 +181,7 @@ async fn test_dpu_pxe_gets_correct_os_when_machine_is_not_created(
     let instructions = get_pxe_instructions(
         &env,
         dpu_interface_id,
-        rpc::forge::MachineArchitecture::Arm,
+        forge::MachineArchitecture::Arm,
         Some("Fake Bluefield".to_string()),
     )
     .await;
@@ -209,7 +210,7 @@ async fn test_pxe_when_machine_is_not_ingested(pool: sqlx::PgPool) -> eyre::Resu
     let instructions = get_pxe_instructions(
         &env,
         dpu_interface_id,
-        rpc::forge::MachineArchitecture::Arm,
+        forge::MachineArchitecture::Arm,
         Some("Fake Host".to_string()),
     )
     .await;
@@ -226,7 +227,7 @@ async fn test_pxe_when_machine_is_not_ingested(pool: sqlx::PgPool) -> eyre::Resu
     let instructions = get_pxe_instructions(
         &env,
         dpu_interface_id,
-        rpc::forge::MachineArchitecture::X86,
+        forge::MachineArchitecture::X86,
         None,
     )
     .await;
@@ -254,7 +255,7 @@ async fn test_pxe_when_dpu_is_not_ingested(pool: sqlx::PgPool) -> eyre::Result<(
     let instructions = get_pxe_instructions(
         &env,
         dpu_interface_id,
-        rpc::forge::MachineArchitecture::Arm,
+        forge::MachineArchitecture::Arm,
         Some("Fake Bluefield".to_string()),
     )
     .await;
@@ -280,10 +281,11 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
         .begin()
         .await
         .expect("Unable to create transaction on database pool");
-    let host_interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[host_id])
-        .await
-        .unwrap()[&host_id][0]
-        .id;
+    let host_interface_id =
+        nico_api_db::machine_interface::find_by_machine_ids(&mut txn, &[host_id])
+            .await
+            .unwrap()[&host_id][0]
+            .id;
     txn.commit().await.unwrap();
     move_machine_to_needed_state(
         host_id,
@@ -297,7 +299,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
     let instructions = get_pxe_instructions(
         &env,
         host_interface_id,
-        rpc::forge::MachineArchitecture::X86,
+        forge::MachineArchitecture::X86,
         None,
     )
     .await;
@@ -317,7 +319,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
     let instructions = get_pxe_instructions(
         &env,
         host_interface_id,
-        rpc::forge::MachineArchitecture::X86,
+        forge::MachineArchitecture::X86,
         None,
     )
     .await;
@@ -338,7 +340,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
     let instructions = get_pxe_instructions(
         &env,
         host_interface_id,
-        rpc::forge::MachineArchitecture::X86,
+        forge::MachineArchitecture::X86,
         None,
     )
     .await;
@@ -347,7 +349,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
     move_machine_to_needed_state(
         host_id,
         &ManagedHostState::WaitingForCleanup {
-            cleanup_state: model::machine::CleanupState::Init,
+            cleanup_state: nico_api_model::machine::CleanupState::Init,
         },
         &env.pool,
     )
@@ -356,7 +358,7 @@ async fn test_pxe_host(pool: sqlx::PgPool) {
     let instructions = get_pxe_instructions(
         &env,
         host_interface_id,
-        rpc::forge::MachineArchitecture::X86,
+        forge::MachineArchitecture::X86,
         Some("Fake X86 Host".to_string()),
     )
     .await;
@@ -383,7 +385,7 @@ async fn test_pxe_instance(pool: sqlx::PgPool) {
         .await;
 
     let instructions = host_interface
-        .get_pxe_instructions(rpc::forge::MachineArchitecture::X86)
+        .get_pxe_instructions(forge::MachineArchitecture::X86)
         .await;
 
     assert_eq!(instructions.pxe_script, "SomeRandomiPxe".to_string());
@@ -403,7 +405,7 @@ async fn test_cloud_init_when_machine_is_not_created(pool: sqlx::PgPool) {
 
     // Interface is created. Let's fetch interface id.
     let mut txn = env.pool.begin().await.unwrap();
-    let interfaces = db::machine_interface::find_by_mac_address(
+    let interfaces = nico_api_db::machine_interface::find_by_mac_address(
         txn.as_mut(),
         mac_address.parse::<MacAddress>().unwrap(),
     )
@@ -432,7 +434,7 @@ async fn test_cloud_init_after_dpu_update(pool: sqlx::PgPool) {
     move_machine_to_needed_state(
         dpu_id,
         &ManagedHostState::DPUInit {
-            dpu_states: model::machine::DpuInitStates {
+            dpu_states: nico_api_model::machine::DpuInitStates {
                 states: HashMap::from([(dpu_id, DpuInitState::Init)]),
             },
         },

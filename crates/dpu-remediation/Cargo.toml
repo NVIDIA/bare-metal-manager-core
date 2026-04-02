@@ -15,15 +15,14 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-dpu-remediation"
+name = "nico-dpu-remediation"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
 [lib]
-# TODO: rename to carbide_dpu_remediation in source
-name = "forge_dpu_remediation"
+name = "nico_dpu_remediation"
 
 [dependencies]
 eyre = { workspace = true }
@@ -37,7 +36,7 @@ tokio = { workspace = true }
 uuid = { workspace = true }
 
 # [local-dependencies]
-carbide-dpu-agent-utils = { path = "../dpu-agent-utils" }
-carbide-tls = { path = "../tls" }
-carbide-uuid = { path = "../uuid" }
-carbide-rpc = { path = "../rpc" }
+nico-dpu-agent-utils = { path = "../dpu-agent-utils" }
+nico-tls = { path = "../tls" }
+nico-uuid = { path = "../uuid" }
+nico-rpc = { path = "../rpc" }

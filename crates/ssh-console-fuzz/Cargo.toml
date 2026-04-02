@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-ssh-console-fuzz"
+name = "nico-ssh-console-fuzz"
 version = "0.0.1"
 edition.workspace = true
 description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
@@ -27,7 +27,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = { workspace = true }
-carbide-ssh-console = { path = "../ssh-console" }
+nico-ssh-console = { path = "../ssh-console" }
 
 [[bin]]
 name = "ssh_console_escape_filter"

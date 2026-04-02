@@ -10,7 +10,7 @@
  * its affiliates is strictly prohibited.
  */
 
-use carbide_dsx_exchange_consumer::{Config, DsxConsumerError};
+use nico_dsx_exchange_consumer::{Config, DsxConsumerError};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -31,15 +31,15 @@ async fn main() -> Result<(), DsxConsumerError> {
         .map_err(|e| DsxConsumerError::Config(e.to_string()))?;
 
     tracing::info!(
-        version = carbide_version::v!(build_version),
+        version = nico_version::v!(build_version),
         config = ?config,
         "Started carbide-dsx-exchange-consumer"
     );
 
-    carbide_dsx_exchange_consumer::run_service(config).await?;
+    nico_dsx_exchange_consumer::run_service(config).await?;
 
     tracing::info!(
-        version = carbide_version::v!(build_version),
+        version = nico_version::v!(build_version),
         "Stopped carbide-dsx-exchange-consumer"
     );
 

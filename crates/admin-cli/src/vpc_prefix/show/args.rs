@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::vpc::VpcId;
 use clap::Parser;
 use ipnet::IpNet;
+use nico_uuid::vpc::VpcId;
 
 use crate::vpc_prefix::common::VpcPrefixSelector;
 

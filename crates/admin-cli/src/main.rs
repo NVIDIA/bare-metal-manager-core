@@ -18,13 +18,13 @@
 // CLI enums variants can be rather large, we are ok with that.
 #![allow(clippy::large_enum_variant)]
 
-use ::rpc::admin_cli::CarbideCliError;
-use ::rpc::forge_api_client::ForgeApiClient;
-use ::rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use cfg::cli_options::{CliCommand, CliOptions};
 use clap::CommandFactory;
 use eyre::eyre;
-use forge_tls::client_config::{
+use nico_rpc::admin_cli::CarbideCliError;
+use nico_rpc::forge_api_client::ForgeApiClient;
+use nico_rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use nico_tls::client_config::{
     get_carbide_api_url, get_client_cert_info, get_config_from_file, get_forge_root_ca_path,
     get_proxy_info,
 };
@@ -101,8 +101,8 @@ mod vpc;
 mod vpc_peering;
 mod vpc_prefix;
 
-pub fn default_uuid() -> ::rpc::common::Uuid {
-    ::rpc::common::Uuid {
+pub fn default_uuid() -> nico_rpc::common::Uuid {
+    nico_rpc::common::Uuid {
         value: "00000000-0000-0000-0000-000000000000".to_string(),
     }
 }
@@ -117,7 +117,7 @@ async fn main() -> color_eyre::Result<()> {
 
     let config = CliOptions::load();
     if config.version {
-        println!("{}", carbide_version::version!());
+        println!("{}", nico_version::version!());
         return Ok(());
     }
     let file_config = get_config_from_file();

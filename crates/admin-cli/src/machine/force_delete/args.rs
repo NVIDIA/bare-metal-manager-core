@@ -16,7 +16,7 @@
  */
 
 use clap::Parser;
-use rpc::forge::AdminForceDeleteMachineRequest;
+use nico_rpc::forge::AdminForceDeleteMachineRequest;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {

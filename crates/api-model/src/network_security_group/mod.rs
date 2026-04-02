@@ -17,14 +17,14 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::network_security_group::NetworkSecurityGroupId;
-use carbide_uuid::vpc::VpcId;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
 use ipnetwork;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::network_security_group::NetworkSecurityGroupId;
+use nico_uuid::vpc::VpcId;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use sqlx::postgres::PgRow;
@@ -66,32 +66,34 @@ impl fmt::Display for NetworkSecurityGroupSource {
     }
 }
 
-impl From<NetworkSecurityGroupSource> for rpc::NetworkSecurityGroupSource {
+impl From<NetworkSecurityGroupSource> for forge::NetworkSecurityGroupSource {
     fn from(t: NetworkSecurityGroupSource) -> Self {
         match t {
-            NetworkSecurityGroupSource::None => rpc::NetworkSecurityGroupSource::NsgSourceNone,
-            NetworkSecurityGroupSource::Vpc => rpc::NetworkSecurityGroupSource::NsgSourceVpc,
+            NetworkSecurityGroupSource::None => forge::NetworkSecurityGroupSource::NsgSourceNone,
+            NetworkSecurityGroupSource::Vpc => forge::NetworkSecurityGroupSource::NsgSourceVpc,
             NetworkSecurityGroupSource::Instance => {
-                rpc::NetworkSecurityGroupSource::NsgSourceInstance
+                forge::NetworkSecurityGroupSource::NsgSourceInstance
             }
         }
     }
 }
 
-impl TryFrom<rpc::NetworkSecurityGroupSource> for NetworkSecurityGroupSource {
+impl TryFrom<forge::NetworkSecurityGroupSource> for NetworkSecurityGroupSource {
     type Error = RpcDataConversionError;
 
-    fn try_from(t: rpc::NetworkSecurityGroupSource) -> Result<Self, Self::Error> {
+    fn try_from(t: forge::NetworkSecurityGroupSource) -> Result<Self, Self::Error> {
         match t {
-            rpc::NetworkSecurityGroupSource::NsgSourceInvalid => {
+            forge::NetworkSecurityGroupSource::NsgSourceInvalid => {
                 Err(RpcDataConversionError::InvalidValue(
                     "NetworkSecurityGroupSource".to_string(),
                     t.as_str_name().to_string(),
                 ))
             }
-            rpc::NetworkSecurityGroupSource::NsgSourceNone => Ok(NetworkSecurityGroupSource::None),
-            rpc::NetworkSecurityGroupSource::NsgSourceVpc => Ok(NetworkSecurityGroupSource::Vpc),
-            rpc::NetworkSecurityGroupSource::NsgSourceInstance => {
+            forge::NetworkSecurityGroupSource::NsgSourceNone => {
+                Ok(NetworkSecurityGroupSource::None)
+            }
+            forge::NetworkSecurityGroupSource::NsgSourceVpc => Ok(NetworkSecurityGroupSource::Vpc),
+            forge::NetworkSecurityGroupSource::NsgSourceInstance => {
                 Ok(NetworkSecurityGroupSource::Instance)
             }
         }
@@ -126,48 +128,50 @@ impl fmt::Display for NetworkSecurityGroupPropagationStatus {
     }
 }
 
-impl From<NetworkSecurityGroupPropagationStatus> for rpc::NetworkSecurityGroupPropagationStatus {
+impl From<NetworkSecurityGroupPropagationStatus> for forge::NetworkSecurityGroupPropagationStatus {
     fn from(t: NetworkSecurityGroupPropagationStatus) -> Self {
         match t {
             NetworkSecurityGroupPropagationStatus::Unknown => {
-                rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusUnknown
+                forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusUnknown
             }
             NetworkSecurityGroupPropagationStatus::Full => {
-                rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull
+                forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull
             }
             NetworkSecurityGroupPropagationStatus::Partial => {
-                rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusPartial
+                forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusPartial
             }
             NetworkSecurityGroupPropagationStatus::None => {
-                rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone
+                forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone
             }
             NetworkSecurityGroupPropagationStatus::Error => {
-                rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusError
+                forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusError
             }
         }
     }
 }
 
-impl TryFrom<rpc::NetworkSecurityGroupPropagationStatus> for NetworkSecurityGroupPropagationStatus {
+impl TryFrom<forge::NetworkSecurityGroupPropagationStatus>
+    for NetworkSecurityGroupPropagationStatus
+{
     type Error = RpcDataConversionError;
 
     fn try_from(
-        t: rpc::NetworkSecurityGroupPropagationStatus,
+        t: forge::NetworkSecurityGroupPropagationStatus,
     ) -> Result<Self, RpcDataConversionError> {
         match t {
-            rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusUnknown => {
+            forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusUnknown => {
                 Ok(NetworkSecurityGroupPropagationStatus::Unknown)
             }
-            rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull => {
+            forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull => {
                 Ok(NetworkSecurityGroupPropagationStatus::Full)
             }
-            rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusPartial => {
+            forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusPartial => {
                 Ok(NetworkSecurityGroupPropagationStatus::Partial)
             }
-            rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone => {
+            forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone => {
                 Ok(NetworkSecurityGroupPropagationStatus::None)
             }
-            rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusError => {
+            forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusError => {
                 Ok(NetworkSecurityGroupPropagationStatus::Error)
             }
         }
@@ -195,34 +199,34 @@ impl fmt::Display for NetworkSecurityGroupRuleDirection {
     }
 }
 
-impl From<NetworkSecurityGroupRuleDirection> for rpc::NetworkSecurityGroupRuleDirection {
+impl From<NetworkSecurityGroupRuleDirection> for forge::NetworkSecurityGroupRuleDirection {
     fn from(t: NetworkSecurityGroupRuleDirection) -> Self {
         match t {
             NetworkSecurityGroupRuleDirection::Ingress => {
-                rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
             }
             NetworkSecurityGroupRuleDirection::Egress => {
-                rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
+                forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
             }
         }
     }
 }
 
-impl TryFrom<rpc::NetworkSecurityGroupRuleDirection> for NetworkSecurityGroupRuleDirection {
+impl TryFrom<forge::NetworkSecurityGroupRuleDirection> for NetworkSecurityGroupRuleDirection {
     type Error = RpcDataConversionError;
 
-    fn try_from(t: rpc::NetworkSecurityGroupRuleDirection) -> Result<Self, Self::Error> {
+    fn try_from(t: forge::NetworkSecurityGroupRuleDirection) -> Result<Self, Self::Error> {
         match t {
-            rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionInvalid => {
+            forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionInvalid => {
                 Err(RpcDataConversionError::InvalidValue(
                     "NetworkSecurityGroupRuleDirection".to_string(),
                     t.as_str_name().to_string(),
                 ))
             }
-            rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress => {
+            forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress => {
                 Ok(NetworkSecurityGroupRuleDirection::Ingress)
             }
-            rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress => {
+            forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress => {
                 Ok(NetworkSecurityGroupRuleDirection::Egress)
             }
         }
@@ -256,52 +260,52 @@ impl fmt::Display for NetworkSecurityGroupRuleProtocol {
     }
 }
 
-impl From<NetworkSecurityGroupRuleProtocol> for rpc::NetworkSecurityGroupRuleProtocol {
+impl From<NetworkSecurityGroupRuleProtocol> for forge::NetworkSecurityGroupRuleProtocol {
     fn from(t: NetworkSecurityGroupRuleProtocol) -> Self {
         match t {
             NetworkSecurityGroupRuleProtocol::Any => {
-                rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny
+                forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny
             }
             NetworkSecurityGroupRuleProtocol::Icmp => {
-                rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp
+                forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp
             }
             NetworkSecurityGroupRuleProtocol::Icmp6 => {
-                rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6
+                forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6
             }
             NetworkSecurityGroupRuleProtocol::Udp => {
-                rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp
+                forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp
             }
             NetworkSecurityGroupRuleProtocol::Tcp => {
-                rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp
+                forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp
             }
         }
     }
 }
 
-impl TryFrom<rpc::NetworkSecurityGroupRuleProtocol> for NetworkSecurityGroupRuleProtocol {
+impl TryFrom<forge::NetworkSecurityGroupRuleProtocol> for NetworkSecurityGroupRuleProtocol {
     type Error = RpcDataConversionError;
 
-    fn try_from(t: rpc::NetworkSecurityGroupRuleProtocol) -> Result<Self, Self::Error> {
+    fn try_from(t: forge::NetworkSecurityGroupRuleProtocol) -> Result<Self, Self::Error> {
         match t {
-            rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoInvalid => {
+            forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoInvalid => {
                 Err(RpcDataConversionError::InvalidValue(
                     "NetworkSecurityGroupRuleProtocol".to_string(),
                     t.as_str_name().to_string(),
                 ))
             }
-            rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny => {
+            forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny => {
                 Ok(NetworkSecurityGroupRuleProtocol::Any)
             }
-            rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp => {
+            forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp => {
                 Ok(NetworkSecurityGroupRuleProtocol::Icmp)
             }
-            rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6 => {
+            forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6 => {
                 Ok(NetworkSecurityGroupRuleProtocol::Icmp6)
             }
-            rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp => {
+            forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp => {
                 Ok(NetworkSecurityGroupRuleProtocol::Udp)
             }
-            rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp => {
+            forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp => {
                 Ok(NetworkSecurityGroupRuleProtocol::Tcp)
             }
         }
@@ -329,34 +333,34 @@ impl fmt::Display for NetworkSecurityGroupRuleAction {
     }
 }
 
-impl From<NetworkSecurityGroupRuleAction> for rpc::NetworkSecurityGroupRuleAction {
+impl From<NetworkSecurityGroupRuleAction> for forge::NetworkSecurityGroupRuleAction {
     fn from(t: NetworkSecurityGroupRuleAction) -> Self {
         match t {
             NetworkSecurityGroupRuleAction::Deny => {
-                rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny
+                forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny
             }
             NetworkSecurityGroupRuleAction::Permit => {
-                rpc::NetworkSecurityGroupRuleAction::NsgRuleActionPermit
+                forge::NetworkSecurityGroupRuleAction::NsgRuleActionPermit
             }
         }
     }
 }
 
-impl TryFrom<rpc::NetworkSecurityGroupRuleAction> for NetworkSecurityGroupRuleAction {
+impl TryFrom<forge::NetworkSecurityGroupRuleAction> for NetworkSecurityGroupRuleAction {
     type Error = RpcDataConversionError;
 
-    fn try_from(t: rpc::NetworkSecurityGroupRuleAction) -> Result<Self, Self::Error> {
+    fn try_from(t: forge::NetworkSecurityGroupRuleAction) -> Result<Self, Self::Error> {
         match t {
-            rpc::NetworkSecurityGroupRuleAction::NsgRuleActionInvalid => {
+            forge::NetworkSecurityGroupRuleAction::NsgRuleActionInvalid => {
                 Err(RpcDataConversionError::InvalidValue(
                     "NetworkSecurityGroupRuleAction".to_string(),
                     t.as_str_name().to_string(),
                 ))
             }
-            rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny => {
+            forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny => {
                 Ok(NetworkSecurityGroupRuleAction::Deny)
             }
-            rpc::NetworkSecurityGroupRuleAction::NsgRuleActionPermit => {
+            forge::NetworkSecurityGroupRuleAction::NsgRuleActionPermit => {
                 Ok(NetworkSecurityGroupRuleAction::Permit)
             }
         }
@@ -395,16 +399,16 @@ pub enum NetworkSecurityGroupRuleNet {
     // VpcId(VpcId),
 }
 
-impl TryFrom<rpc::network_security_group_rule_attributes::SourceNet>
+impl TryFrom<forge::network_security_group_rule_attributes::SourceNet>
     for NetworkSecurityGroupRuleNet
 {
     type Error = RpcDataConversionError;
 
     fn try_from(
-        net: rpc::network_security_group_rule_attributes::SourceNet,
+        net: forge::network_security_group_rule_attributes::SourceNet,
     ) -> Result<Self, Self::Error> {
         match net {
-            rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(p) => {
+            forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(p) => {
                 Ok(NetworkSecurityGroupRuleNet::Prefix(
                     p.parse::<ipnetwork::IpNetwork>()
                         .map_err(|e| RpcDataConversionError::InvalidIpAddress(e.to_string()))?,
@@ -414,16 +418,16 @@ impl TryFrom<rpc::network_security_group_rule_attributes::SourceNet>
     }
 }
 
-impl TryFrom<rpc::network_security_group_rule_attributes::DestinationNet>
+impl TryFrom<forge::network_security_group_rule_attributes::DestinationNet>
     for NetworkSecurityGroupRuleNet
 {
     type Error = RpcDataConversionError;
 
     fn try_from(
-        net: rpc::network_security_group_rule_attributes::DestinationNet,
+        net: forge::network_security_group_rule_attributes::DestinationNet,
     ) -> Result<Self, Self::Error> {
         match net {
-            rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(p) => {
+            forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(p) => {
                 Ok(NetworkSecurityGroupRuleNet::Prefix(
                     p.parse::<ipnetwork::IpNetwork>()
                         .map_err(|e| RpcDataConversionError::InvalidIpAddress(e.to_string()))?,
@@ -434,28 +438,28 @@ impl TryFrom<rpc::network_security_group_rule_attributes::DestinationNet>
 }
 
 impl TryFrom<NetworkSecurityGroupRuleNet>
-    for rpc::network_security_group_rule_attributes::SourceNet
+    for forge::network_security_group_rule_attributes::SourceNet
 {
     type Error = RpcDataConversionError;
 
     fn try_from(net: NetworkSecurityGroupRuleNet) -> Result<Self, Self::Error> {
         match net {
             NetworkSecurityGroupRuleNet::Prefix(p) => Ok(
-                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(p.to_string()),
+                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(p.to_string()),
             ),
         }
     }
 }
 
 impl TryFrom<NetworkSecurityGroupRuleNet>
-    for rpc::network_security_group_rule_attributes::DestinationNet
+    for forge::network_security_group_rule_attributes::DestinationNet
 {
     type Error = RpcDataConversionError;
 
     fn try_from(net: NetworkSecurityGroupRuleNet) -> Result<Self, Self::Error> {
         match net {
             NetworkSecurityGroupRuleNet::Prefix(p) => Ok(
-                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                     p.to_string(),
                 ),
             ),
@@ -485,14 +489,14 @@ pub struct NetworkSecurityGroupRule {
     pub priority: u32,
 }
 
-impl TryFrom<rpc::NetworkSecurityGroupRuleAttributes> for NetworkSecurityGroupRule {
+impl TryFrom<forge::NetworkSecurityGroupRuleAttributes> for NetworkSecurityGroupRule {
     type Error = RpcDataConversionError;
 
-    fn try_from(rule: rpc::NetworkSecurityGroupRuleAttributes) -> Result<Self, Self::Error> {
+    fn try_from(rule: forge::NetworkSecurityGroupRuleAttributes) -> Result<Self, Self::Error> {
         match rule.protocol() {
-            p @ (rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny
-            | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp
-            | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6) => {
+            p @ (forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny
+            | forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp
+            | forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6) => {
                 if rule.src_port_start.is_some()
                     || rule.src_port_end.is_some()
                     || rule.dst_port_start.is_some()
@@ -542,14 +546,16 @@ impl TryFrom<rpc::NetworkSecurityGroupRuleAttributes> for NetworkSecurityGroupRu
             }
         };
 
-        if rule.protocol() == rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp && rule.ipv6 {
+        if rule.protocol() == forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp && rule.ipv6
+        {
             return Err(RpcDataConversionError::InvalidValue(
                 "protocol".to_string(),
                 "ICMP cannot be used with ipv6 rules".to_string(),
             ));
         }
 
-        if rule.protocol() == rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6 && !rule.ipv6
+        if rule.protocol() == forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6
+            && !rule.ipv6
         {
             return Err(RpcDataConversionError::InvalidValue(
                 "protocol".to_string(),
@@ -616,22 +622,22 @@ impl TryFrom<rpc::NetworkSecurityGroupRuleAttributes> for NetworkSecurityGroupRu
     }
 }
 
-impl TryFrom<NetworkSecurityGroupRule> for rpc::NetworkSecurityGroupRuleAttributes {
+impl TryFrom<NetworkSecurityGroupRule> for forge::NetworkSecurityGroupRuleAttributes {
     type Error = RpcDataConversionError;
 
     fn try_from(rule: NetworkSecurityGroupRule) -> Result<Self, Self::Error> {
-        Ok(rpc::NetworkSecurityGroupRuleAttributes {
+        Ok(forge::NetworkSecurityGroupRuleAttributes {
             id: rule.id,
             source_net: Some(rule.src_net.try_into()?),
             destination_net: Some(rule.dst_net.try_into()?),
-            direction: rpc::NetworkSecurityGroupRuleDirection::from(rule.direction).into(),
+            direction: forge::NetworkSecurityGroupRuleDirection::from(rule.direction).into(),
             ipv6: rule.ipv6,
             src_port_start: rule.src_port_start,
             src_port_end: rule.src_port_end,
             dst_port_start: rule.dst_port_start,
             dst_port_end: rule.dst_port_end,
-            protocol: rpc::NetworkSecurityGroupRuleProtocol::from(rule.protocol).into(),
-            action: rpc::NetworkSecurityGroupRuleAction::from(rule.action).into(),
+            protocol: forge::NetworkSecurityGroupRuleProtocol::from(rule.protocol).into(),
+            action: forge::NetworkSecurityGroupRuleAction::from(rule.action).into(),
             priority: rule.priority,
         })
     }
@@ -658,22 +664,22 @@ pub struct NetworkSecurityGroup {
     pub updated_by: Option<String>,
 }
 
-impl TryFrom<NetworkSecurityGroup> for rpc::NetworkSecurityGroup {
+impl TryFrom<NetworkSecurityGroup> for forge::NetworkSecurityGroup {
     type Error = RpcDataConversionError;
 
     fn try_from(nsg: NetworkSecurityGroup) -> Result<Self, Self::Error> {
-        let mut rules = Vec::<rpc::NetworkSecurityGroupRuleAttributes>::new();
+        let mut rules = Vec::<forge::NetworkSecurityGroupRuleAttributes>::new();
 
         for rule_attrs in nsg.rules {
             rules.push(rule_attrs.try_into()?);
         }
 
-        let attributes = rpc::NetworkSecurityGroupAttributes {
+        let attributes = forge::NetworkSecurityGroupAttributes {
             stateful_egress: nsg.stateful_egress,
             rules,
         };
 
-        Ok(rpc::NetworkSecurityGroup {
+        Ok(forge::NetworkSecurityGroup {
             id: nsg.id.to_string(),
             tenant_organization_id: nsg.tenant_organization_id.to_string(),
             version: nsg.version.to_string(),
@@ -681,14 +687,14 @@ impl TryFrom<NetworkSecurityGroup> for rpc::NetworkSecurityGroup {
             created_at: Some(nsg.created.to_string()),
             created_by: nsg.created_by,
             updated_by: nsg.updated_by,
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: nsg.metadata.name,
                 description: nsg.metadata.description,
                 labels: nsg
                     .metadata
                     .labels
                     .iter()
-                    .map(|(key, value)| rpc::Label {
+                    .map(|(key, value)| forge::Label {
                         key: key.to_owned(),
                         value: if value.is_empty() {
                             None
@@ -721,9 +727,9 @@ impl NetworkSecurityGroupAttachments {
     }
 }
 
-impl From<NetworkSecurityGroupAttachments> for rpc::NetworkSecurityGroupAttachments {
+impl From<NetworkSecurityGroupAttachments> for forge::NetworkSecurityGroupAttachments {
     fn from(attachments: NetworkSecurityGroupAttachments) -> Self {
-        rpc::NetworkSecurityGroupAttachments {
+        forge::NetworkSecurityGroupAttachments {
             network_security_group_id: attachments.id.to_string(),
             vpc_ids: attachments.vpc_ids.iter().map(|v| v.to_string()).collect(),
             instance_ids: attachments
@@ -755,36 +761,36 @@ pub struct NetworkSecurityGroupPropagationObjectStatus {
 }
 
 impl From<NetworkSecurityGroupPropagationObjectStatus>
-    for rpc::NetworkSecurityGroupPropagationObjectStatus
+    for forge::NetworkSecurityGroupPropagationObjectStatus
 {
     fn from(status: NetworkSecurityGroupPropagationObjectStatus) -> Self {
         let (status_type, details) = {
             if status.interfaces_applied == status.interfaces_expected {
                 (
-                    rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull,
+                    forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull,
                     None,
                 )
             } else if status.interfaces_applied == 0 {
                 (
-                    rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone,
+                    forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone,
                     None,
                 )
             } else if status.interfaces_applied < status.interfaces_expected {
                 (
-                    rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusPartial,
+                    forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusPartial,
                     None,
                 )
             } else
             /* status.interfaces_applied > status.interfaces_expected */
             {
                 (
-                    rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusUnknown,
+                    forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusUnknown,
                     Some("propagated objects exceeds expected objects".to_string()),
                 )
             }
         };
 
-        rpc::NetworkSecurityGroupPropagationObjectStatus {
+        forge::NetworkSecurityGroupPropagationObjectStatus {
             id: status.id,
             status: status_type.into(),
             details,
@@ -816,10 +822,10 @@ pub struct NetworkSecurityGroupStatusObservation {
     pub source: NetworkSecurityGroupSource,
 }
 
-impl TryFrom<rpc::NetworkSecurityGroupStatus> for NetworkSecurityGroupStatusObservation {
+impl TryFrom<forge::NetworkSecurityGroupStatus> for NetworkSecurityGroupStatusObservation {
     type Error = RpcDataConversionError;
 
-    fn try_from(status: rpc::NetworkSecurityGroupStatus) -> Result<Self, Self::Error> {
+    fn try_from(status: forge::NetworkSecurityGroupStatus) -> Result<Self, Self::Error> {
         Ok(NetworkSecurityGroupStatusObservation {
             id: status
                 .id
@@ -908,17 +914,17 @@ impl<'r> sqlx::FromRow<'r, PgRow> for NetworkSecurityGroup {
 mod tests {
     use std::collections::HashMap;
 
-    use ::rpc::forge as rpc;
     use config_version::ConfigVersion;
+    use nico_rpc::forge;
 
     use super::*;
 
     #[test]
     fn test_model_nsg_prop_obj_status_to_rpc_conversion() {
         // Full
-        let req_type = rpc::NetworkSecurityGroupPropagationObjectStatus {
+        let req_type = forge::NetworkSecurityGroupPropagationObjectStatus {
             id: "any_id".to_string(),
-            status: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull.into(),
+            status: forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull.into(),
             details: None,
             unpropagated_instance_ids: vec![],
             related_instance_ids: vec![],
@@ -934,12 +940,12 @@ mod tests {
 
         assert_eq!(
             req_type,
-            rpc::NetworkSecurityGroupPropagationObjectStatus::from(status)
+            forge::NetworkSecurityGroupPropagationObjectStatus::from(status)
         );
 
-        let req_type = rpc::NetworkSecurityGroupPropagationObjectStatus {
+        let req_type = forge::NetworkSecurityGroupPropagationObjectStatus {
             id: "any_id".to_string(),
-            status: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull.into(),
+            status: forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusFull.into(),
             details: None,
             related_instance_ids: vec![
                 "200f1043-1653-426d-bd0e-97f5b06bdb3f".to_string(),
@@ -961,13 +967,13 @@ mod tests {
 
         assert_eq!(
             req_type,
-            rpc::NetworkSecurityGroupPropagationObjectStatus::from(status)
+            forge::NetworkSecurityGroupPropagationObjectStatus::from(status)
         );
 
         // Partial
-        let req_type = rpc::NetworkSecurityGroupPropagationObjectStatus {
+        let req_type = forge::NetworkSecurityGroupPropagationObjectStatus {
             id: "any_id".to_string(),
-            status: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusPartial.into(),
+            status: forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusPartial.into(),
             details: None,
             related_instance_ids: vec![
                 "200f1043-1653-426d-bd0e-97f5b06bdb3f".to_string(),
@@ -991,13 +997,13 @@ mod tests {
 
         assert_eq!(
             req_type,
-            rpc::NetworkSecurityGroupPropagationObjectStatus::from(status)
+            forge::NetworkSecurityGroupPropagationObjectStatus::from(status)
         );
 
         // None
-        let req_type = rpc::NetworkSecurityGroupPropagationObjectStatus {
+        let req_type = forge::NetworkSecurityGroupPropagationObjectStatus {
             id: "any_id".to_string(),
-            status: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone.into(),
+            status: forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusNone.into(),
             details: None,
             related_instance_ids: vec![],
             unpropagated_instance_ids: vec![
@@ -1019,13 +1025,13 @@ mod tests {
 
         assert_eq!(
             req_type,
-            rpc::NetworkSecurityGroupPropagationObjectStatus::from(status)
+            forge::NetworkSecurityGroupPropagationObjectStatus::from(status)
         );
 
         // Unknown
-        let req_type = rpc::NetworkSecurityGroupPropagationObjectStatus {
+        let req_type = forge::NetworkSecurityGroupPropagationObjectStatus {
             id: "any_id".to_string(),
-            status: rpc::NetworkSecurityGroupPropagationStatus::NsgPropStatusUnknown.into(),
+            status: forge::NetworkSecurityGroupPropagationStatus::NsgPropStatusUnknown.into(),
             details: Some("propagated objects exceeds expected objects".to_string()),
             related_instance_ids: vec!["200f1043-1653-426d-bd0e-97f5b06bdb3f".parse().unwrap()],
             unpropagated_instance_ids: vec![
@@ -1047,7 +1053,7 @@ mod tests {
 
         assert_eq!(
             req_type,
-            rpc::NetworkSecurityGroupPropagationObjectStatus::from(status)
+            forge::NetworkSecurityGroupPropagationObjectStatus::from(status)
         );
     }
 
@@ -1055,36 +1061,36 @@ mod tests {
     fn test_model_nsg_to_rpc_conversion() {
         let version = ConfigVersion::initial();
 
-        let req_type = rpc::NetworkSecurityGroup {
+        let req_type = forge::NetworkSecurityGroup {
             id: "test_id".to_string(),
             tenant_organization_id: "best_org".to_string(),
             version: version.to_string(),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "fancy name".to_string(),
                 description: "".to_string(),
                 labels: vec![],
             }),
-            attributes: Some(rpc::NetworkSecurityGroupAttributes {
+            attributes: Some(forge::NetworkSecurityGroupAttributes {
                 stateful_egress: true,
-                rules: vec![rpc::NetworkSecurityGroupRuleAttributes {
+                rules: vec![forge::NetworkSecurityGroupRuleAttributes {
                     id: Some("anything".to_string()),
-                    direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
+                    direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress
                         .into(),
                     ipv6: false,
                     src_port_start: Some(80),
                     src_port_end: Some(32768),
                     dst_port_start: Some(80),
                     dst_port_end: Some(32768),
-                    protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-                    action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+                    protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+                    action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
                     priority: 9001,
                     source_net: Some(
-                        rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                        forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                             "0.0.0.0/0".to_string(),
                         ),
                     ),
                     destination_net: Some(
-                        rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                        forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                             "0.0.0.0/0".to_string(),
                         ),
                     ),
@@ -1129,30 +1135,33 @@ mod tests {
 
         // Verify that we can go from an internal instance type to the
         // protobuf InstanceType message
-        assert_eq!(req_type, rpc::NetworkSecurityGroup::try_from(nsg).unwrap());
+        assert_eq!(
+            req_type,
+            forge::NetworkSecurityGroup::try_from(nsg).unwrap()
+        );
     }
 
     #[test]
     fn test_rpc_rule_to_nsg_model_rule_conversion_failures() {
         // ICMP with ports should fail
-        let req = rpc::NetworkSecurityGroupRuleAttributes {
+        let req = forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
-            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
             ipv6: false,
             src_port_start: Some(80),
             src_port_end: Some(32768),
             dst_port_start: Some(80),
             dst_port_end: Some(32768),
-            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp.into(),
-            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp.into(),
+            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
             priority: 9001,
             source_net: Some(
-                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                     "0.0.0.0/0".to_string(),
                 ),
             ),
             destination_net: Some(
-                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                     "0.0.0.0/0".to_string(),
                 ),
             ),
@@ -1160,24 +1169,24 @@ mod tests {
         NetworkSecurityGroupRule::try_from(req).unwrap_err();
 
         // ICMP6 with ports should fail
-        let req = rpc::NetworkSecurityGroupRuleAttributes {
+        let req = forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
-            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
             ipv6: true,
             src_port_start: Some(80),
             src_port_end: Some(32768),
             dst_port_start: Some(80),
             dst_port_end: Some(32768),
-            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp.into(),
-            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp.into(),
+            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
             priority: 9001,
             source_net: Some(
-                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                     "2001:db8:1234::f350:2256:f3dd/64".to_string(),
                 ),
             ),
             destination_net: Some(
-                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                     "2001:db8:1234::f350:2256:f3dd/64".to_string(),
                 ),
             ),
@@ -1185,24 +1194,24 @@ mod tests {
         NetworkSecurityGroupRule::try_from(req).unwrap_err();
 
         // ANY with ports should fail
-        let req = rpc::NetworkSecurityGroupRuleAttributes {
+        let req = forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
-            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
             ipv6: true,
             src_port_start: Some(80),
             src_port_end: Some(32768),
             dst_port_start: Some(80),
             dst_port_end: Some(32768),
-            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny.into(),
-            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny.into(),
+            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
             priority: 9001,
             source_net: Some(
-                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                     "2001:db8:1234::f350:2256:f3dd/64".to_string(),
                 ),
             ),
             destination_net: Some(
-                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                     "2001:db8:1234::f350:2256:f3dd/64".to_string(),
                 ),
             ),
@@ -1210,24 +1219,24 @@ mod tests {
         NetworkSecurityGroupRule::try_from(req).unwrap_err();
 
         // v4 prefixes with v6 rule should fail
-        let req = rpc::NetworkSecurityGroupRuleAttributes {
+        let req = forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
-            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
             ipv6: true,
             src_port_start: Some(80),
             src_port_end: Some(32768),
             dst_port_start: Some(80),
             dst_port_end: Some(32768),
-            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
             priority: 9001,
             source_net: Some(
-                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                     "0.0.0.0/0".to_string(),
                 ),
             ),
             destination_net: Some(
-                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                     "0.0.0.0/0".to_string(),
                 ),
             ),
@@ -1235,24 +1244,24 @@ mod tests {
         NetworkSecurityGroupRule::try_from(req).unwrap_err();
 
         // v6 prefixes with v4 rule should fail
-        let req = rpc::NetworkSecurityGroupRuleAttributes {
+        let req = forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
-            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
             ipv6: false,
             src_port_start: Some(80),
             src_port_end: Some(32768),
             dst_port_start: Some(80),
             dst_port_end: Some(32768),
-            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
-            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp.into(),
+            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
             priority: 9001,
             source_net: Some(
-                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                     "2001:db8:1234::f350:2256:f3dd/64".to_string(),
                 ),
             ),
             destination_net: Some(
-                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                     "2001:db8:1234::f350:2256:f3dd/64".to_string(),
                 ),
             ),
@@ -1260,24 +1269,24 @@ mod tests {
         NetworkSecurityGroupRule::try_from(req).unwrap_err();
 
         // ICMP6 with v4 rule should fail
-        let req = rpc::NetworkSecurityGroupRuleAttributes {
+        let req = forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
-            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
             ipv6: false,
             src_port_start: None,
             src_port_end: None,
             dst_port_start: None,
             dst_port_end: None,
-            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6.into(),
-            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp6.into(),
+            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
             priority: 9001,
             source_net: Some(
-                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                     "1.1.1.1/24".to_string(),
                 ),
             ),
             destination_net: Some(
-                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                     "1.1.1.1/24".to_string(),
                 ),
             ),
@@ -1285,24 +1294,24 @@ mod tests {
         NetworkSecurityGroupRule::try_from(req).unwrap_err();
 
         // ICMP6 with v4 rule should fail
-        let req = rpc::NetworkSecurityGroupRuleAttributes {
+        let req = forge::NetworkSecurityGroupRuleAttributes {
             id: Some("anything".to_string()),
-            direction: rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
+            direction: forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress.into(),
             ipv6: true,
             src_port_start: None,
             src_port_end: None,
             dst_port_start: None,
             dst_port_end: None,
-            protocol: rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp.into(),
-            action: rpc::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
+            protocol: forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoIcmp.into(),
+            action: forge::NetworkSecurityGroupRuleAction::NsgRuleActionDeny.into(),
             priority: 9001,
             source_net: Some(
-                rpc::network_security_group_rule_attributes::SourceNet::SrcPrefix(
+                forge::network_security_group_rule_attributes::SourceNet::SrcPrefix(
                     "2001:db8:1234::f350:2256:f3dd/64".to_string(),
                 ),
             ),
             destination_net: Some(
-                rpc::network_security_group_rule_attributes::DestinationNet::DstPrefix(
+                forge::network_security_group_rule_attributes::DestinationNet::DstPrefix(
                     "2001:db8:1234::f350:2256:f3dd/64".to_string(),
                 ),
             ),
@@ -1313,7 +1322,7 @@ mod tests {
     #[test]
     fn test_model_nsg_attachments_to_rpc_conversion() {
         // Full
-        let req_type = rpc::NetworkSecurityGroupAttachments {
+        let req_type = forge::NetworkSecurityGroupAttachments {
             network_security_group_id: "any_id".to_string(),
             vpc_ids: vec![
                 "60d92a18-e56b-11ef-8ecd-ef90f290abf4".to_string(),
@@ -1337,6 +1346,9 @@ mod tests {
             ],
         };
 
-        assert_eq!(req_type, rpc::NetworkSecurityGroupAttachments::from(status));
+        assert_eq!(
+            req_type,
+            forge::NetworkSecurityGroupAttachments::from(status)
+        );
     }
 }

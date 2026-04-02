@@ -18,7 +18,7 @@
 use std::borrow::Cow;
 
 use bmc_vendor::BMCVendor;
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// The escape sequence for IPMI is vendor-independent since it's specific to ipmitool.

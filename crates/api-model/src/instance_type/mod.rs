@@ -16,19 +16,19 @@
  */
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::{common as rpc_common, forge as rpc};
-use carbide_uuid::instance_type::InstanceTypeId;
-use carbide_uuid::machine::MachineId;
 use chrono::prelude::*;
 use config_version::ConfigVersion;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::{common as rpc_common, forge};
+use nico_uuid::instance_type::InstanceTypeId;
+use nico_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use sqlx::postgres::PgRow;
 
 use super::machine::capabilities::{
-    self as machine_caps, MachineCapabilitiesSet, MachineCapabilityDeviceType,
-    MachineCapabilityType,
+    MachineCapabilitiesSet, MachineCapabilityDeviceType, MachineCapabilityType,
+    {self as machine_caps},
 };
 use crate::metadata::Metadata;
 
@@ -202,13 +202,13 @@ impl InstanceTypeMachineCapabilityFilter {
     }
 }
 
-impl TryFrom<rpc::InstanceTypeMachineCapabilityFilterAttributes>
+impl TryFrom<forge::InstanceTypeMachineCapabilityFilterAttributes>
     for InstanceTypeMachineCapabilityFilter
 {
     type Error = RpcDataConversionError;
 
     fn try_from(
-        cap: rpc::InstanceTypeMachineCapabilityFilterAttributes,
+        cap: forge::InstanceTypeMachineCapabilityFilterAttributes,
     ) -> Result<Self, Self::Error> {
         Ok(InstanceTypeMachineCapabilityFilter {
             capability_type: cap.capability_type().try_into()?,
@@ -224,7 +224,7 @@ impl TryFrom<rpc::InstanceTypeMachineCapabilityFilterAttributes>
             device_type: cap
                 .device_type
                 .map(|dt| {
-                    rpc::MachineCapabilityDeviceType::try_from(dt)
+                    forge::MachineCapabilityDeviceType::try_from(dt)
                         .map_err(|_| {
                             RpcDataConversionError::InvalidValue(
                                 "MachineCapabilityDeviceType".to_string(),
@@ -239,13 +239,13 @@ impl TryFrom<rpc::InstanceTypeMachineCapabilityFilterAttributes>
 }
 
 impl TryFrom<InstanceTypeMachineCapabilityFilter>
-    for rpc::InstanceTypeMachineCapabilityFilterAttributes
+    for forge::InstanceTypeMachineCapabilityFilterAttributes
 {
     type Error = RpcDataConversionError;
 
     fn try_from(cap: InstanceTypeMachineCapabilityFilter) -> Result<Self, Self::Error> {
-        Ok(rpc::InstanceTypeMachineCapabilityFilterAttributes {
-            capability_type: rpc::MachineCapabilityType::from(cap.capability_type).into(),
+        Ok(forge::InstanceTypeMachineCapabilityFilterAttributes {
+            capability_type: forge::MachineCapabilityType::from(cap.capability_type).into(),
             name: cap.name,
             frequency: cap.frequency,
             capacity: cap.capacity,
@@ -259,7 +259,7 @@ impl TryFrom<InstanceTypeMachineCapabilityFilter>
                 .map(|l| rpc_common::Uint32List { items: l }),
             device_type: cap
                 .device_type
-                .map(|dt| rpc::MachineCapabilityDeviceType::from(dt).into()),
+                .map(|dt| forge::MachineCapabilityDeviceType::from(dt).into()),
         })
     }
 }
@@ -537,34 +537,34 @@ impl InstanceType {
     }
 }
 
-impl TryFrom<InstanceType> for rpc::InstanceType {
+impl TryFrom<InstanceType> for forge::InstanceType {
     type Error = RpcDataConversionError;
 
     fn try_from(inst_type: InstanceType) -> Result<Self, Self::Error> {
         let mut desired_capabilities =
-            Vec::<rpc::InstanceTypeMachineCapabilityFilterAttributes>::new();
+            Vec::<forge::InstanceTypeMachineCapabilityFilterAttributes>::new();
 
         for cap_attrs in inst_type.desired_capabilities {
             desired_capabilities.push(cap_attrs.try_into()?);
         }
 
-        let attributes = rpc::InstanceTypeAttributes {
+        let attributes = forge::InstanceTypeAttributes {
             desired_capabilities,
         };
 
-        Ok(rpc::InstanceType {
+        Ok(forge::InstanceType {
             id: inst_type.id.to_string(),
             version: inst_type.version.to_string(),
             attributes: Some(attributes),
             created_at: Some(inst_type.created.to_string()),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: inst_type.metadata.name,
                 description: inst_type.metadata.description,
                 labels: inst_type
                     .metadata
                     .labels
                     .iter()
-                    .map(|(key, value)| rpc::Label {
+                    .map(|(key, value)| forge::Label {
                         key: key.to_owned(),
                         value: if value.is_empty() {
                             None
@@ -587,8 +587,8 @@ impl TryFrom<InstanceType> for rpc::InstanceType {
 mod tests {
     use std::collections::HashMap;
 
-    use ::rpc::forge as rpc;
     use config_version::ConfigVersion;
+    use nico_rpc::forge;
 
     use super::*;
     use crate::machine::capabilities;
@@ -598,18 +598,18 @@ mod tests {
     fn test_model_instance_type_to_rpc_conversion() {
         let version = ConfigVersion::initial();
 
-        let req_type = rpc::InstanceType {
+        let req_type = forge::InstanceType {
             id: "test_id".to_string(),
             version: version.to_string(),
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "fancy name".to_string(),
                 description: "".to_string(),
                 labels: vec![],
             }),
             allocation_stats: None,
-            attributes: Some(rpc::InstanceTypeAttributes {
-                desired_capabilities: vec![rpc::InstanceTypeMachineCapabilityFilterAttributes {
-                    capability_type: rpc::MachineCapabilityType::CapTypeCpu.into(),
+            attributes: Some(forge::InstanceTypeAttributes {
+                desired_capabilities: vec![forge::InstanceTypeMachineCapabilityFilterAttributes {
+                    capability_type: forge::MachineCapabilityType::CapTypeCpu.into(),
                     name: Some("pentium 4 HT".to_string()),
                     frequency: Some("1.3 GHz".to_string()),
                     capacity: Some("9001 GB".to_string()),
@@ -619,7 +619,7 @@ mod tests {
                     cores: Some(1),
                     threads: Some(2),
                     inactive_devices: Some(rpc_common::Uint32List { items: vec![2, 4] }),
-                    device_type: Some(rpc::MachineCapabilityDeviceType::Unknown as i32),
+                    device_type: Some(forge::MachineCapabilityDeviceType::Unknown as i32),
                 }],
             }),
             created_at: Some("2023-01-01 00:00:00 UTC".to_string()),
@@ -636,7 +636,7 @@ mod tests {
                 labels: HashMap::new(),
             },
             desired_capabilities: vec![InstanceTypeMachineCapabilityFilter {
-                capability_type: rpc::MachineCapabilityType::CapTypeCpu.try_into().unwrap(),
+                capability_type: forge::MachineCapabilityType::CapTypeCpu.try_into().unwrap(),
                 name: Some("pentium 4 HT".to_string()),
                 frequency: Some("1.3 GHz".to_string()),
                 capacity: Some("9001 GB".to_string()),
@@ -652,7 +652,7 @@ mod tests {
 
         // Verify that we can go from an internal instance type to the
         // protobuf InstanceType message
-        assert_eq!(req_type, rpc::InstanceType::try_from(inst_type).unwrap());
+        assert_eq!(req_type, forge::InstanceType::try_from(inst_type).unwrap());
     }
 
     #[test]
@@ -672,7 +672,7 @@ mod tests {
                 labels: HashMap::new(),
             },
             desired_capabilities: vec![InstanceTypeMachineCapabilityFilter {
-                capability_type: rpc::MachineCapabilityType::CapTypeCpu.try_into().unwrap(),
+                capability_type: forge::MachineCapabilityType::CapTypeCpu.try_into().unwrap(),
                 ..Default::default()
             }],
         };
@@ -707,7 +707,7 @@ mod tests {
                 labels: HashMap::new(),
             },
             desired_capabilities: vec![InstanceTypeMachineCapabilityFilter {
-                capability_type: rpc::MachineCapabilityType::CapTypeCpu.try_into().unwrap(),
+                capability_type: forge::MachineCapabilityType::CapTypeCpu.try_into().unwrap(),
                 ..Default::default()
             }],
         };
@@ -750,11 +750,11 @@ mod tests {
             },
             desired_capabilities: vec![
                 InstanceTypeMachineCapabilityFilter {
-                    capability_type: rpc::MachineCapabilityType::CapTypeCpu.try_into().unwrap(),
+                    capability_type: forge::MachineCapabilityType::CapTypeCpu.try_into().unwrap(),
                     ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
-                    capability_type: rpc::MachineCapabilityType::CapTypeDpu.try_into().unwrap(),
+                    capability_type: forge::MachineCapabilityType::CapTypeDpu.try_into().unwrap(),
                     count: Some(0),
                     ..Default::default()
                 },
@@ -856,7 +856,7 @@ mod tests {
                 labels: HashMap::new(),
             },
             desired_capabilities: vec![InstanceTypeMachineCapabilityFilter {
-                capability_type: rpc::MachineCapabilityType::CapTypeCpu.try_into().unwrap(),
+                capability_type: forge::MachineCapabilityType::CapTypeCpu.try_into().unwrap(),
                 name: Some("pentium 4 HT".to_string()),
                 frequency: Some("1.3 GHz".to_string()),
                 capacity: None,
@@ -886,7 +886,7 @@ mod tests {
             },
             desired_capabilities: vec![
                 InstanceTypeMachineCapabilityFilter {
-                    capability_type: rpc::MachineCapabilityType::CapTypeCpu.try_into().unwrap(),
+                    capability_type: forge::MachineCapabilityType::CapTypeCpu.try_into().unwrap(),
                     name: Some("pentium 4 HT".to_string()),
                     frequency: Some("1.3 GHz".to_string()),
                     capacity: None,
@@ -898,7 +898,7 @@ mod tests {
                     ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
-                    capability_type: rpc::MachineCapabilityType::CapTypeGpu.try_into().unwrap(),
+                    capability_type: forge::MachineCapabilityType::CapTypeGpu.try_into().unwrap(),
                     name: Some("rtx6000".to_string()),
                     frequency: None,
                     vendor: Some("nvidia".to_string()),
@@ -909,7 +909,7 @@ mod tests {
                     ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
-                    capability_type: rpc::MachineCapabilityType::CapTypeMemory
+                    capability_type: forge::MachineCapabilityType::CapTypeMemory
                         .try_into()
                         .unwrap(),
                     name: Some("ddr4".to_string()),
@@ -919,7 +919,7 @@ mod tests {
                     ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
-                    capability_type: rpc::MachineCapabilityType::CapTypeStorage
+                    capability_type: forge::MachineCapabilityType::CapTypeStorage
                         .try_into()
                         .unwrap(),
                     name: Some("HDD".to_string()),
@@ -929,7 +929,7 @@ mod tests {
                     ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
-                    capability_type: rpc::MachineCapabilityType::CapTypeNetwork
+                    capability_type: forge::MachineCapabilityType::CapTypeNetwork
                         .try_into()
                         .unwrap(),
                     name: Some("e10000".to_string()),
@@ -938,7 +938,7 @@ mod tests {
                     ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
-                    capability_type: rpc::MachineCapabilityType::CapTypeInfiniband
+                    capability_type: forge::MachineCapabilityType::CapTypeInfiniband
                         .try_into()
                         .unwrap(),
                     name: Some("connectx7".to_string()),
@@ -948,7 +948,7 @@ mod tests {
                     ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
-                    capability_type: rpc::MachineCapabilityType::CapTypeDpu.try_into().unwrap(),
+                    capability_type: forge::MachineCapabilityType::CapTypeDpu.try_into().unwrap(),
                     name: Some("bluefield3".to_string()),
                     hardware_revision: Some("abc123".to_string()),
                     count: Some(1),
@@ -974,7 +974,7 @@ mod tests {
             desired_capabilities: vec![
                 InstanceTypeMachineCapabilityFilter {
                     name: None,
-                    capability_type: rpc::MachineCapabilityType::CapTypeCpu.try_into().unwrap(),
+                    capability_type: forge::MachineCapabilityType::CapTypeCpu.try_into().unwrap(),
                     frequency: Some("1.3 GHz".to_string()),
                     capacity: None,
                     vendor: Some("intel".to_string()),
@@ -985,7 +985,7 @@ mod tests {
                     ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
-                    capability_type: rpc::MachineCapabilityType::CapTypeGpu.try_into().unwrap(),
+                    capability_type: forge::MachineCapabilityType::CapTypeGpu.try_into().unwrap(),
                     frequency: None,
                     vendor: Some("nvidia".to_string()),
                     count: Some(1),
@@ -995,7 +995,7 @@ mod tests {
                     ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
-                    capability_type: rpc::MachineCapabilityType::CapTypeMemory
+                    capability_type: forge::MachineCapabilityType::CapTypeMemory
                         .try_into()
                         .unwrap(),
                     vendor: Some("micron".to_string()),
@@ -1004,7 +1004,7 @@ mod tests {
                     ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
-                    capability_type: rpc::MachineCapabilityType::CapTypeStorage
+                    capability_type: forge::MachineCapabilityType::CapTypeStorage
                         .try_into()
                         .unwrap(),
                     vendor: Some("western digital".to_string()),
@@ -1013,7 +1013,7 @@ mod tests {
                     ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
-                    capability_type: rpc::MachineCapabilityType::CapTypeNetwork
+                    capability_type: forge::MachineCapabilityType::CapTypeNetwork
                         .try_into()
                         .unwrap(),
                     vendor: Some("intel".to_string()),
@@ -1022,7 +1022,7 @@ mod tests {
                     ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
-                    capability_type: rpc::MachineCapabilityType::CapTypeInfiniband
+                    capability_type: forge::MachineCapabilityType::CapTypeInfiniband
                         .try_into()
                         .unwrap(),
                     vendor: Some("nvidia".to_string()),
@@ -1031,7 +1031,7 @@ mod tests {
                     ..Default::default()
                 },
                 InstanceTypeMachineCapabilityFilter {
-                    capability_type: rpc::MachineCapabilityType::CapTypeDpu.try_into().unwrap(),
+                    capability_type: forge::MachineCapabilityType::CapTypeDpu.try_into().unwrap(),
                     hardware_revision: Some("abc123".to_string()),
                     count: Some(1),
                     ..Default::default()

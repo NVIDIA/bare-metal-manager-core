@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use db::{ObjectColumnFilter, power_shelf as db_power_shelf};
-use model::metadata::Metadata;
+use nico_api_db::{ObjectColumnFilter, power_shelf as db_power_shelf};
+use nico_api_model::metadata::Metadata;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -26,8 +26,8 @@ use crate::api::{Api, log_request_data};
 
 pub async fn find_power_shelf(
     api: &Api,
-    request: Request<rpc::PowerShelfQuery>,
-) -> Result<Response<rpc::PowerShelfList>, Status> {
+    request: Request<forge::PowerShelfQuery>,
+) -> Result<Response<forge::PowerShelfList>, Status> {
     let query = request.into_inner();
     let mut txn = api
         .database_connection
@@ -41,7 +41,7 @@ pub async fn find_power_shelf(
     let power_shelf_list = if let Some(id) = query.power_shelf_id {
         db_power_shelf::find_by(
             &mut txn,
-            db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &id),
+            nico_api_db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &id),
             db_power_shelf::PowerShelfSearchConfig::default(),
         )
         .await
@@ -52,7 +52,7 @@ pub async fn find_power_shelf(
         // Handle name search
         db_power_shelf::find_by(
             &mut txn,
-            db::ObjectColumnFilter::One(db_power_shelf::NameColumn, &name),
+            nico_api_db::ObjectColumnFilter::One(db_power_shelf::NameColumn, &name),
             db_power_shelf::PowerShelfSearchConfig::default(),
         )
         .await
@@ -63,7 +63,7 @@ pub async fn find_power_shelf(
         // No filter - return all
         db_power_shelf::find_by(
             &mut txn,
-            db::ObjectColumnFilter::<db_power_shelf::IdColumn>::All,
+            nico_api_db::ObjectColumnFilter::<db_power_shelf::IdColumn>::All,
             db_power_shelf::PowerShelfSearchConfig::default(),
         )
         .await
@@ -76,36 +76,36 @@ pub async fn find_power_shelf(
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
-    let power_shelves: Vec<rpc::PowerShelf> = power_shelf_list
+    let power_shelves: Vec<forge::PowerShelf> = power_shelf_list
         .into_iter()
-        .map(rpc::PowerShelf::try_from)
+        .map(forge::PowerShelf::try_from)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| CarbideError::Internal {
             message: format!("Failed to convert power shelf: {}", e),
         })?;
 
-    Ok(Response::new(rpc::PowerShelfList { power_shelves }))
+    Ok(Response::new(forge::PowerShelfList { power_shelves }))
 }
 
 pub async fn find_ids(
     api: &Api,
-    request: Request<rpc::PowerShelfSearchFilter>,
-) -> Result<Response<rpc::PowerShelfIdList>, Status> {
+    request: Request<forge::PowerShelfSearchFilter>,
+) -> Result<Response<forge::PowerShelfIdList>, Status> {
     log_request_data(&request);
 
-    let filter: model::power_shelf::PowerShelfSearchFilter = request.into_inner().into();
+    let filter: nico_api_model::power_shelf::PowerShelfSearchFilter = request.into_inner().into();
 
     let power_shelf_ids = db_power_shelf::find_ids(&api.database_connection, filter).await?;
 
-    Ok(Response::new(rpc::PowerShelfIdList {
+    Ok(Response::new(forge::PowerShelfIdList {
         ids: power_shelf_ids,
     }))
 }
 
 pub async fn find_by_ids(
     api: &Api,
-    request: Request<rpc::PowerShelvesByIdsRequest>,
-) -> Result<Response<rpc::PowerShelfList>, Status> {
+    request: Request<forge::PowerShelvesByIdsRequest>,
+) -> Result<Response<forge::PowerShelfList>, Status> {
     log_request_data(&request);
 
     let power_shelf_ids = request.into_inner().power_shelf_ids;
@@ -142,7 +142,7 @@ pub async fn find_by_ids(
             .map(|row| {
                 (
                     row.power_shelf_id,
-                    rpc::BmcInfo {
+                    forge::BmcInfo {
                         ip: Some(row.pmc_ip.to_string()),
                         mac: Some(row.pmc_mac.to_string()),
                         version: None,
@@ -156,13 +156,13 @@ pub async fn find_by_ids(
 
     let _ = txn.rollback().await;
 
-    let power_shelves: Vec<rpc::PowerShelf> = power_shelf_list
+    let power_shelves: Vec<forge::PowerShelf> = power_shelf_list
         .into_iter()
         .map(|ps| {
             let id = ps.id;
             let bmc_info = bmc_info_map.get(&id).cloned();
 
-            rpc::PowerShelf::try_from(ps).map(|mut rpc_ps| {
+            forge::PowerShelf::try_from(ps).map(|mut rpc_ps| {
                 rpc_ps.bmc_info = bmc_info;
                 rpc_ps
             })
@@ -172,13 +172,13 @@ pub async fn find_by_ids(
             message: format!("Failed to convert power shelf: {}", e),
         })?;
 
-    Ok(Response::new(rpc::PowerShelfList { power_shelves }))
+    Ok(Response::new(forge::PowerShelfList { power_shelves }))
 }
 
 pub async fn delete_power_shelf(
     api: &Api,
-    request: Request<rpc::PowerShelfDeletionRequest>,
-) -> Result<Response<rpc::PowerShelfDeletionResult>, Status> {
+    request: Request<forge::PowerShelfDeletionRequest>,
+) -> Result<Response<forge::PowerShelfDeletionResult>, Status> {
     let req = request.into_inner();
 
     let power_shelf_id = match req.id {
@@ -200,7 +200,7 @@ pub async fn delete_power_shelf(
 
     let mut power_shelf_list = db_power_shelf::find_by(
         &mut txn,
-        db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &power_shelf_id),
+        nico_api_db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &power_shelf_id),
         db_power_shelf::PowerShelfSearchConfig::default(),
     )
     .await
@@ -227,12 +227,12 @@ pub async fn delete_power_shelf(
         message: format!("Failed to commit transaction: {}", e),
     })?;
 
-    Ok(Response::new(rpc::PowerShelfDeletionResult {}))
+    Ok(Response::new(forge::PowerShelfDeletionResult {}))
 }
 
 pub(crate) async fn update_power_shelf_metadata(
     api: &Api,
-    request: Request<rpc::PowerShelfMetadataUpdateRequest>,
+    request: Request<forge::PowerShelfMetadataUpdateRequest>,
 ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
     log_request_data(&request);
     let request = request.into_inner();
@@ -254,7 +254,7 @@ pub(crate) async fn update_power_shelf_metadata(
 
     let power_shelves = db_power_shelf::find_by(
         &mut txn,
-        db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &power_shelf_id),
+        nico_api_db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &power_shelf_id),
         db_power_shelf::PowerShelfSearchConfig::default(),
     )
     .await

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
+use nico_rpc::forge;
 use serde::{Deserialize, Serialize};
 
 use crate::rpc_error::PxeRequestError;
@@ -45,11 +45,11 @@ impl TryFrom<&str> for MachineArchitecture {
     }
 }
 
-impl From<MachineArchitecture> for rpc::MachineArchitecture {
-    fn from(arch: MachineArchitecture) -> rpc::MachineArchitecture {
+impl From<MachineArchitecture> for forge::MachineArchitecture {
+    fn from(arch: MachineArchitecture) -> forge::MachineArchitecture {
         match arch {
-            MachineArchitecture::X86 => rpc::MachineArchitecture::X86,
-            MachineArchitecture::Arm => rpc::MachineArchitecture::Arm,
+            MachineArchitecture::X86 => forge::MachineArchitecture::X86,
+            MachineArchitecture::Arm => forge::MachineArchitecture::Arm,
         }
     }
 }

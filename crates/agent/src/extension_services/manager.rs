@@ -16,7 +16,8 @@
  */
 use std::collections::HashMap;
 
-use ::rpc::forge::{self as rpc, DpuExtensionServiceType};
+use nico_rpc::forge;
+use nico_rpc::forge::DpuExtensionServiceType;
 
 use super::k8s_pod_handler::KubernetesPodServicesHandler;
 use super::service_handler::{ExtensionServiceHandler, ServiceConfig};
@@ -53,7 +54,7 @@ impl ExtensionServiceManager {
 
     pub async fn update_desired_services(
         &mut self,
-        configs: Vec<rpc::ManagedHostDpuExtensionServiceConfig>,
+        configs: Vec<forge::ManagedHostDpuExtensionServiceConfig>,
     ) -> eyre::Result<()> {
         let mut services_by_type: HashMap<DpuExtensionServiceType, Vec<ServiceConfig>> =
             HashMap::new();
@@ -83,8 +84,8 @@ impl ExtensionServiceManager {
 
     pub async fn get_service_statuses(
         &mut self,
-        configs: Vec<rpc::ManagedHostDpuExtensionServiceConfig>,
-    ) -> eyre::Result<Vec<rpc::DpuExtensionServiceStatusObservation>> {
+        configs: Vec<forge::ManagedHostDpuExtensionServiceConfig>,
+    ) -> eyre::Result<Vec<forge::DpuExtensionServiceStatusObservation>> {
         let service_configs: Vec<ServiceConfig> = configs
             .into_iter()
             .map(|c| {

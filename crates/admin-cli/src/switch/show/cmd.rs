@@ -17,11 +17,12 @@
 
 use std::str::FromStr;
 
-use carbide_uuid::switch::SwitchId;
 use color_eyre::Result;
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_rpc::forge::Switch;
+use nico_uuid::switch::SwitchId;
 use prettytable::{Table, row};
-use rpc::admin_cli::{CarbideCliResult, OutputFormat};
-use rpc::forge::Switch;
 
 use super::args::Args;
 use crate::cfg::runtime::RuntimeConfig;
@@ -176,7 +177,7 @@ pub async fn handle_show(
             Ok(switch_id) => api_client.get_one_switch(switch_id).await?.switches,
             Err(_) => {
                 // Fall back to name-based lookup
-                let query = rpc::forge::SwitchQuery {
+                let query = forge::SwitchQuery {
                     name: Some(id),
                     switch_id: None,
                 };
@@ -184,7 +185,7 @@ pub async fn handle_show(
             }
         },
         _ => {
-            let filter = rpc::forge::SwitchSearchFilter::default();
+            let filter = forge::SwitchSearchFilter::default();
             api_client
                 .get_all_switches(filter, config.page_size)
                 .await?

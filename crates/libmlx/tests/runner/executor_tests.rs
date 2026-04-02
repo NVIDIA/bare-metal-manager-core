@@ -22,10 +22,10 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
-use libmlx::runner::command_builder::{CommandBuilder, CommandSpec};
-use libmlx::runner::error::MlxRunnerError;
-use libmlx::runner::exec_options::ExecOptions;
-use libmlx::runner::executor::CommandExecutor;
+use nico_libmlx::runner::command_builder::{CommandBuilder, CommandSpec};
+use nico_libmlx::runner::error::MlxRunnerError;
+use nico_libmlx::runner::exec_options::ExecOptions;
+use nico_libmlx::runner::executor::CommandExecutor;
 
 #[test]
 fn test_create_temp_file() {
@@ -742,7 +742,7 @@ mod error_classification_tests {
             MlxRunnerError::ValueConversion {
                 variable_name: "TEST".to_string(),
                 value: "test".to_string(),
-                error: libmlx::variables::value::MlxValueError::TypeMismatch {
+                error: nico_libmlx::variables::value::MlxValueError::TypeMismatch {
                     expected: "int".to_string(),
                     got: "string".to_string(),
                 },

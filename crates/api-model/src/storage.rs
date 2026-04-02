@@ -19,7 +19,8 @@ use std::fmt;
 use std::fmt::Debug;
 use std::str::FromStr;
 
-use ::rpc::errors::RpcDataConversionError;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{Error, Row};
@@ -81,10 +82,10 @@ pub struct OsImage {
     pub modified_at: Option<String>,
 }
 
-impl TryFrom<OsImageAttributes> for rpc::forge::OsImageAttributes {
+impl TryFrom<OsImageAttributes> for forge::OsImageAttributes {
     type Error = RpcDataConversionError;
     fn try_from(image_attrs: OsImageAttributes) -> Result<Self, Self::Error> {
-        let id = rpc::Uuid::from(image_attrs.id);
+        let id = nico_rpc::Uuid::from(image_attrs.id);
         Ok(Self {
             id: Some(id),
             source_url: image_attrs.source_url,
@@ -105,9 +106,9 @@ impl TryFrom<OsImageAttributes> for rpc::forge::OsImageAttributes {
     }
 }
 
-impl TryFrom<rpc::forge::OsImageAttributes> for OsImageAttributes {
+impl TryFrom<forge::OsImageAttributes> for OsImageAttributes {
     type Error = RpcDataConversionError;
-    fn try_from(image_attrs: rpc::forge::OsImageAttributes) -> Result<Self, Self::Error> {
+    fn try_from(image_attrs: forge::OsImageAttributes) -> Result<Self, Self::Error> {
         if image_attrs.id.is_none() {
             return Err(RpcDataConversionError::MissingArgument("image id"));
         }
@@ -142,15 +143,15 @@ impl TryFrom<rpc::forge::OsImageAttributes> for OsImageAttributes {
     }
 }
 
-impl TryFrom<OsImageStatus> for rpc::forge::OsImageStatus {
+impl TryFrom<OsImageStatus> for forge::OsImageStatus {
     type Error = RpcDataConversionError;
     fn try_from(value: OsImageStatus) -> Result<Self, Self::Error> {
         match value {
-            OsImageStatus::Uninitialized => Ok(rpc::forge::OsImageStatus::ImageUninitialized),
-            OsImageStatus::InProgress => Ok(rpc::forge::OsImageStatus::ImageInProgress),
-            OsImageStatus::Failed => Ok(rpc::forge::OsImageStatus::ImageFailed),
-            OsImageStatus::Ready => Ok(rpc::forge::OsImageStatus::ImageReady),
-            OsImageStatus::Disabled => Ok(rpc::forge::OsImageStatus::ImageDisabled),
+            OsImageStatus::Uninitialized => Ok(forge::OsImageStatus::ImageUninitialized),
+            OsImageStatus::InProgress => Ok(forge::OsImageStatus::ImageInProgress),
+            OsImageStatus::Failed => Ok(forge::OsImageStatus::ImageFailed),
+            OsImageStatus::Ready => Ok(forge::OsImageStatus::ImageReady),
+            OsImageStatus::Disabled => Ok(forge::OsImageStatus::ImageDisabled),
         }
     }
 }
@@ -173,12 +174,12 @@ impl FromStr for OsImageStatus {
     }
 }
 
-impl TryFrom<OsImage> for rpc::forge::OsImage {
+impl TryFrom<OsImage> for forge::OsImage {
     type Error = RpcDataConversionError;
     fn try_from(image: OsImage) -> Result<Self, Self::Error> {
         Ok(Self {
-            attributes: Some(rpc::forge::OsImageAttributes::try_from(image.attributes)?),
-            status: rpc::forge::OsImageStatus::try_from(image.status)? as i32,
+            attributes: Some(forge::OsImageAttributes::try_from(image.attributes)?),
+            status: forge::OsImageStatus::try_from(image.status)? as i32,
             status_message: image.status_message,
             created_at: image.created_at,
             modified_at: image.modified_at,

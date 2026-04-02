@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use clap::Parser;
-use libmlx::runner::result_types::{ComparisonResult, SyncResult};
+use nico_libmlx::runner::result_types::{ComparisonResult, SyncResult};
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use prettytable::{Cell, Row, Table};
 
 use crate::cfg::dispatch::Dispatch;

@@ -16,14 +16,13 @@
  */
 use std::sync::atomic::Ordering;
 
-use ::rpc::forge::dpu_extension_service_observability_config::Config;
-use ::rpc::forge::forge_server::Forge;
-use ::rpc::forge::{
-    self as rpc, DpuExtensionServiceObservabilityConfig,
-    DpuExtensionServiceObservabilityConfigLogging,
-};
 use config_version::ConfigVersion;
-use forge_secrets::credentials::{CredentialKey, Credentials};
+use nico_rpc::forge::dpu_extension_service_observability_config::Config;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{
+    self, DpuExtensionServiceObservabilityConfig, DpuExtensionServiceObservabilityConfigLogging,
+};
+use nico_secrets::credentials::{CredentialKey, Credentials};
 use tonic::Request;
 use uuid::Uuid;
 
@@ -34,25 +33,27 @@ const TEST_SERVICE_DATA: &str = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: t
 const TEST_SERVICE_DATA_VERSION_2: &str = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: version-2\nspec:\n  containers:\n    - name: app\n      image: nginx:1.27";
 const TEST_SERVICE_DATA_VERSION_3: &str = "apiVersion: v1\nkind: Pod\nmetadata:\n  name: version-3\nspec:\n  containers:\n    - name: app\n      image: nginx:1.27";
 
-fn create_credential() -> rpc::DpuExtensionServiceCredential {
-    rpc::DpuExtensionServiceCredential {
+fn create_credential() -> forge::DpuExtensionServiceCredential {
+    forge::DpuExtensionServiceCredential {
         registry_url: "https://registry.test.com".to_string(),
         r#type: Some(
-            rpc::dpu_extension_service_credential::Type::UsernamePassword(rpc::UsernamePassword {
-                username: "test-username".to_string(),
-                password: "test-password".to_string(),
-            }),
+            forge::dpu_extension_service_credential::Type::UsernamePassword(
+                forge::UsernamePassword {
+                    username: "test-username".to_string(),
+                    password: "test-password".to_string(),
+                },
+            ),
         ),
     }
 }
 
-fn create_observability() -> rpc::DpuExtensionServiceObservability {
-    rpc::DpuExtensionServiceObservability {
-        configs: vec![rpc::DpuExtensionServiceObservabilityConfig {
+fn create_observability() -> forge::DpuExtensionServiceObservability {
+    forge::DpuExtensionServiceObservability {
+        configs: vec![forge::DpuExtensionServiceObservabilityConfig {
             name: Some("prom_config".to_string()),
             config: Some(
-                rpc::dpu_extension_service_observability_config::Config::Prometheus(
-                    rpc::DpuExtensionServiceObservabilityConfigPrometheus {
+                forge::dpu_extension_service_observability_config::Config::Prometheus(
+                    forge::DpuExtensionServiceObservabilityConfigPrometheus {
                         scrape_interval_seconds: 1,
                         endpoint: "localhost:7777".to_string(),
                     },
@@ -65,10 +66,10 @@ fn create_observability() -> rpc::DpuExtensionServiceObservability {
 async fn create_test_tenants(env: &TestEnv) -> Result<(), eyre::Report> {
     let _ = env
         .api
-        .create_tenant(tonic::Request::new(rpc::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(forge::CreateTenantRequest {
             organization_id: "best_org".to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "best_org".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -79,10 +80,10 @@ async fn create_test_tenants(env: &TestEnv) -> Result<(), eyre::Report> {
 
     let _ = env
         .api
-        .create_tenant(tonic::Request::new(rpc::CreateTenantRequest {
+        .create_tenant(tonic::Request::new(forge::CreateTenantRequest {
             organization_id: "another_org".to_string(),
             routing_profile_type: None,
-            metadata: Some(rpc::Metadata {
+            metadata: Some(forge::Metadata {
                 name: "another_org".to_string(),
                 description: "".to_string(),
                 labels: vec![],
@@ -96,7 +97,7 @@ async fn create_test_tenants(env: &TestEnv) -> Result<(), eyre::Report> {
 
 async fn create_test_extension_service_and_tenants(
     env: &TestEnv,
-) -> Result<rpc::DpuExtensionService, eyre::Report> {
+) -> Result<forge::DpuExtensionService, eyre::Report> {
     create_test_tenants(env).await?;
     create_test_extension_service(&env.api, "test-service", None).await
 }
@@ -104,14 +105,14 @@ async fn create_test_extension_service_and_tenants(
 async fn create_test_extension_service(
     api: &Api,
     name: &str,
-    credential: Option<rpc::DpuExtensionServiceCredential>,
-) -> Result<rpc::DpuExtensionService, eyre::Report> {
-    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+    credential: Option<forge::DpuExtensionServiceCredential>,
+) -> Result<forge::DpuExtensionService, eyre::Report> {
+    let extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: name.to_string(),
         description: Some("Test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential,
         observability: None,
@@ -126,14 +127,14 @@ async fn create_test_extension_service(
 
 async fn create_test_extension_service_with_three_versions(
     env: &TestEnv,
-) -> Result<rpc::DpuExtensionService, eyre::Report> {
+) -> Result<forge::DpuExtensionService, eyre::Report> {
     create_test_tenants(env).await?;
-    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "test-service".to_string(),
         description: Some("Test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
         observability: None,
@@ -149,7 +150,7 @@ async fn create_test_extension_service_with_three_versions(
 
     let update_resp = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             service_name: None,
             description: None,
@@ -164,7 +165,7 @@ async fn create_test_extension_service_with_three_versions(
 
     let update_resp = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             service_name: None,
             description: None,
@@ -184,12 +185,12 @@ async fn create_test_extension_service_with_ten_versions(
     env: &TestEnv,
 ) -> Result<String, eyre::Report> {
     create_test_tenants(env).await?;
-    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "test-service".to_string(),
         description: Some("Test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
         observability: None,
@@ -207,7 +208,7 @@ async fn create_test_extension_service_with_ten_versions(
         // Since the extension service data/credential cannot be unchanged, we need to update it to a different version
         let update_resp = env
             .api
-            .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+            .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
                 service_id: service_id.clone(),
                 service_name: None,
                 description: None,
@@ -222,7 +223,7 @@ async fn create_test_extension_service_with_ten_versions(
 
         let update_resp = env
             .api
-            .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+            .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
                 service_id: service_id.clone(),
                 service_name: None,
                 description: None,
@@ -241,10 +242,10 @@ async fn create_test_extension_service_with_ten_versions(
 
 async fn get_credentials_for_extension_service(
     env: &TestEnv,
-    extension_service: &rpc::DpuExtensionService,
+    extension_service: &forge::DpuExtensionService,
 ) -> Result<Credentials, eyre::Report> {
     // Verify the credential is stored correctly in Vault
-    let credential_key = forge_secrets::credentials::CredentialKey::ExtensionService {
+    let credential_key = nico_secrets::credentials::CredentialKey::ExtensionService {
         service_id: extension_service.service_id.clone(),
         version: extension_service
             .latest_version_info
@@ -272,18 +273,18 @@ async fn test_extension_service_creation(db_pool: sqlx::PgPool) -> Result<(), ey
 
     create_test_tenants(&env).await?;
 
-    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "test-service".to_string(),
         description: Some("Test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: Some(create_credential()),
         observability: Some(create_observability()),
     };
 
-    let create_resp: Result<tonic::Response<rpc::DpuExtensionService>, tonic::Status> = env
+    let create_resp: Result<tonic::Response<forge::DpuExtensionService>, tonic::Status> = env
         .api
         .create_dpu_extension_service(Request::new(extension_service))
         .await;
@@ -306,12 +307,12 @@ async fn test_extension_service_create_with_credential(
 
     create_test_tenants(&env).await?;
 
-    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "test-service".to_string(),
         description: Some("Test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: Some(create_credential()),
         observability: Some(create_observability()),
@@ -352,12 +353,12 @@ async fn test_extension_service_create_failure(db_pool: sqlx::PgPool) -> Result<
 
     create_test_tenants(&env).await?;
 
-    let requested_extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let requested_extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "test-service".to_string(),
         description: Some("Test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: Some(create_credential()),
         observability: Some(create_observability()),
@@ -375,7 +376,7 @@ async fn test_extension_service_create_failure(db_pool: sqlx::PgPool) -> Result<
     assert!(latest_version.has_credential);
 
     // Verify the credential is stored correctly in Vault
-    let credential_key = forge_secrets::credentials::CredentialKey::ExtensionService {
+    let credential_key = nico_secrets::credentials::CredentialKey::ExtensionService {
         service_id: extension_service.service_id.clone(),
         version: latest_version
             .version
@@ -427,10 +428,12 @@ async fn test_extension_service_update_race_condition(
     let credential = {
         let mut c = create_credential();
         c.r#type = Some(
-            rpc::dpu_extension_service_credential::Type::UsernamePassword(rpc::UsernamePassword {
-                username: "test-username-1".to_string(),
-                password: "test-password-1".to_string(),
-            }),
+            forge::dpu_extension_service_credential::Type::UsernamePassword(
+                forge::UsernamePassword {
+                    username: "test-username-1".to_string(),
+                    password: "test-password-1".to_string(),
+                },
+            ),
         );
         c
     };
@@ -439,10 +442,12 @@ async fn test_extension_service_update_race_condition(
     let updated_credential = {
         let mut c = create_credential();
         c.r#type = Some(
-            rpc::dpu_extension_service_credential::Type::UsernamePassword(rpc::UsernamePassword {
-                username: "test-username-updated".to_string(),
-                password: "test-password-updated".to_string(),
-            }),
+            forge::dpu_extension_service_credential::Type::UsernamePassword(
+                forge::UsernamePassword {
+                    username: "test-username-updated".to_string(),
+                    password: "test-password-updated".to_string(),
+                },
+            ),
         );
         c
     };
@@ -461,7 +466,7 @@ async fn test_extension_service_update_race_condition(
     let (update_1, update_2) = {
         let join_handle_1 = tokio::spawn({
             let api = env.api.clone();
-            let request = Request::new(rpc::UpdateDpuExtensionServiceRequest {
+            let request = Request::new(forge::UpdateDpuExtensionServiceRequest {
                 service_id: service.service_id.clone(),
                 service_name: Some("test-service-updated".to_string()), // should cause collision
                 description: Some(service.description.clone()),
@@ -474,7 +479,7 @@ async fn test_extension_service_update_race_condition(
         });
         let join_handle_2 = tokio::spawn({
             let api = env.api.clone();
-            let request = Request::new(rpc::UpdateDpuExtensionServiceRequest {
+            let request = Request::new(forge::UpdateDpuExtensionServiceRequest {
                 service_id: service.service_id.clone(),
                 service_name: Some("test-service-updated".to_string()), // should cause collision
                 description: Some(service.description.clone()),
@@ -570,17 +575,19 @@ async fn test_extension_service_update_failure(db_pool: sqlx::PgPool) -> Result<
     let updated_credentials = {
         let mut c = credentials.clone();
         c.r#type = Some(
-            rpc::dpu_extension_service_credential::Type::UsernamePassword(rpc::UsernamePassword {
-                username: "test-username-updated".to_string(),
-                password: "test-password-updated".to_string(),
-            }),
+            forge::dpu_extension_service_credential::Type::UsernamePassword(
+                forge::UsernamePassword {
+                    username: "test-username-updated".to_string(),
+                    password: "test-password-updated".to_string(),
+                },
+            ),
         );
         c
     };
 
     let update_response = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_2.service_id.clone(),
             service_name: Some("test-service-1".to_string()), // should cause collision
             description: Some(service_1.description.clone()),
@@ -617,20 +624,24 @@ async fn test_extension_service_create_race_condition(
     let credential_1 = {
         let mut c = create_credential();
         c.r#type = Some(
-            rpc::dpu_extension_service_credential::Type::UsernamePassword(rpc::UsernamePassword {
-                username: "test-username-1".to_string(),
-                password: "test-password-1".to_string(),
-            }),
+            forge::dpu_extension_service_credential::Type::UsernamePassword(
+                forge::UsernamePassword {
+                    username: "test-username-1".to_string(),
+                    password: "test-password-1".to_string(),
+                },
+            ),
         );
         c
     };
     let credential_2 = {
         let mut c = create_credential();
         c.r#type = Some(
-            rpc::dpu_extension_service_credential::Type::UsernamePassword(rpc::UsernamePassword {
-                username: "test-username-2".to_string(),
-                password: "test-password-2".to_string(),
-            }),
+            forge::dpu_extension_service_credential::Type::UsernamePassword(
+                forge::UsernamePassword {
+                    username: "test-username-2".to_string(),
+                    password: "test-password-2".to_string(),
+                },
+            ),
         );
         c
     };
@@ -700,12 +711,12 @@ async fn test_extension_service_creation_invalid_arg(
     create_test_tenants(&env).await?;
 
     // Test empty service name
-    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "".to_string(),
         description: Some("Test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
         observability: None,
@@ -718,12 +729,12 @@ async fn test_extension_service_creation_invalid_arg(
     assert!(create_resp.is_err());
 
     // Test empty data
-    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "test-service".to_string(),
         description: Some("Test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: "".to_string(),
         credential: None,
         observability: None,
@@ -736,12 +747,12 @@ async fn test_extension_service_creation_invalid_arg(
     assert!(create_resp.is_err());
 
     // Test invalid data format (not YAML or JSON)
-    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "test-service".to_string(),
         description: Some("Test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: "apiVersion: v1\nkind: Pod\nmetadata:\n  name: test".to_string(),
         credential: None,
         observability: None,
@@ -754,19 +765,19 @@ async fn test_extension_service_creation_invalid_arg(
     assert!(create_resp.is_err());
 
     // Test invalid credential type
-    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "test-service".to_string(),
         description: Some("Test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         observability: None,
-        credential: Some(rpc::DpuExtensionServiceCredential {
+        credential: Some(forge::DpuExtensionServiceCredential {
             registry_url: "".to_string(),
             r#type: Some(
-                rpc::dpu_extension_service_credential::Type::UsernamePassword(
-                    rpc::UsernamePassword {
+                forge::dpu_extension_service_credential::Type::UsernamePassword(
+                    forge::UsernamePassword {
                         username: "test-username".to_string(),
                         password: "test-password".to_string(),
                     },
@@ -782,16 +793,16 @@ async fn test_extension_service_creation_invalid_arg(
     assert!(create_resp.is_err());
 
     // Test invalid observability config
-    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "test-service".to_string(),
         description: Some("Test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: Some(create_credential()),
-        observability: Some(rpc::DpuExtensionServiceObservability {
-            configs: vec![rpc::DpuExtensionServiceObservabilityConfig {
+        observability: Some(forge::DpuExtensionServiceObservability {
+            configs: vec![forge::DpuExtensionServiceObservabilityConfig {
                 name: Some("prom".to_string()),
                 config: None,
             }],
@@ -805,20 +816,20 @@ async fn test_extension_service_creation_invalid_arg(
     assert!(create_resp.is_err());
 
     // Test invalid observability config name
-    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "test-service".to_string(),
         description: Some("Test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: Some(create_credential()),
-        observability: Some(rpc::DpuExtensionServiceObservability {
-            configs: vec![rpc::DpuExtensionServiceObservabilityConfig {
+        observability: Some(forge::DpuExtensionServiceObservability {
+            configs: vec![forge::DpuExtensionServiceObservabilityConfig {
                 name: Some("x".to_string().repeat(65)),
                 config: Some(
-                    rpc::dpu_extension_service_observability_config::Config::Logging(
-                        rpc::DpuExtensionServiceObservabilityConfigLogging {
+                    forge::dpu_extension_service_observability_config::Config::Logging(
+                        forge::DpuExtensionServiceObservabilityConfigLogging {
                             path: "something".to_string(),
                         },
                     ),
@@ -834,15 +845,15 @@ async fn test_extension_service_creation_invalid_arg(
     assert!(create_resp.is_err());
 
     // Fail to create an an extension with too many observability configs
-    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "test-service".to_string(),
         description: Some("Test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
-        observability: Some(rpc::DpuExtensionServiceObservability {
+        observability: Some(forge::DpuExtensionServiceObservability {
             configs: vec![
                 DpuExtensionServiceObservabilityConfig {
                     name: None,
@@ -867,15 +878,15 @@ async fn test_extension_service_creation_invalid_arg(
 
     // Fail to create an an extension with just a basic bad observability config
     // that's missing the actual config.
-    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "test-service".to_string(),
         description: Some("Test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
-        observability: Some(rpc::DpuExtensionServiceObservability {
+        observability: Some(forge::DpuExtensionServiceObservability {
             configs: vec![DpuExtensionServiceObservabilityConfig {
                 name: None,
                 config: None,
@@ -901,11 +912,11 @@ async fn test_extension_service_creation_with_same_name(
 
     create_test_tenants(&env).await?;
 
-    let extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "test-service".to_string(),
         description: Some("Test service".to_string()),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
         observability: None,
@@ -926,11 +937,11 @@ async fn test_extension_service_creation_with_same_name(
     );
 
     // Creating a new extension service with the same name and tenant organization ID should fail
-    let duplicate_extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let duplicate_extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "Test-Service".to_string(),
         description: Some("Test service".to_string()),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
         observability: None,
@@ -948,11 +959,11 @@ async fn test_extension_service_creation_with_same_name(
     assert!(status.message().contains("already exists"));
 
     // However, creating a new extension service with the same name but different tenant organization ID should be allowed
-    let new_extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let new_extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "test-service".to_string(),
         description: Some("Test service".to_string()),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
         observability: None,
@@ -977,7 +988,7 @@ async fn test_extension_service_update(db_pool: sqlx::PgPool) -> Result<(), eyre
 
     let update_resp = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             service_name: Some("updated-service".to_string()),
             description: Some("Updated service".to_string()),
@@ -1022,7 +1033,7 @@ async fn test_extension_service_update(db_pool: sqlx::PgPool) -> Result<(), eyre
     // Update but with credential deleted
     let update_resp = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             service_name: None,
             description: None,
@@ -1090,12 +1101,12 @@ async fn test_extension_service_update_invalid_arg(
     let service_id = service_version.service_id;
 
     // Create another extension service with a different name
-    let other_extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let other_extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "other-test-service".to_string(),
         description: Some("Other test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
         observability: None,
@@ -1109,7 +1120,7 @@ async fn test_extension_service_update_invalid_arg(
     // Update with empty service name
     let update_resp = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             service_name: Some("".to_string()),
             description: None,
@@ -1131,7 +1142,7 @@ async fn test_extension_service_update_invalid_arg(
     // Update with wrong version match number
     let update_resp = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             service_name: None,
             description: None,
@@ -1147,7 +1158,7 @@ async fn test_extension_service_update_invalid_arg(
     // Update with same data and credential
     let update_resp = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             service_name: None,
             description: None,
@@ -1169,7 +1180,7 @@ async fn test_extension_service_update_invalid_arg(
     // Update with empty data format
     let update_resp = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             service_name: None,
             description: None,
@@ -1191,7 +1202,7 @@ async fn test_extension_service_update_invalid_arg(
     // Update with invalid data format
     let update_resp = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             service_name: None,
             description: None,
@@ -1213,7 +1224,7 @@ async fn test_extension_service_update_invalid_arg(
     // Update with wrong service id
     let update_resp = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: Uuid::new_v4().to_string(),
             service_name: None,
             description: None,
@@ -1235,7 +1246,7 @@ async fn test_extension_service_update_invalid_arg(
     // Update to a name that's already taken
     let update_resp = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             service_name: Some("other-test-service".to_string()),
             description: None,
@@ -1253,13 +1264,13 @@ async fn test_extension_service_update_invalid_arg(
     // Update to set too many observability configs
     let update_resp = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             service_name: Some("other-test-service".to_string()),
             description: None,
             data: TEST_SERVICE_DATA_VERSION_2.to_string(),
             credential: None,
-            observability: Some(rpc::DpuExtensionServiceObservability {
+            observability: Some(forge::DpuExtensionServiceObservability {
                 configs: vec![
                     DpuExtensionServiceObservabilityConfig {
                         name: None,
@@ -1290,12 +1301,12 @@ async fn test_extension_service_update_metadata(db_pool: sqlx::PgPool) -> Result
     let service_id = service_version.service_id;
 
     // Create another extension service with a different name
-    let other_extension_service = rpc::CreateDpuExtensionServiceRequest {
+    let other_extension_service = forge::CreateDpuExtensionServiceRequest {
         service_id: None,
         service_name: "other-test-service".to_string(),
         description: Some("Other test service".to_string()),
         tenant_organization_id: "best_org".to_string(),
-        service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+        service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
         data: TEST_SERVICE_DATA.to_string(),
         credential: None,
         observability: None,
@@ -1309,7 +1320,7 @@ async fn test_extension_service_update_metadata(db_pool: sqlx::PgPool) -> Result
     // Update only name
     let update_resp = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             service_name: Some("updated-service".to_string()),
             description: None,
@@ -1339,7 +1350,7 @@ async fn test_extension_service_update_metadata(db_pool: sqlx::PgPool) -> Result
     // Normal update should still work
     let update_resp = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             service_name: None,
             description: None,
@@ -1367,7 +1378,7 @@ async fn test_extension_service_update_metadata(db_pool: sqlx::PgPool) -> Result
     // Update both name and description
     let update_resp = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             service_name: Some("updated-service-2".to_string()),
             description: Some("Updated description".to_string()),
@@ -1406,8 +1417,8 @@ async fn test_extension_service_find_ids(db_pool: sqlx::PgPool) -> Result<(), ey
     // Find the extension service by name
     let find_resp = env
         .api
-        .find_dpu_extension_service_ids(Request::new(rpc::DpuExtensionServiceSearchFilter {
-            service_type: Some(rpc::DpuExtensionServiceType::KubernetesPod.into()),
+        .find_dpu_extension_service_ids(Request::new(forge::DpuExtensionServiceSearchFilter {
+            service_type: Some(forge::DpuExtensionServiceType::KubernetesPod.into()),
             name: Some("test-service".to_string()),
             tenant_organization_id: Some("best_org".to_string()),
         }))
@@ -1419,8 +1430,8 @@ async fn test_extension_service_find_ids(db_pool: sqlx::PgPool) -> Result<(), ey
     // Find the extension service by service type
     let find_resp = env
         .api
-        .find_dpu_extension_service_ids(Request::new(rpc::DpuExtensionServiceSearchFilter {
-            service_type: Some(rpc::DpuExtensionServiceType::KubernetesPod.into()),
+        .find_dpu_extension_service_ids(Request::new(forge::DpuExtensionServiceSearchFilter {
+            service_type: Some(forge::DpuExtensionServiceType::KubernetesPod.into()),
             name: None,
             tenant_organization_id: None,
         }))
@@ -1432,8 +1443,8 @@ async fn test_extension_service_find_ids(db_pool: sqlx::PgPool) -> Result<(), ey
     // Find the extension service by both service name and service type
     let find_resp = env
         .api
-        .find_dpu_extension_service_ids(Request::new(rpc::DpuExtensionServiceSearchFilter {
-            service_type: Some(rpc::DpuExtensionServiceType::KubernetesPod.into()),
+        .find_dpu_extension_service_ids(Request::new(forge::DpuExtensionServiceSearchFilter {
+            service_type: Some(forge::DpuExtensionServiceType::KubernetesPod.into()),
             name: Some("test-service".to_string()),
             tenant_organization_id: None,
         }))
@@ -1458,7 +1469,7 @@ async fn test_extension_service_find_by_ids(db_pool: sqlx::PgPool) -> Result<(),
 
     let find_resp = env
         .api
-        .find_dpu_extension_services_by_ids(Request::new(rpc::DpuExtensionServicesByIdsRequest {
+        .find_dpu_extension_services_by_ids(Request::new(forge::DpuExtensionServicesByIdsRequest {
             service_ids,
         }))
         .await;
@@ -1481,7 +1492,7 @@ async fn test_extension_service_find_by_ids_latest_version_numerical_ordering(
 
     let find_resp = env
         .api
-        .find_dpu_extension_services_by_ids(Request::new(rpc::DpuExtensionServicesByIdsRequest {
+        .find_dpu_extension_services_by_ids(Request::new(forge::DpuExtensionServicesByIdsRequest {
             service_ids: vec![service_id.clone()],
         }))
         .await;
@@ -1518,7 +1529,7 @@ async fn test_extension_service_delete(db_pool: sqlx::PgPool) -> Result<(), eyre
     // Delete two versions, the service should still be found
     let delete_resp = env
         .api
-        .delete_dpu_extension_service(Request::new(rpc::DeleteDpuExtensionServiceRequest {
+        .delete_dpu_extension_service(Request::new(forge::DeleteDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             versions: vec![version1.to_string(), version2.to_string()],
         }))
@@ -1527,7 +1538,7 @@ async fn test_extension_service_delete(db_pool: sqlx::PgPool) -> Result<(), eyre
 
     let find_resp = env
         .api
-        .find_dpu_extension_services_by_ids(Request::new(rpc::DpuExtensionServicesByIdsRequest {
+        .find_dpu_extension_services_by_ids(Request::new(forge::DpuExtensionServicesByIdsRequest {
             service_ids: vec![service_id.clone()],
         }))
         .await;
@@ -1554,7 +1565,7 @@ async fn test_extension_service_delete(db_pool: sqlx::PgPool) -> Result<(), eyre
 
     let delete_resp = env
         .api
-        .delete_dpu_extension_service(Request::new(rpc::DeleteDpuExtensionServiceRequest {
+        .delete_dpu_extension_service(Request::new(forge::DeleteDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             versions: vec![fake_version.to_string()],
         }))
@@ -1563,7 +1574,7 @@ async fn test_extension_service_delete(db_pool: sqlx::PgPool) -> Result<(), eyre
 
     let find_resp = env
         .api
-        .find_dpu_extension_services_by_ids(Request::new(rpc::DpuExtensionServicesByIdsRequest {
+        .find_dpu_extension_services_by_ids(Request::new(forge::DpuExtensionServicesByIdsRequest {
             service_ids: vec![service_id.clone()],
         }))
         .await;
@@ -1594,7 +1605,7 @@ async fn test_extension_service_delete(db_pool: sqlx::PgPool) -> Result<(), eyre
     // Try delete the service with some invalid version
     let delete_resp = env
         .api
-        .delete_dpu_extension_service(Request::new(rpc::DeleteDpuExtensionServiceRequest {
+        .delete_dpu_extension_service(Request::new(forge::DeleteDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             versions: vec!["V1-T?".to_string(), version3.to_string()],
         }))
@@ -1611,7 +1622,7 @@ async fn test_extension_service_delete(db_pool: sqlx::PgPool) -> Result<(), eyre
     // Now delete the last version, the service should now be fully deleted and cannot be found
     let delete_resp = env
         .api
-        .delete_dpu_extension_service(Request::new(rpc::DeleteDpuExtensionServiceRequest {
+        .delete_dpu_extension_service(Request::new(forge::DeleteDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             versions: vec![version3.to_string()],
         }))
@@ -1620,7 +1631,7 @@ async fn test_extension_service_delete(db_pool: sqlx::PgPool) -> Result<(), eyre
 
     let find_resp = env
         .api
-        .find_dpu_extension_services_by_ids(Request::new(rpc::DpuExtensionServicesByIdsRequest {
+        .find_dpu_extension_services_by_ids(Request::new(forge::DpuExtensionServicesByIdsRequest {
             service_ids: vec![service_id.clone()],
         }))
         .await;
@@ -1649,8 +1660,8 @@ async fn test_extension_service_delete_in_use(db_pool: sqlx::PgPool) -> Result<(
     let (_, _) = mh
         .instance_builer(&env)
         .single_interface_network_config(segment_id)
-        .extension_services(rpc::InstanceDpuExtensionServicesConfig {
-            service_configs: vec![rpc::InstanceDpuExtensionServiceConfig {
+        .extension_services(forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![forge::InstanceDpuExtensionServiceConfig {
                 service_id: service_id.clone(),
                 version: version3.clone(),
             }],
@@ -1661,7 +1672,7 @@ async fn test_extension_service_delete_in_use(db_pool: sqlx::PgPool) -> Result<(
     // Now try to delete the extension service, this should fail since one of the versions is in use
     let delete_resp = env
         .api
-        .delete_dpu_extension_service(Request::new(rpc::DeleteDpuExtensionServiceRequest {
+        .delete_dpu_extension_service(Request::new(forge::DeleteDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             versions: vec![],
         }))
@@ -1673,7 +1684,7 @@ async fn test_extension_service_delete_in_use(db_pool: sqlx::PgPool) -> Result<(
     // Now try to delete the extension service with the version that is in use, this shoud fail
     let delete_resp = env
         .api
-        .delete_dpu_extension_service(Request::new(rpc::DeleteDpuExtensionServiceRequest {
+        .delete_dpu_extension_service(Request::new(forge::DeleteDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             versions: vec![version3.clone()],
         }))
@@ -1685,7 +1696,7 @@ async fn test_extension_service_delete_in_use(db_pool: sqlx::PgPool) -> Result<(
     // Now try to delete the extension service with the version that is not in use, this should succeed
     let delete_resp = env
         .api
-        .delete_dpu_extension_service(Request::new(rpc::DeleteDpuExtensionServiceRequest {
+        .delete_dpu_extension_service(Request::new(forge::DeleteDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             versions: vec![version1.clone()],
         }))
@@ -1694,7 +1705,7 @@ async fn test_extension_service_delete_in_use(db_pool: sqlx::PgPool) -> Result<(
 
     let find_resp = env
         .api
-        .find_dpu_extension_services_by_ids(Request::new(rpc::DpuExtensionServicesByIdsRequest {
+        .find_dpu_extension_services_by_ids(Request::new(forge::DpuExtensionServicesByIdsRequest {
             service_ids: vec![service_id.clone()],
         }))
         .await;
@@ -1718,7 +1729,7 @@ async fn test_extension_service_delete_default(db_pool: sqlx::PgPool) -> Result<
     // Delete two versions, the service should still be found
     let delete_resp = env
         .api
-        .delete_dpu_extension_service(Request::new(rpc::DeleteDpuExtensionServiceRequest {
+        .delete_dpu_extension_service(Request::new(forge::DeleteDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             versions: vec![],
         }))
@@ -1727,7 +1738,7 @@ async fn test_extension_service_delete_default(db_pool: sqlx::PgPool) -> Result<
 
     let find_resp = env
         .api
-        .find_dpu_extension_services_by_ids(Request::new(rpc::DpuExtensionServicesByIdsRequest {
+        .find_dpu_extension_services_by_ids(Request::new(forge::DpuExtensionServicesByIdsRequest {
             service_ids: vec![service_id.clone()],
         }))
         .await;
@@ -1754,7 +1765,7 @@ async fn test_extension_service_create_update_delete_credential(
 
     let delete_resp = env
         .api
-        .delete_dpu_extension_service(Request::new(rpc::DeleteDpuExtensionServiceRequest {
+        .delete_dpu_extension_service(Request::new(forge::DeleteDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             versions: vec![version1.to_string(), version2.to_string()],
         }))
@@ -1764,7 +1775,7 @@ async fn test_extension_service_create_update_delete_credential(
     // Update the extension service with a credential
     let update_resp = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             credential: Some(create_credential()),
             observability: Some(create_observability()),
@@ -1793,7 +1804,7 @@ async fn test_extension_service_create_update_delete_credential(
     // Delete the extension service
     let delete_resp = env
         .api
-        .delete_dpu_extension_service(Request::new(rpc::DeleteDpuExtensionServiceRequest {
+        .delete_dpu_extension_service(Request::new(forge::DeleteDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             versions: vec![version3.to_string()],
         }))
@@ -1803,7 +1814,7 @@ async fn test_extension_service_create_update_delete_credential(
     // Find the extension service by name
     let find_resp = env
         .api
-        .find_dpu_extension_services_by_ids(Request::new(rpc::DpuExtensionServicesByIdsRequest {
+        .find_dpu_extension_services_by_ids(Request::new(forge::DpuExtensionServicesByIdsRequest {
             service_ids: vec![service_id.clone()],
         }))
         .await;
@@ -1852,7 +1863,7 @@ async fn test_extension_service_create_update_delete_credential(
     // Delete the version with credential
     let delete_resp = env
         .api
-        .delete_dpu_extension_service(Request::new(rpc::DeleteDpuExtensionServiceRequest {
+        .delete_dpu_extension_service(Request::new(forge::DeleteDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             versions: vec![version4.to_string()],
         }))
@@ -1862,7 +1873,7 @@ async fn test_extension_service_create_update_delete_credential(
     // Expect the extension service is no longer found
     let find_resp = env
         .api
-        .find_dpu_extension_services_by_ids(Request::new(rpc::DpuExtensionServicesByIdsRequest {
+        .find_dpu_extension_services_by_ids(Request::new(forge::DpuExtensionServicesByIdsRequest {
             service_ids: vec![service_id.clone()],
         }))
         .await;
@@ -1871,7 +1882,7 @@ async fn test_extension_service_create_update_delete_credential(
     assert!(services.is_empty());
 
     // Expect the credential is deleted from Vault
-    let credential_key = forge_secrets::credentials::CredentialKey::ExtensionService {
+    let credential_key = nico_secrets::credentials::CredentialKey::ExtensionService {
         service_id: service_id.clone(),
         version: 4.to_string(),
     };
@@ -1903,7 +1914,7 @@ async fn test_extension_service_get_version_infos(
     let get_resp = env
         .api
         .get_dpu_extension_service_versions_info(Request::new(
-            rpc::GetDpuExtensionServiceVersionsInfoRequest {
+            forge::GetDpuExtensionServiceVersionsInfoRequest {
                 service_id: service_id.clone(),
                 versions: vec![],
             },
@@ -1954,7 +1965,7 @@ async fn test_extension_service_get_version_infos(
     let get_resp = env
         .api
         .get_dpu_extension_service_versions_info(Request::new(
-            rpc::GetDpuExtensionServiceVersionsInfoRequest {
+            forge::GetDpuExtensionServiceVersionsInfoRequest {
                 service_id: service_id.clone(),
                 versions: vec![
                     version1.to_string(),
@@ -2009,7 +2020,7 @@ async fn test_extension_service_get_version_infos(
     let get_resp = env
         .api
         .get_dpu_extension_service_versions_info(Request::new(
-            rpc::GetDpuExtensionServiceVersionsInfoRequest {
+            forge::GetDpuExtensionServiceVersionsInfoRequest {
                 service_id: service_id.clone(),
                 versions: vec![version2.to_string()],
             },
@@ -2058,7 +2069,7 @@ async fn test_find_instances_by_extension_service(
     // Update to create version 2
     let service = env
         .api
-        .update_dpu_extension_service(Request::new(rpc::UpdateDpuExtensionServiceRequest {
+        .update_dpu_extension_service(Request::new(forge::UpdateDpuExtensionServiceRequest {
             service_id: service_id.clone(),
             service_name: None,
             description: None,
@@ -2081,8 +2092,8 @@ async fn test_find_instances_by_extension_service(
     let (instance1, _) = mh1
         .instance_builer(&env)
         .single_interface_network_config(segment_id)
-        .extension_services(rpc::InstanceDpuExtensionServicesConfig {
-            service_configs: vec![rpc::InstanceDpuExtensionServiceConfig {
+        .extension_services(forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![forge::InstanceDpuExtensionServiceConfig {
                 service_id: service_id.clone(),
                 version: version1.clone(),
             }],
@@ -2094,8 +2105,8 @@ async fn test_find_instances_by_extension_service(
     let (instance2, _) = mh2
         .instance_builer(&env)
         .single_interface_network_config(segment_id)
-        .extension_services(rpc::InstanceDpuExtensionServicesConfig {
-            service_configs: vec![rpc::InstanceDpuExtensionServiceConfig {
+        .extension_services(forge::InstanceDpuExtensionServicesConfig {
+            service_configs: vec![forge::InstanceDpuExtensionServiceConfig {
                 service_id: service_id.clone(),
                 version: version2.clone(),
             }],
@@ -2107,7 +2118,7 @@ async fn test_find_instances_by_extension_service(
     let find_resp = env
         .api
         .find_instances_by_dpu_extension_service(Request::new(
-            rpc::FindInstancesByDpuExtensionServiceRequest {
+            forge::FindInstancesByDpuExtensionServiceRequest {
                 service_id: service_id.clone(),
                 version: None,
             },
@@ -2143,7 +2154,7 @@ async fn test_find_instances_by_extension_service(
     let find_resp = env
         .api
         .find_instances_by_dpu_extension_service(Request::new(
-            rpc::FindInstancesByDpuExtensionServiceRequest {
+            forge::FindInstancesByDpuExtensionServiceRequest {
                 service_id: service_id.clone(),
                 version: Some(version1.clone()),
             },
@@ -2160,7 +2171,7 @@ async fn test_find_instances_by_extension_service(
     let find_resp = env
         .api
         .find_instances_by_dpu_extension_service(Request::new(
-            rpc::FindInstancesByDpuExtensionServiceRequest {
+            forge::FindInstancesByDpuExtensionServiceRequest {
                 service_id: service_id.clone(),
                 version: Some(version2.clone()),
             },
@@ -2177,7 +2188,7 @@ async fn test_find_instances_by_extension_service(
     let find_resp = env
         .api
         .find_instances_by_dpu_extension_service(Request::new(
-            rpc::FindInstancesByDpuExtensionServiceRequest {
+            forge::FindInstancesByDpuExtensionServiceRequest {
                 service_id: service_id.clone(),
                 version: Some(ConfigVersion::new(999).to_string()),
             },
@@ -2190,7 +2201,7 @@ async fn test_find_instances_by_extension_service(
     let find_resp = env
         .api
         .find_instances_by_dpu_extension_service(Request::new(
-            rpc::FindInstancesByDpuExtensionServiceRequest {
+            forge::FindInstancesByDpuExtensionServiceRequest {
                 service_id: Uuid::new_v4().to_string(),
                 version: None,
             },
@@ -2223,12 +2234,12 @@ async fn test_find_instances_by_extension_service_multiple_services_per_instance
 
     let service2 = env
         .api
-        .create_dpu_extension_service(Request::new(rpc::CreateDpuExtensionServiceRequest {
+        .create_dpu_extension_service(Request::new(forge::CreateDpuExtensionServiceRequest {
             service_id: None,
             service_name: "test-service-2".to_string(),
             description: Some("Second test service".to_string()),
             tenant_organization_id: "best_org".to_string(),
-            service_type: rpc::DpuExtensionServiceType::KubernetesPod.into(),
+            service_type: forge::DpuExtensionServiceType::KubernetesPod.into(),
             data: TEST_SERVICE_DATA_VERSION_2.to_string(),
             credential: None,
             observability: None,
@@ -2247,13 +2258,13 @@ async fn test_find_instances_by_extension_service_multiple_services_per_instance
     let (instance, _) = mh
         .instance_builer(&env)
         .single_interface_network_config(segment_id)
-        .extension_services(rpc::InstanceDpuExtensionServicesConfig {
+        .extension_services(forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![
-                rpc::InstanceDpuExtensionServiceConfig {
+                forge::InstanceDpuExtensionServiceConfig {
                     service_id: service1_id.clone(),
                     version: service1_version.clone(),
                 },
-                rpc::InstanceDpuExtensionServiceConfig {
+                forge::InstanceDpuExtensionServiceConfig {
                     service_id: service2_id.clone(),
                     version: service2_version.clone(),
                 },
@@ -2266,7 +2277,7 @@ async fn test_find_instances_by_extension_service_multiple_services_per_instance
     let find_resp = env
         .api
         .find_instances_by_dpu_extension_service(Request::new(
-            rpc::FindInstancesByDpuExtensionServiceRequest {
+            forge::FindInstancesByDpuExtensionServiceRequest {
                 service_id: service1_id.clone(),
                 version: None,
             },
@@ -2283,7 +2294,7 @@ async fn test_find_instances_by_extension_service_multiple_services_per_instance
     let find_resp = env
         .api
         .find_instances_by_dpu_extension_service(Request::new(
-            rpc::FindInstancesByDpuExtensionServiceRequest {
+            forge::FindInstancesByDpuExtensionServiceRequest {
                 service_id: service2_id.clone(),
                 version: None,
             },

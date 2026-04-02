@@ -17,12 +17,16 @@
 
 //! State Controller IO implementation for Infiniband Partitions
 
-use carbide_uuid::infiniband::IBPartitionId;
 use config_version::{ConfigVersion, Versioned};
-use db::{self, DatabaseError, ObjectColumnFilter};
-use model::StateSla;
-use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::ib_partition::{self, IBPartition, IBPartitionControllerState};
+use nico_api_db::{
+    DatabaseError, ObjectColumnFilter, {self},
+};
+use nico_api_model::StateSla;
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::ib_partition::{
+    IBPartition, IBPartitionControllerState, {self},
+};
+use nico_uuid::infiniband::IBPartitionId;
 use sqlx::PgConnection;
 
 use crate::state_controller::ib_partition::context::IBPartitionStateHandlerContextObjects;
@@ -50,7 +54,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        db::ib_partition::list_segment_ids(txn).await
+        nico_api_db::ib_partition::list_segment_ids(txn).await
     }
 
     /// Loads a state snapshot from the database
@@ -59,9 +63,9 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         txn: &mut PgConnection,
         partition_id: &Self::ObjectId,
     ) -> Result<Option<Self::State>, DatabaseError> {
-        let mut partitions = db::ib_partition::find_by(
+        let mut partitions = nico_api_db::ib_partition::find_by(
             txn,
-            ObjectColumnFilter::One(db::ib_partition::IdColumn, partition_id),
+            ObjectColumnFilter::One(nico_api_db::ib_partition::IdColumn, partition_id),
         )
         .await?;
         if partitions.is_empty() {
@@ -99,7 +103,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         new_version: ConfigVersion,
         new_state: &Self::ControllerState,
     ) -> Result<bool, DatabaseError> {
-        db::ib_partition::try_update_controller_state(
+        nico_api_db::ib_partition::try_update_controller_state(
             txn,
             *object_id,
             old_version,
@@ -134,7 +138,7 @@ impl StateControllerIO for IBPartitionStateControllerIO {
         object_id: &Self::ObjectId,
         outcome: PersistentStateHandlerOutcome,
     ) -> Result<(), DatabaseError> {
-        db::ib_partition::update_controller_state_outcome(txn, *object_id, outcome).await
+        nico_api_db::ib_partition::update_controller_state_outcome(txn, *object_id, outcome).await
     }
 
     fn metric_state_names(state: &IBPartitionControllerState) -> (&'static str, &'static str) {

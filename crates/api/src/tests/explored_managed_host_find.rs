@@ -17,10 +17,10 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
+use forge::forge_server::Forge;
 use mac_address::MacAddress;
-use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
-use rpc::forge_server::Forge;
+use nico_api_model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
+use nico_rpc::forge;
 
 use crate::tests::common::api_fixtures::create_test_env;
 
@@ -45,13 +45,14 @@ async fn test_find_explored_managed_host_ids(
             }],
         });
     }
-    db::explored_managed_host::update(&mut txn, &managed_hosts.iter().collect::<Vec<_>>()).await?;
+    nico_api_db::explored_managed_host::update(&mut txn, &managed_hosts.iter().collect::<Vec<_>>())
+        .await?;
     txn.commit().await?;
 
     let id_list = env
         .api
         .find_explored_managed_host_ids(tonic::Request::new(
-            ::rpc::site_explorer::ExploredManagedHostSearchFilter {},
+            nico_rpc::site_explorer::ExploredManagedHostSearchFilter {},
         ))
         .await
         .map(|response| response.into_inner())
@@ -82,20 +83,21 @@ async fn test_find_explored_managed_hosts_by_ids(
             }],
         });
     }
-    db::explored_managed_host::update(&mut txn, &managed_hosts.iter().collect::<Vec<_>>()).await?;
+    nico_api_db::explored_managed_host::update(&mut txn, &managed_hosts.iter().collect::<Vec<_>>())
+        .await?;
     txn.commit().await?;
 
     let id_list = env
         .api
         .find_explored_managed_host_ids(tonic::Request::new(
-            ::rpc::site_explorer::ExploredManagedHostSearchFilter {},
+            nico_rpc::site_explorer::ExploredManagedHostSearchFilter {},
         ))
         .await
         .map(|response| response.into_inner())
         .unwrap();
     assert_eq!(id_list.host_ids.len(), 5);
 
-    let request = tonic::Request::new(::rpc::site_explorer::ExploredManagedHostsByIdsRequest {
+    let request = tonic::Request::new(nico_rpc::site_explorer::ExploredManagedHostsByIdsRequest {
         host_ids: id_list.host_ids.clone(),
     });
 
@@ -128,7 +130,7 @@ async fn test_find_explored_managed_hosts_by_ids_over_max(pool: sqlx::PgPool) {
     let host_ids: Vec<String> = (1..=end_index).map(|i| format!("141.219.24.{i}")).collect();
 
     let request =
-        tonic::Request::new(::rpc::site_explorer::ExploredManagedHostsByIdsRequest { host_ids });
+        tonic::Request::new(nico_rpc::site_explorer::ExploredManagedHostsByIdsRequest { host_ids });
 
     let response = env.api.find_explored_managed_hosts_by_ids(request).await;
     // validate
@@ -150,7 +152,7 @@ async fn test_find_explored_managed_hosts_by_ids_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
     let request =
-        tonic::Request::new(::rpc::site_explorer::ExploredManagedHostsByIdsRequest::default());
+        tonic::Request::new(nico_rpc::site_explorer::ExploredManagedHostsByIdsRequest::default());
 
     let response = env.api.find_explored_managed_hosts_by_ids(request).await;
     // validate

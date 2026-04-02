@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
-use rpc::Machine;
+use nico_rpc::Machine;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_uuid::machine::MachineId;
 
 use super::args::{
     Args, MachineMetadataCommandAddLabel, MachineMetadataCommandFromExpectedMachine,

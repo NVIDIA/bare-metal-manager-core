@@ -14,12 +14,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use db::managed_host::load_snapshot;
-use db::{self};
-use model::machine::LoadSnapshotOptions;
-use model::power_manager::PowerState;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{
+use nico_api_db::managed_host::load_snapshot;
+use nico_api_db::{self};
+use nico_api_model::machine::LoadSnapshotOptions;
+use nico_api_model::power_manager::PowerState;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{
     MaintenanceOperation, MaintenanceRequest, PowerOptionRequest, PowerOptionUpdateRequest,
 };
 
@@ -36,12 +37,12 @@ async fn test_power_manager_create_entry_on_host_creation(
         create_test_env_with_overrides(pool, TestEnvOverrides::default().enable_power_manager())
             .await;
     let mut txn = env.pool.begin().await?;
-    let power_entry = db::power_options::get_all(&mut txn).await?;
+    let power_entry = nico_api_db::power_options::get_all(&mut txn).await?;
     assert!(power_entry.is_empty());
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;
-    let power_entry = db::power_options::get_all(&mut txn).await?;
+    let power_entry = nico_api_db::power_options::get_all(&mut txn).await?;
 
     assert_eq!(power_entry.len(), 1);
     assert_eq!(power_entry[0].host_id, host_machine_id);
@@ -59,12 +60,12 @@ async fn test_power_manager_create_entry_on_host_creation(
     env.api
         .update_power_option(tonic::Request::new(PowerOptionUpdateRequest {
             machine_id: Some(host_machine_id),
-            power_state: rpc::forge::PowerState::Off as i32,
+            power_state: forge::PowerState::Off as i32,
         }))
         .await?;
 
     let mut txn = env.pool.begin().await?;
-    let power_entry = db::power_options::get_all(&mut txn).await?;
+    let power_entry = nico_api_db::power_options::get_all(&mut txn).await?;
 
     assert_eq!(power_entry.len(), 1);
     assert_eq!(power_entry[0].desired_power_state, PowerState::Off);
@@ -81,12 +82,12 @@ async fn test_power_manager_update_fail_since_no_maintenance_set(
         create_test_env_with_overrides(pool, TestEnvOverrides::default().enable_power_manager())
             .await;
     let mut txn = env.pool.begin().await?;
-    let power_entry = db::power_options::get_all(&mut txn).await?;
+    let power_entry = nico_api_db::power_options::get_all(&mut txn).await?;
     assert!(power_entry.is_empty());
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;
-    let power_entry = db::power_options::get_all(&mut txn).await?;
+    let power_entry = nico_api_db::power_options::get_all(&mut txn).await?;
 
     assert_eq!(power_entry.len(), 1);
     assert_eq!(power_entry[0].host_id, host_machine_id);
@@ -97,7 +98,7 @@ async fn test_power_manager_update_fail_since_no_maintenance_set(
         .api
         .update_power_option(tonic::Request::new(PowerOptionUpdateRequest {
             machine_id: Some(host_machine_id),
-            power_state: rpc::forge::PowerState::Off as i32,
+            power_state: forge::PowerState::Off as i32,
         }))
         .await;
 
@@ -113,7 +114,7 @@ async fn test_power_manager_update_fail_since_no_maintenance_set(
 }
 
 pub async fn update_next_try_now(
-    host_id: &::carbide_uuid::machine::MachineId,
+    host_id: &::nico_uuid::machine::MachineId,
     txn: &mut sqlx::PgConnection,
 ) {
     let query = "UPDATE power_options SET 
@@ -133,7 +134,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off(
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;
-    let power_entry = db::power_options::get_all(&mut txn).await?;
+    let power_entry = nico_api_db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::On);
     let mh_snapshot = load_snapshot(
@@ -167,7 +168,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off(
     // Since delay is set to 0 for test, db must be updated immediately.
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await?;
-    let power_entry = db::power_options::get_all(&mut txn).await?;
+    let power_entry = nico_api_db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::Off);
     txn.rollback().await?;
@@ -175,7 +176,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off(
     // Wait for one cycle.
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await?;
-    let power_entry = db::power_options::get_all(&mut txn).await?;
+    let power_entry = nico_api_db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::Off);
     txn.rollback().await?;
@@ -183,7 +184,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off(
     // State machine should power on the host.
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await?;
-    let power_entry = db::power_options::get_all(&mut txn).await?;
+    let power_entry = nico_api_db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::Off);
     txn.rollback().await?;
@@ -201,7 +202,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off_counter(
     let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
 
     let mut txn = env.pool.begin().await?;
-    let power_entry = db::power_options::get_all(&mut txn).await?;
+    let power_entry = nico_api_db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::On);
     let mh_snapshot = load_snapshot(
@@ -235,7 +236,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off_counter(
     // Since delay is set to 0 for test, db must be updated immediately.
     env.run_machine_state_controller_iteration().await;
     let mut txn = env.pool.begin().await?;
-    let power_entry = db::power_options::get_all(&mut txn).await?;
+    let power_entry = nico_api_db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::Off);
     txn.rollback().await?;
@@ -246,7 +247,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off_counter(
 
         env.run_machine_state_controller_iteration().await;
         let mut txn = env.pool.begin().await?;
-        let power_entry = db::power_options::get_all(&mut txn).await?;
+        let power_entry = nico_api_db::power_options::get_all(&mut txn).await?;
         assert_eq!(power_entry[0].desired_power_state, PowerState::On);
         assert_eq!(power_entry[0].last_fetched_power_state, PowerState::Off);
         txn.rollback().await?;

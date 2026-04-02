@@ -21,18 +21,18 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use byte_unit::UnitType;
-use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use itertools::Itertools;
-use rpc::common::MachineIdList;
-// use rpc::forge::forge_server::Forge;
-use rpc::forge::{
+use nico_rpc::common::MachineIdList;
+// use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{
     BmcInfo, ConnectedDevice, GetSiteExplorationRequest, MachineType, ManagedHostQuarantineState,
     NetworkDevice, NetworkDeviceIdList,
 };
-use rpc::machine_discovery::MemoryDevice;
-use rpc::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
-use rpc::{DmiData, DynForge, Machine, Timestamp};
+use nico_rpc::machine_discovery::MemoryDevice;
+use nico_rpc::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
+use nico_rpc::{DmiData, DynForge, Machine, Timestamp};
+use nico_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -136,7 +136,7 @@ pub struct ManagedHostOutput {
     pub maintenance_start_time: Option<String>,
     pub host_last_reboot_time: Option<String>,
     pub host_last_reboot_requested_time_and_mode: Option<String>,
-    pub health: health_report::HealthReport,
+    pub health: nico_health_report::HealthReport,
     pub health_overrides: Vec<String>,
     pub dpus: Vec<ManagedHostAttachedDpu>,
     pub exploration_report: Option<EndpointExplorationReport>,
@@ -181,10 +181,10 @@ impl From<Machine> for ManagedHostOutput {
         let health = machine
             .health
             .map(|h| {
-                health_report::HealthReport::try_from(h)
-                    .unwrap_or_else(health_report::HealthReport::malformed_report)
+                nico_health_report::HealthReport::try_from(h)
+                    .unwrap_or_else(nico_health_report::HealthReport::malformed_report)
             })
-            .unwrap_or_else(health_report::HealthReport::missing_report);
+            .unwrap_or_else(nico_health_report::HealthReport::missing_report);
         let health_overrides = machine
             .health_overrides
             .into_iter()
@@ -270,7 +270,7 @@ pub struct ManagedHostAttachedDpu {
     pub last_observation_time: Option<String>,
     pub switch_connections: Vec<DpuSwitchConnection>,
     pub is_primary: bool,
-    pub health: health_report::HealthReport,
+    pub health: nico_health_report::HealthReport,
     pub exploration_report: Option<EndpointExplorationReport>,
     pub failure_details: Option<String>,
 }
@@ -355,10 +355,10 @@ impl ManagedHostAttachedDpu {
             health: dpu_machine
                 .health
                 .map(|h| {
-                    health_report::HealthReport::try_from(h)
-                        .unwrap_or_else(health_report::HealthReport::malformed_report)
+                    nico_health_report::HealthReport::try_from(h)
+                        .unwrap_or_else(nico_health_report::HealthReport::malformed_report)
                 })
-                .unwrap_or_else(health_report::HealthReport::missing_report),
+                .unwrap_or_else(nico_health_report::HealthReport::missing_report),
             failure_details: dpu_machine.failure_details,
         }
     }
@@ -525,7 +525,7 @@ pub fn get_memory_details(memory_devices: &Vec<MemoryDevice>) -> Option<String> 
     }
 }
 
-// Prepare an Option<rpc::Timestamp> for display:
+// Prepare an Option<forge::Timestamp> for display:
 // - Parse the timestamp into a chrono::Time and format as string.
 // - Or return empty string
 // machine_id is only for logging a more useful error.

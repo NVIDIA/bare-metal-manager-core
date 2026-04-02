@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge::{MachineHardwareInfoUpdateType, UpdateMachineHardwareInfoRequest};
+use nico_rpc::forge::{MachineHardwareInfoUpdateType, UpdateMachineHardwareInfoRequest};
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -49,7 +49,7 @@ pub(crate) async fn handle_machine_hardware_info_update(
     let mut txn = api.txn_begin().await?;
 
     let machine_topology =
-        db::machine_topology::find_latest_by_machine_ids(&mut txn, &[machine_id]).await?;
+        nico_api_db::machine_topology::find_latest_by_machine_ids(&mut txn, &[machine_id]).await?;
 
     let machine_topology =
         machine_topology
@@ -62,10 +62,10 @@ pub(crate) async fn handle_machine_hardware_info_update(
     let mut new_hardware_info = machine_topology.topology().discovery_data.info.clone();
     match update_type {
         MachineHardwareInfoUpdateType::Gpus => {
-            let gpus: Vec<model::hardware_info::Gpu> = request_hardware_info
+            let gpus: Vec<nico_api_model::hardware_info::Gpu> = request_hardware_info
                 .gpus
                 .into_iter()
-                .map(model::hardware_info::Gpu::try_from)
+                .map(nico_api_model::hardware_info::Gpu::try_from)
                 .collect::<Result<Vec<_>, _>>()?;
             if gpus.is_empty() {
                 new_hardware_info.gpus.clear();
@@ -75,12 +75,13 @@ pub(crate) async fn handle_machine_hardware_info_update(
         }
     }
 
-    // This is kinda messy, but it's this or make db::machine_topology::update public.
-    db::machine_topology::set_topology_update_needed(&mut txn, &machine_id, true).await?;
-    db::machine_topology::create_or_update(&mut txn, &machine_id, &new_hardware_info).await?;
+    // This is kinda messy, but it's this or make nico_api_db::machine_topology::update public.
+    nico_api_db::machine_topology::set_topology_update_needed(&mut txn, &machine_id, true).await?;
+    nico_api_db::machine_topology::create_or_update(&mut txn, &machine_id, &new_hardware_info)
+        .await?;
 
     // Set this so the next machine discovery overwrites the data?
-    db::machine_topology::set_topology_update_needed(&mut txn, &machine_id, true).await?;
+    nico_api_db::machine_topology::set_topology_update_needed(&mut txn, &machine_id, true).await?;
 
     txn.commit().await?;
     Ok(Response::new(()))

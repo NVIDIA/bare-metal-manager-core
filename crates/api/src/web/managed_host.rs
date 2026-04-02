@@ -22,13 +22,15 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use db::managed_host;
 use hyper::http::StatusCode;
 use itertools::Itertools;
-use model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
-use model::{self, machine};
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{self as forgerpc};
+use nico_api_db::managed_host;
+use nico_api_model::machine::{LoadSnapshotOptions, Machine, ManagedHostStateSnapshot};
+use nico_api_model::{
+    machine, {self},
+};
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 use utils::managed_host_display::get_memory_details;
 use utils::{ManagedHostMetadata, reason_to_user_string};
 
@@ -80,7 +82,7 @@ pub struct ManagedHostRowDisplay {
     pub time_in_state: String,
     pub time_in_state_above_sla: bool,
     pub state_reason: String,
-    pub health_probe_alerts: Vec<health_report::HealthProbeAlert>,
+    pub health_probe_alerts: Vec<nico_health_report::HealthProbeAlert>,
     pub health_overrides: Vec<String>,
     pub host_admin_ip: String,
     pub host_admin_mac: String,
@@ -204,7 +206,7 @@ impl From<ManagedHostStateSnapshot> for ManagedHostRowDisplay {
     }
 }
 
-impl From<model::machine::Machine> for AttachedDpuRowDisplay {
+impl From<nico_api_model::machine::Machine> for AttachedDpuRowDisplay {
     fn from(item: Machine) -> Self {
         let bmc_ip = item.bmc_info.ip.unwrap_or_default();
         let bmc_mac = item.bmc_info.mac.map(|m| m.to_string()).unwrap_or_default();
@@ -650,7 +652,7 @@ async fn fetch_managed_hosts_with_metadata(
     include_history: bool,
 ) -> eyre::Result<Vec<utils::ManagedHostOutput>> {
     let machine_ids = api
-        .find_machine_ids(tonic::Request::new(forgerpc::MachineSearchConfig {
+        .find_machine_ids(tonic::Request::new(forge::MachineSearchConfig {
             include_dpus: true,
             include_predicted_host: true,
             ..Default::default()
@@ -665,7 +667,7 @@ async fn fetch_managed_hosts_with_metadata(
         const PAGE_SIZE: usize = 100;
         let page_size = PAGE_SIZE.min(machine_ids.len() - offset);
         let next_ids = &machine_ids[offset..offset + page_size];
-        let request = tonic::Request::new(forgerpc::MachinesByIdsRequest {
+        let request = tonic::Request::new(forge::MachinesByIdsRequest {
             machine_ids: next_ids.to_vec(),
             include_history,
         });

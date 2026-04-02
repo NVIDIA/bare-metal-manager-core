@@ -19,13 +19,13 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use async_trait::async_trait;
-use carbide_uuid::machine::MachineId;
-use model::machine::ManagedHostStateSnapshot;
-use model::machine_update_module::{
+use nico_api_model::machine::ManagedHostStateSnapshot;
+use nico_api_model::machine_update_module::{
     AutomaticFirmwareUpdateReference, DPU_FIRMWARE_UPDATE_TARGET, DpuReprovisionInitiator,
     HOST_FW_UPDATE_HEALTH_REPORT_SOURCE, HOST_UPDATE_HEALTH_PROBE_ID,
     HOST_UPDATE_HEALTH_REPORT_SOURCE,
 };
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
 use crate::CarbideResult;
@@ -65,19 +65,19 @@ pub fn create_host_update_health_report(
     target: Option<String>,
     message: String,
     for_host_fw: bool,
-) -> health_report::HealthReport {
+) -> nico_health_report::HealthReport {
     let source = match for_host_fw {
         false => HOST_UPDATE_HEALTH_REPORT_SOURCE,
         true => HOST_FW_UPDATE_HEALTH_REPORT_SOURCE,
     }
     .to_string();
 
-    health_report::HealthReport {
+    nico_health_report::HealthReport {
         source,
         triggered_by: None,
         observed_at: Some(chrono::Utc::now()),
         successes: vec![],
-        alerts: vec![health_report::HealthProbeAlert {
+        alerts: vec![nico_health_report::HealthProbeAlert {
             id: HOST_UPDATE_HEALTH_PROBE_ID.clone(),
             target,
             in_alert_since: Some(chrono::Utc::now()),
@@ -88,14 +88,14 @@ pub fn create_host_update_health_report(
             // If the Machine becomes unhealthy during updates (which might happen
             // e.g. due to powering the host down and up), no pages should be triggered
             classifications: vec![
-                health_report::HealthAlertClassification::prevent_allocations(),
-                health_report::HealthAlertClassification::suppress_external_alerting(),
+                nico_health_report::HealthAlertClassification::prevent_allocations(),
+                nico_health_report::HealthAlertClassification::suppress_external_alerting(),
             ],
         }],
     }
 }
 
-pub fn create_host_update_health_report_hostfw() -> health_report::HealthReport {
+pub fn create_host_update_health_report_hostfw() -> nico_health_report::HealthReport {
     create_host_update_health_report(
         Some("HostFirmware".to_string()),
         "Host firmware update".to_string(),
@@ -103,7 +103,7 @@ pub fn create_host_update_health_report_hostfw() -> health_report::HealthReport 
     )
 }
 
-pub fn create_host_update_health_report_dpufw() -> health_report::HealthReport {
+pub fn create_host_update_health_report_dpufw() -> nico_health_report::HealthReport {
     let initiator_host = DpuReprovisionInitiator::Automatic(AutomaticFirmwareUpdateReference {
         // In case of multidpu, DPUs can have different versions.
         from: "".to_string(),

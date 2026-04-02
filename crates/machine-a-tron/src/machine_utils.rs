@@ -17,12 +17,13 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use lazy_static::lazy_static;
+use nico_rpc::forge;
+use nico_rpc::forge::{ForgeAgentControlResponse, MachineArchitecture};
+use nico_rpc::forge_agent_control_response::Action;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
 use rcgen::{CertifiedKey, generate_simple_self_signed};
 use reqwest::{ClientBuilder, StatusCode};
-use rpc::forge::{ForgeAgentControlResponse, MachineArchitecture};
-use rpc::forge_agent_control_response::Action;
 use tempfile::TempDir;
 use uuid::Uuid;
 
@@ -80,15 +81,15 @@ pub async fn forge_agent_control(
 
 pub fn get_fac_action(
     response: &ForgeAgentControlResponse,
-) -> rpc::forge::forge_agent_control_response::Action {
-    rpc::forge::forge_agent_control_response::Action::try_from(response.action).unwrap()
+) -> forge::forge_agent_control_response::Action {
+    forge::forge_agent_control_response::Action::try_from(response.action).unwrap()
 }
 
-pub fn get_validation_id(response: &ForgeAgentControlResponse) -> Option<rpc::common::Uuid> {
+pub fn get_validation_id(response: &ForgeAgentControlResponse) -> Option<nico_rpc::common::Uuid> {
     response.data.as_ref().and_then(|d| {
         d.pair.iter().find_map(|pair| {
             if pair.key.eq("ValidationId") {
-                Some(rpc::common::Uuid {
+                Some(nico_rpc::common::Uuid {
                     value: pair.value.clone(),
                 })
             } else {

@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersion;
-use model::power_manager::{PowerOptions, PowerState};
+use nico_api_model::power_manager::{PowerOptions, PowerState};
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
 use crate::DatabaseError;

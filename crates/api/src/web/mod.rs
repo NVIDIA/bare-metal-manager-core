@@ -32,6 +32,8 @@ use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
 use http::header::CONTENT_TYPE;
 use http::{HeaderMap, Request, StatusCode, Uri};
 use itertools::Itertools;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 use oauth2::basic::{
     BasicClient, BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
     BasicTokenResponse,
@@ -40,8 +42,6 @@ use oauth2::{
     AuthUrl, Client, ClientId, ClientSecret, CsrfToken, EndpointNotSet, EndpointSet,
     PkceCodeChallenge, RedirectUrl, Scope, StandardRevocableToken, TokenUrl,
 };
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{self as forgerpc};
 use tonic::service::AxumBody;
 use tower_http::normalize_path::NormalizePath;
 
@@ -55,7 +55,7 @@ use crate::cfg::file::CarbideConfig;
 #[derive(Template)]
 #[template(path = "metadata_details.html")]
 pub(crate) struct MetadataDetail {
-    pub metadata: rpc::forge::Metadata,
+    pub metadata: forge::Metadata,
     pub metadata_version: String,
 }
 
@@ -706,8 +706,8 @@ struct Index {
 }
 
 pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
-    let request = tonic::Request::new(forgerpc::DpuAgentUpgradePolicyRequest { new_policy: None });
-    use forgerpc::AgentUpgradePolicy::*;
+    let request = tonic::Request::new(forge::DpuAgentUpgradePolicyRequest { new_policy: None });
+    use forge::AgentUpgradePolicy::*;
     let agent_upgrade_policy = match state
         .dpu_agent_upgrade_policy_action(request)
         .await
@@ -739,7 +739,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         .unwrap_or("<None>".to_string());
 
     let index = Index {
-        version: carbide_version::v!(build_version),
+        version: nico_version::v!(build_version),
         log_filter: state.log_filter_string(),
         agent_upgrade_policy,
         create_machines,

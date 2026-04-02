@@ -18,8 +18,8 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use ::rpc::forge as rpc;
-use carbide_uuid::machine::MachineId;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use super::infiniband::MachineInfinibandStatusObservation;
@@ -63,35 +63,37 @@ impl fmt::Display for MachineCapabilityType {
     }
 }
 
-impl From<MachineCapabilityType> for rpc::MachineCapabilityType {
+impl From<MachineCapabilityType> for forge::MachineCapabilityType {
     fn from(t: MachineCapabilityType) -> Self {
         match t {
-            MachineCapabilityType::Cpu => rpc::MachineCapabilityType::CapTypeCpu,
-            MachineCapabilityType::Gpu => rpc::MachineCapabilityType::CapTypeGpu,
-            MachineCapabilityType::Memory => rpc::MachineCapabilityType::CapTypeMemory,
-            MachineCapabilityType::Storage => rpc::MachineCapabilityType::CapTypeStorage,
-            MachineCapabilityType::Network => rpc::MachineCapabilityType::CapTypeNetwork,
-            MachineCapabilityType::Infiniband => rpc::MachineCapabilityType::CapTypeInfiniband,
-            MachineCapabilityType::Dpu => rpc::MachineCapabilityType::CapTypeDpu,
+            MachineCapabilityType::Cpu => forge::MachineCapabilityType::CapTypeCpu,
+            MachineCapabilityType::Gpu => forge::MachineCapabilityType::CapTypeGpu,
+            MachineCapabilityType::Memory => forge::MachineCapabilityType::CapTypeMemory,
+            MachineCapabilityType::Storage => forge::MachineCapabilityType::CapTypeStorage,
+            MachineCapabilityType::Network => forge::MachineCapabilityType::CapTypeNetwork,
+            MachineCapabilityType::Infiniband => forge::MachineCapabilityType::CapTypeInfiniband,
+            MachineCapabilityType::Dpu => forge::MachineCapabilityType::CapTypeDpu,
         }
     }
 }
 
-impl TryFrom<rpc::MachineCapabilityType> for MachineCapabilityType {
+impl TryFrom<forge::MachineCapabilityType> for MachineCapabilityType {
     type Error = RpcDataConversionError;
 
-    fn try_from(t: rpc::MachineCapabilityType) -> Result<Self, Self::Error> {
+    fn try_from(t: forge::MachineCapabilityType) -> Result<Self, Self::Error> {
         match t {
-            rpc::MachineCapabilityType::CapTypeInvalid => Err(
+            forge::MachineCapabilityType::CapTypeInvalid => Err(
                 RpcDataConversionError::InvalidArgument(t.as_str_name().to_string()),
             ),
-            rpc::MachineCapabilityType::CapTypeCpu => Ok(MachineCapabilityType::Cpu),
-            rpc::MachineCapabilityType::CapTypeGpu => Ok(MachineCapabilityType::Gpu),
-            rpc::MachineCapabilityType::CapTypeMemory => Ok(MachineCapabilityType::Memory),
-            rpc::MachineCapabilityType::CapTypeStorage => Ok(MachineCapabilityType::Storage),
-            rpc::MachineCapabilityType::CapTypeNetwork => Ok(MachineCapabilityType::Network),
-            rpc::MachineCapabilityType::CapTypeInfiniband => Ok(MachineCapabilityType::Infiniband),
-            rpc::MachineCapabilityType::CapTypeDpu => Ok(MachineCapabilityType::Dpu),
+            forge::MachineCapabilityType::CapTypeCpu => Ok(MachineCapabilityType::Cpu),
+            forge::MachineCapabilityType::CapTypeGpu => Ok(MachineCapabilityType::Gpu),
+            forge::MachineCapabilityType::CapTypeMemory => Ok(MachineCapabilityType::Memory),
+            forge::MachineCapabilityType::CapTypeStorage => Ok(MachineCapabilityType::Storage),
+            forge::MachineCapabilityType::CapTypeNetwork => Ok(MachineCapabilityType::Network),
+            forge::MachineCapabilityType::CapTypeInfiniband => {
+                Ok(MachineCapabilityType::Infiniband)
+            }
+            forge::MachineCapabilityType::CapTypeDpu => Ok(MachineCapabilityType::Dpu),
         }
     }
 }
@@ -126,9 +128,9 @@ impl From<&CpuInfo> for MachineCapabilityCpu {
     }
 }
 
-impl From<MachineCapabilityCpu> for rpc::MachineCapabilityAttributesCpu {
+impl From<MachineCapabilityCpu> for forge::MachineCapabilityAttributesCpu {
     fn from(cap: MachineCapabilityCpu) -> Self {
-        rpc::MachineCapabilityAttributesCpu {
+        forge::MachineCapabilityAttributesCpu {
             name: cap.name,
             count: cap.count,
             vendor: cap.vendor,
@@ -154,9 +156,9 @@ pub struct MachineCapabilityGpu {
     pub device_type: Option<MachineCapabilityDeviceType>,
 }
 
-impl From<MachineCapabilityGpu> for rpc::MachineCapabilityAttributesGpu {
+impl From<MachineCapabilityGpu> for forge::MachineCapabilityAttributesGpu {
     fn from(cap: MachineCapabilityGpu) -> Self {
-        rpc::MachineCapabilityAttributesGpu {
+        forge::MachineCapabilityAttributesGpu {
             name: cap.name,
             frequency: cap.frequency,
             vendor: cap.vendor,
@@ -166,7 +168,7 @@ impl From<MachineCapabilityGpu> for rpc::MachineCapabilityAttributesGpu {
             threads: cap.threads,
             device_type: cap
                 .device_type
-                .map(|dt| rpc::MachineCapabilityDeviceType::from(dt).into()),
+                .map(|dt| forge::MachineCapabilityDeviceType::from(dt).into()),
         }
     }
 }
@@ -183,9 +185,9 @@ pub struct MachineCapabilityMemory {
     pub capacity: Option<String>,
 }
 
-impl From<MachineCapabilityMemory> for rpc::MachineCapabilityAttributesMemory {
+impl From<MachineCapabilityMemory> for forge::MachineCapabilityAttributesMemory {
     fn from(cap: MachineCapabilityMemory) -> Self {
-        rpc::MachineCapabilityAttributesMemory {
+        forge::MachineCapabilityAttributesMemory {
             name: cap.name,
             count: cap.count,
             vendor: cap.vendor,
@@ -206,9 +208,9 @@ pub struct MachineCapabilityStorage {
     pub capacity: Option<String>,
 }
 
-impl From<MachineCapabilityStorage> for rpc::MachineCapabilityAttributesStorage {
+impl From<MachineCapabilityStorage> for forge::MachineCapabilityAttributesStorage {
     fn from(cap: MachineCapabilityStorage) -> Self {
-        rpc::MachineCapabilityAttributesStorage {
+        forge::MachineCapabilityAttributesStorage {
             name: cap.name,
             count: cap.count,
             vendor: cap.vendor,
@@ -229,15 +231,15 @@ pub struct MachineCapabilityNetwork {
     pub device_type: Option<MachineCapabilityDeviceType>,
 }
 
-impl From<MachineCapabilityNetwork> for rpc::MachineCapabilityAttributesNetwork {
+impl From<MachineCapabilityNetwork> for forge::MachineCapabilityAttributesNetwork {
     fn from(cap: MachineCapabilityNetwork) -> Self {
-        rpc::MachineCapabilityAttributesNetwork {
+        forge::MachineCapabilityAttributesNetwork {
             name: cap.name,
             count: cap.count,
             vendor: cap.vendor,
             device_type: cap
                 .device_type
-                .map(|dt| rpc::MachineCapabilityDeviceType::from(dt).into()),
+                .map(|dt| forge::MachineCapabilityDeviceType::from(dt).into()),
         }
     }
 }
@@ -261,9 +263,9 @@ pub struct MachineCapabilityInfiniband {
     pub inactive_devices: Vec<u32>,
 }
 
-impl From<MachineCapabilityInfiniband> for rpc::MachineCapabilityAttributesInfiniband {
+impl From<MachineCapabilityInfiniband> for forge::MachineCapabilityAttributesInfiniband {
     fn from(cap: MachineCapabilityInfiniband) -> Self {
-        rpc::MachineCapabilityAttributesInfiniband {
+        forge::MachineCapabilityAttributesInfiniband {
             name: cap.name,
             vendor: Some(cap.vendor),
             count: cap.count,
@@ -343,9 +345,9 @@ pub struct MachineCapabilityDpu {
     pub hardware_revision: Option<String>,
 }
 
-impl From<MachineCapabilityDpu> for rpc::MachineCapabilityAttributesDpu {
+impl From<MachineCapabilityDpu> for forge::MachineCapabilityAttributesDpu {
     fn from(cap: MachineCapabilityDpu) -> Self {
-        rpc::MachineCapabilityAttributesDpu {
+        forge::MachineCapabilityAttributesDpu {
             name: cap.name,
             count: cap.count,
             hardware_revision: cap.hardware_revision,
@@ -371,9 +373,9 @@ pub struct MachineCapabilitiesSet {
     pub dpu: Vec<MachineCapabilityDpu>,
 }
 
-impl From<MachineCapabilitiesSet> for rpc::MachineCapabilitiesSet {
+impl From<MachineCapabilitiesSet> for forge::MachineCapabilitiesSet {
     fn from(cap_set: MachineCapabilitiesSet) -> Self {
-        rpc::MachineCapabilitiesSet {
+        forge::MachineCapabilitiesSet {
             cpu: cap_set.cpu.into_iter().map(|cap| cap.into()).collect(),
             gpu: cap_set.gpu.into_iter().map(|cap| cap.into()).collect(),
             memory: cap_set.memory.into_iter().map(|cap| cap.into()).collect(),
@@ -411,24 +413,24 @@ impl fmt::Display for MachineCapabilityDeviceType {
     }
 }
 
-impl From<MachineCapabilityDeviceType> for rpc::MachineCapabilityDeviceType {
+impl From<MachineCapabilityDeviceType> for forge::MachineCapabilityDeviceType {
     fn from(t: MachineCapabilityDeviceType) -> Self {
         match t {
-            MachineCapabilityDeviceType::Unknown => rpc::MachineCapabilityDeviceType::Unknown,
-            MachineCapabilityDeviceType::Dpu => rpc::MachineCapabilityDeviceType::Dpu,
-            MachineCapabilityDeviceType::NvLink => rpc::MachineCapabilityDeviceType::Nvlink,
+            MachineCapabilityDeviceType::Unknown => forge::MachineCapabilityDeviceType::Unknown,
+            MachineCapabilityDeviceType::Dpu => forge::MachineCapabilityDeviceType::Dpu,
+            MachineCapabilityDeviceType::NvLink => forge::MachineCapabilityDeviceType::Nvlink,
         }
     }
 }
 
-impl TryFrom<rpc::MachineCapabilityDeviceType> for MachineCapabilityDeviceType {
+impl TryFrom<forge::MachineCapabilityDeviceType> for MachineCapabilityDeviceType {
     type Error = RpcDataConversionError;
 
-    fn try_from(t: rpc::MachineCapabilityDeviceType) -> Result<Self, Self::Error> {
+    fn try_from(t: forge::MachineCapabilityDeviceType) -> Result<Self, Self::Error> {
         match t {
-            rpc::MachineCapabilityDeviceType::Unknown => Ok(MachineCapabilityDeviceType::Unknown),
-            rpc::MachineCapabilityDeviceType::Dpu => Ok(MachineCapabilityDeviceType::Dpu),
-            rpc::MachineCapabilityDeviceType::Nvlink => Ok(MachineCapabilityDeviceType::NvLink),
+            forge::MachineCapabilityDeviceType::Unknown => Ok(MachineCapabilityDeviceType::Unknown),
+            forge::MachineCapabilityDeviceType::Dpu => Ok(MachineCapabilityDeviceType::Dpu),
+            forge::MachineCapabilityDeviceType::Nvlink => Ok(MachineCapabilityDeviceType::NvLink),
         }
     }
 }
@@ -668,7 +670,7 @@ impl MachineCapabilitiesSet {
 mod tests {
     use std::str::FromStr;
 
-    use ::rpc::forge as rpc;
+    use nico_rpc::forge;
 
     use super::*;
     use crate::hardware_info::*;
@@ -684,7 +686,7 @@ mod tests {
 
     #[test]
     fn test_model_cpu_capability_to_rpc_conversion() {
-        let req_type = rpc::MachineCapabilityAttributesCpu {
+        let req_type = forge::MachineCapabilityAttributesCpu {
             name: "pentium 4 HT".to_string(),
             count: 1,
             vendor: Some("intel".to_string()),
@@ -702,13 +704,13 @@ mod tests {
 
         assert_eq!(
             req_type,
-            rpc::MachineCapabilityAttributesCpu::from(machine_cap)
+            forge::MachineCapabilityAttributesCpu::from(machine_cap)
         );
     }
 
     #[test]
     fn test_model_gpu_capability_to_rpc_conversion() {
-        let req_type = rpc::MachineCapabilityAttributesGpu {
+        let req_type = forge::MachineCapabilityAttributesGpu {
             name: "RTX 6000".to_string(),
             count: 1,
             frequency: Some("1.2 giggawattz".to_string()),
@@ -732,13 +734,13 @@ mod tests {
 
         assert_eq!(
             req_type,
-            rpc::MachineCapabilityAttributesGpu::from(machine_cap)
+            forge::MachineCapabilityAttributesGpu::from(machine_cap)
         );
     }
 
     #[test]
     fn test_model_memory_capability_to_rpc_conversion() {
-        let req_type = rpc::MachineCapabilityAttributesMemory {
+        let req_type = forge::MachineCapabilityAttributesMemory {
             name: "DDR4".to_string(),
             count: 1,
             vendor: Some("crucial".to_string()),
@@ -754,13 +756,13 @@ mod tests {
 
         assert_eq!(
             req_type,
-            rpc::MachineCapabilityAttributesMemory::from(machine_cap)
+            forge::MachineCapabilityAttributesMemory::from(machine_cap)
         );
     }
 
     #[test]
     fn test_model_storage_capability_to_rpc_conversion() {
-        let req_type = rpc::MachineCapabilityAttributesStorage {
+        let req_type = forge::MachineCapabilityAttributesStorage {
             name: "Spinning Disk".to_string(),
             count: 1,
             vendor: Some("western digital".to_string()),
@@ -776,13 +778,13 @@ mod tests {
 
         assert_eq!(
             req_type,
-            rpc::MachineCapabilityAttributesStorage::from(machine_cap)
+            forge::MachineCapabilityAttributesStorage::from(machine_cap)
         );
     }
 
     #[test]
     fn test_model_network_capability_to_rpc_conversion() {
-        let req_type = rpc::MachineCapabilityAttributesNetwork {
+        let req_type = forge::MachineCapabilityAttributesNetwork {
             name: "BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller".to_string(),
             count: 1,
             vendor: Some("0x14e4".to_string()),
@@ -798,13 +800,13 @@ mod tests {
 
         assert_eq!(
             req_type,
-            rpc::MachineCapabilityAttributesNetwork::from(machine_cap)
+            forge::MachineCapabilityAttributesNetwork::from(machine_cap)
         );
     }
 
     #[test]
     fn test_model_infiniband_capability_to_rpc_conversion() {
-        let req_type = rpc::MachineCapabilityAttributesInfiniband {
+        let req_type = forge::MachineCapabilityAttributesInfiniband {
             name: "IB NIC".to_string(),
             count: 4,
             vendor: Some("IB NIC Vendor".to_string()),
@@ -820,13 +822,13 @@ mod tests {
 
         assert_eq!(
             req_type,
-            rpc::MachineCapabilityAttributesInfiniband::from(machine_cap)
+            forge::MachineCapabilityAttributesInfiniband::from(machine_cap)
         );
     }
 
     #[test]
     fn test_model_dpu_capability_to_rpc_conversion() {
-        let req_type = rpc::MachineCapabilityAttributesDpu {
+        let req_type = forge::MachineCapabilityAttributesDpu {
             name: "bf3".to_string(),
             count: 1,
             hardware_revision: Some("uh, 3?".to_string()),
@@ -840,21 +842,21 @@ mod tests {
 
         assert_eq!(
             req_type,
-            rpc::MachineCapabilityAttributesDpu::from(machine_cap)
+            forge::MachineCapabilityAttributesDpu::from(machine_cap)
         );
     }
 
     #[test]
     fn test_model_capability_set_to_rpc_conversion() {
-        let req_type = rpc::MachineCapabilitiesSet {
-            cpu: vec![rpc::MachineCapabilityAttributesCpu {
+        let req_type = forge::MachineCapabilitiesSet {
+            cpu: vec![forge::MachineCapabilityAttributesCpu {
                 name: "xeon".to_string(),
                 count: 2,
                 vendor: Some("intel".to_string()),
                 cores: Some(24),
                 threads: Some(48),
             }],
-            gpu: vec![rpc::MachineCapabilityAttributesGpu {
+            gpu: vec![forge::MachineCapabilityAttributesGpu {
                 name: "rtx6000".to_string(),
                 count: 1,
                 frequency: Some("3 GHZ".to_string()),
@@ -864,39 +866,39 @@ mod tests {
                 threads: Some(8),
                 device_type: Some(MachineCapabilityDeviceType::Unknown as i32),
             }],
-            memory: vec![rpc::MachineCapabilityAttributesMemory {
+            memory: vec![forge::MachineCapabilityAttributesMemory {
                 name: "ddr4".to_string(),
                 count: 2,
                 capacity: Some("64 GB".to_string()),
                 vendor: Some("micron".to_string()),
             }],
             storage: vec![
-                rpc::MachineCapabilityAttributesStorage {
+                forge::MachineCapabilityAttributesStorage {
                     name: "nvme".to_string(),
                     count: 1,
                     capacity: Some("1 TB".to_string()),
                     vendor: Some("samsung".to_string()),
                 },
-                rpc::MachineCapabilityAttributesStorage {
+                forge::MachineCapabilityAttributesStorage {
                     name: "spinning disk".to_string(),
                     count: 1,
                     capacity: Some("1 TB".to_string()),
                     vendor: Some("maxtor".to_string()),
                 },
             ],
-            network: vec![rpc::MachineCapabilityAttributesNetwork {
+            network: vec![forge::MachineCapabilityAttributesNetwork {
                 name: "intel e1000".to_string(),
                 count: 1,
                 vendor: Some("intel".to_string()),
                 device_type: Some(MachineCapabilityDeviceType::Unknown as i32),
             }],
-            infiniband: vec![rpc::MachineCapabilityAttributesInfiniband {
+            infiniband: vec![forge::MachineCapabilityAttributesInfiniband {
                 name: "infiniband".to_string(),
                 count: 1,
                 vendor: Some("mellanox".to_string()),
                 inactive_devices: Vec::new(),
             }],
-            dpu: vec![rpc::MachineCapabilityAttributesDpu {
+            dpu: vec![forge::MachineCapabilityAttributesDpu {
                 name: "bf3".to_string(),
                 count: 1,
                 hardware_revision: Some("3".to_string()),
@@ -960,7 +962,7 @@ mod tests {
             }],
         };
 
-        assert_eq!(req_type, rpc::MachineCapabilitiesSet::from(machine_cap));
+        assert_eq!(req_type, forge::MachineCapabilitiesSet::from(machine_cap));
     }
 
     #[test]

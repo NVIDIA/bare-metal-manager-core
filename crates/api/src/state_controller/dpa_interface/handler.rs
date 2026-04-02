@@ -19,13 +19,13 @@
 
 use std::sync::Arc;
 
-use carbide_uuid::dpa_interface::DpaInterfaceId;
 use chrono::{Duration, TimeDelta};
-use db::dpa_interface::get_dpa_vni;
 use eyre::eyre;
-use model::dpa_interface::DpaLockMode::{Locked, Unlocked};
-use model::dpa_interface::{DpaInterface, DpaInterfaceControllerState};
 use mqttea::MqtteaClient;
+use nico_api_db::dpa_interface::get_dpa_vni;
+use nico_api_model::dpa_interface::DpaLockMode::{Locked, Unlocked};
+use nico_api_model::dpa_interface::{DpaInterface, DpaInterfaceControllerState};
+use nico_uuid::dpa_interface::DpaInterfaceId;
 use sqlx::PgTransaction;
 
 use crate::dpa::handler::DpaInfo;
@@ -400,7 +400,7 @@ async fn send_set_vni_command<'a>(
         Ok(()) => {
             if heart_beat {
                 let mut txn = services.db_pool.begin().await?;
-                let res = db::dpa_interface::update_last_hb_time(state, &mut txn).await;
+                let res = nico_api_db::dpa_interface::update_last_hb_time(state, &mut txn).await;
                 if res.is_err() {
                     tracing::error!(
                         "Error updating last_hb_time for dpa id: {} res: {:#?}",
@@ -465,13 +465,13 @@ fn handle_apply_profile(
 mod tests {
     use std::str::FromStr;
 
-    use carbide_uuid::dpa_interface::DpaInterfaceId;
-    use carbide_uuid::machine::MachineId;
     use config_version::{ConfigVersion, Versioned};
     use mac_address::MacAddress;
-    use model::dpa_interface::{
+    use nico_api_model::dpa_interface::{
         CardState, DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkConfig,
     };
+    use nico_uuid::dpa_interface::DpaInterfaceId;
+    use nico_uuid::machine::MachineId;
 
     use super::*;
 

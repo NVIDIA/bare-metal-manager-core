@@ -27,9 +27,12 @@ use bmc_mock::{
     MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
     SystemPowerControl,
 };
-use carbide_uuid::machine::MachineId;
-use rpc::forge::{MachineArchitecture, MachineDiscoveryResult, ManagedHostNetworkConfigResponse};
-use rpc::forge_agent_control_response::Action;
+use nico_rpc::forge;
+use nico_rpc::forge::{
+    MachineArchitecture, MachineDiscoveryResult, ManagedHostNetworkConfigResponse,
+};
+use nico_rpc::forge_agent_control_response::Action;
+use nico_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
@@ -816,7 +819,7 @@ impl MachineStateMachine {
                 .admin_interface
                 .as_ref()
                 .expect("use_admin_network true so admin_interface should be Some");
-            interfaces = vec![rpc::forge::InstanceInterfaceStatusObservation {
+            interfaces = vec![forge::InstanceInterfaceStatusObservation {
                 function_type: iface.function_type,
                 virtual_function_id: None,
                 mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
@@ -831,7 +834,7 @@ impl MachineStateMachine {
                 Some(network_config.instance_network_config_version.clone());
 
             for iface in network_config.tenant_interfaces.iter() {
-                interfaces.push(rpc::forge::InstanceInterfaceStatusObservation {
+                interfaces.push(forge::InstanceInterfaceStatusObservation {
                     function_type: iface.function_type,
                     virtual_function_id: iface.virtual_function_id,
                     mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
@@ -839,7 +842,7 @@ impl MachineStateMachine {
                     prefixes: vec![iface.interface_prefix.clone()],
                     gateways: vec![iface.gateway.clone()],
                     network_security_group: iface.network_security_group.as_ref().map(|s| {
-                        rpc::forge::NetworkSecurityGroupStatus {
+                        forge::NetworkSecurityGroupStatus {
                             source: s.source,
                             id: s.id.clone(),
                             version: s.version.clone(),

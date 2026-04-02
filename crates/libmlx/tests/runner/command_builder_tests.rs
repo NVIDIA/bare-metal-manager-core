@@ -20,8 +20,8 @@
 
 use std::path::Path;
 
-use libmlx::runner::command_builder::{CommandBuilder, CommandSpec};
-use libmlx::runner::exec_options::ExecOptions;
+use nico_libmlx::runner::command_builder::{CommandBuilder, CommandSpec};
+use nico_libmlx::runner::exec_options::ExecOptions;
 
 use super::common;
 

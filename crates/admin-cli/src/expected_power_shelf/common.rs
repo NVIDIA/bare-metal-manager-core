@@ -15,8 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
+use nico_rpc::forge;
+use nico_uuid::rack::RackId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -26,7 +27,7 @@ pub struct ExpectedPowerShelfJson {
     pub bmc_password: String,
     pub shelf_serial_number: String,
     #[serde(default)]
-    pub metadata: Option<rpc::forge::Metadata>,
+    pub metadata: Option<forge::Metadata>,
     pub host_name: Option<String>,
     pub rack_id: Option<RackId>,
     pub ip_address: Option<String>,

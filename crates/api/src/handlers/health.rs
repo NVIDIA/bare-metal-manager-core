@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-use ::rpc::forge::{self as rpc, HealthReportOverride};
-use carbide_uuid::machine::MachineId;
-use health_report::OverrideMode;
-use model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_health_report::OverrideMode;
+use nico_rpc::forge;
+use nico_rpc::forge::HealthReportOverride;
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
 
@@ -30,21 +31,22 @@ use crate::handlers::utils::convert_and_log_machine_id;
 pub async fn list_health_report_overrides(
     api: &Api,
     machine_id: Request<MachineId>,
-) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
+) -> Result<Response<forge::ListHealthReportOverrideResponse>, Status> {
     let mut txn = api.txn_begin().await?;
 
     let machine_id = convert_and_log_machine_id(Some(&machine_id.into_inner()))?;
 
-    let host_machine = db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "machine",
-            id: machine_id.to_string(),
-        })?;
+    let host_machine =
+        nico_api_db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+            .await?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "machine",
+                id: machine_id.to_string(),
+            })?;
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::ListHealthReportOverrideResponse {
+    Ok(Response::new(forge::ListHealthReportOverrideResponse {
         overrides: host_machine
             .health_report_overrides
             .clone()
@@ -62,7 +64,7 @@ async fn remove_by_source(
     machine_id: MachineId,
     source: String,
 ) -> Result<(), CarbideError> {
-    let host_machine = db::machine::find_one(
+    let host_machine = nico_api_db::machine::find_one(
         &mut *txn,
         &machine_id,
         MachineSearchConfig {
@@ -100,14 +102,14 @@ async fn remove_by_source(
         });
     };
 
-    db::machine::remove_health_report_override(txn, &machine_id, mode, &source).await?;
+    nico_api_db::machine::remove_health_report_override(txn, &machine_id, mode, &source).await?;
 
     Ok(())
 }
 
 pub async fn insert_health_report_override(
     api: &Api,
-    request: Request<rpc::InsertHealthReportOverrideRequest>,
+    request: Request<forge::InsertHealthReportOverrideRequest>,
 ) -> Result<Response<()>, Status> {
     let triggered_by = request
         .extensions()
@@ -115,9 +117,9 @@ pub async fn insert_health_report_override(
         .and_then(|ctx| ctx.get_external_user_name())
         .map(String::from);
 
-    let rpc::InsertHealthReportOverrideRequest {
+    let forge::InsertHealthReportOverrideRequest {
         machine_id,
-        r#override: Some(rpc::HealthReportOverride { report, mode }),
+        r#override: Some(forge::HealthReportOverride { report, mode }),
     } = request.into_inner()
     else {
         return Err(CarbideError::MissingArgument("override").into());
@@ -126,7 +128,7 @@ pub async fn insert_health_report_override(
     let Some(report) = report else {
         return Err(CarbideError::MissingArgument("report").into());
     };
-    let Ok(mode) = rpc::OverrideMode::try_from(mode) else {
+    let Ok(mode) = forge::OverrideMode::try_from(mode) else {
         return Err(CarbideError::InvalidArgument("mode".to_string()).into());
     };
     let mode: OverrideMode = mode.into();
@@ -138,7 +140,7 @@ pub async fn insert_health_report_override(
     }
     let mut txn = api.txn_begin().await?;
 
-    let mut report = health_report::HealthReport::try_from(report.clone())
+    let mut report = nico_health_report::HealthReport::try_from(report.clone())
         .map_err(|e| CarbideError::internal(e.to_string()))?;
     if report.observed_at.is_none() {
         report.observed_at = Some(chrono::Utc::now());
@@ -153,7 +155,14 @@ pub async fn insert_health_report_override(
         Err(e) => return Err(e.into()),
     }
 
-    db::machine::insert_health_report_override(&mut txn, &machine_id, mode, &report, false).await?;
+    nico_api_db::machine::insert_health_report_override(
+        &mut txn,
+        &machine_id,
+        mode,
+        &report,
+        false,
+    )
+    .await?;
 
     txn.commit().await?;
 
@@ -162,11 +171,11 @@ pub async fn insert_health_report_override(
 
 pub async fn remove_health_report_override(
     api: &Api,
-    request: Request<rpc::RemoveHealthReportOverrideRequest>,
+    request: Request<forge::RemoveHealthReportOverrideRequest>,
 ) -> Result<Response<()>, Status> {
     let mut txn = api.txn_begin().await?;
 
-    let rpc::RemoveHealthReportOverrideRequest { machine_id, source } = request.into_inner();
+    let forge::RemoveHealthReportOverrideRequest { machine_id, source } = request.into_inner();
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
     remove_by_source(&mut txn, machine_id, source).await?;
     txn.commit().await?;

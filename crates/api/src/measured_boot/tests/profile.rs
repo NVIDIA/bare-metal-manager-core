@@ -38,7 +38,7 @@
 mod tests {
     use std::collections::HashMap;
 
-    use db::measured_boot::interface::profile::{
+    use nico_api_db::measured_boot::interface::profile::{
         get_all_measurement_profile_attr_records, get_all_measurement_profile_records,
     };
 
@@ -59,16 +59,20 @@ mod tests {
         ]);
 
         // Make sure the profile itself is in tact.
-        let profile1 =
-            db::measured_boot::profile::new(&mut txn, Some(String::from("my-profile")), &vals)
-                .await?;
+        let profile1 = nico_api_db::measured_boot::profile::new(
+            &mut txn,
+            Some(String::from("my-profile")),
+            &vals,
+        )
+        .await?;
         assert_eq!(profile1.name, String::from("my-profile"));
         assert_eq!(profile1.attrs.len(), 3);
 
         // And now get the profile in various ways to make sure the
         // various ways work.
         let profile_from_id =
-            db::measured_boot::profile::load_from_id(&mut txn, profile1.profile_id).await?;
+            nico_api_db::measured_boot::profile::load_from_id(&mut txn, profile1.profile_id)
+                .await?;
         assert_eq!(profile1.profile_id, profile_from_id.profile_id);
         assert_eq!(profile1.name, profile_from_id.name);
         assert_eq!(
@@ -77,7 +81,8 @@ mod tests {
         );
 
         let profile_from_name =
-            db::measured_boot::profile::load_from_name(&mut txn, profile1.name.clone()).await?;
+            nico_api_db::measured_boot::profile::load_from_name(&mut txn, profile1.name.clone())
+                .await?;
         assert_eq!(profile1.profile_id, profile_from_name.profile_id);
         assert_eq!(profile1.name, profile_from_name.name);
         assert_eq!(
@@ -86,7 +91,7 @@ mod tests {
         );
 
         let some_profile_from_attrs =
-            db::measured_boot::profile::load_from_attrs(&mut txn, &vals).await?;
+            nico_api_db::measured_boot::profile::load_from_attrs(&mut txn, &vals).await?;
         assert!(some_profile_from_attrs.is_some());
 
         let profile_from_attrs = some_profile_from_attrs.unwrap();
@@ -115,16 +120,20 @@ mod tests {
             (String::from("uefi_version"), String::from("2.10")),
         ]);
 
-        let profile2 =
-            db::measured_boot::profile::new(&mut txn, Some(String::from("my-profile2")), &vals2)
-                .await?;
+        let profile2 = nico_api_db::measured_boot::profile::new(
+            &mut txn,
+            Some(String::from("my-profile2")),
+            &vals2,
+        )
+        .await?;
         assert_eq!(profile2.name, String::from("my-profile2"));
         assert_eq!(profile2.attrs.len(), 4);
 
         // And now get the profile in various ways to make sure the
         // various ways work.
         let profile2_from_id =
-            db::measured_boot::profile::load_from_id(&mut txn, profile2.profile_id).await?;
+            nico_api_db::measured_boot::profile::load_from_id(&mut txn, profile2.profile_id)
+                .await?;
         assert_eq!(profile2.profile_id, profile2_from_id.profile_id);
         assert_eq!(profile2.name, profile2_from_id.name);
         assert_eq!(
@@ -133,7 +142,8 @@ mod tests {
         );
 
         let profile2_from_name =
-            db::measured_boot::profile::load_from_name(&mut txn, profile2.name.clone()).await?;
+            nico_api_db::measured_boot::profile::load_from_name(&mut txn, profile2.name.clone())
+                .await?;
         assert_eq!(profile2.profile_id, profile2_from_name.profile_id);
         assert_eq!(profile2.name, profile2_from_name.name);
         assert_eq!(
@@ -142,7 +152,7 @@ mod tests {
         );
 
         let some_profile2_from_attrs =
-            db::measured_boot::profile::load_from_attrs(&mut txn, &vals2).await?;
+            nico_api_db::measured_boot::profile::load_from_attrs(&mut txn, &vals2).await?;
         assert!(some_profile2_from_attrs.is_some());
 
         let profile2_from_attrs = some_profile2_from_attrs.unwrap();
@@ -188,30 +198,40 @@ mod tests {
 
         // Create the first profile and commit it
         let mut txn = pool.begin().await?;
-        db::measured_boot::profile::new(&mut txn, Some(String::from("my-profile")), &vals).await?;
+        nico_api_db::measured_boot::profile::new(&mut txn, Some(String::from("my-profile")), &vals)
+            .await?;
         txn.commit().await?;
 
         // Try to create a duplicate by name (should fail) - use separate txn since failure aborts it
         let mut txn = pool.begin().await?;
-        let dupe_by_name =
-            db::measured_boot::profile::new(&mut txn, Some(String::from("my-profile")), &vals2)
-                .await;
+        let dupe_by_name = nico_api_db::measured_boot::profile::new(
+            &mut txn,
+            Some(String::from("my-profile")),
+            &vals2,
+        )
+        .await;
         assert!(dupe_by_name.is_err());
         // txn is aborted due to error, don't try to use it further
 
         // Try to create a duplicate by attrs (should fail) - use separate txn
         let mut txn = pool.begin().await?;
-        let dupe_by_vals =
-            db::measured_boot::profile::new(&mut txn, Some(String::from("my-profile2")), &vals)
-                .await;
+        let dupe_by_vals = nico_api_db::measured_boot::profile::new(
+            &mut txn,
+            Some(String::from("my-profile2")),
+            &vals,
+        )
+        .await;
         assert!(dupe_by_vals.is_err());
         // txn is aborted due to error, don't try to use it further
 
         // Create a non-duplicate (should succeed)
         let mut txn = pool.begin().await?;
-        let not_a_dupe =
-            db::measured_boot::profile::new(&mut txn, Some(String::from("my-profile2")), &vals2)
-                .await;
+        let not_a_dupe = nico_api_db::measured_boot::profile::new(
+            &mut txn,
+            Some(String::from("my-profile2")),
+            &vals2,
+        )
+        .await;
         assert!(not_a_dupe.is_ok());
         txn.commit().await?;
 
@@ -258,14 +278,15 @@ mod tests {
             (String::from("product_name"), String::from("dgx_h100")),
         ]);
 
-        match db::measured_boot::profile::new(&mut txn, None, &vals1).await {
+        match nico_api_db::measured_boot::profile::new(&mut txn, None, &vals1).await {
             Ok(profile1) => {
                 let match1_vals = HashMap::from([
                     (String::from("sys_vendor"), String::from("dell")),
                     (String::from("product_name"), String::from("poweredge_r750")),
                 ]);
                 let match1_result =
-                    db::measured_boot::profile::match_from_attrs(&mut txn, &match1_vals).await;
+                    nico_api_db::measured_boot::profile::match_from_attrs(&mut txn, &match1_vals)
+                        .await;
                 assert!(match1_result.is_ok());
                 let match1 = match1_result.unwrap();
                 assert_eq!(profile1.profile_id, match1.unwrap().profile_id);
@@ -273,7 +294,7 @@ mod tests {
             Err(e) => return Err(eyre::eyre!("failed to create profile1: {}", e).into()),
         }
 
-        match db::measured_boot::profile::new(&mut txn, None, &vals2).await {
+        match nico_api_db::measured_boot::profile::new(&mut txn, None, &vals2).await {
             Ok(profile2) => {
                 let match2_vals = HashMap::from([
                     (String::from("sys_vendor"), String::from("dell")),
@@ -282,7 +303,8 @@ mod tests {
                     (String::from("random_firmware_ver"), String::from("meowwww")),
                 ]);
                 let match2_result =
-                    db::measured_boot::profile::match_from_attrs(&mut txn, &match2_vals).await;
+                    nico_api_db::measured_boot::profile::match_from_attrs(&mut txn, &match2_vals)
+                        .await;
                 assert!(match2_result.is_ok());
                 let match2 = match2_result.unwrap();
                 assert_eq!(profile2.profile_id, match2.unwrap().profile_id);
@@ -290,7 +312,7 @@ mod tests {
             Err(e) => return Err(eyre::eyre!("failed to create profile2: {}", e).into()),
         }
 
-        match db::measured_boot::profile::new(&mut txn, None, &vals3).await {
+        match nico_api_db::measured_boot::profile::new(&mut txn, None, &vals3).await {
             Ok(profile3) => {
                 let match3_vals = HashMap::from([
                     (String::from("sys_vendor"), String::from("dell")),
@@ -301,7 +323,8 @@ mod tests {
                     (String::from("another_thing"), String::from("v1-0.24")),
                 ]);
                 let match3_result =
-                    db::measured_boot::profile::match_from_attrs(&mut txn, &match3_vals).await;
+                    nico_api_db::measured_boot::profile::match_from_attrs(&mut txn, &match3_vals)
+                        .await;
                 assert!(match3_result.is_ok());
                 let match3 = match3_result.unwrap();
                 assert_eq!(profile3.profile_id, match3.unwrap().profile_id);
@@ -309,7 +332,7 @@ mod tests {
             Err(e) => return Err(eyre::eyre!("failed to create profile3: {}", e).into()),
         }
 
-        match db::measured_boot::profile::new(&mut txn, None, &vals4).await {
+        match nico_api_db::measured_boot::profile::new(&mut txn, None, &vals4).await {
             Ok(profile4) => {
                 let match4_vals = HashMap::from([
                     (String::from("sys_vendor"), String::from("dell")),
@@ -320,7 +343,8 @@ mod tests {
                     (String::from("another_thing"), String::from("v1-0.24")),
                 ]);
                 let match4_result =
-                    db::measured_boot::profile::match_from_attrs(&mut txn, &match4_vals).await;
+                    nico_api_db::measured_boot::profile::match_from_attrs(&mut txn, &match4_vals)
+                        .await;
                 assert!(match4_result.is_ok());
                 let match4 = match4_result.unwrap();
                 assert_eq!(profile4.profile_id, match4.unwrap().profile_id);
@@ -328,7 +352,7 @@ mod tests {
             Err(e) => return Err(eyre::eyre!("failed to create profile4: {}", e).into()),
         }
 
-        match db::measured_boot::profile::new(&mut txn, None, &vals5).await {
+        match nico_api_db::measured_boot::profile::new(&mut txn, None, &vals5).await {
             Ok(profile5) => {
                 let match5_vals = HashMap::from([
                     (String::from("sys_vendor"), String::from("nvidia")),
@@ -338,7 +362,8 @@ mod tests {
                     (String::from("another_thing"), String::from("v1-0.24")),
                 ]);
                 let match5_result =
-                    db::measured_boot::profile::match_from_attrs(&mut txn, &match5_vals).await;
+                    nico_api_db::measured_boot::profile::match_from_attrs(&mut txn, &match5_vals)
+                        .await;
                 assert!(match5_result.is_ok());
                 let match5 = match5_result.unwrap();
                 assert_eq!(profile5.profile_id, match5.unwrap().profile_id);

@@ -17,11 +17,12 @@
 
 use std::borrow::Cow;
 
-use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use clap::Parser;
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 use prettytable::{Cell, Row, Table};
-use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 
 use crate::cfg::dispatch::Dispatch;
 use crate::cfg::runtime::RuntimeContext;
@@ -133,7 +134,7 @@ async fn handle_disconnect(
     cmd: ConnectionsDisconnectCommand,
     ctxt: &mut CliContext<'_, '_>,
 ) -> CarbideCliResult<()> {
-    let request: ::rpc::forge::ScoutStreamDisconnectRequest = cmd.into();
+    let request: forge::ScoutStreamDisconnectRequest = cmd.into();
     let response = ctxt.grpc_conn.0.scout_stream_disconnect(request).await?;
     let machine_id = match response.machine_id.as_ref() {
         Some(id) => id.to_string(),
@@ -155,7 +156,7 @@ async fn handle_ping(
     cmd: ConnectionsPingCommand,
     ctxt: &mut CliContext<'_, '_>,
 ) -> CarbideCliResult<()> {
-    let request: ::rpc::forge::ScoutStreamAdminPingRequest = cmd.into();
+    let request: forge::ScoutStreamAdminPingRequest = cmd.into();
     let response = ctxt.grpc_conn.0.scout_stream_ping(request).await?;
 
     println!("{}", response.pong);
@@ -163,7 +164,7 @@ async fn handle_ping(
 }
 
 // print_connections_table displays connections in an ASCII table format.
-fn print_connections_table(connections: &[rpc::forge::ScoutStreamConnectionInfo]) {
+fn print_connections_table(connections: &[forge::ScoutStreamConnectionInfo]) {
     let mut table = Table::new();
 
     table.add_row(Row::new(vec![
@@ -193,7 +194,7 @@ fn print_connections_table(connections: &[rpc::forge::ScoutStreamConnectionInfo]
     table.printstd();
 }
 
-impl From<ConnectionsDisconnectCommand> for ::rpc::forge::ScoutStreamDisconnectRequest {
+impl From<ConnectionsDisconnectCommand> for forge::ScoutStreamDisconnectRequest {
     fn from(cmd: ConnectionsDisconnectCommand) -> Self {
         Self {
             machine_id: cmd.machine_id.into(),
@@ -201,7 +202,7 @@ impl From<ConnectionsDisconnectCommand> for ::rpc::forge::ScoutStreamDisconnectR
     }
 }
 
-impl From<ConnectionsPingCommand> for ::rpc::forge::ScoutStreamAdminPingRequest {
+impl From<ConnectionsPingCommand> for forge::ScoutStreamAdminPingRequest {
     fn from(cmd: ConnectionsPingCommand) -> Self {
         Self {
             machine_id: cmd.machine_id.into(),

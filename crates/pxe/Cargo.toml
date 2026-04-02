@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-pxe"
+name = "nico-pxe"
 version = "0.0.1"
 description = "Carbide is a Bare Metal Provisioning system with auto-discovery and API based machine manipulation"
 edition.workspace = true
@@ -23,16 +23,17 @@ license.workspace = true
 authors.workspace = true
 
 [[bin]]
+# TODO: rename to nico-pxe
 name = "carbide"
 path = "src/main.rs"
 
 [dependencies]
 # [begin-local-dependencies]
-carbide-host-support = { path = "../host-support", default-features = false }
-carbide-tls = { path = "../tls" }
-carbide-version = { path = "../version" }
-carbide-rpc = { path = "../rpc" }
-carbide-uuid = { path = "../uuid" }
+nico-host-support = { path = "../host-support", default-features = false }
+nico-tls = { path = "../tls" }
+nico-version = { path = "../version" }
+nico-rpc = { path = "../rpc" }
+nico-uuid = { path = "../uuid" }
 # [end-local-dependencies]
 
 axum = { workspace = true }
@@ -59,7 +60,7 @@ tower-service = { workspace = true }
 uuid = { features = ["v4", "serde"], workspace = true }
 
 [build-dependencies]
-carbide-version = { path = "../version" }
+nico-version = { path = "../version" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

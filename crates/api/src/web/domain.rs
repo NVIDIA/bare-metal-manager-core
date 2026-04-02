@@ -22,7 +22,7 @@ use axum::Json;
 use axum::extract::State as AxumState;
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge::forge_server::Forge;
 
 use crate::api::Api;
 
@@ -40,8 +40,8 @@ struct DomainRowDisplay {
     deleted: String,
 }
 
-impl From<::rpc::protos::dns::Domain> for DomainRowDisplay {
-    fn from(d: ::rpc::protos::dns::Domain) -> Self {
+impl From<nico_rpc::protos::dns::Domain> for DomainRowDisplay {
+    fn from(d: nico_rpc::protos::dns::Domain) -> Self {
         Self {
             id: d.id.unwrap_or_default().to_string(),
             name: d.name,
@@ -85,8 +85,8 @@ pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     (StatusCode::OK, Json(domains)).into_response()
 }
 
-async fn fetch_domains(api: Arc<Api>) -> Result<::rpc::protos::dns::DomainList, tonic::Status> {
-    let request = tonic::Request::new(rpc::protos::dns::DomainSearchQuery {
+async fn fetch_domains(api: Arc<Api>) -> Result<nico_rpc::protos::dns::DomainList, tonic::Status> {
+    let request = tonic::Request::new(nico_rpc::protos::dns::DomainSearchQuery {
         id: None,
         name: None,
     });

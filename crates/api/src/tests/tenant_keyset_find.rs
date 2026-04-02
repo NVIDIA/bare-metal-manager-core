@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use rpc::forge_server::Forge;
+use forge::forge_server::Forge;
+use nico_rpc::forge;
 use tonic::Code;
 
 use crate::tests::common::api_fixtures::create_test_env;
@@ -35,7 +35,7 @@ async fn test_find_tenant_keyset_ids(pool: sqlx::PgPool) {
     }
 
     // test getting all ids
-    let request_all = tonic::Request::new(rpc::TenantKeysetSearchFilter {
+    let request_all = tonic::Request::new(forge::TenantKeysetSearchFilter {
         tenant_org_id: None,
     });
 
@@ -48,7 +48,7 @@ async fn test_find_tenant_keyset_ids(pool: sqlx::PgPool) {
     assert_eq!(ids_all.keyset_ids.len(), 4);
 
     // test search by tenant_org_id
-    let request_tenant = tonic::Request::new(rpc::TenantKeysetSearchFilter {
+    let request_tenant = tonic::Request::new(forge::TenantKeysetSearchFilter {
         tenant_org_id: Some("tenant_org_2".to_string()),
     });
 
@@ -65,8 +65,8 @@ async fn test_find_tenant_keyset_ids(pool: sqlx::PgPool) {
 async fn test_find_tenant_keysets_by_ids(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
-    let mut keyset1 = rpc::TenantKeyset::default();
-    let mut keyset3 = rpc::TenantKeyset::default();
+    let mut keyset1 = forge::TenantKeyset::default();
+    let mut keyset3 = forge::TenantKeyset::default();
     for i in 0..4 {
         let mut tenant_org_id = "tenant_org_1";
         if i % 2 != 0 {
@@ -81,7 +81,7 @@ async fn test_find_tenant_keysets_by_ids(pool: sqlx::PgPool) {
     }
 
     // test search by tenant_org_id
-    let request_ids = tonic::Request::new(rpc::TenantKeysetSearchFilter {
+    let request_ids = tonic::Request::new(forge::TenantKeysetSearchFilter {
         tenant_org_id: Some("tenant_org_2".to_string()),
     });
 
@@ -93,7 +93,7 @@ async fn test_find_tenant_keysets_by_ids(pool: sqlx::PgPool) {
         .unwrap();
     assert_eq!(ids.keyset_ids.len(), 2);
 
-    let request_keysets = tonic::Request::new(rpc::TenantKeysetsByIdsRequest {
+    let request_keysets = tonic::Request::new(forge::TenantKeysetsByIdsRequest {
         keyset_ids: ids.keyset_ids.clone(),
         include_key_data: false,
     });
@@ -126,14 +126,14 @@ async fn test_find_tenant_keysets_by_ids_over_max(pool: sqlx::PgPool) {
     // create vector of IDs with more than max allowed
     // it does not matter if these are real or not, since we are testing an error back for passing more than max
     let end_index: u32 = env.config.max_find_by_ids + 1;
-    let keyset_ids: Vec<rpc::TenantKeysetIdentifier> = (1..=end_index)
-        .map(|i| rpc::TenantKeysetIdentifier {
+    let keyset_ids: Vec<forge::TenantKeysetIdentifier> = (1..=end_index)
+        .map(|i| forge::TenantKeysetIdentifier {
             organization_id: "tenant_org_1".to_string(),
             keyset_id: format!("keyset_id_{i}"),
         })
         .collect();
     let include_key_data = false;
-    let request = tonic::Request::new(rpc::TenantKeysetsByIdsRequest {
+    let request = tonic::Request::new(forge::TenantKeysetsByIdsRequest {
         keyset_ids,
         include_key_data,
     });
@@ -161,7 +161,7 @@ async fn test_find_tenant_keysets_by_ids_over_max(pool: sqlx::PgPool) {
 async fn test_find_tenant_keysets_by_ids_none(pool: sqlx::PgPool) {
     let env = create_test_env(pool.clone()).await;
 
-    let request = tonic::Request::new(rpc::TenantKeysetsByIdsRequest::default());
+    let request = tonic::Request::new(forge::TenantKeysetsByIdsRequest::default());
 
     let response = env.api.find_tenant_keysets_by_ids(request).await;
     // validate

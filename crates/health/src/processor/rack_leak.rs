@@ -18,8 +18,8 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use carbide_uuid::rack::RackId;
 use dashmap::DashMap;
+use nico_uuid::rack::RackId;
 
 use super::{EventContext, EventProcessor};
 use crate::sink::{

@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as rpc;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
 use prettytable::{Cell, Row, Table};
 
 use crate::rpc::ApiClient;
@@ -49,7 +49,7 @@ pub async fn get(format: OutputFormat, api_client: &ApiClient) -> CarbideCliResu
 // route_servers_to_table converts the RouteServerEntries
 // response into a pretty ASCII table.
 fn route_servers_to_table(
-    route_server_entries: &rpc::RouteServerEntries,
+    route_server_entries: &forge::RouteServerEntries,
 ) -> CarbideCliResult<Table> {
     let mut table = Table::new();
 
@@ -59,7 +59,7 @@ fn route_servers_to_table(
     ]));
 
     for route_server in &route_server_entries.route_servers {
-        let source_type = rpc::RouteServerSourceType::try_from(route_server.source_type)
+        let source_type = forge::RouteServerSourceType::try_from(route_server.source_type)
             .map_err(|e| e.to_string())
             .map_err(CarbideCliError::GenericError)?;
 

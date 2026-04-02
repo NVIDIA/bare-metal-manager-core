@@ -28,9 +28,9 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use carbide_uuid::dpu_remediations::RemediationId;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::{MachineId, MachineIdParseError};
+use nico_uuid::dpu_remediations::RemediationId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::{MachineId, MachineIdParseError};
 pub use output::{Destination, OutputFormat};
 use serde::Serialize;
 #[cfg(feature = "sqlx")]

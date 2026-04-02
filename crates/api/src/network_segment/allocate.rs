@@ -16,13 +16,13 @@
  */
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use carbide_network::ip::IdentifyAddressFamily;
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use model::network_prefix::NewNetworkPrefix;
-use model::network_segment::NewNetworkSegment;
+use nico_api_model::network_prefix::NewNetworkPrefix;
+use nico_api_model::network_segment::NewNetworkSegment;
+use nico_network::ip::IdentifyAddressFamily;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::{VpcId, VpcPrefixId};
 use sqlx::PgConnection;
 
 use crate::{CarbideError, CarbideResult};
@@ -186,20 +186,25 @@ impl PrefixAllocator {
             }],
             vlan_id: None,
             vni: None,
-            segment_type: model::network_segment::NetworkSegmentType::Tenant,
+            segment_type: nico_api_model::network_segment::NetworkSegmentType::Tenant,
             can_stretch: Some(false), // All segments allocated here are FNN linknets.
         };
 
-        let mut segment = db::network_segment::persist(
+        let mut segment = nico_api_db::network_segment::persist(
             ns,
             txn,
-            model::network_segment::NetworkSegmentControllerState::Provisioning,
+            nico_api_model::network_segment::NetworkSegmentControllerState::Provisioning,
         )
         .await?;
 
         for prefix in &mut segment.prefixes {
-            db::network_prefix::set_vpc_prefix(prefix, txn, &self.vpc_prefix_id, &self.vpc_prefix)
-                .await?;
+            nico_api_db::network_prefix::set_vpc_prefix(
+                prefix,
+                txn,
+                &self.vpc_prefix_id,
+                &self.vpc_prefix,
+            )
+            .await?;
         }
 
         Ok((segment.id, prefix))
@@ -207,7 +212,7 @@ impl PrefixAllocator {
 
     pub async fn next_free_prefix(&self, txn: &mut PgConnection) -> CarbideResult<IpNetwork> {
         let vpc_str = self.vpc_prefix.to_string();
-        let used_prefixes = db::network_prefix::containing_prefix(txn, vpc_str.as_str())
+        let used_prefixes = nico_api_db::network_prefix::containing_prefix(txn, vpc_str.as_str())
             .await?
             .iter()
             .map(|x| x.prefix)
@@ -258,7 +263,7 @@ impl PrefixAllocator {
         }
 
         // Reject if already in use.
-        if db::network_prefix::containing_prefix(txn, vpc_str.as_str())
+        if nico_api_db::network_prefix::containing_prefix(txn, vpc_str.as_str())
             .await?
             .iter()
             .any(|x| networks_overlap(x.prefix, prefix))

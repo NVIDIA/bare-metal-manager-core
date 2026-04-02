@@ -14,11 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
 use async_trait::async_trait;
 use config_version::ConfigVersion;
 use eyre::Result;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
 
 use crate::extension_services::dpu_extension_service_observability::DpuExtensionServiceObservability;
 
@@ -44,7 +44,7 @@ pub struct ServiceCredential {
 pub struct ServiceConfig {
     pub id: uuid::Uuid,
     pub name: String,
-    pub service_type: rpc::DpuExtensionServiceType,
+    pub service_type: forge::DpuExtensionServiceType,
     pub version: ConfigVersion,
     pub removed: Option<String>,
     pub data: String, // Service specification (e.g., pod spec YAML for pods)
@@ -52,12 +52,12 @@ pub struct ServiceConfig {
     pub observability: Option<DpuExtensionServiceObservability>,
 }
 
-impl TryFrom<rpc::ManagedHostDpuExtensionServiceConfig> for ServiceConfig {
+impl TryFrom<forge::ManagedHostDpuExtensionServiceConfig> for ServiceConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: rpc::ManagedHostDpuExtensionServiceConfig) -> Result<Self, Self::Error> {
+    fn try_from(config: forge::ManagedHostDpuExtensionServiceConfig) -> Result<Self, Self::Error> {
         let credential = config.credential.and_then(|c| match &c.r#type {
-            Some(rpc::dpu_extension_service_credential::Type::UsernamePassword(up)) => {
+            Some(forge::dpu_extension_service_credential::Type::UsernamePassword(up)) => {
                 Some(ServiceCredential {
                     registry_url: c.registry_url,
                     credential_type: CredentialType::UsernamePassword(UsernamePassword {
@@ -75,7 +75,7 @@ impl TryFrom<rpc::ManagedHostDpuExtensionServiceConfig> for ServiceConfig {
             service_type: config
                 .service_type
                 .try_into()
-                .unwrap_or(rpc::DpuExtensionServiceType::KubernetesPod),
+                .unwrap_or(forge::DpuExtensionServiceType::KubernetesPod),
             version: config.version.parse().map_err(|e| {
                 RpcDataConversionError::InvalidConfigVersion(format!(
                     "Failed to parse version as ConfigVersion: {}",
@@ -100,5 +100,5 @@ pub trait ExtensionServiceHandler: Send + Sync {
     async fn get_service_status(
         &self,
         service: &ServiceConfig,
-    ) -> Result<rpc::DpuExtensionServiceStatusObservation>;
+    ) -> Result<forge::DpuExtensionServiceStatusObservation>;
 }

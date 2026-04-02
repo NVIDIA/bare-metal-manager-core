@@ -14,10 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
-use db::WithTransaction;
 use futures_util::FutureExt;
-use model::machine::LoadSnapshotOptions;
+use nico_api_db::WithTransaction;
+use nico_api_model::machine::LoadSnapshotOptions;
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -26,8 +26,8 @@ use crate::handlers::utils::convert_and_log_machine_id;
 
 pub(crate) async fn clear_host_uefi_password(
     api: &Api,
-    request: Request<rpc::ClearHostUefiPasswordRequest>,
-) -> Result<Response<rpc::ClearHostUefiPasswordResponse>, Status> {
+    request: Request<forge::ClearHostUefiPasswordRequest>,
+) -> Result<Response<forge::ClearHostUefiPasswordResponse>, Status> {
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
@@ -38,7 +38,7 @@ pub(crate) async fn clear_host_uefi_password(
     // Resolve machine_id from machine_query first (preferred),
     // otherwise fall back to the host_id (now deprecated).
     let machine_id = if let Some(query) = request.machine_query {
-        match db::machine::find_by_query(&mut txn, &query).await? {
+        match nico_api_db::machine::find_by_query(&mut txn, &query).await? {
             Some(machine) => {
                 log_machine_id(&machine.id);
                 machine.id
@@ -65,7 +65,7 @@ pub(crate) async fn clear_host_uefi_password(
         .into());
     }
 
-    let snapshot = db::managed_host::load_snapshot(
+    let snapshot = nico_api_db::managed_host::load_snapshot(
         &mut txn,
         &machine_id,
         LoadSnapshotOptions {
@@ -100,13 +100,15 @@ pub(crate) async fn clear_host_uefi_password(
         crate::redfish::clear_host_uefi_password(redfish_client.as_ref(), api.redfish_pool.clone())
             .await?;
 
-    Ok(Response::new(rpc::ClearHostUefiPasswordResponse { job_id }))
+    Ok(Response::new(forge::ClearHostUefiPasswordResponse {
+        job_id,
+    }))
 }
 
 pub(crate) async fn set_host_uefi_password(
     api: &Api,
-    request: Request<rpc::SetHostUefiPasswordRequest>,
-) -> Result<Response<rpc::SetHostUefiPasswordResponse>, Status> {
+    request: Request<forge::SetHostUefiPasswordRequest>,
+) -> Result<Response<forge::SetHostUefiPasswordResponse>, Status> {
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
@@ -117,7 +119,7 @@ pub(crate) async fn set_host_uefi_password(
     // Resolve machine_id from machine_query first (preferred),
     // otherwise fall back to the host_id (now deprecated).
     let machine_id = if let Some(query) = request.machine_query {
-        match db::machine::find_by_query(&mut txn, &query).await? {
+        match nico_api_db::machine::find_by_query(&mut txn, &query).await? {
             Some(machine) => {
                 log_machine_id(&machine.id);
                 machine.id
@@ -144,7 +146,7 @@ pub(crate) async fn set_host_uefi_password(
         .into());
     }
 
-    let snapshot = db::managed_host::load_snapshot(
+    let snapshot = nico_api_db::managed_host::load_snapshot(
         &mut txn,
         &machine_id,
         LoadSnapshotOptions {
@@ -177,14 +179,16 @@ pub(crate) async fn set_host_uefi_password(
         crate::redfish::set_host_uefi_password(redfish_client.as_ref(), api.redfish_pool.clone())
             .await?;
 
-    api.with_txn(|txn| db::machine::update_bios_password_set_time(&machine_id, txn).boxed())
-        .await?
-        .map_err(|e| {
-            tracing::error!("Failed to update bios_password_set_time: {}", e);
-            CarbideError::Internal {
-                message: format!("Failed to update BIOS password timestamp: {e}"),
-            }
-        })?;
+    api.with_txn(|txn| {
+        nico_api_db::machine::update_bios_password_set_time(&machine_id, txn).boxed()
+    })
+    .await?
+    .map_err(|e| {
+        tracing::error!("Failed to update bios_password_set_time: {}", e);
+        CarbideError::Internal {
+            message: format!("Failed to update BIOS password timestamp: {e}"),
+        }
+    })?;
 
-    Ok(Response::new(rpc::SetHostUefiPasswordResponse { job_id }))
+    Ok(Response::new(forge::SetHostUefiPasswordResponse { job_id }))
 }

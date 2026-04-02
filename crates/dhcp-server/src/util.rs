@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use rpc::forge::DhcpRecord;
+use nico_rpc::forge::DhcpRecord;
 use tokio::net::UdpSocket;
 
 use crate::Config;

@@ -17,8 +17,8 @@
 
 //! Handler for SwitchControllerState::Created.
 
-use carbide_uuid::switch::SwitchId;
-use model::switch::{InitializingState, Switch, SwitchControllerState};
+use nico_api_model::switch::{InitializingState, Switch, SwitchControllerState};
+use nico_uuid::switch::SwitchId;
 
 use crate::state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,

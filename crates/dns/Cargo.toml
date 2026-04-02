@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-dns"
+name = "nico-dns"
 version = "0.0.1"
 description = "Carbide is bare metal provisioning system with auto-discovery and API based machine manipulation"
 edition.workspace = true
@@ -23,6 +23,7 @@ license.workspace = true
 authors.workspace = true
 
 [[bin]]
+# TODO: rename to nico-dns
 name = "carbide-dns"
 path = "src/main.rs"
 
@@ -51,14 +52,14 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 toml = { workspace = true }
 local-ip-address = { workspace = true }
-carbide-tls = { path = "../tls" }
-carbide-version = { path = "../version" }
-carbide-rpc = { path = "../rpc" }
+nico-tls = { path = "../tls" }
+nico-version = { path = "../version" }
+nico-rpc = { path = "../rpc" }
 thiserror = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
 [build-dependencies]
-carbide-version = { path = "../version" }
+nico-version = { path = "../version" }
 
 [lints]
 workspace = true

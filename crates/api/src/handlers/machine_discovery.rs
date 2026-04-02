@@ -20,14 +20,14 @@ use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-pub use ::rpc::forge as rpc;
-use carbide_uuid::nvlink::NvLinkDomainId;
-use db::WithTransaction;
 use futures_util::FutureExt;
-use model::hardware_info::{GpuPlatformInfo, HardwareInfo, MachineNvLinkInfo, NvLinkGpu};
-use model::machine::machine_id::{from_hardware_info, host_id_from_dpu_hardware_info};
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{DpuInitState, DpuInitStates, ManagedHostState};
+use nico_api_db::WithTransaction;
+use nico_api_model::hardware_info::{GpuPlatformInfo, HardwareInfo, MachineNvLinkInfo, NvLinkGpu};
+use nico_api_model::machine::machine_id::{from_hardware_info, host_id_from_dpu_hardware_info};
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::{DpuInitState, DpuInitStates, ManagedHostState};
+pub use nico_rpc::forge;
+use nico_uuid::nvlink::NvLinkDomainId;
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_machine_id, log_request_data};
@@ -37,8 +37,8 @@ use crate::{CarbideError, CarbideResult, attestation as attest};
 
 pub(crate) async fn discover_machine(
     api: &Api,
-    request: Request<rpc::MachineDiscoveryInfo>,
-) -> Result<Response<rpc::MachineDiscoveryResult>, Status> {
+    request: Request<forge::MachineDiscoveryInfo>,
+) -> Result<Response<forge::MachineDiscoveryResult>, Status> {
     // We don't log_request_data(&request); here because the hardware info is huge
     let remote_ip: Option<IpAddr> = match request.metadata().get("X-Forwarded-For") {
         None => {
@@ -66,7 +66,7 @@ pub(crate) async fn discover_machine(
     let discovery_data = machine_discovery_info
         .discovery_data
         .map(|data| match data {
-            rpc::machine_discovery_info::DiscoveryData::Info(info) => info,
+            forge::machine_discovery_info::DiscoveryData::Info(info) => info,
         })
         .ok_or_else(|| {
             CarbideError::InvalidArgument("Discovery data is not populated".to_string())
@@ -150,7 +150,7 @@ pub(crate) async fn discover_machine(
     }
 
     let interface =
-        db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
+        nico_api_db::machine_interface::find_by_ip_or_id(&mut txn, remote_ip, interface_id).await?;
     let machine_id = if hardware_info.is_dpu() {
         // if site explorer is creating machine records and there isn't one for this machine return an error
         if api
@@ -159,7 +159,7 @@ pub(crate) async fn discover_machine(
             .create_machines
             .load(Ordering::Relaxed)
         {
-            db::machine::find_one(
+            nico_api_db::machine::find_one(
                 &mut txn,
                 &stable_machine_id,
                 MachineSearchConfig {
@@ -176,7 +176,7 @@ pub(crate) async fn discover_machine(
         }
 
         let db_machine = if machine_discovery_info.create_machine {
-            let machine = db::machine::get_or_create(
+            let machine = nico_api_db::machine::get_or_create(
                 &mut txn,
                 Some(&api.common_pools),
                 &stable_machine_id,
@@ -186,7 +186,7 @@ pub(crate) async fn discover_machine(
 
             // Update the record only when create_machine is enabled.
             // Site-explorer will update if machine is created by site-explorer.
-            db::machine_interface::associate_interface_with_dpu_machine(
+            nico_api_db::machine_interface::associate_interface_with_dpu_machine(
                 &interface.id,
                 &stable_machine_id,
                 &mut txn,
@@ -194,7 +194,7 @@ pub(crate) async fn discover_machine(
             .await?;
             machine
         } else {
-            db::machine::find_one(
+            nico_api_db::machine::find_one(
                 &mut txn,
                 &stable_machine_id,
                 MachineSearchConfig {
@@ -210,7 +210,7 @@ pub(crate) async fn discover_machine(
 
         let (network_config, _version) = db_machine.network_config.clone().take();
         if network_config.loopback_ip.is_none() {
-            let loopback_ip = db::machine::allocate_loopback_ip(
+            let loopback_ip = nico_api_db::machine::allocate_loopback_ip(
                 &api.common_pools,
                 &mut txn,
                 &stable_machine_id.to_string(),
@@ -220,7 +220,7 @@ pub(crate) async fn discover_machine(
             let (mut network_config, version) = db_machine.network_config.clone().take();
             network_config.loopback_ip = Some(loopback_ip);
             network_config.use_admin_network = Some(true);
-            db::machine::try_update_network_config(
+            nico_api_db::machine::try_update_network_config(
                 &mut txn,
                 &stable_machine_id,
                 version,
@@ -237,7 +237,7 @@ pub(crate) async fn discover_machine(
             .unwrap_or_default()
             && network_config.secondary_overlay_vtep_ip.is_none()
         {
-            let secondary_vtep_ip = db::machine::allocate_secondary_vtep_ip(
+            let secondary_vtep_ip = nico_api_db::machine::allocate_secondary_vtep_ip(
                 &api.common_pools,
                 &mut txn,
                 &stable_machine_id.to_string(),
@@ -247,7 +247,7 @@ pub(crate) async fn discover_machine(
             let (mut network_config, version) = db_machine.network_config.clone().take();
             network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
             network_config.use_admin_network = Some(true);
-            db::machine::try_update_network_config(
+            nico_api_db::machine::try_update_network_config(
                 &mut txn,
                 &stable_machine_id,
                 version,
@@ -259,7 +259,7 @@ pub(crate) async fn discover_machine(
         db_machine.id
     } else {
         // Now we know stable machine id for host. Let's update it in db.
-        db::machine::try_sync_stable_id_with_current_machine_id_for_host(
+        nico_api_db::machine::try_sync_stable_id_with_current_machine_id_for_host(
             &mut txn,
             &interface.machine_id,
             &stable_machine_id,
@@ -267,7 +267,7 @@ pub(crate) async fn discover_machine(
         .await?
     };
 
-    db::machine_topology::create_or_update_with_bom_validation(
+    nico_api_db::machine_topology::create_or_update_with_bom_validation(
         &mut txn,
         &stable_machine_id,
         &hardware_info,
@@ -280,7 +280,7 @@ pub(crate) async fn discover_machine(
         // In case host interface is created, this method will return existing one, instead
         // creating new everytime.
         let machine_interface =
-            db::machine_interface::create_host_machine_dpu_interface_proactively(
+            nico_api_db::machine_interface::create_host_machine_dpu_interface_proactively(
                 &mut txn,
                 Some(&hardware_info),
                 &machine_id,
@@ -294,7 +294,7 @@ pub(crate) async fn discover_machine(
                     CarbideError::InvalidArgument(format!("hardware info missing: {e}"))
                 })?;
             let mi_id = machine_interface.id;
-            let proactive_machine = db::machine::get_or_create(
+            let proactive_machine = nico_api_db::machine::get_or_create(
                 &mut txn,
                 Some(&api.common_pools),
                 &predicted_machine_id,
@@ -303,7 +303,7 @@ pub(crate) async fn discover_machine(
             .await?;
 
             // Update host and DPUs state correctly.
-            db::machine::update_state(
+            nico_api_db::machine::update_state(
                 &mut txn,
                 &predicted_machine_id,
                 &ManagedHostState::DPUInit {
@@ -359,14 +359,14 @@ pub(crate) async fn discover_machine(
     };
 
     if let Some(nvlink_info) = nvlink_info {
-        db::machine::update_nvlink_info(&mut txn, &machine_id, nvlink_info).await?;
+        nico_api_db::machine::update_nvlink_info(&mut txn, &machine_id, nvlink_info).await?;
     }
 
     txn.commit().await?;
 
     let machine_certificate = if attest_key_challenge.is_none() {
         if std::env::var("UNSUPPORTED_CERTIFICATE_PROVIDER").is_ok() {
-            Some(rpc::MachineCertificate::default())
+            Some(forge::MachineCertificate::default())
         } else {
             Some(
                 api.certificate_provider
@@ -380,7 +380,7 @@ pub(crate) async fn discover_machine(
         None
     };
 
-    let response = Ok(Response::new(rpc::MachineDiscoveryResult {
+    let response = Ok(Response::new(forge::MachineDiscoveryResult {
         machine_id: Some(stable_machine_id),
         machine_certificate,
         attest_key_challenge,
@@ -398,7 +398,7 @@ pub(crate) async fn discover_machine(
 
         // Create DPU and LLDP Association.
         api.with_txn(|txn| {
-            db::network_devices::dpu_to_network_device_map::create_dpu_network_device_association(
+            nico_api_db::network_devices::dpu_to_network_device_map::create_dpu_network_device_association(
                 txn,
                 &dpu_info.switches,
                 &stable_machine_id,
@@ -414,8 +414,8 @@ pub(crate) async fn discover_machine(
 // Host has completed discovery
 pub(crate) async fn discovery_completed(
     api: &Api,
-    request: Request<rpc::MachineDiscoveryCompletedRequest>,
-) -> Result<Response<rpc::MachineDiscoveryCompletedResponse>, Status> {
+    request: Request<forge::MachineDiscoveryCompletedRequest>,
+) -> Result<Response<forge::MachineDiscoveryCompletedResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -424,7 +424,7 @@ pub(crate) async fn discovery_completed(
     let (machine, mut txn) = api
         .load_machine(&machine_id, MachineSearchConfig::default())
         .await?;
-    db::machine::update_discovery_time(&machine.id, &mut txn).await?;
+    nico_api_db::machine::update_discovery_time(&machine.id, &mut txn).await?;
 
     let discovery_result = "Success".to_owned();
 
@@ -434,7 +434,7 @@ pub(crate) async fn discovery_completed(
         %machine_id,
         discovery_result, "discovery_completed",
     );
-    Ok(Response::new(rpc::MachineDiscoveryCompletedResponse {}))
+    Ok(Response::new(forge::MachineDiscoveryCompletedResponse {}))
 }
 
 // Match up the platform info from scout with the GPU data from NMX-M to get the domain UUID and NMX-M GPU IDs.

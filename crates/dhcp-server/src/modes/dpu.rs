@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::machine::MachineInterfaceId;
 use lru::LruCache;
-use rpc::forge::{DhcpDiscovery, DhcpRecord};
+use nico_rpc::forge::{DhcpDiscovery, DhcpRecord};
+use nico_uuid::machine::MachineInterfaceId;
 use tonic::async_trait;
 use utils::models::dhcp::InterfaceInfo;
 

@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use carbide_uuid::power_shelf::PowerShelfId;
-use db::{DatabaseError, power_shelf as db_power_shelf};
-use model::metadata::Metadata;
-use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
+use nico_api_db::{DatabaseError, power_shelf as db_power_shelf};
+use nico_api_model::metadata::Metadata;
+use nico_api_model::power_shelf::{NewPowerShelf, PowerShelfConfig};
+use nico_uuid::power_shelf::PowerShelfId;
 
 #[crate::sqlx_test]
 async fn test_power_shelf_metadata_defaults(
@@ -119,7 +119,7 @@ async fn test_power_shelf_metadata_update(
 
     let found = db_power_shelf::find_by(
         &mut txn,
-        db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &ps_id),
+        nico_api_db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &ps_id),
         db_power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;

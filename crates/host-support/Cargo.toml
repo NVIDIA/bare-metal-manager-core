@@ -15,27 +15,26 @@
 # limitations under the License.
 #
 [package]
-name = "carbide-host-support"
+name = "nico-host-support"
 version = "0.0.0"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
-# TODO: rename to carbide_host_support in source
 [lib]
-name = "carbide_host_support"
+name = "nico_host_support"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 
 # [local-dependencies]
-carbide-tls = { path = "../tls" }
-carbide-libmlx = { path = "../libmlx" }
+nico-tls = { path = "../tls" }
+nico-libmlx = { path = "../libmlx" }
 logfmt = { path = "../logfmt" }
-carbide-rpc = { path = "../rpc" }
-carbide-utils = { path = "../utils" }
-carbide-uuid = { path = "../uuid" }
+nico-rpc = { path = "../rpc" }
+nico-utils = { path = "../utils" }
+nico-uuid = { path = "../uuid" }
 
 base64 = { workspace = true }
 csv = { workspace = true }

@@ -16,7 +16,8 @@
  */
 use common::api_fixtures::dpu::loopback_ip;
 use common::api_fixtures::{create_managed_host, create_test_env};
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 
 use crate::tests::common;
 
@@ -29,7 +30,7 @@ async fn test_get_dpu_info_list(pool: sqlx::PgPool) {
     // Make RPC call to get list of DPU information
     let dpu_list = env
         .api
-        .get_dpu_info_list(tonic::Request::new(::rpc::forge::GetDpuInfoListRequest {}))
+        .get_dpu_info_list(tonic::Request::new(forge::GetDpuInfoListRequest {}))
         .await
         .unwrap()
         .into_inner()

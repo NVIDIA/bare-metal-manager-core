@@ -17,7 +17,8 @@
 
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
 use serde::Deserialize;
 
 use crate::ConfigValidationError;
@@ -47,15 +48,15 @@ pub fn default_metadata_for_deserializer() -> Metadata {
     Metadata::default()
 }
 
-impl From<Metadata> for rpc::Metadata {
+impl From<Metadata> for nico_rpc::Metadata {
     fn from(metadata: Metadata) -> Self {
-        rpc::Metadata {
+        nico_rpc::Metadata {
             name: metadata.name,
             description: metadata.description,
             labels: metadata
                 .labels
                 .iter()
-                .map(|(key, value)| rpc::forge::Label {
+                .map(|(key, value)| forge::Label {
                     key: key.clone(),
                     value: if value.is_empty() {
                         None
@@ -68,10 +69,10 @@ impl From<Metadata> for rpc::Metadata {
     }
 }
 
-impl TryFrom<rpc::Metadata> for Metadata {
+impl TryFrom<nico_rpc::Metadata> for Metadata {
     type Error = RpcDataConversionError;
 
-    fn try_from(metadata: rpc::Metadata) -> Result<Self, Self::Error> {
+    fn try_from(metadata: nico_rpc::Metadata) -> Result<Self, Self::Error> {
         let mut labels = std::collections::HashMap::new();
 
         for label in metadata.labels {
@@ -163,8 +164,8 @@ pub struct LabelFilter {
     pub value: Option<String>,
 }
 
-impl From<rpc::forge::Label> for LabelFilter {
-    fn from(label: rpc::forge::Label) -> Self {
+impl From<forge::Label> for LabelFilter {
+    fn from(label: forge::Label) -> Self {
         LabelFilter {
             key: label.key,
             value: label.value,
@@ -306,7 +307,7 @@ mod tests {
 
     #[test]
     fn label_filter_from_rpc_with_value() {
-        let rpc_label = rpc::forge::Label {
+        let rpc_label = forge::Label {
             key: "env".to_string(),
             value: Some("prod".to_string()),
         };
@@ -317,7 +318,7 @@ mod tests {
 
     #[test]
     fn label_filter_from_rpc_without_value() {
-        let rpc_label = rpc::forge::Label {
+        let rpc_label = forge::Label {
             key: "env".to_string(),
             value: None,
         };
@@ -328,7 +329,7 @@ mod tests {
 
     #[test]
     fn label_filter_from_rpc_empty_key() {
-        let rpc_label = rpc::forge::Label {
+        let rpc_label = forge::Label {
             key: String::new(),
             value: Some("prod".to_string()),
         };

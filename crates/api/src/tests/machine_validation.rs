@@ -24,13 +24,15 @@ use common::api_fixtures::{
     get_machine_validation_runs, on_demand_machine_validation, update_machine_validation_run,
 };
 use config_version::ConfigVersion;
-use model::machine::{
+use nico_api_model::machine::{
     FailureCause, FailureDetails, FailureSource, MachineState, MachineValidatingState,
     MachineValidationFilter, ManagedHostState, ValidationState,
 };
-use rpc::Timestamp;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{MachineValidationTestNextVersionRequest, MachineValidationTestVerfiedRequest};
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{
+    MachineValidationTestNextVersionRequest, MachineValidationTestVerfiedRequest,
+};
+use nico_rpc::{Timestamp, forge};
 
 use crate::cfg::file::{
     MachineValidationConfig, MachineValidationTestConfig, MachineValidationTestSelectionMode,
@@ -77,13 +79,15 @@ async fn test_machine_validation_complete_with_error(
     alert.in_alert_since = None;
     assert_eq!(
         alert,
-        health_report::HealthProbeAlert {
+        nico_health_report::HealthProbeAlert {
             id: "FailedValidationTestCompletion".parse().unwrap(),
             target: None,
             in_alert_since: None,
             message: "Validation test failed to run to completion:\nTest Error".to_string(),
             tenant_message: None,
-            classifications: vec![health_report::HealthAlertClassification::prevent_allocations()],
+            classifications: vec![
+                nico_health_report::HealthAlertClassification::prevent_allocations()
+            ],
         }
         .into()
     );
@@ -97,7 +101,7 @@ async fn test_machine_validation_with_error(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let machine_validation_result = rpc::forge::MachineValidationResult {
+    let machine_validation_result = forge::MachineValidationResult {
         validation_id: None,
         name: "test1".to_string(),
         description: "desc".to_string(),
@@ -150,13 +154,15 @@ async fn test_machine_validation_with_error(
     alert.in_alert_since = None;
     assert_eq!(
         alert,
-        health_report::HealthProbeAlert {
+        nico_health_report::HealthProbeAlert {
             id: "FailedValidationTest".parse().unwrap(),
             target: Some("test1".to_string()),
             in_alert_since: None,
             message: "Failed validation test:\nName:test1\nCommand:echo\nArgs:test".to_string(),
             tenant_message: None,
-            classifications: vec![health_report::HealthAlertClassification::prevent_allocations()],
+            classifications: vec![
+                nico_health_report::HealthAlertClassification::prevent_allocations()
+            ],
         }
         .into()
     );
@@ -208,7 +214,7 @@ async fn test_machine_validation_with_error(
 async fn test_machine_validation(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let machine_validation_result = rpc::forge::MachineValidationResult {
+    let machine_validation_result = forge::MachineValidationResult {
         validation_id: None,
         name: "test1".to_string(),
         description: "desc".to_string(),
@@ -287,7 +293,7 @@ async fn test_machine_validation_get_results(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
     let segment_id = env.create_vpc_and_tenant_segment().await;
-    let machine_validation_result = rpc::forge::MachineValidationResult {
+    let machine_validation_result = forge::MachineValidationResult {
         validation_id: None,
         name: "test1".to_string(),
         description: "desc".to_string(),
@@ -364,7 +370,7 @@ async fn test_create_update_external_config(
     let desc = "shoreline description";
     env.api
         .add_update_machine_validation_external_config(tonic::Request::new(
-            rpc::forge::AddUpdateMachineValidationExternalConfigRequest {
+            forge::AddUpdateMachineValidationExternalConfigRequest {
                 name: name.to_string(),
                 description: Some(desc.to_string()),
                 config: input.as_bytes().to_vec(),
@@ -376,7 +382,7 @@ async fn test_create_update_external_config(
     let res = env
         .api
         .get_machine_validation_external_config(tonic::Request::new(
-            rpc::forge::GetMachineValidationExternalConfigRequest {
+            forge::GetMachineValidationExternalConfigRequest {
                 name: name.to_string(),
             },
         ))
@@ -391,7 +397,7 @@ async fn test_create_update_external_config(
     // Update one more time
     env.api
         .add_update_machine_validation_external_config(tonic::Request::new(
-            rpc::forge::AddUpdateMachineValidationExternalConfigRequest {
+            forge::AddUpdateMachineValidationExternalConfigRequest {
                 name: name.to_string(),
                 description: Some(desc.to_string()),
                 config: input.as_bytes().to_vec(),
@@ -403,7 +409,7 @@ async fn test_create_update_external_config(
     let res_next = env
         .api
         .get_machine_validation_external_config(tonic::Request::new(
-            rpc::forge::GetMachineValidationExternalConfigRequest {
+            forge::GetMachineValidationExternalConfigRequest {
                 name: name.to_string(),
             },
         ))
@@ -418,7 +424,7 @@ async fn test_create_update_external_config(
     let res_list = env
         .api
         .get_machine_validation_external_configs(tonic::Request::new(
-            rpc::forge::GetMachineValidationExternalConfigsRequest {
+            forge::GetMachineValidationExternalConfigsRequest {
                 names: vec!["shoreline".to_string()],
             },
         ))
@@ -431,7 +437,7 @@ async fn test_create_update_external_config(
     // remove
     env.api
         .remove_machine_validation_external_config(tonic::Request::new(
-            rpc::forge::RemoveMachineValidationExternalConfigRequest {
+            forge::RemoveMachineValidationExternalConfigRequest {
                 name: res_list.configs[0].name.clone(),
             },
         ))
@@ -441,7 +447,7 @@ async fn test_create_update_external_config(
     let remove_res_list = env
         .api
         .get_machine_validation_external_configs(tonic::Request::new(
-            rpc::forge::GetMachineValidationExternalConfigsRequest { names: Vec::new() },
+            forge::GetMachineValidationExternalConfigsRequest { names: Vec::new() },
         ))
         .await
         .unwrap()
@@ -457,7 +463,7 @@ async fn test_machine_validation_test_on_demand_filter(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let machine_validation_result = rpc::forge::MachineValidationResult {
+    let machine_validation_result = forge::MachineValidationResult {
         validation_id: None,
         name: "test1".to_string(),
         description: "desc".to_string(),
@@ -572,11 +578,10 @@ async fn test_machine_validation_disabled(
     let mh = create_host_with_machine_validation(&env, None, None).await;
 
     let runs = get_machine_validation_runs(&env, &mh.host().id, true).await;
-    let skipped_state_int =
-        rpc::forge::machine_validation_status::MachineValidationState::Completed(
-            rpc::forge::machine_validation_status::MachineValidationCompleted::Skipped.into(),
-        );
-    // let skipped_state_int: i32 = rpc::forge::MachineValidationState::Skipped.into();
+    let skipped_state_int = forge::machine_validation_status::MachineValidationState::Completed(
+        forge::machine_validation_status::MachineValidationCompleted::Skipped.into(),
+    );
+    // let skipped_state_int: i32 = forge::MachineValidationState::Skipped.into();
     assert_eq!(
         runs.runs[0]
             .status
@@ -617,8 +622,8 @@ async fn test_machine_validation_disabled(
     let _ = mh.host().reboot_completed().await;
 
     let runs = get_machine_validation_runs(&env, &mh.host().id, true).await;
-    let started_state_int = rpc::forge::machine_validation_status::MachineValidationState::Started(
-        rpc::forge::machine_validation_status::MachineValidationStarted::Started.into(),
+    let started_state_int = forge::machine_validation_status::MachineValidationState::Started(
+        forge::machine_validation_status::MachineValidationStarted::Started.into(),
     );
     let mut status_asserted = false;
     for run in runs.runs {
@@ -669,7 +674,7 @@ async fn test_machine_validation_add_new_test_case(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let request = rpc::forge::MachineValidationTestAddRequest {
+    let request = forge::MachineValidationTestAddRequest {
         name: "dcgm_short_test".to_string(),
         description: Some("Run run level 3 test cases".to_string()),
         contexts: vec![
@@ -706,9 +711,9 @@ async fn test_machine_validation_add_new_test_case(
     let test_list = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest {
+            forge::MachineValidationTestsGetRequest {
                 test_id: Some(add_update_response.clone().test_id),
-                ..rpc::forge::MachineValidationTestsGetRequest::default()
+                ..forge::MachineValidationTestsGetRequest::default()
             },
         ))
         .await
@@ -758,16 +763,16 @@ async fn test_machine_validation_update_existing_test(
     let existing_test_list = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest {
+            forge::MachineValidationTestsGetRequest {
                 test_id: Some("forge_dcgm_long_test".to_string()),
-                ..rpc::forge::MachineValidationTestsGetRequest::default()
+                ..forge::MachineValidationTestsGetRequest::default()
             },
         ))
         .await
         .unwrap()
         .into_inner()
         .tests;
-    let update_payload = rpc::forge::machine_validation_test_update_request::Payload {
+    let update_payload = forge::machine_validation_test_update_request::Payload {
         contexts: vec!["Discovery".to_string(), "CleanUp".to_string()],
         img_name: Some("nvcr.io/nvidia/shoreline:latest".to_string()),
         execute_in_host: Some(true),
@@ -778,9 +783,9 @@ async fn test_machine_validation_update_existing_test(
             "Sku 090e modelname poweredge r750".to_string(),
             "7z73cto1ww".to_string(),
         ],
-        ..rpc::forge::machine_validation_test_update_request::Payload::default()
+        ..forge::machine_validation_test_update_request::Payload::default()
     };
-    let update_request = rpc::forge::MachineValidationTestUpdateRequest {
+    let update_request = forge::MachineValidationTestUpdateRequest {
         test_id: existing_test_list[0].test_id.clone(),
         payload: Some(update_payload.clone()),
         version: existing_test_list[0].version.clone(),
@@ -795,9 +800,9 @@ async fn test_machine_validation_update_existing_test(
     let updated_tests = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest {
+            forge::MachineValidationTestsGetRequest {
                 test_id: Some(add_update_response.test_id.clone()),
-                ..rpc::forge::MachineValidationTestsGetRequest::default()
+                ..forge::MachineValidationTestsGetRequest::default()
             },
         ))
         .await
@@ -843,9 +848,9 @@ async fn test_machine_validation_mark_test_as_verfied(
     let existing_test_list = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest {
+            forge::MachineValidationTestsGetRequest {
                 test_id: Some("forge_dcgm_long_test".to_string()),
-                ..rpc::forge::MachineValidationTestsGetRequest::default()
+                ..forge::MachineValidationTestsGetRequest::default()
             },
         ))
         .await
@@ -867,9 +872,9 @@ async fn test_machine_validation_mark_test_as_verfied(
     let tests = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest {
+            forge::MachineValidationTestsGetRequest {
                 test_id: Some(existing_test_list[0].test_id.clone()),
-                ..rpc::forge::MachineValidationTestsGetRequest::default()
+                ..forge::MachineValidationTestsGetRequest::default()
             },
         ))
         .await
@@ -890,9 +895,9 @@ async fn test_machine_validation_create_clones(
     let existing_test_list = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest {
+            forge::MachineValidationTestsGetRequest {
                 test_id: Some("forge_dcgm_long_test".to_string()),
-                ..rpc::forge::MachineValidationTestsGetRequest::default()
+                ..forge::MachineValidationTestsGetRequest::default()
             },
         ))
         .await
@@ -930,9 +935,9 @@ async fn test_machine_validation_create_clones(
     let tests = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest {
+            forge::MachineValidationTestsGetRequest {
                 test_id: Some(existing_test_list[0].test_id.clone()),
-                ..rpc::forge::MachineValidationTestsGetRequest::default()
+                ..forge::MachineValidationTestsGetRequest::default()
             },
         ))
         .await
@@ -952,8 +957,8 @@ async fn test_machine_validation_test_disabled(
     let existing_test_list = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest {
-                ..rpc::forge::MachineValidationTestsGetRequest::default()
+            forge::MachineValidationTestsGetRequest {
+                ..forge::MachineValidationTestsGetRequest::default()
             },
         ))
         .await
@@ -965,7 +970,7 @@ async fn test_machine_validation_test_disabled(
     let _ = env
         .api
         .machine_validation_test_enable_disable_test(tonic::Request::new(
-            rpc::forge::MachineValidationTestEnableDisableTestRequest {
+            forge::MachineValidationTestEnableDisableTestRequest {
                 test_id: existing_test_list[0].test_id.clone(),
                 version: existing_test_list[0].version.clone(),
                 is_enabled: false,
@@ -978,7 +983,7 @@ async fn test_machine_validation_test_disabled(
     let _ = env
         .api
         .machine_validation_test_enable_disable_test(tonic::Request::new(
-            rpc::forge::MachineValidationTestEnableDisableTestRequest {
+            forge::MachineValidationTestEnableDisableTestRequest {
                 test_id: existing_test_list[1].test_id.clone(),
                 version: existing_test_list[1].version.clone(),
                 is_enabled: false,
@@ -991,9 +996,9 @@ async fn test_machine_validation_test_disabled(
     let updated_tests = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest {
+            forge::MachineValidationTestsGetRequest {
                 is_enabled: Some(true),
-                ..rpc::forge::MachineValidationTestsGetRequest::default()
+                ..forge::MachineValidationTestsGetRequest::default()
             },
         ))
         .await
@@ -1011,7 +1016,7 @@ async fn test_on_demant_un_verified_machine_validation(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let machine_validation_result = rpc::forge::MachineValidationResult {
+    let machine_validation_result = forge::MachineValidationResult {
         validation_id: None,
         name: "test1".to_string(),
         description: "desc".to_string(),
@@ -1103,7 +1108,7 @@ async fn test_machine_validation_get_unverified_tests(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let request = rpc::forge::MachineValidationTestAddRequest {
+    let request = forge::MachineValidationTestAddRequest {
         name: "dcgm_short_test".to_string(),
         description: Some("Run run level 3 test cases".to_string()),
         contexts: vec![
@@ -1140,9 +1145,9 @@ async fn test_machine_validation_get_unverified_tests(
     let test_list = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest {
+            forge::MachineValidationTestsGetRequest {
                 verified: Some(false),
-                ..rpc::forge::MachineValidationTestsGetRequest::default()
+                ..forge::MachineValidationTestsGetRequest::default()
             },
         ))
         .await
@@ -1167,7 +1172,7 @@ async fn test_on_demant_machine_validation_all_contexts(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let mut machine_validation_result = rpc::forge::MachineValidationResult {
+    let mut machine_validation_result = forge::MachineValidationResult {
         validation_id: None,
         name: "test1".to_string(),
         description: "desc".to_string(),
@@ -1216,7 +1221,9 @@ async fn test_on_demant_machine_validation_all_contexts(
     let success = update_machine_validation_run(
         &env,
         on_demand_response.clone().validation_id,
-        Some(rpc::Duration::from(std::time::Duration::from_secs(3600))),
+        Some(nico_rpc::Duration::from(std::time::Duration::from_secs(
+            3600,
+        ))),
         0,
     )
     .await;
@@ -1286,7 +1293,7 @@ async fn test_machine_validation_tests_on_startup_default_mode(
     let initial_tests = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest::default(),
+            forge::MachineValidationTestsGetRequest::default(),
         ))
         .await?
         .into_inner()
@@ -1316,7 +1323,7 @@ async fn test_machine_validation_tests_on_startup_default_mode(
     let updated_tests = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest::default(),
+            forge::MachineValidationTestsGetRequest::default(),
         ))
         .await?
         .into_inner()
@@ -1367,7 +1374,7 @@ async fn test_machine_validation_tests_enable_all_mode(
     let initial_tests = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest::default(),
+            forge::MachineValidationTestsGetRequest::default(),
         ))
         .await?
         .into_inner()
@@ -1391,7 +1398,7 @@ async fn test_machine_validation_tests_enable_all_mode(
     let updated_tests = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest::default(),
+            forge::MachineValidationTestsGetRequest::default(),
         ))
         .await?
         .into_inner()
@@ -1428,7 +1435,7 @@ async fn test_machine_validation_tests_on_startup_disable_all_mode(
     let initial_tests = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest::default(),
+            forge::MachineValidationTestsGetRequest::default(),
         ))
         .await?
         .into_inner()
@@ -1452,7 +1459,7 @@ async fn test_machine_validation_tests_on_startup_disable_all_mode(
     let updated_tests = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest::default(),
+            forge::MachineValidationTestsGetRequest::default(),
         ))
         .await?
         .into_inner()
@@ -1489,7 +1496,7 @@ async fn test_machine_validation_tests_on_startup_missing_test_selection_mode(
     let initial_tests = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest::default(),
+            forge::MachineValidationTestsGetRequest::default(),
         ))
         .await?
         .into_inner()
@@ -1513,7 +1520,7 @@ async fn test_machine_validation_tests_on_startup_missing_test_selection_mode(
     let updated_tests = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest::default(),
+            forge::MachineValidationTestsGetRequest::default(),
         ))
         .await?
         .into_inner()
@@ -1566,7 +1573,7 @@ async fn test_machine_validation_tests_on_startup_missing_tests_config(
     let updated_tests = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest::default(),
+            forge::MachineValidationTestsGetRequest::default(),
         ))
         .await?
         .into_inner()
@@ -1596,7 +1603,7 @@ async fn test_machine_validation_tests_on_startup_missing_tests_config(
     let updated_tests = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest::default(),
+            forge::MachineValidationTestsGetRequest::default(),
         ))
         .await?
         .into_inner()
@@ -1624,7 +1631,7 @@ async fn test_machine_validation_tests_on_startup_missing_both_fields(
     let initial_tests = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest::default(),
+            forge::MachineValidationTestsGetRequest::default(),
         ))
         .await?
         .into_inner()
@@ -1644,7 +1651,7 @@ async fn test_machine_validation_tests_on_startup_missing_both_fields(
     let updated_tests = env
         .api
         .get_machine_validation_tests(tonic::Request::new(
-            rpc::forge::MachineValidationTestsGetRequest::default(),
+            forge::MachineValidationTestsGetRequest::default(),
         ))
         .await?
         .into_inner()

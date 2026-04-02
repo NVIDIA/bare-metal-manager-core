@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::{MachineId, MachineType};
-use model::host_machine_update::HostMachineUpdate;
-use model::machine::HostReprovisionRequest;
+use nico_api_model::host_machine_update::HostMachineUpdate;
+use nico_api_model::machine::HostReprovisionRequest;
+use nico_uuid::machine::{MachineId, MachineType};
 use sqlx::PgConnection;
 
 use super::DatabaseError;

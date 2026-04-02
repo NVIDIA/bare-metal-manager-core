@@ -16,6 +16,7 @@
  */
 
 use chrono::{DateTime, Utc};
+use nico_rpc::forge;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::types::Json;
@@ -44,7 +45,7 @@ impl<'r> FromRow<'r, PgRow> for RackFirmware {
     }
 }
 
-impl From<&RackFirmware> for rpc::forge::RackFirmware {
+impl From<&RackFirmware> for forge::RackFirmware {
     fn from(db: &RackFirmware) -> Self {
         let parsed_components = db
             .parsed_components
@@ -52,7 +53,7 @@ impl From<&RackFirmware> for rpc::forge::RackFirmware {
             .map(|p| p.0.to_string())
             .unwrap_or_else(|| "{}".to_string());
 
-        rpc::forge::RackFirmware {
+        forge::RackFirmware {
             id: db.id.clone(),
             config_json: db.config.0.to_string(),
             available: db.available,
@@ -73,9 +74,9 @@ pub struct RackFirmwareApplyHistoryRecord {
     pub firmware_available: bool,
 }
 
-impl From<RackFirmwareApplyHistoryRecord> for rpc::forge::RackFirmwareHistoryRecord {
+impl From<RackFirmwareApplyHistoryRecord> for forge::RackFirmwareHistoryRecord {
     fn from(record: RackFirmwareApplyHistoryRecord) -> Self {
-        rpc::forge::RackFirmwareHistoryRecord {
+        forge::RackFirmwareHistoryRecord {
             firmware_id: record.firmware_id,
             rack_id: record.rack_id,
             firmware_type: record.firmware_type,

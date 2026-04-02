@@ -17,9 +17,9 @@
 
 //use std::collections::HashSet;
 
-use ::rpc::errors::RpcDataConversionError;
-use carbide_uuid::nvlink::NvLinkLogicalPartitionId;
-use rpc::forge as rpc;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::nvlink::NvLinkLogicalPartitionId;
 use serde::{Deserialize, Serialize};
 
 use crate::ConfigValidationError;
@@ -48,10 +48,10 @@ impl InstanceNvLinkConfig {
     }
 }
 
-impl TryFrom<rpc::InstanceNvLinkConfig> for InstanceNvLinkConfig {
+impl TryFrom<forge::InstanceNvLinkConfig> for InstanceNvLinkConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: rpc::InstanceNvLinkConfig) -> Result<Self, Self::Error> {
+    fn try_from(config: forge::InstanceNvLinkConfig) -> Result<Self, Self::Error> {
         let mut gpu_configs = Vec::with_capacity(config.gpu_configs.len());
         for gpu in config.gpu_configs.into_iter() {
             gpu_configs.push(InstanceNvLinkGpuConfig {
@@ -64,19 +64,19 @@ impl TryFrom<rpc::InstanceNvLinkConfig> for InstanceNvLinkConfig {
     }
 }
 
-impl TryFrom<InstanceNvLinkConfig> for rpc::InstanceNvLinkConfig {
+impl TryFrom<InstanceNvLinkConfig> for forge::InstanceNvLinkConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: InstanceNvLinkConfig) -> Result<rpc::InstanceNvLinkConfig, Self::Error> {
+    fn try_from(config: InstanceNvLinkConfig) -> Result<forge::InstanceNvLinkConfig, Self::Error> {
         let mut gpu_configs = Vec::with_capacity(config.gpu_configs.len());
         for gpu in config.gpu_configs.into_iter() {
-            gpu_configs.push(rpc::InstanceNvLinkGpuConfig {
+            gpu_configs.push(forge::InstanceNvLinkGpuConfig {
                 device_instance: gpu.device_instance,
                 logical_partition_id: gpu.logical_partition_id,
             });
         }
 
-        Ok(rpc::InstanceNvLinkConfig { gpu_configs })
+        Ok(forge::InstanceNvLinkConfig { gpu_configs })
     }
 }
 

@@ -14,10 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use forge_tls::client_config::ClientCert;
-use forge_tls::default::{default_client_cert, default_client_key, default_root_ca};
-use rpc::forge::{DhcpDiscovery, DhcpRecord};
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, ForgeTlsClient};
+use nico_rpc::forge::{DhcpDiscovery, DhcpRecord};
+use nico_rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, ForgeTlsClient};
+use nico_tls::client_config::ClientCert;
+use nico_tls::default::{default_client_cert, default_client_key, default_root_ca};
 
 use crate::Config;
 use crate::errors::DhcpError;

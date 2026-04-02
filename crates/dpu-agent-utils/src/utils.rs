@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, ForgeClientT, ForgeTlsClient};
+use nico_rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, ForgeClientT, ForgeTlsClient};
 
 // Forge Communication
 pub async fn create_forge_client(

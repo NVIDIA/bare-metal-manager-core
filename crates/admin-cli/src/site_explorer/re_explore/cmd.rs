@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge::ReExploreEndpointRequest;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::forge::ReExploreEndpointRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;

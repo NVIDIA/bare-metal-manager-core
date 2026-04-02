@@ -14,14 +14,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::forge as rpc;
-use carbide_network::virtualization::VpcVirtualizationType;
-use db::resource_pool::ResourcePoolDatabaseError;
-use db::{AnnotatedSqlxError, DatabaseError, ObjectColumnFilter, network_segment};
-use model::network_segment::{
+use nico_api_db::resource_pool::ResourcePoolDatabaseError;
+use nico_api_db::{AnnotatedSqlxError, DatabaseError, ObjectColumnFilter, network_segment};
+use nico_api_model::network_segment::{
     NetworkSegment, NetworkSegmentControllerState, NetworkSegmentSearchConfig, NetworkSegmentType,
     NewNetworkSegment,
 };
+use nico_network::virtualization::VpcVirtualizationType;
+use nico_rpc::forge;
 use sqlx::{PgConnection, PgTransaction};
 use tonic::{Request, Response, Status};
 
@@ -30,26 +30,27 @@ use crate::api::{Api, log_request_data};
 
 pub(crate) async fn find_ids(
     api: &Api,
-    request: Request<rpc::NetworkSegmentSearchFilter>,
-) -> Result<Response<rpc::NetworkSegmentIdList>, Status> {
+    request: Request<forge::NetworkSegmentSearchFilter>,
+) -> Result<Response<forge::NetworkSegmentIdList>, Status> {
     log_request_data(&request);
 
-    let filter: model::network_segment::NetworkSegmentSearchFilter = request.into_inner().into();
+    let filter: nico_api_model::network_segment::NetworkSegmentSearchFilter =
+        request.into_inner().into();
 
     let network_segments_ids =
-        db::network_segment::find_ids(&api.database_connection, filter).await?;
+        nico_api_db::network_segment::find_ids(&api.database_connection, filter).await?;
 
-    Ok(Response::new(rpc::NetworkSegmentIdList {
+    Ok(Response::new(forge::NetworkSegmentIdList {
         network_segments_ids,
     }))
 }
 
 pub(crate) async fn find_by_ids(
     api: &Api,
-    request: Request<rpc::NetworkSegmentsByIdsRequest>,
-) -> Result<Response<rpc::NetworkSegmentList>, Status> {
+    request: Request<forge::NetworkSegmentsByIdsRequest>,
+) -> Result<Response<forge::NetworkSegmentList>, Status> {
     log_request_data(&request);
-    let rpc::NetworkSegmentsByIdsRequest {
+    let forge::NetworkSegmentsByIdsRequest {
         network_segments_ids,
         include_history,
         include_num_free_ips,
@@ -68,7 +69,7 @@ pub(crate) async fn find_by_ids(
         );
     }
 
-    let segments = db::network_segment::find_by(
+    let segments = nico_api_db::network_segment::find_by(
         &mut api.db_reader(),
         ObjectColumnFilter::List(network_segment::IdColumn, &network_segments_ids),
         NetworkSegmentSearchConfig {
@@ -82,15 +83,15 @@ pub(crate) async fn find_by_ids(
     for seg in segments {
         result.push(seg.try_into()?);
     }
-    Ok(Response::new(rpc::NetworkSegmentList {
+    Ok(Response::new(forge::NetworkSegmentList {
         network_segments: result,
     }))
 }
 
 pub(crate) async fn create(
     api: &Api,
-    request: Request<rpc::NetworkSegmentCreationRequest>,
-) -> Result<Response<rpc::NetworkSegment>, Status> {
+    request: Request<forge::NetworkSegmentCreationRequest>,
+) -> Result<Response<forge::NetworkSegment>, Status> {
     crate::api::log_request_data(&request);
 
     let request = request.into_inner();
@@ -128,9 +129,9 @@ pub(crate) async fn create(
     let mut txn = api.txn_begin().await?;
 
     let allocate_svi_ip = if let Some(vpc_id) = new_network_segment.vpc_id {
-        let vpcs = db::vpc::find_by(
+        let vpcs = nico_api_db::vpc::find_by(
             &mut txn,
-            ObjectColumnFilter::One(db::vpc::IdColumn, &vpc_id),
+            ObjectColumnFilter::One(nico_api_db::vpc::IdColumn, &vpc_id),
         )
         .await?;
 
@@ -170,17 +171,17 @@ pub(crate) async fn create(
 
 pub(crate) async fn delete(
     api: &Api,
-    request: Request<rpc::NetworkSegmentDeletionRequest>,
-) -> Result<Response<rpc::NetworkSegmentDeletionResult>, Status> {
+    request: Request<forge::NetworkSegmentDeletionRequest>,
+) -> Result<Response<forge::NetworkSegmentDeletionResult>, Status> {
     crate::api::log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
 
-    let rpc::NetworkSegmentDeletionRequest { id, .. } = request.into_inner();
+    let forge::NetworkSegmentDeletionRequest { id, .. } = request.into_inner();
 
     let segment_id = id.ok_or_else(|| CarbideError::MissingArgument("id"))?;
 
-    let mut segments = db::network_segment::find_by(
+    let mut segments = nico_api_db::network_segment::find_by(
         &mut txn,
         ObjectColumnFilter::One(network_segment::IdColumn, &segment_id),
         NetworkSegmentSearchConfig::default(),
@@ -198,10 +199,12 @@ pub(crate) async fn delete(
         }
     };
 
-    let response = Ok(db::network_segment::mark_as_deleted(&segment, &mut txn)
-        .await
-        .map(|_| rpc::NetworkSegmentDeletionResult {})
-        .map(Response::new)?);
+    let response = Ok(
+        nico_api_db::network_segment::mark_as_deleted(&segment, &mut txn)
+            .await
+            .map(|_| forge::NetworkSegmentDeletionResult {})
+            .map(Response::new)?,
+    );
 
     txn.commit().await?;
 
@@ -210,15 +213,15 @@ pub(crate) async fn delete(
 
 pub(crate) async fn for_vpc(
     api: &Api,
-    request: Request<rpc::VpcSearchQuery>,
-) -> Result<Response<rpc::NetworkSegmentList>, Status> {
+    request: Request<forge::VpcSearchQuery>,
+) -> Result<Response<forge::NetworkSegmentList>, Status> {
     crate::api::log_request_data(&request);
 
-    let rpc::VpcSearchQuery { id, .. } = request.into_inner();
+    let forge::VpcSearchQuery { id, .. } = request.into_inner();
 
     let uuid = id.ok_or_else(|| CarbideError::InvalidArgument("id".to_string()))?;
 
-    let results = db::network_segment::for_vpc(&api.database_connection, uuid).await?;
+    let results = nico_api_db::network_segment::for_vpc(&api.database_connection, uuid).await?;
 
     let mut network_segments = Vec::with_capacity(results.len());
 
@@ -226,7 +229,9 @@ pub(crate) async fn for_vpc(
         network_segments.push(result.try_into()?);
     }
 
-    Ok(Response::new(rpc::NetworkSegmentList { network_segments }))
+    Ok(Response::new(forge::NetworkSegmentList {
+        network_segments,
+    }))
 }
 
 // Called by db_init::create_initial_networks
@@ -248,24 +253,25 @@ pub(crate) async fn save(
     } else {
         NetworkSegmentControllerState::Provisioning
     };
-    let mut network_segment = match db::network_segment::persist(ns, txn, initial_state).await {
-        Ok(segment) => segment,
-        Err(DatabaseError::Sqlx(AnnotatedSqlxError {
-            source: sqlx::Error::Database(e),
-            ..
-        })) if e.constraint() == Some("network_prefixes_prefix_excl") => {
-            return Err(CarbideError::InvalidArgument(
-                "Prefix overlaps with an existing one".to_string(),
-            ));
-        }
-        Err(err) => {
-            return Err(err.into());
-        }
-    };
+    let mut network_segment =
+        match nico_api_db::network_segment::persist(ns, txn, initial_state).await {
+            Ok(segment) => segment,
+            Err(DatabaseError::Sqlx(AnnotatedSqlxError {
+                source: sqlx::Error::Database(e),
+                ..
+            })) if e.constraint() == Some("network_prefixes_prefix_excl") => {
+                return Err(CarbideError::InvalidArgument(
+                    "Prefix overlaps with an existing one".to_string(),
+                ));
+            }
+            Err(err) => {
+                return Err(err.into());
+            }
+        };
 
     if allocate_svi_ip {
-        db::network_segment::allocate_svi_ip(&network_segment, txn).await?;
-        let network_segments = db::network_segment::find_by(
+        nico_api_db::network_segment::allocate_svi_ip(&network_segment, txn).await?;
+        let network_segments = nico_api_db::network_segment::find_by(
             txn.as_mut(),
             ObjectColumnFilter::One(network_segment::IdColumn, &network_segment.id),
             NetworkSegmentSearchConfig::default(),
@@ -292,10 +298,10 @@ pub async fn allocate_vni(
     txn: &mut PgConnection,
     owner_id: &str,
 ) -> Result<i32, CarbideError> {
-    match db::resource_pool::allocate(
+    match nico_api_db::resource_pool::allocate(
         &api.common_pools.ethernet.pool_vni,
         txn,
-        model::resource_pool::OwnerType::NetworkSegment,
+        nico_api_model::resource_pool::OwnerType::NetworkSegment,
         owner_id,
         None,
     )
@@ -303,7 +309,7 @@ pub async fn allocate_vni(
     {
         Ok(val) => Ok(val),
         Err(ResourcePoolDatabaseError::ResourcePool(
-            model::resource_pool::ResourcePoolError::Empty,
+            nico_api_model::resource_pool::ResourcePoolError::Empty,
         )) => {
             tracing::error!(owner_id, pool = "vni", "Pool exhausted, cannot allocate");
             Err(CarbideError::ResourceExhausted("pool vni".to_string()))
@@ -323,10 +329,10 @@ pub async fn allocate_vlan_id(
     txn: &mut PgConnection,
     owner_id: &str,
 ) -> Result<i16, CarbideError> {
-    match db::resource_pool::allocate(
+    match nico_api_db::resource_pool::allocate(
         &api.common_pools.ethernet.pool_vlan_id,
         txn,
-        model::resource_pool::OwnerType::NetworkSegment,
+        nico_api_model::resource_pool::OwnerType::NetworkSegment,
         owner_id,
         None,
     )
@@ -334,7 +340,7 @@ pub async fn allocate_vlan_id(
     {
         Ok(val) => Ok(val),
         Err(ResourcePoolDatabaseError::ResourcePool(
-            model::resource_pool::ResourcePoolError::Empty,
+            nico_api_model::resource_pool::ResourcePoolError::Empty,
         )) => {
             tracing::error!(
                 owner_id,

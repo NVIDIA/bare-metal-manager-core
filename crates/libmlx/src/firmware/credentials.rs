@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use rpc::protos::mlx_device::firmware_credentials::CredentialType as CredentialTypePb;
-use rpc::protos::mlx_device::{
+use nico_rpc::protos::mlx_device::firmware_credentials::CredentialType as CredentialTypePb;
+use nico_rpc::protos::mlx_device::{
     BasicAuthCredentials as BasicAuthCredentialsPb,
     BearerTokenCredentials as BearerTokenCredentialsPb,
     FirmwareCredentials as FirmwareCredentialsPb, HeaderCredentials as HeaderCredentialsPb,

@@ -23,10 +23,10 @@ use askama::Template;
 use axum::Json;
 use axum::extract::{Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
-use carbide_uuid::machine::MachineId;
 use hyper::http::StatusCode;
-use rpc::forge as forgerpc;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::machine::MachineId;
 
 use super::filters;
 use crate::api::Api;
@@ -57,7 +57,7 @@ struct NetworkStatusDisplay {
     dpu_machine_id: String,
     network_config_version: String,
     is_healthy: bool,
-    health: health_report::HealthReport,
+    health: nico_health_report::HealthReport,
     agent_version: String,
     is_agent_updated: bool,
 }
@@ -176,8 +176,8 @@ async fn fetch_network_status(
     current_page: usize,
     limit: usize,
 ) -> Result<(usize, Vec<NetworkStatusDisplay>), tonic::Status> {
-    let request: tonic::Request<forgerpc::ManagedHostNetworkStatusRequest> =
-        tonic::Request::new(forgerpc::ManagedHostNetworkStatusRequest {});
+    let request: tonic::Request<forge::ManagedHostNetworkStatusRequest> =
+        tonic::Request::new(forge::ManagedHostNetworkStatusRequest {});
     // The only reason we require the get_all_managed_host_network_status
     // API here is for retrieving the actually applied network_config_version
     // and the time of last contact (observed_at).
@@ -219,7 +219,7 @@ async fn fetch_network_status(
         .collect();
 
     let all_dpus = api
-        .find_machines_by_ids(tonic::Request::new(forgerpc::MachinesByIdsRequest {
+        .find_machines_by_ids(tonic::Request::new(forge::MachinesByIdsRequest {
             machine_ids: ids_for_page,
             include_history: false,
         }))
@@ -258,10 +258,10 @@ async fn fetch_network_status(
             .health
             .as_ref()
             .map(|h| {
-                health_report::HealthReport::try_from(h.clone())
-                    .unwrap_or_else(health_report::HealthReport::malformed_report)
+                nico_health_report::HealthReport::try_from(h.clone())
+                    .unwrap_or_else(nico_health_report::HealthReport::malformed_report)
             })
-            .unwrap_or_else(health_report::HealthReport::missing_report);
+            .unwrap_or_else(nico_health_report::HealthReport::missing_report);
 
         result.push(NetworkStatusDisplay {
             observed_at: status
@@ -275,7 +275,7 @@ async fn fetch_network_status(
             network_config_version: status.network_config_version.unwrap_or_default(),
             is_healthy: health.alerts.is_empty(),
             health,
-            is_agent_updated: agent_version == carbide_version::v!(build_version),
+            is_agent_updated: agent_version == nico_version::v!(build_version),
             agent_version,
         });
     }

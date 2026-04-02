@@ -14,15 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::extension_service::ExtensionServiceId;
 use config_version::ConfigVersion;
-use db::{WithTransaction, extension_service, instance};
-use forge_secrets::credentials::{CredentialKey, Credentials};
 use futures_util::FutureExt;
-use model::extension_service::{ExtensionServiceObservability, ExtensionServiceType};
-use model::tenant::TenantOrganizationId;
+use nico_api_db::{WithTransaction, extension_service, instance};
+use nico_api_model::extension_service::{ExtensionServiceObservability, ExtensionServiceType};
+use nico_api_model::tenant::TenantOrganizationId;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_secrets::credentials::{CredentialKey, Credentials};
+use nico_uuid::extension_service::ExtensionServiceId;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -35,8 +35,8 @@ const MAX_OBSERVABILITY_CONFIG_PER_SERVICE: usize = 20;
 /// Creates a new extension service with an initial version.
 pub(crate) async fn create(
     api: &Api,
-    request: Request<rpc::CreateDpuExtensionServiceRequest>,
-) -> Result<Response<rpc::DpuExtensionService>, Status> {
+    request: Request<forge::CreateDpuExtensionServiceRequest>,
+) -> Result<Response<forge::DpuExtensionService>, Status> {
     // Do not log_request_data as request may contain credential or sensitive data
     tracing::Span::current().record("request", "CreateDpuExtensionServiceRequest { }");
 
@@ -64,7 +64,7 @@ pub(crate) async fn create(
         return Err(CarbideError::MissingArgument("service_name").into());
     }
     let service_type: ExtensionServiceType =
-        rpc::DpuExtensionServiceType::try_from(req.service_type)
+        forge::DpuExtensionServiceType::try_from(req.service_type)
             .map_err(|_| CarbideError::InvalidArgument("Invalid service_type".to_string()))?
             .into();
 
@@ -85,7 +85,7 @@ pub(crate) async fn create(
         .unwrap_or(0);
     if obvs_len > MAX_OBSERVABILITY_CONFIG_PER_SERVICE {
         return Err(CarbideError::InvalidConfiguration(
-            model::ConfigValidationError::InvalidValue(format!(
+            nico_api_model::ConfigValidationError::InvalidValue(format!(
                 "{} configured observability configs for extension service exceeds the limit of {MAX_OBSERVABILITY_CONFIG_PER_SERVICE}",
                 obvs_len
             )),
@@ -163,9 +163,9 @@ pub(crate) async fn create(
     }
 
     // Create response with service details
-    let response = rpc::DpuExtensionService {
+    let response = forge::DpuExtensionService {
         service_id: service.id.to_string(),
-        service_type: rpc::DpuExtensionServiceType::from(service_type) as i32,
+        service_type: forge::DpuExtensionServiceType::from(service_type) as i32,
         service_name: service.name,
         tenant_organization_id: service.tenant_organization_id.to_string(),
         version_ctr: service.version_ctr,
@@ -189,8 +189,8 @@ pub(crate) async fn create(
 /// - Commits the transaction, or rolls back and deletes the credential on failure
 pub(crate) async fn update(
     api: &Api,
-    request: Request<rpc::UpdateDpuExtensionServiceRequest>,
-) -> Result<Response<rpc::DpuExtensionService>, Status> {
+    request: Request<forge::UpdateDpuExtensionServiceRequest>,
+) -> Result<Response<forge::DpuExtensionService>, Status> {
     // Do not log_request_data as request may contain credential or sensitive data
     tracing::Span::current().record("request", "UpdateDpuExtensionServiceRequest { }");
 
@@ -313,7 +313,7 @@ pub(crate) async fn update(
             .unwrap_or(0);
         if obvs_len > MAX_OBSERVABILITY_CONFIG_PER_SERVICE {
             return Err(CarbideError::InvalidConfiguration(
-                model::ConfigValidationError::InvalidValue(format!(
+                nico_api_model::ConfigValidationError::InvalidValue(format!(
                     "{} configured observability configs for extension service exceeds the limit of {MAX_OBSERVABILITY_CONFIG_PER_SERVICE}",
                     obvs_len
                 )),
@@ -405,9 +405,9 @@ pub(crate) async fn update(
     let versions =
         extension_service::find_all_versions(&api.database_connection, service_id).await?;
 
-    let response = rpc::DpuExtensionService {
+    let response = forge::DpuExtensionService {
         service_id: service_id.to_string(),
-        service_type: rpc::DpuExtensionServiceType::from(updated_service.service_type.clone())
+        service_type: forge::DpuExtensionServiceType::from(updated_service.service_type.clone())
             as i32,
         service_name: updated_service.name.clone(),
         tenant_organization_id: updated_service.tenant_organization_id.to_string(),
@@ -429,8 +429,8 @@ pub(crate) async fn update(
 /// - Removes associated credentials for all deleted versions from Vault
 pub(crate) async fn delete(
     api: &Api,
-    request: Request<rpc::DeleteDpuExtensionServiceRequest>,
-) -> Result<Response<rpc::DeleteDpuExtensionServiceResponse>, Status> {
+    request: Request<forge::DeleteDpuExtensionServiceRequest>,
+) -> Result<Response<forge::DeleteDpuExtensionServiceResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -531,13 +531,13 @@ pub(crate) async fn delete(
         }
     }
 
-    Ok(Response::new(rpc::DeleteDpuExtensionServiceResponse {}))
+    Ok(Response::new(forge::DeleteDpuExtensionServiceResponse {}))
 }
 
 pub(crate) async fn find_ids(
     api: &Api,
-    request: Request<rpc::DpuExtensionServiceSearchFilter>,
-) -> Result<Response<rpc::DpuExtensionServiceIdList>, Status> {
+    request: Request<forge::DpuExtensionServiceSearchFilter>,
+) -> Result<Response<forge::DpuExtensionServiceIdList>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -562,7 +562,7 @@ pub(crate) async fn find_ids(
     let service_type_opt: Option<ExtensionServiceType> = match req.service_type {
         None => None,
         Some(v) => {
-            let service_type_rpc = rpc::DpuExtensionServiceType::try_from(v)
+            let service_type_rpc = forge::DpuExtensionServiceType::try_from(v)
                 .map_err(|_| CarbideError::InvalidArgument("Invalid service_type".to_string()))?;
             Some(ExtensionServiceType::from(service_type_rpc))
         }
@@ -581,15 +581,15 @@ pub(crate) async fn find_ids(
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::DpuExtensionServiceIdList {
+    Ok(Response::new(forge::DpuExtensionServiceIdList {
         service_ids: ids.into_iter().map(|id| id.to_string()).collect(),
     }))
 }
 
 pub(crate) async fn find_by_ids(
     api: &Api,
-    request: Request<rpc::DpuExtensionServicesByIdsRequest>,
-) -> Result<Response<rpc::DpuExtensionServiceList>, Status> {
+    request: Request<forge::DpuExtensionServicesByIdsRequest>,
+) -> Result<Response<forge::DpuExtensionServiceList>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -619,7 +619,7 @@ pub(crate) async fn find_by_ids(
         .map(|snapshot| snapshot.into())
         .collect();
 
-    Ok(Response::new(rpc::DpuExtensionServiceList {
+    Ok(Response::new(forge::DpuExtensionServiceList {
         services: services_resp,
     }))
 }
@@ -628,8 +628,8 @@ pub(crate) async fn find_by_ids(
 /// If version is not provided, return all version infos of the extension service.
 pub(crate) async fn get_versions_info(
     api: &Api,
-    request: Request<rpc::GetDpuExtensionServiceVersionsInfoRequest>,
-) -> Result<Response<rpc::DpuExtensionServiceVersionInfoList>, Status> {
+    request: Request<forge::GetDpuExtensionServiceVersionsInfoRequest>,
+) -> Result<Response<forge::DpuExtensionServiceVersionInfoList>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -669,7 +669,7 @@ pub(crate) async fn get_versions_info(
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::DpuExtensionServiceVersionInfoList {
+    Ok(Response::new(forge::DpuExtensionServiceVersionInfoList {
         version_infos: versions.into_iter().map(|version| version.into()).collect(),
     }))
 }
@@ -680,8 +680,8 @@ pub(crate) async fn get_versions_info(
 /// configured or terminating.
 pub(crate) async fn find_instances_by_extension_service(
     api: &Api,
-    request: Request<rpc::FindInstancesByDpuExtensionServiceRequest>,
-) -> Result<Response<rpc::FindInstancesByDpuExtensionServiceResponse>, Status> {
+    request: Request<forge::FindInstancesByDpuExtensionServiceRequest>,
+) -> Result<Response<forge::FindInstancesByDpuExtensionServiceResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -732,7 +732,7 @@ pub(crate) async fn find_instances_by_extension_service(
     // Find instances that have this extension service (and optionally a specific version)
     // in its db extension services config
     let instances = instance::find_by_extension_service(&mut txn, service_id, version).await?;
-    let mut instance_infos: Vec<rpc::InstanceDpuExtensionServiceInfo> = Vec::new();
+    let mut instance_infos: Vec<forge::InstanceDpuExtensionServiceInfo> = Vec::new();
 
     for instance in instances {
         // Get the extension service config for this instance
@@ -744,7 +744,7 @@ pub(crate) async fn find_instances_by_extension_service(
             .find(|config| config.service_id == service_id)
         {
             let service_version = ext_service_config.version;
-            instance_infos.push(rpc::InstanceDpuExtensionServiceInfo {
+            instance_infos.push(forge::InstanceDpuExtensionServiceInfo {
                 instance_id: instance.id.to_string(),
                 service_id: service_id.to_string(),
                 version: service_version.to_string(),
@@ -764,7 +764,7 @@ pub(crate) async fn find_instances_by_extension_service(
     txn.commit().await?;
 
     Ok(Response::new(
-        rpc::FindInstancesByDpuExtensionServiceResponse {
+        forge::FindInstancesByDpuExtensionServiceResponse {
             instances: instance_infos,
         },
     ))
@@ -894,10 +894,10 @@ fn validate_extension_service_data(
 /// Validates extension service credential fields based on service type
 fn validate_extension_service_credential(
     service_type: &ExtensionServiceType,
-    credential: &rpc::DpuExtensionServiceCredential,
+    credential: &forge::DpuExtensionServiceCredential,
 ) -> Result<(), CarbideError> {
     match credential.r#type.as_ref() {
-        Some(rpc::dpu_extension_service_credential::Type::UsernamePassword(up)) => {
+        Some(forge::dpu_extension_service_credential::Type::UsernamePassword(up)) => {
             // @TODO(Felicity): Add more validation for username and password
             if up.username.is_empty() || up.username.len() > 255 {
                 return Err(CarbideError::InvalidArgument(
@@ -938,8 +938,8 @@ fn detect_extension_service_spec_change(
     service_type: &ExtensionServiceType,
     new_data: &str,
     old_data: &str,
-    new_cred: Option<rpc::DpuExtensionServiceCredential>,
-    old_cred: Option<rpc::DpuExtensionServiceCredential>,
+    new_cred: Option<forge::DpuExtensionServiceCredential>,
+    old_cred: Option<forge::DpuExtensionServiceCredential>,
 ) -> Result<bool, CarbideError> {
     let data_changed = match service_type {
         ExtensionServiceType::KubernetesPod => {
@@ -984,13 +984,13 @@ pub(crate) fn create_extension_service_credential_key(
 /// Create the extension service credential in the vault based on the credential type
 async fn create_extension_service_credential(
     service_type: &ExtensionServiceType,
-    credential_writer: &dyn forge_secrets::credentials::CredentialWriter,
+    credential_writer: &dyn nico_secrets::credentials::CredentialWriter,
     credential_key: CredentialKey,
-    credential: &rpc::DpuExtensionServiceCredential,
+    credential: &forge::DpuExtensionServiceCredential,
 ) -> Result<(), CarbideError> {
     match service_type {
         ExtensionServiceType::KubernetesPod => {
-            use ::rpc::forge::dpu_extension_service_credential::Type as CredType;
+            use nico_rpc::forge::dpu_extension_service_credential::Type as CredType;
 
             match credential.r#type.as_ref() {
                 Some(CredType::UsernamePassword(up)) => {
@@ -1001,7 +1001,7 @@ async fn create_extension_service_credential(
                         credential.registry_url, up.username
                     );
 
-                    let cred = forge_secrets::credentials::Credentials::UsernamePassword {
+                    let cred = nico_secrets::credentials::Credentials::UsernamePassword {
                         username: cred_username,
                         password: up.password.clone(),
                     };
@@ -1025,7 +1025,7 @@ async fn create_extension_service_credential(
 
 /// Delete the extension service credential from the vault using the credential key
 async fn delete_extension_service_credential(
-    credential_writer: &dyn forge_secrets::credentials::CredentialWriter,
+    credential_writer: &dyn nico_secrets::credentials::CredentialWriter,
     credential_key: CredentialKey,
 ) -> Result<(), eyre::Report> {
     credential_writer
@@ -1036,9 +1036,9 @@ async fn delete_extension_service_credential(
 
 /// Get the extension service credential from the vault using the credential key
 pub(crate) async fn get_extension_service_credential(
-    credential_reader: &dyn forge_secrets::credentials::CredentialReader,
+    credential_reader: &dyn nico_secrets::credentials::CredentialReader,
     credential_key: CredentialKey,
-) -> Result<rpc::DpuExtensionServiceCredential, CarbideError> {
+) -> Result<forge::DpuExtensionServiceCredential, CarbideError> {
     let credential = credential_reader
         .get_credentials(&credential_key)
         .await
@@ -1080,13 +1080,12 @@ pub(crate) async fn get_extension_service_credential(
         }
     };
 
-    Ok(rpc::DpuExtensionServiceCredential {
+    Ok(forge::DpuExtensionServiceCredential {
         registry_url,
         r#type: Some(
-            rpc::dpu_extension_service_credential::Type::UsernamePassword(rpc::UsernamePassword {
-                username,
-                password,
-            }),
+            forge::dpu_extension_service_credential::Type::UsernamePassword(
+                forge::UsernamePassword { username, password },
+            ),
         ),
     })
 }

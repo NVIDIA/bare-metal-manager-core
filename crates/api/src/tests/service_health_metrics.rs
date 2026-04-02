@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use model::resource_pool::ResourcePoolStats;
+use nico_api_model::resource_pool::ResourcePoolStats;
 use prometheus_text_parser::ParsedPrometheusMetrics;
 use sqlx::PgPool;
 

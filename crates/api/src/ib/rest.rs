@@ -20,14 +20,14 @@ use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use model::ib::{
+use nico_api_model::ib::{
     IBMtu, IBNetwork, IBPort, IBPortMembership, IBPortState, IBQosConf, IBRateLimit, IBServiceLevel,
 };
 
 use super::iface::{Filter, GetPartitionOptions, IBFabricRawResponse};
 use super::ufmclient::{
-    self, Partition, PartitionKey, PartitionQoS, Port, PortConfig, PortMembership, SmConfig,
-    UFMCert, UFMConfig, UFMError, Ufm,
+    Partition, PartitionKey, PartitionQoS, Port, PortConfig, PortMembership, SmConfig, UFMCert,
+    UFMConfig, UFMError, Ufm, {self},
 };
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
 use crate::CarbideError;

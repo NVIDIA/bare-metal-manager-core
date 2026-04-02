@@ -16,10 +16,11 @@
  */
 use std::net::IpAddr;
 
-use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
-use carbide_uuid::vpc::VpcPrefixId;
 use ipnetwork::IpNetwork;
-use rpc::errors::RpcDataConversionError;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::network::{NetworkPrefixId, NetworkSegmentId};
+use nico_uuid::vpc::VpcPrefixId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -61,10 +62,10 @@ impl<'r> FromRow<'r, PgRow> for NetworkPrefix {
     }
 }
 
-impl TryFrom<rpc::forge::NetworkPrefix> for NewNetworkPrefix {
+impl TryFrom<forge::NetworkPrefix> for NewNetworkPrefix {
     type Error = RpcDataConversionError;
 
-    fn try_from(value: rpc::forge::NetworkPrefix) -> Result<Self, Self::Error> {
+    fn try_from(value: forge::NetworkPrefix) -> Result<Self, Self::Error> {
         if let Some(_id) = value.id {
             return Err(RpcDataConversionError::IdentifierSpecifiedForNewObject(
                 String::from("Network Prefix"),
@@ -85,9 +86,9 @@ impl TryFrom<rpc::forge::NetworkPrefix> for NewNetworkPrefix {
     }
 }
 
-impl From<NetworkPrefix> for rpc::forge::NetworkPrefix {
+impl From<NetworkPrefix> for forge::NetworkPrefix {
     fn from(src: NetworkPrefix) -> Self {
-        rpc::forge::NetworkPrefix {
+        forge::NetworkPrefix {
             id: Some(src.id),
             prefix: src.prefix.to_string(),
             gateway: src.gateway.map(|v| v.to_string()),

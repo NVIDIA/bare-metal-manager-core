@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 use config_version::{ConfigVersion, Versioned};
-use db::DatabaseError;
-use model::StateSla;
-use model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_db::DatabaseError;
+use nico_api_model::StateSla;
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
 use sqlx::PgConnection;
 
 use crate::state_controller::metrics::MetricsEmitter;

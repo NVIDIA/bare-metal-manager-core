@@ -15,25 +15,25 @@
  * limitations under the License.
  */
 
-use ::rpc::protos::mlx_device::{
+use nico_libmlx::device::discovery;
+use nico_libmlx::device::report::MlxDeviceReport;
+use nico_libmlx::firmware::config::FirmwareFlasherProfile;
+use nico_libmlx::firmware::flasher::FirmwareFlasher;
+use nico_libmlx::lockdown::error::MlxResult;
+use nico_libmlx::lockdown::lockdown::{LockdownManager, StatusReport};
+use nico_libmlx::profile::error::MlxProfileError;
+use nico_libmlx::profile::serialization::SerializableProfile;
+use nico_libmlx::registry::registries;
+use nico_libmlx::runner::applier::MlxConfigApplier;
+use nico_libmlx::runner::result_types::{ComparisonResult, SyncResult};
+use nico_libmlx::runner::runner::MlxConfigRunner;
+use nico_rpc::protos::mlx_device as mlx_device_pb;
+use nico_rpc::protos::mlx_device::{
     FirmwareFlashReport as FirmwareFlashReportPb, MlxDeviceReport as MlxDeviceReportPb,
     PublishMlxDeviceReportRequest, PublishMlxDeviceReportResponse,
     PublishMlxObservationReportRequest, PublishMlxObservationReportResponse,
 };
-use carbide_uuid::machine::MachineId;
-use libmlx::device::discovery;
-use libmlx::device::report::MlxDeviceReport;
-use libmlx::firmware::config::FirmwareFlasherProfile;
-use libmlx::firmware::flasher::FirmwareFlasher;
-use libmlx::lockdown::error::MlxResult;
-use libmlx::lockdown::lockdown::{LockdownManager, StatusReport};
-use libmlx::profile::error::MlxProfileError;
-use libmlx::profile::serialization::SerializableProfile;
-use libmlx::registry::registries;
-use libmlx::runner::applier::MlxConfigApplier;
-use libmlx::runner::result_types::{ComparisonResult, SyncResult};
-use libmlx::runner::runner::MlxConfigRunner;
-use rpc::protos::mlx_device as mlx_device_pb;
+use nico_uuid::machine::MachineId;
 use scout::CarbideClientResult;
 
 use crate::cfg::Options;
@@ -512,7 +512,7 @@ pub fn handle_info_report(
     tracing::info!("[scout_stream::mlx_device] device report requested");
 
     let report = if let Some(filter_set_pb) = request.filters {
-        match libmlx::device::filters::DeviceFilterSet::try_from(filter_set_pb) {
+        match nico_libmlx::device::filters::DeviceFilterSet::try_from(filter_set_pb) {
             Ok(filters) => MlxDeviceReport::new().with_filter_set(filters),
             Err(e) => {
                 tracing::error!(

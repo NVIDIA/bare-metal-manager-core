@@ -21,11 +21,12 @@
 
 use std::net::{IpAddr, Ipv4Addr};
 
-use ::rpc::forge::forge_server::Forge;
-use carbide_uuid::network::NetworkSegmentId;
-use carbide_uuid::vpc::VpcId;
 use ipnetwork::IpNetwork;
 use lazy_static::lazy_static;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::network::NetworkSegmentId;
+use nico_uuid::vpc::VpcId;
 
 use crate::api::Api;
 
@@ -79,7 +80,7 @@ pub async fn create_underlay_network_segment(api: &Api) -> NetworkSegmentId {
         "UNDERLAY",
         &prefix,  // 192.0.1.0/24
         &gateway, // 192.0.1.1
-        rpc::forge::NetworkSegmentType::Underlay,
+        forge::NetworkSegmentType::Underlay,
         None,
         true,
     )
@@ -100,7 +101,7 @@ pub async fn create_admin_network_segment(api: &Api) -> NetworkSegmentId {
         "ADMIN",
         &prefix,  // 192.0.2.0/24
         &gateway, // 192.0.2.1
-        rpc::forge::NetworkSegmentType::Admin,
+        forge::NetworkSegmentType::Admin,
         None,
         true,
     )
@@ -124,7 +125,7 @@ pub async fn create_host_inband_network_segment(
         "HOST_INBAND",
         &prefix,  // 192.0.3.0/24
         &gateway, // 192.0.3.1
-        rpc::forge::NetworkSegmentType::HostInband,
+        forge::NetworkSegmentType::HostInband,
         vpc_id,
         true,
     )
@@ -148,7 +149,7 @@ pub async fn create_tenant_network_segment(
         name,
         &prefix,
         &gateway,
-        rpc::forge::NetworkSegmentType::Tenant,
+        forge::NetworkSegmentType::Tenant,
         vpc_id,
         include_subdomain,
     )
@@ -160,12 +161,12 @@ pub async fn create_network_segment(
     name: &str,
     prefix: &str,
     gateway: &str,
-    segment_type: rpc::forge::NetworkSegmentType,
+    segment_type: forge::NetworkSegmentType,
     vpc_id: Option<VpcId>,
     include_subdomain: bool,
 ) -> NetworkSegmentId {
     let subdomain_id = if include_subdomain {
-        let request = ::rpc::protos::dns::DomainSearchQuery {
+        let request = nico_rpc::protos::dns::DomainSearchQuery {
             id: None,
             name: Some("dwrt1.com".to_string()),
         };
@@ -178,7 +179,7 @@ pub async fn create_network_segment(
             .domains
             .first()
             .and_then(|d| d.id)
-            .map(::carbide_uuid::domain::DomainId::try_from)
+            .map(::nico_uuid::domain::DomainId::try_from)
             .unwrap()
             .unwrap();
 
@@ -187,11 +188,11 @@ pub async fn create_network_segment(
         None
     };
 
-    let request = rpc::forge::NetworkSegmentCreationRequest {
+    let request = forge::NetworkSegmentCreationRequest {
         id: None,
         mtu: Some(1500),
         name: name.to_string(),
-        prefixes: vec![rpc::forge::NetworkPrefix {
+        prefixes: vec![forge::NetworkPrefix {
             id: None,
             prefix: prefix.to_string(),
             gateway: Some(gateway.to_string()),

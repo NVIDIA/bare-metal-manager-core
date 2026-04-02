@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::forge::HostReprovisioningRequest;
-use carbide_uuid::machine::MachineId;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge;
+use nico_rpc::forge::HostReprovisioningRequest;
+use nico_uuid::machine::MachineId;
 use prettytable::{Table, row};
 
 use super::args::{ReprovisionClear, ReprovisionSet};
@@ -91,7 +92,7 @@ pub async fn mark_manual_firmware_upgrade_complete(
     Ok(())
 }
 
-fn print_pending_hosts(hosts: ::rpc::forge::HostReprovisioningListResponse) {
+fn print_pending_hosts(hosts: forge::HostReprovisioningListResponse) {
     let mut table = Table::new();
 
     table.set_titles(row![

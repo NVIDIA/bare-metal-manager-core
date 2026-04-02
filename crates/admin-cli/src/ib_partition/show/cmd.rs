@@ -17,9 +17,9 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
-use carbide_uuid::infiniband::IBPartitionId;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_uuid::infiniband::IBPartitionId;
 use prettytable::{Table, row};
 
 use super::args::Args;
@@ -96,7 +96,7 @@ async fn show_ib_partition_details(
     Ok(())
 }
 
-fn convert_ib_partitions_to_nice_table(ib_partitions: forgerpc::IbPartitionList) -> Box<Table> {
+fn convert_ib_partitions_to_nice_table(ib_partitions: forge::IbPartitionList) -> Box<Table> {
     let mut table = Table::new();
 
     table.set_titles(row![
@@ -124,7 +124,7 @@ fn convert_ib_partitions_to_nice_table(ib_partitions: forgerpc::IbPartitionList)
                 .as_ref()
                 .map(|c| c.tenant_organization_id.as_str())
                 .unwrap_or_default(),
-            forgerpc::TenantState::try_from(
+            forge::TenantState::try_from(
                 ib_partition
                     .status
                     .as_ref()
@@ -150,7 +150,7 @@ fn convert_ib_partitions_to_nice_table(ib_partitions: forgerpc::IbPartitionList)
 }
 
 fn convert_ib_partition_to_nice_format(
-    ib_partition: forgerpc::IbPartition,
+    ib_partition: forge::IbPartition,
 ) -> CarbideCliResult<String> {
     let width = 25;
     let mut lines = String::new();
@@ -186,20 +186,18 @@ fn convert_ib_partition_to_nice_format(
         ("TENANT ORG", &tenant_organization_id),
         (
             "STATE",
-            forgerpc::TenantState::try_from(status.state)
+            forge::TenantState::try_from(status.state)
                 .unwrap_or_default()
                 .as_str_name(),
         ),
         (
             "STATE MACHINE",
-            match forgerpc::ControllerStateOutcome::try_from(state_reason.outcome)
-                .unwrap_or_default()
+            match forge::ControllerStateOutcome::try_from(state_reason.outcome).unwrap_or_default()
             {
-                forgerpc::ControllerStateOutcome::Transition
-                | forgerpc::ControllerStateOutcome::DoNothing
-                | forgerpc::ControllerStateOutcome::Todo => "OK",
-                forgerpc::ControllerStateOutcome::Wait
-                | forgerpc::ControllerStateOutcome::Error => {
+                forge::ControllerStateOutcome::Transition
+                | forge::ControllerStateOutcome::DoNothing
+                | forge::ControllerStateOutcome::Todo => "OK",
+                forge::ControllerStateOutcome::Wait | forge::ControllerStateOutcome::Error => {
                     state_reason.outcome_msg.as_deref().unwrap_or_default()
                 }
             },

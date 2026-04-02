@@ -17,7 +17,8 @@
 
 use std::collections::VecDeque;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::forge;
 
 use super::args::Args;
 use crate::instance::common::GlobalOptions;
@@ -50,7 +51,7 @@ pub async fn allocate(
     } else {
         api_client
             .0
-            .find_machine_ids(::rpc::forge::MachineSearchConfig {
+            .find_machine_ids(forge::MachineSearchConfig {
                 include_predicted_host: true,
                 ..Default::default()
             })

@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-use carbide_uuid::switch::SwitchId;
-use db::{DatabaseError, switch as db_switch};
-use model::metadata::Metadata;
-use model::switch::{NewSwitch, SwitchConfig};
+use nico_api_db::{DatabaseError, switch as db_switch};
+use nico_api_model::metadata::Metadata;
+use nico_api_model::switch::{NewSwitch, SwitchConfig};
+use nico_uuid::switch::SwitchId;
 
 #[crate::sqlx_test]
 async fn test_switch_metadata_defaults(
@@ -120,7 +120,7 @@ async fn test_switch_metadata_update(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 
     let found = db_switch::find_by(
         &mut txn,
-        db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
+        nico_api_db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
         db_switch::SwitchSearchConfig::default(),
     )
     .await?;

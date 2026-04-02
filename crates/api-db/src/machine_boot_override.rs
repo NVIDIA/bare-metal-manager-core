@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineInterfaceId;
-use model::machine_boot_override::MachineBootOverride;
+use nico_api_model::machine_boot_override::MachineBootOverride;
+use nico_uuid::machine::MachineInterfaceId;
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;

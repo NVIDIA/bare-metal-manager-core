@@ -73,7 +73,7 @@ generate_config() {
 # Ports: ${START_PORT}..$((START_PORT + COUNT - 1))
 #
 # Run health with:
-#   cargo run -p carbide-health --bin forge-hw-health -- ${CONFIG_OUT}
+#   cargo run -p nico-health --bin forge-hw-health -- ${CONFIG_OUT}
 
 shard = 0
 shards_count = 1

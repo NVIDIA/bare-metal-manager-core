@@ -26,7 +26,7 @@
 
 use std::path::{Path, PathBuf};
 
-use rpc::protos::mlx_device::{
+use nico_rpc::protos::mlx_device::{
     FirmwareFlasherProfile as FirmwareFlasherProfilePb, FirmwareSpec as FirmwareSpecPb,
     FlashOptions as FlashOptionsPb, FlashSpec as FlashSpecPb,
 };

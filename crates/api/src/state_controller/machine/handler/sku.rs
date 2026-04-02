@@ -16,12 +16,12 @@
  */
 
 use chrono::Utc;
-use health_report::HealthReport;
-use model::machine::{
+use nico_api_model::machine::{
     BomValidating, BomValidatingContext, MachineState, MachineValidatingState, ManagedHostState,
     ManagedHostStateSnapshot, ValidationState,
 };
-use model::sku::diff_skus;
+use nico_api_model::sku::diff_skus;
+use nico_health_report::HealthReport;
 use sqlx::{PgConnection, PgTransaction};
 
 use super::{HostHandlerParams, discovered_after_state_transition};
@@ -70,7 +70,7 @@ async fn clear_sku_validation_report(
         })
         .unwrap_or_default();
 
-    Ok(db::machine::update_sku_validation_health_report(
+    Ok(nico_api_db::machine::update_sku_validation_health_report(
         txn,
         &mh_snapshot.host_snapshot.id,
         &health_report,
@@ -82,7 +82,7 @@ async fn match_sku_for_machine(
     txn: &mut PgConnection,
     host_handler_params: &HostHandlerParams,
     mh_snapshot: &ManagedHostStateSnapshot,
-) -> Result<Option<model::sku::Sku>, StateHandlerError> {
+) -> Result<Option<nico_api_model::sku::Sku>, StateHandlerError> {
     let sku_status = mh_snapshot.host_snapshot.hw_sku_status.as_ref();
     if sku_status.is_none()
         || sku_status.is_some_and(|ss| {
@@ -92,12 +92,16 @@ async fn match_sku_for_machine(
         })
     {
         let machine_sku =
-            db::sku::generate_sku_from_machine(&mut *txn, &mh_snapshot.host_snapshot.id).await?;
-        let matching_sku = db::sku::find_matching(txn, &machine_sku).await?;
+            nico_api_db::sku::generate_sku_from_machine(&mut *txn, &mh_snapshot.host_snapshot.id)
+                .await?;
+        let matching_sku = nico_api_db::sku::find_matching(txn, &machine_sku).await?;
         if matching_sku.is_none() {
             // only update the last attempt if there is no match
-            db::machine::update_sku_status_last_match_attempt(txn, &mh_snapshot.host_snapshot.id)
-                .await?;
+            nico_api_db::machine::update_sku_status_last_match_attempt(
+                txn,
+                &mh_snapshot.host_snapshot.id,
+            )
+            .await?;
         }
         Ok(matching_sku)
     } else {
@@ -128,7 +132,7 @@ async fn generate_missing_sku_for_machine(
     };
 
     // if there's no expected machine, no SKU in it, or the SKU doesn't match what's assigned to the machine, don't generate a SKU
-    if db::expected_machine::find_by_bmc_mac_address(&mut *txn, bmc_mac_address)
+    if nico_api_db::expected_machine::find_by_bmc_mac_address(&mut *txn, bmc_mac_address)
         .await
         .ok()
         .flatten()
@@ -151,9 +155,11 @@ async fn generate_missing_sku_for_machine(
         return false;
     }
 
-    if let Err(e) =
-        db::machine::update_sku_status_last_generate_attempt(txn, &mh_snapshot.host_snapshot.id)
-            .await
+    if let Err(e) = nico_api_db::machine::update_sku_status_last_generate_attempt(
+        txn,
+        &mh_snapshot.host_snapshot.id,
+    )
+    .await
     {
         tracing::error!(
             machine_id=%mh_snapshot.host_snapshot.id,
@@ -161,7 +167,7 @@ async fn generate_missing_sku_for_machine(
             "Failed to get SKU status for machine",
         );
     } else {
-        let generated_sku = match db::sku::generate_sku_from_machine(
+        let generated_sku = match nico_api_db::sku::generate_sku_from_machine(
             &mut *txn,
             &mh_snapshot.host_snapshot.id,
         )
@@ -181,7 +187,7 @@ async fn generate_missing_sku_for_machine(
             }
         };
         // Create checks for the existance of a duplicate SKU with a different name under a lock.
-        if let Err(e) = db::sku::create(txn, &generated_sku).await {
+        if let Err(e) = nico_api_db::sku::create(txn, &generated_sku).await {
             tracing::error!(
                 machine_id=%mh_snapshot.host_snapshot.id,
                 error=%e,
@@ -281,7 +287,7 @@ pub(crate) async fn handle_bom_validation_requested(
     }
 
     // Case 2.2: Check if the assigned SKU got deleted from the database
-    if db::sku::find(&mut txn, std::slice::from_ref(sku_id))
+    if nico_api_db::sku::find(&mut txn, std::slice::from_ref(sku_id))
         .await?
         .is_empty()
     {
@@ -318,7 +324,7 @@ async fn advance_to_sku_missing(
             .unwrap_or_default(),
     );
 
-    db::machine::update_sku_validation_health_report(
+    nico_api_db::machine::update_sku_validation_health_report(
         &mut txn,
         &mh_snapshot.host_snapshot.id,
         &health_report,
@@ -340,8 +346,12 @@ async fn advance_to_updating_inventory(
     let bom_validation_context =
         get_bom_validation_context(mh_snapshot.host_snapshot.current_state());
 
-    db::machine_topology::set_topology_update_needed(&mut txn, &mh_snapshot.host_snapshot.id, true)
-        .await?;
+    nico_api_db::machine_topology::set_topology_update_needed(
+        &mut txn,
+        &mh_snapshot.host_snapshot.id,
+        true,
+    )
+    .await?;
 
     Ok(
         StateHandlerOutcome::transition(ManagedHostState::BomValidating {
@@ -397,11 +407,11 @@ async fn advance_to_machine_validating(
         })
         .with_txn(txn));
     };
-    let validation_id = db::machine_validation::create_new_run(
+    let validation_id = nico_api_db::machine_validation::create_new_run(
         &mut txn,
         &mh_snapshot.host_snapshot.id,
         context.clone(),
-        model::machine::MachineValidationFilter::default(),
+        nico_api_model::machine::MachineValidationFilter::default(),
     )
     .await?;
     Ok(
@@ -456,8 +466,12 @@ pub(crate) async fn handle_bom_validation_state(
                     if let Some(sku) =
                         match_sku_for_machine(&mut txn, host_handler_params, mh_snapshot).await?
                     {
-                        db::machine::assign_sku(&mut txn, &mh_snapshot.host_snapshot.id, &sku.id)
-                            .await?;
+                        nico_api_db::machine::assign_sku(
+                            &mut txn,
+                            &mh_snapshot.host_snapshot.id,
+                            &sku.id,
+                        )
+                        .await?;
                         // finding a match uses the same check as verifying the sku, so consider it verified.
                         advance_to_machine_validating(txn, mh_snapshot).await
                     } else {
@@ -548,14 +562,15 @@ pub(crate) async fn handle_bom_validation_state(
 
                 let mut txn = ctx.services.db_pool.begin().await?;
 
-                let Some(expected_sku) = db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
-                    .await?
-                    .pop()
+                let Some(expected_sku) =
+                    nico_api_db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
+                        .await?
+                        .pop()
                 else {
                     return advance_to_sku_missing(txn, mh_snapshot).await;
                 };
 
-                let actual_sku = db::sku::generate_sku_from_machine_at_version(
+                let actual_sku = nico_api_db::sku::generate_sku_from_machine_at_version(
                     txn.as_mut(),
                     &mh_snapshot.host_snapshot.id,
                     expected_sku.schema_version,
@@ -570,7 +585,7 @@ pub(crate) async fn handle_bom_validation_state(
                 if diffs.is_empty() {
                     let health_report = HealthReport::sku_validation_success();
 
-                    db::machine::update_sku_validation_health_report(
+                    nico_api_db::machine::update_sku_validation_health_report(
                         &mut txn,
                         &mh_snapshot.host_snapshot.id,
                         &health_report,
@@ -587,7 +602,7 @@ pub(crate) async fn handle_bom_validation_state(
                     advance_to_machine_validating(txn, mh_snapshot).await
                 } else {
                     let health_report = HealthReport::sku_mismatch(diffs);
-                    db::machine::update_sku_validation_health_report(
+                    nico_api_db::machine::update_sku_validation_health_report(
                         &mut txn,
                         &mh_snapshot.host_snapshot.id,
                         &health_report,
@@ -668,7 +683,7 @@ pub(crate) async fn handle_bom_validation_state(
                 let mut txn = ctx.services.db_pool.begin().await?;
                 let mut outcome = if let Some(sku_id) = mh_snapshot.host_snapshot.hw_sku.clone() {
                     // SKU is still assigned, check if it now exists or can be auto-generated
-                    if db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
+                    if nico_api_db::sku::find(&mut txn, std::slice::from_ref(&sku_id))
                         .await?
                         .pop()
                         .is_some()

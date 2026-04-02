@@ -14,8 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{ConfigSetting, SetDynamicConfigRequest};
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{ConfigSetting, SetDynamicConfigRequest};
 
 use crate::setup::parse_carbide_config;
 use crate::tests::common::api_fixtures::{

@@ -16,8 +16,8 @@
  */
 use std::collections::{HashMap, HashSet};
 
-use carbide_uuid::machine::MachineId;
-use rpc::Machine;
+use nico_rpc::Machine;
+use nico_uuid::machine::MachineId;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Interval;
 

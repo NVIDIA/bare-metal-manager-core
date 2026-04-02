@@ -21,8 +21,8 @@
 use std::fs;
 use std::time::Duration;
 
-use libmlx::runner::exec_options::ExecOptions;
-use libmlx::runner::runner::MlxConfigRunner;
+use nico_libmlx::runner::exec_options::ExecOptions;
+use nico_libmlx::runner::runner::MlxConfigRunner;
 
 use super::common;
 
@@ -117,7 +117,9 @@ fn test_set_with_invalid_variable() {
     let result = runner.set(assignments);
     assert!(result.is_err());
 
-    if let Err(libmlx::runner::error::MlxRunnerError::VariableNotFound { variable_name }) = result {
+    if let Err(nico_libmlx::runner::error::MlxRunnerError::VariableNotFound { variable_name }) =
+        result
+    {
         assert_eq!(variable_name, "NONEXISTENT_VAR");
     } else {
         panic!("Expected VariableNotFound error, got: {result:?}");
@@ -230,7 +232,9 @@ fn test_query_nonexistent_variable() {
     let result = runner.query(variables);
     assert!(result.is_err());
 
-    if let Err(libmlx::runner::error::MlxRunnerError::VariableNotFound { variable_name }) = result {
+    if let Err(nico_libmlx::runner::error::MlxRunnerError::VariableNotFound { variable_name }) =
+        result
+    {
         assert_eq!(variable_name, "NONEXISTENT_VAR");
     } else {
         panic!("Expected VariableNotFound error, got: {result:?}");
@@ -337,7 +341,7 @@ mod error_handling_tests {
         assert!(result.is_err());
 
         // Should get the first error encountered (variable not found)
-        if let Err(libmlx::runner::error::MlxRunnerError::VariableNotFound { variable_name }) =
+        if let Err(nico_libmlx::runner::error::MlxRunnerError::VariableNotFound { variable_name }) =
             result
         {
             assert_eq!(variable_name, "NONEXISTENT_VAR");

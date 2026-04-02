@@ -37,7 +37,7 @@ applicable.
 | `dpu_ipmi_reboot_attempts` | `Option<u32>` | — | Retry count when IPMI errors during DPU reboot. |
 | `ib_fabrics` | `HashMap<String, IbFabricDefinition>` | `{}` | InfiniBand fabrics managed by the site. Currently only one fabric is supported. |
 | `initial_domain_name` | `Option<String>` | — | Domain to create if none exist. Most sites use a single domain. |
-| `initial_dpu_agent_upgrade_policy` | `Option<AgentUpgradePolicyChoice>` | — | Policy for nico-dpu-agent upgrades. Also settable via `nico-admin-cli`. |
+| `initial_dpu_agent_upgrade_policy` | `Option<AgentUpgradePolicyChoice>` | — | Policy for nico-dpu-agent upgrades. Also settable via `carbide-admin-cli`. |
 | `max_concurrent_machine_updates` | `Option<i32>` | — | **Deprecated.** Use `machine_updater` instead. |
 | `machine_update_run_interval` | `Option<u64>` | — | Interval (seconds) at which the machine update manager checks for updates. |
 | `site_explorer` | `SiteExplorerConfig` | *(see below)* | SiteExplorer hardware discovery settings (see [SiteExplorerConfig](#siteexplorerconfig)). |
@@ -112,7 +112,7 @@ applicable.
 |-------|------|---------|-------------|
 | `permissive_mode` | `bool` | — | Enable permissive authorization (dev mode). |
 | `casbin_policy_file` | `Option<PathBuf>` | — | Path to Casbin CSV policy file. |
-| `cli_certs` | `Option<AllowedCertCriteria>` | — | Additional allowed cert criteria for nico-admin-cli. |
+| `cli_certs` | `Option<AllowedCertCriteria>` | — | Additional allowed cert criteria for carbide-admin-cli. |
 | `trust` | `Option<TrustConfig>` | — | SPIFFE trust domain and allowed paths for client certs. |
 
 ### `IBFabricConfig`

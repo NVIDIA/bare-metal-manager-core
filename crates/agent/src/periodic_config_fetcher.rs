@@ -19,22 +19,22 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
-use ::rpc::forge_tls_client::ForgeClientConfig;
-use ::rpc::{Instance, forge as rpc};
 use arc_swap::ArcSwapOption;
-use carbide_uuid::infiniband::IBPartitionId;
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use config_version::ConfigVersion;
 use eyre::Context;
-use forge_dpu_agent_utils::utils::create_forge_client;
+use nico_dpu_agent_utils::utils::create_forge_client;
+use nico_rpc::forge_tls_client::ForgeClientConfig;
+use nico_rpc::{Instance, forge};
+use nico_uuid::infiniband::IBPartitionId;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
 use tracing::{error, trace, warn};
 
 use crate::util::{get_periodic_dpu_config, get_sitename};
 
 pub struct PeriodicFetcherState {
     config: PeriodicConfigFetcherConfig,
-    netconf: ArcSwapOption<rpc::ManagedHostNetworkConfigResponse>,
+    netconf: ArcSwapOption<forge::ManagedHostNetworkConfigResponse>,
     instmeta: ArcSwapOption<InstanceMetadata>,
     is_cancelled: AtomicBool,
     sitename: Option<String>,
@@ -79,7 +79,7 @@ pub struct IBInstanceConfig {
 }
 
 impl PeriodicConfigFetcherReader {
-    pub fn net_conf_read(&self) -> Option<Arc<rpc::ManagedHostNetworkConfigResponse>> {
+    pub fn net_conf_read(&self) -> Option<Arc<forge::ManagedHostNetworkConfigResponse>> {
         self.state.netconf.load_full()
     }
 
@@ -242,7 +242,7 @@ pub async fn fetch(
     dpu_machine_id: &MachineId,
     forge_api: &str,
     client_config: &ForgeClientConfig,
-) -> Result<rpc::ManagedHostNetworkConfigResponse, eyre::Report> {
+) -> Result<forge::ManagedHostNetworkConfigResponse, eyre::Report> {
     let mut client = create_forge_client(forge_api, client_config).await?;
 
     get_periodic_dpu_config(&mut client, dpu_machine_id).await

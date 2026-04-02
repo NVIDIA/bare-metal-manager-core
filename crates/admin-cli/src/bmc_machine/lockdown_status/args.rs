@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::forge as forgerpc;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -25,7 +25,7 @@ pub struct Args {
     pub machine: MachineId,
 }
 
-impl From<Args> for forgerpc::LockdownStatusRequest {
+impl From<Args> for forge::LockdownStatusRequest {
     fn from(args: Args) -> Self {
         Self {
             bmc_endpoint_request: None,

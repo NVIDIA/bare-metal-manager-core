@@ -15,12 +15,12 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
-use model::machine::MachineValidationFilter;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine_validation::{
+use nico_api_model::machine::MachineValidationFilter;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine_validation::{
     MachineValidation, MachineValidationState, MachineValidationStatus,
 };
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 use uuid::Uuid;
 
@@ -169,7 +169,7 @@ pub async fn create_new_run(
     crate::machine::update_machine_validation_id(machine_id, id, column_name, txn).await?;
 
     // Reset machine validation health report into initial state
-    let health_report = health_report::HealthReport::empty("machine-validation".to_string());
+    let health_report = nico_health_report::HealthReport::empty("machine-validation".to_string());
     crate::machine::update_machine_validation_health_report(txn, machine_id, &health_report)
         .await?;
 

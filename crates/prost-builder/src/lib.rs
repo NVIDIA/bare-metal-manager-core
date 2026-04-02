@@ -21,7 +21,7 @@
 //! To use it you need to copy generated struct and derive the Builder.
 //! For example:
 //! ```rust,ignore
-//! #[derive(carbide_prost_builder::Builder)]
+//! #[derive(nico_prost_builder::Builder)]
 //! pub struct DhcpDiscovery {
 //!     pub mac_address: ::prost::alloc::string::String,
 //!     pub relay_address: ::prost::alloc::string::String,
@@ -159,17 +159,17 @@ pub fn derive_builder(input: TokenStream) -> TokenStream {
             }
             #optional_methods_impl
 
-            pub fn tonic_request(self) -> ::tonic::Request<::rpc::forge::#name> {
+            pub fn tonic_request(self) -> ::tonic::Request<forge::#name> {
                 ::tonic::Request::new(self.rpc())
             }
 
-            pub fn rpc(self) -> ::rpc::forge::#name {
-                ::rpc::forge::#name {
+            pub fn rpc(self) -> forge::#name {
+                forge::#name {
                     #all_fields_move
                 }
             }
         }
-        impl From<#name> for ::rpc::forge::#name {
+        impl From<#name> for forge::#name {
             fn from(v: #name) -> Self {
                 v.rpc()
             }

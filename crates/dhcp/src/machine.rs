@@ -18,10 +18,12 @@ use std::ffi::CString;
 use std::net::{IpAddr, Ipv4Addr};
 use std::ptr;
 
-use ::rpc::forge as rpc;
-use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use MachineArchitecture::*;
 use ipnetwork::IpNetwork;
+use nico_rpc::forge;
+use nico_rpc::forge_tls_client::{
+    ApiConfig, ForgeClientConfig, {self},
+};
 
 use crate::CONFIG;
 use crate::discovery::Discovery;
@@ -33,7 +35,7 @@ use crate::vendor_class::{MachineArchitecture, VendorClass};
 /// additional constraints (options) to and from the client.
 #[derive(Debug, Clone)]
 pub struct Machine {
-    pub inner: rpc::DhcpRecord,
+    pub inner: forge::DhcpRecord,
     pub discovery_info: Discovery,
     pub vendor_class: Option<VendorClass>,
 }
@@ -48,7 +50,7 @@ impl Machine {
         let api_config = ApiConfig::new(carbide_api_url, client_config);
         match forge_tls_client::ForgeTlsClient::retry_build(&api_config).await {
             Ok(mut client) => {
-                let request = tonic::Request::new(rpc::DhcpDiscovery {
+                let request = tonic::Request::new(forge::DhcpDiscovery {
                     mac_address: discovery.mac_address.to_string(),
                     relay_address: discovery.relay_address.to_string(),
                     link_address: discovery.link_select_address.map(|addr| addr.to_string()),
@@ -463,7 +465,7 @@ mod test {
     use std::net::Ipv4Addr;
     use std::str::FromStr;
 
-    use rpc::forge as rpc;
+    use nico_rpc::forge;
 
     use crate::discovery::Discovery;
     use crate::machine::{Machine, machine_get_filename};
@@ -474,7 +476,7 @@ mod test {
         crate::carbide_set_config_next_server_ipv4("127.0.0.1".parse::<Ipv4Addr>().unwrap().into());
 
         let mut machine = Box::new(Machine {
-            inner: rpc::DhcpRecord::default(),
+            inner: forge::DhcpRecord::default(),
             discovery_info: Discovery {
                 relay_address: "127.0.0.1".parse().unwrap(),
                 mac_address: "00:00:00:00:00:00".parse().unwrap(),
@@ -504,7 +506,7 @@ mod test {
 
     #[test]
     fn test_use_booturl_from_api() {
-        let dhcp_record = rpc::DhcpRecord {
+        let dhcp_record = forge::DhcpRecord {
             booturl: Some("https://foobar".to_string()),
             ..Default::default()
         };

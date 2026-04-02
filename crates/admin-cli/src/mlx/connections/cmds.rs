@@ -21,8 +21,9 @@
 use std::borrow::Cow;
 
 use chrono::{DateTime, Utc};
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
 use prettytable::{Cell, Row, Table};
-use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 
 use super::args::{ConnectionsCommand, ConnectionsDisconnectCommand, ConnectionsShowCommand};
 use crate::mlx::CliContext;
@@ -96,7 +97,7 @@ async fn handle_disconnect(
     cmd: ConnectionsDisconnectCommand,
     ctxt: &mut CliContext<'_, '_>,
 ) -> CarbideCliResult<()> {
-    let request: ::rpc::forge::ScoutStreamDisconnectRequest = cmd.into();
+    let request: forge::ScoutStreamDisconnectRequest = cmd.into();
     let response = ctxt.grpc_conn.0.scout_stream_disconnect(request).await?;
     let machine_id = match response.machine_id.as_ref() {
         Some(id) => id.to_string(),
@@ -116,7 +117,7 @@ async fn handle_disconnect(
 }
 
 // print_connections_table displays connections in an ASCII table format.
-fn print_connections_table(connections: &[rpc::forge::ScoutStreamConnectionInfo]) {
+fn print_connections_table(connections: &[forge::ScoutStreamConnectionInfo]) {
     let mut table = Table::new();
 
     table.add_row(Row::new(vec![

@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
-use db::{DatabaseError, rack as db_rack};
-use model::metadata::Metadata;
+use nico_api_db::{DatabaseError, rack as db_rack};
+use nico_api_model::metadata::Metadata;
+use nico_uuid::rack::RackId;
 
 #[crate::sqlx_test]
 async fn test_rack_metadata_defaults(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {

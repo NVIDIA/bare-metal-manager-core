@@ -17,11 +17,11 @@
 
 use std::collections::HashSet;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::extension_service::ExtensionServiceId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::extension_service::ExtensionServiceId;
 use serde::{Deserialize, Serialize};
 
 use crate::ConfigValidationError;
@@ -34,10 +34,10 @@ pub struct InstanceExtensionServiceConfig {
     pub removed: Option<DateTime<Utc>>, // We need to track terminating services
 }
 
-impl TryFrom<rpc::InstanceDpuExtensionServiceConfig> for InstanceExtensionServiceConfig {
+impl TryFrom<forge::InstanceDpuExtensionServiceConfig> for InstanceExtensionServiceConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: rpc::InstanceDpuExtensionServiceConfig) -> Result<Self, Self::Error> {
+    fn try_from(config: forge::InstanceDpuExtensionServiceConfig) -> Result<Self, Self::Error> {
         let service_id = config
             .service_id
             .parse::<ExtensionServiceId>()
@@ -60,9 +60,9 @@ impl TryFrom<rpc::InstanceDpuExtensionServiceConfig> for InstanceExtensionServic
     }
 }
 
-impl From<InstanceExtensionServiceConfig> for rpc::InstanceDpuExtensionServiceConfig {
+impl From<InstanceExtensionServiceConfig> for forge::InstanceDpuExtensionServiceConfig {
     fn from(config: InstanceExtensionServiceConfig) -> Self {
-        rpc::InstanceDpuExtensionServiceConfig {
+        forge::InstanceDpuExtensionServiceConfig {
             service_id: config.service_id.into(),
             version: config.version.to_string(),
         }
@@ -200,10 +200,10 @@ impl InstanceExtensionServicesConfig {
     }
 }
 
-impl TryFrom<rpc::InstanceDpuExtensionServicesConfig> for InstanceExtensionServicesConfig {
+impl TryFrom<forge::InstanceDpuExtensionServicesConfig> for InstanceExtensionServicesConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: rpc::InstanceDpuExtensionServicesConfig) -> Result<Self, Self::Error> {
+    fn try_from(config: forge::InstanceDpuExtensionServicesConfig) -> Result<Self, Self::Error> {
         let service_configs = config
             .service_configs
             .into_iter()
@@ -214,11 +214,11 @@ impl TryFrom<rpc::InstanceDpuExtensionServicesConfig> for InstanceExtensionServi
     }
 }
 
-impl TryFrom<InstanceExtensionServicesConfig> for rpc::InstanceDpuExtensionServicesConfig {
+impl TryFrom<InstanceExtensionServicesConfig> for forge::InstanceDpuExtensionServicesConfig {
     type Error = RpcDataConversionError;
 
     fn try_from(config: InstanceExtensionServicesConfig) -> Result<Self, Self::Error> {
-        Ok(rpc::InstanceDpuExtensionServicesConfig {
+        Ok(forge::InstanceDpuExtensionServicesConfig {
             service_configs: config
                 .service_configs
                 .into_iter()

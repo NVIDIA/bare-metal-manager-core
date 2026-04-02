@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use libmlx::variables::spec::MlxVariableSpec;
-use libmlx::variables::variable::MlxConfigVariable;
+use nico_libmlx::variables::spec::MlxVariableSpec;
+use nico_libmlx::variables::variable::MlxConfigVariable;
 
 #[test]
 fn test_mlx_config_variable_builder_basic() {

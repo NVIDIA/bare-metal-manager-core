@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-use carbide_uuid::switch::SwitchId;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
+use nico_uuid::switch::SwitchId;
 
 use crate::tests::common::api_fixtures::create_test_env;
 use crate::tests::common::api_fixtures::site_explorer::new_switch;
@@ -32,7 +32,7 @@ async fn test_find_switch_ids_and_by_ids(
     // FindSwitchIds should return both switches
     let switch_ids = env
         .api
-        .find_switch_ids(tonic::Request::new(rpc::forge::SwitchSearchFilter {
+        .find_switch_ids(tonic::Request::new(forge::SwitchSearchFilter {
             ..Default::default()
         }))
         .await?
@@ -44,7 +44,7 @@ async fn test_find_switch_ids_and_by_ids(
     // FindSwitchesByIds should return the requested switch
     let switches = env
         .api
-        .find_switches_by_ids(tonic::Request::new(rpc::forge::SwitchesByIdsRequest {
+        .find_switches_by_ids(tonic::Request::new(forge::SwitchesByIdsRequest {
             switch_ids: vec![switch_id1],
         }))
         .await?
@@ -56,7 +56,7 @@ async fn test_find_switch_ids_and_by_ids(
     // FindSwitchesByIds should return both when requested
     let switches = env
         .api
-        .find_switches_by_ids(tonic::Request::new(rpc::forge::SwitchesByIdsRequest {
+        .find_switches_by_ids(tonic::Request::new(forge::SwitchesByIdsRequest {
             switch_ids: vec![switch_id1, switch_id2],
         }))
         .await?
@@ -75,7 +75,7 @@ async fn test_find_switches_by_ids_empty_returns_error(
 
     let result = env
         .api
-        .find_switches_by_ids(tonic::Request::new(rpc::forge::SwitchesByIdsRequest {
+        .find_switches_by_ids(tonic::Request::new(forge::SwitchesByIdsRequest {
             switch_ids: vec![],
         }))
         .await;
@@ -101,7 +101,7 @@ async fn test_find_switches_by_ids_over_max(
 
     let result = env
         .api
-        .find_switches_by_ids(tonic::Request::new(rpc::forge::SwitchesByIdsRequest {
+        .find_switches_by_ids(tonic::Request::new(forge::SwitchesByIdsRequest {
             switch_ids,
         }))
         .await;
@@ -127,7 +127,7 @@ async fn test_find_switch_ids_excludes_deleted(
 
     // Delete switch2
     env.api
-        .delete_switch(tonic::Request::new(rpc::forge::SwitchDeletionRequest {
+        .delete_switch(tonic::Request::new(forge::SwitchDeletionRequest {
             id: Some(switch_id2),
         }))
         .await?;
@@ -135,7 +135,7 @@ async fn test_find_switch_ids_excludes_deleted(
     // FindSwitchIds should only return the non-deleted switch
     let switch_ids = env
         .api
-        .find_switch_ids(tonic::Request::new(rpc::forge::SwitchSearchFilter {
+        .find_switch_ids(tonic::Request::new(forge::SwitchSearchFilter {
             ..Default::default()
         }))
         .await?
@@ -156,7 +156,7 @@ async fn test_find_switch_ids_deleted_only(
     let switch_id2 = new_switch(&env, Some("Switch2".to_string()), None).await?;
 
     env.api
-        .delete_switch(tonic::Request::new(rpc::forge::SwitchDeletionRequest {
+        .delete_switch(tonic::Request::new(forge::SwitchDeletionRequest {
             id: Some(switch_id2),
         }))
         .await?;
@@ -164,7 +164,7 @@ async fn test_find_switch_ids_deleted_only(
     // DELETED_FILTER_ONLY (1) should return only the deleted switch
     let switch_ids = env
         .api
-        .find_switch_ids(tonic::Request::new(rpc::forge::SwitchSearchFilter {
+        .find_switch_ids(tonic::Request::new(forge::SwitchSearchFilter {
             deleted: 1,
             ..Default::default()
         }))
@@ -177,7 +177,7 @@ async fn test_find_switch_ids_deleted_only(
     // DELETED_FILTER_INCLUDE (2) should return both
     let switch_ids = env
         .api
-        .find_switch_ids(tonic::Request::new(rpc::forge::SwitchSearchFilter {
+        .find_switch_ids(tonic::Request::new(forge::SwitchSearchFilter {
             deleted: 2,
             ..Default::default()
         }))
@@ -200,7 +200,7 @@ async fn test_find_switch_ids_by_controller_state(
     // New switches start in "created" state -- filter for it
     let switch_ids = env
         .api
-        .find_switch_ids(tonic::Request::new(rpc::forge::SwitchSearchFilter {
+        .find_switch_ids(tonic::Request::new(forge::SwitchSearchFilter {
             controller_state: Some("created".to_string()),
             ..Default::default()
         }))
@@ -212,7 +212,7 @@ async fn test_find_switch_ids_by_controller_state(
     // Filter for a state that doesn't match
     let switch_ids = env
         .api
-        .find_switch_ids(tonic::Request::new(rpc::forge::SwitchSearchFilter {
+        .find_switch_ids(tonic::Request::new(forge::SwitchSearchFilter {
             controller_state: Some("ready".to_string()),
             ..Default::default()
         }))
@@ -233,7 +233,7 @@ async fn test_find_switches_by_ids_response_fields(
 
     let switches = env
         .api
-        .find_switches_by_ids(tonic::Request::new(rpc::forge::SwitchesByIdsRequest {
+        .find_switches_by_ids(tonic::Request::new(forge::SwitchesByIdsRequest {
             switch_ids: vec![switch_id],
         }))
         .await?

@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{DpaInterfaceCreationRequest, DpaInterfacesByIdsRequest};
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{DpaInterfaceCreationRequest, DpaInterfacesByIdsRequest};
 
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 

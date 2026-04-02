@@ -16,7 +16,8 @@
  */
 
 use clap::Parser;
-use rpc::forge::RouteServerSourceType;
+use nico_rpc::forge;
+use nico_rpc::forge::RouteServerSourceType;
 
 // AddressArgs is used for add/remove/replace operations
 // for route server addresses, with support for overriding
@@ -42,7 +43,7 @@ pub struct AddressArgs {
     pub source_type: RouteServerSourceType,
 }
 
-impl From<AddressArgs> for ::rpc::forge::RouteServers {
+impl From<AddressArgs> for forge::RouteServers {
     fn from(args: AddressArgs) -> Self {
         Self {
             route_servers: args.ip.iter().map(ToString::to_string).collect(),

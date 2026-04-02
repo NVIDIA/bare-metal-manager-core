@@ -21,22 +21,22 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use db::machine::update_dpu_asns;
-use db::resource_pool::DefineResourcePoolError;
-use db::{Transaction, work_lock_manager};
 use eyre::WrapErr;
 use figment::Figment;
 use figment::providers::{Env, Format, Toml};
-use forge_secrets::certificates::CertificateProvider;
-use forge_secrets::credentials::{CredentialManager, CredentialReader};
 use futures_util::TryFutureExt;
 use librms::RackManagerClientPool;
-use model::attestation::spdm::VerifierImpl;
-use model::expected_machine::ExpectedMachine;
-use model::ib::DEFAULT_IB_FABRIC_NAME;
-use model::machine::HostHealthConfig;
-use model::resource_pool::{self};
-use model::route_server::RouteServerSourceType;
+use nico_api_db::machine::update_dpu_asns;
+use nico_api_db::resource_pool::DefineResourcePoolError;
+use nico_api_db::{Transaction, work_lock_manager};
+use nico_api_model::attestation::spdm::VerifierImpl;
+use nico_api_model::expected_machine::ExpectedMachine;
+use nico_api_model::ib::DEFAULT_IB_FABRIC_NAME;
+use nico_api_model::machine::HostHealthConfig;
+use nico_api_model::resource_pool::{self};
+use nico_api_model::route_server::RouteServerSourceType;
+use nico_secrets::certificates::CertificateProvider;
+use nico_secrets::credentials::{CredentialManager, CredentialReader};
 use opentelemetry::metrics::Meter;
 use sqlx::postgres::PgSslMode;
 use sqlx::{ConnectOptions, PgPool};
@@ -55,7 +55,9 @@ use crate::dynamic_settings::DynamicSettings;
 use crate::errors::CarbideError;
 use crate::firmware_downloader::FirmwareDownloader;
 use crate::handlers::machine_validation::apply_config_on_startup;
-use crate::ib::{self, IBFabricManager};
+use crate::ib::{
+    IBFabricManager, {self},
+};
 use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::ipmitool::{IPMITool, IPMIToolHttpImpl, IPMIToolImpl, IPMIToolTestImpl};
 use crate::listener::ApiListenMode;
@@ -270,7 +272,7 @@ pub async fn start_api(
         );
     } else {
         let mut txn = Transaction::begin(&db_pool).await?;
-        db::resource_pool::define_all_from(
+        nico_api_db::resource_pool::define_all_from(
             &mut txn,
             carbide_config.pools.as_ref().ok_or_else(|| {
                 DefineResourcePoolError::InvalidArgument(String::from(
@@ -295,13 +297,17 @@ pub async fn start_api(
             .map(|rs| IpAddr::from_str(rs))
             .collect::<Result<Vec<IpAddr>, _>>()
             .map_err(CarbideError::AddressParseError)?;
-        db::route_servers::replace(&mut txn, &route_servers, RouteServerSourceType::ConfigFile)
-            .await?;
+        nico_api_db::route_servers::replace(
+            &mut txn,
+            &route_servers,
+            RouteServerSourceType::ConfigFile,
+        )
+        .await?;
 
         txn.commit().await?;
     };
     let common_pools =
-        db::resource_pool::create_common_pools(db_pool.clone(), ib_fabric_ids).await?;
+        nico_api_db::resource_pool::create_common_pools(db_pool.clone(), ib_fabric_ids).await?;
 
     let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
         credential_manager.clone(),
@@ -381,14 +387,14 @@ pub async fn start_api(
     // If we end up having static DPUDeployments, we could move the static CRs outside of the API.
     let dpf_sdk: Option<Arc<dyn crate::dpf::DpfOperations>> = if carbide_config.dpf.enabled {
         tracing::info!("Initializing DPF SDK");
-        let repo = carbide_dpf::KubeRepository::new()
+        let repo = nico_dpf::KubeRepository::new()
             .await
             .map_err(|e| eyre::eyre!("Failed to create DPF repository: {e}"))?;
 
         let provider = crate::dpf::CarbideBmcPasswordProvider::new(credential_manager.clone());
 
-        let services = vec![carbide_dpf::services::dts_service(
-            &carbide_dpf::services::ServiceRegistryConfig::default(),
+        let services = vec![nico_dpf::services::dts_service(
+            &nico_dpf::services::ServiceRegistryConfig::default(),
         )];
 
         let bfcfg_template = if carbide_config.dpf.bfcfg_enabled {
@@ -409,7 +415,7 @@ pub async fn start_api(
         // This is just temparary code until we make v2 only option. (just 2 weeks)
         // Soon v2 flag will be removed and will become only mode for dpf handling.
         let v2_str = if carbide_config.dpf.v2 { "-v2" } else { "" };
-        let init_config = carbide_dpf::InitDpfResourcesConfig {
+        let init_config = nico_dpf::InitDpfResourcesConfig {
             bfb_url,
             flavor_name: carbide_config.dpf.flavor_name.clone(),
             deployment_name: format!("{}{}", carbide_config.dpf.deployment_name.clone(), v2_str),
@@ -432,7 +438,7 @@ pub async fn start_api(
             },
         };
 
-        let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
+        let sdk = nico_dpf::DpfSdkBuilder::new(repo, nico_dpf::NAMESPACE, provider)
             .with_labeler(crate::dpf::CarbideDPFLabeler::new(
                 if carbide_config.dpf.v2 {
                     // This will be removed and moved to config file when v1 code is deleted.
@@ -569,9 +575,9 @@ pub async fn initialize_and_start_controllers(
     {
         let mut txn = Transaction::begin(db_pool).await?;
 
-        db::carbide_version::observe_as_latest_version(
+        nico_api_db::nico_version::observe_as_latest_version(
             &mut txn,
-            carbide_version::v!(build_version),
+            nico_version::v!(build_version),
         )
         .await?;
 
@@ -585,7 +591,7 @@ pub async fn initialize_and_start_controllers(
     }
 
     let mut txn = Transaction::begin(db_pool).await?;
-    db::resource_pool::define_all_from(
+    nico_api_db::resource_pool::define_all_from(
         &mut txn,
         carbide_config.pools.as_ref().ok_or_else(|| {
             DefineResourcePoolError::InvalidArgument(String::from(
@@ -602,7 +608,7 @@ pub async fn initialize_and_start_controllers(
                 tracing::error!("expected_machines.json file exists, but unable to parse expected_machines file, nothing was written to db, bailing: {err}.");
             })?;
         let mut txn = Transaction::begin(db_pool).await?;
-        db::expected_machine::create_missing_from(&mut txn, &expected_machines)
+        nico_api_db::expected_machine::create_missing_from(&mut txn, &expected_machines)
             .await
             .inspect_err(|err| {
                 tracing::error!(
@@ -639,11 +645,11 @@ pub async fn initialize_and_start_controllers(
         let mut txn = Transaction::begin(db_pool).await?;
 
         for (fabric_id, x) in carbide_config.ib_fabrics.iter() {
-            db::resource_pool::define(
+            nico_api_db::resource_pool::define(
                 &mut txn,
-                &model::resource_pool::common::ib_pkey_pool_name(fabric_id),
+                &nico_api_model::resource_pool::common::ib_pkey_pool_name(fabric_id),
                 &resource_pool::ResourcePoolDef {
-                    pool_type: model::resource_pool::define::ResourcePoolType::Integer,
+                    pool_type: nico_api_model::resource_pool::define::ResourcePoolType::Integer,
                     ranges: x.pkeys.clone(),
                     prefix: None,
                     delegate_prefix_len: None,
@@ -719,9 +725,9 @@ pub async fn initialize_and_start_controllers(
 
                 if let Some(provider) = crate::auth::mqtt_auth::build_credentials_provider(
                     &config.auth,
-                    forge_secrets::credentials::CredentialKey::MqttAuth {
+                    nico_secrets::credentials::CredentialKey::MqttAuth {
                         credential_type:
-                            forge_secrets::credentials::MqttCredentialType::DsxExchangeEventBus,
+                            nico_secrets::credentials::MqttCredentialType::DsxExchangeEventBus,
                     },
                     api_service.credential_manager.clone(),
                 )

@@ -18,18 +18,18 @@
 use std::collections::HashSet;
 use std::net::IpAddr;
 
-use carbide_uuid::dpa_interface::{DpaInterfaceId, NULL_DPA_INTERFACE_ID};
-use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersion;
 use eyre::eyre;
-use libmlx::device::info::MlxDeviceInfo;
 use mac_address::MacAddress;
-use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::dpa_interface::{
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::dpa_interface::{
     DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkConfig,
     DpaInterfaceNetworkStatusObservation, NewDpaInterface,
 };
-use model::machine::LoadSnapshotOptions;
+use nico_api_model::machine::LoadSnapshotOptions;
+use nico_libmlx::device::info::MlxDeviceInfo;
+use nico_uuid::dpa_interface::{DpaInterfaceId, NULL_DPA_INTERFACE_ID};
+use nico_uuid::machine::MachineId;
 use sqlx::PgConnection;
 
 use super::DatabaseError;
@@ -561,11 +561,11 @@ pub async fn try_update_network_config(
 mod test {
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
-    use libmlx::device::info::MlxDeviceInfo;
     use mac_address::MacAddress;
-    use model::dpa_interface::NewDpaInterface;
-    use model::machine::ManagedHostState;
+    use nico_api_model::dpa_interface::NewDpaInterface;
+    use nico_api_model::machine::ManagedHostState;
+    use nico_libmlx::device::info::MlxDeviceInfo;
+    use nico_uuid::machine::MachineId;
 
     use crate::machine;
 

@@ -18,11 +18,11 @@
 use std::collections::BTreeMap;
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
-use carbide_uuid::machine::{MachineId, MachineInterfaceId};
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
+use nico_rpc::forge::InterfaceAssociationType;
+use nico_uuid::machine::{MachineId, MachineInterfaceId};
 use prettytable::{Cell, Row, Table};
-use rpc::forge::InterfaceAssociationType;
 use tracing::warn;
 
 use super::args::Args;
@@ -95,8 +95,8 @@ async fn show_machine_interfaces_information(
 
 fn convert_machines_to_nice_table(
     has_more: bool,
-    machine_interfaces: forgerpc::InterfaceList,
-    domain_list: ::rpc::protos::dns::DomainList,
+    machine_interfaces: forge::InterfaceList,
+    domain_list: nico_rpc::protos::dns::DomainList,
 ) -> Box<Table> {
     let mut table = Table::new();
 
@@ -146,8 +146,8 @@ fn convert_machines_to_nice_table(
 
 ///Function to print the machine interface in Table format
 fn convert_machine_to_nice_format(
-    machine_interface: forgerpc::MachineInterface,
-    domain_list: ::rpc::protos::dns::DomainList,
+    machine_interface: forge::MachineInterface,
+    domain_list: nico_rpc::protos::dns::DomainList,
 ) -> CarbideCliResult<String> {
     let domainlist_map = domain_list
         .domains

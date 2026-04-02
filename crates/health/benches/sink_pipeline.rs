@@ -20,15 +20,15 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
-use carbide_health::metrics::MetricsManager;
-use carbide_health::sink::{
+use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use mac_address::MacAddress;
+use nico_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
+use nico_health::metrics::MetricsManager;
+use nico_health::sink::{
     Classification, CollectorEvent, CompositeDataSink, DataSink, EventContext, HealthOverrideSink,
     HealthReport, PrometheusSink, ReportSource, SensorHealthData,
 };
-use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use health_report::HealthReport as CarbideHealthReport;
-use mac_address::MacAddress;
+use nico_health_report::HealthReport as CarbideHealthReport;
 
 const MACHINE_ID: &str = "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0";
 const MACHINE_IDS: [&str; 3] = [
@@ -177,14 +177,14 @@ fn bench_composite_sink(c: &mut Criterion) {
 
 fn health_report_with_alerts(alert_count: usize) -> HealthReport {
     let mut report = HealthReport {
-        source: carbide_health::sink::ReportSource::BmcSensors,
+        source: nico_health::sink::ReportSource::BmcSensors,
         observed_at: Some(chrono::Utc::now()),
         successes: Vec::new(),
         alerts: Vec::new(),
     };
     for idx in 0..alert_count {
-        report.alerts.push(carbide_health::sink::HealthReportAlert {
-            probe_id: carbide_health::sink::Probe::Sensor,
+        report.alerts.push(nico_health::sink::HealthReportAlert {
+            probe_id: nico_health::sink::Probe::Sensor,
             target: Some(format!("target-{idx}")),
             message: format!("alert message #{idx}"),
             classifications: vec![Classification::SensorCritical],
@@ -214,8 +214,8 @@ impl HealthOverrideBenchState {
             source: ReportSource::TrayLeakDetection,
             observed_at: Some(chrono::Utc::now()),
             successes: Vec::new(),
-            alerts: vec![carbide_health::sink::HealthReportAlert {
-                probe_id: carbide_health::sink::Probe::LeakDetection,
+            alerts: vec![nico_health::sink::HealthReportAlert {
+                probe_id: nico_health::sink::Probe::LeakDetection,
                 target: Some("leak-detector".to_string()),
                 message: "leak detected".to_string(),
                 classifications: vec![Classification::Leak],

@@ -18,11 +18,10 @@
 use std::collections::VecDeque;
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
-use ::rpc::forge as forgerpc;
-use carbide_uuid::machine::MachineId;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use nico_rpc::{Machine, forge};
+use nico_uuid::machine::MachineId;
 use prettytable::{Table, row};
-use rpc::Machine;
 
 use super::args::Args;
 use crate::cfg::cli_options::SortField;
@@ -30,7 +29,7 @@ use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv, async_writeln};
 
 fn convert_machine_to_nice_format(
-    machine: forgerpc::Machine,
+    machine: forge::Machine,
     history_count: u32,
 ) -> CarbideCliResult<String> {
     let mut lines = String::new();
@@ -209,7 +208,7 @@ fn get_machine_type(machine_id: Option<MachineId>) -> String {
         .unwrap_or_else(|| "Unknown".to_string())
 }
 
-fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table> {
+fn convert_machines_to_nice_table(machines: forge::MachineList) -> Box<Table> {
     let mut table = Box::new(Table::new());
 
     table.set_titles(row![
@@ -232,7 +231,7 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
             .interfaces
             .into_iter()
             .filter(|x| x.primary_interface)
-            .collect::<Vec<forgerpc::MachineInterface>>();
+            .collect::<Vec<forge::MachineInterface>>();
 
         let (id, address, mac, machine_type, dpu_id) = if machine_interfaces.is_empty() {
             (
@@ -302,7 +301,7 @@ async fn show_all_machines(
     output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     api_client: &ApiClient,
-    search_config: rpc::forge::MachineSearchConfig,
+    search_config: forge::MachineSearchConfig,
     page_size: usize,
     sort_by: &SortField,
 ) -> CarbideCliResult<()> {
@@ -382,7 +381,7 @@ pub async fn handle_show(
         // Show both hosts and DPUs if neither flag is specified
         let show_all_types = !args.dpus && !args.hosts;
         let dpus_only = args.dpus && !args.hosts;
-        let search_config = rpc::forge::MachineSearchConfig {
+        let search_config = forge::MachineSearchConfig {
             include_dpus: args.dpus || show_all_types,
             exclude_hosts: dpus_only,
             include_predicted_host: args.hosts || show_all_types,

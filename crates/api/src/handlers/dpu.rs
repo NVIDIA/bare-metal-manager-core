@@ -19,25 +19,25 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::{common as rpc_common, forge as rpc};
-use carbide_network::virtualization::VpcVirtualizationType;
-use carbide_uuid::machine::MachineId;
-use db::{
+use futures_util::future::join_all;
+use itertools::Itertools;
+use nico_api_db::{
     DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_security_group,
     network_segment,
 };
-use futures_util::future::join_all;
-use itertools::Itertools;
-use model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
-use model::hardware_info::MachineInventory;
-use model::instance::config::extension_services::InstanceExtensionServiceConfig;
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::network::MachineNetworkStatusObservation;
-use model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
-use model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState};
-use model::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
-use model::network_segment::NetworkSegmentSearchConfig;
+use nico_api_model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
+use nico_api_model::hardware_info::MachineInventory;
+use nico_api_model::instance::config::extension_services::InstanceExtensionServiceConfig;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::network::MachineNetworkStatusObservation;
+use nico_api_model::machine::upgrade_policy::{AgentUpgradePolicy, BuildVersion};
+use nico_api_model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState};
+use nico_api_model::machine_update_module::HOST_UPDATE_HEALTH_PROBE_ID;
+use nico_api_model::network_segment::NetworkSegmentSearchConfig;
+use nico_network::virtualization::VpcVirtualizationType;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::{common as rpc_common, forge};
+use nico_uuid::machine::MachineId;
 use tonic::{Request, Response, Status};
 use utils::models::arch::CpuArchitecture;
 
@@ -54,10 +54,10 @@ const HBN_SINGLE_VLAN_DEVICE: &str = "vxlan48";
 pub(crate) async fn get_managed_host_network_config_inner(
     api: &Api,
     dpu_machine_id: MachineId,
-) -> Result<rpc::ManagedHostNetworkConfigResponse, tonic::Status> {
+) -> Result<forge::ManagedHostNetworkConfigResponse, tonic::Status> {
     let mut txn = api.txn_begin().await?;
 
-    let snapshot = db::managed_host::load_snapshot(
+    let snapshot = nico_api_db::managed_host::load_snapshot(
         &mut txn,
         &dpu_machine_id,
         LoadSnapshotOptions::default().with_host_health(api.runtime_config.host_health),
@@ -83,7 +83,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
     };
 
     let maybe_instance =
-        Option::<rpc::Instance>::try_from(snapshot.clone()).map_err(CarbideError::from)?;
+        Option::<forge::Instance>::try_from(snapshot.clone()).map_err(CarbideError::from)?;
 
     let primary_dpu_snapshot = snapshot
         .host_snapshot
@@ -92,7 +92,8 @@ pub(crate) async fn get_managed_host_network_config_inner(
         .find(|x| x.primary_interface)
         .ok_or_else(|| CarbideError::internal("Primary Interface is missing.".to_string()))?;
 
-    let primary_dpu = db::machine_interface::find_one(&mut txn, primary_dpu_snapshot.id).await?;
+    let primary_dpu =
+        nico_api_db::machine_interface::find_one(&mut txn, primary_dpu_snapshot.id).await?;
     let is_primary_dpu = primary_dpu
         .attached_dpu_machine_id
         .map(|x| x == dpu_snapshot.id)
@@ -231,7 +232,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 // network segment is empty, return error.
                 return Err(CarbideError::NetworkSegmentNotAllocated.into());
             };
-            let vpc = db::vpc::find_by_segment(&mut txn, network_segment_id)
+            let vpc = nico_api_db::vpc::find_by_segment(&mut txn, network_segment_id)
                 .await?;
 
             // We probably shouldn't allow multiple interfaces that are in different VPCs with
@@ -310,7 +311,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                         })?;
 
                 Some((
-                    i32::from(rpc::NetworkSecurityGroupSource::NsgSourceInstance),
+                    i32::from(forge::NetworkSecurityGroupSource::NsgSourceInstance),
                     network_security_group,
                 ))
             } else {
@@ -321,8 +322,8 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
             //Get Physical interface
             let physical_iface = interfaces.iter().find(|x| {
-                rpc::InterfaceFunctionType::from(x.function_id.function_type())
-                    == rpc::InterfaceFunctionType::Physical
+                forge::InterfaceFunctionType::from(x.function_id.function_type())
+                    == forge::InterfaceFunctionType::Physical
             });
 
             let Some(physical_iface) = physical_iface else {
@@ -346,7 +347,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             // All interfaces have the segment id allocated. It is already validated during
             // instance creation.
             let segment_ids = interfaces.iter().filter_map(|x|x.network_segment_id).collect_vec();
-            let segment_details = db::network_segment::find_by(
+            let segment_details = nico_api_db::network_segment::find_by(
                 &mut txn,
                 ObjectColumnFilter::List(network_segment::IdColumn, &segment_ids),
                 NetworkSegmentSearchConfig::default(),
@@ -362,7 +363,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
             let domain = match segment.subdomain_id {
                 Some(domain_id) => {
-                    db::dns::domain::find_by_uuid(txn.as_pgconn(), domain_id)
+                    nico_api_db::dns::domain::find_by_uuid(txn.as_pgconn(), domain_id)
                         .await
                         .map_err(CarbideError::from)?
                         .ok_or_else(|| CarbideError::NotFoundError {
@@ -389,7 +390,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             }
 
             let tenant_loopback_ip = if VpcVirtualizationType::Fnn == network_virtualization_type {
-                let tenant_loopback_ip = db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
+                let tenant_loopback_ip = nico_api_db::vpc_dpu_loopback::get_or_allocate_loopback_ip_for_vpc(
                     &api.common_pools,
                     &mut txn,
                     &dpu_machine_id,
@@ -448,7 +449,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         }
     };
 
-    let network_config = rpc::ManagedHostNetworkConfig {
+    let network_config = forge::ManagedHostNetworkConfig {
         loopback_ip: loopback_ip.to_string(),
         quarantine_state: snapshot
             .host_snapshot
@@ -501,7 +502,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
     // entire struct down, and then putting some smarts inside the DPU re: the source_type.
     // Only pass them on if route servers are enabled.
     let route_servers = if api.runtime_config.enable_route_servers {
-        db::route_servers::get(&mut txn)
+        nico_api_db::route_servers::get(&mut txn)
             .await?
             .into_iter()
             .map(|rs| rs.address.to_string())
@@ -527,7 +528,8 @@ pub(crate) async fn get_managed_host_network_config_inner(
             // @TODO(Felicity): optimize database query to fetch all extension service versions at once.
             //  This might be ok for now since the number of extension services is expected to be small.
             let service_res =
-                db::extension_service::find_by_ids(&mut txn, &[config.service_id], false).await?;
+                nico_api_db::extension_service::find_by_ids(&mut txn, &[config.service_id], false)
+                    .await?;
             let service =
                 service_res
                     .into_iter()
@@ -537,7 +539,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                         id: config.service_id.to_string(),
                     })?;
 
-            let version = db::extension_service::find_version_info(
+            let version = nico_api_db::extension_service::find_version_info(
                 &mut txn,
                 config.service_id,
                 Some(config.version),
@@ -573,12 +575,12 @@ pub(crate) async fn get_managed_host_network_config_inner(
             None
         };
 
-        Ok::<_, tonic::Status>(rpc::ManagedHostDpuExtensionServiceConfig {
+        Ok::<_, tonic::Status>(forge::ManagedHostDpuExtensionServiceConfig {
             service_id: info.service.id.to_string(),
             name: info.service.name,
             removed: info.instance_config.removed.map(|ts| ts.to_string()),
             version: info.version.version.to_string(),
-            service_type: rpc::DpuExtensionServiceType::from(info.service.service_type.clone())
+            service_type: forge::DpuExtensionServiceType::from(info.service.service_type.clone())
                 .into(),
             data: info.version.data,
             credential,
@@ -589,7 +591,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
     .into_iter()
     .collect::<Result<Vec<_>, _>>()?;
 
-    let resp = rpc::ManagedHostNetworkConfigResponse {
+    let resp = forge::ManagedHostNetworkConfigResponse {
         instance_id: snapshot.instance.as_ref().map(|instance| instance.id),
         asn,
         dhcp_servers: api.eth_data.dhcp_servers.clone(),
@@ -610,7 +612,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             .collect(),
         tenant_host_asn: api.runtime_config.common_tenant_host_asn,
         datacenter_asn: api.runtime_config.datacenter_asn,
-        vpc_isolation_behavior: rpc::VpcIsolationBehaviorType::from(
+        vpc_isolation_behavior: forge::VpcIsolationBehaviorType::from(
             api.runtime_config.vpc_isolation_behavior,
         )
         .into(),
@@ -631,7 +633,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
             .policy_overrides
             .iter()
             .map(|r| ethernet_virtualization::resolve_security_group_rule(r.clone()))
-            .collect::<Result<Vec<rpc::ResolvedNetworkSecurityGroupRule>, CarbideError>>()?,
+            .collect::<Result<Vec<forge::ResolvedNetworkSecurityGroupRule>, CarbideError>>()?,
         stateful_acls_enabled: api
             .runtime_config
             .network_security_group
@@ -647,7 +649,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
         },
         remote_id: dpu_machine_id.remote_id(),
         network_virtualization_type: Some(
-            rpc::VpcVirtualizationType::from(network_virtualization_type).into(),
+            forge::VpcVirtualizationType::from(network_virtualization_type).into(),
         ),
         vpc_vni,
         // Deprecated: this field is always true now.
@@ -666,7 +668,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                     vni: rt.vni,
                 })
         }),
-        routing_profile: routing_profile.map(|p| rpc::RoutingProfile {
+        routing_profile: routing_profile.map(|p| forge::RoutingProfile {
             leak_default_route_from_underlay: p.leak_default_route_from_underlay,
             leak_tenant_host_routes_to_underlay: p.leak_tenant_host_routes_to_underlay,
             route_target_imports: p
@@ -687,15 +689,20 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 .collect(),
         }),
         traffic_intercept_config: api.runtime_config.vmaas_config.as_ref().map(|c| {
-            rpc::TrafficInterceptConfig {
-                bridging: c.bridging.as_ref().map(|b| rpc::TrafficInterceptBridging {
-                    internal_bridge_routing_prefix: b.internal_bridge_routing_prefix.to_string(),
-                    host_intercept_bridge_name: b.host_intercept_bridge_name.clone(),
-                    vf_intercept_bridge_name: b.vf_intercept_bridge_name.clone(),
-                    vf_intercept_bridge_port: b.vf_intercept_bridge_port.clone(),
-                    host_intercept_bridge_port: b.host_intercept_bridge_port.clone(),
-                    vf_intercept_bridge_sf: b.vf_intercept_bridge_sf.clone(),
-                }),
+            forge::TrafficInterceptConfig {
+                bridging: c
+                    .bridging
+                    .as_ref()
+                    .map(|b| forge::TrafficInterceptBridging {
+                        internal_bridge_routing_prefix: b
+                            .internal_bridge_routing_prefix
+                            .to_string(),
+                        host_intercept_bridge_name: b.host_intercept_bridge_name.clone(),
+                        vf_intercept_bridge_name: b.vf_intercept_bridge_name.clone(),
+                        vf_intercept_bridge_port: b.vf_intercept_bridge_port.clone(),
+                        host_intercept_bridge_port: b.host_intercept_bridge_port.clone(),
+                        vf_intercept_bridge_sf: b.vf_intercept_bridge_sf.clone(),
+                    }),
                 public_prefixes: c.public_prefixes.iter().map(|p| p.to_string()).collect(),
                 additional_overlay_vtep_ip: dpu_snapshot
                     .network_config
@@ -730,8 +737,8 @@ pub(crate) async fn get_managed_host_network_config_inner(
 
 pub(crate) async fn get_managed_host_network_config(
     api: &Api,
-    request: Request<rpc::ManagedHostNetworkConfigRequest>,
-) -> Result<tonic::Response<rpc::ManagedHostNetworkConfigResponse>, tonic::Status> {
+    request: Request<forge::ManagedHostNetworkConfigRequest>,
+) -> Result<tonic::Response<forge::ManagedHostNetworkConfigResponse>, tonic::Status> {
     log_request_data(&request);
 
     let request = request.into_inner();
@@ -744,7 +751,7 @@ pub(crate) async fn get_managed_host_network_config(
 
 pub(crate) async fn update_agent_reported_inventory(
     api: &Api,
-    request: Request<rpc::DpuAgentInventoryReport>,
+    request: Request<forge::DpuAgentInventoryReport>,
 ) -> Result<Response<()>, tonic::Status> {
     log_request_data(&request);
 
@@ -756,7 +763,12 @@ pub(crate) async fn update_agent_reported_inventory(
 
         let inventory =
             MachineInventory::try_from(inventory.clone()).map_err(CarbideError::from)?;
-        db::machine::update_agent_reported_inventory(&mut txn, &dpu_machine_id, &inventory).await?;
+        nico_api_db::machine::update_agent_reported_inventory(
+            &mut txn,
+            &dpu_machine_id,
+            &inventory,
+        )
+        .await?;
 
         txn.commit().await?;
     } else {
@@ -776,7 +788,7 @@ pub(crate) async fn update_agent_reported_inventory(
 
 pub(crate) async fn record_dpu_network_status(
     api: &Api,
-    request: Request<rpc::DpuNetworkStatus>,
+    request: Request<forge::DpuNetworkStatus>,
 ) -> Result<Response<()>, tonic::Status> {
     log_request_data(&request);
 
@@ -790,7 +802,7 @@ pub(crate) async fn record_dpu_network_status(
 
     // Load the DPU Object. We require it to update the health report based
     // on the last report
-    let dpu_machine = db::machine::find_one(
+    let dpu_machine = nico_api_db::machine::find_one(
         &mut txn,
         &dpu_machine_id,
         MachineSearchConfig {
@@ -818,7 +830,8 @@ pub(crate) async fn record_dpu_network_status(
             .map_err(CarbideError::from)?;
         if let Some(agent_version) = obs.agent_version.as_ref() {
             obs.agent_version_superseded_at =
-                db::carbide_version::date_superseded(&mut txn, agent_version.as_str()).await?;
+                nico_api_db::nico_version::date_superseded(&mut txn, agent_version.as_str())
+                    .await?;
         }
         obs
     };
@@ -829,7 +842,12 @@ pub(crate) async fn record_dpu_network_status(
     };
 
     // Instance network observation is the part of network observation now.
-    db::machine::update_network_status_observation(&mut txn, &dpu_machine_id, &machine_obs).await?;
+    nico_api_db::machine::update_network_status_observation(
+        &mut txn,
+        &dpu_machine_id,
+        &machine_obs,
+    )
+    .await?;
     tracing::trace!(
         machine_id = %dpu_machine_id,
         machine_network_config = ?request.network_config_version,
@@ -840,7 +858,7 @@ pub(crate) async fn record_dpu_network_status(
     );
 
     // Store the DPU submitted health-report
-    let mut health_report = health_report::HealthReport::try_from(
+    let mut health_report = nico_health_report::HealthReport::try_from(
         request
             .dpu_health
             .as_ref()
@@ -855,9 +873,10 @@ pub(crate) async fn record_dpu_network_status(
     // Fix the in_alert times based on the previously stored report
     health_report.update_in_alert_since(dpu_machine.dpu_agent_health_report.as_ref());
 
-    db::machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report).await?;
+    nico_api_db::machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report)
+        .await?;
 
-    for rpc::LastDhcpRequest {
+    for forge::LastDhcpRequest {
         host_interface_id,
         timestamp,
     } in request.last_dhcp_requests.iter()
@@ -868,7 +887,7 @@ pub(crate) async fn record_dpu_network_status(
             )
             .into());
         };
-        db::machine_interface::update_last_dhcp(
+        nico_api_db::machine_interface::update_last_dhcp(
             &mut txn,
             *host_interface_id,
             Some(timestamp.parse().map_err(|e| {
@@ -887,7 +906,8 @@ pub(crate) async fn record_dpu_network_status(
 
     if let Some(policy) = dpu_agent_upgrade_policy::get(&mut txn).await? {
         let _needs_upgrade =
-            db::machine::apply_agent_upgrade_policy(&mut txn, policy, &dpu_machine_id).await?;
+            nico_api_db::machine::apply_agent_upgrade_policy(&mut txn, policy, &dpu_machine_id)
+                .await?;
     }
 
     txn.commit().await?;
@@ -929,7 +949,8 @@ async fn wakeup_host_state_handler_by_dpu_id(
 ) -> Result<(), DatabaseError> {
     let mut txn = api.txn_begin().await?;
     let host_machine =
-        db::machine::lookup_host_machine_ids_by_dpu_ids(&mut txn, &[*dpu_machine_id]).await?;
+        nico_api_db::machine::lookup_host_machine_ids_by_dpu_ids(&mut txn, &[*dpu_machine_id])
+            .await?;
     txn.rollback().await?;
 
     if let Some(host_machine_id) = host_machine.first() {
@@ -947,18 +968,19 @@ async fn wakeup_host_state_handler_by_dpu_id(
 /// Currently: Status of HBN on each DPU
 pub(crate) async fn get_all_managed_host_network_status(
     api: &Api,
-    request: Request<rpc::ManagedHostNetworkStatusRequest>,
-) -> Result<Response<rpc::ManagedHostNetworkStatusResponse>, Status> {
+    request: Request<forge::ManagedHostNetworkStatusRequest>,
+) -> Result<Response<forge::ManagedHostNetworkStatusResponse>, Status> {
     log_request_data(&request);
 
     let all_status =
-        db::machine::get_all_network_status_observation(&api.database_connection, 2000).await?;
+        nico_api_db::machine::get_all_network_status_observation(&api.database_connection, 2000)
+            .await?;
 
     let mut out = Vec::with_capacity(all_status.len());
     for machine_network_status in all_status {
         out.push(machine_network_status.into());
     }
-    Ok(Response::new(rpc::ManagedHostNetworkStatusResponse {
+    Ok(Response::new(forge::ManagedHostNetworkStatusResponse {
         all: out,
     }))
 }
@@ -968,8 +990,8 @@ pub(crate) async fn get_all_managed_host_network_status(
 /// version and write the DB to say our upgrade is complete.
 pub(crate) async fn dpu_agent_upgrade_check(
     api: &Api,
-    request: tonic::Request<rpc::DpuAgentUpgradeCheckRequest>,
-) -> Result<tonic::Response<rpc::DpuAgentUpgradeCheckResponse>, Status> {
+    request: tonic::Request<forge::DpuAgentUpgradeCheckRequest>,
+) -> Result<tonic::Response<forge::DpuAgentUpgradeCheckResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -988,7 +1010,7 @@ pub(crate) async fn dpu_agent_upgrade_check(
 
     // We usually want these two to match
     let agent_version = req.current_agent_version;
-    let server_version = carbide_version::v!(build_version);
+    let server_version = nico_version::v!(build_version);
     BuildVersion::try_from(server_version).map_err(|_| CarbideError::Internal {
         message: "Invalid server version, cannot check for upgrade".into(),
     })?;
@@ -996,7 +1018,8 @@ pub(crate) async fn dpu_agent_upgrade_check(
     let mut txn = api.txn_begin().await?;
 
     let machine =
-        db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default()).await?;
+        nico_api_db::machine::find_one(&mut txn, &machine_id, MachineSearchConfig::default())
+            .await?;
     let machine = machine.ok_or(CarbideError::NotFoundError {
         kind: "dpu",
         id: machine_id.to_string(),
@@ -1017,7 +1040,7 @@ pub(crate) async fn dpu_agent_upgrade_check(
     // The debian/ubuntu package version is our build_version minus the initial `v`
     let package_version = &server_version[1..];
 
-    let response = rpc::DpuAgentUpgradeCheckResponse {
+    let response = forge::DpuAgentUpgradeCheckResponse {
         should_upgrade,
         package_version: package_version.to_string(),
         server_version: server_version.to_string(),
@@ -1028,8 +1051,8 @@ pub(crate) async fn dpu_agent_upgrade_check(
 /// Get or set the forge-dpu-agent upgrade policy.
 pub(crate) async fn dpu_agent_upgrade_policy_action(
     api: &Api,
-    request: tonic::Request<rpc::DpuAgentUpgradePolicyRequest>,
-) -> Result<tonic::Response<rpc::DpuAgentUpgradePolicyResponse>, Status> {
+    request: tonic::Request<forge::DpuAgentUpgradePolicyRequest>,
+) -> Result<tonic::Response<forge::DpuAgentUpgradePolicyResponse>, Status> {
     log_request_data(&request);
 
     let mut txn = api.txn_begin().await?;
@@ -1052,7 +1075,7 @@ pub(crate) async fn dpu_agent_upgrade_policy_action(
     };
     txn.commit().await?;
 
-    let response = rpc::DpuAgentUpgradePolicyResponse {
+    let response = forge::DpuAgentUpgradePolicyResponse {
         active_policy: active_policy.into(),
         did_change,
     };
@@ -1064,9 +1087,9 @@ pub(crate) async fn dpu_agent_upgrade_policy_action(
 /// In case user passes a host id, trigger_dpu_reprovisioning
 pub(crate) async fn trigger_dpu_reprovisioning(
     api: &Api,
-    request: tonic::Request<rpc::DpuReprovisioningRequest>,
+    request: tonic::Request<forge::DpuReprovisioningRequest>,
 ) -> Result<tonic::Response<()>, tonic::Status> {
-    use ::rpc::forge::dpu_reprovisioning_request::Mode;
+    use nico_rpc::forge::dpu_reprovisioning_request::Mode;
 
     log_request_data(&request);
     let req = request.into_inner();
@@ -1075,7 +1098,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
 
     let mut txn = api.txn_begin().await?;
 
-    let snapshot = db::managed_host::load_snapshot(
+    let snapshot = nico_api_db::managed_host::load_snapshot(
         &mut txn,
         &machine_id,
         LoadSnapshotOptions {
@@ -1099,7 +1122,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
     if !update_alert.is_some_and(|alert| {
         alert
             .classifications
-            .contains(&health_report::HealthAlertClassification::prevent_allocations())
+            .contains(&nico_health_report::HealthAlertClassification::prevent_allocations())
     }) {
         return Err(CarbideError::InvalidArgument(
             "Machine must have a 'HostUpdateInProgress' Health Alert with 'PreventAllocations' classification.".into(),
@@ -1126,7 +1149,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
         Mode::Set => {
             let initiator = req.initiator().as_str_name();
             if machine_id.machine_type().is_dpu() {
-                db::machine::trigger_dpu_reprovisioning_request(
+                nico_api_db::machine::trigger_dpu_reprovisioning_request(
                     &machine_id,
                     &mut txn,
                     initiator,
@@ -1135,7 +1158,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                 .await?;
             } else {
                 for dpu_snapshot in &snapshot.dpu_snapshots {
-                    db::machine::trigger_dpu_reprovisioning_request(
+                    nico_api_db::machine::trigger_dpu_reprovisioning_request(
                         &dpu_snapshot.id,
                         &mut txn,
                         initiator,
@@ -1147,11 +1170,16 @@ pub(crate) async fn trigger_dpu_reprovisioning(
         }
         Mode::Clear => {
             if machine_id.machine_type().is_dpu() {
-                db::machine::clear_dpu_reprovisioning_request(&mut txn, &machine_id, true).await?;
+                nico_api_db::machine::clear_dpu_reprovisioning_request(&mut txn, &machine_id, true)
+                    .await?;
             } else {
                 for dpu_snapshot in &snapshot.dpu_snapshots {
-                    db::machine::clear_dpu_reprovisioning_request(&mut txn, &dpu_snapshot.id, true)
-                        .await?;
+                    nico_api_db::machine::clear_dpu_reprovisioning_request(
+                        &mut txn,
+                        &dpu_snapshot.id,
+                        true,
+                    )
+                    .await?;
                 }
             }
         }
@@ -1188,7 +1216,8 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                     .into());
             }
 
-            db::machine::restart_dpu_reprovisioning(&mut txn, &ids, req.update_firmware).await?;
+            nico_api_db::machine::restart_dpu_reprovisioning(&mut txn, &ids, req.update_firmware)
+                .await?;
         }
     }
 
@@ -1200,44 +1229,45 @@ pub(crate) async fn trigger_dpu_reprovisioning(
 // List DPUs waiting for reprovisioning
 pub(crate) async fn list_dpu_waiting_for_reprovisioning(
     api: &Api,
-    request: Request<rpc::DpuReprovisioningListRequest>,
-) -> Result<Response<rpc::DpuReprovisioningListResponse>, Status> {
+    request: Request<forge::DpuReprovisioningListRequest>,
+) -> Result<Response<forge::DpuReprovisioningListResponse>, Status> {
     log_request_data(&request);
 
-    let dpus = db::machine::list_machines_requested_for_reprovisioning(&api.database_connection)
-        .await?
-        .into_iter()
-        .map(
-            |x| rpc::dpu_reprovisioning_list_response::DpuReprovisioningListItem {
-                id: Some(x.id),
-                state: x.current_state().to_string(),
-                requested_at: x
-                    .reprovision_requested
-                    .as_ref()
-                    .map(|a| a.requested_at.into()),
-                initiator: x
-                    .reprovision_requested
-                    .as_ref()
-                    .map(|a| a.initiator.clone())
-                    .unwrap_or_default(),
-                update_firmware: x
-                    .reprovision_requested
-                    .as_ref()
-                    .map(|a| a.update_firmware)
-                    .unwrap_or_default(),
-                initiated_at: x
-                    .reprovision_requested
-                    .as_ref()
-                    .map(|a| a.started_at.map(|x| x.into()))
-                    .unwrap_or_default(),
-                user_approval_received: x
-                    .reprovision_requested
-                    .as_ref()
-                    .map(|x| x.user_approval_received)
-                    .unwrap_or_default(),
-            },
-        )
-        .collect_vec();
+    let dpus =
+        nico_api_db::machine::list_machines_requested_for_reprovisioning(&api.database_connection)
+            .await?
+            .into_iter()
+            .map(
+                |x| forge::dpu_reprovisioning_list_response::DpuReprovisioningListItem {
+                    id: Some(x.id),
+                    state: x.current_state().to_string(),
+                    requested_at: x
+                        .reprovision_requested
+                        .as_ref()
+                        .map(|a| a.requested_at.into()),
+                    initiator: x
+                        .reprovision_requested
+                        .as_ref()
+                        .map(|a| a.initiator.clone())
+                        .unwrap_or_default(),
+                    update_firmware: x
+                        .reprovision_requested
+                        .as_ref()
+                        .map(|a| a.update_firmware)
+                        .unwrap_or_default(),
+                    initiated_at: x
+                        .reprovision_requested
+                        .as_ref()
+                        .map(|a| a.started_at.map(|x| x.into()))
+                        .unwrap_or_default(),
+                    user_approval_received: x
+                        .reprovision_requested
+                        .as_ref()
+                        .map(|x| x.user_approval_received)
+                        .unwrap_or_default(),
+                },
+            )
+            .collect_vec();
 
-    Ok(Response::new(rpc::DpuReprovisioningListResponse { dpus }))
+    Ok(Response::new(forge::DpuReprovisioningListResponse { dpus }))
 }

@@ -17,13 +17,13 @@
 
 use std::collections::HashMap;
 
-use carbide_uuid::machine::MachineId;
-use model::machine::{
+use nico_api_model::machine::{
     DpfState, DpuDiscoveringState, DpuDiscoveringStates, DpuInitNextStateResolver, DpuInitState,
     DpuInitStates, DpuReprovisionStates, HostReprovisionState, InstallDpuOsState,
     InstanceNextStateResolver, InstanceState, Machine, MachineNextStateResolver, MachineState,
     ManagedHostState, ManagedHostStateSnapshot, ReprovisionState,
 };
+use nico_uuid::machine::MachineId;
 
 use crate::state_controller::state_handler::StateHandlerError;
 

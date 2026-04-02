@@ -18,8 +18,8 @@
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
-use ::rpc::forge as rpc;
-use model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_rpc::forge;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -42,7 +42,7 @@ use crate::handlers::utils::convert_and_log_machine_id;
 //
 pub(crate) async fn set_primary_dpu(
     api: &Api,
-    request: Request<rpc::SetPrimaryDpuRequest>,
+    request: Request<forge::SetPrimaryDpuRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
@@ -59,7 +59,7 @@ pub(crate) async fn set_primary_dpu(
     let mut txn = api.txn_begin().await?;
 
     let interface_map =
-        db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id]).await?;
+        nico_api_db::machine_interface::find_by_machine_ids(&mut txn, &[host_machine_id]).await?;
 
     let interface_snapshots =
         interface_map
@@ -101,12 +101,13 @@ pub(crate) async fn set_primary_dpu(
 
     // we need to set the boot device or the host will no longer be able to boot.  we need BMC info.
     // the same BMC info is used if a reboot was requested.
-    let machine = db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
-        .await?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "Machine",
-            id: host_machine_id.to_string(),
-        })?;
+    let machine =
+        nico_api_db::machine::find_one(&mut txn, &host_machine_id, MachineSearchConfig::default())
+            .await?
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "Machine",
+                id: host_machine_id.to_string(),
+            })?;
 
     let bmc_addr_str = machine
         .bmc_info
@@ -119,7 +120,7 @@ pub(crate) async fn set_primary_dpu(
     let bmc_addr = IpAddr::from_str(&bmc_addr_str).map_err(CarbideError::AddressParseError)?;
     let bmc_socket_addr = SocketAddr::new(bmc_addr, 443);
 
-    let bmc_interface = db::machine_interface::find_by_ip(&mut txn, bmc_addr)
+    let bmc_interface = nico_api_db::machine_interface::find_by_ip(&mut txn, bmc_addr)
         .await?
         .ok_or_else(|| CarbideError::NotFoundError {
             kind: "BMC Interface",
@@ -161,16 +162,25 @@ pub(crate) async fn set_primary_dpu(
     let mut txn = api.txn_begin().await?;
 
     // update the primary interface
-    db::machine_interface::set_primary_interface(&current_primary_interface_id, false, &mut txn)
-        .await?;
-    db::machine_interface::set_primary_interface(&new_primary_interface.id, true, &mut txn).await?;
+    nico_api_db::machine_interface::set_primary_interface(
+        &current_primary_interface_id,
+        false,
+        &mut txn,
+    )
+    .await?;
+    nico_api_db::machine_interface::set_primary_interface(
+        &new_primary_interface.id,
+        true,
+        &mut txn,
+    )
+    .await?;
 
     // increment the network config version so that the DPUs pick up their new config
     let (network_config, network_config_version) =
-        db::machine::get_network_config(txn.as_pgconn(), &host_machine_id)
+        nico_api_db::machine::get_network_config(txn.as_pgconn(), &host_machine_id)
             .await?
             .take();
-    db::machine::try_update_network_config(
+    nico_api_db::machine::try_update_network_config(
         &mut txn,
         &host_machine_id,
         network_config_version,
@@ -179,8 +189,10 @@ pub(crate) async fn set_primary_dpu(
     .await?;
 
     // if there is an instance, update the instances network config version so the DPUs pick up the new config
-    if let Some(instance) = db::instance::find_by_machine_id(&mut txn, &host_machine_id).await? {
-        db::instance::update_network_config(
+    if let Some(instance) =
+        nico_api_db::instance::find_by_machine_id(&mut txn, &host_machine_id).await?
+    {
+        nico_api_db::instance::update_network_config(
             &mut txn,
             instance.id,
             instance.network_config_version,
@@ -212,7 +224,7 @@ pub(crate) async fn set_primary_dpu(
 /// Switching a host into maintenance mode prevents an instance being assigned to it.
 pub(crate) async fn set_maintenance(
     api: &Api,
-    request: Request<rpc::MaintenanceRequest>,
+    request: Request<forge::MaintenanceRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
     let triggered_by = request
@@ -232,12 +244,13 @@ pub(crate) async fn set_maintenance(
         )
         .into());
     }
-    let dpu_machines = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
+    let dpu_machines =
+        nico_api_db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
     txn.commit().await?;
 
     // We set status on both host and dpu machine to make them easier to query from DB
     match req.operation() {
-        rpc::MaintenanceOperation::Enable => {
+        forge::MaintenanceOperation::Enable => {
             let Some(reference) = req.reference else {
                 return Err(
                     CarbideError::InvalidArgument("Missing reference url".to_string()).into(),
@@ -255,34 +268,34 @@ pub(crate) async fn set_maintenance(
             // Maintenance mode is implemented as a host health override
             crate::handlers::health::insert_health_report_override(
                 api,
-                Request::new(rpc::InsertHealthReportOverrideRequest {
+                Request::new(forge::InsertHealthReportOverrideRequest {
                     machine_id: req.host_id,
-                    r#override: Some(::rpc::forge::HealthReportOverride {
-                        report: Some(health_report::HealthReport {
+                    r#override: Some(forge::HealthReportOverride {
+                        report: Some(nico_health_report::HealthReport {
                             source: "maintenance".to_string(),
                             triggered_by,
                             observed_at: Some(chrono::Utc::now()),
                             successes: Vec::new(),
-                            alerts: vec![health_report::HealthProbeAlert {
+                            alerts: vec![nico_health_report::HealthProbeAlert {
                                 id: "Maintenance".parse().unwrap(),
                                 target: None,
                                 in_alert_since: Some(chrono::Utc::now()),
                                 message: reference.clone(),
                                 tenant_message: None,
                                 classifications: vec![
-                                    health_report::HealthAlertClassification::prevent_allocations(),
-                                    health_report::HealthAlertClassification::suppress_external_alerting(),
+                                    nico_health_report::HealthAlertClassification::prevent_allocations(),
+                                    nico_health_report::HealthAlertClassification::suppress_external_alerting(),
                                 ],
                             }],
                         }
                                      .into()),
-                        mode: ::rpc::forge::OverrideMode::Merge.into(),
+                        mode: forge::OverrideMode::Merge.into(),
                     }),
                 }),
             )
                 .await?;
         }
-        rpc::MaintenanceOperation::Disable => {
+        forge::MaintenanceOperation::Disable => {
             for dpu_machine in dpu_machines.iter() {
                 if dpu_machine.reprovision_requested.is_some() {
                     return Err(CarbideError::InvalidArgument(format!(
@@ -295,7 +308,7 @@ pub(crate) async fn set_maintenance(
 
             match crate::handlers::health::remove_health_report_override(
                 api,
-                Request::new(rpc::RemoveHealthReportOverrideRequest {
+                Request::new(forge::RemoveHealthReportOverrideRequest {
                     machine_id: req.host_id,
                     source: "maintenance".to_string(),
                 }),

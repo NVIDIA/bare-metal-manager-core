@@ -17,7 +17,7 @@
 
 use clap::Parser;
 use mac_address::MacAddress;
-use rpc::forge as forgerpc;
+use nico_rpc::forge;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -44,10 +44,10 @@ pub struct Args {
     pub role_id: Option<String>,
 }
 
-impl From<Args> for forgerpc::CreateBmcUserRequest {
+impl From<Args> for forge::CreateBmcUserRequest {
     fn from(args: Args) -> Self {
         let bmc_endpoint_request = if args.ip_address.is_some() || args.mac_address.is_some() {
-            Some(forgerpc::BmcEndpointRequest {
+            Some(forge::BmcEndpointRequest {
                 ip_address: args.ip_address.unwrap_or_default(),
                 mac_address: args.mac_address.map(|mac| mac.to_string()),
             })

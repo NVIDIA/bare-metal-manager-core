@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
+use nico_uuid::machine::MachineId;
 
 use crate::CarbideError;
 use crate::api::log_machine_id;

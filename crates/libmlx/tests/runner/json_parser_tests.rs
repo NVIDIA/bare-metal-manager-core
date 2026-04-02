@@ -20,9 +20,9 @@
 
 use std::fs;
 
-use libmlx::runner::exec_options::ExecOptions;
-use libmlx::runner::json_parser::JsonResponseParser;
-use libmlx::variables::value::MlxValueType;
+use nico_libmlx::runner::exec_options::ExecOptions;
+use nico_libmlx::runner::json_parser::JsonResponseParser;
+use nico_libmlx::variables::value::MlxValueType;
 use serde_json::json;
 
 use super::common;
@@ -172,7 +172,8 @@ fn test_device_mismatch_error() {
     let result = parser.parse_json_response(temp_file.path(), "02:00.0");
 
     assert!(result.is_err());
-    if let Err(libmlx::runner::error::MlxRunnerError::DeviceMismatch { expected, actual }) = result
+    if let Err(nico_libmlx::runner::error::MlxRunnerError::DeviceMismatch { expected, actual }) =
+        result
     {
         assert_eq!(expected, "02:00.0");
         assert_eq!(actual, "01:00.0");

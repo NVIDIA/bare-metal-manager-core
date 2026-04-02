@@ -17,7 +17,7 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use forge_secrets::CredentialConfig;
+use nico_secrets::CredentialConfig;
 use tokio::sync::oneshot::Sender;
 use tokio_util::sync::CancellationToken;
 use utils::HostPortPair;
@@ -283,7 +283,7 @@ pub async fn start(
         )
     };
 
-    carbide::run(
+    nico_api::run(
         0,
         carbide_config_str,
         None,

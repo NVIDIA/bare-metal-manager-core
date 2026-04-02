@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge::ConfigSetting;
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::forge::ConfigSetting;
 
 use crate::rpc::ApiClient;
 

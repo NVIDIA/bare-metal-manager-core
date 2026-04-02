@@ -14,10 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::protos;
-use db::dns::resource_record;
 use dns_record::constants::*;
 use dns_record::{DnsResourceRecordReply, DnsResourceRecordType};
+use nico_api_db::dns::resource_record;
+use nico_rpc::protos;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -78,7 +78,7 @@ async fn lookup_records_by_qname(
         .map_err(CarbideError::from)?
         .into_iter()
         .map(|db_record| {
-            let model_record: model::dns::ResourceRecord = db_record.into();
+            let model_record: nico_api_model::dns::ResourceRecord = db_record.into();
             model_record.into()
         })
         .collect::<Vec<_>>();
@@ -131,8 +131,8 @@ where
 
     // 2. If this query is for a domain we're authoritative for, also include SOA
     //    domains table stores names without trailing dots
-    let domain_name = db::dns::normalize_domain(query_name);
-    match db::dns::domain::find_by_name(&mut *txn, &domain_name).await {
+    let domain_name = nico_api_db::dns::normalize_domain(query_name);
+    match nico_api_db::dns::domain::find_by_name(&mut *txn, &domain_name).await {
         Ok(domains) if !domains.is_empty() => {
             let domain = &domains[0];
             tracing::debug!(
@@ -192,9 +192,9 @@ pub async fn get_all_domains(
 ) -> Result<Response<protos::dns::GetAllDomainsResponse>, Status> {
     log_request_data(&_request);
 
-    let domains = db::dns::domain::find_by(
+    let domains = nico_api_db::dns::domain::find_by(
         &api.database_connection,
-        db::ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
+        nico_api_db::ObjectColumnFilter::<nico_api_db::dns::domain::IdColumn>::All,
     )
     .await?;
 
@@ -209,7 +209,7 @@ pub async fn get_all_domains(
 
     let result: Vec<protos::dns::DomainInfo> = domains
         .into_iter()
-        .map(model::dns::DomainInfo::from)
+        .map(nico_api_model::dns::DomainInfo::from)
         .map(protos::dns::DomainInfo::from)
         .collect();
 
@@ -230,12 +230,12 @@ pub async fn get_all_domain_metadata(
 
     let metadata_request = request.into_inner();
 
-    let domain_name = db::dns::normalize_domain(&metadata_request.domain);
+    let domain_name = nico_api_db::dns::normalize_domain(&metadata_request.domain);
 
-    let domains = db::dns::domain::find_by(
+    let domains = nico_api_db::dns::domain::find_by(
         &api.database_connection,
-        db::ObjectColumnFilter::<db::dns::domain::NameColumn>::One(
-            db::dns::domain::NameColumn,
+        nico_api_db::ObjectColumnFilter::<nico_api_db::dns::domain::NameColumn>::One(
+            nico_api_db::dns::domain::NameColumn,
             &domain_name.as_str(),
         ),
     )
@@ -283,12 +283,12 @@ pub async fn lookup_record(
     let resource_record: Vec<DnsResourceRecordReply> = match rrtype {
         DnsResourceRecordType::ANY => {
             // Return ALL records for this qname
-            let normalized = db::dns::normalize_domain(&qname);
+            let normalized = nico_api_db::dns::normalize_domain(&qname);
             lookup_any_record(&mut api.db_reader(), &normalized).await?
         }
         DnsResourceRecordType::SOA => {
             // SOA queries: only return SOA record for the domain
-            let normalized = db::dns::normalize_domain(&qname);
+            let normalized = nico_api_db::dns::normalize_domain(&qname);
             let record = lookup_soa_record(&api.database_connection, &normalized).await?;
             vec![record]
         }
@@ -311,9 +311,9 @@ pub async fn lookup_record(
 // TODO: Remove this handler after all clients have migrated
 // ============================================================================
 
-use ::rpc::forge::dns_message::dns_response::Dnsrr;
-use ::rpc::forge::dns_message::{DnsQuestion, DnsResponse};
-use db::db_read::DbReader;
+use nico_api_db::db_read::DbReader;
+use nico_rpc::forge::dns_message::dns_response::Dnsrr;
+use nico_rpc::forge::dns_message::{DnsQuestion, DnsResponse};
 
 /// Compatibility adapter for legacy lookup_record RPC
 pub async fn lookup_record_legacy_compat(
@@ -387,9 +387,9 @@ pub async fn lookup_record_legacy_compat(
 
     // Try to find the domain this record belongs to
     // Find all domains and match the longest suffix
-    let domains = db::dns::domain::find_by(
+    let domains = nico_api_db::dns::domain::find_by(
         &api.database_connection,
-        db::ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
+        nico_api_db::ObjectColumnFilter::<nico_api_db::dns::domain::IdColumn>::All,
     )
     .await?;
 

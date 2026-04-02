@@ -22,7 +22,8 @@ use axum::Json;
 use axum::extract::State as AxumState;
 use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
-use rpc::forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_rpc::forge::forge_server::Forge;
 
 use crate::api::Api;
 
@@ -66,7 +67,7 @@ async fn fetch_power_shelves(
     api: &Api,
 ) -> Result<Vec<PowerShelfRecord>, (http::StatusCode, String)> {
     let response = match api
-        .find_power_shelves(tonic::Request::new(rpc::forge::PowerShelfQuery {
+        .find_power_shelves(tonic::Request::new(forge::PowerShelfQuery {
             name: None,
             power_shelf_id: None,
         }))
@@ -88,7 +89,7 @@ async fn fetch_power_shelves(
         .map(|shelf| {
             let state = if let Some(status) = &shelf.status {
                 if let Some(state_reason) = &status.state_reason {
-                    match rpc::forge::ControllerStateOutcome::try_from(state_reason.outcome) {
+                    match forge::ControllerStateOutcome::try_from(state_reason.outcome) {
                         Ok(outcome) => outcome.as_str_name().to_string(),
                         Err(_) => "Unknown".to_string(),
                     }

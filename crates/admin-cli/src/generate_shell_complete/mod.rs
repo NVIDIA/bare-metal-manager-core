@@ -21,8 +21,8 @@ pub mod cmds;
 #[cfg(test)]
 mod tests;
 
-use ::rpc::admin_cli::CarbideCliResult;
 pub use args::Cmd;
+use nico_rpc::admin_cli::CarbideCliResult;
 
 use crate::cfg::dispatch::Dispatch;
 use crate::cfg::run::Run;

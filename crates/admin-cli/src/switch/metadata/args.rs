@@ -15,8 +15,8 @@
  * limitations under the License.
  */
 
-use carbide_uuid::switch::SwitchId;
 use clap::Parser;
+use nico_uuid::switch::SwitchId;
 
 #[derive(Parser, Debug, Clone)]
 pub enum Args {

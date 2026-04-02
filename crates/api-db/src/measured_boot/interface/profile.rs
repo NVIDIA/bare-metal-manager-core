@@ -22,10 +22,12 @@
 
 use std::collections::HashMap;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
-use carbide_uuid::{DbPrimaryUuid, DbTable};
-use measured_boot::records::{MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord};
+use nico_measured_boot::records::{
+    MeasurementSystemProfileAttrRecord, MeasurementSystemProfileRecord,
+};
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
+use nico_uuid::{DbPrimaryUuid, DbTable};
 use sqlx::query_builder::QueryBuilder;
 use sqlx::{PgConnection, Postgres};
 

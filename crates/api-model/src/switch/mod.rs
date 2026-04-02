@@ -17,13 +17,13 @@
 
 use std::collections::HashMap;
 
-use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
-use carbide_uuid::rack::RackId;
-use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
 use mac_address::MacAddress;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge;
+use nico_uuid::rack::RackId;
+use nico_uuid::switch::SwitchId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -43,9 +43,9 @@ pub struct NewSwitch {
     pub metadata: Option<Metadata>,
 }
 
-impl TryFrom<rpc::SwitchCreationRequest> for NewSwitch {
+impl TryFrom<forge::SwitchCreationRequest> for NewSwitch {
     type Error = RpcDataConversionError;
-    fn try_from(value: rpc::SwitchCreationRequest) -> Result<Self, Self::Error> {
+    fn try_from(value: forge::SwitchCreationRequest) -> Result<Self, Self::Error> {
         let conf = match value.config {
             Some(c) => c,
             None => {
@@ -185,10 +185,10 @@ impl<'r> FromRow<'r, PgRow> for Switch {
     }
 }
 
-impl TryFrom<rpc::SwitchConfig> for SwitchConfig {
+impl TryFrom<forge::SwitchConfig> for SwitchConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(conf: rpc::SwitchConfig) -> Result<Self, Self::Error> {
+    fn try_from(conf: forge::SwitchConfig) -> Result<Self, Self::Error> {
         Ok(SwitchConfig {
             name: conf.name,
             enable_nmxc: conf.enable_nmxc,
@@ -200,7 +200,7 @@ impl TryFrom<rpc::SwitchConfig> for SwitchConfig {
     }
 }
 
-impl TryFrom<Switch> for rpc::Switch {
+impl TryFrom<Switch> for forge::Switch {
     type Error = RpcDataConversionError;
 
     fn try_from(src: Switch) -> Result<Self, Self::Error> {
@@ -208,7 +208,7 @@ impl TryFrom<Switch> for rpc::Switch {
         let sla = state_sla(&src.controller_state.value, &src.controller_state.version).into();
         let controller_state = serde_json::to_string(&src.controller_state.value).unwrap();
         let status = Some(match src.status {
-            Some(s) => rpc::SwitchStatus {
+            Some(s) => forge::SwitchStatus {
                 state_reason,
                 state_sla: Some(sla),
                 switch_name: Some(s.switch_name),
@@ -216,7 +216,7 @@ impl TryFrom<Switch> for rpc::Switch {
                 health_status: Some(s.health_status),
                 controller_state: Some(controller_state.clone()),
             },
-            None => rpc::SwitchStatus {
+            None => forge::SwitchStatus {
                 state_reason,
                 state_sla: Some(sla),
                 switch_name: None,
@@ -226,9 +226,9 @@ impl TryFrom<Switch> for rpc::Switch {
             },
         });
 
-        let config = rpc::SwitchConfig {
+        let config = forge::SwitchConfig {
             name: src.config.name,
-            fabric_manager_config: Some(rpc::FabricManagerConfig {
+            fabric_manager_config: Some(forge::FabricManagerConfig {
                 config_map: src
                     .config
                     .fabric_manager_config
@@ -245,7 +245,7 @@ impl TryFrom<Switch> for rpc::Switch {
             None
         };
         let state_version = src.controller_state.version.to_string();
-        Ok(rpc::Switch {
+        Ok(forge::Switch {
             id: Some(src.id),
             config: Some(config),
             status,
@@ -373,9 +373,9 @@ pub struct SwitchStateHistoryRecord {
     pub state_version: ConfigVersion,
 }
 
-impl From<SwitchStateHistoryRecord> for rpc::SwitchStateHistoryRecord {
-    fn from(value: SwitchStateHistoryRecord) -> rpc::SwitchStateHistoryRecord {
-        rpc::SwitchStateHistoryRecord {
+impl From<SwitchStateHistoryRecord> for forge::SwitchStateHistoryRecord {
+    fn from(value: SwitchStateHistoryRecord) -> forge::SwitchStateHistoryRecord {
+        forge::SwitchStateHistoryRecord {
             state: value.state,
             version: value.state_version.version_string(),
             time: Some(value.state_version.timestamp().into()),
@@ -397,8 +397,8 @@ pub struct SwitchSearchFilter {
     pub bmc_mac: Option<MacAddress>,
 }
 
-impl From<rpc::SwitchSearchFilter> for SwitchSearchFilter {
-    fn from(filter: rpc::SwitchSearchFilter) -> Self {
+impl From<forge::SwitchSearchFilter> for SwitchSearchFilter {
+    fn from(filter: forge::SwitchSearchFilter) -> Self {
         SwitchSearchFilter {
             rack_id: filter.rack_id,
             deleted: crate::DeletedFilter::from(filter.deleted),
@@ -443,7 +443,7 @@ mod tests {
             version: ConfigVersion::initial(),
         };
 
-        let rpc_switch: rpc::Switch = switch.try_into().unwrap();
+        let rpc_switch: forge::Switch = switch.try_into().unwrap();
         let status = rpc_switch.status.expect("status should be Some");
         assert!(
             status.state_reason.is_some(),
@@ -481,7 +481,7 @@ mod tests {
             version: ConfigVersion::initial(),
         };
 
-        let rpc_switch: rpc::Switch = switch.try_into().unwrap();
+        let rpc_switch: forge::Switch = switch.try_into().unwrap();
         let status = rpc_switch
             .status
             .expect("status should be Some even when switch.status is None");

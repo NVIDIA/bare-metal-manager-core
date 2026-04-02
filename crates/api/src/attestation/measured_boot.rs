@@ -21,10 +21,10 @@ use std::io::Write;
 use std::process::Command;
 
 use byteorder::{BigEndian, ByteOrder};
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::measured_boot::MeasurementReportId;
-use db::db_read::DbReader;
-use model::machine::MeasuringState;
+use nico_api_db::db_read::DbReader;
+use nico_api_model::machine::MeasuringState;
+use nico_uuid::machine::MachineId;
+use nico_uuid::measured_boot::MeasurementReportId;
 use pkcs1::LineEnding;
 use rsa::pkcs1::EncodeRsaPublicKey;
 use sqlx::PgConnection;
@@ -330,7 +330,7 @@ fn attestation_unsupported_error() -> CarbideError {
 #[cfg(feature = "linux-build")]
 pub mod linux_build {
     use asn1_rs::FromDer;
-    use model::hardware_info::TpmEkCertificate;
+    use nico_api_model::hardware_info::TpmEkCertificate;
     use num_bigint_dig::BigUint;
     use rsa::RsaPublicKey;
     use sha2::Digest;

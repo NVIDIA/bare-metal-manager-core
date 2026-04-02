@@ -78,7 +78,7 @@ category = "Build"
 description = "Build carbide-admin-cli in CI"
 workspace = false
 script = '''
-cargo build -p carbide-admin-cli
+cargo build -p nico-admin-cli
 '''
 
 [tasks.build-cli]
@@ -94,7 +94,7 @@ docker run \
 	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
 	"${BUILD_CONTAINER_X86_URL}" \
-	cargo build -p carbide-admin-cli --release
+	cargo build -p nico-admin-cli --release
 '''
 dependencies = ["check-cargo-home-set"]
 
@@ -111,7 +111,7 @@ docker run \
 	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
 	"${BUILD_CONTAINER_X86_URL}" \
-	cargo build -p carbide-health
+	cargo build -p nico-health
 '''
 dependencies = ["check-cargo-home-set"]
 
@@ -128,7 +128,7 @@ docker run \
 	--volume $CARGO_HOME:/cargo \
 	--env CARGO_HOME=/cargo \
 	"${BUILD_CONTAINER_X86_URL} \
-	cargo build -p carbide-log-parser
+	cargo build -p nico-log-parser
 '''
 dependencies = ["check-cargo-home-set"]
 
@@ -152,7 +152,7 @@ script = '''
 set -e
 if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
 docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.build-container-x86_64 -t carbide-build-x86_64 ${REPO_ROOT}/dev/docker
-echo "Image carbide-build-x86_64 built. Run: cargo make cargo-docker -- build -p carbide-admin-cli --release"
+echo "Image carbide-build-x86_64 built. Run: cargo make cargo-docker -- build -p nico-admin-cli --release"
 '''
 
 [tasks.build-cargo-docker-image-minimal]
@@ -162,7 +162,7 @@ workspace = false
 script = '''
 set -e
 docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.cargo-docker-minimal -t carbide-build-minimal ${REPO_ROOT}/dev/docker
-echo "Image carbide-build-minimal built. Run: cargo make cargo-docker-minimal -- build -p carbide-admin-cli --release"
+echo "Image carbide-build-minimal built. Run: cargo make cargo-docker-minimal -- build -p nico-admin-cli --release"
 '''
 
 [tasks.cargo-docker]
@@ -173,7 +173,7 @@ dependencies = ["check-cargo-home-set"]
 script = '''
 set -e
 if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
-CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p carbide-admin-cli --release}"
+CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p nico-admin-cli --release}"
 CARGO_ARGS="${CARGO_ARGS//;/ }"
 CARGO_ARGS="${CARGO_ARGS#-- }"
 docker run --rm \
@@ -211,7 +211,7 @@ script = '''
 set -e
 if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
 # cargo-make may join task args with semicolons; normalize to spaces and strip leading --
-CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p carbide-admin-cli --release}"
+CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p nico-admin-cli --release}"
 CARGO_ARGS="${CARGO_ARGS//;/ }"
 CARGO_ARGS="${CARGO_ARGS#-- }"
 # Pass DATABASE_URL into container so DB tests can connect (use host.docker.internal from Mac)
@@ -499,7 +499,7 @@ args = ["clippy", "--locked", "--all-targets", "--all-features"]
 
 [tasks.build-debug-test-prerequisites]
 script = '''
-cargo build -p carbide-agent -p carbide-admin-cli -p carbide-api
+cargo build -p nico-agent -p nico-admin-cli -p nico-api
 '''
 workspace = false
 

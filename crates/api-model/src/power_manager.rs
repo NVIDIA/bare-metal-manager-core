@@ -15,9 +15,10 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -99,32 +100,32 @@ pub struct PowerOptions {
     pub tried_triggering_on_counter: i32,
 }
 
-impl From<::rpc::forge::PowerState> for PowerState {
-    fn from(value: ::rpc::forge::PowerState) -> Self {
+impl From<forge::PowerState> for PowerState {
+    fn from(value: forge::PowerState) -> Self {
         match value {
-            rpc::forge::PowerState::On => PowerState::On,
-            rpc::forge::PowerState::Off => PowerState::Off,
-            rpc::forge::PowerState::PowerManagerDisabled => PowerState::PowerManagerDisabled,
+            forge::PowerState::On => PowerState::On,
+            forge::PowerState::Off => PowerState::Off,
+            forge::PowerState::PowerManagerDisabled => PowerState::PowerManagerDisabled,
         }
     }
 }
 
-impl From<PowerState> for ::rpc::forge::PowerState {
+impl From<PowerState> for forge::PowerState {
     fn from(value: PowerState) -> Self {
         match value {
-            PowerState::Off => ::rpc::forge::PowerState::Off,
-            PowerState::On => ::rpc::forge::PowerState::On,
-            PowerState::PowerManagerDisabled => ::rpc::forge::PowerState::PowerManagerDisabled,
+            PowerState::Off => forge::PowerState::Off,
+            PowerState::On => forge::PowerState::On,
+            PowerState::PowerManagerDisabled => forge::PowerState::PowerManagerDisabled,
         }
     }
 }
 
-impl From<PowerOptions> for ::rpc::forge::PowerOptions {
+impl From<PowerOptions> for forge::PowerOptions {
     fn from(value: PowerOptions) -> Self {
         Self {
-            desired_state: rpc::forge::PowerState::from(value.desired_power_state) as i32,
+            desired_state: forge::PowerState::from(value.desired_power_state) as i32,
             desired_state_updated_at: Some(value.desired_power_state_version.timestamp().into()),
-            actual_state: rpc::forge::PowerState::from(value.last_fetched_power_state) as i32,
+            actual_state: forge::PowerState::from(value.last_fetched_power_state) as i32,
             actual_state_updated_at: Some(value.last_fetched_updated_at.into()),
             host_id: Some(value.host_id),
             desired_power_state_version: value.desired_power_state_version.to_string(),

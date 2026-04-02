@@ -17,7 +17,8 @@
 
 use std::fmt::Write;
 
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use nico_rpc::forge;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -39,7 +40,7 @@ pub async fn handle_show(
     Ok(())
 }
 
-fn show_network_devices_info(data: rpc::forge::NetworkTopologyData) -> CarbideCliResult<()> {
+fn show_network_devices_info(data: forge::NetworkTopologyData) -> CarbideCliResult<()> {
     let mut lines = String::new();
 
     writeln!(&mut lines, "{}", "-".repeat(95))?;

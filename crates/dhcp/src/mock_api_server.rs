@@ -25,7 +25,6 @@ use std::net::{SocketAddr, SocketAddrV4};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
-use ::rpc::forge as rpc;
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::server::conn::http2;
@@ -33,6 +32,7 @@ use hyper::service::service_fn;
 use hyper::{Request, Response, body, header};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use mac_address::MacAddress;
+use nico_rpc::forge;
 use prost::Message;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -46,8 +46,8 @@ pub const ENDPOINT_EXPIRE_DHCP_LEASE: &str = "/forge.Forge/ExpireDhcpLease";
 const DHCP_RESPONSE_FQDN: &str = "december-nitrogen.forge.local";
 const DHCP_RESPONSE_ADDR_PREFIX: &str = "172.20.0";
 
-pub fn base_dhcp_response(mac_address: MacAddress) -> rpc::DhcpRecord {
-    rpc::DhcpRecord {
+pub fn base_dhcp_response(mac_address: MacAddress) -> forge::DhcpRecord {
+    forge::DhcpRecord {
         machine_id: None,
         machine_interface_id: Some("88750d14-00fa-4d21-9fbc-d562046bc194".parse().unwrap()),
         segment_id: Some("267d40d1-75ba-4fee-bf76-a2ec2ce293fd".parse().unwrap()),
@@ -214,16 +214,17 @@ impl MockAPIServer {
             }
             ENDPOINT_EXPIRE_DHCP_LEASE => {
                 let input_bytes = req.into_body().collect().await.unwrap().to_bytes();
-                let request = rpc::ExpireDhcpLeaseRequest::decode(input_bytes.slice(5..)).unwrap();
-                respond(rpc::ExpireDhcpLeaseResponse {
+                let request =
+                    forge::ExpireDhcpLeaseRequest::decode(input_bytes.slice(5..)).unwrap();
+                respond(forge::ExpireDhcpLeaseResponse {
                     ip_address: request.ip_address,
-                    status: rpc::ExpireDhcpLeaseStatus::Released.into(),
+                    status: forge::ExpireDhcpLeaseStatus::Released.into(),
                 })
             }
-            "/forge.Forge/Echo" => respond(rpc::EchoResponse {
+            "/forge.Forge/Echo" => respond(forge::EchoResponse {
                 message: "dhcp_echo".into(),
             }),
-            "/forge.Forge/Version" => respond(rpc::BuildInfo::default()),
+            "/forge.Forge/Version" => respond(forge::BuildInfo::default()),
             _ => panic!("DHCP -> API wrong uri: {}", req.uri().path()),
         }
     }
@@ -232,7 +233,7 @@ impl MockAPIServer {
         let input_bytes = req.into_body().collect().await.unwrap().to_bytes();
 
         // slice is to strip the gRPC parts: 1 byte is_compressed and a 4 byte message length
-        let disco = rpc::DhcpDiscovery::decode(input_bytes.slice(5..)).unwrap();
+        let disco = forge::DhcpDiscovery::decode(input_bytes.slice(5..)).unwrap();
         dhcp_response(&disco.mac_address)
     }
 }

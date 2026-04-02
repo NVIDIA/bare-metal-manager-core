@@ -17,21 +17,21 @@
 
 use std::cmp::Ordering;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::rack::RackId;
-use db::{
-    self, expected_machine as db_expected_machine, expected_power_shelf as db_expected_power_shelf,
-    expected_switch as db_expected_switch, machine as db_machine, rack as db_rack,
+use nico_api_db::{
+    expected_machine as db_expected_machine, expected_power_shelf as db_expected_power_shelf,
+    expected_switch as db_expected_switch, machine as db_machine, rack as db_rack, {self},
 };
-use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{LoadSnapshotOptions, ManagedHostState};
-use model::power_shelf::PowerShelfControllerState;
-use model::rack::{
+use nico_api_model::machine::machine_search_config::MachineSearchConfig;
+use nico_api_model::machine::{LoadSnapshotOptions, ManagedHostState};
+use nico_api_model::power_shelf::PowerShelfControllerState;
+use nico_api_model::rack::{
     Rack, RackConfig, RackFirmwareUpgradeState, RackMaintenanceState, RackPowerState, RackState,
     RackValidationState,
 };
-use model::rack_type::RackCapabilitiesSet;
-use model::switch::SwitchControllerState;
+use nico_api_model::rack_type::RackCapabilitiesSet;
+use nico_api_model::switch::SwitchControllerState;
+use nico_uuid::machine::MachineId;
+use nico_uuid::rack::RackId;
 use sqlx::{PgPool, PgTransaction};
 
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
@@ -71,7 +71,7 @@ async fn load_partition_summary(
     let mut txn = ctx.services.db_pool.begin().await?;
     let machines = db_machine::find(
         &mut *txn,
-        db::ObjectFilter::List(&machine_ids),
+        nico_api_db::ObjectFilter::List(&machine_ids),
         MachineSearchConfig::default(),
     )
     .await?;
@@ -467,7 +467,7 @@ impl StateHandler for RackStateHandler {
             // DISCOVERY PHASE & STATES
             RackState::Unknown => {
                 // Default DB column value. The transition to Expected is forced
-                // by db::rack::create(), not by the state machine. If a rack
+                // by nico_api_db::rack::create(), not by the state machine. If a rack
                 // somehow ends up here, just wait.
                 tracing::debug!("Rack {} is in Unknown state, waiting for create()", id);
                 Ok(StateHandlerOutcome::do_nothing())
@@ -528,7 +528,7 @@ impl StateHandler for RackStateHandler {
                 // Check if each compute machine has reached ManagedHostState::Ready.
                 let mut txn = ctx.services.db_pool.begin().await?;
                 for machine_id in config.compute_trays.iter() {
-                    let mh_snapshot = db::managed_host::load_snapshot(
+                    let mh_snapshot = nico_api_db::managed_host::load_snapshot(
                         txn.as_mut(),
                         machine_id,
                         LoadSnapshotOptions {
@@ -562,7 +562,7 @@ impl StateHandler for RackStateHandler {
                             .find(|l| l.bmc_mac_address == *expected_mac && l.switch_id.is_some())
                         {
                             let switch_id = linked.switch_id.unwrap();
-                            let switch = db::switch::find_by_id(txn.as_mut(), &switch_id)
+                            let switch = nico_api_db::switch::find_by_id(txn.as_mut(), &switch_id)
                                 .await?
                                 .ok_or(StateHandlerError::MissingData {
                                     object_id: switch_id.to_string(),
@@ -590,7 +590,7 @@ impl StateHandler for RackStateHandler {
 
                 // Check if each expected power shelf has reached PowerShelfControllerState::Ready.
                 for ps_id in config.power_shelves.iter() {
-                    let power_shelf = db::power_shelf::find_by_id(txn.as_mut(), ps_id)
+                    let power_shelf = nico_api_db::power_shelf::find_by_id(txn.as_mut(), ps_id)
                         .await?
                         .ok_or(StateHandlerError::MissingData {
                             object_id: ps_id.to_string(),
@@ -789,7 +789,7 @@ impl StateHandler for RackStateHandler {
             RackState::Deleting => {
                 // Rack is being deleted
                 let mut txn = ctx.services.db_pool.begin().await?;
-                db::rack::final_delete(&mut txn, id).await?;
+                nico_api_db::rack::final_delete(&mut txn, id).await?;
                 Ok(StateHandlerOutcome::deleted().with_txn(txn))
             }
         }

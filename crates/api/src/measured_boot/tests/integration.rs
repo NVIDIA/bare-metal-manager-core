@@ -21,9 +21,9 @@
 
 #[cfg(test)]
 mod tests {
-    use db::measured_boot::journal;
-    use measured_boot::pcr::{PcrRegisterValue, parse_pcr_index_input};
-    use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
+    use nico_api_db::measured_boot::journal;
+    use nico_measured_boot::pcr::{PcrRegisterValue, parse_pcr_index_input};
+    use nico_measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
 
@@ -232,11 +232,14 @@ mod tests {
         // deal with princess-network and beer-louisiana
 
         let dell_r750_profile =
-            db::measured_boot::profile::new(&mut txn, None, &dell_r750_attrs).await?;
+            nico_api_db::measured_boot::profile::new(&mut txn, None, &dell_r750_attrs).await?;
 
-        let princess_report =
-            db::measured_boot::report::new(&mut txn, princess_network.machine_id, &princess_values)
-                .await?;
+        let princess_report = nico_api_db::measured_boot::report::new(
+            &mut txn,
+            princess_network.machine_id,
+            &princess_values,
+        )
+        .await?;
         assert_eq!(princess_report.machine_id, princess_network.machine_id);
 
         let princess_journal =
@@ -253,12 +256,15 @@ mod tests {
         );
         assert_eq!(princess_journal.bundle_id, None);
 
-        let report =
-            db::measured_boot::report::new(&mut txn, beer_louisiana.machine_id, &beer_values)
-                .await?;
+        let report = nico_api_db::measured_boot::report::new(
+            &mut txn,
+            beer_louisiana.machine_id,
+            &beer_values,
+        )
+        .await?;
         assert_eq!(report.machine_id, beer_louisiana.machine_id);
 
-        let beer_journal = db::measured_boot::journal::get_latest_for_machine_id(
+        let beer_journal = nico_api_db::measured_boot::journal::get_latest_for_machine_id(
             &mut txn,
             beer_louisiana.machine_id,
         )
@@ -268,12 +274,15 @@ mod tests {
         assert_eq!(beer_journal.state, MeasurementMachineState::PendingBundle);
         assert_eq!(beer_journal.bundle_id, None);
 
-        let lime_report =
-            db::measured_boot::report::new(&mut txn, lime_coconut.machine_id, &bad_dell_values)
-                .await?;
+        let lime_report = nico_api_db::measured_boot::report::new(
+            &mut txn,
+            lime_coconut.machine_id,
+            &bad_dell_values,
+        )
+        .await?;
         assert_eq!(lime_report.machine_id, lime_coconut.machine_id);
 
-        let lime_journal = db::measured_boot::journal::get_latest_for_machine_id(
+        let lime_journal = nico_api_db::measured_boot::journal::get_latest_for_machine_id(
             &mut txn,
             lime_coconut.machine_id,
         )
@@ -283,17 +292,20 @@ mod tests {
         assert_eq!(lime_journal.state, MeasurementMachineState::PendingBundle);
 
         // and now deal with slippery-lilac
-        let report =
-            db::measured_boot::report::new(&mut txn, slippery_lilac.machine_id, &dgx_h100_values)
-                .await?;
+        let report = nico_api_db::measured_boot::report::new(
+            &mut txn,
+            slippery_lilac.machine_id,
+            &dgx_h100_values,
+        )
+        .await?;
         assert_eq!(report.machine_id, slippery_lilac.machine_id);
 
         let slippery_profile =
-            db::measured_boot::profile::load_from_attrs(&mut txn, &dgx_h100_attrs)
+            nico_api_db::measured_boot::profile::load_from_attrs(&mut txn, &dgx_h100_attrs)
                 .await?
                 .unwrap();
 
-        let slippery_journal = db::measured_boot::journal::get_latest_for_machine_id(
+        let slippery_journal = nico_api_db::measured_boot::journal::get_latest_for_machine_id(
             &mut txn,
             slippery_lilac.machine_id,
         )
@@ -311,7 +323,7 @@ mod tests {
         assert_eq!(slippery_journal.bundle_id, None);
 
         // and now kick off silly-salander and cat-videos
-        let report = db::measured_boot::report::new(
+        let report = nico_api_db::measured_boot::report::new(
             &mut txn,
             silly_salamander.machine_id,
             &dgx_h100_v1_values,
@@ -319,29 +331,34 @@ mod tests {
         .await?;
         assert_eq!(report.machine_id, silly_salamander.machine_id);
 
-        let cat_report =
-            db::measured_boot::report::new(&mut txn, cat_videos.machine_id, &dgx_h100_v1_values)
-                .await?;
+        let cat_report = nico_api_db::measured_boot::report::new(
+            &mut txn,
+            cat_videos.machine_id,
+            &dgx_h100_v1_values,
+        )
+        .await?;
         assert_eq!(cat_report.machine_id, cat_videos.machine_id);
 
-        let silly_journal = db::measured_boot::journal::get_latest_for_machine_id(
+        let silly_journal = nico_api_db::measured_boot::journal::get_latest_for_machine_id(
             &mut txn,
             silly_salamander.machine_id,
         )
         .await?
         .unwrap();
 
-        let cat_journal =
-            db::measured_boot::journal::get_latest_for_machine_id(&mut txn, cat_videos.machine_id)
-                .await?
-                .unwrap();
+        let cat_journal = nico_api_db::measured_boot::journal::get_latest_for_machine_id(
+            &mut txn,
+            cat_videos.machine_id,
+        )
+        .await?
+        .unwrap();
 
         assert_eq!(silly_journal.profile_id, cat_journal.profile_id);
         assert_eq!(silly_journal.state, MeasurementMachineState::PendingBundle);
         assert_eq!(silly_journal.state, cat_journal.state);
 
         let pcr_set = parse_pcr_index_input("0-2,4")?;
-        let bundle = db::measured_boot::report::create_active_bundle(
+        let bundle = nico_api_db::measured_boot::report::create_active_bundle(
             &mut txn,
             &princess_report,
             &Some(pcr_set),
@@ -352,7 +369,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            db::measured_boot::journal::get_latest_for_machine_id(
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
                 &mut txn,
                 princess_network.machine_id
             )
@@ -363,7 +380,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            db::measured_boot::journal::get_latest_for_machine_id(
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
                 &mut txn,
                 beer_louisiana.machine_id
             )
@@ -374,7 +391,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            db::measured_boot::journal::get_latest_for_machine_id(
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
                 &mut txn,
                 lime_coconut.machine_id
             )
@@ -385,7 +402,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            db::measured_boot::journal::get_latest_for_machine_id(
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
                 &mut txn,
                 slippery_lilac.machine_id
             )
@@ -396,7 +413,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            db::measured_boot::journal::get_latest_for_machine_id(
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
                 &mut txn,
                 silly_salamander.machine_id
             )
@@ -407,14 +424,17 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            db::measured_boot::journal::get_latest_for_machine_id(&mut txn, cat_videos.machine_id)
-                .await?
-                .unwrap()
-                .state
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
+                &mut txn,
+                cat_videos.machine_id
+            )
+            .await?
+            .unwrap()
+            .state
         );
 
         let pcr_set = parse_pcr_index_input("1")?;
-        let bundle = db::measured_boot::report::create_revoked_bundle(
+        let bundle = nico_api_db::measured_boot::report::create_revoked_bundle(
             &mut txn,
             &lime_report,
             &Some(pcr_set),
@@ -425,7 +445,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            db::measured_boot::journal::get_latest_for_machine_id(
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
                 &mut txn,
                 princess_network.machine_id
             )
@@ -436,7 +456,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            db::measured_boot::journal::get_latest_for_machine_id(
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
                 &mut txn,
                 beer_louisiana.machine_id
             )
@@ -447,7 +467,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::MeasuringFailed,
-            db::measured_boot::journal::get_latest_for_machine_id(
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
                 &mut txn,
                 lime_coconut.machine_id
             )
@@ -458,7 +478,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            db::measured_boot::journal::get_latest_for_machine_id(
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
                 &mut txn,
                 slippery_lilac.machine_id
             )
@@ -469,7 +489,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            db::measured_boot::journal::get_latest_for_machine_id(
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
                 &mut txn,
                 silly_salamander.machine_id
             )
@@ -480,20 +500,24 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            db::measured_boot::journal::get_latest_for_machine_id(&mut txn, cat_videos.machine_id)
-                .await?
-                .unwrap()
-                .state
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
+                &mut txn,
+                cat_videos.machine_id
+            )
+            .await?
+            .unwrap()
+            .state
         );
 
         let bundle =
-            db::measured_boot::report::create_active_bundle(&mut txn, &cat_report, &None).await?;
+            nico_api_db::measured_boot::report::create_active_bundle(&mut txn, &cat_report, &None)
+                .await?;
         assert_eq!(bundle.pcr_values().len(), 5);
         assert_eq!(bundle.state, MeasurementBundleState::Active);
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            db::measured_boot::journal::get_latest_for_machine_id(
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
                 &mut txn,
                 princess_network.machine_id
             )
@@ -504,7 +528,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            db::measured_boot::journal::get_latest_for_machine_id(
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
                 &mut txn,
                 beer_louisiana.machine_id
             )
@@ -515,7 +539,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::MeasuringFailed,
-            db::measured_boot::journal::get_latest_for_machine_id(
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
                 &mut txn,
                 lime_coconut.machine_id
             )
@@ -526,7 +550,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::PendingBundle,
-            db::measured_boot::journal::get_latest_for_machine_id(
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
                 &mut txn,
                 slippery_lilac.machine_id
             )
@@ -537,7 +561,7 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            db::measured_boot::journal::get_latest_for_machine_id(
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
                 &mut txn,
                 silly_salamander.machine_id
             )
@@ -548,10 +572,13 @@ mod tests {
 
         assert_eq!(
             MeasurementMachineState::Measured,
-            db::measured_boot::journal::get_latest_for_machine_id(&mut txn, cat_videos.machine_id)
-                .await?
-                .unwrap()
-                .state
+            nico_api_db::measured_boot::journal::get_latest_for_machine_id(
+                &mut txn,
+                cat_videos.machine_id
+            )
+            .await?
+            .unwrap()
+            .state
         );
 
         Ok(())

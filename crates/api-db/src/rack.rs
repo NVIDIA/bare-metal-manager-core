@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
 use config_version::ConfigVersion;
-use health_report::{HealthReport, OverrideMode};
 use mac_address::MacAddress;
-use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::metadata::Metadata;
-use model::rack::{Rack, RackConfig, RackState};
+use nico_api_model::controller_outcome::PersistentStateHandlerOutcome;
+use nico_api_model::metadata::Metadata;
+use nico_api_model::rack::{Rack, RackConfig, RackState};
+use nico_health_report::{HealthReport, OverrideMode};
+use nico_uuid::rack::RackId;
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -58,7 +58,7 @@ where
 
 pub async fn find_ids(
     txn: impl DbReader<'_>,
-    _filter: model::rack::RackSearchFilter,
+    _filter: nico_api_model::rack::RackSearchFilter,
 ) -> Result<Vec<RackId>, DatabaseError> {
     let mut builder = sqlx::QueryBuilder::new("SELECT id FROM racks WHERE TRUE "); // The TRUE will be optimized away.
 

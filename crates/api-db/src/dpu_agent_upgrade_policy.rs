@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use model::machine::upgrade_policy::AgentUpgradePolicy;
+use nico_api_model::machine::upgrade_policy::AgentUpgradePolicy;
 use sqlx::{PgConnection, Row};
 
 use crate::DatabaseError;

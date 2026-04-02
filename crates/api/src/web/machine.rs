@@ -22,19 +22,21 @@ use askama::Template;
 use axum::extract::{Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
-use carbide_uuid::machine::{MachineId, MachineType};
 use hyper::http::StatusCode;
 use itertools::Itertools;
-use model::machine::network::ManagedHostQuarantineState;
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{self as forgerpc, MachineInventorySoftwareComponent, OverrideMode};
+use nico_api_model::machine::network::ManagedHostQuarantineState;
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{self, MachineInventorySoftwareComponent, OverrideMode};
+use nico_uuid::machine::{MachineId, MachineType};
 use serde::Deserialize;
 use utils::managed_host_display::to_time;
 
 use super::filters;
 use super::machine_state_history::{MachineStateHistoryRecord, MachineStateHistoryTable};
 use crate::api::Api;
-use crate::web::action_status::{self, ActionStatus};
+use crate::web::action_status::{
+    ActionStatus, {self},
+};
 
 #[derive(Template)]
 #[template(path = "machine_show.html")]
@@ -59,9 +61,9 @@ struct MachineRowDisplay {
     is_host: bool,
     num_gpus: usize,
     num_ib_ifs: usize,
-    health_probe_alerts: Vec<health_report::HealthProbeAlert>,
+    health_probe_alerts: Vec<nico_health_report::HealthProbeAlert>,
     override_mode_counts: String,
-    metadata: rpc::forge::Metadata,
+    metadata: forge::Metadata,
     instance_type_id: String,
     instance_type: String,
     num_nvlink_gpus: usize,
@@ -81,12 +83,12 @@ impl Ord for MachineRowDisplay {
 }
 
 impl MachineRowDisplay {
-    fn new(m: forgerpc::Machine, instance_type: String) -> Self {
+    fn new(m: forge::Machine, instance_type: String) -> Self {
         let mut machine_interfaces = m
             .interfaces
             .into_iter()
             .filter(|x| x.primary_interface)
-            .collect::<Vec<forgerpc::MachineInterface>>();
+            .collect::<Vec<forge::MachineInterface>>();
         let (hostname, ip_address, mac_address) = if machine_interfaces.is_empty() {
             ("None".to_string(), "None".to_string(), "None".to_string())
         } else {
@@ -125,10 +127,10 @@ impl MachineRowDisplay {
             .health
             .as_ref()
             .map(|h| {
-                health_report::HealthReport::try_from(h.clone())
-                    .unwrap_or_else(health_report::HealthReport::malformed_report)
+                nico_health_report::HealthReport::try_from(h.clone())
+                    .unwrap_or_else(nico_health_report::HealthReport::malformed_report)
             })
-            .unwrap_or_else(health_report::HealthReport::missing_report);
+            .unwrap_or_else(nico_health_report::HealthReport::missing_report);
 
         MachineRowDisplay {
             hostname,
@@ -142,7 +144,7 @@ impl MachineRowDisplay {
                 .unwrap_or_default(),
             ip_address,
             mac_address,
-            is_host: m.machine_type == forgerpc::MachineType::Host as i32,
+            is_host: m.machine_type == forge::MachineType::Host as i32,
             associated_dpu_ids: m
                 .associated_dpu_machine_ids
                 .into_iter()
@@ -202,7 +204,7 @@ pub async fn show_dpus_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     };
     machines
         .machines
-        .retain(|m| m.machine_type == forgerpc::MachineType::Dpu as i32);
+        .retain(|m| m.machine_type == forge::MachineType::Dpu as i32);
     (StatusCode::OK, Json(machines)).into_response()
 }
 
@@ -246,9 +248,9 @@ async fn show(
     // leave `machines` as mut in this case, but hey this is
     // where we are.
     let should_show_machine =
-        |m: &forgerpc::Machine| match forgerpc::MachineType::try_from(m.machine_type) {
-            Ok(forgerpc::MachineType::Host) => include_hosts,
-            Ok(forgerpc::MachineType::Dpu) => include_dpus,
+        |m: &forge::Machine| match forge::MachineType::try_from(m.machine_type) {
+            Ok(forge::MachineType::Host) => include_hosts,
+            Ok(forge::MachineType::Dpu) => include_dpus,
             _ => false,
         };
 
@@ -310,11 +312,8 @@ async fn show(
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
-pub async fn fetch_machine(
-    api: &Api,
-    machine_id: MachineId,
-) -> Result<::rpc::forge::Machine, Response> {
-    let request = tonic::Request::new(rpc::forge::MachinesByIdsRequest {
+pub async fn fetch_machine(api: &Api, machine_id: MachineId) -> Result<forge::Machine, Response> {
+    let request = tonic::Request::new(forge::MachinesByIdsRequest {
         machine_ids: vec![machine_id],
         include_history: true,
     });
@@ -361,7 +360,7 @@ pub async fn fetch_instance_type_names(
         return Ok(HashMap::new());
     }
 
-    let request = tonic::Request::new(rpc::forge::FindInstanceTypesByIdsRequest {
+    let request = tonic::Request::new(forge::FindInstanceTypesByIdsRequest {
         instance_type_ids,
         tenant_organization_id: None,
         include_allocation_stats: false,
@@ -391,8 +390,8 @@ pub async fn fetch_machines(
     api: Arc<Api>,
     include_dpus: bool,
     include_history: bool,
-) -> Result<forgerpc::MachineList, tonic::Status> {
-    let request = tonic::Request::new(forgerpc::MachineSearchConfig {
+) -> Result<forge::MachineList, tonic::Status> {
+    let request = tonic::Request::new(forge::MachineSearchConfig {
         include_dpus,
         include_predicted_host: true,
         ..Default::default()
@@ -411,7 +410,7 @@ pub async fn fetch_machines(
         let page_size = PAGE_SIZE.min(machine_ids.len() - offset);
         let next_ids = &machine_ids[offset..offset + page_size];
         let next_machines = api
-            .find_machines_by_ids(tonic::Request::new(forgerpc::MachinesByIdsRequest {
+            .find_machines_by_ids(tonic::Request::new(forge::MachinesByIdsRequest {
                 machine_ids: next_ids.to_vec(),
                 include_history,
             }))
@@ -422,7 +421,7 @@ pub async fn fetch_machines(
         offset += page_size;
     }
 
-    Ok(forgerpc::MachineList { machines })
+    Ok(forge::MachineList { machines })
 }
 
 #[derive(Template)]
@@ -437,7 +436,7 @@ struct MachineDetail<'a> {
     state_sla: String,
     time_in_state_above_sla: bool,
     last_reboot: String,
-    state_reason: Option<::rpc::forge::ControllerStateReason>,
+    state_reason: Option<forge::ControllerStateReason>,
     machine_type: String,
     is_host: bool,
     network_config: String,
@@ -455,11 +454,11 @@ struct MachineDetail<'a> {
     interfaces: Vec<MachineInterfaceDisplay>,
     ib_interfaces: Vec<MachineIbInterfaceDisplay>,
     inventory: Vec<MachineInventorySoftwareComponent>,
-    health: health_report::HealthReport,
+    health: nico_health_report::HealthReport,
     health_overrides: Vec<String>,
-    bmc_info: Option<rpc::forge::BmcInfo>,
+    bmc_info: Option<forge::BmcInfo>,
     discovery_info_json: String,
-    metadata: rpc::forge::Metadata,
+    metadata: forge::Metadata,
     version: String,
     capabilities: Vec<MachineCapability>,
     capabilities_json: String,
@@ -524,8 +523,8 @@ pub struct ValidationRun {
     pub machine_id: String,
 }
 
-impl From<forgerpc::Machine> for MachineDetail<'_> {
-    fn from(m: forgerpc::Machine) -> Self {
+impl From<forge::Machine> for MachineDetail<'_> {
+    fn from(m: forge::Machine) -> Self {
         let machine_id = m.id.map(|id| id.to_string()).unwrap_or_default();
 
         let history = MachineStateHistoryTable {
@@ -679,7 +678,7 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
             version: m.version,
             metadata: m.metadata.unwrap_or_default(),
             machine_type: get_machine_type(&machine_id),
-            is_host: m.machine_type == forgerpc::MachineType::Host as i32,
+            is_host: m.machine_type == forge::MachineType::Host as i32,
             network_config: String::new(), // filled in later
             bmc_info: m.bmc_info,
             history,
@@ -707,10 +706,10 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
             health: m
                 .health
                 .map(|h| {
-                    health_report::HealthReport::try_from(h)
-                        .unwrap_or_else(health_report::HealthReport::malformed_report)
+                    nico_health_report::HealthReport::try_from(h)
+                        .unwrap_or_else(nico_health_report::HealthReport::malformed_report)
                 })
-                .unwrap_or_else(health_report::HealthReport::missing_report),
+                .unwrap_or_else(nico_health_report::HealthReport::missing_report),
             health_overrides: m
                 .health_overrides
                 .iter()
@@ -832,7 +831,7 @@ pub async fn detail(
     }
 
     // Get validation results
-    let validation_request = tonic::Request::new(rpc::forge::MachineValidationRunListGetRequest {
+    let validation_request = tonic::Request::new(forge::MachineValidationRunListGetRequest {
         machine_id: Some(machine_id),
         include_history: false,
     });
@@ -848,11 +847,18 @@ pub async fn detail(
             .rev() // Show the most recent run first
             .map(|vr| ValidationRun {
                 machine_id: vr.machine_id.map(|id| id.to_string()).unwrap_or_default(),
-                status:format!("{:?}", vr.status.unwrap_or_default().machine_validation_state.unwrap_or(
-                    rpc::forge::machine_validation_status::MachineValidationState::Completed(
-                        rpc::forge::machine_validation_status::MachineValidationCompleted::Success.into(),
-                    ),
-                )),
+                status: format!(
+                    "{:?}",
+                    vr.status
+                        .unwrap_or_default()
+                        .machine_validation_state
+                        .unwrap_or(
+                        forge::machine_validation_status::MachineValidationState::Completed(
+                            forge::machine_validation_status::MachineValidationCompleted::Success
+                                .into(),
+                        ),
+                    )
+                ),
                 context: vr.context.unwrap_or_default(),
                 validation_id: vr.validation_id.unwrap_or_default().to_string(),
                 start_time: vr.start_time.unwrap_or_default().to_string(),
@@ -869,7 +875,7 @@ pub async fn detail(
     display.action_status = ActionStatus::from_query(&params);
 
     if !display.is_host {
-        let request = tonic::Request::new(forgerpc::ManagedHostNetworkConfigRequest {
+        let request = tonic::Request::new(forge::ManagedHostNetworkConfigRequest {
             dpu_machine_id: Some(machine_id),
         });
         if let Ok(netconf) = state
@@ -910,14 +916,14 @@ pub async fn maintenance(
     };
 
     let req = if form.action == "enter" {
-        forgerpc::MaintenanceRequest {
-            operation: forgerpc::MaintenanceOperation::Enable.into(),
+        forge::MaintenanceRequest {
+            operation: forge::MaintenanceOperation::Enable.into(),
             host_id: Some(machine_id),
             reference: form.reference,
         }
     } else if form.action == "exit" {
-        forgerpc::MaintenanceRequest {
-            operation: forgerpc::MaintenanceOperation::Disable.into(),
+        forge::MaintenanceRequest {
+            operation: forge::MaintenanceOperation::Disable.into(),
             host_id: Some(machine_id),
             reference: None,
         }
@@ -967,13 +973,13 @@ pub async fn quarantine(
             let mode = form
                 .mode
                 .as_deref()
-                .and_then(forgerpc::ManagedHostQuarantineMode::from_str_name)
-                .unwrap_or(forgerpc::ManagedHostQuarantineMode::BlockAllTraffic);
+                .and_then(forge::ManagedHostQuarantineMode::from_str_name)
+                .unwrap_or(forge::ManagedHostQuarantineMode::BlockAllTraffic);
             state
                 .set_managed_host_quarantine_state(tonic::Request::new(
-                    forgerpc::SetManagedHostQuarantineStateRequest {
+                    forge::SetManagedHostQuarantineStateRequest {
                         machine_id: Some(machine_id),
-                        quarantine_state: Some(forgerpc::ManagedHostQuarantineState {
+                        quarantine_state: Some(forge::ManagedHostQuarantineState {
                             mode: mode as i32,
                             reason: form.reason,
                         }),
@@ -1013,16 +1019,14 @@ pub async fn set_dpu_first_boot_order(
     let view_url = format!("/admin/machine/{machine_id}#bmc_info_view");
 
     let redirect_url = match state
-        .set_dpu_first_boot_order(tonic::Request::new(
-            rpc::forge::SetDpuFirstBootOrderRequest {
-                machine_id: None,
-                bmc_endpoint_request: Some(rpc::forge::BmcEndpointRequest {
-                    ip_address: form.bmc_ip,
-                    mac_address: None,
-                }),
-                boot_interface_mac: Some(form.boot_interface_mac),
-            },
-        ))
+        .set_dpu_first_boot_order(tonic::Request::new(forge::SetDpuFirstBootOrderRequest {
+            machine_id: None,
+            bmc_endpoint_request: Some(forge::BmcEndpointRequest {
+                ip_address: form.bmc_ip,
+                mac_address: None,
+            }),
+            boot_interface_mac: Some(form.boot_interface_mac),
+        }))
         .await
     {
         Ok(_) => ActionStatus {

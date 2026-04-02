@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use libmlx::variables::spec::MlxVariableSpec;
+use nico_libmlx::variables::spec::MlxVariableSpec;
 
 #[test]
 fn test_simple_variable_specs() {

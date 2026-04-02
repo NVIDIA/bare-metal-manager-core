@@ -21,10 +21,10 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
-use rpc::forge;
-use rpc::forge_api_client::ForgeApiClient;
+use nico_rpc::forge;
+use nico_rpc::forge_api_client::ForgeApiClient;
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
 

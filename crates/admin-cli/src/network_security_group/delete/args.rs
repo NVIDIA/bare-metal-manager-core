@@ -16,7 +16,7 @@
  */
 
 use clap::Parser;
-use rpc::forge::DeleteNetworkSecurityGroupRequest;
+use nico_rpc::forge::DeleteNetworkSecurityGroupRequest;
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {

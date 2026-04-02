@@ -19,8 +19,8 @@ use std::collections::HashSet;
 
 use eyre::WrapErr;
 use gtmpl_derive::Gtmpl;
-use rpc::errors::RpcDataConversionError;
-use rpc::forge as rpc_forge;
+use nico_rpc::errors::RpcDataConversionError;
+use nico_rpc::forge as rpc_forge;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 

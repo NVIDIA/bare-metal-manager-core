@@ -18,7 +18,6 @@
 pub mod tests {
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
     use common::api_fixtures::tpm_attestation::{
         AK_NAME, AK_NAME_SERIALIZED, AK_PUB_SERIALIZED, AK_PUB_SERIALIZED_2, ATTEST_SERIALIZED,
         ATTEST_SERIALIZED_2, ATTEST_SERIALIZED_SHORT, CRED_SERIALIZED, EK_CERT_SERIALIZED,
@@ -28,11 +27,12 @@ pub mod tests {
     use common::api_fixtures::{
         TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_config,
     };
-    use model::hardware_info::{HardwareInfo, TpmEkCertificate};
-    use rpc::forge::AttestQuoteRequest;
-    use rpc::forge::forge_server::Forge;
-    use rpc::machine_discovery::AttestKeyInfo;
-    use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
+    use nico_api_model::hardware_info::{HardwareInfo, TpmEkCertificate};
+    use nico_rpc::forge::AttestQuoteRequest;
+    use nico_rpc::forge::forge_server::Forge;
+    use nico_rpc::machine_discovery::AttestKeyInfo;
+    use nico_rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
+    use nico_uuid::machine::MachineId;
     use tonic::Code;
 
     use crate::attestation::cli_make_cred;

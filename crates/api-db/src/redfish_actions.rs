@@ -16,7 +16,7 @@
  */
 use std::collections::{HashMap, HashSet};
 
-use model::redfish::{ActionRequest, BMCResponse};
+use nico_api_model::redfish::{ActionRequest, BMCResponse};
 use sqlx::PgConnection;
 use sqlx::types::Json;
 
@@ -24,7 +24,7 @@ use crate::DatabaseError;
 use crate::db_read::DbReader;
 
 pub async fn list_requests(
-    request: model::redfish::RedfishListActionsFilter,
+    request: nico_api_model::redfish::RedfishListActionsFilter,
     txn: impl DbReader<'_>,
 ) -> Result<Vec<ActionRequest>, DatabaseError> {
     let text_query = format!(
@@ -64,7 +64,7 @@ pub async fn list_requests(
 }
 
 pub async fn fetch_request(
-    request: model::redfish::RedfishActionId,
+    request: nico_api_model::redfish::RedfishActionId,
     txn: &mut PgConnection,
 ) -> Result<ActionRequest, DatabaseError> {
     let query = "SELECT
@@ -149,7 +149,7 @@ pub async fn find_serials(
 
 pub async fn insert_request(
     authored_by: String,
-    request: model::redfish::RedfishCreateAction,
+    request: nico_api_model::redfish::RedfishCreateAction,
     txn: &mut PgConnection,
     machine_ips: Vec<String>,
     serials: Vec<&String>,
@@ -176,7 +176,7 @@ pub async fn insert_request(
 
 pub async fn approve_request(
     approver: String,
-    request: model::redfish::RedfishActionId,
+    request: nico_api_model::redfish::RedfishActionId,
     txn: &mut PgConnection,
 ) -> Result<bool, DatabaseError> {
     let query = r#"UPDATE redfish_bmc_actions
@@ -194,7 +194,7 @@ pub async fn approve_request(
 }
 
 pub async fn update_response(
-    request: model::redfish::RedfishActionId,
+    request: nico_api_model::redfish::RedfishActionId,
     txn: &mut PgConnection,
     response: BMCResponse,
     bmc_index: usize,
@@ -212,7 +212,7 @@ pub async fn update_response(
 
 pub async fn set_applied(
     applied_by: String,
-    request: model::redfish::RedfishActionId,
+    request: nico_api_model::redfish::RedfishActionId,
     txn: &mut PgConnection,
 ) -> Result<bool, DatabaseError> {
     let query = r#"UPDATE redfish_bmc_actions SET applied_at = now(), applier = $1 WHERE request_id = $2 AND applied_at IS NULL"#;
@@ -228,7 +228,7 @@ pub async fn set_applied(
 }
 
 pub async fn delete_request(
-    request: model::redfish::RedfishActionId,
+    request: nico_api_model::redfish::RedfishActionId,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let query = r#"DELETE FROM redfish_bmc_actions WHERE request_id = $1 AND applied_at IS NULL"#;

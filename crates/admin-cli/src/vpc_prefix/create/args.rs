@@ -15,10 +15,11 @@
  * limitations under the License.
  */
 
-use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use clap::Parser;
 use ipnet::IpNet;
-use rpc::forge::VpcPrefixCreationRequest;
+use nico_rpc::forge;
+use nico_rpc::forge::VpcPrefixCreationRequest;
+use nico_uuid::vpc::{VpcId, VpcPrefixId};
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -71,13 +72,13 @@ pub struct Args {
     pub vpc_prefix_id: Option<VpcPrefixId>,
 }
 
-fn parse_label(s: &str) -> rpc::forge::Label {
+fn parse_label(s: &str) -> forge::Label {
     match s.split_once(':') {
-        Some((k, v)) => rpc::forge::Label {
+        Some((k, v)) => forge::Label {
             key: k.trim().to_string(),
             value: Some(v.trim().to_string()),
         },
-        None => rpc::forge::Label {
+        None => forge::Label {
             key: s.trim().to_string(),
             value: None,
         },
@@ -98,10 +99,10 @@ impl From<Args> for VpcPrefixCreationRequest {
             prefix: String::new(), // Deprecated field
             name: String::new(),   // Deprecated field
             vpc_id: Some(args.vpc_id),
-            config: Some(rpc::forge::VpcPrefixConfig {
+            config: Some(forge::VpcPrefixConfig {
                 prefix: args.prefix.to_string(),
             }),
-            metadata: Some(rpc::forge::Metadata {
+            metadata: Some(forge::Metadata {
                 name: args.name,
                 labels,
                 description: args.description.unwrap_or_default(),

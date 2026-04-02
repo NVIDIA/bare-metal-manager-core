@@ -16,8 +16,8 @@
  */
 use std::collections::HashMap;
 
-use carbide_uuid::machine::MachineId;
 use casbin::error::ModelError;
+use nico_uuid::machine::MachineId;
 use sqlx::FromRow;
 
 use crate::machine::{ManagedHostState, ManagedHostStateSnapshot};

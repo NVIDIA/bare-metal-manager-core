@@ -19,13 +19,13 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use ::rpc::forge as rpc;
-use carbide_network::ip::prefix::{IpNet, Ipv4Net};
-use carbide_network::sanitized_mac;
-use carbide_network::virtualization::VpcVirtualizationType;
 use eyre::WrapErr;
 use gtmpl_derive::Gtmpl;
 use mac_address::MacAddress;
+use nico_network::ip::prefix::{IpNet, Ipv4Net};
+use nico_network::sanitized_mac;
+use nico_network::virtualization::VpcVirtualizationType;
+use nico_rpc::forge;
 use serde::Deserialize;
 
 pub const PATH: &str = "var/support/nvue_startup.yaml";
@@ -948,11 +948,11 @@ pub struct NetworkSecurityGroupRule {
     pub dst_prefixes: Vec<String>,
 }
 
-impl TryFrom<&rpc::ResolvedNetworkSecurityGroupRule> for NetworkSecurityGroupRule {
+impl TryFrom<&forge::ResolvedNetworkSecurityGroupRule> for NetworkSecurityGroupRule {
     type Error = eyre::Error;
 
     fn try_from(
-        resolved_rule: &rpc::ResolvedNetworkSecurityGroupRule,
+        resolved_rule: &forge::ResolvedNetworkSecurityGroupRule,
     ) -> Result<Self, Self::Error> {
         let Some(ref rule) = resolved_rule.rule else {
             return Err(eyre::eyre!("BUG: attempting to convert empty NSG rule"));
@@ -961,9 +961,9 @@ impl TryFrom<&rpc::ResolvedNetworkSecurityGroupRule> for NetworkSecurityGroupRul
         Ok(NetworkSecurityGroupRule {
             id: rule.id.clone().unwrap_or_default(),
             ingress: rule.direction()
-                == rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
+                == forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionIngress,
             can_match_any_protocol: rule.protocol()
-                == rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny,
+                == forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoAny,
             // We'll only automatically handle stateful tracking for egress rules
             // that specify TCP/UDP, a dst port, and NO src port because it becomes
             // extremely difficult for users to get rule combinations for common
@@ -973,11 +973,11 @@ impl TryFrom<&rpc::ResolvedNetworkSecurityGroupRule> for NetworkSecurityGroupRul
             // no way to achieve non-stateful ICMP if stateful is enabled for the
             // NSG, so it's being left out.
             can_be_stateful: rule.direction()
-                == rpc::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
+                == forge::NetworkSecurityGroupRuleDirection::NsgRuleDirectionEgress
                 && matches!(
                     rule.protocol(),
-                    rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp
-                        | rpc::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp
+                    forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoTcp
+                        | forge::NetworkSecurityGroupRuleProtocol::NsgRuleProtoUdp
                 )
                 && rule.dst_port_start.is_some()
                 && rule.src_port_start.is_none(),
@@ -987,11 +987,11 @@ impl TryFrom<&rpc::ResolvedNetworkSecurityGroupRule> for NetworkSecurityGroupRul
             src_port_end: rule.src_port_end,
             dst_port_start: rule.dst_port_start,
             dst_port_end: rule.dst_port_end,
-            protocol: rpc::NetworkSecurityGroupRuleProtocol::to_string_from_enum_i32(
+            protocol: forge::NetworkSecurityGroupRuleProtocol::to_string_from_enum_i32(
                 rule.protocol,
             )?
             .to_lowercase(),
-            action: rpc::NetworkSecurityGroupRuleAction::to_string_from_enum_i32(rule.action)?
+            action: forge::NetworkSecurityGroupRuleAction::to_string_from_enum_i32(rule.action)?
                 .to_lowercase(),
             src_prefixes: resolved_rule.src_prefixes.clone(),
             dst_prefixes: resolved_rule.dst_prefixes.clone(),

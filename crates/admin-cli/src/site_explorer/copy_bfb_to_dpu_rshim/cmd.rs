@@ -15,8 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
-use ::rpc::forge::{BmcEndpointRequest, CopyBfbToDpuRshimRequest, SshRequest};
+use nico_rpc::admin_cli::CarbideCliResult;
+use nico_rpc::forge;
+use nico_rpc::forge::{BmcEndpointRequest, CopyBfbToDpuRshimRequest, SshRequest};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -33,12 +34,12 @@ pub async fn copy_bfb_to_dpu_rshim(api_client: &ApiClient, args: Args) -> Carbid
         tracing::info!("Powering off host...");
         api_client
             .admin_power_control(
-                Some(::rpc::forge::BmcEndpointRequest {
+                Some(forge::BmcEndpointRequest {
                     ip_address: host_ip.clone(),
                     mac_address: None,
                 }),
                 None,
-                ::rpc::forge::admin_power_control_request::SystemPowerControl::ForceOff,
+                forge::admin_power_control_request::SystemPowerControl::ForceOff,
             )
             .await?;
 
@@ -49,12 +50,12 @@ pub async fn copy_bfb_to_dpu_rshim(api_client: &ApiClient, args: Args) -> Carbid
         tracing::info!("Powering on host");
         api_client
             .admin_power_control(
-                Some(::rpc::forge::BmcEndpointRequest {
+                Some(forge::BmcEndpointRequest {
                     ip_address: host_ip,
                     mac_address: None,
                 }),
                 None,
-                ::rpc::forge::admin_power_control_request::SystemPowerControl::On,
+                forge::admin_power_control_request::SystemPowerControl::On,
             )
             .await?;
     }

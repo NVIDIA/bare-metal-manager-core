@@ -16,12 +16,12 @@
  */
 use std::collections::HashMap;
 
-use carbide_uuid::compute_allocation::ComputeAllocationId;
-use carbide_uuid::instance_type::InstanceTypeId;
 use config_version::ConfigVersion;
-use model::compute_allocation::ComputeAllocation;
-use model::metadata::Metadata;
-use model::tenant::TenantOrganizationId;
+use nico_api_model::compute_allocation::ComputeAllocation;
+use nico_api_model::metadata::Metadata;
+use nico_api_model::tenant::TenantOrganizationId;
+use nico_uuid::compute_allocation::ComputeAllocationId;
+use nico_uuid::instance_type::InstanceTypeId;
 use sqlx::postgres::PgRow;
 use sqlx::{PgConnection, Postgres, Row};
 

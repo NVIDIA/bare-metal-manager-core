@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::forge as rpc;
-use carbide_uuid::vpc::VpcId;
-use rpc::forge_server::Forge;
+use forge::forge_server::Forge;
+use nico_rpc::forge;
+use nico_uuid::vpc::VpcId;
 
 use super::TestEnv;
 use crate::tests::common::api_fixtures::instance::default_tenant_config;
@@ -27,8 +27,8 @@ pub async fn create_vpc(
     env: &TestEnv,
     name: String,
     tenant_org_id: Option<String>,
-    vpc_metadata: Option<rpc::Metadata>,
-) -> (VpcId, rpc::Vpc) {
+    vpc_metadata: Option<forge::Metadata>,
+) -> (VpcId, forge::Vpc) {
     let tenant_config = default_tenant_config();
 
     let vpc_id = VpcId::new();
@@ -37,7 +37,7 @@ pub async fn create_vpc(
         tenant_org_id.unwrap_or(tenant_config.tenant_organization_id),
     )
     .id(vpc_id)
-    .metadata(rpc::Metadata {
+    .metadata(forge::Metadata {
         name,
         description: vpc_metadata
             .as_ref()

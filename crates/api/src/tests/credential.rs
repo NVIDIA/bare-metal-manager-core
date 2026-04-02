@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use forge_secrets::credentials::{CredentialKey, CredentialReader, CredentialType, Credentials};
-use rpc::forge::forge_server::Forge;
-use rpc::forge::{CredentialCreationRequest, CredentialType as RpcCredentialType};
+use nico_rpc::forge::forge_server::Forge;
+use nico_rpc::forge::{CredentialCreationRequest, CredentialType as RpcCredentialType};
+use nico_secrets::credentials::{CredentialKey, CredentialReader, CredentialType, Credentials};
 use tonic::Code;
 
 use crate::tests::common::api_fixtures::create_test_env;

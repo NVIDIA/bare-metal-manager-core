@@ -24,16 +24,16 @@ use bmc_mock::{CombinedServer, HostnameQuerying, ListenerOrAddress};
 use clap::Parser;
 use figment::Figment;
 use figment::providers::{Format, Toml};
-use forge_tls::client_config::{
-    get_client_cert_info, get_config_from_file, get_forge_root_ca_path, get_proxy_info,
-};
-use machine_a_tron::{
+use nico_machine_a_tron::{
     AppEvent, BmcMockRegistry, BmcRegistrationMode, MachineATron, MachineATronArgs,
     MachineATronConfig, MachineATronContext, MockSshServerHandle, PromptBehavior, Tui, TuiHostLogs,
     api_throttler, spawn_mock_ssh_server,
 };
-use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
-use rpc::protos::forge_api_client::ForgeApiClient;
+use nico_rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
+use nico_rpc::protos::forge_api_client::ForgeApiClient;
+use nico_tls::client_config::{
+    get_client_cert_info, get_config_from_file, get_forge_root_ca_path, get_proxy_info,
+};
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::mpsc;
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};

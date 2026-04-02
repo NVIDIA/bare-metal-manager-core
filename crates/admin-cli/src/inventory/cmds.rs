@@ -18,11 +18,11 @@ use std::collections::HashMap;
 use std::collections::hash_map::RandomState;
 use std::fs;
 
-use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult};
-use ::rpc::site_explorer::ExploredManagedHost;
-use ::rpc::{InstanceList, MachineList};
-use carbide_uuid::instance::InstanceId;
-use carbide_uuid::machine::MachineId;
+use nico_rpc::admin_cli::{CarbideCliError, CarbideCliResult};
+use nico_rpc::site_explorer::ExploredManagedHost;
+use nico_rpc::{InstanceList, MachineList, forge};
+use nico_uuid::instance::InstanceId;
+use nico_uuid::machine::MachineId;
 use serde::{Deserialize, Serialize};
 
 use super::args::Cmd;
@@ -89,7 +89,7 @@ struct DpuMachineInfo<'a> {
 
 /// Generate element containing all information needed to write a Machine Host.
 fn get_host_machine_info<'a>(
-    machines: &'a [&'a ::rpc::Machine],
+    machines: &'a [&'a forge::Machine],
 ) -> HashMap<&'a str, HostMachineInfo<'a>> {
     let mut machine_element: HashMap<&'a str, HostMachineInfo> = HashMap::new();
 
@@ -128,7 +128,7 @@ fn get_host_machine_info<'a>(
 
 /// Generate element containing all information needed to write a Machine Host.
 fn get_dpu_machine_info<'a>(
-    machines: &'a [&'a ::rpc::Machine],
+    machines: &'a [&'a forge::Machine],
 ) -> HashMap<&'a str, DpuMachineInfo<'a>> {
     let mut machine_element: HashMap<&'a str, DpuMachineInfo> = HashMap::new();
 
@@ -154,7 +154,7 @@ fn get_dpu_machine_info<'a>(
 
 /// Generate element containing all information needed to write a BMC Host.
 fn get_bmc_info<'a>(
-    machines: &[&'a ::rpc::Machine],
+    machines: &[&'a forge::Machine],
     managed_hosts: &'a [ExploredManagedHost],
 ) -> HashMap<String, BmcInfo<'a>> {
     let mut bmc_element: HashMap<String, BmcInfo<'a>> = HashMap::new();
@@ -221,7 +221,7 @@ pub async fn print_inventory(
 ) -> CarbideCliResult<()> {
     let all_machines = api_client
         .get_all_machines(
-            rpc::forge::MachineSearchConfig {
+            forge::MachineSearchConfig {
                 include_predicted_host: true,
                 include_dpus: true,
                 ..Default::default()
@@ -265,13 +265,13 @@ pub async fn print_inventory(
         .machines
         .iter()
         .filter(|m| m.id.is_some_and(|id| id.machine_type().is_host()))
-        .collect::<Vec<&::rpc::Machine>>();
+        .collect::<Vec<&forge::Machine>>();
 
     let all_dpus = all_machines
         .machines
         .iter()
         .filter(|m| m.id.is_some_and(|id| id.machine_type().is_dpu()))
-        .collect::<Vec<&::rpc::Machine>>();
+        .collect::<Vec<&forge::Machine>>();
 
     final_group.insert(
         "x86_host_bmcs".to_string(),
@@ -290,7 +290,7 @@ pub async fn print_inventory(
     let host_on_admin = all_hosts
         .into_iter()
         .filter(|x| !used_machine.contains(&x.id))
-        .collect::<Vec<&::rpc::Machine>>();
+        .collect::<Vec<&forge::Machine>>();
 
     final_group.insert(
         "x86_hosts".to_string(),

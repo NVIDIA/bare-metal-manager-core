@@ -16,7 +16,7 @@
  */
 
 use clap::Parser;
-use rpc::{CredentialType, forge as forgerpc};
+use nico_rpc::{CredentialType, forge};
 
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
@@ -24,7 +24,7 @@ pub struct Args {
     pub username: String,
 }
 
-impl From<Args> for forgerpc::CredentialDeletionRequest {
+impl From<Args> for forge::CredentialDeletionRequest {
     fn from(args: Args) -> Self {
         Self {
             credential_type: CredentialType::NmxM.into(),

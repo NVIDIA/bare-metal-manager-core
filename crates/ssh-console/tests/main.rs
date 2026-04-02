@@ -28,8 +28,8 @@ use tokio::time::Instant;
 
 mod util;
 
-use ::ssh_console::shutdown_handle::ShutdownHandle;
-use api_test_helper::utils::REPO_ROOT;
+use nico_api_test_helper::utils::REPO_ROOT;
+use nico_ssh_console::shutdown_handle::ShutdownHandle;
 use util::ssh_console_test_helper;
 
 use crate::util::ssh_client::PermissiveSshClient;
@@ -384,5 +384,5 @@ async fn test_ssh_console_log_rotation() -> eyre::Result<()> {
 
 #[ctor::ctor]
 fn setup_test_logging() {
-    api_test_helper::setup_logging()
+    nico_api_test_helper::setup_logging()
 }

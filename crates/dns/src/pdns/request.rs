@@ -27,7 +27,7 @@ pub struct PdnsRequest {
     pub parameters: HashMap<String, Value>,
 }
 
-impl TryFrom<&PdnsRequest> for rpc::protos::dns::DomainMetadataRequest {
+impl TryFrom<&PdnsRequest> for nico_rpc::protos::dns::DomainMetadataRequest {
     type Error = eyre::Report;
 
     fn try_from(request: &PdnsRequest) -> Result<Self, Self::Error> {
@@ -51,10 +51,10 @@ impl TryFrom<&PdnsRequest> for rpc::protos::dns::DomainMetadataRequest {
             "Converted PdnsRequest to DomainMetadataRequest"
         );
 
-        Ok(rpc::protos::dns::DomainMetadataRequest { domain })
+        Ok(nico_rpc::protos::dns::DomainMetadataRequest { domain })
     }
 }
-impl TryFrom<&PdnsRequest> for rpc::protos::dns::GetAllDomainsRequest {
+impl TryFrom<&PdnsRequest> for nico_rpc::protos::dns::GetAllDomainsRequest {
     type Error = eyre::Report;
 
     fn try_from(request: &PdnsRequest) -> Result<Self, Self::Error> {
@@ -62,7 +62,7 @@ impl TryFrom<&PdnsRequest> for rpc::protos::dns::GetAllDomainsRequest {
             method = %request.method,
             "Converted PdnsRequest to GetAllDomainsRequest"
         );
-        Ok(rpc::protos::dns::GetAllDomainsRequest {})
+        Ok(nico_rpc::protos::dns::GetAllDomainsRequest {})
     }
 }
 
@@ -71,7 +71,7 @@ impl TryFrom<&PdnsRequest> for rpc::protos::dns::GetAllDomainsRequest {
 /// This conversion is used to handle DNS lookup requests from PowerDNS, typically
 /// initiated by DNS clients (e.g., `dig` or `nslookup`). The request is validated
 /// and transformed into a format that can be submitted to `carbide-api`.
-impl TryFrom<&PdnsRequest> for rpc::protos::dns::DnsResourceRecordLookupRequest {
+impl TryFrom<&PdnsRequest> for nico_rpc::protos::dns::DnsResourceRecordLookupRequest {
     type Error = eyre::Report;
 
     fn try_from(request: &PdnsRequest) -> Result<Self, Self::Error> {
@@ -163,7 +163,7 @@ impl TryFrom<&PdnsRequest> for rpc::protos::dns::DnsResourceRecordLookupRequest 
         );
 
         // Construct the Protobuf request
-        Ok(rpc::protos::dns::DnsResourceRecordLookupRequest {
+        Ok(nico_rpc::protos::dns::DnsResourceRecordLookupRequest {
             qtype: real_qtype.into(),
             qname,
             zone_id,

@@ -18,7 +18,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use ::db::work_lock_manager::WorkLockManagerHandle;
+use nico_api_db::work_lock_manager::WorkLockManagerHandle;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;

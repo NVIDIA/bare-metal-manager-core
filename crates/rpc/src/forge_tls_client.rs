@@ -20,13 +20,13 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use eyre::Result;
-use forge_http_connector::connector::ForgeHttpConnector;
-use forge_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
-use forge_tls::client_config::ClientCert;
 use hickory_resolver::config::ResolverConfig;
 use hyper::body::Incoming;
 use hyper_util::client::legacy;
 use hyper_util::rt::{TokioExecutor, TokioTimer};
+use nico_http_connector::connector::ForgeHttpConnector;
+use nico_http_connector::resolver::{ForgeResolver, ForgeResolverOpts};
+use nico_tls::client_config::ClientCert;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
@@ -821,8 +821,8 @@ pub type ForgeHttpsClientResult<T> = Result<T, ForgeTlsClientError>;
 mod tests {
     use std::net::SocketAddr;
 
-    use forge_http_connector::connector::ConnectorMetrics;
     use hyper_rustls::HttpsConnector;
+    use nico_http_connector::connector::ConnectorMetrics;
 
     use super::*;
 

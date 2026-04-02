@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use rpc::forge::ExpectedPowerShelfRequest;
+use nico_rpc::forge::ExpectedPowerShelfRequest;
 
 use super::args::Args;
 use crate::rpc::ApiClient;

@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::machine::MachineId;
 use clap::Parser;
-use rpc::forge as forgerpc;
+use nico_rpc::forge;
+use nico_uuid::machine::MachineId;
 
 /// Enable or disable maintenance mode on a managed host.
 /// To list machines in maintenance mode use `forge-admin-cli mh show --all --fix`
@@ -43,10 +43,10 @@ pub struct MaintenanceOn {
     pub reference: String,
 }
 
-impl From<MaintenanceOn> for forgerpc::MaintenanceRequest {
+impl From<MaintenanceOn> for forge::MaintenanceRequest {
     fn from(args: MaintenanceOn) -> Self {
         Self {
-            operation: forgerpc::MaintenanceOperation::Enable.into(),
+            operation: forge::MaintenanceOperation::Enable.into(),
             host_id: Some(args.host),
             reference: Some(args.reference),
         }
@@ -59,10 +59,10 @@ pub struct MaintenanceOff {
     pub host: MachineId,
 }
 
-impl From<MaintenanceOff> for forgerpc::MaintenanceRequest {
+impl From<MaintenanceOff> for forge::MaintenanceRequest {
     fn from(args: MaintenanceOff) -> Self {
         Self {
-            operation: forgerpc::MaintenanceOperation::Disable.into(),
+            operation: forge::MaintenanceOperation::Disable.into(),
             host_id: Some(args.host),
             reference: None,
         }

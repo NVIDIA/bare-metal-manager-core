@@ -17,15 +17,15 @@
 pub mod tests {
     use std::collections::HashMap;
 
-    use carbide_uuid::machine::MachineId;
     use config_version::ConfigVersion;
-    use db::attestation::spdm::insert_devices;
-    use model::attestation::spdm::{
+    use nico_api_db::attestation::spdm::insert_devices;
+    use nico_api_model::attestation::spdm::{
         AttestationDeviceState, AttestationState, FetchDataDeviceStates,
         SpdmMachineAttestationHistory, SpdmMachineStateSnapshot, VerificationDeviceStates,
     };
-    use rpc::forge::forge_server::Forge;
-    use rpc::forge::{AttestationData, AttestationIdsRequest, AttestationMachineList};
+    use nico_rpc::forge::forge_server::Forge;
+    use nico_rpc::forge::{AttestationData, AttestationIdsRequest, AttestationMachineList};
+    use nico_uuid::machine::MachineId;
     use sqlx::PgConnection;
     use tonic::Request;
 
@@ -53,7 +53,8 @@ pub mod tests {
         assert_eq!(_ids[0], machine_id);
 
         let mut txn = env.pool.begin().await.unwrap();
-        let data = db::attestation::spdm::find_machine_ids_for_attestation(&mut txn).await?;
+        let data =
+            nico_api_db::attestation::spdm::find_machine_ids_for_attestation(&mut txn).await?;
         assert_eq!(data.len(), 1);
         txn.commit().await.unwrap();
 
@@ -63,21 +64,23 @@ pub mod tests {
         insert_devices(
             &mut txn,
             &machine_id,
-            vec![model::attestation::spdm::SpdmMachineDeviceAttestation {
-                machine_id,
-                device_id: "HGX_IRoT_GPU_0".to_string(),
-                nonce: uuid::Uuid::new_v4(),
-                state: model::attestation::spdm::AttestationDeviceState::FetchData(
-                    FetchDataDeviceStates::FetchMetadata,
-                ),
-                state_version: ConfigVersion::initial(),
-                state_outcome: None,
-                metadata: None,
-                ca_certificate_link: None,
-                ca_certificate: None,
-                evidence_target: None,
-                evidence: None,
-            }],
+            vec![
+                nico_api_model::attestation::spdm::SpdmMachineDeviceAttestation {
+                    machine_id,
+                    device_id: "HGX_IRoT_GPU_0".to_string(),
+                    nonce: uuid::Uuid::new_v4(),
+                    state: nico_api_model::attestation::spdm::AttestationDeviceState::FetchData(
+                        FetchDataDeviceStates::FetchMetadata,
+                    ),
+                    state_version: ConfigVersion::initial(),
+                    state_outcome: None,
+                    metadata: None,
+                    ca_certificate_link: None,
+                    ca_certificate: None,
+                    evidence_target: None,
+                    evidence: None,
+                },
+            ],
         )
         .await?;
 
@@ -139,7 +142,8 @@ pub mod tests {
 
         let history_state = SpdmMachineStateSnapshot {
             devices_state,
-            machine_state: model::attestation::spdm::AttestationState::CheckIfAttestationSupported,
+            machine_state:
+                nico_api_model::attestation::spdm::AttestationState::CheckIfAttestationSupported,
             device_state: Some(AttestationDeviceState::Verification(
                 VerificationDeviceStates::VerificationCompleted,
             )),
@@ -212,7 +216,7 @@ pub mod tests {
         assert_eq!(_ids[0], machine_id);
 
         let mut txn = env.pool.begin().await.unwrap();
-        let object_ids = db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
+        let object_ids = nico_api_db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
             .await
             .unwrap();
         txn.commit().await.unwrap();
@@ -248,7 +252,7 @@ pub mod tests {
         );
 
         let mut txn = env.pool.begin().await.unwrap();
-        let object_ids = db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
+        let object_ids = nico_api_db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
             .await
             .unwrap();
         txn.commit().await.unwrap();
@@ -405,7 +409,7 @@ pub mod tests {
         assert_eq!(_ids[0], machine_id);
 
         let mut txn = env.pool.begin().await.unwrap();
-        let object_ids = db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
+        let object_ids = nico_api_db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
             .await
             .unwrap();
         txn.commit().await.unwrap();
@@ -441,7 +445,7 @@ pub mod tests {
         );
 
         let mut txn = env.pool.begin().await.unwrap();
-        let object_ids = db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
+        let object_ids = nico_api_db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
             .await
             .unwrap();
         txn.commit().await.unwrap();
@@ -494,13 +498,13 @@ pub mod tests {
         .await;
 
         let mut txn = env.pool.begin().await.unwrap();
-        db::attestation::spdm::cancel_machine_attestation(&mut txn, &machine_id)
+        nico_api_db::attestation::spdm::cancel_machine_attestation(&mut txn, &machine_id)
             .await
             .unwrap();
         txn.commit().await.unwrap();
 
         let mut txn = env.pool.begin().await.unwrap();
-        let object_ids = db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
+        let object_ids = nico_api_db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
             .await
             .unwrap();
         txn.commit().await.unwrap();
@@ -530,7 +534,7 @@ pub mod tests {
         assert_eq!(_ids[0], machine_id);
 
         let mut txn = env.pool.begin().await.unwrap();
-        let object_ids = db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
+        let object_ids = nico_api_db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
             .await
             .unwrap();
         txn.commit().await.unwrap();
@@ -566,7 +570,7 @@ pub mod tests {
         );
 
         let mut txn = env.pool.begin().await.unwrap();
-        let object_ids = db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
+        let object_ids = nico_api_db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
             .await
             .unwrap();
         txn.commit().await.unwrap();
@@ -627,7 +631,7 @@ pub mod tests {
             .await?;
 
         let mut txn = env.pool.begin().await.unwrap();
-        let object_ids = db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
+        let object_ids = nico_api_db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
             .await
             .unwrap();
         txn.commit().await.unwrap();

@@ -19,8 +19,8 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
-use carbide_uuid::machine::MachineType;
-use model::site_explorer::{EndpointExplorationError, MachineExpectation};
+use nico_api_model::site_explorer::{EndpointExplorationError, MachineExpectation};
+use nico_uuid::machine::MachineType;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
 

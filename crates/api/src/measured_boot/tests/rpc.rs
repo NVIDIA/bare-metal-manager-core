@@ -23,12 +23,12 @@
 mod tests {
     use std::str::FromStr;
 
-    use carbide_uuid::machine::MachineId;
-    use carbide_uuid::measured_boot::TrustedMachineId;
-    use measured_boot::pcr::PcrRegisterValue;
-    use measured_boot::records::MeasurementApprovedMachineRecord;
-    use model::machine::ManagedHostState;
-    use rpc::protos::measured_boot as mbrpc;
+    use nico_api_model::machine::ManagedHostState;
+    use nico_measured_boot::pcr::PcrRegisterValue;
+    use nico_measured_boot::records::MeasurementApprovedMachineRecord;
+    use nico_rpc::protos::measured_boot as mbrpc;
+    use nico_uuid::machine::MachineId;
+    use nico_uuid::measured_boot::TrustedMachineId;
 
     use crate::measured_boot::rpc::{bundle, journal, machine, profile, report, site};
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
@@ -198,9 +198,12 @@ mod tests {
             },
         ];
 
-        let princess_report =
-            db::measured_boot::report::new(&mut txn, princess_network.machine_id, &princess_values)
-                .await?;
+        let princess_report = nico_api_db::measured_boot::report::new(
+            &mut txn,
+            princess_network.machine_id,
+            &princess_values,
+        )
+        .await?;
         assert_eq!(princess_report.machine_id, princess_network.machine_id);
         txn.commit().await?;
 
@@ -1975,17 +1978,17 @@ mod tests {
         // that bit works (which will clean up all reports and journals).
         let mut txn = api.txn_begin().await?;
         assert!(
-            db::machine::force_cleanup(&mut txn, &princess_network.machine_id)
+            nico_api_db::machine::force_cleanup(&mut txn, &princess_network.machine_id)
                 .await
                 .is_ok()
         );
         assert!(
-            db::machine::force_cleanup(&mut txn, &beer_louisiana.machine_id)
+            nico_api_db::machine::force_cleanup(&mut txn, &beer_louisiana.machine_id)
                 .await
                 .is_ok()
         );
         assert!(
-            db::machine::force_cleanup(&mut txn, &lime_coconut.machine_id)
+            nico_api_db::machine::force_cleanup(&mut txn, &lime_coconut.machine_id)
                 .await
                 .is_ok()
         );
@@ -2030,7 +2033,7 @@ mod tests {
         let machine_id =
             MachineId::from_str("fm100ptrh18t1lrjg2pqagkh3sfigr9m65dejvkq168ako07sc0uibpp5q0")
                 .unwrap();
-        db::machine::create(
+        nico_api_db::machine::create(
             &mut txn,
             None,
             &machine_id,
@@ -2040,7 +2043,7 @@ mod tests {
         )
         .await
         .unwrap();
-        db::machine_topology::create_or_update(&mut txn, &machine_id, &dell_r750_topology)
+        nico_api_db::machine_topology::create_or_update(&mut txn, &machine_id, &dell_r750_topology)
             .await
             .unwrap();
 
