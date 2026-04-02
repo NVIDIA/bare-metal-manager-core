@@ -1710,6 +1710,7 @@ dependencies = [
  "dns-record",
  "eyre",
  "local-ip-address",
+ "metrics-endpoint",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
