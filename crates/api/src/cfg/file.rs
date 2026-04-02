@@ -2036,8 +2036,8 @@ pub struct FirmwareGlobal {
     pub hgx_bmc_gpu_reboot_delay: Duration,
     #[serde(default)]
     pub requires_manual_upgrade: bool,
-    #[serde(default = "FirmwareGlobal::bfb_copy_limit_default")]
-    pub bfb_copy_limit: usize,
+    #[serde(default = "FirmwareGlobal::max_concurrent_bfb_copies_default")]
+    pub max_concurrent_bfb_copies: usize,
 }
 
 impl FirmwareGlobal {
@@ -2056,7 +2056,7 @@ impl FirmwareGlobal {
             no_reset_retries: false,
             hgx_bmc_gpu_reboot_delay: FirmwareGlobal::hgx_bmc_gpu_reboot_delay_default(),
             requires_manual_upgrade: false,
-            bfb_copy_limit: FirmwareGlobal::bfb_copy_limit_default(),
+            max_concurrent_bfb_copies: FirmwareGlobal::max_concurrent_bfb_copies_default(),
         }
     }
 
@@ -2106,7 +2106,7 @@ impl FirmwareGlobal {
     pub fn hgx_bmc_gpu_reboot_delay_default() -> Duration {
         Duration::seconds(30)
     }
-    pub fn bfb_copy_limit_default() -> usize {
+    pub fn max_concurrent_bfb_copies_default() -> usize {
         10
     }
 }
@@ -2127,7 +2127,7 @@ impl Default for FirmwareGlobal {
             no_reset_retries: false,
             hgx_bmc_gpu_reboot_delay: FirmwareGlobal::hgx_bmc_gpu_reboot_delay_default(),
             requires_manual_upgrade: false,
-            bfb_copy_limit: FirmwareGlobal::bfb_copy_limit_default(),
+            max_concurrent_bfb_copies: FirmwareGlobal::max_concurrent_bfb_copies_default(),
         }
     }
 }
@@ -3465,7 +3465,7 @@ mod tests {
         }
         assert_eq!(config.firmware_global.max_uploads, 3);
         assert_eq!(config.firmware_global.run_interval, Duration::seconds(20));
-        assert_eq!(config.firmware_global.bfb_copy_limit, 7);
+        assert_eq!(config.firmware_global.max_concurrent_bfb_copies, 7);
         assert_eq!(config.max_find_by_ids, 75);
         assert_eq!(config.dpu_network_monitor_pinger_type, None);
         assert_eq!(

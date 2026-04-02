@@ -26,6 +26,8 @@ use model::machine::machine_id::try_parse_machine_id;
 use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot};
 use sqlx::PgConnection;
 use tokio::net::lookup_host;
+use db::WithTransaction;
+use model::site_explorer::PreingestionState;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -549,9 +551,6 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     api: &Api,
     request: Request<rpc::CopyBfbToDpuRshimRequest>,
 ) -> Result<Response<()>, Status> {
-    use db::WithTransaction;
-    use model::site_explorer::PreingestionState;
-
     log_request_data(&request);
     let req = request.into_inner();
 
@@ -563,8 +562,7 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
         None => return Err(CarbideError::MissingArgument("ssh_request").into()),
     };
 
-    let ip_str_clean = ip_str.split(':').next().unwrap_or(&ip_str);
-    let dpu_ip: std::net::IpAddr = ip_str_clean
+    let dpu_ip: std::net::IpAddr = ip_str
         .parse()
         .map_err(|_| CarbideError::InvalidArgument(format!("Invalid DPU IP: {ip_str}")))?;
 

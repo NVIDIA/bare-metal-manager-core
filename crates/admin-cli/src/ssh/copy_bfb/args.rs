@@ -25,9 +25,4 @@ pub struct Args {
     pub ssh_args: SshArgs,
     #[clap(help = "BFB Path")]
     pub bfb_path: String,
-    #[clap(
-        long,
-        help = "Target is a BlueField-2 DPU (uses smaller SFTP buffer and longer timeout)"
-    )]
-    pub bf2: bool,
 }
