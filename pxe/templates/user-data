@@ -1,4 +1,4 @@
-cat <<\ZOF >/etc/bf.cfg
+cat << \ZOF >/etc/bf.cfg
 
 # SFC variables
 ENABLE_BR_HBN=yes
@@ -16,47 +16,48 @@ BR_HBN_SFS={{ forge_hbn_sfs }}
 
 # This function is called by `bfb_modify_os()` as a part of install.sh script
 # embedded in the BFB installer
-carbide_modify_os() {
-  # Set errexit so that if any command fails, we exit the script
-  set -e
+carbide_modify_os()
+{
+# Set errexit so that if any command fails, we exit the script
+set -e
 
-  # Use the standard BFB installer `ilog()` function to write logs
-  ilog "======== Start of carbide_modify_os ============"
-  ilog "$(/usr/sbin/fdisk -l)"
-  ilog "$(/usr/bin/lsblk)"
-  ilog "$(/usr/sbin/blkid)"
-  ilog "$(/usr/bin/efibootmgr -v)"
-  ilog "==================================="
-  ilog "==================================="
+# Use the standard BFB installer `ilog()` function to write logs
+ilog "======== Start of carbide_modify_os ============"
+ilog "$(/usr/sbin/fdisk -l)"
+ilog "$(/usr/bin/lsblk)"
+ilog "$(/usr/sbin/blkid)"
+ilog "$(/usr/bin/efibootmgr -v)"
+ilog "==================================="
+ilog "==================================="
 
-  # Move the files out of the installer and into the installed OS
-  ilog "=== Prepare directory structure and move Forge and DOCA files"
-  local forge_path="/mnt/opt/forge"
-  local artifacts=(
-    /forge-scout
-    /forge-dpu.deb
-    /doca_container_configs
-    /doca_hbn.tar
-  )
-  mkdir -p "${forge_path}"
-  for artifact in "${artifacts[@]}"; do
-    [ -e "$artifact" ] || { ilog "WARN: $artifact does not exist"; continue; }
-    mv -v "$artifact" "${forge_path}"
-  done
-  chmod a+x "${forge_path}/forge-scout"
+# Move the files out of the installer and into the installed OS
+ilog "=== Prepare directory structure and move Forge and DOCA files"
+local forge_path="/mnt/opt/forge"
+local artifacts=(
+  /forge-scout
+  /forge-dpu.deb
+  /doca_container_configs
+  /doca_hbn.tar
+)
+mkdir -p "${forge_path}"
+for artifact in "${artifacts[@]}"; do
+  [ -e "$artifact" ] || { ilog "WARN: $artifact does not exist"; continue; }
+  mv -v "$artifact" "${forge_path}"
+done
+chmod a+x "${forge_path}/forge-scout"
 
-  local forge_path_debs="${forge_path}/debs"
-  ilog "=== Moving deb files to $forge_path_debs"
-  mkdir -p "$forge_path_debs"
-  for deb in /debs/*.deb; do
-    [ -e "$deb" ] || continue
-    mv -v "$deb" "$forge_path_debs"
-  done
+local forge_path_debs="${forge_path}/debs"
+ilog "=== Moving deb files to $forge_path_debs"
+mkdir -p "$forge_path_debs"
+for deb in /debs/*.deb; do
+  [ -e "$deb" ] || continue
+  mv -v "$deb" "$forge_path_debs"
+done
 
-  local forge_path_chroot_debs="${forge_path_debs#/mnt}"
-  ilog "=== Installing debs from $forge_path_chroot_debs: $(ls -la "$forge_path_debs"/*.deb)"
-  chroot /mnt chown -R root:root "$forge_path_chroot_debs"
-  chroot /mnt dpkg -R -i "$forge_path_chroot_debs" 2>&1 | while read -r log_line; do ilog "dpkg: $log_line"; done
+local forge_path_chroot_debs="${forge_path_debs#/mnt}"
+ilog "=== Installing debs from $forge_path_chroot_debs: $(ls -la "$forge_path_debs"/*.deb)"
+chroot /mnt chown -R root:root "$forge_path_chroot_debs"
+chroot /mnt dpkg -R -i "$forge_path_chroot_debs" 2>&1 | while read -r log_line; do ilog "dpkg: $log_line"; done
 
 cat << \EOF > /mnt/var/lib/cloud/seed/nocloud-net/user-data
 # cloud-config
@@ -256,21 +257,21 @@ write_files:
       /opt/forge/run-scout.sh
       touch /run/cloud-init.done
 
-  # Run these commands (last)
-  runcmd:
-    - [ bash, -c, '/opt/forge/runcmds.sh' ]
-  EOF
+# Run these commands (last)
+runcmd:
+  - [ bash, -c, '/opt/forge/runcmds.sh' ]
+EOF
 
-  ilog "======== End of carbide_modify_os ============"
-  ilog "$(/usr/sbin/fdisk -l)"
-  ilog "$(/usr/bin/lsblk)"
-  ilog "$(/usr/sbin/blkid)"
-  ilog "$(/usr/bin/efibootmgr -v)"
-  ilog "==================================="
-  ilog "==================================="
+ilog "======== End of carbide_modify_os ============"
+ilog "$(/usr/sbin/fdisk -l)"
+ilog "$(/usr/bin/lsblk)"
+ilog "$(/usr/sbin/blkid)"
+ilog "$(/usr/bin/efibootmgr -v)"
+ilog "==================================="
+ilog "==================================="
 
-  # Restore previous errexit behavior
-  set +e
+# Restore previous errexit behavior
+set +e
 }
 
 # This function is called by install.sh script embedded in the BFB installer
