@@ -137,11 +137,11 @@ impl InternalRBACRules {
         );
         x.perm(
             "InsertHealthReportOverride",
-            vec![ForgeAdminCLI, Health, Ssh, SshRs],
+            vec![ForgeAdminCLI, Health, Ssh, SshRs, Rla],
         );
         x.perm(
             "RemoveHealthReportOverride",
-            vec![ForgeAdminCLI, Health, Ssh, SshRs],
+            vec![ForgeAdminCLI, Health, Ssh, SshRs, Rla],
         );
         x.perm(
             "ListRackHealthReportOverrides",
@@ -993,6 +993,18 @@ mod rbac_rule_tests {
 
         assert!(InternalRBACRules::allowed_from_static(
             "SetMaintenance",
+            &[Principal::SpiffeServiceIdentifier(
+                "carbide-rla".to_string()
+            )]
+        ));
+        assert!(InternalRBACRules::allowed_from_static(
+            "InsertHealthReportOverride",
+            &[Principal::SpiffeServiceIdentifier(
+                "carbide-rla".to_string()
+            )]
+        ));
+        assert!(InternalRBACRules::allowed_from_static(
+            "RemoveHealthReportOverride",
             &[Principal::SpiffeServiceIdentifier(
                 "carbide-rla".to_string()
             )]
