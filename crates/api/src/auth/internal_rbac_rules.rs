@@ -238,7 +238,7 @@ impl InternalRBACRules {
         x.perm("AdminForceDeleteMachine", vec![ForgeAdminCLI, Machineatron]);
         x.perm("AdminListResourcePools", vec![ForgeAdminCLI]);
         x.perm("AdminGrowResourcePool", vec![ForgeAdminCLI]);
-        x.perm("SetMaintenance", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("SetMaintenance", vec![ForgeAdminCLI, SiteAgent, Rla]);
         x.perm("SetDynamicConfig", vec![ForgeAdminCLI, Machineatron]);
         x.perm("TriggerDpuReprovisioning", vec![ForgeAdminCLI]);
         x.perm("TriggerHostReprovisioning", vec![ForgeAdminCLI, Rla]);
