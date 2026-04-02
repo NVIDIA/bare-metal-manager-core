@@ -167,10 +167,8 @@ struct IbPartitionDetail {
     config_version: String,
     tenant_organization_id: String,
     metadata: rpc::forge::Metadata,
-    state: String,
-    state_sla: String,
-    time_in_state_above_sla: bool,
-    state_reason: Option<rpc::forge::ControllerStateReason>,
+    state_display: super::StateDisplay,
+    state_sla_detail: super::StateSlaDetail,
     pkey: String,
     service_level: String,
     rate_limit: String,
@@ -185,33 +183,43 @@ impl From<forgerpc::IbPartition> for IbPartitionDetail {
             config_version: partition.config_version,
             tenant_organization_id: partition.config.unwrap_or_default().tenant_organization_id,
             metadata: partition.metadata.unwrap_or_default(),
-            state: partition
-                .status
-                .as_ref()
-                .and_then(|status| forgerpc::TenantState::try_from(status.state).ok())
-                .map(|state| format!("{state:?}"))
-                .unwrap_or_default(),
-            state_sla: partition
-                .status
-                .as_ref()
-                .and_then(|status| status.state_sla.as_ref())
-                .and_then(|sla| sla.sla)
-                .map(|sla| {
-                    config_version::format_duration(
-                        chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::MAX),
-                    )
-                })
-                .unwrap_or_default(),
-            time_in_state_above_sla: partition
-                .status
-                .as_ref()
-                .and_then(|status| status.state_sla.as_ref())
-                .map(|sla| sla.time_in_state_above_sla)
-                .unwrap_or_default(),
-            state_reason: partition
-                .status
-                .as_ref()
-                .and_then(|s| s.state_reason.clone()),
+            state_display: super::StateDisplay {
+                state: partition
+                    .status
+                    .as_ref()
+                    .and_then(|status| forgerpc::TenantState::try_from(status.state).ok())
+                    .map(|state| format!("{state:?}"))
+                    .unwrap_or_default(),
+                time_in_state_above_sla: partition
+                    .status
+                    .as_ref()
+                    .and_then(|status| status.state_sla.as_ref())
+                    .map(|sla| sla.time_in_state_above_sla)
+                    .unwrap_or_default(),
+            },
+            state_sla_detail: super::StateSlaDetail {
+                state_sla: partition
+                    .status
+                    .as_ref()
+                    .and_then(|status| status.state_sla.as_ref())
+                    .and_then(|sla| sla.sla)
+                    .map(|sla| {
+                        config_version::format_duration(
+                            chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::MAX),
+                        )
+                    })
+                    .unwrap_or_default(),
+                time_in_state_above_sla: partition
+                    .status
+                    .as_ref()
+                    .and_then(|status| status.state_sla.as_ref())
+                    .map(|sla| sla.time_in_state_above_sla)
+                    .unwrap_or_default(),
+                state_reason: partition
+                    .status
+                    .as_ref()
+                    .and_then(|s| s.state_reason.clone()),
+            },
             pkey: partition
                 .status
                 .as_ref()

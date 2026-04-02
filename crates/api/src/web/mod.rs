@@ -59,6 +59,26 @@ pub(crate) struct MetadataDetail {
     pub metadata_version: String,
 }
 
+/// Reusable template for rendering a color-coded state bubble.
+/// Render with `{{ state_display|safe }}`.
+#[derive(Template)]
+#[template(path = "state_display.html")]
+pub(crate) struct StateDisplay {
+    pub state: String,
+    pub time_in_state_above_sla: bool,
+}
+
+/// Reusable template for rendering State SLA, time-in-state-above-SLA, and
+/// state handler outcome rows inside a `<table>`.
+/// Render with `{{ state_sla_detail|safe }}`.
+#[derive(Template)]
+#[template(path = "state_sla_details.html")]
+pub(crate) struct StateSlaDetail {
+    pub state_sla: String,
+    pub time_in_state_above_sla: bool,
+    pub state_reason: Option<rpc::forge::ControllerStateReason>,
+}
+
 mod action_status;
 mod attestation;
 mod auth;
