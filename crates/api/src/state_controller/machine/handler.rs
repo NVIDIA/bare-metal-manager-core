@@ -3143,9 +3143,6 @@ async fn reprovision_dpu_power_cycle_grace_grace(
     }
 
     // Phase 1: Issue PowerCycle for all DPUs and record the timestamp.
-    let now = Utc::now();
-    let mut txn = ctx.services.db_pool.begin().await?;
-
     for dpu in &dpus_for_reprov {
         let bmc_ip = dpu
             .bmc_addr()
@@ -3161,9 +3158,14 @@ async fn reprovision_dpu_power_cycle_grace_grace(
                     bmc_ip,
                 ))
             })?;
-        db::machine::set_dpu_reprovision_power_cycle_issued_at(&dpu.id, now, &mut txn).await?;
     }
 
+    let now = Utc::now();
+    let mut txn = ctx.services.db_pool.begin().await?;
+
+    for dpu in &dpus_for_reprov {
+        db::machine::set_dpu_reprovision_power_cycle_issued_at(&dpu.id, now, &mut txn).await?;
+    }
     txn.commit().await?;
 
     Ok(GraceGraceDpuPowerCycleOutcome::Wait(format!(
