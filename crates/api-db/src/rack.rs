@@ -18,10 +18,9 @@
 use carbide_uuid::rack::RackId;
 use config_version::ConfigVersion;
 use health_report::{HealthReport, OverrideMode};
-use mac_address::MacAddress;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
-use model::rack::{Rack, RackConfig, RackState};
+use model::rack::{FirmwareUpgradeJob, Rack, RackConfig, RackState};
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -93,21 +92,10 @@ pub async fn get(txn: impl DbReader<'_>, rack_id: &RackId) -> DatabaseResult<Rac
 pub async fn create(
     txn: &mut PgConnection,
     rack_id: &RackId,
-    expected_compute_trays: Vec<MacAddress>,
-    expected_nvlink_switches: Vec<MacAddress>,
-    expected_power_shelves: Vec<MacAddress>,
+    config: &RackConfig,
     expected_metadata: Option<&Metadata>,
 ) -> DatabaseResult<Rack> {
-    let config = RackConfig {
-        compute_trays: Vec::new(),
-        power_shelves: Vec::new(),
-        expected_compute_trays,
-        expected_switches: expected_nvlink_switches,
-        expected_power_shelves,
-        rack_type: None,
-        validation_run_id: None,
-    };
-    let controller_state = String::from("{\"state\":\"expected\"}");
+    let controller_state = String::from("{\"state\":\"created\"}");
     let controller_state_outcome = String::from("{}");
     let default_metadata = Metadata::default();
     let src_metadata = expected_metadata.unwrap_or(&default_metadata);
@@ -149,72 +137,6 @@ pub async fn update(
         .map_err(|e| DatabaseError::new(query, e))?;
 
     Ok(rack)
-}
-
-/// adopt_expected_switch adopts an expected switch into a rack's config by
-/// adding its BMC MAC address to expected_switches. Returns Ok(false) if
-/// the rack does not exist (the switch is not adopted).
-pub async fn adopt_expected_switch(
-    txn: &mut PgConnection,
-    rack_id: &RackId,
-    bmc_mac_address: MacAddress,
-) -> DatabaseResult<bool> {
-    match get(&mut *txn, rack_id).await {
-        Ok(rack) => {
-            let mut config = rack.config.clone();
-            if !config.expected_switches.contains(&bmc_mac_address) {
-                config.expected_switches.push(bmc_mac_address);
-                update(&mut *txn, rack_id, &config).await?;
-            }
-            Ok(true)
-        }
-        Err(DatabaseError::NotFoundError { .. }) => Ok(false),
-        Err(e) => Err(e),
-    }
-}
-
-/// adopt_expected_machine adopts an expected machine into a rack's config by
-/// adding its BMC MAC address to expected_compute_trays. Returns Ok(false) if
-/// the rack does not exist (the machine is not adopted).
-pub async fn adopt_expected_machine(
-    txn: &mut PgConnection,
-    rack_id: &RackId,
-    bmc_mac_address: MacAddress,
-) -> DatabaseResult<bool> {
-    match get(&mut *txn, rack_id).await {
-        Ok(rack) => {
-            let mut config = rack.config.clone();
-            if !config.expected_compute_trays.contains(&bmc_mac_address) {
-                config.expected_compute_trays.push(bmc_mac_address);
-                update(&mut *txn, rack_id, &config).await?;
-            }
-            Ok(true)
-        }
-        Err(DatabaseError::NotFoundError { .. }) => Ok(false),
-        Err(e) => Err(e),
-    }
-}
-
-/// adopt_expected_power_shelf adopts an expected power shelf into a rack's
-/// config by adding its BMC MAC address to expected_power_shelves. Returns
-/// Ok(false) if the rack does not exist (the power shelf is not adopted).
-pub async fn adopt_expected_power_shelf(
-    txn: &mut PgConnection,
-    rack_id: &RackId,
-    bmc_mac_address: MacAddress,
-) -> DatabaseResult<bool> {
-    match get(&mut *txn, rack_id).await {
-        Ok(rack) => {
-            let mut config = rack.config.clone();
-            if !config.expected_power_shelves.contains(&bmc_mac_address) {
-                config.expected_power_shelves.push(bmc_mac_address);
-                update(&mut *txn, rack_id, &config).await?;
-            }
-            Ok(true)
-        }
-        Err(DatabaseError::NotFoundError { .. }) => Ok(false),
-        Err(e) => Err(e),
-    }
 }
 
 pub async fn try_update_controller_state(
@@ -262,6 +184,22 @@ pub async fn mark_as_deleted(rack_id: &RackId, txn: &mut PgConnection) -> Databa
         .map_err(|e| DatabaseError::query(query, e))?;
 
     Ok(updated_rack)
+}
+
+pub async fn update_firmware_upgrade_job(
+    txn: &mut PgConnection,
+    rack_id: &RackId,
+    job: Option<&FirmwareUpgradeJob>,
+) -> DatabaseResult<()> {
+    let query =
+        "UPDATE racks SET firmware_upgrade_job = $1, updated = NOW() WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, (RackId,)>(query)
+        .bind(job.map(sqlx::types::Json))
+        .bind(rack_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("update_firmware_upgrade_job", e))?;
+    Ok(())
 }
 
 pub async fn final_delete(txn: &mut PgConnection, rack_id: &RackId) -> DatabaseResult<()> {

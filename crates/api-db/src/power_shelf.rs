@@ -32,6 +32,8 @@ use crate::{
 #[derive(Debug, Clone, Default)]
 pub struct PowerShelfSearchConfig {
     // pub include_history: bool, // unused
+    pub controller_state: Option<String>,
+    pub rack_id: Option<String>,
 }
 
 #[derive(Copy, Clone)]
@@ -80,7 +82,7 @@ pub async fn create(
     };
 
     let query = sqlx::query_as::<_, PowerShelfId>(
-        "INSERT INTO power_shelves (id, name, config, controller_state, controller_state_version, description, labels, version) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8) RETURNING id",
+        "INSERT INTO power_shelves (id, name, config, controller_state, controller_state_version, description, labels, version, rack_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
     );
     let _: PowerShelfId = query
         .bind(new_power_shelf.id)
@@ -91,6 +93,7 @@ pub async fn create(
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
         .bind(version)
+        .bind(&new_power_shelf.rack_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("create power_shelf", e))?;
@@ -107,6 +110,7 @@ pub async fn create(
         controller_state_outcome: None,
         metadata,
         version,
+        rack_id: new_power_shelf.rack_id.clone(),
     })
 }
 
@@ -114,12 +118,8 @@ pub async fn find_by_name(
     txn: &mut PgConnection,
     name: &str,
 ) -> DatabaseResult<Option<PowerShelf>> {
-    let mut power_shelves = find_by(
-        txn,
-        ObjectColumnFilter::One(NameColumn, &name.to_string()),
-        PowerShelfSearchConfig::default(),
-    )
-    .await?;
+    let mut power_shelves =
+        find_by(txn, ObjectColumnFilter::One(NameColumn, &name.to_string())).await?;
 
     if power_shelves.is_empty() {
         Ok(None)
@@ -143,12 +143,7 @@ pub async fn find_by_id(
     txn: &mut PgConnection,
     id: &PowerShelfId,
 ) -> DatabaseResult<Option<PowerShelf>> {
-    let mut power_shelves = find_by(
-        txn,
-        ObjectColumnFilter::One(IdColumn, id),
-        PowerShelfSearchConfig::default(),
-    )
-    .await?;
+    let mut power_shelves = find_by(txn, ObjectColumnFilter::One(IdColumn, id)).await?;
 
     if power_shelves.is_empty() {
         Ok(None)
@@ -182,12 +177,6 @@ pub async fn find_ids(
     txn: impl DbReader<'_>,
     filter: model::power_shelf::PowerShelfSearchFilter,
 ) -> Result<Vec<PowerShelfId>, DatabaseError> {
-    if filter.rack_id.is_some() {
-        return Err(DatabaseError::InvalidArgument(
-            "rack_id filtering is not yet supported for power shelves".to_string(),
-        ));
-    }
-
     let mut qb = sqlx::QueryBuilder::new("SELECT DISTINCT ps.id FROM power_shelves ps");
 
     if filter.bmc_mac.is_some() {
@@ -196,6 +185,10 @@ pub async fn find_ids(
 
     qb.push(" WHERE TRUE");
 
+    if filter.rack_id.is_some() {
+        qb.push(" AND ps.rack_id = ");
+        qb.push_bind(filter.rack_id.unwrap());
+    }
     match filter.deleted {
         model::DeletedFilter::Exclude => qb.push(" AND ps.deleted IS NULL"),
         model::DeletedFilter::Only => qb.push(" AND ps.deleted IS NOT NULL"),
@@ -221,7 +214,6 @@ pub async fn find_ids(
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = PowerShelf>>(
     txn: &mut PgConnection,
     filter: ObjectColumnFilter<'a, C>,
-    _search_config: PowerShelfSearchConfig,
 ) -> DatabaseResult<Vec<PowerShelf>> {
     let mut query = FilterableQueryBuilder::new("SELECT * FROM power_shelves").filter(&filter);
 

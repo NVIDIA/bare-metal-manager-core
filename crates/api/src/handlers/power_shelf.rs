@@ -42,7 +42,6 @@ pub async fn find_power_shelf(
         db_power_shelf::find_by(
             &mut txn,
             db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &id),
-            db_power_shelf::PowerShelfSearchConfig::default(),
         )
         .await
         .map_err(|e| CarbideError::Internal {
@@ -53,7 +52,6 @@ pub async fn find_power_shelf(
         db_power_shelf::find_by(
             &mut txn,
             db::ObjectColumnFilter::One(db_power_shelf::NameColumn, &name),
-            db_power_shelf::PowerShelfSearchConfig::default(),
         )
         .await
         .map_err(|e| CarbideError::Internal {
@@ -64,7 +62,6 @@ pub async fn find_power_shelf(
         db_power_shelf::find_by(
             &mut txn,
             db::ObjectColumnFilter::<db_power_shelf::IdColumn>::All,
-            db_power_shelf::PowerShelfSearchConfig::default(),
         )
         .await
         .map_err(|e| CarbideError::Internal {
@@ -127,7 +124,6 @@ pub async fn find_by_ids(
     let power_shelf_list = db_power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::List(db_power_shelf::IdColumn, &power_shelf_ids),
-        db_power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
 
@@ -201,7 +197,6 @@ pub async fn delete_power_shelf(
     let mut power_shelf_list = db_power_shelf::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &power_shelf_id),
-        db_power_shelf::PowerShelfSearchConfig::default(),
     )
     .await
     .map_err(|e| CarbideError::Internal {
@@ -255,7 +250,6 @@ pub(crate) async fn update_power_shelf_metadata(
     let power_shelves = db_power_shelf::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &power_shelf_id),
-        db_power_shelf::PowerShelfSearchConfig::default(),
     )
     .await
     .map_err(CarbideError::from)?;

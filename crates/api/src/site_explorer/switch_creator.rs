@@ -167,9 +167,14 @@ impl SwitchCreator {
             config,
             bmc_mac_address: Some(expected_switch.bmc_mac_address),
             metadata: Some(expected_switch.metadata.clone()),
+            rack_id: expected_switch.rack_id.clone(),
         };
 
         _ = db::switch::create(txn, &new_switch).await?;
+
+        if let Some(ref rack_id) = expected_switch.rack_id {
+            let _ = crate::site_explorer::ensure_rack_exists(&mut *txn, rack_id).await?;
+        }
 
         Ok(())
     }

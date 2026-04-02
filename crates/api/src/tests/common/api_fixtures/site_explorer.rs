@@ -28,7 +28,6 @@ use db::{DatabaseError, power_shelf as db_power_shelf, rack as db_rack, switch a
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use futures_util::FutureExt;
 use health_report::HealthReport;
-use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::expected_machine::ExpectedMachine;
 use model::hardware_info::HardwareInfo;
@@ -1510,6 +1509,7 @@ pub async fn new_power_shelf(
         id: power_shelf_id,
         config,
         metadata: None,
+        rack_id: None,
     };
 
     let _power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf)
@@ -1552,9 +1552,6 @@ do it without regard to the underlying impl and in a way that makes it
 clear looking at the test what the intent of the configuration is.
 */
 pub struct TestRackDbBuilder {
-    expected_compute_trays: Vec<MacAddress>,
-    expected_power_shelves: Vec<MacAddress>,
-    expected_switches: Vec<MacAddress>,
     rack_id: RackId,
     rack_type: Option<String>,
 }
@@ -1562,11 +1559,8 @@ pub struct TestRackDbBuilder {
 impl Default for TestRackDbBuilder {
     fn default() -> Self {
         TestRackDbBuilder {
-            expected_compute_trays: vec![],
-            expected_power_shelves: vec![],
-            expected_switches: vec![],
             rack_id: RackId::new(uuid::Uuid::new_v4().to_string()),
-            rack_type: None,
+            rack_type: Some("rack".to_string()),
         }
     }
 }
@@ -1583,55 +1577,17 @@ impl TestRackDbBuilder {
         self
     }
 
-    pub fn with_expected_compute_trays(mut self, expected_compute_trays: Vec<[u8; 6]>) -> Self {
-        self.expected_compute_trays = expected_compute_trays
-            .into_iter()
-            .map(MacAddress::new)
-            .collect();
-        self
-    }
-
-    pub fn with_expected_power_shelves(mut self, expected_power_shelves: Vec<[u8; 6]>) -> Self {
-        self.expected_power_shelves = expected_power_shelves
-            .into_iter()
-            .map(MacAddress::new)
-            .collect();
-        self
-    }
-
-    pub fn with_expected_switches(mut self, expected_switches: Vec<[u8; 6]>) -> Self {
-        self.expected_switches = expected_switches.into_iter().map(MacAddress::new).collect();
-        self
-    }
-
     pub fn with_rack_type(mut self, rack_type: impl Into<String>) -> Self {
         self.rack_type = Some(rack_type.into());
         self
     }
 
     pub async fn persist(&self, txn: &mut PgConnection) -> Result<RackId, DatabaseError> {
-        db_rack::create(
-            txn,
-            &self.rack_id,
-            self.expected_compute_trays.clone(),
-            self.expected_switches.clone(),
-            self.expected_power_shelves.clone(),
-            None,
-        )
-        .await?;
-
-        let cfg = RackConfig {
-            // TODO: represent compute_trays and power_shelves in builder.
-            compute_trays: vec![],
-            power_shelves: vec![],
-            expected_compute_trays: self.expected_compute_trays.clone(),
-            expected_switches: self.expected_switches.clone(),
-            expected_power_shelves: self.expected_power_shelves.clone(),
+        let rack_config = RackConfig {
             rack_type: self.rack_type.clone(),
-            validation_run_id: None,
+            ..Default::default()
         };
-
-        db_rack::update(txn, &self.rack_id, &cfg).await?;
+        db_rack::create(txn, &self.rack_id, &rack_config, None).await?;
 
         Ok(self.rack_id.clone())
     }
@@ -1680,6 +1636,7 @@ pub async fn new_switch(
         config,
         bmc_mac_address: Some(expected_switch.bmc_mac_address),
         metadata: None,
+        rack_id: None,
     };
 
     let _switch = db_switch::create(&mut txn, &new_switch)

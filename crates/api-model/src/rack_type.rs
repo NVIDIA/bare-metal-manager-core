@@ -48,7 +48,7 @@ impl fmt::Display for RackCapabilityType {
 
 /// RackCapabilityCompute describes the expected compute tray capability
 /// for a rack type.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RackCapabilityCompute {
     /// Model name of the compute tray (e.g. "GB200").
     #[serde(default)]
@@ -72,7 +72,7 @@ pub struct RackCapabilityCompute {
 
 /// RackCapabilitySwitch describes the expected switch capability
 /// for a rack type.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RackCapabilitySwitch {
     /// Model name of the switch.
     #[serde(default)]
@@ -96,7 +96,7 @@ pub struct RackCapabilitySwitch {
 
 /// RackCapabilityPowerShelf describes the expected power shelf capability
 /// for a rack type.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RackCapabilityPowerShelf {
     /// Model name of the power shelf.
     #[serde(default)]
@@ -121,7 +121,7 @@ pub struct RackCapabilityPowerShelf {
 /// RackCapabilitiesSet is the combined set of all expected rack component
 /// capabilities. It describes what a rack should contain in terms of
 /// compute trays, switches, and power shelves.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RackCapabilitiesSet {
     pub compute: RackCapabilityCompute,
     pub switch: RackCapabilitySwitch,

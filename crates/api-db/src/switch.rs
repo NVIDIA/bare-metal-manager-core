@@ -23,9 +23,8 @@ use config_version::{ConfigVersion, Versioned};
 use futures::StreamExt;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
-use model::switch::{
-    FirmwareUpgradeStatus, NewSwitch, Switch, SwitchControllerState, SwitchReprovisionRequest,
-};
+use model::rack::RackFirmwareUpgradeStatus;
+use model::switch::{NewSwitch, Switch, SwitchControllerState, SwitchReprovisionRequest};
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -57,6 +56,9 @@ impl ColumnInfo<'_> for NameColumn {
 #[derive(Debug, Clone, Default)]
 pub struct SwitchSearchConfig {
     // pub include_history: bool, // unused
+    pub controller_state: Option<String>,
+    pub rack_id: Option<String>,
+    pub bmc_mac_address: Option<MacAddress>,
 }
 pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseResult<Switch> {
     let state = SwitchControllerState::Created;
@@ -76,7 +78,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
     };
 
     let query = sqlx::query_as::<_, SwitchId>(
-        "INSERT INTO switches (id, name, config, controller_state, controller_state_version, bmc_mac_address, description, labels, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9) RETURNING id",
+        "INSERT INTO switches (id, name, config, controller_state, controller_state_version, bmc_mac_address, description, labels, version, rack_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10) RETURNING id",
     );
     let id = query
         .bind(new_switch.id)
@@ -88,6 +90,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         .bind(&metadata.description)
         .bind(sqlx::types::Json(&metadata.labels))
         .bind(version)
+        .bind(&new_switch.rack_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("create switch", e))?;
@@ -107,16 +110,12 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         firmware_upgrade_status: None,
         metadata,
         version,
+        rack_id: new_switch.rack_id.clone(),
     })
 }
 
 pub async fn find_by_name(txn: &mut PgConnection, name: &str) -> DatabaseResult<Option<Switch>> {
-    let mut switches = find_by(
-        txn,
-        ObjectColumnFilter::One(NameColumn, &name.to_string()),
-        SwitchSearchConfig::default(),
-    )
-    .await?;
+    let mut switches = find_by(txn, ObjectColumnFilter::One(NameColumn, &name.to_string())).await?;
 
     if switches.is_empty() {
         Ok(None)
@@ -133,12 +132,7 @@ pub async fn find_by_name(txn: &mut PgConnection, name: &str) -> DatabaseResult<
 }
 
 pub async fn find_by_id(txn: &mut PgConnection, id: &SwitchId) -> DatabaseResult<Option<Switch>> {
-    let mut switches = find_by(
-        txn,
-        ObjectColumnFilter::One(IdColumn, id),
-        SwitchSearchConfig::default(),
-    )
-    .await?;
+    let mut switches = find_by(txn, ObjectColumnFilter::One(IdColumn, id)).await?;
 
     if switches.is_empty() {
         Ok(None)
@@ -171,12 +165,6 @@ pub async fn find_ids(
     txn: impl DbReader<'_>,
     filter: model::switch::SwitchSearchFilter,
 ) -> Result<Vec<SwitchId>, DatabaseError> {
-    if filter.rack_id.is_some() {
-        return Err(DatabaseError::InvalidArgument(
-            "rack_id filtering is not yet supported for switches".to_string(),
-        ));
-    }
-
     let mut qb = sqlx::QueryBuilder::new("SELECT DISTINCT s.id FROM switches s");
 
     if filter.bmc_mac.is_some() {
@@ -184,6 +172,11 @@ pub async fn find_ids(
     }
 
     qb.push(" WHERE TRUE");
+
+    if filter.rack_id.is_some() {
+        qb.push(" AND s.rack_id = ");
+        qb.push_bind(filter.rack_id.unwrap());
+    }
 
     match filter.deleted {
         model::DeletedFilter::Exclude => qb.push(" AND s.deleted IS NULL"),
@@ -207,27 +200,9 @@ pub async fn find_ids(
         .map_err(|e| DatabaseError::new("switch::find_ids", e))
 }
 
-pub async fn list_sibling_ids(
-    txn: &mut PgConnection,
-    rack_id: &str,
-) -> DatabaseResult<Vec<SwitchId>> {
-    let query =
-        sqlx::query_as::<_, SwitchId>("SELECT id FROM switches WHERE rack_id = $1").bind(rack_id);
-
-    let mut rows = query.fetch(txn);
-    let mut ids = Vec::new();
-
-    while let Some(row) = rows.next().await {
-        ids.push(row.map_err(|e| DatabaseError::new("list_sibling_ids switch", e))?);
-    }
-
-    Ok(ids)
-}
-
 pub async fn find_by<'a, C: ColumnInfo<'a, TableType = Switch>>(
     txn: &mut PgConnection,
     filter: ObjectColumnFilter<'a, C>,
-    _search_config: SwitchSearchConfig,
 ) -> DatabaseResult<Vec<Switch>> {
     let mut query = FilterableQueryBuilder::new("SELECT * FROM switches").filter(&filter);
 
@@ -318,7 +293,7 @@ pub async fn clear_switch_reprovisioning_requested(
 pub async fn update_firmware_upgrade_status(
     txn: &mut PgConnection,
     switch_id: SwitchId,
-    status: Option<&FirmwareUpgradeStatus>,
+    status: Option<&RackFirmwareUpgradeStatus>,
 ) -> DatabaseResult<()> {
     let query = "UPDATE switches SET firmware_upgrade_status = $1 WHERE id = $2 RETURNING id";
     sqlx::query_as::<_, SwitchId>(query)

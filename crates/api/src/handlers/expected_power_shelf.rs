@@ -29,14 +29,12 @@ pub async fn add_expected_power_shelf(
     request: Request<rpc::ExpectedPowerShelf>,
 ) -> Result<Response<()>, Status> {
     let rpc_power_shelf = request.into_inner();
-    let request_rack_id = rpc_power_shelf.rack_id.clone();
     let power_shelf: ExpectedPowerShelf =
         rpc_power_shelf
             .try_into()
             .map_err(|e: ::rpc::errors::RpcDataConversionError| {
                 CarbideError::InvalidArgument(e.to_string())
             })?;
-    let bmc_mac_address = power_shelf.bmc_mac_address;
 
     let mut txn = api
         .database_connection
@@ -49,19 +47,6 @@ pub async fn add_expected_power_shelf(
     db_expected_power_shelf::create(&mut txn, power_shelf)
         .await
         .map_err(CarbideError::from)?;
-
-    if let Some(ref rack_id) = request_rack_id {
-        let adopted = db::rack::adopt_expected_power_shelf(&mut txn, rack_id, bmc_mac_address)
-            .await
-            .map_err(CarbideError::from)?;
-        if !adopted {
-            tracing::debug!(
-                "rack {} does not exist yet, power shelf {} will be adopted later.",
-                rack_id,
-                bmc_mac_address
-            );
-        }
-    }
 
     txn.commit().await.map_err(|e| CarbideError::Internal {
         message: format!("Failed to commit transaction: {}", e),
@@ -97,8 +82,6 @@ pub async fn delete_expected_power_shelf(
     txn.commit().await.map_err(|e| CarbideError::Internal {
         message: format!("Failed to commit transaction: {}", e),
     })?;
-
-    // TODO Add cleanup for rack
 
     Ok(Response::new(()))
 }

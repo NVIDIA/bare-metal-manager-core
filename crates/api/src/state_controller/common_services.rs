@@ -18,6 +18,7 @@
 use std::sync::Arc;
 
 use db::db_read::PgPoolReader;
+use forge_secrets::credentials::CredentialManager;
 use libredfish::Redfish;
 use librms::RmsApi;
 use model::machine::Machine;
@@ -60,6 +61,9 @@ pub struct CommonStateHandlerServices {
 
     /// Rack Manager Service client
     pub rms_client: Option<Arc<dyn RmsApi>>,
+
+    /// Credential manager (Vault) for fetching BMC credentials
+    pub credential_manager: Arc<dyn CredentialManager>,
 }
 
 impl CommonStateHandlerServices {

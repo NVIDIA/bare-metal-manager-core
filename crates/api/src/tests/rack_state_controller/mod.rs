@@ -23,7 +23,7 @@ use std::time::Duration;
 use carbide_uuid::rack::RackId;
 use db::rack as db_rack;
 use model::rack::{
-    Rack, RackFirmwareUpgradeState, RackMaintenanceState, RackState, RackValidationState,
+    FirmwareUpgradeState, Rack, RackConfig, RackMaintenanceState, RackState, RackValidationState,
 };
 use rpc::forge::RackStateHistoryRecord;
 use rpc::forge::forge_server::Forge;
@@ -79,33 +79,41 @@ impl StateHandler for TestRackStateHandler {
         }
 
         let state = match controller_state {
-            RackState::Expected => RackState::Discovering,
+            RackState::Created => RackState::Discovering,
             RackState::Discovering => RackState::Maintenance {
-                rack_maintenance: RackMaintenanceState::FirmwareUpgrade {
-                    rack_firmware_upgrade: RackFirmwareUpgradeState::Compute,
+                maintenance_state: RackMaintenanceState::FirmwareUpgrade {
+                    rack_firmware_upgrade: FirmwareUpgradeState::Start,
                 },
             },
-            RackState::Maintenance { rack_maintenance } => match rack_maintenance {
+            RackState::Maintenance { maintenance_state } => match maintenance_state {
                 RackMaintenanceState::FirmwareUpgrade { .. } => RackState::Maintenance {
-                    rack_maintenance: RackMaintenanceState::Completed,
+                    maintenance_state: RackMaintenanceState::ConfigureNmxCluster,
                 },
-                RackMaintenanceState::Completed => RackState::Validation {
-                    rack_validation: RackValidationState::Pending,
+                RackMaintenanceState::ConfigureNmxCluster => RackState::Maintenance {
+                    maintenance_state: RackMaintenanceState::Completed,
+                },
+                RackMaintenanceState::Completed => RackState::Validating {
+                    validating_state: RackValidationState::Pending,
                 },
                 _ => return Ok(StateHandlerOutcome::do_nothing()),
             },
-            RackState::Validation { rack_validation } => match rack_validation {
-                RackValidationState::Pending => RackState::Validation {
-                    rack_validation: RackValidationState::InProgress,
+            RackState::Validating { validating_state } => match validating_state {
+                RackValidationState::Pending => RackState::Validating {
+                    validating_state: RackValidationState::InProgress,
                 },
-                RackValidationState::InProgress => RackState::Validation {
-                    rack_validation: RackValidationState::Partial,
+                RackValidationState::InProgress => RackState::Validating {
+                    validating_state: RackValidationState::Partial,
                 },
-                RackValidationState::Partial => RackState::Validation {
-                    rack_validation: RackValidationState::Validated,
+                RackValidationState::Partial => RackState::Validating {
+                    validating_state: RackValidationState::Validated,
                 },
                 RackValidationState::Validated => RackState::Ready,
-                _ => return Ok(StateHandlerOutcome::do_nothing()),
+                RackValidationState::FailedPartial => RackState::Validating {
+                    validating_state: RackValidationState::Failed,
+                },
+                RackValidationState::Failed => RackState::Error {
+                    cause: "All validation partitions failed".to_string(),
+                },
             },
             RackState::Deleting => {
                 // Rack is being deleted
@@ -141,15 +149,6 @@ async fn test_can_retrieve_rack_state_history(
     // Create a rack
     let mut txn = pool.acquire().await?;
     let rack_id = TestRackDbBuilder::new()
-        .with_expected_compute_trays(vec![
-            [0x00, 0x1A, 0x2B, 0x3C, 0x4D, 0x50],
-            [0x00, 0x1A, 0x2B, 0x3C, 0x4D, 0x51],
-        ])
-        .with_expected_power_shelves(vec![
-            [0x01, 0x1A, 0x2B, 0x3C, 0x4D, 0x50],
-            [0x01, 0x1A, 0x2B, 0x3C, 0x4D, 0x51],
-        ])
-        .with_expected_switches(vec![[0x02, 0x1A, 0x2B, 0x3C, 0x4D, 0x50]])
         .with_rack_type("NVL72")
         .persist(&mut txn)
         .await?;
@@ -206,10 +205,11 @@ async fn test_can_retrieve_rack_state_history(
     // States are serialized via serde with #[serde(tag = "state", rename_all = "snake_case")].
     let expected = vec![
         "{\"state\": \"discovering\"}",
-        "{\"state\": \"maintenance\", \"rack_maintenance\": {\"FirmwareUpgrade\": {\"rack_firmware_upgrade\": \"Compute\"}}}",
-        "{\"state\": \"maintenance\", \"rack_maintenance\": \"Completed\"}",
-        "{\"state\": \"validation\", \"rack_validation\": \"Pending\"}",
-        "{\"state\": \"validation\", \"rack_validation\": \"Validated\"}",
+        "{\"state\": \"maintenance\", \"maintenance_state\": {\"FirmwareUpgrade\": {\"rack_firmware_upgrade\": \"Start\"}}}",
+        "{\"state\": \"maintenance\", \"maintenance_state\": \"ConfigureNmxCluster\"}",
+        "{\"state\": \"maintenance\", \"maintenance_state\": \"Completed\"}",
+        "{\"state\": \"validating\", \"validating_state\": \"Pending\"}",
+        "{\"state\": \"validating\", \"validating_state\": \"Validated\"}",
         "{\"state\": \"ready\"}",
     ];
     assert!(validate_state_change_history(&records, &expected));
@@ -233,7 +233,7 @@ async fn test_rack_state_transitions(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     let rack = db_rack::get(&mut *txn, &rack_id).await?;
 
     // Verify initial state is Expected
-    assert!(matches!(rack.controller_state.value, RackState::Expected));
+    assert!(matches!(rack.controller_state.value, RackState::Created));
 
     // Start the state controller
     let rack_handler = Arc::new(TestRackStateHandler::default());
@@ -354,36 +354,39 @@ async fn test_rack_state_transition_validation(
     let rack = db_rack::get(&mut *txn, &rack_id).await?;
 
     // Verify initial state is Expected
-    assert!(matches!(rack.controller_state.value, RackState::Expected));
+    assert!(matches!(rack.controller_state.value, RackState::Created));
 
     // Test state transitions by manually setting different states
     let states = vec![
         RackState::Discovering,
         RackState::Maintenance {
-            rack_maintenance: RackMaintenanceState::FirmwareUpgrade {
-                rack_firmware_upgrade: RackFirmwareUpgradeState::Compute,
+            maintenance_state: RackMaintenanceState::FirmwareUpgrade {
+                rack_firmware_upgrade: FirmwareUpgradeState::Start,
             },
         },
         RackState::Maintenance {
-            rack_maintenance: RackMaintenanceState::Completed,
+            maintenance_state: RackMaintenanceState::ConfigureNmxCluster,
         },
-        RackState::Validation {
-            rack_validation: RackValidationState::Pending,
+        RackState::Maintenance {
+            maintenance_state: RackMaintenanceState::Completed,
         },
-        RackState::Validation {
-            rack_validation: RackValidationState::InProgress,
+        RackState::Validating {
+            validating_state: RackValidationState::Pending,
         },
-        RackState::Validation {
-            rack_validation: RackValidationState::Partial,
+        RackState::Validating {
+            validating_state: RackValidationState::InProgress,
         },
-        RackState::Validation {
-            rack_validation: RackValidationState::FailedPartial,
+        RackState::Validating {
+            validating_state: RackValidationState::Partial,
         },
-        RackState::Validation {
-            rack_validation: RackValidationState::Validated,
+        RackState::Validating {
+            validating_state: RackValidationState::FailedPartial,
         },
-        RackState::Validation {
-            rack_validation: RackValidationState::Failed,
+        RackState::Validating {
+            validating_state: RackValidationState::Validated,
+        },
+        RackState::Validating {
+            validating_state: RackValidationState::Failed,
         },
         RackState::Ready,
         RackState::Error {
@@ -478,11 +481,20 @@ async fn test_rack_controller_state_version_increment(
     // Create a rack
     let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
     let mut txn = pool.begin().await?;
-    db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![], None).await?;
+    db_rack::create(
+        &mut txn,
+        &rack_id,
+        &RackConfig {
+            rack_type: Some("Empty".to_string()),
+            ..Default::default()
+        },
+        None,
+    )
+    .await?;
 
     // Verify initial state
     let rack = db_rack::get(&mut *txn, &rack_id).await?;
-    assert!(matches!(rack.controller_state.value, RackState::Expected));
+    assert!(matches!(rack.controller_state.value, RackState::Created));
     let initial_version = rack.controller_state.version;
 
     // Update controller state with correct version

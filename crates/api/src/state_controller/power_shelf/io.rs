@@ -19,7 +19,6 @@
 
 use carbide_uuid::power_shelf::PowerShelfId;
 use config_version::{ConfigVersion, Versioned};
-use db::power_shelf::PowerShelfSearchConfig;
 use db::{DatabaseError, ObjectColumnFilter, power_shelf as db_power_shelf};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
@@ -63,7 +62,6 @@ impl StateControllerIO for PowerShelfStateControllerIO {
         let mut power_shelves = db_power_shelf::find_by(
             txn,
             ObjectColumnFilter::One(db::power_shelf::IdColumn, power_shelf_id),
-            PowerShelfSearchConfig::default(),
         )
         .await?;
         if power_shelves.is_empty() {

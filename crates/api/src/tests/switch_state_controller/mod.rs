@@ -22,6 +22,7 @@ use std::time::Duration;
 
 use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
+use forge_secrets::credentials::TestCredentialManager;
 use model::switch::{ConfiguringState, Switch, SwitchControllerState};
 use rpc::forge::forge_server::Forge;
 use tokio::task::JoinSet;
@@ -114,6 +115,7 @@ async fn test_switch_state_transitions(
         site_config: env.config.clone(),
         dpa_info: None,
         rms_client: None,
+        credential_manager: Arc::new(TestCredentialManager::default()),
     });
 
     let cancel_token = CancellationToken::new();
@@ -185,6 +187,7 @@ async fn test_switch_deletion_flow(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         site_config: env.config.clone(),
         dpa_info: None,
         rms_client: None,
+        credential_manager: Arc::new(TestCredentialManager::default()),
     });
 
     let cancel_token = CancellationToken::new();
@@ -278,6 +281,7 @@ async fn test_switch_error_state_handling(
         site_config: env.config.clone(),
         dpa_info: None,
         rms_client: None,
+        credential_manager: Arc::new(TestCredentialManager::default()),
     });
 
     let cancel_token = CancellationToken::new();
@@ -401,6 +405,7 @@ async fn test_switch_deletion_with_state_controller(
         site_config: env.config.clone(),
         dpa_info: None,
         rms_client: None,
+        credential_manager: Arc::new(TestCredentialManager::default()),
     });
 
     let cancel_token = CancellationToken::new();

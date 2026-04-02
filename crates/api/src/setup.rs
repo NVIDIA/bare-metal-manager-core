@@ -562,6 +562,7 @@ pub async fn initialize_and_start_controllers(
         work_lock_manager_handle,
         rms_client,
         dpf_sdk,
+        credential_manager,
         ..
     } = api_service.as_ref();
     // As soon as we get the database up, observe this version of forge so that we know when it was
@@ -774,6 +775,7 @@ pub async fn initialize_and_start_controllers(
         site_config: carbide_config.clone(),
         dpa_info,
         rms_client: rms_client.clone(),
+        credential_manager: credential_manager.clone(),
     });
 
     // Use the hostname as cluster-wide state controller ID

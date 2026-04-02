@@ -3187,7 +3187,6 @@ async fn test_site_explorer_power_shelf_with_expected_config(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig {},
     )
     .await?;
     txn.commit().await?;
@@ -3479,7 +3478,6 @@ async fn test_site_explorer_power_shelf_disabled(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig {},
     )
     .await?;
     txn.commit().await?;
@@ -3734,7 +3732,6 @@ async fn test_site_explorer_creates_power_shelf(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3763,7 +3760,6 @@ async fn test_site_explorer_creates_power_shelf(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3783,7 +3779,6 @@ async fn test_site_explorer_creates_power_shelf(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3809,7 +3804,6 @@ async fn test_site_explorer_creates_power_shelf(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -3964,7 +3958,6 @@ async fn test_power_shelf_state_history(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -4234,7 +4227,6 @@ async fn test_power_shelf_state_history_multiple(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;
@@ -4448,7 +4440,6 @@ async fn test_power_shelf_state_history_error_handling(
     let power_shelves = db::power_shelf::find_by(
         &mut txn,
         ObjectColumnFilter::<db::power_shelf::IdColumn>::All,
-        db::power_shelf::PowerShelfSearchConfig::default(),
     )
     .await?;
     txn.commit().await?;

@@ -41,6 +41,7 @@ pub struct NewSwitch {
     pub config: SwitchConfig,
     pub bmc_mac_address: Option<MacAddress>,
     pub metadata: Option<Metadata>,
+    pub rack_id: Option<RackId>,
 }
 
 impl TryFrom<rpc::SwitchCreationRequest> for NewSwitch {
@@ -75,6 +76,7 @@ impl TryFrom<rpc::SwitchCreationRequest> for NewSwitch {
             config: SwitchConfig::try_from(conf)?,
             bmc_mac_address: None,
             metadata: None,
+            rack_id: None,
         })
     }
 }
@@ -107,16 +109,7 @@ pub struct SwitchReprovisionRequest {
     pub initiator: String,
 }
 
-/// Status of the firmware upgrade during ReProvisioning. Set by an external entity (e.g. switch
-/// firmware updater). WaitFirmwareUpdateCompletion waits for Completed or Failed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum FirmwareUpgradeStatus {
-    Started,
-    InProgress,
-    Completed,
-    Failed { cause: String },
-}
+pub use crate::rack::{RackFirmwareUpgradeState, RackFirmwareUpgradeStatus};
 
 #[derive(Debug, Clone)]
 pub struct Switch {
@@ -137,9 +130,11 @@ pub struct Switch {
     /// When set, the state controller (in Ready) transitions to ReProvisioning::Start.
     pub switch_reprovisioning_requested: Option<SwitchReprovisionRequest>,
 
-    /// Firmware upgrade status during ReProvisioning. WaitFirmwareUpdateCompletion polls this;
-    /// when Completed, transition to Ready; when Failed, transition to Error.
-    pub firmware_upgrade_status: Option<FirmwareUpgradeStatus>,
+    /// Firmware upgrade status during ReProvisioning, set by the rack state machine.
+    pub firmware_upgrade_status: Option<RackFirmwareUpgradeStatus>,
+
+    /// The rack that this switch is associated with.
+    pub rack_id: Option<RackId>,
     // Columns for these exist, but are unused in rust code
     // pub created: DateTime<Utc>,
     // pub updated: DateTime<Utc>,
@@ -157,7 +152,7 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             row.try_get("controller_state_outcome").ok();
         let switch_reprovisioning_requested: Option<sqlx::types::Json<SwitchReprovisionRequest>> =
             row.try_get("switch_reprovisioning_requested").ok();
-        let firmware_upgrade_status: Option<sqlx::types::Json<FirmwareUpgradeStatus>> =
+        let firmware_upgrade_status: Option<sqlx::types::Json<RackFirmwareUpgradeStatus>> =
             row.try_get("firmware_upgrade_status").ok();
 
         let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
@@ -181,6 +176,7 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             firmware_upgrade_status: firmware_upgrade_status.map(|j| j.0),
             metadata,
             version: row.try_get("version")?,
+            rack_id: row.try_get("rack_id").ok().flatten(),
         })
     }
 }
@@ -287,10 +283,9 @@ pub enum BomValidatingState {
 /// Sub-state for SwitchControllerState::ReProvisioning
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReProvisioningState {
-    /// Re-provisioning has been started.
-    Start,
-    /// Waiting for firmware update to complete.
-    WaitFirmwareUpdateCompletion,
+    /// Rack-level firmware upgrade in progress; the rack state machine manages the
+    /// upgrade and clears `switch_reprovisioning_requested` when done.
+    WaitingForRackFirmwareUpgrade,
 }
 
 /// State of a Switch as tracked by the controller
@@ -441,6 +436,7 @@ mod tests {
             firmware_upgrade_status: None,
             metadata: Metadata::default(),
             version: ConfigVersion::initial(),
+            rack_id: None,
         };
 
         let rpc_switch: rpc::Switch = switch.try_into().unwrap();
@@ -479,6 +475,7 @@ mod tests {
             firmware_upgrade_status: None,
             metadata: Metadata::default(),
             version: ConfigVersion::initial(),
+            rack_id: None,
         };
 
         let rpc_switch: rpc::Switch = switch.try_into().unwrap();

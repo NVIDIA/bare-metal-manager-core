@@ -42,7 +42,6 @@ pub async fn find_switch(
         db_switch::find_by(
             &mut txn,
             db::ObjectColumnFilter::One(db_switch::IdColumn, &id),
-            db_switch::SwitchSearchConfig::default(),
         )
         .await
         .map_err(|e| CarbideError::Internal {
@@ -53,7 +52,6 @@ pub async fn find_switch(
         db_switch::find_by(
             &mut txn,
             db::ObjectColumnFilter::One(db_switch::NameColumn, &name),
-            db_switch::SwitchSearchConfig::default(),
         )
         .await
         .map_err(|e| CarbideError::Internal {
@@ -61,15 +59,11 @@ pub async fn find_switch(
         })?
     } else {
         // No filter - return all
-        db_switch::find_by(
-            &mut txn,
-            db::ObjectColumnFilter::<db_switch::IdColumn>::All,
-            db_switch::SwitchSearchConfig::default(),
-        )
-        .await
-        .map_err(|e| CarbideError::Internal {
-            message: format!("Failed to find switch: {}", e),
-        })?
+        db_switch::find_by(&mut txn, db::ObjectColumnFilter::<db_switch::IdColumn>::All)
+            .await
+            .map_err(|e| CarbideError::Internal {
+                message: format!("Failed to find switch: {}", e),
+            })?
     };
 
     let bmc_info_map: std::collections::HashMap<String, rpc::BmcInfo> = {
@@ -156,7 +150,6 @@ pub async fn find_by_ids(
     let switch_list = db_switch::find_by(
         &mut txn,
         ObjectColumnFilter::List(db_switch::IdColumn, &switch_ids),
-        db_switch::SwitchSearchConfig::default(),
     )
     .await?;
 
@@ -270,7 +263,6 @@ pub async fn delete_switch(
     let mut switch_list = db_switch::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
-        db_switch::SwitchSearchConfig::default(),
     )
     .await
     .map_err(|e| CarbideError::Internal {
@@ -324,7 +316,6 @@ pub(crate) async fn update_switch_metadata(
     let switches = db_switch::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
-        db_switch::SwitchSearchConfig::default(),
     )
     .await
     .map_err(CarbideError::from)?;

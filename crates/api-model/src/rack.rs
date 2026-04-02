@@ -17,12 +17,9 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use mac_address::MacAddress;
 use rpc::Timestamp;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
@@ -39,12 +36,91 @@ pub struct Rack {
     pub config: RackConfig,
     pub controller_state: Versioned<RackState>,
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+    pub firmware_upgrade_job: Option<FirmwareUpgradeJob>,
     pub health_report_overrides: HealthReportOverrides,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
     pub deleted: Option<DateTime<Utc>>,
     pub metadata: Metadata,
     pub version: ConfigVersion,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FirmwareUpgradeJob {
+    pub job_id: Option<String>,
+    pub status: Option<String>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub machines: Vec<FirmwareUpgradeDeviceStatus>,
+    #[serde(default)]
+    pub switches: Vec<FirmwareUpgradeDeviceStatus>,
+    #[serde(default)]
+    pub power_shelves: Vec<FirmwareUpgradeDeviceStatus>,
+}
+
+impl FirmwareUpgradeJob {
+    pub fn all_devices(&self) -> impl Iterator<Item = &FirmwareUpgradeDeviceStatus> {
+        self.machines
+            .iter()
+            .chain(self.switches.iter())
+            .chain(self.power_shelves.iter())
+    }
+
+    pub fn all_devices_mut(&mut self) -> impl Iterator<Item = &mut FirmwareUpgradeDeviceStatus> {
+        self.machines
+            .iter_mut()
+            .chain(self.switches.iter_mut())
+            .chain(self.power_shelves.iter_mut())
+    }
+}
+
+/// Per-device input passed to RMS when starting a firmware upgrade.
+/// TODO to be replaced with RMS protobuf message
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FirmwareUpgradeDeviceInfo {
+    pub mac: String,
+    pub bmc_ip: String,
+    pub bmc_username: String,
+    pub bmc_password: String,
+    pub os_ip: Option<String>,
+    pub os_username: Option<String>,
+    pub os_password: Option<String>,
+}
+
+/// Per-device status tracked inside `FirmwareUpgradeJob`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FirmwareUpgradeDeviceStatus {
+    pub mac: String,
+    pub bmc_ip: String,
+    pub status: String,
+}
+
+/// Per-device firmware upgrade status set by the rack state machine during a
+/// rack-level firmware upgrade. Used on both machines and switches.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RackFirmwareUpgradeStatus {
+    pub task_id: String,
+    pub status: RackFirmwareUpgradeState,
+    pub started_at: Option<DateTime<Utc>>,
+    pub ended_at: Option<DateTime<Utc>>,
+}
+
+impl RackFirmwareUpgradeStatus {
+    /// Returns true if the firmware upgrade is still in progress
+    /// (i.e. `ended_at` has not been set yet).
+    pub fn is_in_progress(&self) -> bool {
+        self.ended_at.is_none()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RackFirmwareUpgradeState {
+    Started,
+    InProgress,
+    Completed,
+    Failed { cause: String },
 }
 
 impl From<Rack> for rpc::forge::Rack {
@@ -63,26 +139,12 @@ impl From<Rack> for rpc::forge::Rack {
         rpc::forge::Rack {
             id: Some(value.id),
             rack_state: value.controller_state.value.to_string(),
-            expected_compute_trays: value
-                .config
-                .expected_compute_trays
-                .iter()
-                .map(|x| x.to_string())
-                .collect(),
-            expected_power_shelves: value
-                .config
-                .expected_power_shelves
-                .iter()
-                .map(|x| x.to_string())
-                .collect(),
-            expected_nvlink_switches: value
-                .config
-                .expected_switches
-                .iter()
-                .map(|x| x.to_string())
-                .collect(),
-            compute_trays: value.config.compute_trays,
-            power_shelves: value.config.power_shelves,
+            expected_compute_trays: vec![],
+            expected_power_shelves: vec![],
+            expected_nvlink_switches: vec![],
+            compute_trays: vec![],
+            power_shelves: vec![],
+            switches: vec![],
             created: Some(Timestamp::from(value.created)),
             updated: Some(Timestamp::from(value.updated)),
             deleted: value.deleted.map(Timestamp::from),
@@ -131,6 +193,11 @@ impl<'r> FromRow<'r, PgRow> for Rack {
             description: row.try_get("description")?,
             labels: labels.0,
         };
+        let firmware_upgrade_job: Option<FirmwareUpgradeJob> = row
+            .try_get::<Option<sqlx::types::Json<FirmwareUpgradeJob>>, _>("firmware_upgrade_job")
+            .ok()
+            .flatten()
+            .map(|j| j.0);
         Ok(Rack {
             id: row.try_get("id")?,
             config: config.0,
@@ -139,6 +206,7 @@ impl<'r> FromRow<'r, PgRow> for Rack {
                 version: row.try_get("controller_state_version")?,
             },
             controller_state_outcome: controller_state_outcome.map(|o| o.0),
+            firmware_upgrade_job,
             health_report_overrides,
             created: row.try_get("created")?,
             updated: row.try_get("updated")?,
@@ -153,42 +221,38 @@ impl<'r> FromRow<'r, PgRow> for Rack {
 // RACK STATES
 // ============================================================================
 
-/// Overall state of the rack lifecycle.
+/// State of a Rack as tracked by the controller.
 ///
 /// The rack progresses through discovery and maintenance phases, then enters
 /// validation where partitions (groups of nodes) are validated by an external
 /// service (RVS).
 ///
-/// ## Simplified State Flow
-///
-/// Most important transitions are shown below.
+/// ## State Flow
 ///
 /// ```text
-/// Expected -> Discovering -> Maintenance -> Validation
-///                                                |
-///                                                v
-///                           Validation(Failed) <---> Validation(Validated)
-///                                                         |
-///                                                         v
-///                                                       Ready
+/// Created -> Discovering -> Maintenance -> Validating -> Ready
+///                ^               |              |          |  |
+///                |               v              v          |  |
+///                |            Error <------  Error         |  |
+///                |                                         |  |
+///                +--- topology_changed --------------------+  |
+///                                                             |
+///           Maintenance <--- reprovision_requested -----------+
+/// ```
+///
+/// ### Maintenance Sub-states
+///
+/// ```text
+/// FirmwareUpgrade -> ConfigureNmxCluster -> Completed -> Validating(Pending)
 /// ```
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum RackState {
-    /// Default DB column value. The rack SM does not transition out of this
-    /// state on its own -- the transition to `Expected` is forced by
-    /// `db::rack::create()`, which explicitly writes `{"state":"expected"}`
-    /// when a rack is first created via the ExpectedMachine/Switch/PS APIs.
-    ///
-    /// This variant exists solely to deserialize rows that were inserted with
-    /// the column default (`{"state":"unknown"}`). Under normal operation no
-    /// rack should remain in this state.
-    #[default]
-    Unknown,
-
-    /// Rack is expected - waiting for machines to be discovered.
+    /// Rack has been created in Carbide.
     /// Created when ExpectedMachine/Switch/PS references this rack.
-    Expected,
+    #[default]
+    #[serde(alias = "expected", alias = "unknown")]
+    Created,
 
     /// Discovery in progress - waiting for all expected devices to appear
     /// and reach ManagedHostState::Ready.
@@ -196,8 +260,10 @@ pub enum RackState {
 
     /// Rack is in the validation phase. The sub-state tracks progress from
     /// waiting for RVS through partition-level pass/fail to a final verdict.
-    Validation {
-        rack_validation: RackValidationState,
+    #[serde(alias = "validation")]
+    Validating {
+        #[serde(alias = "rack_validation")]
+        validating_state: RackValidationState,
     },
 
     /// Rack is fully validated and ready for production workloads.
@@ -206,13 +272,14 @@ pub enum RackState {
     /// Rack is undergoing maintenance (firmware upgrade, power sequencing, etc.).
     /// Maintenance happens after discovery and before validation.
     Maintenance {
-        rack_maintenance: RackMaintenanceState,
+        #[serde(alias = "rack_maintenance")]
+        maintenance_state: RackMaintenanceState,
     },
 
-    /// Rack encountered an unrecoverable error.
+    /// There is error in the Rack; Rack can not be used if it's in error.
     Error { cause: String },
 
-    /// Rack is being deleted.
+    /// Rack is in the process of deleting.
     Deleting,
 }
 
@@ -221,11 +288,18 @@ pub enum RackState {
 /// The rack enters maintenance after discovery (all devices found, all machines
 /// ready) and exits into `Validation(Pending)` once maintenance is complete,
 /// at which point the validation flow takes over.
+///
+/// ## Sub-state Flow
+///
+/// ```text
+/// FirmwareUpgrade -> ConfigureNmxCluster -> Completed -> Validation(Pending)
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RackMaintenanceState {
     FirmwareUpgrade {
-        rack_firmware_upgrade: RackFirmwareUpgradeState,
+        rack_firmware_upgrade: FirmwareUpgradeState,
     },
+    ConfigureNmxCluster,
     PowerSequence {
         rack_power: RackPowerState,
     },
@@ -240,6 +314,7 @@ impl Display for RackMaintenanceState {
             } => {
                 write!(f, "FirmwareUpgrade({})", rack_firmware_upgrade)
             }
+            RackMaintenanceState::ConfigureNmxCluster => write!(f, "ConfigureNmxCluster"),
             RackMaintenanceState::PowerSequence { rack_power } => {
                 write!(f, "PowerSequence({})", rack_power)
             }
@@ -249,20 +324,16 @@ impl Display for RackMaintenanceState {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RackFirmwareUpgradeState {
-    Compute,
-    Switch,
-    PowerShelf,
-    All,
+pub enum FirmwareUpgradeState {
+    Start,
+    WaitForComplete,
 }
 
-impl Display for RackFirmwareUpgradeState {
+impl Display for FirmwareUpgradeState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RackFirmwareUpgradeState::Compute => write!(f, "Compute"),
-            RackFirmwareUpgradeState::Switch => write!(f, "Switch"),
-            RackFirmwareUpgradeState::PowerShelf => write!(f, "PowerShelf"),
-            RackFirmwareUpgradeState::All => write!(f, "All"),
+            FirmwareUpgradeState::Start => write!(f, "Start"),
+            FirmwareUpgradeState::WaitForComplete => write!(f, "WaitForComplete"),
         }
     }
 }
@@ -342,15 +413,14 @@ impl Display for RackValidationState {
 impl Display for RackState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            RackState::Unknown => write!(f, "Unknown"),
-            RackState::Expected => write!(f, "Expected"),
+            RackState::Created => write!(f, "Created"),
             RackState::Discovering => write!(f, "Discovering"),
-            RackState::Validation { rack_validation } => {
-                write!(f, "Validation({})", rack_validation)
+            RackState::Validating { validating_state } => {
+                write!(f, "Validating({})", validating_state)
             }
             RackState::Ready => write!(f, "Ready"),
-            RackState::Maintenance { rack_maintenance } => {
-                write!(f, "Maintenance({})", rack_maintenance)
+            RackState::Maintenance { maintenance_state } => {
+                write!(f, "Maintenance({})", maintenance_state)
             }
             RackState::Error { cause } => write!(f, "Error({})", cause),
             RackState::Deleting => write!(f, "Deleting"),
@@ -395,32 +465,26 @@ pub struct RackStateHistory {
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RackConfig {
-    pub compute_trays: Vec<MachineId>,
-    pub power_shelves: Vec<PowerShelfId>,
-
-    /// expected_compute_trays contains the BMC MAC addresses of every
-    /// expected compute tray in the rack.
-    pub expected_compute_trays: Vec<MacAddress>,
-    /// expected_switches contains the BMC MAC addresses of every expected
-    /// switch in the rack. The NVOS management MAC address is stored
-    /// separately in the expected switch's metadata labels, and validated
-    /// separately as part of the switch state controller.
-    #[serde(default)]
-    pub expected_switches: Vec<MacAddress>,
-    /// expected_power_shelves contains the BMC MAC addresses of every
-    /// expected power shelf in the rack.
-    pub expected_power_shelves: Vec<MacAddress>,
-
     /// rack_type is the name of the rack type (e.g. "NVL72") that maps to
     /// a RackCapabilitiesSet in the config file. The capabilities are looked
     /// up at runtime so config changes apply retroactively to all racks.
     #[serde(default)]
     pub rack_type: Option<String>,
 
-    /// Active validation run ID. Set when entering Validation(Pending),
+    /// Active validation run ID. Set when entering Validating(Pending),
     /// used to filter stale machine labels from previous runs.
     #[serde(default)]
     pub validation_run_id: Option<String>,
+
+    /// When set, the Ready state handler will transition back to Maintenance
+    /// to re-provision the rack to a new version.
+    #[serde(default)]
+    pub reprovision_requested: bool,
+
+    /// When set, the Ready state handler will transition back to Discovering
+    /// because a tray was replaced (rack topology change).
+    #[serde(default)]
+    pub topology_changed: bool,
 }
 
 // ============================================================================
@@ -435,10 +499,9 @@ pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
 
     // TODO[#416]: Define SLAs for validation and maintenance states
     match state {
-        RackState::Unknown => StateSla::no_sla(),
-        RackState::Expected => StateSla::no_sla(),
+        RackState::Created => StateSla::no_sla(),
         RackState::Discovering => StateSla::no_sla(),
-        RackState::Validation { .. } => StateSla::no_sla(),
+        RackState::Validating { .. } => StateSla::no_sla(),
         RackState::Ready => StateSla::no_sla(),
         RackState::Maintenance { .. } => StateSla::no_sla(),
         RackState::Error { .. } => StateSla::no_sla(),

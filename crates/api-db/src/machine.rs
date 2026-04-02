@@ -24,7 +24,7 @@ use std::str::FromStr;
 
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineType};
-use chrono::prelude::*;
+use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use health_report::{HealthReport, OverrideMode};
 use itertools::Itertools;
@@ -1738,6 +1738,11 @@ pub async fn find_machine_ids(
         qb.push_bind(rack_id);
     }
 
+    if let Some(state) = search_config.controller_state {
+        qb.push(" AND controller_state->>'state' = ");
+        qb.push_bind(state);
+    }
+
     if search_config.for_update {
         qb.push(" FOR UPDATE");
     }
@@ -1988,6 +1993,22 @@ pub async fn set_firmware_autoupdate(
         .bind(state)
         .bind(machine_id)
         .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
+pub async fn update_rack_fw_details(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    details: Option<&model::rack::RackFirmwareUpgradeStatus>,
+) -> Result<(), DatabaseError> {
+    let query =
+        "UPDATE machines SET rack_fw_details = $1, updated = NOW() WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(details.map(|d| sqlx::types::Json(d.clone())))
+        .bind(machine_id)
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())

@@ -1005,6 +1005,20 @@ impl MachineStateHandler {
                 }
 
                 if host_reprovisioning_requested(mh_snapshot) {
+                    if is_rack_level_reprovisioning(mh_snapshot) {
+                        tracing::info!(
+                            %host_machine_id,
+                            "Rack-level firmware upgrade requested — entering HostReprovision"
+                        );
+                        return Ok(StateHandlerOutcome::transition(
+                            ManagedHostState::HostReprovision {
+                                retry_count: 1,
+                                reprovision_state:
+                                    HostReprovisionState::WaitingForRackFirmwareUpgrade,
+                            },
+                        ));
+                    }
+
                     let outcome = self
                         .host_upgrade
                         .handle_host_reprovision(
@@ -3049,6 +3063,16 @@ async fn handle_dpu_reprovision(
 // Returns true if update_manager flagged this managed host as needing its firmware examined
 fn host_reprovisioning_requested(state: &ManagedHostStateSnapshot) -> bool {
     state.host_snapshot.host_reprovision_requested.is_some()
+}
+
+/// Returns true if the host reprovisioning request was initiated by a rack-level service
+/// (i.e. the rack firmware upgrade flow).
+fn is_rack_level_reprovisioning(state: &ManagedHostStateSnapshot) -> bool {
+    state
+        .host_snapshot
+        .host_reprovision_requested
+        .as_ref()
+        .is_some_and(|req| req.initiator.starts_with("rack-"))
 }
 
 /// This function waits for DPU to finish discovery and reboots it.
@@ -6758,6 +6782,10 @@ impl HostUpgradeState {
         }
 
         match host_reprovision_state {
+            HostReprovisionState::WaitingForRackFirmwareUpgrade => {
+                self.handle_waiting_for_rack_firmware_upgrade(state, ctx, scenario)
+                    .await
+            }
             HostReprovisionState::CheckingFirmware => {
                 self.host_checking_fw(
                     &HostReprovisionState::CheckingFirmwareV2 {
@@ -6852,6 +6880,98 @@ impl HostUpgradeState {
                 }
             }
         }
+    }
+
+    /// Handles the WaitingForRackFirmwareUpgrade sub-state.
+    /// The rack controller sets `ended_at` on `rack_fw_details` once the rack-level
+    /// firmware upgrade finishes. When `ended_at` is set (and belongs to the current
+    /// upgrade cycle), transition back to Ready and clear the reprovisioning request.
+    async fn handle_waiting_for_rack_firmware_upgrade(
+        &self,
+        state: &ManagedHostStateSnapshot,
+        ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+        scenario: HostFirmwareScenario,
+    ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+        let machine_id = state.host_snapshot.id;
+
+        let is_current_cycle = |fw: &model::rack::RackFirmwareUpgradeStatus| -> bool {
+            match (
+                &fw.ended_at,
+                &state.host_snapshot.host_reprovision_requested,
+            ) {
+                (Some(ended), Some(req)) => ended >= &req.requested_at,
+                _ => true,
+            }
+        };
+
+        if let Some(fw) = &state.host_snapshot.rack_fw_details
+            && !fw.is_in_progress()
+            && is_current_cycle(fw)
+        {
+            match &fw.status {
+                model::rack::RackFirmwareUpgradeState::Completed => {
+                    tracing::info!(
+                        %machine_id,
+                        "Rack firmware upgrade completed, transitioning to Ready"
+                    );
+                    let outcome = StateHandlerOutcome::transition(scenario.actual_new_state(
+                        HostReprovisionState::CheckingFirmwareRepeatV2 {
+                            firmware_type: None,
+                            firmware_number: None,
+                        },
+                        state.managed_state.get_host_repro_retry_count(),
+                    ));
+                    return Ok(outcome
+                        .in_transaction(&ctx.services.db_pool, move |txn| {
+                            async move {
+                                db::host_machine_update::clear_host_reprovisioning_request(
+                                    txn,
+                                    &machine_id,
+                                )
+                                .await?;
+                                Ok::<_, DatabaseError>(())
+                            }
+                            .boxed()
+                        })
+                        .await??);
+                }
+                model::rack::RackFirmwareUpgradeState::Failed { cause } => {
+                    tracing::warn!(
+                        %machine_id,
+                        "Rack firmware upgrade failed: {}", cause
+                    );
+                    let outcome = StateHandlerOutcome::transition(ManagedHostState::Failed {
+                        details: FailureDetails {
+                            cause: FailureCause::Reprovisioning {
+                                err: format!("Rack firmware upgrade failed: {}", cause),
+                            },
+                            failed_at: chrono::Utc::now(),
+                            source: FailureSource::StateMachine,
+                        },
+                        machine_id,
+                        retry_count: 0,
+                    });
+                    return Ok(outcome
+                        .in_transaction(&ctx.services.db_pool, move |txn| {
+                            async move {
+                                db::host_machine_update::clear_host_reprovisioning_request(
+                                    txn,
+                                    &machine_id,
+                                )
+                                .await?;
+                                Ok::<_, DatabaseError>(())
+                            }
+                            .boxed()
+                        })
+                        .await??);
+                }
+                _ => {}
+            }
+        }
+
+        Ok(StateHandlerOutcome::wait(
+            "Waiting for rack firmware upgrade to be completed".to_string(),
+        ))
     }
 
     #[allow(clippy::too_many_arguments)]

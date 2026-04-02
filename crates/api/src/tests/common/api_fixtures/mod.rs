@@ -372,6 +372,7 @@ impl TestEnv {
             site_config: self.config.clone(),
             dpa_info: None,
             rms_client: self.rms_sim.as_rms_client(),
+            credential_manager: self.test_credential_manager.clone(),
         }
     }
 
@@ -1047,6 +1048,10 @@ fn host_firmware_example() -> HashMap<String, Firmware> {
 
 pub fn get_config() -> CarbideConfig {
     CarbideConfig {
+        rack_validation_config: crate::cfg::file::RackValidationConfig {
+            enabled: true,
+            ..Default::default()
+        },
         site_global_vpc_vni: None,
         listen: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 1079),
         metrics_endpoint: None,
@@ -1549,6 +1554,7 @@ pub async fn create_test_env_with_overrides(
         site_config: config.clone(),
         dpa_info: None,
         rms_client: rms_sim.as_rms_client(),
+        credential_manager: credential_manager.clone(),
     });
 
     let state_controller_id = uuid::Uuid::new_v4().to_string();

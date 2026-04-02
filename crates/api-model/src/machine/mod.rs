@@ -814,6 +814,9 @@ pub struct Machine {
 
     /// The rack that this machine is associated with
     pub rack_id: Option<RackId>,
+
+    /// Rack-level firmware upgrade status, updated by the rack state machine.
+    pub rack_fw_details: Option<RackFirmwareUpgradeStatus>,
 }
 
 // Dpf status field.
@@ -1577,6 +1580,7 @@ pub enum HostReprovisionState {
         report_time: Option<DateTime<Utc>>,
         reason: Option<String>,
     },
+    WaitingForRackFirmwareUpgrade,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -2038,6 +2042,8 @@ pub struct HostReprovisionRequest {
     pub user_approval_received: bool,
     pub request_reset: Option<bool>,
 }
+
+pub use crate::rack::RackFirmwareUpgradeStatus;
 
 /// Should a forge-dpu-agent upgrade itself?
 #[derive(Debug, Clone, Serialize, Deserialize)]

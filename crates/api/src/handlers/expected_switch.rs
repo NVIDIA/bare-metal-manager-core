@@ -16,7 +16,7 @@
  */
 
 use ::rpc::forge as rpc;
-use db::{DatabaseError, expected_switch as db_expected_switch, rack as db_rack};
+use db::{DatabaseError, expected_switch as db_expected_switch};
 use mac_address::MacAddress;
 use model::expected_switch::{ExpectedSwitch, ExpectedSwitchRequest};
 use tonic::{Request, Response, Status};
@@ -36,9 +36,6 @@ pub async fn add_expected_switch(
                 CarbideError::InvalidArgument(e.to_string())
             })?;
 
-    let rack_id = switch.rack_id.clone();
-    let bmc_mac_address = switch.bmc_mac_address;
-
     let mut txn = api
         .database_connection
         .begin()
@@ -50,19 +47,6 @@ pub async fn add_expected_switch(
     db_expected_switch::create(&mut txn, switch)
         .await
         .map_err(CarbideError::from)?;
-
-    if let Some(ref rack_id) = rack_id {
-        let adopted = db_rack::adopt_expected_switch(&mut txn, rack_id, bmc_mac_address)
-            .await
-            .map_err(CarbideError::from)?;
-        if !adopted {
-            tracing::debug!(
-                %rack_id,
-                %bmc_mac_address,
-                "rack does not exist yet, switch will be adopted later"
-            );
-        }
-    }
 
     txn.commit().await.map_err(|e| CarbideError::Internal {
         message: format!("Failed to commit transaction: {}", e),

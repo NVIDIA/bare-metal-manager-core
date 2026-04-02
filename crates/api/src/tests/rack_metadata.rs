@@ -18,13 +18,23 @@
 use carbide_uuid::rack::RackId;
 use db::{DatabaseError, rack as db_rack};
 use model::metadata::Metadata;
+use model::rack::RackConfig;
 
 #[crate::sqlx_test]
 async fn test_rack_metadata_defaults(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let mut txn = pool.begin().await?;
     let rack_id = RackId::new("test-rack-1".to_string());
 
-    let rack = db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![], None).await?;
+    let rack = db_rack::create(
+        &mut txn,
+        &rack_id,
+        &RackConfig {
+            rack_type: Some("NVL72".to_string()),
+            ..Default::default()
+        },
+        None,
+    )
+    .await?;
 
     // Default metadata: name = rack_id, description empty, no labels
     assert_eq!(rack.metadata.name, rack_id.to_string());
@@ -54,9 +64,10 @@ async fn test_rack_metadata_from_expected(
     let rack = db_rack::create(
         &mut txn,
         &rack_id,
-        vec![],
-        vec![],
-        vec![],
+        &RackConfig {
+            rack_type: Some("NVL72".to_string()),
+            ..Default::default()
+        },
         Some(&expected_metadata),
     )
     .await?;
@@ -77,7 +88,16 @@ async fn test_rack_metadata_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let mut txn = pool.begin().await?;
     let rack_id = RackId::new("test-rack-3".to_string());
 
-    let rack = db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![], None).await?;
+    let rack = db_rack::create(
+        &mut txn,
+        &rack_id,
+        &RackConfig {
+            rack_type: Some("NVL72".to_string()),
+            ..Default::default()
+        },
+        None,
+    )
+    .await?;
     let version1 = rack.version;
 
     let new_metadata = Metadata {
@@ -110,7 +130,16 @@ async fn test_rack_metadata_version_conflict(
     let mut txn = pool.begin().await?;
     let rack_id = RackId::new("test-rack-4".to_string());
 
-    let rack = db_rack::create(&mut txn, &rack_id, vec![], vec![], vec![], None).await?;
+    let rack = db_rack::create(
+        &mut txn,
+        &rack_id,
+        &RackConfig {
+            rack_type: Some("NVL72".to_string()),
+            ..Default::default()
+        },
+        None,
+    )
+    .await?;
     let version1 = rack.version;
 
     let metadata = Metadata {

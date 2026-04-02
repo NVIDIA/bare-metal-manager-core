@@ -646,6 +646,7 @@ async fn test_max_one_interface_association(
         },
         bmc_mac_address: None,
         metadata: None,
+        rack_id: None,
     };
     db::switch::create(&mut txn, &new_switch).await?;
 
@@ -667,6 +668,7 @@ async fn test_max_one_interface_association(
             location: None,
         },
         metadata: None,
+        rack_id: None,
     };
     db::power_shelf::create(&mut txn, &new_power_shelf).await?;
 
@@ -719,6 +721,7 @@ async fn test_power_shelf_association(
             location: Some("Rack A1".to_string()),
         },
         metadata: None,
+        rack_id: None,
     };
     db::power_shelf::create(&mut txn, &new_power_shelf).await?;
 
@@ -769,6 +772,7 @@ async fn test_switch_association(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         },
         bmc_mac_address: None,
         metadata: None,
+        rack_id: None,
     };
     db::switch::create(&mut txn, &new_switch).await?;
 

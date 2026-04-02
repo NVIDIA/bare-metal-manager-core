@@ -40,6 +40,7 @@ pub struct NewPowerShelf {
     pub id: PowerShelfId,
     pub config: PowerShelfConfig,
     pub metadata: Option<Metadata>,
+    pub rack_id: Option<RackId>,
 }
 
 impl TryFrom<rpc::PowerShelfCreationRequest> for NewPowerShelf {
@@ -60,6 +61,7 @@ impl TryFrom<rpc::PowerShelfCreationRequest> for NewPowerShelf {
             id,
             config: PowerShelfConfig::try_from(conf)?,
             metadata: None,
+            rack_id: None,
         })
     }
 }
@@ -92,6 +94,9 @@ pub struct PowerShelf {
 
     /// The result of the last attempt to change state
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+
+    /// The rack that this power shelf is associated with.
+    pub rack_id: Option<RackId>,
     // Columns for these exist, but are unused in rust code
     // pub created: DateTime<Utc>,
     // pub updated: DateTime<Utc>,
@@ -126,6 +131,7 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
             controller_state_outcome: controller_state_outcome.map(|o| o.0),
             metadata,
             version: row.try_get("version")?,
+            rack_id: row.try_get("rack_id").ok().flatten(),
         })
     }
 }

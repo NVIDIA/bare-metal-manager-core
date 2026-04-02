@@ -1179,6 +1179,8 @@ message RuntimeConfig {
   int32 dpa_subnet_mask = 48;
 
   bool dpf_enabled = 49;
+
+  bool rack_validation_enabled = 50;
 }
 
 message EchoRequest {
@@ -6161,7 +6163,7 @@ message Rack {
   repeated string expected_nvlink_switches = 5;
   repeated common.MachineId compute_trays = 6;
   repeated common.PowerShelfId power_shelves = 7;
-  // repeated common.NvlinkSwitchId nvlink_switches = 8;
+  repeated common.SwitchId switches = 8;
   google.protobuf.Timestamp created = 9;
   google.protobuf.Timestamp updated = 10;
   google.protobuf.Timestamp deleted = 11;

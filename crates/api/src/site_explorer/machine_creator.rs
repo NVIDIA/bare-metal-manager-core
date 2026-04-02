@@ -169,6 +169,13 @@ impl MachineCreator {
         )
         .await?;
 
+        if let Some(rack_id) = machine_data.and_then(|d| d.rack_id.as_ref()) {
+            tracing::info!(%rack_id, %host_machine_id, "Ensuring rack exists for host machine");
+            if let Some(rack) = crate::site_explorer::ensure_rack_exists(&mut txn, rack_id).await? {
+                tracing::info!(%rack_id, "Rack exists for host machine {host_machine_id}: {rack:#?}");
+            }
+        }
+
         txn.commit().await?;
 
         Ok(true)

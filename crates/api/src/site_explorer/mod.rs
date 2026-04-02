@@ -62,7 +62,6 @@ use version_compare::Cmp;
 use crate::cfg::file::{FirmwareConfig, SiteExplorerConfig};
 use crate::periodic_timer::PeriodicTimer;
 use crate::{CarbideError, CarbideResult};
-
 mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;
 mod credentials;
@@ -74,12 +73,10 @@ pub mod rms;
 pub use bmc_endpoint_explorer::BmcEndpointExplorer;
 mod boot_order_tracker;
 use boot_order_tracker::BootOrderTracker;
-
 mod machine_creator;
 pub use machine_creator::MachineCreator;
 pub mod explored_endpoint_index;
 mod managed_host;
-
 use db::ObjectColumnFilter;
 use db::work_lock_manager::WorkLockManagerHandle;
 pub use managed_host::is_endpoint_in_managed_host;
@@ -88,10 +85,51 @@ use model::firmware::FirmwareComponentType;
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::NetworkSegmentType;
 mod switch_creator;
+use carbide_uuid::rack::RackId;
+use model::rack::Rack;
 pub use switch_creator::SwitchCreator;
 
 use self::metrics::{PairingBlockerReason, exploration_error_to_metric_label};
 use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
+
+/// Ensures a rack row exists for the given `rack_id`.
+///
+/// If the rack already exists, returns it. Otherwise creates a new rack only
+/// when a matching expected rack record exists. Returns `None` when no
+/// expected rack record is found, allowing callers to proceed without a rack.
+pub(crate) async fn ensure_rack_exists(
+    txn: &mut sqlx::PgConnection,
+    rack_id: &RackId,
+) -> CarbideResult<Option<Rack>> {
+    match db::rack::get(&mut *txn, rack_id).await {
+        Ok(rack) => Ok(Some(rack)),
+        Err(DatabaseError::NotFoundError { .. }) => {
+            let expected = db::expected_rack::find_by_rack_id(&mut *txn, rack_id)
+                .await
+                .map_err(CarbideError::from)?;
+
+            let Some(expected) = expected else {
+                tracing::warn!(
+                    %rack_id,
+                    "No expected rack record found; skipping rack creation"
+                );
+                return Ok(None);
+            };
+
+            tracing::info!(%rack_id, "Rack does not exist, creating from expected rack");
+            let config = model::rack::RackConfig {
+                rack_type: Some(expected.rack_type.clone()),
+                ..Default::default()
+            };
+            let rack = db::rack::create(&mut *txn, rack_id, &config, Some(&expected.metadata))
+                .await
+                .map_err(CarbideError::from)?;
+
+            Ok(Some(rack))
+        }
+        Err(e) => Err(CarbideError::from(e)),
+    }
+}
 
 #[derive(Debug)]
 pub struct Endpoint<'a> {
@@ -637,7 +675,6 @@ impl SiteExplorer {
             let existing_power_shelves = db_power_shelf::find_by(
                 &mut txn,
                 ObjectColumnFilter::All::<db::power_shelf::NameColumn>,
-                db_power_shelf::PowerShelfSearchConfig::default(),
             )
             .await?;
 
@@ -694,6 +731,7 @@ impl SiteExplorer {
             id: power_shelf_id,
             config,
             metadata: Some(expected_shelf.metadata.clone()),
+            rack_id: expected_shelf.rack_id.clone(),
         };
 
         db_power_shelf::create(&mut txn, &new_power_shelf).await?;
@@ -725,32 +763,7 @@ impl SiteExplorer {
         }
 
         if let Some(ref rack_id) = expected_shelf.rack_id {
-            let rack = match db::rack::get(txn.as_mut(), rack_id).await {
-                Ok(rack) => rack,
-                Err(_) => {
-                    let expected_rack_metadata =
-                        db::expected_rack::find_by_rack_id(txn.as_mut(), rack_id)
-                            .await
-                            .ok()
-                            .flatten()
-                            .map(|er| er.metadata);
-                    db::rack::create(
-                        &mut txn,
-                        rack_id,
-                        vec![],
-                        vec![],
-                        vec![expected_shelf.bmc_mac_address],
-                        expected_rack_metadata.as_ref(),
-                    )
-                    .await
-                    .map_err(CarbideError::from)?
-                }
-            };
-            let mut config = rack.config.clone();
-            config.power_shelves.push(power_shelf_id);
-            db::rack::update(&mut txn, rack_id, &config)
-                .await
-                .map_err(CarbideError::from)?;
+            let _ = crate::site_explorer::ensure_rack_exists(txn.as_mut(), rack_id).await?;
         }
         // No need to update the power shelf name again; it was already set in config above.
         txn.commit()

@@ -36,9 +36,9 @@ use crate::state_controller::state_handler::{
 };
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_test_env;
-
 mod fixtures;
 use fixtures::power_shelf::{mark_power_shelf_as_deleted, set_power_shelf_controller_state};
+use forge_secrets::credentials::TestCredentialManager;
 
 use crate::state_controller::common_services::CommonStateHandlerServices;
 
@@ -116,6 +116,7 @@ async fn test_power_shelf_state_transitions(
         site_config: env.config.clone(),
         dpa_info: None,
         rms_client: None,
+        credential_manager: Arc::new(TestCredentialManager::default()),
     });
 
     let mut join_set = JoinSet::new();
@@ -191,6 +192,7 @@ async fn test_power_shelf_deletion_flow(
         site_config: env.config.clone(),
         dpa_info: None,
         rms_client: None,
+        credential_manager: Arc::new(TestCredentialManager::default()),
     });
 
     let mut join_set = JoinSet::new();
@@ -288,6 +290,7 @@ async fn test_power_shelf_error_state_handling(
         site_config: env.config.clone(),
         dpa_info: None,
         rms_client: None,
+        credential_manager: Arc::new(TestCredentialManager::default()),
     });
 
     let mut join_set = JoinSet::new();
@@ -418,6 +421,7 @@ async fn test_power_shelf_deletion_with_state_controller(
         site_config: env.config.clone(),
         dpa_info: None,
         rms_client: None,
+        credential_manager: Arc::new(TestCredentialManager::default()),
     });
 
     let mut join_set = JoinSet::new();
