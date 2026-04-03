@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}{{ id }}{% endblock %}
+{% block title %}Rack {{ id }}{% endblock %}
 
 {% block content %}
 <div id="json">
@@ -8,26 +8,44 @@
 </div>
 <h1>Rack {{ id }}</h1>
 
-{% if let Some(rack) = rack %}
+<h2>Info</h2>
 <table class="detailsview">
-	<tr><th>State</th>
+	<tr>
+		<th>Rack ID</th>
+		<td><a href="/admin/rack/{{ id }}">{{ id }}</a></td>
+	</tr>
+	<tr>
+		<th>State</th>
 		<td>
-			{% if rack.rack_state.to_lowercase().contains("failed") %}
-				<span class="bubble error">{{ rack.rack_state }}</span>
-			{% else if rack.rack_state == "Ready" %}
-				<span class="bubble success">{{ rack.rack_state }}</span>
+			{% if rack_state == "Ready" %}
+				<span class="bubble success">{{ rack_state }}</span>
+			{% else if rack_state.to_lowercase().contains("error") || rack_state.to_lowercase().contains("failed") %}
+				<span class="bubble error">{{ rack_state }}</span>
 			{% else %}
-				<span class="bubble">{{ rack.rack_state }}</span>
+				<span class="bubble">{{ rack_state }}</span>
 			{% endif %}
 		</td>
 	</tr>
+	<tr>
+		<th>State Handler Outcome</th>
+		<td>{{ state_reason|controller_state_reason_fmt|safe }}</td>
+	</tr>
+	<tr>
+		<th>State Version</th>
+		<td>{{ state_version|config_version|safe }}</td>
+	</tr>
+	<tr>
+		<th>Time in State</th>
+		<td>{{ time_in_state }}</td>
+	</tr>
+	<tr>
+		<th>Version</th>
+		<td>{{ version }}</td>
+	</tr>
 </table>
-{% endif %}
 
 <h2>Metadata</h2>
 {{ metadata_detail|safe }}
-
-<!-- TODO: Add expected rack definition -->
 
 <h2>Managed Rack Components</h2>
 
@@ -57,7 +75,7 @@
 	<tbody>
 	{% for switch_id in associated_switches %}
 		<tr>
-			<td>{{ switch_id }}</td>
+			<td><a href="/admin/switch/{{ switch_id }}">{{ switch_id }}</a></td>
 		</tr>
 	{% endfor %}
 	</tbody>
@@ -79,11 +97,30 @@
 	</tbody>
 </table>
 
-<h3>History</h3>
-🚧
-{# Commented till implemented
-<a href="/admin/rack/{{ id }}/state-history">Open History on separate page</a>
-{{ history|safe }}
-#}
+<h2>History</h2>
+{% if !history.is_empty() %}
+<div class="table-responsive">
+	<table class="table table-striped">
+		<thead>
+		<tr>
+			<th>State</th>
+			<th>Version</th>
+			<th>Time</th>
+		</tr>
+		</thead>
+		<tbody>
+		{% for record in history %}
+		<tr>
+			<td>{{ record.state }}</td>
+			<td>{{ record.version }}</td>
+			<td>{{ record.time }}</td>
+		</tr>
+		{% endfor %}
+		</tbody>
+	</table>
+</div>
+{% else %}
+<p class="text-muted">No state history available.</p>
+{% endif %}
 
 {% endblock %}

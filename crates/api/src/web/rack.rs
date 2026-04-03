@@ -39,21 +39,32 @@ struct Racks {
 struct RackRecord {
     id: String,
     rack_state: String,
-    expected_compute_trays: String,
-    current_compute_trays: String,
-    expected_power_shelves: String,
-    current_power_shelves: String,
+    compute_trays: String,
+    power_shelves: String,
+    switches: String,
 }
 
 #[derive(Template)]
 #[template(path = "rack_detail.html")]
 struct RackDetail {
     id: String,
-    rack: Option<rpc::forge::Rack>,
+    rack_state: String,
+    state_version: String,
+    time_in_state: String,
+    state_reason: Option<rpc::forge::ControllerStateReason>,
+    version: String,
     associated_machines: Vec<String>,
     associated_switches: Vec<String>,
     associated_power_shelves: Vec<String>,
     metadata_detail: super::MetadataDetail,
+    history: Vec<RackStateHistoryRecord>,
+}
+
+#[derive(Debug)]
+struct RackStateHistoryRecord {
+    state: String,
+    version: String,
+    time: String,
 }
 
 /// Show all racks
@@ -69,46 +80,24 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
     let racks = racks
         .racks
         .into_iter()
-        .map(|rack| {
-            let expected_compute_trays = rack.expected_compute_trays.join(", ");
-            let current_compute_trays = rack
-                .compute_trays
-                .iter()
-                .map(|m| m.to_string())
-                .collect::<Vec<String>>()
-                .join(", ");
-            let expected_power_shelves = rack.expected_power_shelves.join(", ");
-            let current_power_shelves = rack
-                .power_shelves
-                .iter()
-                .map(|ps| ps.to_string())
-                .collect::<Vec<String>>()
-                .join(", ");
-
-            RackRecord {
-                id: rack.id.map(|id| id.to_string()).unwrap_or_default(),
-                rack_state: rack.rack_state,
-                expected_compute_trays: if expected_compute_trays.is_empty() {
-                    "N/A".to_string()
-                } else {
-                    expected_compute_trays
-                },
-                current_compute_trays: if current_compute_trays.is_empty() {
-                    "N/A".to_string()
-                } else {
-                    current_compute_trays
-                },
-                expected_power_shelves: if expected_power_shelves.is_empty() {
-                    "N/A".to_string()
-                } else {
-                    expected_power_shelves
-                },
-                current_power_shelves: if current_power_shelves.is_empty() {
-                    "N/A".to_string()
-                } else {
-                    current_power_shelves
-                },
-            }
+        .map(|rack| RackRecord {
+            id: rack.id.map(|id| id.to_string()).unwrap_or_default(),
+            rack_state: rack.rack_state,
+            compute_trays: format!(
+                "{} / {}",
+                rack.compute_trays.len(),
+                rack.expected_compute_trays.len()
+            ),
+            power_shelves: format!(
+                "{} / {}",
+                rack.power_shelves.len(),
+                rack.expected_power_shelves.len()
+            ),
+            switches: format!(
+                "{} / {}",
+                rack.switches.len(),
+                rack.expected_nvlink_switches.len()
+            ),
         })
         .collect();
 
@@ -214,37 +203,67 @@ pub async fn detail(
         return (StatusCode::OK, Json(maybe_rack)).into_response();
     };
 
-    let associated_machines = match fetch_machine_ids(api, rack_id.clone()).await {
+    let associated_machines = match fetch_machine_ids(api.clone(), rack_id.clone()).await {
         Ok(m) => m,
         Err(err) => {
             tracing::error!(%err, "fetch_machine_ids");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Error loading machine IDs",
-            )
-                .into_response();
+            vec![]
         }
     };
+
+    let associated_switches = match fetch_switch_ids(&api, &rack_id).await {
+        Ok(ids) => ids,
+        Err(err) => {
+            tracing::error!(%err, "fetch_switch_ids");
+            vec![]
+        }
+    };
+
+    let associated_power_shelves = match fetch_power_shelf_ids(&api, &rack_id).await {
+        Ok(ids) => ids,
+        Err(err) => {
+            tracing::error!(%err, "fetch_power_shelf_ids");
+            vec![]
+        }
+    };
+
+    let rack_state = maybe_rack
+        .as_ref()
+        .map(|r| r.rack_state.clone())
+        .unwrap_or_default();
+
+    let version = maybe_rack
+        .as_ref()
+        .map(|r| r.version.clone())
+        .unwrap_or_default();
+
+    let time_in_state = maybe_rack
+        .as_ref()
+        .map(|r| config_version::since_state_change_humanized(&r.version))
+        .unwrap_or_default();
 
     let metadata_detail = super::MetadataDetail {
         metadata: maybe_rack
             .as_ref()
             .and_then(|r| r.metadata.clone())
             .unwrap_or_default(),
-        metadata_version: maybe_rack
-            .as_ref()
-            .map(|r| r.version.clone())
-            .unwrap_or_default(),
+        metadata_version: version.clone(),
     };
+
+    let history = fetch_rack_state_history(&api, &rack_id).await;
 
     let display = RackDetail {
         id: rack_id.to_string(),
-        rack: maybe_rack,
+        rack_state,
+        state_version: version.clone(),
+        time_in_state,
+        state_reason: None,
+        version,
         associated_machines,
-        // TODO: Add discovered switches and powershelves
-        associated_power_shelves: vec![],
-        associated_switches: vec![],
+        associated_switches,
+        associated_power_shelves,
         metadata_detail,
+        history,
     };
 
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
@@ -268,4 +287,68 @@ pub async fn fetch_machine_ids(
         .into_iter()
         .map(|id| id.to_string())
         .collect())
+}
+
+async fn fetch_switch_ids(api: &Api, rack_id: &RackId) -> Result<Vec<String>, tonic::Status> {
+    let request = tonic::Request::new(rpc::forge::SwitchSearchFilter {
+        rack_id: Some(rack_id.clone()),
+        ..Default::default()
+    });
+
+    Ok(api
+        .find_switch_ids(request)
+        .await?
+        .into_inner()
+        .ids
+        .into_iter()
+        .map(|id| id.to_string())
+        .collect())
+}
+
+async fn fetch_power_shelf_ids(api: &Api, rack_id: &RackId) -> Result<Vec<String>, tonic::Status> {
+    let request = tonic::Request::new(rpc::forge::PowerShelfSearchFilter {
+        rack_id: Some(rack_id.clone()),
+        ..Default::default()
+    });
+
+    Ok(api
+        .find_power_shelf_ids(request)
+        .await?
+        .into_inner()
+        .ids
+        .into_iter()
+        .map(|id| id.to_string())
+        .collect())
+}
+
+async fn fetch_rack_state_history(api: &Api, rack_id: &RackId) -> Vec<RackStateHistoryRecord> {
+    let request = tonic::Request::new(rpc::forge::RackStateHistoriesRequest {
+        rack_ids: vec![rack_id.clone()],
+    });
+
+    match api.find_rack_state_histories(request).await {
+        Ok(response) => {
+            let mut histories = response.into_inner().histories;
+            let mut records = histories
+                .remove(&rack_id.to_string())
+                .unwrap_or_default()
+                .records;
+            records.reverse();
+            records
+                .into_iter()
+                .map(|r| RackStateHistoryRecord {
+                    state: r.state,
+                    version: r.version,
+                    time: r
+                        .time
+                        .map(|t| t.to_string())
+                        .unwrap_or_else(|| "N/A".to_string()),
+                })
+                .collect()
+        }
+        Err(err) => {
+            tracing::error!(%err, "fetch_rack_state_history");
+            vec![]
+        }
+    }
 }
