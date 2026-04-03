@@ -24,14 +24,14 @@ use db::{
     switch as db_switch,
 };
 use model::rack::{
-    FirmwareUpgradeDeviceStatus, FirmwareUpgradeState, Rack, RackFirmwareUpgradeState,
-    RackFirmwareUpgradeStatus, RackMaintenanceState, RackPowerState, RackState,
-    RackValidationState,
+    FirmwareUpgradeDeviceStatus, FirmwareUpgradeState, MaintenanceActivity, MaintenanceScope, Rack,
+    RackFirmwareUpgradeState, RackFirmwareUpgradeStatus, RackMaintenanceState, RackPowerState,
+    RackState, RackValidationState,
 };
 
 use crate::rack::firmware_update::{
-    build_firmware_update_batches, firmware_type_for_profile, load_rack_firmware_inventory,
-    submit_firmware_update_batches,
+    RackFirmwareInventory, build_firmware_update_batches, firmware_type_for_profile,
+    load_rack_firmware_inventory, submit_firmware_update_batches,
 };
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
 use crate::state_controller::rack::validating::strip_rv_labels;
@@ -108,24 +108,132 @@ async fn clear_rack_firmware_device_statuses(
 fn skip_firmware_upgrade_outcome(
     rack_id: &RackId,
     reason: impl AsRef<str>,
+    scope: &MaintenanceScope,
 ) -> StateHandlerOutcome<RackState> {
+    let next = next_state_after_firmware(scope);
     tracing::info!(
         rack_id = %rack_id,
         reason = %reason.as_ref(),
-        "Skipping rack firmware upgrade and advancing to ConfigureNmxCluster"
+        next_state = %next,
+        "Skipping rack firmware upgrade"
     );
     StateHandlerOutcome::transition(RackState::Maintenance {
-        maintenance_state: RackMaintenanceState::ConfigureNmxCluster,
+        maintenance_state: next,
     })
 }
 
-fn transition_to_rack_error(
+/// Transition the rack to `Error` from a maintenance handler failure.
+///
+/// Clears `maintenance_requested` (and persists it) so the `Error` handler
+/// does not immediately re-enter `Maintenance` and loop on the same failure.
+/// The user must explicitly request maintenance again to retry.
+async fn transition_to_rack_error(
     rack_id: &RackId,
+    state: &mut Rack,
     cause: impl Into<String>,
-) -> StateHandlerOutcome<RackState> {
+    ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
     let cause = cause.into();
     tracing::warn!(rack_id = %rack_id, %cause, "Rack firmware upgrade failed before polling started");
-    StateHandlerOutcome::transition(RackState::Error { cause })
+    let outcome = StateHandlerOutcome::transition(RackState::Error { cause });
+    clear_maintenance_requested_on_error(rack_id, state, outcome, ctx).await
+}
+
+/// If `maintenance_requested` is set, clear it and persist the updated config
+/// using a fresh transaction attached to the outcome. Used when transitioning
+/// from `Maintenance` to `Error` to break the Error → Maintenance loop.
+async fn clear_maintenance_requested_on_error(
+    rack_id: &RackId,
+    state: &mut Rack,
+    outcome: StateHandlerOutcome<RackState>,
+    ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
+) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
+    if state.config.maintenance_requested.is_none() {
+        return Ok(outcome);
+    }
+    state.config.maintenance_requested = None;
+    let mut txn = ctx.services.db_pool.begin().await?;
+    db_rack::update(txn.as_mut(), rack_id, &state.config).await?;
+    Ok(outcome.with_txn(txn))
+}
+
+/// Returns the next maintenance sub-state after firmware upgrade, skipping
+/// activities not requested in the scope.
+fn next_state_after_firmware(scope: &MaintenanceScope) -> RackMaintenanceState {
+    if scope.should_run(&MaintenanceActivity::ConfigureNmxCluster) {
+        RackMaintenanceState::ConfigureNmxCluster
+    } else {
+        next_state_after_configure(scope)
+    }
+}
+
+/// Returns the next maintenance sub-state after ConfigureNmxCluster, skipping
+/// activities not requested in the scope.
+fn next_state_after_configure(scope: &MaintenanceScope) -> RackMaintenanceState {
+    if scope.should_run(&MaintenanceActivity::PowerSequence) {
+        RackMaintenanceState::PowerSequence {
+            rack_power: RackPowerState::PoweringOn,
+        }
+    } else {
+        RackMaintenanceState::Completed
+    }
+}
+
+/// Returns the first maintenance sub-state to enter based on the requested
+/// activities in the scope. Called from Ready/Error when entering Maintenance.
+pub(crate) fn first_maintenance_state(scope: &MaintenanceScope) -> RackMaintenanceState {
+    if scope.should_run(&MaintenanceActivity::FirmwareUpgrade {
+        firmware_version: None,
+        components: vec![],
+    }) {
+        RackMaintenanceState::FirmwareUpgrade {
+            rack_firmware_upgrade: FirmwareUpgradeState::Start,
+        }
+    } else {
+        next_state_after_firmware(scope)
+    }
+}
+
+/// Filters a full-rack firmware inventory down to only the devices listed in
+/// the maintenance scope. When `scope.is_full_rack()` the inventory is
+/// returned unchanged.
+fn filter_inventory_by_scope(
+    mut inventory: RackFirmwareInventory,
+    scope: &MaintenanceScope,
+) -> RackFirmwareInventory {
+    if scope.is_full_rack() {
+        return inventory;
+    }
+
+    if scope.machine_ids.is_empty() {
+        inventory.machine_ids.clear();
+        inventory.machines.clear();
+    } else {
+        let allowed: std::collections::HashSet<_> = scope.machine_ids.iter().collect();
+        inventory.machine_ids.retain(|id| allowed.contains(id));
+        inventory.machines.retain(|d| {
+            match d.node_id.parse::<carbide_uuid::machine::MachineId>() {
+                Ok(ref id) => allowed.contains(id),
+                Err(_) => false,
+            }
+        });
+    }
+
+    if scope.switch_ids.is_empty() {
+        inventory.switch_ids.clear();
+        inventory.switches.clear();
+    } else {
+        let allowed: std::collections::HashSet<_> = scope.switch_ids.iter().collect();
+        inventory.switch_ids.retain(|id| allowed.contains(id));
+        inventory.switches.retain(
+            |d| match d.node_id.parse::<carbide_uuid::switch::SwitchId>() {
+                Ok(ref id) => allowed.contains(id),
+                Err(_) => false,
+            },
+        );
+    }
+
+    inventory
 }
 
 /// Submit compute and switch firmware-update batches to RMS and persist the
@@ -379,6 +487,13 @@ pub async fn handle_maintenance(
     maintenance_state: &RackMaintenanceState,
     ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
+    let scope = state
+        .config
+        .maintenance_requested
+        .clone()
+        .unwrap_or_default();
+    let scope = &scope;
+
     match maintenance_state {
         RackMaintenanceState::FirmwareUpgrade {
             rack_firmware_upgrade,
@@ -388,40 +503,72 @@ pub async fn handle_maintenance(
                     return Ok(skip_firmware_upgrade_outcome(
                         id,
                         "rack profile is missing or unknown",
+                        scope,
                     ));
                 };
                 let Some(rack_hardware_type) = profile.rack_hardware_type.as_ref() else {
                     return Ok(skip_firmware_upgrade_outcome(
                         id,
                         "rack capabilities do not define rack_hardware_type",
+                        scope,
                     ));
                 };
-                let default_firmware = match db_rack_firmware::find_default_by_rack_hardware_type(
-                    &ctx.services.db_pool,
-                    rack_hardware_type,
-                )
-                .await
-                {
-                    Ok(firmware) => firmware,
-                    Err(db::DatabaseError::NotFoundError { .. }) => {
-                        return Ok(skip_firmware_upgrade_outcome(
-                            id,
-                            format!(
-                                "no default rack firmware configured for hardware type '{}'",
-                                rack_hardware_type
-                            ),
-                        ));
+                let (requested_fw_version, requested_components) = scope
+                    .activities
+                    .iter()
+                    .find_map(|a| match a {
+                        MaintenanceActivity::FirmwareUpgrade {
+                            firmware_version,
+                            components,
+                        } => Some((firmware_version.as_deref(), components.as_slice())),
+                        _ => None,
+                    })
+                    .unwrap_or((None, &[]));
+
+                let firmware = if let Some(fw_version) = requested_fw_version {
+                    match db_rack_firmware::find_by_id(&ctx.services.db_pool, fw_version).await {
+                        Ok(fw) => fw,
+                        Err(db::DatabaseError::NotFoundError { .. }) => {
+                            return transition_to_rack_error(
+                                id,
+                                state,
+                                format!("requested rack firmware '{}' not found", fw_version),
+                                ctx,
+                            )
+                            .await;
+                        }
+                        Err(error) => return Err(error.into()),
                     }
-                    Err(error) => return Err(error.into()),
+                } else {
+                    match db_rack_firmware::find_default_by_rack_hardware_type(
+                        &ctx.services.db_pool,
+                        rack_hardware_type,
+                    )
+                    .await
+                    {
+                        Ok(fw) => fw,
+                        Err(db::DatabaseError::NotFoundError { .. }) => {
+                            return Ok(skip_firmware_upgrade_outcome(
+                                id,
+                                format!(
+                                    "no default rack firmware configured for hardware type '{}'",
+                                    rack_hardware_type
+                                ),
+                                scope,
+                            ));
+                        }
+                        Err(error) => return Err(error.into()),
+                    }
                 };
 
-                if !default_firmware.available {
+                if !firmware.available {
                     return Ok(skip_firmware_upgrade_outcome(
                         id,
                         format!(
-                            "default rack firmware '{}' exists but is not available",
-                            default_firmware.id
+                            "rack firmware '{}' exists but is not available",
+                            firmware.id
                         ),
+                        scope,
                     ));
                 }
 
@@ -437,38 +584,45 @@ pub async fn handle_maintenance(
                         error
                     ))
                 })?;
+                let inventory = filter_inventory_by_scope(inventory, scope);
                 let firmware_type = firmware_type_for_profile(profile);
                 let batches = match build_firmware_update_batches(
                     id,
-                    &default_firmware,
+                    &firmware,
                     firmware_type,
                     &inventory,
+                    requested_components,
                 ) {
                     Ok(batches) if batches.is_empty() => {
                         return Ok(skip_firmware_upgrade_outcome(
                             id,
                             "no compute or switch devices require rack firmware updates",
+                            scope,
                         ));
                     }
                     Ok(batches) => batches,
                     Err(error) => {
-                        return Ok(transition_to_rack_error(
+                        return transition_to_rack_error(
                             id,
+                            state,
                             format!(
-                                "failed to build firmware update requests for default firmware '{}': {}",
-                                default_firmware.id, error
+                                "failed to build firmware update requests for firmware '{}': {}",
+                                firmware.id, error
                             ),
-                        ));
+                            ctx,
+                        )
+                        .await;
                     }
                 };
                 let Some(rms_client) = ctx.services.rms_client.as_ref() else {
-                    return Ok(transition_to_rack_error(id, "RMS client not configured"));
+                    return transition_to_rack_error(id, state, "RMS client not configured", ctx)
+                        .await;
                 };
 
                 tracing::info!(
                     rack_id = %id,
                     rack_hardware_type = %rack_hardware_type,
-                    default_firmware_id = %default_firmware.id,
+                    firmware_id = %firmware.id,
                     firmware_type,
                     machine_count = inventory.machines.len(),
                     switch_count = inventory.switches.len(),
@@ -502,17 +656,16 @@ pub async fn handle_maintenance(
                 .with_txn(txn))
             }
             FirmwareUpgradeState::WaitForComplete => {
-                let current_job = match &state.firmware_upgrade_job {
-                    Some(j) => j,
-                    None => {
-                        return Ok(StateHandlerOutcome::wait(
-                            "firmware upgrade: no job recorded yet".into(),
-                        ));
-                    }
-                };
+                if state.firmware_upgrade_job.is_none() {
+                    return Ok(StateHandlerOutcome::wait(
+                        "firmware upgrade: no job recorded yet".into(),
+                    ));
+                }
                 let Some(rms_client) = ctx.services.rms_client.as_ref() else {
-                    return Ok(transition_to_rack_error(id, "RMS client not configured"));
+                    return transition_to_rack_error(id, state, "RMS client not configured", ctx)
+                        .await;
                 };
+                let current_job = state.firmware_upgrade_job.as_ref().unwrap();
                 let job = rms_get_firmware_upgrade_status(rms_client.as_ref(), current_job).await?;
 
                 let mut txn = ctx.services.db_pool.begin().await?;
@@ -621,6 +774,10 @@ pub async fn handle_maintenance(
                 if failed > 0 {
                     db_rack::update_firmware_upgrade_job(txn.as_mut(), id, Some(&job)).await?;
                     state.firmware_upgrade_job = Some(job);
+                    if state.config.maintenance_requested.is_some() {
+                        state.config.maintenance_requested = None;
+                        db_rack::update(txn.as_mut(), id, &state.config).await?;
+                    }
                     return Ok(StateHandlerOutcome::transition(RackState::Error {
                         cause: format!(
                             "firmware upgrade failed: {}/{} devices failed",
@@ -630,29 +787,31 @@ pub async fn handle_maintenance(
                     .with_txn(txn));
                 }
 
-                tracing::info!(
-                    "Rack {} firmware upgrade complete ({}/{} devices), advancing to ConfigureNmxCluster",
-                    id,
-                    completed,
-                    total
-                );
                 db_rack::update_firmware_upgrade_job(txn.as_mut(), id, None).await?;
                 state.firmware_upgrade_job = None;
+                let next = next_state_after_firmware(scope);
+                tracing::info!(
+                    rack_id = %id,
+                    completed,
+                    total,
+                    next_state = %next,
+                    "Rack firmware upgrade complete, advancing"
+                );
                 Ok(StateHandlerOutcome::transition(RackState::Maintenance {
-                    maintenance_state: RackMaintenanceState::ConfigureNmxCluster,
+                    maintenance_state: next,
                 })
                 .with_txn(txn))
             }
         },
         RackMaintenanceState::ConfigureNmxCluster => {
+            let next = next_state_after_configure(scope);
             tracing::info!(
-                "Rack {} ConfigureNmxCluster - stubbed, advancing to Completed",
-                id
+                rack_id = %id,
+                next_state = %next,
+                "ConfigureNmxCluster stubbed, advancing"
             );
             Ok(StateHandlerOutcome::transition(RackState::Maintenance {
-                maintenance_state: RackMaintenanceState::PowerSequence {
-                    rack_power: RackPowerState::PoweringOn,
-                },
+                maintenance_state: next,
             }))
         }
         RackMaintenanceState::PowerSequence { rack_power } => match rack_power {
@@ -678,13 +837,299 @@ pub async fn handle_maintenance(
         },
         RackMaintenanceState::Completed => {
             tracing::info!(
-                "Rack {} maintenance completed, clearing rv.* labels and entering Validating(Pending)",
-                id
+                rack_id = %id,
+                "Maintenance completed, clearing rv.* labels and entering Validating(Pending)"
             );
             clear_rv_labels(state, ctx).await?;
-            Ok(StateHandlerOutcome::transition(RackState::Validating {
+
+            let mut outcome = StateHandlerOutcome::transition(RackState::Validating {
                 validating_state: RackValidationState::Pending,
-            }))
+            });
+
+            if state.config.maintenance_requested.is_some() {
+                state.config.maintenance_requested = None;
+                let mut txn = ctx.services.db_pool.begin().await?;
+                db_rack::update(txn.as_mut(), id, &state.config).await?;
+                outcome = outcome.with_txn(txn);
+            }
+
+            Ok(outcome)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use model::rack::{
+        FirmwareUpgradeDeviceInfo, FirmwareUpgradeState, MaintenanceActivity, MaintenanceScope,
+        RackMaintenanceState, RackPowerState,
+    };
+
+    use super::{
+        filter_inventory_by_scope, first_maintenance_state, next_state_after_configure,
+        next_state_after_firmware,
+    };
+    use crate::rack::firmware_update::RackFirmwareInventory;
+
+    fn test_machine_id(byte: u8) -> carbide_uuid::machine::MachineId {
+        use carbide_uuid::machine::{MachineIdSource, MachineType};
+        carbide_uuid::machine::MachineId::new(MachineIdSource::Tpm, [byte; 32], MachineType::Host)
+    }
+
+    fn test_switch_id(byte: u8) -> carbide_uuid::switch::SwitchId {
+        use carbide_uuid::switch::{SwitchIdSource, SwitchType};
+        carbide_uuid::switch::SwitchId::new(SwitchIdSource::Tpm, [byte; 32], SwitchType::NvLink)
+    }
+
+    fn test_device_info(node_id: &str) -> FirmwareUpgradeDeviceInfo {
+        FirmwareUpgradeDeviceInfo {
+            node_id: node_id.to_string(),
+            mac: "AA:BB:CC:DD:EE:FF".to_string(),
+            bmc_ip: "10.0.0.1".to_string(),
+            bmc_username: "admin".to_string(),
+            bmc_password: "pass".to_string(),
+            os_mac: None,
+            os_ip: None,
+            os_username: None,
+            os_password: None,
+        }
+    }
+
+    // ── first_maintenance_state ─────────────────────────────────────────
+
+    #[test]
+    fn first_maintenance_state_all_activities() {
+        let scope = MaintenanceScope::default();
+        assert!(matches!(
+            first_maintenance_state(&scope),
+            RackMaintenanceState::FirmwareUpgrade {
+                rack_firmware_upgrade: FirmwareUpgradeState::Start,
+            }
+        ));
+    }
+
+    #[test]
+    fn first_maintenance_state_only_firmware() {
+        let scope = MaintenanceScope {
+            activities: vec![MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: None,
+                components: vec![],
+            }],
+            ..Default::default()
+        };
+        assert!(matches!(
+            first_maintenance_state(&scope),
+            RackMaintenanceState::FirmwareUpgrade { .. }
+        ));
+    }
+
+    #[test]
+    fn first_maintenance_state_only_configure() {
+        let scope = MaintenanceScope {
+            activities: vec![MaintenanceActivity::ConfigureNmxCluster],
+            ..Default::default()
+        };
+        assert_eq!(
+            first_maintenance_state(&scope),
+            RackMaintenanceState::ConfigureNmxCluster,
+        );
+    }
+
+    #[test]
+    fn first_maintenance_state_only_power_sequence() {
+        let scope = MaintenanceScope {
+            activities: vec![MaintenanceActivity::PowerSequence],
+            ..Default::default()
+        };
+        assert!(matches!(
+            first_maintenance_state(&scope),
+            RackMaintenanceState::PowerSequence {
+                rack_power: RackPowerState::PoweringOn,
+            }
+        ));
+    }
+
+    #[test]
+    fn first_maintenance_state_configure_and_power() {
+        let scope = MaintenanceScope {
+            activities: vec![
+                MaintenanceActivity::ConfigureNmxCluster,
+                MaintenanceActivity::PowerSequence,
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            first_maintenance_state(&scope),
+            RackMaintenanceState::ConfigureNmxCluster,
+        );
+    }
+
+    // ── next_state_after_firmware ───────────────────────────────────────
+
+    #[test]
+    fn after_firmware_all_activities_goes_to_configure() {
+        let scope = MaintenanceScope::default();
+        assert_eq!(
+            next_state_after_firmware(&scope),
+            RackMaintenanceState::ConfigureNmxCluster,
+        );
+    }
+
+    #[test]
+    fn after_firmware_without_configure_goes_to_power() {
+        let scope = MaintenanceScope {
+            activities: vec![
+                MaintenanceActivity::FirmwareUpgrade {
+                    firmware_version: None,
+                    components: vec![],
+                },
+                MaintenanceActivity::PowerSequence,
+            ],
+            ..Default::default()
+        };
+        assert!(matches!(
+            next_state_after_firmware(&scope),
+            RackMaintenanceState::PowerSequence { .. }
+        ));
+    }
+
+    #[test]
+    fn after_firmware_only_firmware_goes_to_completed() {
+        let scope = MaintenanceScope {
+            activities: vec![MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: None,
+                components: vec![],
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            next_state_after_firmware(&scope),
+            RackMaintenanceState::Completed,
+        );
+    }
+
+    // ── next_state_after_configure ──────────────────────────────────────
+
+    #[test]
+    fn after_configure_all_activities_goes_to_power() {
+        let scope = MaintenanceScope::default();
+        assert!(matches!(
+            next_state_after_configure(&scope),
+            RackMaintenanceState::PowerSequence {
+                rack_power: RackPowerState::PoweringOn,
+            }
+        ));
+    }
+
+    #[test]
+    fn after_configure_without_power_goes_to_completed() {
+        let scope = MaintenanceScope {
+            activities: vec![
+                MaintenanceActivity::FirmwareUpgrade {
+                    firmware_version: None,
+                    components: vec![],
+                },
+                MaintenanceActivity::ConfigureNmxCluster,
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            next_state_after_configure(&scope),
+            RackMaintenanceState::Completed,
+        );
+    }
+
+    // ── filter_inventory_by_scope ───────────────────────────────────────
+
+    fn sample_inventory() -> RackFirmwareInventory {
+        let m1 = test_machine_id(1);
+        let m2 = test_machine_id(2);
+        let s1 = test_switch_id(1);
+        let s2 = test_switch_id(2);
+        RackFirmwareInventory {
+            machine_ids: vec![m1, m2],
+            switch_ids: vec![s1, s2],
+            machines: vec![
+                test_device_info(&m1.to_string()),
+                test_device_info(&m2.to_string()),
+            ],
+            switches: vec![
+                test_device_info(&s1.to_string()),
+                test_device_info(&s2.to_string()),
+            ],
+        }
+    }
+
+    #[test]
+    fn filter_inventory_full_rack_is_noop() {
+        let inventory = sample_inventory();
+        let scope = MaintenanceScope::default();
+        let filtered = filter_inventory_by_scope(inventory, &scope);
+        assert_eq!(filtered.machine_ids.len(), 2);
+        assert_eq!(filtered.switch_ids.len(), 2);
+        assert_eq!(filtered.machines.len(), 2);
+        assert_eq!(filtered.switches.len(), 2);
+    }
+
+    #[test]
+    fn filter_inventory_partial_machines_only() {
+        let inventory = sample_inventory();
+        let m1 = test_machine_id(1);
+        let scope = MaintenanceScope {
+            machine_ids: vec![m1],
+            ..Default::default()
+        };
+        let filtered = filter_inventory_by_scope(inventory, &scope);
+        assert_eq!(filtered.machine_ids, vec![m1]);
+        assert_eq!(filtered.machines.len(), 1);
+        assert_eq!(filtered.machines[0].node_id, m1.to_string());
+        assert!(filtered.switch_ids.is_empty());
+        assert!(filtered.switches.is_empty());
+    }
+
+    #[test]
+    fn filter_inventory_partial_switches_only() {
+        let inventory = sample_inventory();
+        let s2 = test_switch_id(2);
+        let scope = MaintenanceScope {
+            switch_ids: vec![s2],
+            ..Default::default()
+        };
+        let filtered = filter_inventory_by_scope(inventory, &scope);
+        assert!(filtered.machine_ids.is_empty());
+        assert!(filtered.machines.is_empty());
+        assert_eq!(filtered.switch_ids, vec![s2]);
+        assert_eq!(filtered.switches.len(), 1);
+        assert_eq!(filtered.switches[0].node_id, s2.to_string());
+    }
+
+    #[test]
+    fn filter_inventory_partial_both() {
+        let inventory = sample_inventory();
+        let m2 = test_machine_id(2);
+        let s1 = test_switch_id(1);
+        let scope = MaintenanceScope {
+            machine_ids: vec![m2],
+            switch_ids: vec![s1],
+            ..Default::default()
+        };
+        let filtered = filter_inventory_by_scope(inventory, &scope);
+        assert_eq!(filtered.machine_ids, vec![m2]);
+        assert_eq!(filtered.machines.len(), 1);
+        assert_eq!(filtered.switch_ids, vec![s1]);
+        assert_eq!(filtered.switches.len(), 1);
+    }
+
+    #[test]
+    fn filter_inventory_unknown_id_excluded() {
+        let inventory = sample_inventory();
+        let unknown = test_machine_id(99);
+        let scope = MaintenanceScope {
+            machine_ids: vec![unknown],
+            ..Default::default()
+        };
+        let filtered = filter_inventory_by_scope(inventory, &scope);
+        assert!(filtered.machine_ids.is_empty());
+        assert!(filtered.machines.is_empty());
     }
 }

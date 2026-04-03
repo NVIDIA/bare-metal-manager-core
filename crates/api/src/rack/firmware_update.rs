@@ -180,6 +180,7 @@ pub fn build_firmware_update_batches(
     firmware: &RackFirmware,
     firmware_type: &str,
     inventory: &RackFirmwareInventory,
+    components: &[String],
 ) -> Result<Vec<FirmwareUpdateBatchRequest>> {
     let parsed_components = firmware
         .parsed_components
@@ -210,8 +211,13 @@ pub fn build_firmware_update_batches(
             continue;
         }
 
-        let firmware_targets =
-            build_firmware_targets(&parsed_components, lookup_key, firmware_type, &firmware.id)?;
+        let firmware_targets = build_firmware_targets(
+            &parsed_components,
+            lookup_key,
+            firmware_type,
+            &firmware.id,
+            components,
+        )?;
         let node_infos = devices
             .iter()
             .map(|device| build_new_node_info(rack_id, device, node_type))
@@ -309,9 +315,14 @@ fn build_firmware_targets(
     lookup_key: &str,
     firmware_type: &str,
     firmware_id: &str,
+    components: &[String],
 ) -> Result<Vec<rms::FirmwareTarget>> {
-    let mut firmware_components =
-        find_firmware_components_for_device(parsed_components, lookup_key, firmware_type)?;
+    let mut firmware_components = find_firmware_components_for_device(
+        parsed_components,
+        lookup_key,
+        firmware_type,
+        components,
+    )?;
     let flash_order = get_firmware_flash_order(lookup_key);
     firmware_components.sort_by_key(|(_, _, target)| {
         flash_order
@@ -416,6 +427,7 @@ fn find_firmware_components_for_device(
     parsed_components: &Value,
     hardware_type: &str,
     firmware_type: &str,
+    components: &[String],
 ) -> Result<Vec<(String, String, String)>> {
     let lookup_table: FirmwareLookupTable = serde_json::from_value(parsed_components.clone())
         .map_err(|err| {
@@ -427,10 +439,16 @@ fn find_firmware_components_for_device(
         })?;
 
     let wanted_type = firmware_type.to_lowercase();
+    let wanted_components: Vec<String> = components.iter().map(|c| c.to_lowercase()).collect();
     let mut results = Vec::new();
     if let Some(device_components) = lookup_table.devices.get(hardware_type) {
         for (component_key, entry) in device_components {
             if entry.firmware_type.to_lowercase() != wanted_type {
+                continue;
+            }
+            if !wanted_components.is_empty()
+                && !wanted_components.contains(&entry.component.to_lowercase())
+            {
                 continue;
             }
             results.push((

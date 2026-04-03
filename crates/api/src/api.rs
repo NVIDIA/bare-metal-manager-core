@@ -2209,6 +2209,13 @@ impl Forge for Api {
         crate::handlers::machine_validation::on_demand_machine_validation(self, request).await
     }
 
+    async fn on_demand_rack_maintenance(
+        &self,
+        request: Request<rpc::RackMaintenanceOnDemandRequest>,
+    ) -> Result<Response<rpc::RackMaintenanceOnDemandResponse>, Status> {
+        crate::handlers::rack::on_demand_rack_maintenance(self, request).await
+    }
+
     async fn tpm_add_ca_cert(
         &self,
         request: Request<rpc::TpmCaCert>,

@@ -1075,7 +1075,7 @@ pub async fn apply(
         .as_ref()
         .ok_or_else(|| CarbideError::FailedPrecondition("RMS client not configured".to_string()))?;
     let batches =
-        build_firmware_update_batches(&rack_id, &fw_config, &req.firmware_type, &inventory)
+        build_firmware_update_batches(&rack_id, &fw_config, &req.firmware_type, &inventory, &[])
             .map_err(|e| CarbideError::Internal {
                 message: format!("Failed to build firmware update requests: {}", e),
             })?;

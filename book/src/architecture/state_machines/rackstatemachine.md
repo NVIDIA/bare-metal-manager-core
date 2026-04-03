@@ -12,6 +12,13 @@ state "Machine (Each compute tray runs this)" as Machine {
     M_Ready --> M_Assigned : instance requested
     M_Assigned -[dotted]-> M_Ready :  Via various instance creation
     M_Ready --> M_HostReprovision : reprovision (non-NVL node only)
+    state M_HostReprovision {
+        [*] --> M_HostReprovision_CheckingFirmware
+        state "CheckingFirmware" as M_HostReprovision_CheckingFirmware
+        state "FailedFirmwareUpgrade" as M_HostReprovision_FailedFirmwareUpgrade
+        M_HostReprovision_CheckingFirmware --> M_HostReprovision_FailedFirmwareUpgrade : firmware upgrade failed
+        M_HostReprovision_FailedFirmwareUpgrade --> M_HostReprovision_CheckingFirmware : auto-retry (within MAX_FIRMWARE_UPGRADE_RETRIES)\nor new Host Reprovision request received
+    }
     M_HostReprovision --> M_Ready : Done
     M_Assigned --> M_Failed : Failure
     M_Failed --> M_ForceDeletion : Admin
@@ -185,7 +192,7 @@ The Rack state machine drives or observes the Machine (compute) state machine as
 |----------------|-------------------|
 | R_Created      | Rack checks for newly created compute machines (M_Created) that belong to this rack. |
 | R_Discovering  | Rack checks that all computes are M_Ready before moving to R_Maintenance. |
-| R_Maintenance  | Rack requests compute reprovision (drives M_HostReprovision); tracks when computes return to M_Ready. Rack can request exit from M_HostReprovision. |
+| R_Maintenance  | Rack requests compute reprovision (drives M_HostReprovision); tracks when computes return to M_Ready. Rack can request exit from M_HostReprovision. If a compute is stuck in M_HostReprovision::FailedFirmwareUpgrade, the Rack (or operator) may issue a fresh Host Reprovision request to restart the firmware upgrade flow without waiting for the auto-retry interval. |
 
 These cross-state dependencies are shown in the combined diagram above.
 
@@ -260,10 +267,34 @@ The Rack state machine coordinates with the Machine and Switch state machines as
 |----------------|--------------------|
 | R_Created      | Checks for newly created switches → S_Created; checks for newly created compute machines → M_Created. |
 | R_Discovering  | Checks for all switches ready → S_Ready; checks for all computes ready → M_Ready. |
-| R_Maintenance  | Requests switch Reprovision → S_ReProvisioning; requests compute Reprovision → M_HostReprovision. Tracks when switches and computes return to S_Ready and M_Ready. Rack can request exit from switch Reprovision (S_ReProvisioning) and from compute Reprovision (M_HostReprovision). |
+| R_Maintenance  | Requests switch Reprovision → S_ReProvisioning; requests compute Reprovision → M_HostReprovision. Tracks when switches and computes return to S_Ready and M_Ready. Rack can request exit from switch Reprovision (S_ReProvisioning) and from compute Reprovision (M_HostReprovision). A fresh Host Reprovision request issued while the compute is in M_HostReprovision::FailedFirmwareUpgrade is accepted and restarts the firmware upgrade flow (retry counter reset). |
 | R_Ready        | If a tray is replaced (external event), the rack topology changes and the rack moves back to R_Discovering to re-discover and re-validate the new tray. |
 
 These cross-state dependencies are shown in the combined diagram above.
+
+### Recovering from M_HostReprovision::FailedFirmwareUpgrade
+
+A compute machine that fails its host firmware upgrade lands in the
+`M_HostReprovision::FailedFirmwareUpgrade` substate. There are two ways out:
+
+1. **Automatic retry.** While `retry_count < MAX_FIRMWARE_UPGRADE_RETRIES` and the
+   configured `host_firmware_upgrade_retry_interval` has elapsed since the
+   failure, the machine state handler automatically transitions back to
+   `CheckingFirmwareV2` and re-attempts the upgrade.
+2. **Fresh Host Reprovision request.** The Rack state machine (or an operator
+   via `trigger_host_reprovisioning`) can issue a brand-new Host Reprovision
+   request at any time. The new request overwrites
+   `host_reprovisioning_requested` with `started_at = None`; the FailedFirmwareUpgrade
+   handler detects this fresh request and restarts the upgrade flow from
+   `CheckingFirmwareV2` with `retry_count` reset to `0`, mirroring the way
+   `ManagedHostState::Ready` kicks off a Host Reprovision (including the
+   `host-fw-update` health-report alert merge). Rack-level requests (initiator
+   prefixed with `rack-`) instead enter `WaitingForRackFirmwareUpgrade`.
+
+This guarantees the Rack can always drive a stuck compute out of
+`FailedFirmwareUpgrade` without waiting for the retry backoff, which is
+important during `R_Maintenance` where the Rack must converge all computes back
+to `M_Ready` before progressing to `R_Validation`.
 
 ### Tray Replacement (External Event)
 

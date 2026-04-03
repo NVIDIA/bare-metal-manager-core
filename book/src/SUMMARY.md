@@ -22,6 +22,7 @@
 - [State Machines]()
     - [Managed Host](architecture/state_machines/managedhost.md)
     - [Switch](architecture/state_machines/switch.md)
+    - [On-Demand Rack Maintenance](architecture/state_machines/rack.md)
 
 # Manuals
 

@@ -188,7 +188,10 @@ impl PowerShelfManager for StateControllerPowerShelf {
         };
         self.write_scope(
             endpoints,
-            MaintenanceActivity::FirmwareUpgrade { firmware_version },
+            MaintenanceActivity::FirmwareUpgrade {
+                firmware_version,
+                components: vec![],
+            },
         )
         .await
     }
@@ -364,7 +367,9 @@ mod tests {
             .expect("scope");
         assert_eq!(scope.power_shelf_ids, vec![ps1]);
         match &scope.activities[0] {
-            MaintenanceActivity::FirmwareUpgrade { firmware_version } => {
+            MaintenanceActivity::FirmwareUpgrade {
+                firmware_version, ..
+            } => {
                 assert_eq!(firmware_version.as_deref(), Some("fw-2.0.0"));
             }
             other => panic!("expected FirmwareUpgrade activity, got {other:?}"),
@@ -385,7 +390,9 @@ mod tests {
             .await
             .expect("scope");
         match &scope.activities[0] {
-            MaintenanceActivity::FirmwareUpgrade { firmware_version } => {
+            MaintenanceActivity::FirmwareUpgrade {
+                firmware_version, ..
+            } => {
                 assert!(firmware_version.is_none());
             }
             other => panic!("expected FirmwareUpgrade activity, got {other:?}"),
