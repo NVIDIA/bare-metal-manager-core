@@ -2999,7 +2999,7 @@ pub struct DpaConfig {
 /// DSX Exchange Event Bus configuration for publishing state change events via MQTT 3.1.1.
 ///
 /// When configured, Carbide will publish `ManagedHostState` transitions to the
-/// topic `carbide/v1/machine/{machineId}/state` as defined in `carbide.yaml`.
+/// topic `nico/v1/machine/{machineId}/state` as defined in `carbide.yaml`.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct DsxExchangeEventBusConfig {
     /// Enable/disable the DSX Exchange Event Bus.

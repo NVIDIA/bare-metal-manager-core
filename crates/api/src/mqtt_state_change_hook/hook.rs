@@ -35,7 +35,7 @@ use crate::mqtt_state_change_hook::metrics::MqttHookMetrics;
 use crate::state_controller::state_change_emitter::{StateChangeEvent, StateChangeHook};
 
 /// Topic prefix for state change messages.
-const TOPIC_PREFIX: &str = "carbide/v1/machine";
+const TOPIC_PREFIX: &str = "nico/v1/machine";
 
 /// Internal queue item containing pre-serialized MQTT message with deadline.
 struct QueuedMessage {
@@ -69,7 +69,7 @@ impl<T: MqttPublisher> MqttPublisher for Arc<T> {
 /// MQTT hook that publishes `ManagedHostState` changes to the MQTT broker.
 ///
 /// Implements the AsyncAPI specification in `carbide.yaml`, publishing to
-/// `carbide/v1/machine/{machineId}/state`.
+/// `nico/v1/machine/{machineId}/state`.
 ///
 /// This hook maintains an internal queue and processes events in a background task.
 /// If the queue is full, events are dropped and a warning is logged.
@@ -260,7 +260,7 @@ mod tests {
         // Wait for publish to complete
         let (topic, payload) = receiver.recv().await.expect("should receive message");
 
-        assert!(topic.starts_with("carbide/v1/machine/"));
+        assert!(topic.starts_with("nico/v1/machine/"));
         assert!(topic.ends_with("/state"));
 
         let parsed: serde_json::Value = serde_json::from_slice(&payload).unwrap();
