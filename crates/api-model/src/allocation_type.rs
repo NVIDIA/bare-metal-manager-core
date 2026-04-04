@@ -34,6 +34,59 @@ pub enum AllocationType {
     Static,
 }
 
+/// The result of assigning a static address, indicating what
+/// previously existed for that address family on the interface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssignStaticResult {
+    /// No prior address existed for this family.
+    Assigned,
+    /// An existing static address was replaced.
+    ReplacedStatic,
+    /// An existing DHCP allocation was replaced.
+    ///
+    /// If you "replace" a DHCP allocation with the same address
+    /// (effectively making a static DHCP  reservation), then it's
+    /// basically a no-op.
+    ///
+    /// If you replace a DHCP allocation with a static address that
+    /// is within a Carbide-managed network, then the next time the
+    /// machine renews its lease, carbide-dhcp -> carbide-api will
+    /// flow, and carbide-api will see the new IP and naturally
+    /// return it. MOST DHCP clients will accept this new IP and
+    /// reconfigure. SOME DHCP clients will see this is NOT their
+    /// original offer, and re-DHCPDISCOVER, at which point the
+    /// carbide-dhcp -> carbide-api flow will naturally return
+    /// the static reservation anyway. It will be a small hiccup
+    /// in a sense, but the client will never lose it's address,
+    /// and will just re-discover to the same address.
+    ///
+    /// If you replace a DHCP allocation with a static address that
+    /// is OUTSIDE a Carbide-managed network, then we will now assume
+    /// that device is where you say it is. But it's important to
+    /// understand a bit of a nuance, as soon as that previous DHCP
+    /// allocation is deleted, it is eligible for re-assignment,
+    /// meaning if your device is still holding onto that IP (before
+    /// it's next renewal), there will potentially be a period of time
+    /// where there are duplicate IP conflicts. We can definitely
+    /// do some work to make sure these things are mitigated, but
+    /// I also think replacing DHCP -> static reservations comes
+    /// with some "use at your own risk" in general. We can improve
+    /// on it if needed.
+    ReplacedDhcp,
+}
+
+impl From<AssignStaticResult> for rpc::forge::AssignStaticAddressStatus {
+    fn from(result: AssignStaticResult) -> Self {
+        match result {
+            AssignStaticResult::Assigned => rpc::forge::AssignStaticAddressStatus::Assigned,
+            AssignStaticResult::ReplacedStatic => {
+                rpc::forge::AssignStaticAddressStatus::ReplacedStatic
+            }
+            AssignStaticResult::ReplacedDhcp => rpc::forge::AssignStaticAddressStatus::ReplacedDhcp,
+        }
+    }
+}
+
 impl From<AddressSelectionStrategy> for AllocationType {
     fn from(strategy: AddressSelectionStrategy) -> Self {
         match strategy {

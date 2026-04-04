@@ -757,6 +757,36 @@ impl Forge for Api {
         crate::handlers::machine::find_machine_health_histories(self, request).await
     }
 
+    async fn assign_static_address(
+        &self,
+        request: Request<rpc::AssignStaticAddressRequest>,
+    ) -> Result<Response<rpc::AssignStaticAddressResponse>, Status> {
+        log_request_data(&request);
+        Ok(
+            crate::handlers::machine_interface_address::assign_static_address(self, request)
+                .await?,
+        )
+    }
+
+    async fn remove_static_address(
+        &self,
+        request: Request<rpc::RemoveStaticAddressRequest>,
+    ) -> Result<Response<rpc::RemoveStaticAddressResponse>, Status> {
+        log_request_data(&request);
+        Ok(
+            crate::handlers::machine_interface_address::remove_static_address(self, request)
+                .await?,
+        )
+    }
+
+    async fn find_interface_addresses(
+        &self,
+        request: Request<rpc::FindInterfaceAddressesRequest>,
+    ) -> Result<Response<rpc::FindInterfaceAddressesResponse>, Status> {
+        log_request_data(&request);
+        crate::handlers::machine_interface_address::find_interface_addresses(self, request).await
+    }
+
     async fn find_interfaces(
         &self,
         request: Request<rpc::InterfaceSearchQuery>,

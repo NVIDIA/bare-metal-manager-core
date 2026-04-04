@@ -176,6 +176,10 @@ service Forge {
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
   rpc ExpireDhcpLease(ExpireDhcpLeaseRequest) returns (ExpireDhcpLeaseResponse);
 
+  rpc AssignStaticAddress(AssignStaticAddressRequest) returns (AssignStaticAddressResponse);
+  rpc RemoveStaticAddress(RemoveStaticAddressRequest) returns (RemoveStaticAddressResponse);
+  rpc FindInterfaceAddresses(FindInterfaceAddressesRequest) returns (FindInterfaceAddressesResponse);
+
   // PRIVILEGED: Find things
   rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
   rpc DeleteInterface(InterfaceDeleteQuery) returns (google.protobuf.Empty);
@@ -2886,6 +2890,53 @@ message InterfaceDeleteQuery {
 message InterfaceSearchQuery {
   optional common.MachineInterfaceId id = 1;
   optional string ip = 2;
+}
+
+message AssignStaticAddressRequest {
+  common.MachineInterfaceId interface_id = 1;
+  string ip_address = 2;
+}
+
+enum AssignStaticAddressStatus {
+  ASSIGN_STATIC_ADDRESS_STATUS_ASSIGNED = 0;
+  ASSIGN_STATIC_ADDRESS_STATUS_REPLACED_STATIC = 1;
+  ASSIGN_STATIC_ADDRESS_STATUS_REPLACED_DHCP = 2;
+}
+
+message AssignStaticAddressResponse {
+  common.MachineInterfaceId interface_id = 1;
+  string ip_address = 2;
+  AssignStaticAddressStatus status = 3;
+}
+
+message RemoveStaticAddressRequest {
+  common.MachineInterfaceId interface_id = 1;
+  string ip_address = 2;
+}
+
+enum RemoveStaticAddressStatus {
+  REMOVE_STATIC_ADDRESS_STATUS_REMOVED = 0;
+  REMOVE_STATIC_ADDRESS_STATUS_NOT_FOUND = 1;
+}
+
+message RemoveStaticAddressResponse {
+  common.MachineInterfaceId interface_id = 1;
+  string ip_address = 2;
+  RemoveStaticAddressStatus status = 3;
+}
+
+message FindInterfaceAddressesRequest {
+  common.MachineInterfaceId interface_id = 1;
+}
+
+message InterfaceAddress {
+  string address = 1;
+  string allocation_type = 2;
+}
+
+message FindInterfaceAddressesResponse {
+  common.MachineInterfaceId interface_id = 1;
+  repeated InterfaceAddress addresses = 2;
 }
 
 enum MachineType {

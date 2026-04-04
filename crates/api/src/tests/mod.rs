@@ -106,6 +106,7 @@ mod site_explorer;
 mod sku;
 mod spdm;
 mod state_controller;
+mod static_address_management;
 mod storage;
 mod switch;
 mod switch_find;
