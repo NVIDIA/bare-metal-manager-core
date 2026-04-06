@@ -736,6 +736,9 @@ service Forge {
   rpc GetTokenDelegation(GetTokenDelegationRequest) returns (TokenDelegationResponse);
   rpc SetTokenDelegation(TokenDelegationRequest) returns (TokenDelegationResponse);
   rpc DeleteTokenDelegation(GetTokenDelegationRequest) returns (google.protobuf.Empty);
+  // Public discovery: JWKS and OpenID provider metadata (intended for unauthenticated fetch via REST gateway).
+  rpc GetJWKS(JwksRequest) returns (Jwks);
+  rpc GetOpenIDConfiguration(OpenIdConfigRequest) returns (OpenIdConfiguration);
 
   // ScoutStream establishes a bidirectional streaming connection between
   // scout agents and carbide-api. The initial use-case for this is for
@@ -908,11 +911,14 @@ message GetIdentityConfigRequest {
 
 message IdentityConfig {
   bool enabled = 1;
+  // JWT `iss` / OIDC issuer string: `https://` or `http://` URL (trust domain = host),
+  // `spiffe://<trust-domain>/...` (scheme ASCII case-insensitive), or bare DNS hostname / IP.
   string issuer = 2;
   string default_audience = 3;
   repeated string allowed_audiences = 4;
   uint32 token_ttl_sec = 5;
-  string subject_prefix = 6;
+  // When unset or empty, defaults to spiffe://<trust-domain-from-issuer>
+  optional string subject_prefix = 6;
   bool rotate_key = 7;
 }
 
@@ -972,6 +978,44 @@ message TokenDelegation {
 message TokenDelegationRequest {
   string organization_id = 1;
   TokenDelegation config = 2;
+}
+
+// Carried JWKS document for GetJWKS. Standard key fields live in `jwks` only (RFC 7517).
+message Jwks {
+  // UTF-8 JSON text: {"keys":[ ... ]} per RFC 7517.
+  string jwks = 1;
+}
+
+message OpenIdConfiguration {
+  string issuer = 1;
+  string jwks_uri = 2;
+  // OAuth-style access token (JWT bearer) only; no OIDC `id_token` is issued.
+  repeated string response_types_supported = 3;
+  repeated string subject_types_supported = 4;
+  // Always empty: OIDC ID tokens are not supported. Verifiers use `jwks_uri` / `spiffe_jwks_uri`
+  // and GetJWKS `jwks` (`keys[].alg`) for machine-identity JWT bearer signature verification.
+  repeated string id_token_signing_alg_values_supported = 5;
+  // SPIFFE trust-domain style JWKS URL: `{issuer}/.well-known/spiffe/jwks.json` (GetJWKS with Spiffe kind).
+  string spiffe_jwks_uri = 7;
+}
+
+// Which JWKS document GetJWKS should return.
+enum JwksKind {
+  Unspecified = 0;  // Same as Oidc: tenant OIDC-style JWT signing JWKS (current default).
+  // Keys for verifying JWTs from this org issuer (e.g. machine identity ES256 public key).
+  Oidc = 1;
+  // SPIFFE trust-domain bundle keys (federation / SVID validation); distinct from OIDC OP JWKS above.
+  Spiffe = 2;
+}
+
+message JwksRequest {
+  string organization_id = 1;
+  // When omitted, treated as Unspecified / Oidc behavior.
+  optional JwksKind kind = 2;
+}
+
+message OpenIdConfigRequest {
+  string organization_id = 1;
 }
 
 // Determines machine ingestion state in relation to the power on gate

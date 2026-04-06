@@ -464,16 +464,18 @@ fn endpoint_to_row(endpoint: &ExploredEndpoint) -> Row {
             x.ethernet_interfaces
                 .iter()
                 .map(|a| {
+                    let mac = a.mac_address.as_deref().unwrap_or_default();
                     if a.interface_enabled() {
-                        Cow::Borrowed(a.mac_address.as_deref().unwrap_or_default())
+                        if let Some(ls) = a.link_status.as_deref().filter(|v| !v.is_empty()) {
+                            format!("{mac} [{}]", ls)
+                        } else {
+                            mac.to_string()
+                        }
                     } else {
-                        Cow::Owned(format!(
-                            "{} - Disabled",
-                            a.mac_address.as_deref().unwrap_or_default()
-                        ))
+                        format!("{mac} - Disabled")
                     }
                 })
-                .collect::<Vec<Cow<str>>>()
+                .collect::<Vec<String>>()
         })
         .unwrap_or_default();
 
@@ -587,13 +589,14 @@ async fn display_endpoint(
         table.add_row(row!["Serial Number", system.serial_number()]);
 
         let mut ethernet_interface_table = Table::new();
-        ethernet_interface_table.set_titles(row!["Id", "Mac Address", "Enabled"]);
+        ethernet_interface_table.set_titles(row!["Id", "Mac Address", "Enabled", "Link status"]);
 
         for eth in &system.ethernet_interfaces {
             ethernet_interface_table.add_row(row![
                 eth.id(),
                 eth.mac_address(),
-                eth.interface_enabled.unwrap_or_default()
+                eth.interface_enabled.unwrap_or_default(),
+                eth.link_status.as_deref().unwrap_or("")
             ]);
         }
         table.add_row(row![
@@ -612,13 +615,14 @@ async fn display_endpoint(
         table.add_row(row!["Id", manager.id]);
 
         let mut ethernet_interface_table = Table::new();
-        ethernet_interface_table.set_titles(row!["Id", "Mac Address", "Enabled"]);
+        ethernet_interface_table.set_titles(row!["Id", "Mac Address", "Enabled", "Link status"]);
 
         for eth in &manager.ethernet_interfaces {
             ethernet_interface_table.add_row(row![
                 eth.id(),
                 eth.mac_address(),
-                eth.interface_enabled.unwrap_or_default()
+                eth.interface_enabled.unwrap_or_default(),
+                eth.link_status.as_deref().unwrap_or("")
             ]);
         }
         table.add_row(row![

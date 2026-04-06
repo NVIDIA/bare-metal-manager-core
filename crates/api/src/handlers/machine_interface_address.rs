@@ -18,51 +18,61 @@
 use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::allocation_type::AllocationType;
-use model::network_segment::NetworkSegmentType;
 use rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
 use crate::errors::CarbideError;
 
+/// Resolve the correct segment for a static IP. If the IP is within a
+/// managed network prefix, use that segment. Otherwise use the
+/// static-assignments anchor segment.
+async fn resolve_segment_for_static_ip(
+    txn: &mut sqlx::PgConnection,
+    ip: std::net::IpAddr,
+) -> Result<model::network_segment::NetworkSegment, CarbideError> {
+    match db::network_segment::for_relay(txn, ip).await? {
+        Some(seg) => Ok(seg),
+        None => Ok(db::network_segment::static_assignments(txn).await?),
+    }
+}
+
 /// Pre-allocate a machine_interface with a static address so
 /// site_explorer can discover the BMC at that IP.
 ///
 /// If the IP is within a managed network prefix, the interface is
-/// created on that segment. Otherwise it falls back to the first
-/// underlay segment as an anchor for external/BYO IPs.
+/// created on that segment. Otherwise it falls back to the special
+/// "static-assignments" segment where we track static assignments.
 ///
-/// Currently "assumes" a BMC, but hey maybe we can use it for
-/// other things as time goes on.
+/// This fails if a machine_interface already exists for this MAC.
+/// Use update_preallocated_machine_interface` to change the IP on
+/// an existing interface.
 pub async fn preallocate_machine_interface(
     txn: &mut sqlx::PgConnection,
     bmc_mac_address: MacAddress,
     bmc_ip: std::net::IpAddr,
 ) -> Result<(), CarbideError> {
-    let segment = match db::network_segment::for_relay(txn, bmc_ip).await? {
-        Some(seg) => seg,
-        None => {
-            let underlay_ids =
-                db::network_segment::list_segment_ids(txn, Some(NetworkSegmentType::Underlay))
-                    .await?;
-            let segment_id = underlay_ids.first().ok_or(CarbideError::NotFoundError {
-                kind: "underlay_segment",
-                id: "any".to_string(),
-            })?;
-            db::network_segment::find_by(
-                txn,
-                db::ObjectColumnFilter::One(db::network_segment::IdColumn, segment_id),
-                Default::default(),
-            )
-            .await?
-            .into_iter()
-            .next()
-            .ok_or(CarbideError::NotFoundError {
-                kind: "underlay_segment",
-                id: segment_id.to_string(),
-            })?
-        }
-    };
+    // Check if an interface already exists for this MAC.
+    let existing = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac_address).await?;
+    if !existing.is_empty() {
+        return Err(CarbideError::InvalidArgument(format!(
+            "a machine interface already exists for MAC {bmc_mac_address}; \
+             use update to change the IP address"
+        )));
+    }
+
+    // Check if the IP is already allocated to another interface.
+    if let Some(existing_addr) =
+        db::machine_interface_address::find_by_address(&mut *txn, bmc_ip).await?
+    {
+        return Err(CarbideError::InvalidArgument(format!(
+            "IP address {bmc_ip} is already allocated to interface {} \
+             on segment {}; use 'machine-interfaces assign-address' to reassign it",
+            existing_addr.id, existing_addr.name,
+        )));
+    }
+
+    let segment = resolve_segment_for_static_ip(txn, bmc_ip).await?;
 
     db::machine_interface::create(
         txn,
@@ -84,6 +94,82 @@ pub async fn preallocate_machine_interface(
     Ok(())
 }
 
+/// Update or create a machine_interface with a static address.
+///
+/// If no interface exists for this MAC, creates a new one. If an
+/// interface exists but has no addresses, assigns the static IP.
+/// If an interface exists and already has addresses, we leave it
+/// alone -- this is not an error, because expected device updates
+/// are decoupled from managed device state. The expected data is
+/// updated in the database by the caller; we only touch the
+/// machine_interface if it's safe to do so (no existing addresses).
+/// To change the IP on a live interface, operators should use
+/// 'machine-interfaces assign-address' or 'remove-address'.
+pub async fn update_preallocated_machine_interface(
+    txn: &mut sqlx::PgConnection,
+    bmc_mac_address: MacAddress,
+    bmc_ip: std::net::IpAddr,
+) -> Result<(), CarbideError> {
+    let existing = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac_address).await?;
+
+    if let Some(iface) = existing.first() {
+        if iface.addresses.is_empty() {
+            // No addresses -- safe to assign the static IP.
+            db::machine_interface_address::assign_static(txn, iface.id, bmc_ip).await?;
+
+            let segment = resolve_segment_for_static_ip(txn, bmc_ip).await?;
+            if iface.segment_id != segment.id {
+                db::machine_interface::update_segment_id(
+                    txn,
+                    iface.id,
+                    segment.id,
+                    segment.subdomain_id,
+                )
+                .await?;
+            }
+
+            tracing::info!(
+                %bmc_mac_address,
+                %bmc_ip,
+                interface_id = %iface.id,
+                "Assigned static address to existing interface without addresses"
+            );
+        } else {
+            // Interface already has address(es). We don't touch it --
+            // expected data updates are decoupled from managed state.
+            // The caller updates the expected data table; we just log.
+            tracing::info!(
+                %bmc_mac_address,
+                %bmc_ip,
+                existing_addresses = ?iface.addresses,
+                "Interface already has addresses, updated expected data only"
+            );
+        }
+    } else {
+        // No interface yet -- create a new one.
+        let segment = resolve_segment_for_static_ip(txn, bmc_ip).await?;
+
+        db::machine_interface::create(
+            txn,
+            &segment,
+            &bmc_mac_address,
+            segment.subdomain_id,
+            true,
+            AddressSelectionStrategy::StaticAddress(bmc_ip),
+        )
+        .await?;
+
+        tracing::info!(
+            %bmc_mac_address,
+            %bmc_ip,
+            segment_id = %segment.id,
+            "Pre-allocated static machine interface"
+        );
+    }
+
+    Ok(())
+}
+
 pub async fn assign_static_address(
     api: &Api,
     request: Request<rpc::AssignStaticAddressRequest>,
@@ -97,6 +183,30 @@ pub async fn assign_static_address(
     let mut txn = api.txn_begin().await?;
     let result =
         db::machine_interface_address::assign_static(&mut txn, interface_id, ip_address).await?;
+
+    // Resolve the correct segment for this IP and update the interface
+    // if needed. IPs within a managed prefix go on that prefix's segment.
+    // External IPs go on the static-assignments anchor segment.
+    let target_segment = resolve_segment_for_static_ip(txn.as_pgconn(), ip_address).await?;
+
+    let current_iface = db::machine_interface::find_one(txn.as_pgconn(), interface_id).await?;
+    if current_iface.segment_id != target_segment.id {
+        db::machine_interface::update_segment_id(
+            &mut txn,
+            interface_id,
+            target_segment.id,
+            target_segment.subdomain_id,
+        )
+        .await?;
+        tracing::info!(
+            %interface_id,
+            %ip_address,
+            old_segment_id = %current_iface.segment_id,
+            new_segment_id = %target_segment.id,
+            "Moved interface to correct segment for static address"
+        );
+    }
+
     txn.commit().await?;
 
     let status: rpc::AssignStaticAddressStatus = result.into();

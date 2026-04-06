@@ -313,6 +313,26 @@ pub async fn set_waiting_for_explorer_refresh(
     Ok(())
 }
 
+/// Unconditionally set `exploration_requested = true` for a batch of BMC
+/// addresses so the site explorer prioritises them on its next tick.
+/// Addresses without a row in `explored_endpoints` are silently skipped.
+pub async fn request_exploration_for_addresses(
+    addresses: &[IpAddr],
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    if addresses.is_empty() {
+        return Ok(());
+    }
+    let query =
+        "UPDATE explored_endpoints SET exploration_requested = true WHERE address = ANY($1)";
+    sqlx::query(query)
+        .bind(addresses)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
 async fn set_preingestion(
     address: IpAddr,
     state: PreingestionState,

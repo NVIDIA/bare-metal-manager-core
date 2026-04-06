@@ -16,7 +16,7 @@
  */
 use std::net::IpAddr;
 
-use carbide_network::ip::IpAddressFamily;
+use carbide_network::ip::{IdentifyAddressFamily, IpAddressFamily};
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use model::allocation_type::{AllocationType, AssignStaticResult};
 use model::network_segment::NetworkSegmentType;
@@ -160,11 +160,7 @@ pub async fn assign_static(
     interface_id: MachineInterfaceId,
     address: IpAddr,
 ) -> Result<AssignStaticResult, DatabaseError> {
-    let family = if address.is_ipv4() {
-        IpAddressFamily::Ipv4
-    } else {
-        IpAddressFamily::Ipv6
-    };
+    let family = address.address_family();
 
     let existing = find_allocation_type_for_family(&mut *txn, interface_id, family).await?;
 
@@ -192,7 +188,7 @@ pub async fn assign_static(
 pub async fn delete_by_address(
     txn: &mut PgConnection,
     address: IpAddr,
-    allocation_type: model::allocation_type::AllocationType,
+    allocation_type: AllocationType,
 ) -> Result<bool, DatabaseError> {
     let query =
         "DELETE FROM machine_interface_addresses WHERE address = $1::inet AND allocation_type = $2";

@@ -318,6 +318,7 @@
 						<th>ID</th>
 						<th>MAC</th>
 						<th>Enabled</th>
+						<th>Link status</th>
 						<th>Description</th>
 					</tr>
 				</thead>
@@ -327,6 +328,7 @@
 						<td>{{ iface.id|option_fmt }}</td>
 						<td>{{ iface.mac_address|option_fmt }}</td>
 						<td>{{ iface.interface_enabled|option_fmt }}</td>
+						<td>{{ iface.link_status|option_fmt }}</td>
 						<td>{{ iface.description|option_fmt }}</td>
 					</tr>
 				{% endfor %}
@@ -384,6 +386,7 @@
 						<th>ID</th>
 						<th>MAC</th>
 						<th>Enabled</th>
+						<th>Link status</th>
 						<th>Description</th>
 					</tr>
 				</thead>
@@ -393,6 +396,7 @@
 						<td>{{ iface.id|option_fmt }}</td>
 						<td>{{ iface.mac_address|option_fmt }}</td>
 						<td>{{ iface.interface_enabled|option_fmt }}</td>
+						<td>{{ iface.link_status|option_fmt }}</td>
 						<td>{{ iface.description|option_fmt }}</td>
 					</tr>
 				{% endfor %}

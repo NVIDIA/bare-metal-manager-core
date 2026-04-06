@@ -35,7 +35,7 @@ use model::hardware_info::HardwareInfo;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_prefix::NetworkPrefix;
-use model::network_segment::{NetworkSegment, NetworkSegmentType};
+use model::network_segment::{AllocationStrategy, NetworkSegment, NetworkSegmentType};
 use model::predicted_machine_interface::PredictedMachineInterface;
 use sqlx::{FromRow, PgConnection, PgTransaction};
 
@@ -323,8 +323,8 @@ pub async fn validate_existing_mac_and_create(
     relay: IpAddr,
     host_nic: Option<ExpectedHostNic>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
-    let mut existing_mac = find_by_mac_address(&mut *txn, mac_address).await?;
-    match &existing_mac.len() {
+    let mut interface_snapshot = find_by_mac_address(&mut *txn, mac_address).await?;
+    match &interface_snapshot.len() {
         0 => {
             tracing::debug!(
                 %mac_address,
@@ -356,6 +356,16 @@ pub async fn validate_existing_mac_and_create(
             };
 
             if let Some(segment) = network_segment {
+                // If the segment only allows static reservations, reject
+                // dynamic allocation. The device must have a pre-existing
+                // static reservation to get an IP on this segment.
+                if segment.allocation_strategy == AllocationStrategy::Reserved {
+                    return Err(DatabaseError::internal(format!(
+                        "segment {} configured for static DHCP leases only; no static reservation for MAC {mac_address}",
+                        segment.name,
+                    )));
+                }
+
                 // TODO: add fixed_ip handling
                 if let Some(expected_nic) = host_nic.clone()
                     && let Some(ipaddr) = expected_nic.fixed_ip
@@ -387,18 +397,13 @@ pub async fn validate_existing_mac_and_create(
                 %mac_address,
                 "Mac address exists, validating the relay and returning it",
             );
-            let mac = existing_mac.remove(0);
-            // Ensure the relay segment exists before blindly giving the mac address back out
-            match crate::network_segment::for_relay(txn, relay).await? {
-                Some(ifc) if ifc.id == mac.segment_id => Ok(mac),
-                Some(ifc) => Err(DatabaseError::internal(format!(
-                    "Network segment mismatch for existing mac address: {0} expected: {1} actual from network switch: {2}",
-                    mac.mac_address, mac.segment_id, ifc.id,
-                ))),
-                None => Err(DatabaseError::internal(format!(
-                    "No network segment defined for relay address: {relay}"
-                ))),
-            }
+            // TODO(chet): I don't like that it's mut here, but this seems to be
+            // a pattern in this module in general, especially since we may or may
+            // not update the interface. Consider having reconcile_interface_segment
+            // just return the interface, which would probably look a lot better.
+            let mut existing_interface = interface_snapshot.remove(0);
+            reconcile_interface_segment(txn, &mut existing_interface, relay).await?;
+            Ok(existing_interface)
         }
         _ => {
             tracing::warn!(
@@ -1123,6 +1128,101 @@ pub async fn find_by_machine_and_segment(
         .await
         .map_err(|e| DatabaseError::query(&query, e))
         .map(|interfaces| interfaces.into_iter().collect())
+}
+
+/// Update the segment_id and domain_id for a machine interface. Used
+/// when a static address assignment or DHCP re-discovery places an
+/// interface on a different segment than it was previously on.
+pub async fn update_segment_id(
+    txn: &mut PgConnection,
+    interface_id: MachineInterfaceId,
+    segment_id: NetworkSegmentId,
+    domain_id: Option<DomainId>,
+) -> DatabaseResult<()> {
+    let query = "UPDATE machine_interfaces SET segment_id = $1, domain_id = $2 WHERE id = $3";
+    sqlx::query(query)
+        .bind(segment_id)
+        .bind(domain_id)
+        .bind(interface_id)
+        .execute(txn)
+        .await
+        .map(|_| ())
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Reconcile an existing interface's segment with the DHCP relay address.
+///
+/// - If the segments match, nothing happens.
+/// - If the interface is on the static-assignments anchor segment with
+///   no addresses (static was removed), move it to the relay's segment.
+/// - If the interface is on static-assignments with addresses, leave it
+///   alone -- the operator's static assignment takes priority over DHCP.
+/// - If the interface is on a different managed segment, error -- this
+///   is a real network mismatch (wrong VLAN/port).
+async fn reconcile_interface_segment(
+    txn: &mut PgConnection,
+    existing_interface: &mut MachineInterfaceSnapshot,
+    relay: IpAddr,
+) -> DatabaseResult<()> {
+    let relay_segment = crate::network_segment::for_relay(txn, relay)
+        .await?
+        .ok_or_else(|| {
+            DatabaseError::internal(format!(
+                "No network segment defined for DHCP relay address: {relay}"
+            ))
+        })?;
+
+    // If it's the same segment, then we're good! Nothing
+    // to do here.
+    if relay_segment.id == existing_interface.segment_id {
+        return Ok(());
+    }
+
+    let on_static_assignments = existing_interface.segment_id
+        == crate::network_segment::static_assignments(txn)
+            .await
+            .map(|s| s.id)
+            .unwrap_or_default();
+
+    // If the interface is on static-assignments with no addresses (as in
+    // the static address was removed), move it to the relay's segment
+    // so it can get a DHCP-allocated IP. The idea here being that someone
+    // removed the static allocation on purpose, and now we're waiting for
+    // the device to DHCP so we can see what segment it's coming in on.
+    if on_static_assignments && existing_interface.addresses.is_empty() {
+        tracing::info!(
+            mac_address = %existing_interface.mac_address,
+            old_segment_id = %existing_interface.segment_id,
+            new_segment_id = %relay_segment.id,
+            "Moving interface from static-assignments into DHCP-managed segment"
+        );
+        update_segment_id(
+            txn,
+            existing_interface.id,
+            relay_segment.id,
+            relay_segment.subdomain_id,
+        )
+        .await?;
+        existing_interface.segment_id = relay_segment.id;
+    } else if on_static_assignments {
+        // ...and if the interface is on static-assignments and still has
+        // an addresse, the static assignment takes priority, so we leave
+        // it as-is.
+        tracing::debug!(
+            mac_address = %existing_interface.mac_address,
+            "Interface on static-assignments with addresses, leaving as-is"
+        );
+    } else {
+        // And if it's a different managed segment, then yell. This logic
+        // existing before the static-assigmnents and DHCP "reservation"
+        // integration.
+        return Err(DatabaseError::internal(format!(
+            "Network segment mismatch for existing MAC address: {} expected: {} actual from network switch: {}",
+            existing_interface.mac_address, existing_interface.segment_id, relay_segment.id,
+        )));
+    }
+
+    Ok(())
 }
 
 /// Allocate new DHCP-based IP addresses for a specific address family

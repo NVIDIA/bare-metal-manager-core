@@ -86,6 +86,23 @@ pub async fn create_underlay_network_segment(api: &Api) -> NetworkSegmentId {
     .await
 }
 
+pub async fn create_static_assignments_segment(api: &Api) -> NetworkSegmentId {
+    let mut txn = db::Transaction::begin(&api.database_connection)
+        .await
+        .unwrap();
+    crate::db_init::ensure_static_assignments_segment(api, &mut txn, None)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = api.database_connection.begin().await.unwrap();
+    let seg = db::network_segment::static_assignments(&mut txn)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+    seg.id
+}
+
 pub async fn create_admin_network_segment(api: &Api) -> NetworkSegmentId {
     let prefix = IpNetwork::new(
         FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),

@@ -2820,6 +2820,20 @@ impl Forge for Api {
         crate::handlers::identity_config::delete_token_delegation(self, request).await
     }
 
+    async fn get_jwks(
+        &self,
+        request: Request<rpc::JwksRequest>,
+    ) -> Result<Response<rpc::Jwks>, Status> {
+        crate::handlers::machine_identity::get_jwks(self, request).await
+    }
+
+    async fn get_open_id_configuration(
+        &self,
+        request: Request<rpc::OpenIdConfigRequest>,
+    ) -> Result<Response<rpc::OpenIdConfiguration>, Status> {
+        crate::handlers::machine_identity::get_open_id_configuration(self, request).await
+    }
+
     async fn modify_dpf_state(
         &self,
         request: Request<rpc::ModifyDpfStateRequest>,

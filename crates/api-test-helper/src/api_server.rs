@@ -274,11 +274,9 @@ pub async fn start(
         [machine_validation_config]
         enabled = true
 
-        [machine_identity]
-        enabled = true
-        algorithm = "ES256"
-        token_ttl_min_sec = 60
-        token_ttl_max_sec = 86400
+        # [machine_identity] omitted: default is disabled. Enabling requires
+        # current_encryption_key_id and vault/file credentials for encryption_keys;
+        # populate_initial_vault_secrets does not seed those for integration tests.
     "#
         )
     };

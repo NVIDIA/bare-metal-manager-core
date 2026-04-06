@@ -322,7 +322,7 @@ async fn test_update_expected_power_shelf(pool: sqlx::PgPool) {
             bmc_username: "ADMIN_UPDATE1".into(),
             bmc_password: "PASS_UPDATE1".into(),
             shelf_serial_number: "PS-UPD-003".into(),
-            bmc_ip_address: "192.168.2.101".into(),
+            bmc_ip_address: "192.168.2.100".into(),
             metadata: Some(rpc::forge::Metadata {
                 name: "updated-shelf".to_string(),
                 description: "Updated power shelf".to_string(),
@@ -1007,6 +1007,398 @@ async fn test_add_without_bmc_ip_creates_no_interface(
     assert!(
         interfaces.is_empty(),
         "should not create interface without bmc_ip_address"
+    );
+
+    Ok(())
+}
+
+/// Adding an expected power shelf with bmc_ip_address should fail if
+/// a machine_interface already exists for that MAC (e.g., the device
+/// already DHCP'd).
+#[crate::sqlx_test()]
+async fn test_add_with_bmc_ip_rejects_if_interface_exists(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "6A:6B:6C:6D:6E:80".parse().unwrap();
+    let relay: std::net::IpAddr = common::api_fixtures::FIXTURE_DHCP_RELAY_ADDRESS
+        .parse()
+        .unwrap();
+
+    // Create an interface via DHCP (simulating the device already being on the network).
+    let mut txn = env.pool.begin().await?;
+    db::machine_interface::validate_existing_mac_and_create(&mut txn, bmc_mac, relay, None).await?;
+    txn.commit().await?;
+
+    // Now try to add an expected power shelf with the same MAC -- should fail.
+    let result = env
+        .api
+        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            shelf_serial_number: "PS-COLLISION-001".into(),
+            bmc_ip_address: "192.0.1.190".into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+        }))
+        .await;
+
+    assert!(
+        result.is_err(),
+        "add should fail if interface already exists for this MAC"
+    );
+
+    Ok(())
+}
+
+/// Adding an expected power shelf with an external bmc_ip_address (not
+/// in any managed prefix) should create the interface on the
+/// static-assignments anchor segment.
+#[crate::sqlx_test()]
+async fn test_add_with_external_bmc_ip_uses_static_assignments(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "6A:6B:6C:6D:6E:84".parse().unwrap();
+    let external_ip = "10.50.1.150";
+
+    env.api
+        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            shelf_serial_number: "PS-EXT-001".into(),
+            bmc_ip_address: external_ip.into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+        }))
+        .await?;
+
+    // Verify interface was created on the static-assignments segment
+    let mut txn = env.pool.begin().await?;
+    let interfaces = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac).await?;
+    assert_eq!(interfaces.len(), 1);
+
+    let iface = &interfaces[0];
+    assert!(iface.addresses.contains(&external_ip.parse().unwrap()));
+
+    let static_seg = db::network_segment::static_assignments(&mut txn).await?;
+    assert_eq!(
+        iface.segment_id, static_seg.id,
+        "external IP should be on the static-assignments segment"
+    );
+
+    Ok(())
+}
+
+/// Adding an expected power shelf with a bmc_ip_address that is already
+/// allocated to another interface should fail.
+#[crate::sqlx_test()]
+async fn test_add_with_bmc_ip_rejects_if_ip_already_allocated(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let relay: std::net::IpAddr = common::api_fixtures::FIXTURE_DHCP_RELAY_ADDRESS
+        .parse()
+        .unwrap();
+
+    // Create an interface via DHCP -- it gets an IP from the admin pool.
+    let mut txn = env.pool.begin().await?;
+    let existing = db::machine_interface::validate_existing_mac_and_create(
+        &mut txn,
+        "6A:6B:6C:6D:6E:87".parse().unwrap(),
+        relay,
+        None,
+    )
+    .await?;
+    let taken_ip = existing.addresses[0];
+    txn.commit().await?;
+
+    // Try to add an expected power shelf with a DIFFERENT MAC but the
+    // SAME IP -- should fail.
+    let result = env
+        .api
+        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: "6A:6B:6C:6D:6E:88".to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            shelf_serial_number: "PS-IP-COLLISION".into(),
+            bmc_ip_address: taken_ip.to_string(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+        }))
+        .await;
+
+    assert!(
+        result.is_err(),
+        "add should fail if the IP is already allocated to another interface"
+    );
+
+    Ok(())
+}
+
+/// Updating with bmc_ip_address that matches the existing address is a
+/// no-op -- the update succeeds without modifying the interface.
+#[crate::sqlx_test()]
+async fn test_update_with_matching_bmc_ip_is_noop(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "6A:6B:6C:6D:6E:81".parse().unwrap();
+    let bmc_ip = "192.0.1.191";
+
+    // Add expected power shelf with bmc_ip_address.
+    env.api
+        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            shelf_serial_number: "PS-NOOP-001".into(),
+            bmc_ip_address: bmc_ip.into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+        }))
+        .await?;
+
+    // Update with the same bmc_ip_address -- should succeed (no-op).
+    env.api
+        .update_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN-UPDATED".into(),
+            bmc_password: "PASS".into(),
+            shelf_serial_number: "PS-NOOP-001".into(),
+            bmc_ip_address: bmc_ip.into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+        }))
+        .await?;
+
+    Ok(())
+}
+
+/// Updating with a different bmc_ip_address succeeds (updates expected
+/// data) but does not touch the interface if it already has addresses.
+/// Expected data is decoupled from managed state -- the interface IP
+/// can only be changed via assign-address / remove-address.
+#[crate::sqlx_test()]
+async fn test_update_with_different_bmc_ip_leaves_interface_alone(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "6A:6B:6C:6D:6E:82".parse().unwrap();
+    let original_ip = "192.0.1.192";
+
+    // Add expected power shelf with bmc_ip_address.
+    env.api
+        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            shelf_serial_number: "PS-LEAVE-001".into(),
+            bmc_ip_address: original_ip.into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+        }))
+        .await?;
+
+    // Update with a DIFFERENT bmc_ip_address -- should succeed but
+    // not touch the interface (it already has an address).
+    env.api
+        .update_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            shelf_serial_number: "PS-LEAVE-001".into(),
+            bmc_ip_address: "192.0.1.193".into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+        }))
+        .await?;
+
+    // Verify the interface still has the ORIGINAL IP.
+    let mut txn = env.pool.begin().await?;
+    let interfaces = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac).await?;
+    assert_eq!(interfaces.len(), 1);
+    assert!(
+        interfaces[0]
+            .addresses
+            .contains(&original_ip.parse().unwrap()),
+        "interface should still have the original IP, not the updated expected data IP"
+    );
+
+    Ok(())
+}
+
+/// Updating with bmc_ip_address should succeed if the interface exists
+/// but has no addresses (e.g., the address was expired/removed).
+#[crate::sqlx_test()]
+async fn test_update_with_bmc_ip_assigns_to_empty_interface(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "6A:6B:6C:6D:6E:83".parse().unwrap();
+    let relay: std::net::IpAddr = common::api_fixtures::FIXTURE_DHCP_RELAY_ADDRESS
+        .parse()
+        .unwrap();
+
+    // Create interface via DHCP, then remove its address.
+    let mut txn = env.pool.begin().await?;
+    let iface =
+        db::machine_interface::validate_existing_mac_and_create(&mut txn, bmc_mac, relay, None)
+            .await?;
+    db::machine_interface_address::delete(&mut txn, &iface.id).await?;
+    txn.commit().await?;
+
+    // Add expected power shelf WITHOUT bmc_ip_address.
+    env.api
+        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            shelf_serial_number: "PS-EMPTY-001".into(),
+            bmc_ip_address: "".into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+        }))
+        .await?;
+
+    // Update with bmc_ip_address -- should succeed since interface has no addresses.
+    env.api
+        .update_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            shelf_serial_number: "PS-EMPTY-001".into(),
+            bmc_ip_address: "192.0.1.194".into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+        }))
+        .await?;
+
+    // Verify the interface now has the static IP.
+    let mut txn = env.pool.begin().await?;
+    let addrs = db::machine_interface_address::find_for_interface(&mut txn, iface.id).await?;
+    assert_eq!(addrs.len(), 1);
+    assert_eq!(
+        addrs[0].address,
+        "192.0.1.194".parse::<std::net::IpAddr>().unwrap()
+    );
+    assert_eq!(
+        addrs[0].allocation_type,
+        model::allocation_type::AllocationType::Static
+    );
+
+    Ok(())
+}
+
+/// Updating with bmc_ip_address when no interface exists yet (device
+/// hasn't DHCP'd) should create a new interface with the static IP.
+#[crate::sqlx_test()]
+async fn test_update_with_bmc_ip_creates_interface_if_none_exists(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "6A:6B:6C:6D:6E:85".parse().unwrap();
+    let bmc_ip = "192.0.1.195";
+
+    // Add expected power shelf without bmc_ip_address.
+    env.api
+        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            shelf_serial_number: "PS-CREATE-001".into(),
+            bmc_ip_address: "".into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+        }))
+        .await?;
+
+    // No interface should exist yet.
+    let mut txn = env.pool.begin().await?;
+    let interfaces = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac).await?;
+    assert!(interfaces.is_empty());
+    txn.commit().await?;
+
+    // Update with bmc_ip_address -- should create a new interface.
+    env.api
+        .update_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            shelf_serial_number: "PS-CREATE-001".into(),
+            bmc_ip_address: bmc_ip.into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+        }))
+        .await?;
+
+    // Verify interface was created with the static IP.
+    let mut txn = env.pool.begin().await?;
+    let interfaces = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac).await?;
+    assert_eq!(interfaces.len(), 1);
+    assert!(interfaces[0].addresses.contains(&bmc_ip.parse().unwrap()));
+
+    Ok(())
+}
+
+/// Updating without bmc_ip_address should not touch any machine
+/// interface -- only the expected device record is updated.
+#[crate::sqlx_test()]
+async fn test_update_without_bmc_ip_does_not_touch_interface(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "6A:6B:6C:6D:6E:86".parse().unwrap();
+    let bmc_ip = "192.0.1.196";
+
+    // Add with bmc_ip_address -- creates an interface.
+    env.api
+        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            shelf_serial_number: "PS-NOTOUCH-001".into(),
+            bmc_ip_address: bmc_ip.into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+        }))
+        .await?;
+
+    // Update without bmc_ip_address (just changing credentials).
+    env.api
+        .update_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "NEW-ADMIN".into(),
+            bmc_password: "NEW-PASS".into(),
+            shelf_serial_number: "PS-NOTOUCH-001".into(),
+            bmc_ip_address: "".into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+        }))
+        .await?;
+
+    // Verify the interface still has the original static IP.
+    let mut txn = env.pool.begin().await?;
+    let interfaces = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac).await?;
+    assert_eq!(interfaces.len(), 1);
+    assert!(
+        interfaces[0].addresses.contains(&bmc_ip.parse().unwrap()),
+        "interface should still have the original IP after update without bmc_ip_address"
     );
 
     Ok(())

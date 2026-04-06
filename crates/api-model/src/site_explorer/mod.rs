@@ -1376,6 +1376,10 @@ pub struct EthernetInterface {
     )]
     pub mac_address: Option<MacAddress>,
 
+    /// Redfish `LinkStatus` as reported by the BMC (e.g. LinkUp, LinkDown, NoLink).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_status: Option<String>,
+
     pub uefi_device_path: Option<UefiDevicePath>,
 }
 
@@ -1436,6 +1440,7 @@ impl From<EthernetInterface> for rpc::site_explorer::EthernetInterface {
             description: interface.description,
             interface_enabled: interface.interface_enabled,
             mac_address: interface.mac_address.map(|mac| mac.to_string()),
+            link_status: interface.link_status,
         }
     }
 }

@@ -24,6 +24,7 @@ use db::{self, expected_machine, machine_interface};
 use mac_address::MacAddress;
 use model::dpa_interface::DpaInterface;
 use model::expected_machine::ExpectedHostNic;
+use model::network_segment::AllocationStrategy;
 use sqlx::PgConnection;
 use tonic::{Request, Response};
 
@@ -281,6 +282,16 @@ pub async fn discover_dhcp(
                     "No network segment defined for relay address: {parsed_relay}"
                 ))
             })?;
+
+        // If the segment only allows static reservations, don't
+        // dynamically allocate. The device has no reservation.
+        if segment.allocation_strategy == AllocationStrategy::Reserved {
+            return Err(CarbideError::internal(format!(
+                "segment {} configured for static DHCP leases only; no static reservation for MAC {parsed_mac}",
+                segment.name,
+            )));
+        }
+
         db::machine_interface::allocate_address_for_family(
             &mut txn,
             machine_interface.id,

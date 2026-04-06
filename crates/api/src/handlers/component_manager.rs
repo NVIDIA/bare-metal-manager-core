@@ -27,7 +27,8 @@ use component_manager::error::ComponentManagerError;
 use component_manager::nv_switch_manager::SwitchEndpoint;
 use component_manager::power_shelf_manager::{PowerShelfEndpoint, PowerShelfVendor};
 use component_manager::types::{NvSwitchComponent, PowerAction, PowerShelfComponent};
-use db;
+use db::{self, WithTransaction};
+use futures_util::FutureExt;
 use mac_address::MacAddress;
 use tonic::{Request, Response, Status};
 
@@ -314,7 +315,7 @@ pub(crate) async fn component_power_control(
         .target
         .ok_or_else(|| Status::invalid_argument("target is required"))?;
 
-    let results = match target {
+    let (results, exploration_ips) = match target {
         rpc::component_power_control_request::Target::SwitchIds(list) => {
             let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
 
@@ -348,7 +349,15 @@ pub(crate) async fn component_power_control(
                     error_result(&id, r.error.unwrap_or_default())
                 }
             }));
-            results
+
+            let ips: Vec<IpAddr> = endpoints
+                .resolved
+                .endpoints
+                .iter()
+                .map(|ep| ep.bmc_ip)
+                .collect();
+
+            (results, ips)
         }
         rpc::component_power_control_request::Target::PowerShelfIds(list) => {
             let endpoints = resolve_power_shelf_endpoints(api, &list.ids).await?;
@@ -383,7 +392,15 @@ pub(crate) async fn component_power_control(
                     error_result(&id, r.error.unwrap_or_default())
                 }
             }));
-            results
+
+            let ips: Vec<IpAddr> = endpoints
+                .resolved
+                .endpoints
+                .iter()
+                .map(|ep| ep.pmc_ip)
+                .collect();
+
+            (results, ips)
         }
         rpc::component_power_control_request::Target::MachineIds(_list) => {
             return Err(Status::unimplemented(
@@ -392,9 +409,31 @@ pub(crate) async fn component_power_control(
         }
     };
 
+    // request re-exploration for the BMC/PMC endpoints that had power control initiated against them
+    // so that site explorer refreshes its data for the device. RLA will query the power state shortly
+    // after initiating power control via this path. RLA queries the power state of a device via the site
+    // exploration report data
+    request_re_exploration(api, &exploration_ips).await;
+
     Ok(Response::new(rpc::ComponentPowerControlResponse {
         results,
     }))
+}
+
+/// Best-effort: flag BMC/PMC endpoints for re-exploration so the site
+/// explorer refreshes its cache before `VerifyPowerStatus` polls.
+async fn request_re_exploration(api: &Api, ips: &[IpAddr]) {
+    if ips.is_empty() {
+        return;
+    }
+    let result = api
+        .with_txn(|txn| {
+            db::explored_endpoints::request_exploration_for_addresses(ips, txn.as_mut()).boxed()
+        })
+        .await;
+    if let Err(e) | Ok(Err(e)) = result {
+        tracing::warn!(?e, "failed to request re-exploration after power control");
+    }
 }
 
 // ---- Inventory ----

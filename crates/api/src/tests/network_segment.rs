@@ -99,6 +99,7 @@ async fn test_advance_network_prefix_state(
             vlan_id: None,
             vni: None,
             can_stretch: None,
+            allocation_strategy: Default::default(),
         },
         &mut txn,
         NetworkSegmentControllerState::Provisioning,
@@ -485,6 +486,7 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
                 gateway: "172.20.0.1".to_string(),
                 mtu: 9000,
                 reserve_first: 5,
+                allocation_strategy: Default::default(),
             },
         ),
         (
@@ -495,6 +497,7 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
                 gateway: "172.99.0.1".to_string(),
                 mtu: 1500,
                 reserve_first: 5,
+                allocation_strategy: Default::default(),
             },
         ),
     ]);

@@ -47,6 +47,7 @@ use model::network_security_group::NetworkSecurityGroupRule;
 use model::network_segment::NetworkDefinition;
 use model::resource_pool::define::ResourcePoolDef;
 use model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
+use model::tenant::TENANT_IDENTITY_SIGNING_JWT_ALG;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use utils::HostPortPair;
@@ -671,13 +672,24 @@ pub struct MachineIdentityConfig {
     /// Optional HTTP proxy for token endpoint calls (SSRF mitigation).
     #[serde(default)]
     pub token_endpoint_http_proxy: Option<String>,
+    /// Key-id for encryption/decryption of signing keys (selects from secrets `machine_identity.encryption_keys`).
+    #[serde(default)]
+    pub current_encryption_key_id: Option<String>,
+    /// Trust domains allowed for tenant JWT `iss` (normalized host). Empty = allow any.
+    /// Patterns: exact hostname, `*.suffix` (one label under suffix), `**.suffix` (suffix or any subdomain).
+    #[serde(default)]
+    pub trust_domain_allowlist: Vec<String>,
+    /// Allowed DNS names for the `token_endpoint` URL host (`http://` / `https://` only). Empty = allow any.
+    /// Same pattern syntax as [`Self::trust_domain_allowlist`].
+    #[serde(default)]
+    pub token_endpoint_domain_allowlist: Vec<String>,
 }
 
 fn machine_identity_default_enabled() -> bool {
-    true
+    false
 }
 fn machine_identity_default_algorithm() -> String {
-    "ES256".to_string()
+    TENANT_IDENTITY_SIGNING_JWT_ALG.to_string()
 }
 fn machine_identity_default_token_ttl_min_sec() -> u32 {
     60
@@ -694,6 +706,9 @@ impl Default for MachineIdentityConfig {
             token_ttl_min_sec: machine_identity_default_token_ttl_min_sec(),
             token_ttl_max_sec: machine_identity_default_token_ttl_max_sec(),
             token_endpoint_http_proxy: None,
+            current_encryption_key_id: None,
+            trust_domain_allowlist: Vec::new(),
+            token_endpoint_domain_allowlist: Vec::new(),
         }
     }
 }
@@ -704,7 +719,19 @@ impl From<MachineIdentityConfig> for model::tenant::IdentityConfigValidationBoun
             token_ttl_min_sec: mi.token_ttl_min_sec,
             token_ttl_max_sec: mi.token_ttl_max_sec,
             algorithm: mi.algorithm,
-            encryption_key_id: "placeholder-encryption-key".to_string(),
+            encryption_key_id: mi.current_encryption_key_id.expect(
+                "current_encryption_key_id is required when machine identity is enabled; \
+                 statup validation in parse_carbide_config failed",
+            ),
+            trust_domain_allowlist: mi.trust_domain_allowlist,
+        }
+    }
+}
+
+impl From<MachineIdentityConfig> for model::tenant::TokenDelegationValidationBounds {
+    fn from(mi: MachineIdentityConfig) -> Self {
+        Self {
+            token_endpoint_domain_allowlist: mi.token_endpoint_domain_allowlist,
         }
     }
 }

@@ -18,17 +18,22 @@
 //! Tenant identity config for SPIFFE JWT-SVID machine identity.
 //! Stores per-org identity config and signing keys in `tenant_identity_config` table.
 
-use model::tenant::{IdentityConfig, TenantIdentityConfig, TenantOrganizationId, TokenDelegation};
+use model::tenant::{
+    IdentityConfig, SigningKeyMaterial, TenantIdentityConfig, TenantOrganizationId,
+    TokenDelegation, TokenDelegationAuthMethod,
+};
 use sqlx::PgConnection;
 use sqlx::types::Json;
 
 use crate::{DatabaseError, DatabaseResult};
 
-/// Set identity config for an org. On first create, generates a placeholder key.
+/// Set identity config for an org.
+/// When creating new or rotating key, caller must provide `key_material` (generated key pair, encrypted private key, key_id = sha256(public_key)).
 /// Caller must ensure tenant exists and global machine-identity is enabled.
 pub async fn set(
     org_id: &TenantOrganizationId,
     config: &IdentityConfig,
+    key_material: Option<SigningKeyMaterial>,
     txn: &mut PgConnection,
 ) -> DatabaseResult<TenantIdentityConfig> {
     let allowed: Vec<String> = if config.allowed_audiences.is_empty() {
@@ -54,15 +59,14 @@ pub async fn set(
     // Bounds validation is done by the handler using site config (token_ttl_min_sec, token_ttl_max_sec).
 
     let existing = find(org_id, &mut *txn).await?;
-    let (key_id, encrypted_key, public_key) = match (&existing, config.rotate_key) {
-        (None, _) | (_, true) => {
-            // Generate new key pair (placeholder: use deterministic placeholder for rough impl)
-            let key_id = uuid::Uuid::new_v4().to_string();
-            let encrypted_key = "PLACEHOLDER_ENCRYPTED_KEY".to_string();
-            let public_key = "PLACEHOLDER_PUBLIC_KEY".to_string();
-            (key_id, encrypted_key, public_key)
+    let (key_id, encrypted_key, public_key) = match (&existing, config.rotate_key, key_material) {
+        (None, _, None) | (_, true, None) => {
+            return Err(DatabaseError::InvalidArgument(
+                "key_material is required when creating or rotating signing key".into(),
+            ));
         }
-        (Some(ex), false) => (
+        (_, _, Some(km)) => (km.key_id, km.encrypted_signing_key, km.signing_key_public),
+        (Some(ex), false, None) => (
             ex.key_id.clone(),
             ex.encrypted_signing_key.clone(),
             ex.signing_key_public.clone(),
@@ -128,12 +132,15 @@ pub async fn find(
 }
 
 /// Set token delegation for an org. Identity config must exist first.
+/// `encrypted_auth_method_config` must be standard base64 of JSON envelope v1 from `key_encryption::encrypt`
+/// over the UTF-8 JSON produced by [`TokenDelegation::to_db_format`].
 pub async fn set_token_delegation(
     org_id: &TenantOrganizationId,
     config: &TokenDelegation,
+    auth_method: TokenDelegationAuthMethod,
+    encrypted_auth_method_config: &str,
     txn: &mut PgConnection,
 ) -> DatabaseResult<TenantIdentityConfig> {
-    let (auth_method, config_json) = config.to_db_format();
     let query = r#"
         UPDATE tenant_identity_config
         SET token_endpoint = $2, auth_method = $3, encrypted_auth_method_config = $4,
@@ -149,7 +156,7 @@ pub async fn set_token_delegation(
         .bind(org_id.as_str())
         .bind(&config.token_endpoint)
         .bind(auth_method)
-        .bind(&config_json)
+        .bind(encrypted_auth_method_config)
         .bind(Some(config.subject_token_audience.as_str()))
         .fetch_optional(txn)
         .await
@@ -196,6 +203,7 @@ pub async fn delete_token_delegation(
 mod tests {
     use std::collections::HashMap;
 
+    use forge_secrets::key_encryption;
     use model::metadata::Metadata;
     use model::tenant::{
         IdentityConfig, TokenDelegation, TokenDelegationAuthMethod, TokenDelegationAuthMethodConfig,
@@ -240,19 +248,26 @@ mod tests {
             default_audience: "api".to_string(),
             allowed_audiences: vec!["api".to_string(), "audience2".to_string()],
             token_ttl_sec: 3600,
-            subject_prefix: "spiffe://example.com/org-x".to_string(),
+            subject_prefix: "spiffe://issuer.example.com/org-x".to_string(),
             enabled: true,
             rotate_key: false,
             algorithm: "ES256".to_string(),
             encryption_key_id: "test-master".to_string(),
         };
 
-        let cfg = set(&org_id, &config, &mut txn).await.unwrap();
+        let key_material = SigningKeyMaterial {
+            key_id: "test-key-id".to_string(),
+            encrypted_signing_key: "PLACEHOLDER_ENCRYPTED_KEY".to_string(),
+            signing_key_public: "PLACEHOLDER_PUBLIC_KEY".to_string(),
+        };
+        let cfg = set(&org_id, &config, Some(key_material), &mut txn)
+            .await
+            .unwrap();
         assert_eq!(cfg.issuer, "https://issuer.example.com");
         assert_eq!(cfg.default_audience, "api");
         assert_eq!(cfg.allowed_audiences.0, ["api", "audience2"]);
         assert_eq!(cfg.token_ttl_sec, 3600);
-        assert_eq!(cfg.subject_prefix, "spiffe://example.com/org-x");
+        assert_eq!(cfg.subject_prefix, "spiffe://issuer.example.com/org-x");
         assert!(cfg.enabled);
         assert_eq!(cfg.algorithm, "ES256");
         assert_eq!(cfg.encryption_key_id, "test-master");
@@ -287,13 +302,20 @@ mod tests {
             default_audience: "api".to_string(),
             allowed_audiences: vec!["api".to_string()],
             token_ttl_sec: 3600,
-            subject_prefix: "example.com".to_string(),
+            subject_prefix: "spiffe://issuer.example.com".to_string(),
             enabled: true,
             rotate_key: false,
             algorithm: "ES256".to_string(),
             encryption_key_id: "test-master".to_string(),
         };
-        set(&org_id, &config, &mut txn).await.unwrap();
+        let key_material = SigningKeyMaterial {
+            key_id: "test-key-id".to_string(),
+            encrypted_signing_key: "PLACEHOLDER_ENCRYPTED_KEY".to_string(),
+            signing_key_public: "PLACEHOLDER_PUBLIC_KEY".to_string(),
+        };
+        set(&org_id, &config, Some(key_material), &mut txn)
+            .await
+            .unwrap();
 
         let token_delegation = TokenDelegation {
             token_endpoint: "https://auth.example.com/token".to_string(),
@@ -303,7 +325,11 @@ mod tests {
                 client_secret: "test-secret".to_string(),
             },
         };
-        let cfg = set_token_delegation(&org_id, &token_delegation, &mut txn)
+        let (auth_method, plaintext_json) = token_delegation.to_db_format();
+        let enc_key: key_encryption::Aes256Key = [0u8; 32];
+        let enc =
+            key_encryption::encrypt(plaintext_json.as_bytes(), &enc_key, "test-master").unwrap();
+        let cfg = set_token_delegation(&org_id, &token_delegation, auth_method, &enc, &mut txn)
             .await
             .unwrap();
         assert_eq!(

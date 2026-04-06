@@ -629,6 +629,7 @@ mod tests {
                     vni: None,
                     segment_type: NetworkSegmentType::Tenant,
                     can_stretch: None,
+                    allocation_strategy: Default::default(),
                 }
             })
             .collect_vec();

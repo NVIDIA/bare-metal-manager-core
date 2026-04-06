@@ -253,6 +253,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                     description: Some(format!("Embedded NIC 1 Port {port} Partition 1")),
                     interface_enabled: Some(true),
                     mac_address: Some(*mac),
+                    link_status: None,
                     uefi_device_path: None,
                 }
             })
@@ -263,6 +264,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                     description: Some(format!("NIC in Slot {slot} Port 1")),
                     interface_enabled: Some(true),
                     mac_address: Some(dpu.host_mac_address),
+                    link_status: None,
                     uefi_device_path: Some(
                         dpu.override_hosts_uefi_device_path.clone().unwrap_or(
                             UefiDevicePath::from_str(&format!(
@@ -289,6 +291,7 @@ impl From<ManagedHostConfig> for EndpointExplorationReport {
                     description: Some("Management Network Interface".to_string()),
                     interface_enabled: Some(true),
                     mac_address: Some(value.bmc_mac_address),
+                    link_status: None,
                     uefi_device_path: None,
                 }],
             }],

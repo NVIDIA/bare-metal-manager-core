@@ -33,6 +33,7 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
+use crate::auth::AuthContext;
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::redfish::RedfishAuth;
 
@@ -295,7 +296,7 @@ pub(crate) async fn admin_force_delete_machine(
 ) -> Result<Response<rpc::AdminForceDeleteMachineResponse>, Status> {
     log_request_data(&request);
 
-    let request = request.into_inner();
+    let (_metadata, extensions, request) = request.into_parts();
     let query = request.host_query;
 
     let mut response = rpc::AdminForceDeleteMachineResponse {
@@ -308,8 +309,6 @@ pub(crate) async fn admin_force_delete_machine(
     response.initial_lockdown_state = "".to_string();
     response.machine_unlocked = false;
 
-    tracing::info!("admin_force_delete_machine query='{query}'");
-
     let mut txn = api.txn_begin().await?;
 
     let machine = match db::machine::find_by_query(&mut txn, &query).await? {
@@ -321,6 +320,22 @@ pub(crate) async fn admin_force_delete_machine(
         }
     };
     log_machine_id(&machine.id);
+
+    let issued_by = extensions
+        .get::<AuthContext>()
+        .and_then(|ctx| ctx.get_external_user_name());
+
+    let serial = machine
+        .hardware_info
+        .as_ref()
+        .and_then(|hw| hw.dmi_data.as_ref())
+        .map(|dmi| dmi.product_serial.as_str())
+        .unwrap_or("unknown");
+
+    tracing::info!(
+        "admin_force_delete_machine query='{query}' machine_id={} serial='{serial}' issued_by={issued_by:?}",
+        machine.id
+    );
 
     if machine.instance_type_id.is_some() {
         return Err(CarbideError::FailedPrecondition(format!(

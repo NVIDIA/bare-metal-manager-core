@@ -294,6 +294,11 @@ impl InternalRBACRules {
         x.perm("GetTokenDelegation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("SetTokenDelegation", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteTokenDelegation", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("GetJWKS", vec![Anonymous, Agent, ForgeAdminCLI, SiteAgent]);
+        x.perm(
+            "GetOpenIDConfiguration",
+            vec![Anonymous, Agent, ForgeAdminCLI, SiteAgent],
+        );
         x.perm("CreateMeasurementBundle", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("DeleteMeasurementBundle", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("RenameMeasurementBundle", vec![ForgeAdminCLI, SiteAgent]);

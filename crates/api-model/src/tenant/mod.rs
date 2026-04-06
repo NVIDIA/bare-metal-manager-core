@@ -33,6 +33,12 @@ use sqlx::{FromRow, Row};
 
 use crate::metadata::Metadata;
 
+mod tenant_identity_policy;
+
+pub use tenant_identity_policy::{
+    validate_token_endpoint_domain_allowlist_patterns, validate_trust_domain_allowlist_patterns,
+};
+
 #[derive(Clone, Debug, Default)]
 pub struct TenantSearchFilter {
     pub tenant_organization_name: Option<String>,
@@ -478,10 +484,31 @@ pub struct TenantIdentityConfig {
     // Token delegation (optional)
     pub token_endpoint: Option<String>,
     pub auth_method: Option<TokenDelegationAuthMethod>,
-    /// Auth method config blob (TEXT). Stores JSON; not yet encrypted at rest.
+    /// Token delegation auth method secrets, **encrypted at rest**: standard base64 of JSON envelope v1
+    /// (`key_encryption::encrypt`) over JSON (e.g. client_id and client_secret). Loaded from DB as
+    /// ciphertext only; plaintext for gRPC mapping lives on [`TenantIdentityConfigDecrypted::auth_method_config`].
     pub encrypted_auth_method_config: Option<String>,
     pub subject_token_audience: Option<String>,
     pub token_delegation_created_at: Option<DateTime<Utc>>,
+}
+
+/// [`TenantIdentityConfig`] row plus decrypted token-delegation JSON for handlers / `TryInto` RPC.
+/// `row.encrypted_auth_method_config` stays ciphertext from the database; plaintext is only in
+/// `auth_method_config`. Do not log.
+#[derive(Debug)]
+pub struct TenantIdentityConfigDecrypted {
+    pub row: TenantIdentityConfig,
+    /// UTF-8 JSON from `TokenDelegation::to_db_format` after `key_encryption::decrypt`.
+    pub auth_method_config: Option<String>,
+}
+
+/// Key material for a new or rotated signing key.
+/// Caller generates the key pair, encrypts the private key, and computes key_id = hex(sha256(public_key)).
+#[derive(Clone, Debug)]
+pub struct SigningKeyMaterial {
+    pub key_id: String,
+    pub encrypted_signing_key: String,
+    pub signing_key_public: String,
 }
 
 /// Settable fields for tenant identity config (SPIFFE JWT-SVID).
@@ -506,18 +533,31 @@ pub struct IdentityConfigValidationBounds {
     pub token_ttl_max_sec: u32,
     pub algorithm: String,
     pub encryption_key_id: String,
+    /// Site policy: JWT issuer trust domain must match at least one entry. Empty = no extra check.
+    pub trust_domain_allowlist: Vec<String>,
 }
+
+/// JWT `alg` for per-tenant signing keys. Only ES256 (ECDSA P-256) is implemented end-to-end.
+pub const TENANT_IDENTITY_SIGNING_JWT_ALG: &str = "ES256";
 
 #[derive(thiserror::Error, Debug)]
 #[error("{0}")]
 pub struct IdentityConfigValidationError(pub String);
 
 impl IdentityConfig {
-    /// Validates proto and converts to IdentityConfig, using bounds for token_ttl and injected fields.
+    /// Validates gRPC `IdentityConfig` and converts to `IdentityConfig`, including SPIFFE
+    /// `subject_prefix` resolution against `issuer` (optional proto field defaults to
+    /// `spiffe://<trust-domain-from-issuer>`).
     pub fn try_from_proto(
         value: rpc_forge::IdentityConfig,
         bounds: &IdentityConfigValidationBounds,
     ) -> Result<Self, IdentityConfigValidationError> {
+        if bounds.algorithm != TENANT_IDENTITY_SIGNING_JWT_ALG {
+            return Err(IdentityConfigValidationError(format!(
+                "machine_identity.algorithm must be {TENANT_IDENTITY_SIGNING_JWT_ALG} (got {:?})",
+                bounds.algorithm
+            )));
+        }
         if value.issuer.is_empty() {
             return Err(IdentityConfigValidationError(
                 "issuer is required".to_string(),
@@ -528,11 +568,19 @@ impl IdentityConfig {
                 "default_audience is required".to_string(),
             ));
         }
-        if value.subject_prefix.is_empty() {
-            return Err(IdentityConfigValidationError(
-                "subject_prefix is required".to_string(),
-            ));
-        }
+        let (issuer, issuer_td) =
+            tenant_identity_policy::normalize_issuer_and_trust_domain(&value.issuer)
+                .map_err(IdentityConfigValidationError)?;
+        tenant_identity_policy::trust_domain_matches_allowlist(
+            &issuer_td,
+            &bounds.trust_domain_allowlist,
+        )
+        .map_err(IdentityConfigValidationError)?;
+        let subject_prefix = tenant_identity_policy::resolve_subject_prefix(
+            &issuer_td,
+            value.subject_prefix.as_deref(),
+        )
+        .map_err(IdentityConfigValidationError)?;
         if value.token_ttl_sec == 0 {
             return Err(IdentityConfigValidationError(format!(
                 "token_ttl_sec is required (must be between {} and {} seconds)",
@@ -548,11 +596,11 @@ impl IdentityConfig {
             )));
         }
         Ok(IdentityConfig {
-            issuer: value.issuer,
+            issuer,
             default_audience: value.default_audience,
             allowed_audiences: value.allowed_audiences,
             token_ttl_sec: value.token_ttl_sec,
-            subject_prefix: value.subject_prefix,
+            subject_prefix,
             enabled: value.enabled,
             rotate_key: value.rotate_key,
             algorithm: bounds.algorithm.clone(),
@@ -647,33 +695,19 @@ pub fn stored_to_response_auth_config(
 #[error("{0}")]
 pub struct TokenDelegationValidationError(pub String);
 
-impl TokenDelegation {
-    /// Returns (auth_method, config_json) for DB storage.
-    pub fn to_db_format(&self) -> (TokenDelegationAuthMethod, String) {
-        match &self.auth_method_config {
-            TokenDelegationAuthMethodConfig::None => {
-                (TokenDelegationAuthMethod::None, "{}".to_string())
-            }
-            TokenDelegationAuthMethodConfig::ClientSecretBasic {
-                client_id,
-                client_secret,
-            } => {
-                let stored = rpc_forge::ClientSecretBasic {
-                    client_id: client_id.clone(),
-                    client_secret: client_secret.clone(),
-                };
-                let config_json =
-                    serde_json::to_string(&stored).unwrap_or_else(|_| "{}".to_string());
-                (TokenDelegationAuthMethod::ClientSecretBasic, config_json)
-            }
-        }
-    }
+/// Site policy for [`TokenDelegation`]: allowlist on `token_endpoint` URL host / domain name (same pattern language as trust-domain allowlist).
+#[derive(Debug, Clone, Default)]
+pub struct TokenDelegationValidationBounds {
+    pub token_endpoint_domain_allowlist: Vec<String>,
 }
 
-impl TryFrom<rpc_forge::TokenDelegation> for TokenDelegation {
-    type Error = TokenDelegationValidationError;
-
-    fn try_from(value: rpc_forge::TokenDelegation) -> Result<Self, Self::Error> {
+impl TokenDelegation {
+    /// Validates gRPC `TokenDelegation` and converts, including optional `token_endpoint` domain allowlist.
+    /// When the allowlist is non-empty, `token_endpoint` must be an **`http://` or `https://` URL** with a DNS hostname (not an IP literal).
+    pub fn try_from_proto(
+        value: rpc_forge::TokenDelegation,
+        bounds: &TokenDelegationValidationBounds,
+    ) -> Result<Self, TokenDelegationValidationError> {
         if value.token_endpoint.is_empty() {
             return Err(TokenDelegationValidationError(
                 "token_endpoint is required".to_string(),
@@ -683,6 +717,16 @@ impl TryFrom<rpc_forge::TokenDelegation> for TokenDelegation {
             return Err(TokenDelegationValidationError(
                 "subject_token_audience is required".to_string(),
             ));
+        }
+        if !bounds.token_endpoint_domain_allowlist.is_empty() {
+            let host =
+                tenant_identity_policy::registered_host_for_token_endpoint(&value.token_endpoint)
+                    .map_err(TokenDelegationValidationError)?;
+            tenant_identity_policy::token_endpoint_domain_matches_allowlist(
+                &host,
+                &bounds.token_endpoint_domain_allowlist,
+            )
+            .map_err(TokenDelegationValidationError)?;
         }
         let auth_method_config = match value.auth_method_config {
             None => TokenDelegationAuthMethodConfig::None,
@@ -709,21 +753,51 @@ impl TryFrom<rpc_forge::TokenDelegation> for TokenDelegation {
             auth_method_config,
         })
     }
+
+    /// Returns (auth_method, config_json) for DB storage.
+    pub fn to_db_format(&self) -> (TokenDelegationAuthMethod, String) {
+        match &self.auth_method_config {
+            TokenDelegationAuthMethodConfig::None => {
+                (TokenDelegationAuthMethod::None, "{}".to_string())
+            }
+            TokenDelegationAuthMethodConfig::ClientSecretBasic {
+                client_id,
+                client_secret,
+            } => {
+                let stored = rpc_forge::ClientSecretBasic {
+                    client_id: client_id.clone(),
+                    client_secret: client_secret.clone(),
+                };
+                let config_json =
+                    serde_json::to_string(&stored).unwrap_or_else(|_| "{}".to_string());
+                (TokenDelegationAuthMethod::ClientSecretBasic, config_json)
+            }
+        }
+    }
 }
 
-impl TryFrom<TenantIdentityConfig> for rpc_forge::TokenDelegationResponse {
+impl TryFrom<rpc_forge::TokenDelegation> for TokenDelegation {
+    type Error = TokenDelegationValidationError;
+
+    fn try_from(value: rpc_forge::TokenDelegation) -> Result<Self, Self::Error> {
+        TokenDelegation::try_from_proto(value, &TokenDelegationValidationBounds::default())
+    }
+}
+
+impl TryFrom<TenantIdentityConfigDecrypted> for rpc_forge::TokenDelegationResponse {
     type Error = RpcDataConversionError;
 
-    fn try_from(value: TenantIdentityConfig) -> Result<Self, Self::Error> {
-        let token_endpoint = value
+    fn try_from(value: TenantIdentityConfigDecrypted) -> Result<Self, Self::Error> {
+        let row = value.row;
+        let token_endpoint = row
             .token_endpoint
             .ok_or(RpcDataConversionError::MissingArgument("token_delegation"))?;
-        let auth_method = value
+        let auth_method = row
             .auth_method
             .ok_or(RpcDataConversionError::MissingArgument("token_delegation"))?;
 
         let stored: Option<rpc_forge::ClientSecretBasic> = value
-            .encrypted_auth_method_config
+            .auth_method_config
             .as_ref()
             .and_then(|s| serde_json::from_str(s).ok());
 
@@ -738,15 +812,15 @@ impl TryFrom<TenantIdentityConfig> for rpc_forge::TokenDelegationResponse {
             ),
         };
 
-        let created_at = value.token_delegation_created_at.map(rpc::Timestamp::from);
+        let created_at = row.token_delegation_created_at.map(rpc::Timestamp::from);
 
         Ok(rpc_forge::TokenDelegationResponse {
-            organization_id: value.organization_id.as_str().to_string(),
+            organization_id: row.organization_id.as_str().to_string(),
             token_endpoint,
             auth_method_config,
-            subject_token_audience: value.subject_token_audience.unwrap_or_default(),
+            subject_token_audience: row.subject_token_audience.unwrap_or_default(),
             created_at,
-            updated_at: Some(rpc::Timestamp::from(value.updated_at)),
+            updated_at: Some(rpc::Timestamp::from(row.updated_at)),
         })
     }
 }
@@ -954,7 +1028,7 @@ mod tests {
             default_audience: "api".to_string(),
             allowed_audiences: vec!["api".to_string(), "other".to_string()],
             token_ttl_sec: 3600,
-            subject_prefix: "example.com".to_string(),
+            subject_prefix: None,
             rotate_key: false,
         };
         let bounds = IdentityConfigValidationBounds {
@@ -962,17 +1036,64 @@ mod tests {
             token_ttl_max_sec: 86400,
             algorithm: "ES256".to_string(),
             encryption_key_id: "test-master".to_string(),
+            trust_domain_allowlist: vec![],
         };
         let config = IdentityConfig::try_from_proto(proto, &bounds).unwrap();
         assert_eq!(config.issuer, "https://issuer.example.com");
         assert_eq!(config.default_audience, "api");
         assert_eq!(config.allowed_audiences, vec!["api", "other"]);
         assert_eq!(config.token_ttl_sec, 3600);
-        assert_eq!(config.subject_prefix, "example.com");
+        assert_eq!(config.subject_prefix, "spiffe://issuer.example.com");
         assert!(config.enabled);
         assert!(!config.rotate_key);
         assert_eq!(config.algorithm, "ES256");
         assert_eq!(config.encryption_key_id, "test-master");
+    }
+
+    #[test]
+    fn identity_config_try_from_proto_stores_normalized_issuer() {
+        let proto = rpc_forge::IdentityConfig {
+            enabled: true,
+            issuer: "HTTPS://Issuer.EXAMPLE.COM/wl".to_string(),
+            default_audience: "api".to_string(),
+            allowed_audiences: vec![],
+            token_ttl_sec: 3600,
+            subject_prefix: None,
+            rotate_key: false,
+        };
+        let bounds = IdentityConfigValidationBounds {
+            token_ttl_min_sec: 60,
+            token_ttl_max_sec: 86400,
+            algorithm: "ES256".to_string(),
+            encryption_key_id: "test-master".to_string(),
+            trust_domain_allowlist: vec![],
+        };
+        let config = IdentityConfig::try_from_proto(proto, &bounds).unwrap();
+        assert_eq!(config.issuer, "https://issuer.example.com/wl");
+        assert_eq!(config.subject_prefix, "spiffe://issuer.example.com");
+    }
+
+    #[test]
+    fn identity_config_try_from_proto_rejects_unsupported_algorithm() {
+        let proto = rpc_forge::IdentityConfig {
+            enabled: true,
+            issuer: "https://issuer.example.com".to_string(),
+            default_audience: "api".to_string(),
+            allowed_audiences: vec!["api".to_string()],
+            token_ttl_sec: 3600,
+            subject_prefix: None,
+            rotate_key: false,
+        };
+        let bounds = IdentityConfigValidationBounds {
+            token_ttl_min_sec: 60,
+            token_ttl_max_sec: 86400,
+            algorithm: "RS256".to_string(),
+            encryption_key_id: "test".to_string(),
+            trust_domain_allowlist: vec![],
+        };
+        let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
+        assert!(err.0.contains("machine_identity.algorithm"));
+        assert!(err.0.contains("RS256"));
     }
 
     #[test]
@@ -983,7 +1104,7 @@ mod tests {
             default_audience: "api".to_string(),
             allowed_audiences: vec![],
             token_ttl_sec: 3600,
-            subject_prefix: "example.com".to_string(),
+            subject_prefix: None,
             rotate_key: false,
         };
         let bounds = IdentityConfigValidationBounds {
@@ -991,6 +1112,7 @@ mod tests {
             token_ttl_max_sec: 86400,
             algorithm: "ES256".to_string(),
             encryption_key_id: "test".to_string(),
+            trust_domain_allowlist: vec![],
         };
         let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("issuer is required"));
@@ -1004,7 +1126,7 @@ mod tests {
             default_audience: String::new(),
             allowed_audiences: vec![],
             token_ttl_sec: 3600,
-            subject_prefix: "example.com".to_string(),
+            subject_prefix: None,
             rotate_key: false,
         };
         let bounds = IdentityConfigValidationBounds {
@@ -1012,20 +1134,21 @@ mod tests {
             token_ttl_max_sec: 86400,
             algorithm: "ES256".to_string(),
             encryption_key_id: "test".to_string(),
+            trust_domain_allowlist: vec![],
         };
         let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("default_audience is required"));
     }
 
     #[test]
-    fn identity_config_try_from_proto_empty_subject_domain() {
+    fn identity_config_try_from_proto_accepts_custom_subject_prefix_in_proto() {
         let proto = rpc_forge::IdentityConfig {
             enabled: true,
             issuer: "https://issuer.example.com".to_string(),
             default_audience: "api".to_string(),
             allowed_audiences: vec![],
             token_ttl_sec: 3600,
-            subject_prefix: String::new(),
+            subject_prefix: Some("spiffe://issuer.example.com/workloads".to_string()),
             rotate_key: false,
         };
         let bounds = IdentityConfigValidationBounds {
@@ -1033,9 +1156,79 @@ mod tests {
             token_ttl_max_sec: 86400,
             algorithm: "ES256".to_string(),
             encryption_key_id: "test".to_string(),
+            trust_domain_allowlist: vec![],
+        };
+        let config = IdentityConfig::try_from_proto(proto, &bounds).unwrap();
+        assert_eq!(
+            config.subject_prefix,
+            "spiffe://issuer.example.com/workloads"
+        );
+    }
+
+    #[test]
+    fn identity_config_try_from_proto_empty_optional_subject_prefix_defaults() {
+        let proto = rpc_forge::IdentityConfig {
+            enabled: true,
+            issuer: "https://issuer.example.com".to_string(),
+            default_audience: "api".to_string(),
+            allowed_audiences: vec![],
+            token_ttl_sec: 3600,
+            subject_prefix: Some(String::new()),
+            rotate_key: false,
+        };
+        let bounds = IdentityConfigValidationBounds {
+            token_ttl_min_sec: 60,
+            token_ttl_max_sec: 86400,
+            algorithm: "ES256".to_string(),
+            encryption_key_id: "test".to_string(),
+            trust_domain_allowlist: vec![],
+        };
+        let config = IdentityConfig::try_from_proto(proto, &bounds).unwrap();
+        assert_eq!(config.subject_prefix, "spiffe://issuer.example.com");
+    }
+
+    #[test]
+    fn identity_config_try_from_proto_rejects_non_spiffe_subject_prefix() {
+        let proto = rpc_forge::IdentityConfig {
+            enabled: true,
+            issuer: "https://issuer.example.com".to_string(),
+            default_audience: "api".to_string(),
+            allowed_audiences: vec![],
+            token_ttl_sec: 3600,
+            subject_prefix: Some("https://issuer.example.com/p".to_string()),
+            rotate_key: false,
+        };
+        let bounds = IdentityConfigValidationBounds {
+            token_ttl_min_sec: 60,
+            token_ttl_max_sec: 86400,
+            algorithm: "ES256".to_string(),
+            encryption_key_id: "test".to_string(),
+            trust_domain_allowlist: vec![],
         };
         let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
-        assert!(err.0.contains("subject_prefix is required"));
+        assert!(err.0.contains("spiffe://"));
+    }
+
+    #[test]
+    fn identity_config_try_from_proto_rejects_subject_prefix_trust_domain_mismatch() {
+        let proto = rpc_forge::IdentityConfig {
+            enabled: true,
+            issuer: "https://issuer.example.com".to_string(),
+            default_audience: "api".to_string(),
+            allowed_audiences: vec![],
+            token_ttl_sec: 3600,
+            subject_prefix: Some("spiffe://other.example/wl".to_string()),
+            rotate_key: false,
+        };
+        let bounds = IdentityConfigValidationBounds {
+            token_ttl_min_sec: 60,
+            token_ttl_max_sec: 86400,
+            algorithm: "ES256".to_string(),
+            encryption_key_id: "test".to_string(),
+            trust_domain_allowlist: vec![],
+        };
+        let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
+        assert!(err.0.contains("does not match"));
     }
 
     #[test]
@@ -1046,7 +1239,7 @@ mod tests {
             default_audience: "api".to_string(),
             allowed_audiences: vec![],
             token_ttl_sec: 0,
-            subject_prefix: "example.com".to_string(),
+            subject_prefix: None,
             rotate_key: false,
         };
         let bounds = IdentityConfigValidationBounds {
@@ -1054,6 +1247,7 @@ mod tests {
             token_ttl_max_sec: 86400,
             algorithm: "ES256".to_string(),
             encryption_key_id: "test".to_string(),
+            trust_domain_allowlist: vec![],
         };
         let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("token_ttl_sec"));
@@ -1067,7 +1261,7 @@ mod tests {
             default_audience: "api".to_string(),
             allowed_audiences: vec![],
             token_ttl_sec: 30,
-            subject_prefix: "example.com".to_string(),
+            subject_prefix: None,
             rotate_key: false,
         };
         let bounds = IdentityConfigValidationBounds {
@@ -1075,6 +1269,7 @@ mod tests {
             token_ttl_max_sec: 86400,
             algorithm: "ES256".to_string(),
             encryption_key_id: "test".to_string(),
+            trust_domain_allowlist: vec![],
         };
         let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("token_ttl_sec must be between"));
@@ -1088,7 +1283,7 @@ mod tests {
             default_audience: "api".to_string(),
             allowed_audiences: vec![],
             token_ttl_sec: 100000,
-            subject_prefix: "example.com".to_string(),
+            subject_prefix: None,
             rotate_key: false,
         };
         let bounds = IdentityConfigValidationBounds {
@@ -1096,9 +1291,113 @@ mod tests {
             token_ttl_max_sec: 86400,
             algorithm: "ES256".to_string(),
             encryption_key_id: "test".to_string(),
+            trust_domain_allowlist: vec![],
         };
         let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
         assert!(err.0.contains("token_ttl_sec must be between"));
+    }
+
+    #[test]
+    fn identity_config_try_from_proto_rejects_trust_domain_not_on_allowlist() {
+        let proto = rpc_forge::IdentityConfig {
+            enabled: true,
+            issuer: "https://evil.example.com".to_string(),
+            default_audience: "api".to_string(),
+            allowed_audiences: vec![],
+            token_ttl_sec: 3600,
+            subject_prefix: None,
+            rotate_key: false,
+        };
+        let bounds = IdentityConfigValidationBounds {
+            token_ttl_min_sec: 60,
+            token_ttl_max_sec: 86400,
+            algorithm: "ES256".to_string(),
+            encryption_key_id: "test".to_string(),
+            trust_domain_allowlist: vec!["login.example.com".to_string()],
+        };
+        let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
+        assert!(err.0.contains("trust domain"));
+        assert!(err.0.contains("allowlist"));
+    }
+
+    #[test]
+    fn identity_config_try_from_proto_accepts_trust_domain_matching_allowlist() {
+        let proto = rpc_forge::IdentityConfig {
+            enabled: true,
+            issuer: "https://auth.login.example.com".to_string(),
+            default_audience: "api".to_string(),
+            allowed_audiences: vec![],
+            token_ttl_sec: 3600,
+            subject_prefix: None,
+            rotate_key: false,
+        };
+        let bounds = IdentityConfigValidationBounds {
+            token_ttl_min_sec: 60,
+            token_ttl_max_sec: 86400,
+            algorithm: "ES256".to_string(),
+            encryption_key_id: "test".to_string(),
+            trust_domain_allowlist: vec!["**.login.example.com".to_string()],
+        };
+        let config = IdentityConfig::try_from_proto(proto, &bounds).unwrap();
+        assert_eq!(config.subject_prefix, "spiffe://auth.login.example.com");
+    }
+
+    #[test]
+    fn identity_config_try_from_proto_accepts_issuer_matching_second_allowlist_entry() {
+        let allowlist = vec![
+            "login.example.com".to_string(),
+            "idp.other.example".to_string(),
+            "*.tenant.example.net".to_string(),
+        ];
+        assert!(
+            validate_trust_domain_allowlist_patterns(&allowlist).is_ok(),
+            "fixture patterns valid at startup"
+        );
+        let proto = rpc_forge::IdentityConfig {
+            enabled: true,
+            issuer: "https://idp.other.example/oidc".to_string(),
+            default_audience: "api".to_string(),
+            allowed_audiences: vec![],
+            token_ttl_sec: 3600,
+            subject_prefix: None,
+            rotate_key: false,
+        };
+        let bounds = IdentityConfigValidationBounds {
+            token_ttl_min_sec: 60,
+            token_ttl_max_sec: 86400,
+            algorithm: "ES256".to_string(),
+            encryption_key_id: "test".to_string(),
+            trust_domain_allowlist: allowlist,
+        };
+        let config = IdentityConfig::try_from_proto(proto, &bounds).unwrap();
+        assert_eq!(config.issuer, "https://idp.other.example/oidc");
+        assert_eq!(config.subject_prefix, "spiffe://idp.other.example");
+    }
+
+    #[test]
+    fn identity_config_try_from_proto_rejects_when_no_allowlist_entry_matches() {
+        let allowlist = vec![
+            "login.example.com".to_string(),
+            "*.tenant.example.net".to_string(),
+        ];
+        let proto = rpc_forge::IdentityConfig {
+            enabled: true,
+            issuer: "https://idp.other.example/".to_string(),
+            default_audience: "api".to_string(),
+            allowed_audiences: vec![],
+            token_ttl_sec: 3600,
+            subject_prefix: None,
+            rotate_key: false,
+        };
+        let bounds = IdentityConfigValidationBounds {
+            token_ttl_min_sec: 60,
+            token_ttl_max_sec: 86400,
+            algorithm: "ES256".to_string(),
+            encryption_key_id: "test".to_string(),
+            trust_domain_allowlist: allowlist,
+        };
+        let err = IdentityConfig::try_from_proto(proto, &bounds).unwrap_err();
+        assert!(err.0.contains("allowlist"));
     }
 
     #[test]

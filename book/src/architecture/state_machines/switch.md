@@ -39,7 +39,7 @@ Ready --> ReProvisioning : reprovision requested
 ReProvisioning --> Ready : firmware upgrade Completed
 ReProvisioning --> Error : firmware upgrade Failed
 
-Error --> Deleting/ReProvisioning : marked for deletion or enter into ReProvisioning
+Error --> Deleting : marked for deletion or wait for manual intervention
 
 Deleting --> [*] : final delete
 @enduml
