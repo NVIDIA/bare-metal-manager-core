@@ -187,10 +187,7 @@ pub async fn assign_static_address(
     // Resolve the correct segment for this IP and update the interface
     // if needed. IPs within a managed prefix go on that prefix's segment.
     // External IPs go on the static-assignments anchor segment.
-    let target_segment = match db::network_segment::for_relay(&mut txn, ip_address).await? {
-        Some(seg) => seg,
-        None => db::network_segment::static_assignments(&mut txn).await?,
-    };
+    let target_segment = resolve_segment_for_static_ip(txn.as_pgconn(), ip_address).await?;
 
     let current_iface = db::machine_interface::find_one(txn.as_pgconn(), interface_id).await?;
     if current_iface.segment_id != target_segment.id {

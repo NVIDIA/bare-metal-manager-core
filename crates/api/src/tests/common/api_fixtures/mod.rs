@@ -1727,6 +1727,8 @@ pub async fn create_test_env_with_overrides(
 
         // Create static-assignments "anchor segment"
         create_static_assignments_segment(&api).await;
+        network_controller.run_single_iteration().await;
+        network_controller.run_single_iteration().await;
 
         (admin, underlay)
     } else {

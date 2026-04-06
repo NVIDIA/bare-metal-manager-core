@@ -76,6 +76,6 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
 
     assert!(carbide_machines_per_state.contains(&(
         "{fresh=\"true\",state=\"ready\",substate=\"\"}".to_string(),
-        "2".to_string()
+        "3".to_string()
     )));
 }
