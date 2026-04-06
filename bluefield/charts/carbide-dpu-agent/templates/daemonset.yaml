@@ -49,7 +49,11 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          args: ["run"]
+          args:
+            - run
+            - "--hbn-config-mode=nvue-rest"
+            - "--agent-platform-type=containerized"
+            - "--discovery-info-file={{ .Values.discovery.hardware_file }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           {{- with toYaml .Values.serviceDaemonSet.resources }}
           resources:

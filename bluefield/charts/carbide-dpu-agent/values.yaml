@@ -24,3 +24,6 @@ securityContext:
       - DAC_OVERRIDE
       - NET_RAW
 tolerations: []
+
+discovery:
+  hardware_file: "/etc/carbide/discovery_info.json"
