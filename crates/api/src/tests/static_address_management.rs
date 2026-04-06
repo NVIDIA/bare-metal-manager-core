@@ -702,3 +702,91 @@ async fn test_dhcp_does_not_move_interface_with_static_address(
 
     Ok(())
 }
+
+/// On a reserved segment, a device with a static reservation gets
+/// its reserved IP via DHCP.
+#[crate::sqlx_test]
+async fn test_reserved_segment_serves_static_reservation(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac = MacAddress::from_str("aa:bb:cc:dd:ee:30").unwrap();
+    let reserved_ip: IpAddr = "192.0.2.230".parse().unwrap();
+
+    // Set the admin segment to reserved allocation strategy.
+    let mut txn = env.pool.begin().await?;
+    sqlx::query("UPDATE network_segments SET allocation_strategy = 'reserved' WHERE id = $1")
+        .bind(env.admin_segment.unwrap())
+        .execute(&mut *txn)
+        .await?;
+    txn.commit().await?;
+
+    // Create a static reservation for this MAC on the admin segment.
+    let mut txn = env.pool.begin().await?;
+    let admin_seg = db::network_segment::admin(&mut txn).await?;
+    db::machine_interface::create(
+        &mut txn,
+        &admin_seg,
+        &bmc_mac,
+        admin_seg.subdomain_id,
+        true,
+        model::address_selection_strategy::AddressSelectionStrategy::StaticAddress(reserved_ip),
+    )
+    .await?;
+    txn.commit().await?;
+
+    // DHCP discover -- should get the reserved IP.
+    let mac_str = bmc_mac.to_string();
+    let response = env
+        .api
+        .discover_dhcp(
+            common::rpc_builder::DhcpDiscovery::builder(&mac_str, FIXTURE_DHCP_RELAY_ADDRESS)
+                .tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    assert_eq!(
+        response.address,
+        reserved_ip.to_string(),
+        "should get the reserved IP"
+    );
+
+    Ok(())
+}
+
+/// On a reserved segment, a device without a static reservation
+/// gets no DHCP response (the discover fails).
+#[crate::sqlx_test]
+async fn test_reserved_segment_rejects_unknown_mac(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    // Set the admin segment to reserved allocation strategy.
+    let mut txn = env.pool.begin().await?;
+    sqlx::query("UPDATE network_segments SET allocation_strategy = 'reserved' WHERE id = $1")
+        .bind(env.admin_segment.unwrap())
+        .execute(&mut *txn)
+        .await?;
+    txn.commit().await?;
+
+    // DHCP discover with an unknown MAC -- should fail.
+    let result = env
+        .api
+        .discover_dhcp(
+            common::rpc_builder::DhcpDiscovery::builder(
+                "aa:bb:cc:dd:ee:31",
+                FIXTURE_DHCP_RELAY_ADDRESS,
+            )
+            .tonic_request(),
+        )
+        .await;
+
+    assert!(
+        result.is_err(),
+        "reserved segment should reject unknown MAC"
+    );
+
+    Ok(())
+}

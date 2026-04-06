@@ -133,6 +133,7 @@ pub async fn ensure_static_assignments_segment(
         vni: None,
         segment_type: NetworkSegmentType::Underlay,
         can_stretch: Some(false),
+        allocation_strategy: model::network_segment::AllocationStrategy::Reserved,
     };
     crate::handlers::network_segment::save(api, txn, ns, true, false).await?;
     tracing::info!("Created internal {segment_name} segment for holding static assignments");

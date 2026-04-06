@@ -35,7 +35,7 @@ use model::hardware_info::HardwareInfo;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_prefix::NetworkPrefix;
-use model::network_segment::{NetworkSegment, NetworkSegmentType};
+use model::network_segment::{AllocationStrategy, NetworkSegment, NetworkSegmentType};
 use model::predicted_machine_interface::PredictedMachineInterface;
 use sqlx::{FromRow, PgConnection, PgTransaction};
 
@@ -356,6 +356,16 @@ pub async fn validate_existing_mac_and_create(
             };
 
             if let Some(segment) = network_segment {
+                // If the segment only allows static reservations, reject
+                // dynamic allocation. The device must have a pre-existing
+                // static reservation to get an IP on this segment.
+                if segment.allocation_strategy == AllocationStrategy::Reserved {
+                    return Err(DatabaseError::internal(format!(
+                        "segment {} configured for static DHCP leases only; no static reservation for MAC {mac_address}",
+                        segment.name,
+                    )));
+                }
+
                 // TODO: add fixed_ip handling
                 if let Some(expected_nic) = host_nic.clone()
                     && let Some(ipaddr) = expected_nic.fixed_ip

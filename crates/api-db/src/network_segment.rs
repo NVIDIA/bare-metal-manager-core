@@ -115,8 +115,9 @@ pub async fn persist(
                 vlan_id,
                 vni_id,
                 network_segment_type,
-                can_stretch)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                can_stretch,
+                allocation_strategy)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING id";
     let segment_id: NetworkSegmentId = sqlx::query_as(query)
         .bind(value.id)
@@ -131,6 +132,7 @@ pub async fn persist(
         .bind(value.vni)
         .bind(value.segment_type)
         .bind(value.can_stretch)
+        .bind(value.allocation_strategy)
         .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
