@@ -1524,6 +1524,8 @@ dependencies = [
  "bmc-mock",
  "carbide-api-test-helper",
  "carbide-machine-a-tron",
+ "carbide-rpc",
+ "carbide-tls",
  "carbide-utils",
  "ctor",
  "eyre",

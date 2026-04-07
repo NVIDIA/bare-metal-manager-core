@@ -31,6 +31,8 @@ use eyre::ContextCompat;
 use futures::FutureExt;
 use futures::future::join_all;
 use itertools::Itertools;
+use rpc::forge_api_client::{FailOverOn, ForgeApiClient};
+use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig, RetryConfig};
 use sqlx::{Postgres, Row};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
@@ -157,6 +159,8 @@ async fn test_integration() -> eyre::Result<()> {
             Ipv4Addr::new(10, 10, 11, 2),
         )
         .boxed(),
+        test_power_shelf_discovery(&test_env, &bmc_address_registry).boxed(),
+        test_switch_discovery(&test_env, &bmc_address_registry).boxed(),
     ]);
 
     tokio::select! {
@@ -668,6 +672,231 @@ where
     assert_eq!(results.len(), host_count as usize);
 
     results.into_iter().try_collect()
+}
+
+/// Build a typed ForgeApiClient from the test environment's API addresses.
+fn build_api_client(test_env: &IntegrationTestEnvironment) -> ForgeApiClient {
+    let forge_client_config = ForgeClientConfig::new(
+        forge_tls::client_config::get_forge_root_ca_path(None, None),
+        None,
+    );
+    let url = format!(
+        "https://{}:{}",
+        test_env.carbide_api_addrs[0].ip(),
+        test_env.carbide_api_addrs[0].port()
+    );
+    let additional_urls: Vec<String> = test_env.carbide_api_addrs[1..]
+        .iter()
+        .map(|a| format!("https://{}:{}", a.ip(), a.port()))
+        .collect();
+    let api_config = ApiConfig::new_with_multiple_urls(
+        &url,
+        &additional_urls,
+        &forge_client_config,
+        RetryConfig {
+            retries: 10,
+            interval: Duration::from_secs(1),
+        },
+    );
+    ForgeApiClient::new_with_failover_behavior(&api_config, FailOverOn::EveryApiCall)
+}
+
+/// Test that a power shelf BMC can be discovered through the full site explorer flow.
+/// This exercises the credential fallback path in BmcEndpointExplorer where Vault has
+/// no entry for a new device and the explorer falls back to expected power shelf credentials.
+///
+/// This test is mainly targeted at Lite-On power shelves, which, for now, don't expose
+/// vendor details through the service root, and we need to "fall back" to doing a
+/// Chassis call.
+async fn test_power_shelf_discovery(
+    test_env: &IntegrationTestEnvironment,
+    bmc_mock_registry: &BmcMockRegistry,
+) -> eyre::Result<()> {
+    let client = build_api_client(test_env);
+
+    // Create a Lite-On power shelf BMC mock. HostMachineInfo::new generates a unique MAC address.
+    let host_info = bmc_mock::HostMachineInfo::new(HostHardwareType::LiteOnPowerShelf, vec![]);
+    let bmc_mac = host_info.bmc_mac_address;
+    let serial = host_info.serial.clone();
+
+    let (router, _bmc_state) = bmc_mock::machine_router(
+        bmc_mock::MachineInfo::Host(host_info),
+        Arc::new(bmc_mock::test_support::NoopCallbacks),
+        format!("ps-test-{bmc_mac}"),
+    );
+
+    // Register the expected power shelf via our API client.
+    // The metadata name must match the serial number because site-explorer still
+    // uses it as the created power shelf's config name, and the linked query joins
+    // on expected serial_number = power_shelf config name.
+    client
+        .add_expected_power_shelf(rpc::forge::ExpectedPowerShelf {
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "root".into(),
+            bmc_password: "password".into(),
+            shelf_serial_number: serial.clone(),
+            metadata: Some(rpc::forge::Metadata {
+                name: serial.clone(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .await?;
+    tracing::info!(%bmc_mac, "Added expected power shelf");
+
+    // Simulate DHCP discovery for the BMC MAC.
+    // The underlay relay address (172.20.1.1) places the interface
+    // into the underlay segment that site-explorer scans.
+    let dhcp_record = client
+        .discover_dhcp(rpc::forge::DhcpDiscovery {
+            mac_address: bmc_mac.to_string(),
+            relay_address: "172.20.1.1".into(),
+            ..Default::default()
+        })
+        .await?;
+    let assigned_ip = &dhcp_record.address;
+    tracing::info!(%bmc_mac, %assigned_ip, "DHCP assigned IP for power shelf BMC");
+
+    // Register the BMC mock router in the shared registry
+    // at the discovered IP. The CombinedServer routes requests
+    // to this router based on the Forwarded header.
+    bmc_mock_registry
+        .write()
+        .await
+        .insert(assigned_ip.clone(), router);
+    tracing::info!(%assigned_ip, "Registered power shelf BMC mock in registry");
+
+    // Wait for the site explorer to link the expected
+    // power shelf to a managed one.
+    let start = time::Instant::now();
+    let max_wait = Duration::from_secs(120);
+    let power_shelf_id = loop {
+        if start.elapsed() > max_wait {
+            panic!("Power shelf with BMC MAC {bmc_mac} was not linked after {max_wait:?}");
+        }
+        let linked = client.get_all_expected_power_shelves_linked().await?;
+        if let Some(id) = linked
+            .expected_power_shelves
+            .iter()
+            .find(|e| e.bmc_mac_address == bmc_mac.to_string())
+            .and_then(|entry| entry.power_shelf_id.as_ref())
+        {
+            break *id;
+        }
+        sleep(Duration::from_secs(2)).await;
+    };
+    tracing::info!(%bmc_mac, %power_shelf_id, "Expected power shelf linked to managed power shelf");
+
+    // Verify the created power shelf by fetching it via FindPowerShelvesByIds.
+    let power_shelves = client
+        .find_power_shelves_by_ids(rpc::forge::PowerShelvesByIdsRequest {
+            power_shelf_ids: vec![power_shelf_id],
+        })
+        .await?;
+    let power_shelf = power_shelves
+        .power_shelves
+        .first()
+        .context("FindPowerShelvesByIds returned no results")?;
+    assert_eq!(
+        power_shelf.id.as_ref().unwrap(),
+        &power_shelf_id,
+        "Power shelf ID should match the linked ID"
+    );
+
+    tracing::info!(%bmc_mac, %power_shelf_id, "Power shelf discovery test passed");
+    Ok(())
+}
+
+/// Test that an switch BMC (NVIDIA ND5200_LD in this case)
+/// can be discovered through the full site explorer flow.
+async fn test_switch_discovery(
+    test_env: &IntegrationTestEnvironment,
+    bmc_mock_registry: &BmcMockRegistry,
+) -> eyre::Result<()> {
+    let client = build_api_client(test_env);
+
+    // Create an switch BMC mock. HostMachineInfo::new
+    // generates a unique MAC address.
+    let host_info = bmc_mock::HostMachineInfo::new(HostHardwareType::NvidiaSwitchNd5200Ld, vec![]);
+    let bmc_mac = host_info.bmc_mac_address;
+    let serial = host_info.serial.clone();
+
+    let (router, _bmc_state) = bmc_mock::machine_router(
+        bmc_mock::MachineInfo::Host(host_info),
+        Arc::new(bmc_mock::test_support::NoopCallbacks),
+        format!("sw-test-{bmc_mac}"),
+    );
+
+    // Register expected switch (via our API client).
+    client
+        .add_expected_switch(rpc::forge::ExpectedSwitch {
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "root".into(),
+            bmc_password: "password".into(),
+            switch_serial_number: serial.clone(),
+            ..Default::default()
+        })
+        .await?;
+    tracing::info!(%bmc_mac, "Added expected switch");
+
+    // Simulate DHCP discovery for the BMC MAC.
+    let dhcp_record = client
+        .discover_dhcp(rpc::forge::DhcpDiscovery {
+            mac_address: bmc_mac.to_string(),
+            relay_address: "172.20.1.1".into(),
+            ..Default::default()
+        })
+        .await?;
+    let assigned_ip = &dhcp_record.address;
+    tracing::info!(%bmc_mac, %assigned_ip, "DHCP assigned IP for switch BMC");
+
+    // Register the BMC mock router in the shared registry
+    // at the discovered IP.
+    bmc_mock_registry
+        .write()
+        .await
+        .insert(assigned_ip.clone(), router);
+    tracing::info!(%assigned_ip, "Registered switch BMC mock in registry");
+
+    // Wait for the site explorer to link the expected
+    // switch to a managed one.
+    let start = time::Instant::now();
+    let max_wait = Duration::from_secs(120);
+    let switch_id = loop {
+        if start.elapsed() > max_wait {
+            panic!("Switch with BMC MAC {bmc_mac} was not linked after {max_wait:?}");
+        }
+        let linked = client.get_all_expected_switches_linked().await?;
+        if let Some(id) = linked
+            .expected_switches
+            .iter()
+            .find(|e| e.bmc_mac_address == bmc_mac.to_string())
+            .and_then(|entry| entry.switch_id.as_ref())
+        {
+            break *id;
+        }
+        sleep(Duration::from_secs(2)).await;
+    };
+    tracing::info!(%bmc_mac, %switch_id, "Expected switch linked to managed switch");
+
+    // Verify the created switch by fetching it via FindSwitchesByIds.
+    let switches = client
+        .find_switches_by_ids(rpc::forge::SwitchesByIdsRequest {
+            switch_ids: vec![switch_id],
+        })
+        .await?;
+    let switch = switches
+        .switches
+        .first()
+        .context("FindSwitchesByIds returned no results")?;
+    assert_eq!(
+        switch.id.as_ref().unwrap(),
+        &switch_id,
+        "Switch ID should match the linked ID"
+    );
+
+    tracing::info!(%bmc_mac, %switch_id, "Switch discovery test passed");
+    Ok(())
 }
 
 // Get the current number of rows in the dns_records view,

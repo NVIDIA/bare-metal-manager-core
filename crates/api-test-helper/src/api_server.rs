@@ -199,6 +199,10 @@ pub async fn start(
         explorations_per_run = 90
         create_machines = true
         machines_created_per_run = 30
+        create_power_shelves = true
+        power_shelves_created_per_run = 5
+        create_switches = true
+        switches_created_per_run = 5
         allow_zero_dpu_hosts = true
         allow_proxy_to_unknown_host = false
         {bmc_proxy_cfg}

@@ -289,7 +289,7 @@ pub fn event_log_to_string(event_log: &Option<Vec<u8>>) -> String {
 pub async fn compare_pub_key_against_cert(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-    ek_pub: &Vec<u8>,
+    ek_pub: &[u8],
 ) -> CarbideResult<(bool, rsa::RsaPublicKey)> {
     let tpm_ek_cert = get_ek_cert_by_machine_id(txn, machine_id).await?;
     #[cfg(feature = "linux-build")]
@@ -371,7 +371,7 @@ pub mod linux_build {
 
     pub fn do_compare_pub_key_against_cert(
         tpm_ek_cert: &TpmEkCertificate,
-        ek_pub: &Vec<u8>,
+        ek_pub: &[u8],
     ) -> CarbideResult<(bool, rsa::RsaPublicKey)> {
         // compare the pub key and the cert
 

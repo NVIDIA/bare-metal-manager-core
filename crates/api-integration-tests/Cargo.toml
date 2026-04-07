@@ -29,6 +29,8 @@ carbide-machine-a-tron = { path = "../machine-a-tron" }
 carbide-utils = { path = "../utils", features = ["sqlx"] }
 carbide-api-test-helper = { path = "../api-test-helper" }
 bmc-mock = { path = "../bmc-mock" }
+carbide-rpc = { path = "../rpc" }
+carbide-tls = { path = "../tls" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized
