@@ -25,7 +25,9 @@ use model::expected_machine::ExpectedMachineData;
 use model::hardware_info::HardwareInfo;
 use model::machine::machine_id::host_id_from_dpu_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::machine::{Machine, MachineInterfaceSnapshot, ManagedHostState};
+use model::machine::{
+    DpuDiscoveringState, DpuDiscoveringStates, Machine, MachineInterfaceSnapshot, ManagedHostState,
+};
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::NetworkSegmentType;
 use model::predicted_machine_interface::NewPredictedMachineInterface;
@@ -165,9 +167,24 @@ impl MachineCreator {
         db::machine::update_state(
             &mut txn,
             &host_machine_id,
-            &ManagedHostState::VerifyRmsMembership,
+            &ManagedHostState::DpuDiscoveringState {
+                dpu_states: DpuDiscoveringStates {
+                    states: dpu_ids
+                        .iter()
+                        .copied()
+                        .map(|id| (id, DpuDiscoveringState::Initializing))
+                        .collect(),
+                },
+            },
         )
         .await?;
+
+        if let Some(rack_id) = machine_data.and_then(|d| d.rack_id.as_ref()) {
+            tracing::info!(%rack_id, %host_machine_id, "Ensuring rack exists for host machine");
+            if let Some(rack) = crate::site_explorer::ensure_rack_exists(&mut txn, rack_id).await? {
+                tracing::info!(%rack_id, "Rack exists for host machine {host_machine_id}: {rack:#?}");
+            }
+        }
 
         txn.commit().await?;
 

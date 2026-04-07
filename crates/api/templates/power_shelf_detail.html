@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}Power Shelf {{ id }}{% endblock %}
+
+{% block content %}
+<div id="json">
+	<a id="json-link" href="">JSON</a>
+</div>
+<h1>Power Shelf {{ id }}</h1>
+
+<h2>Info</h2>
+<table class="detailsview">
+	<tr>
+		<th>ID</th>
+		<td><a href="/admin/power-shelf/{{ id }}">{{ id }}</a></td>
+	</tr>
+	<tr>
+		<th>State</th>
+		<td>
+			{% if controller_state == "Ready" %}
+				<span class="bubble success">{{ controller_state }}</span>
+			{% else if controller_state.to_lowercase().contains("error") || controller_state.to_lowercase().contains("failed") %}
+				<span class="bubble error">{{ controller_state }}</span>
+			{% else %}
+				<span class="bubble">{{ controller_state }}</span>
+			{% endif %}
+		</td>
+	</tr>
+	<tr>
+		<th>State Handler Outcome</th>
+		<td>{{ state_reason|controller_state_reason_fmt|safe }}</td>
+	</tr>
+	<tr>
+		<th>State Version</th>
+		<td>{{ state_version|config_version|safe }}</td>
+	</tr>
+	<tr>
+		<th>Time in State</th>
+		<td>{{ time_in_state }}</td>
+	</tr>
+	{% if let Some(power_state) = power_state %}
+	<tr>
+		<th>Power State</th>
+		<td>{{ power_state }}</td>
+	</tr>
+	{% endif %}
+</table>
+
+<h2>Configuration</h2>
+<table class="detailsview">
+	<tr>
+		<th>Name</th>
+		<td>{{ name }}</td>
+	</tr>
+	<tr>
+		<th>Location</th>
+		<td>{{ location }}</td>
+	</tr>
+	<tr>
+		<th>Capacity (W)</th>
+		<td>{{ capacity }}</td>
+	</tr>
+	<tr>
+		<th>Voltage (V)</th>
+		<td>{{ voltage }}</td>
+	</tr>
+</table>
+
+<h2>Metadata</h2>
+{{ metadata_detail|safe }}
+
+<h2>BMC</h2>
+<table class="detailsview">
+	{% if let Some(bmc_info) = bmc_info %}
+	{% if let Some(ip) = bmc_info.ip %}
+	<tr>
+		<th>BMC IP</th>
+		<td>{{ ip }}</td>
+	</tr>
+	{% endif %}
+	{% if let Some(mac) = bmc_info.mac %}
+	<tr>
+		<th>BMC MAC</th>
+		<td>{{ mac }}</td>
+	</tr>
+	{% endif %}
+	{% if let Some(version) = bmc_info.version %}
+	<tr>
+		<th>BMC Version</th>
+		<td>{{ version }}</td>
+	</tr>
+	{% endif %}
+	{% if let Some(firmware_version) = bmc_info.firmware_version %}
+	<tr>
+		<th>BMC Firmware Version</th>
+		<td>{{ firmware_version }}</td>
+	</tr>
+	{% endif %}
+	{% else %}
+	<tr>
+		<td colspan="2" class="text-muted">No BMC info available.</td>
+	</tr>
+	{% endif %}
+</table>
+
+<h2>History</h2>
+<a href="/admin/power-shelf/{{ id }}/state-history">Open State History</a>
+
+{% endblock %}

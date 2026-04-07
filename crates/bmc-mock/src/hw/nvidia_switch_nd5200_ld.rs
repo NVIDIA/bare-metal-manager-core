@@ -72,7 +72,7 @@ impl NvidiaSwitchNd5200Ld<'_> {
                 eth_interfaces: None,
                 serial_number: None,
                 boot_order_mode: redfish::computer_system::BootOrderMode::Generic,
-                power_control: None,
+                callbacks: None,
                 chassis: vec!["BMC_eeprom".into()],
                 boot_options: None,
                 bios_mode: redfish::computer_system::BiosMode::Generic,

@@ -71,7 +71,7 @@ struct TestOut {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_etv_nvue() -> eyre::Result<()> {
     let expected = include_str!("../../templates/tests/full_nvue_startup_etv.yaml.expected");
-    test_nvue_generic(VpcVirtualizationType::EthernetVirtualizerWithNvue, expected).await
+    test_nvue_generic(VpcVirtualizationType::EthernetVirtualizer, expected).await
 }
 
 // test_fnn_l3 tests that config is being generated successfully
@@ -162,7 +162,7 @@ async fn test_nvue_generic(
 #[tokio::test(flavor = "multi_thread")]
 // Test retrieving instance metadata using FMDS
 pub async fn test_fmds_get_data() -> eyre::Result<()> {
-    let out = run_common_parts(VpcVirtualizationType::EthernetVirtualizerWithNvue, true).await?;
+    let out = run_common_parts(VpcVirtualizationType::EthernetVirtualizer, true).await?;
     if out.is_skip {
         return Ok(());
     }
@@ -412,7 +412,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     let config_version = format!("V{}-T{}", 1, now().timestamp_micros());
 
     let vpc_peer_prefixes = match virtualization_type {
-        VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+        VpcVirtualizationType::EthernetVirtualizer => {
             vec!["10.217.6.176/29".to_string()]
         }
         VpcVirtualizationType::Fnn => {
@@ -422,7 +422,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
     };
 
     let vpc_peer_vnis = match virtualization_type {
-        VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+        VpcVirtualizationType::EthernetVirtualizer => {
             vec![]
         }
         VpcVirtualizationType::Fnn => {
@@ -831,6 +831,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             vni: 22222,
         }],
         routing_profile: Some(rpc::forge::RoutingProfile {
+            tenant_leak_communities_accepted: false,
             leak_default_route_from_underlay: false,
             leak_tenant_host_routes_to_underlay: false,
             route_target_imports: vec![rpc_common::RouteTarget {

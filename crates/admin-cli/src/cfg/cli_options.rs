@@ -195,7 +195,7 @@ pub enum CliCommand {
     #[clap(about = "Site explorer functions", subcommand)]
     SiteExplorer(site_explorer::Cmd),
     #[clap(
-        about = "List of all Machine interfaces",
+        about = "Machine interfaces and address management",
         subcommand,
         visible_alias = "mi"
     )]

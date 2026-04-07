@@ -154,6 +154,33 @@ pub fn parse_carbide_config(
     // part_number and psid values. Mismatches are logged as warnings.
     config.validate_supernic_firmware_profiles();
 
+    model::tenant::validate_trust_domain_allowlist_patterns(
+        &config.machine_identity.trust_domain_allowlist,
+    )
+    .map_err(|e| eyre::eyre!(e).wrap_err("Invalid configuration"))?;
+
+    model::tenant::validate_token_endpoint_domain_allowlist_patterns(
+        &config.machine_identity.token_endpoint_domain_allowlist,
+    )
+    .map_err(|e| eyre::eyre!(e).wrap_err("Invalid configuration"))?;
+
+    if config.machine_identity.enabled {
+        if config.machine_identity.current_encryption_key_id.is_none() {
+            return Err(eyre::eyre!(
+                "current_encryption_key_id must be set in [machine_identity] when machine identity is enabled"
+            )
+            .wrap_err("Invalid configuration"));
+        }
+        if config.machine_identity.algorithm != model::tenant::TENANT_IDENTITY_SIGNING_JWT_ALG {
+            return Err(eyre::eyre!(
+                "machine_identity.algorithm must be {} (only ES256 signing is implemented); got {:?}",
+                model::tenant::TENANT_IDENTITY_SIGNING_JWT_ALG,
+                config.machine_identity.algorithm
+            )
+            .wrap_err("Invalid configuration"));
+        }
+    }
+
     tracing::trace!("Carbide config: {:#?}", config.redacted());
     Ok(Arc::new(config))
 }
@@ -397,23 +424,53 @@ pub async fn start_api(
             None
         };
 
-        let bfb_url = if carbide_config.dpf.bfb_url.is_empty() {
+        let bfb_url = if carbide_config.dpf.v2 && carbide_config.dpf.bfb_url.is_empty() {
+            // This should move to cfg/file as a default value once v2 is the only mode.
+            "https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.2.0-113_25.10_ubuntu-22.04_prod.bfb".to_string()
+        } else if carbide_config.dpf.bfb_url.is_empty() {
             crate::dpf::resolve_bfb_url().await?
         } else {
             carbide_config.dpf.bfb_url.clone()
         };
 
+        // This is just temparary code until we make v2 only option. (just 2 weeks)
+        // Soon v2 flag will be removed and will become only mode for dpf handling.
         let init_config = carbide_dpf::InitDpfResourcesConfig {
             bfb_url,
-            deployment_name: carbide_config.dpf.deployment_name.clone(),
             flavor_name: carbide_config.dpf.flavor_name.clone(),
-            services,
-            bfcfg_template,
+            deployment_name: if carbide_config.dpf.v2 {
+                // We can't keep name longer than 20 chars (DPF restriction)
+                "nico-deployment-v2".to_string()
+            } else {
+                carbide_config.dpf.deployment_name.clone()
+            },
+            services: if carbide_config.dpf.v2 {
+                // Enable all the services.
+                Vec::new()
+            } else {
+                services
+            },
+            bfcfg_template: if carbide_config.dpf.v2 {
+                // We use default bf.cfg.
+                None
+            } else {
+                bfcfg_template
+            },
+            dpu_flavor: if carbide_config.dpf.v2 {
+                Some((*carbide_config).clone().into())
+            } else {
+                None
+            },
         };
 
         let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
             .with_labeler(crate::dpf::CarbideDPFLabeler::new(
-                carbide_config.dpf.node_label_key.clone(),
+                if carbide_config.dpf.v2 {
+                    // This will be removed and moved to config file when v1 code is deleted.
+                    "carbide.nvidia.com/controlled.node.v2".to_string()
+                } else {
+                    carbide_config.dpf.node_label_key.clone()
+                },
             ))
             .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
             .with_join_set(join_set)
@@ -536,6 +593,7 @@ pub async fn initialize_and_start_controllers(
         work_lock_manager_handle,
         rms_client,
         dpf_sdk,
+        credential_manager,
         ..
     } = api_service.as_ref();
     // As soon as we get the database up, observe this version of forge so that we know when it was
@@ -748,6 +806,7 @@ pub async fn initialize_and_start_controllers(
         site_config: carbide_config.clone(),
         dpa_info,
         rms_client: rms_client.clone(),
+        credential_manager: credential_manager.clone(),
     });
 
     // Use the hostname as cluster-wide state controller ID
@@ -973,6 +1032,7 @@ pub async fn initialize_and_start_controllers(
         Some(upload_limiter),
         Some(api_service.credential_manager.clone()),
         work_lock_manager_handle.clone(),
+        bmc_explorer.clone(),
     )
     .start(join_set, cancel_token.clone())?;
 

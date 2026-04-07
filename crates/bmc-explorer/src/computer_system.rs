@@ -311,6 +311,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                     id: Some(iface.id().to_string()),
                     interface_enabled: iface.interface_enabled(),
                     mac_address,
+                    link_status: iface.link_status().map(|s| format!("{s:?}")),
                     uefi_device_path,
                 })
             }).collect::<Result<Vec<_>, _>>()?;
@@ -365,6 +366,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
                         id: Some("oob_net0".to_string()),
                         interface_enabled: None,
                         mac_address: Some(mac_addr),
+                        link_status: None,
                         uefi_device_path: None,
                     })
             })

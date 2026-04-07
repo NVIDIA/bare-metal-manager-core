@@ -18,7 +18,7 @@ use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
 use model::switch::{NewSwitch, SwitchConfig, SwitchControllerState, SwitchStatus};
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{SwitchDeletionRequest, SwitchQuery};
+use rpc::forge::{AdminForceDeleteSwitchRequest, SwitchDeletionRequest, SwitchQuery};
 use tonic::Code;
 
 use crate::tests::common::api_fixtures::create_test_env;
@@ -208,6 +208,8 @@ async fn test_switch_database_operations(
         id: switch_id,
         config: config.clone(),
         bmc_mac_address: None,
+        metadata: None,
+        rack_id: None,
     };
 
     let created_switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -223,7 +225,6 @@ async fn test_switch_database_operations(
     let found_switches = db_switch::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
-        db_switch::SwitchSearchConfig::default(),
     )
     .await?;
 
@@ -259,6 +260,8 @@ async fn test_switch_status_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         id: switch_id,
         config: config.clone(),
         bmc_mac_address: None,
+        metadata: None,
+        rack_id: None,
     };
 
     let mut switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -303,6 +306,8 @@ async fn test_switch_controller_state_transitions(
         id: switch_id,
         config: config.clone(),
         bmc_mac_address: None,
+        metadata: None,
+        rack_id: None,
     };
 
     let switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -330,7 +335,6 @@ async fn test_switch_controller_state_transitions(
     let updated_switches = db_switch::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
-        db_switch::SwitchSearchConfig::default(),
     )
     .await?;
 
@@ -398,6 +402,8 @@ async fn test_switch_conversion_roundtrip(
         id: switch_id,
         config: config.clone(),
         bmc_mac_address: None,
+        metadata: None,
+        rack_id: None,
     };
 
     let mut switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -451,6 +457,8 @@ async fn test_switch_find_all(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
             id: switch_id,
             config: config.clone(),
             bmc_mac_address: None,
+            metadata: None,
+            rack_id: None,
         };
 
         let switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -492,6 +500,8 @@ async fn test_switch_controller_state_outcome(
         id: switch_id,
         config: config.clone(),
         bmc_mac_address: None,
+        metadata: None,
+        rack_id: None,
     };
 
     let _switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -506,7 +516,6 @@ async fn test_switch_controller_state_outcome(
     let updated_switches = db_switch::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
-        db_switch::SwitchSearchConfig::default(),
     )
     .await?;
 
@@ -575,6 +584,111 @@ async fn test_find_switch_bmc_info_no_matching_data(
     assert!(
         found_switch.bmc_info.is_none(),
         "bmc_info should be None when no expected switch data exists"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_force_delete_switch_success(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let switch_id = new_switch(&env, None, None).await?;
+
+    // Force delete without deleting interfaces.
+    let response = env
+        .api
+        .admin_force_delete_switch(tonic::Request::new(AdminForceDeleteSwitchRequest {
+            switch_id: Some(switch_id),
+            delete_interfaces: false,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.switch_id, switch_id.to_string());
+    assert_eq!(response.interfaces_deleted, 0);
+
+    // Verify the switch is completely gone (not just soft-deleted).
+    let find_result = env
+        .api
+        .find_switches(tonic::Request::new(SwitchQuery {
+            name: None,
+            switch_id: Some(switch_id),
+        }))
+        .await?
+        .into_inner();
+
+    assert!(
+        find_result.switches.is_empty(),
+        "Switch should be hard-deleted"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_force_delete_switch_not_found(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let non_existent_id = SwitchId::from(uuid::Uuid::new_v4());
+    let result = env
+        .api
+        .admin_force_delete_switch(tonic::Request::new(AdminForceDeleteSwitchRequest {
+            switch_id: Some(non_existent_id),
+            delete_interfaces: false,
+        }))
+        .await;
+
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().code(), Code::NotFound);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_force_delete_switch_already_soft_deleted(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let switch_id = new_switch(&env, None, None).await?;
+
+    // Soft-delete the switch first.
+    env.api
+        .delete_switch(tonic::Request::new(SwitchDeletionRequest {
+            id: Some(switch_id),
+        }))
+        .await?;
+
+    // Force-delete should still work on a soft-deleted switch.
+    let response = env
+        .api
+        .admin_force_delete_switch(tonic::Request::new(AdminForceDeleteSwitchRequest {
+            switch_id: Some(switch_id),
+            delete_interfaces: false,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.switch_id, switch_id.to_string());
+
+    // Verify completely gone.
+    let find_result = env
+        .api
+        .find_switches(tonic::Request::new(SwitchQuery {
+            name: None,
+            switch_id: Some(switch_id),
+        }))
+        .await?
+        .into_inner();
+
+    assert!(
+        find_result.switches.is_empty(),
+        "Switch should be hard-deleted after force delete"
     );
 
     Ok(())

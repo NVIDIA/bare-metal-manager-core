@@ -287,6 +287,13 @@ impl Forge for Api {
         crate::handlers::ib_partition::delete(self, request).await
     }
 
+    async fn update_ib_partition(
+        &self,
+        request: Request<rpc::IbPartitionUpdateRequest>,
+    ) -> Result<Response<rpc::IbPartition>, Status> {
+        crate::handlers::ib_partition::update(self, request).await
+    }
+
     async fn ib_partitions_for_tenant(
         &self,
         request: Request<rpc::TenantSearchQuery>,
@@ -301,11 +308,32 @@ impl Forge for Api {
         crate::handlers::power_shelf::find_power_shelf(self, request).await
     }
 
+    async fn find_power_shelf_ids(
+        &self,
+        request: Request<rpc::PowerShelfSearchFilter>,
+    ) -> Result<Response<rpc::PowerShelfIdList>, Status> {
+        crate::handlers::power_shelf::find_ids(self, request).await
+    }
+
+    async fn find_power_shelves_by_ids(
+        &self,
+        request: Request<rpc::PowerShelvesByIdsRequest>,
+    ) -> Result<Response<rpc::PowerShelfList>, Status> {
+        crate::handlers::power_shelf::find_by_ids(self, request).await
+    }
+
     async fn delete_power_shelf(
         &self,
         request: Request<rpc::PowerShelfDeletionRequest>,
     ) -> Result<Response<rpc::PowerShelfDeletionResult>, Status> {
         crate::handlers::power_shelf::delete_power_shelf(self, request).await
+    }
+
+    async fn admin_force_delete_power_shelf(
+        &self,
+        request: Request<rpc::AdminForceDeletePowerShelfRequest>,
+    ) -> Result<Response<rpc::AdminForceDeletePowerShelfResponse>, Status> {
+        crate::handlers::power_shelf::admin_force_delete_power_shelf(self, request).await
     }
 
     async fn find_switches(
@@ -315,11 +343,32 @@ impl Forge for Api {
         crate::handlers::switch::find_switch(self, request).await
     }
 
+    async fn find_switch_ids(
+        &self,
+        request: Request<rpc::SwitchSearchFilter>,
+    ) -> Result<Response<rpc::SwitchIdList>, Status> {
+        crate::handlers::switch::find_ids(self, request).await
+    }
+
+    async fn find_switches_by_ids(
+        &self,
+        request: Request<rpc::SwitchesByIdsRequest>,
+    ) -> Result<Response<rpc::SwitchList>, Status> {
+        crate::handlers::switch::find_by_ids(self, request).await
+    }
+
     async fn delete_switch(
         &self,
         request: Request<rpc::SwitchDeletionRequest>,
     ) -> Result<Response<rpc::SwitchDeletionResult>, Status> {
         crate::handlers::switch::delete_switch(self, request).await
+    }
+
+    async fn admin_force_delete_switch(
+        &self,
+        request: Request<rpc::AdminForceDeleteSwitchRequest>,
+    ) -> Result<Response<rpc::AdminForceDeleteSwitchResponse>, Status> {
+        crate::handlers::switch::admin_force_delete_switch(self, request).await
     }
 
     async fn find_ib_fabric_ids(
@@ -694,11 +743,9 @@ impl Forge for Api {
 
     async fn find_power_shelf_state_histories(
         &self,
-        _request: Request<rpc::PowerShelfStateHistoriesRequest>,
+        request: Request<rpc::PowerShelfStateHistoriesRequest>,
     ) -> Result<Response<rpc::PowerShelfStateHistories>, Status> {
-        Err(Status::unimplemented(
-            "not implemented yet -- under construction",
-        ))
+        crate::handlers::power_shelf::find_power_shelf_state_histories(self, request).await
     }
 
     async fn find_rack_state_histories(
@@ -718,8 +765,38 @@ impl Forge for Api {
     async fn find_machine_health_histories(
         &self,
         request: Request<rpc::MachineHealthHistoriesRequest>,
-    ) -> std::result::Result<Response<rpc::MachineHealthHistories>, Status> {
+    ) -> std::result::Result<Response<rpc::HealthHistories>, Status> {
         crate::handlers::machine::find_machine_health_histories(self, request).await
+    }
+
+    async fn assign_static_address(
+        &self,
+        request: Request<rpc::AssignStaticAddressRequest>,
+    ) -> Result<Response<rpc::AssignStaticAddressResponse>, Status> {
+        log_request_data(&request);
+        Ok(
+            crate::handlers::machine_interface_address::assign_static_address(self, request)
+                .await?,
+        )
+    }
+
+    async fn remove_static_address(
+        &self,
+        request: Request<rpc::RemoveStaticAddressRequest>,
+    ) -> Result<Response<rpc::RemoveStaticAddressResponse>, Status> {
+        log_request_data(&request);
+        Ok(
+            crate::handlers::machine_interface_address::remove_static_address(self, request)
+                .await?,
+        )
+    }
+
+    async fn find_interface_addresses(
+        &self,
+        request: Request<rpc::FindInterfaceAddressesRequest>,
+    ) -> Result<Response<rpc::FindInterfaceAddressesResponse>, Status> {
+        log_request_data(&request);
+        crate::handlers::machine_interface_address::find_interface_addresses(self, request).await
     }
 
     async fn find_interfaces(
@@ -924,6 +1001,27 @@ impl Forge for Api {
         request: Request<rpc::MachineMetadataUpdateRequest>,
     ) -> std::result::Result<Response<()>, Status> {
         crate::handlers::machine::update_machine_metadata(self, request).await
+    }
+
+    async fn update_rack_metadata(
+        &self,
+        request: Request<rpc::RackMetadataUpdateRequest>,
+    ) -> std::result::Result<Response<()>, Status> {
+        crate::handlers::rack::update_rack_metadata(self, request).await
+    }
+
+    async fn update_switch_metadata(
+        &self,
+        request: Request<rpc::SwitchMetadataUpdateRequest>,
+    ) -> std::result::Result<Response<()>, Status> {
+        crate::handlers::switch::update_switch_metadata(self, request).await
+    }
+
+    async fn update_power_shelf_metadata(
+        &self,
+        request: Request<rpc::PowerShelfMetadataUpdateRequest>,
+    ) -> std::result::Result<Response<()>, Status> {
+        crate::handlers::power_shelf::update_power_shelf_metadata(self, request).await
     }
 
     async fn update_machine_nv_link_info(
@@ -2732,6 +2830,20 @@ impl Forge for Api {
         request: Request<rpc::GetTokenDelegationRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::identity_config::delete_token_delegation(self, request).await
+    }
+
+    async fn get_jwks(
+        &self,
+        request: Request<rpc::JwksRequest>,
+    ) -> Result<Response<rpc::Jwks>, Status> {
+        crate::handlers::machine_identity::get_jwks(self, request).await
+    }
+
+    async fn get_open_id_configuration(
+        &self,
+        request: Request<rpc::OpenIdConfigRequest>,
+    ) -> Result<Response<rpc::OpenIdConfiguration>, Status> {
+        crate::handlers::machine_identity::get_open_id_configuration(self, request).await
     }
 
     async fn modify_dpf_state(

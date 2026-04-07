@@ -63,6 +63,7 @@ client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"
 api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
 workers = 8
+level = "warning"
 
 # ==============================================================================
 # Rate Limiting

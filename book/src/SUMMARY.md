@@ -56,6 +56,7 @@
 - [Visual Studio Code Remote Development](development/vscode_remote.md)
 - [Database]()
     - [Data Model / DB Schema](development/schema.md)
+- [Adding Support for New Hardware](development/new_hardware_support.md)
 - [DPU/Bluefield](dpu-operations.md)
 
 # Kubernetes

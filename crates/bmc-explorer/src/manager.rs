@@ -186,6 +186,7 @@ impl<B: Bmc> ExploredManager<B> {
                 id: Some(iface.id().to_string()),
                 interface_enabled: iface.interface_enabled(),
                 mac_address,
+                link_status: iface.link_status().map(|s| format!("{s:?}")),
                 uefi_device_path,
             })
         }).collect::<Result<Vec<_>, _>>()?;

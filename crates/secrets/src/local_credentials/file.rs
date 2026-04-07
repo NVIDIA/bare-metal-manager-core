@@ -303,4 +303,53 @@ mod tests {
             })
         );
     }
+
+    #[tokio::test]
+    async fn loads_machine_identity_encryption_keys_yaml_format() {
+        let dir = tempdir().expect("create temp dir");
+        let file_path = dir.path().join("credentials.yaml");
+        tokio::fs::write(
+            &file_path,
+            r#"machine_identity:
+  encryption_keys:
+    v1: secret-1
+    v2: secret-2
+"#,
+        )
+        .await
+        .expect("write yaml file");
+
+        let provider = FileCredentialsWatcher::new(FileCredentialsConfig {
+            path: Some(file_path),
+            poll_interval: Some(Duration::from_secs(1)),
+            ..Default::default()
+        })
+        .await
+        .expect("create file provider");
+
+        let v1 = CredentialKey::MachineIdentityEncryptionKey {
+            key_id: "v1".to_string(),
+        };
+        let v2 = CredentialKey::MachineIdentityEncryptionKey {
+            key_id: "v2".to_string(),
+        };
+
+        let value_v1 = provider.get_credentials(&v1).await.expect("load v1");
+        let value_v2 = provider.get_credentials(&v2).await.expect("load v2");
+
+        assert_eq!(
+            value_v1,
+            Some(Credentials::UsernamePassword {
+                username: "v1".to_string(),
+                password: "secret-1".to_string(),
+            })
+        );
+        assert_eq!(
+            value_v2,
+            Some(Credentials::UsernamePassword {
+                username: "v2".to_string(),
+                password: "secret-2".to_string(),
+            })
+        );
+    }
 }

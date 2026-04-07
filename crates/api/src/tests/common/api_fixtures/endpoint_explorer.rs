@@ -198,6 +198,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         _bmc_ip_address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
+        _is_bf2: bool,
     ) -> Result<(), EndpointExplorationError> {
         Ok(())
     }

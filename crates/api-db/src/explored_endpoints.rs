@@ -313,6 +313,26 @@ pub async fn set_waiting_for_explorer_refresh(
     Ok(())
 }
 
+/// Unconditionally set `exploration_requested = true` for a batch of BMC
+/// addresses so the site explorer prioritises them on its next tick.
+/// Addresses without a row in `explored_endpoints` are silently skipped.
+pub async fn request_exploration_for_addresses(
+    addresses: &[IpAddr],
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    if addresses.is_empty() {
+        return Ok(());
+    }
+    let query =
+        "UPDATE explored_endpoints SET exploration_requested = true WHERE address = ANY($1)";
+    sqlx::query(query)
+        .bind(addresses)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
 async fn set_preingestion(
     address: IpAddr,
     state: PreingestionState,
@@ -447,6 +467,49 @@ pub async fn set_preingestion_script_running(
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let state = PreingestionState::ScriptRunning;
+    set_preingestion(address, state, txn).await
+}
+
+pub async fn set_preingestion_bfb_recovery_needed(
+    address: IpAddr,
+    reason: String,
+    host_bmc_ip: Option<IpAddr>,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::BfbRecoveryNeeded {
+        reason,
+        host_bmc_ip,
+    };
+    set_preingestion(address, state, txn).await
+}
+
+pub async fn set_preingestion_bfb_waiting_for_platform_powercycle(
+    address: IpAddr,
+    host_bmc_ip: IpAddr,
+    phase: model::site_explorer::BfbPlatformPowercyclePhase,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::BfbWaitingForPlatformPowercycle { host_bmc_ip, phase };
+    set_preingestion(address, state, txn).await
+}
+
+pub async fn set_preingestion_bfb_copy_in_progress(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::BfbCopyInProgress {
+        started_at: Utc::now(),
+    };
+    set_preingestion(address, state, txn).await
+}
+
+pub async fn set_preingestion_bfb_installation_wait(
+    address: IpAddr,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let state = PreingestionState::BfbInstallationWait {
+        started_at: Utc::now(),
+    };
     set_preingestion(address, state, txn).await
 }
 

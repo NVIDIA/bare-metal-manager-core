@@ -42,6 +42,9 @@ use crate::credentials::{
     CredentialKey, CredentialManager, CredentialReader, CredentialWriter, Credentials,
 };
 
+const DEFAULT_VAULT_CA_PATH: &str = "/var/run/secrets/forge-roots/ca.crt";
+const VAULT_CACERT_ENV_VAR: &str = "VAULT_CACERT";
+
 #[derive(Clone, Debug)]
 enum ForgeVaultAuthenticationType {
     Root(String),
@@ -65,7 +68,38 @@ struct ForgeVaultClientConfig {
     pub kv_mount_location: String,
     pub pki_mount_location: String,
     pub pki_role_name: String,
-    pub vault_root_ca_path: String,
+    vault_root_ca_path: String,
+}
+
+// Resolve Vault CA path from a specified path first, then
+// from `VAULT_CACERT` for local dev flows such as `vault server -dev-tls`.
+fn resolve_vault_root_ca_path(configured_path: &str) -> Result<String, eyre::Report> {
+    if Path::new(configured_path).exists() {
+        return Ok(configured_path.to_string());
+    }
+
+    match env::var(VAULT_CACERT_ENV_VAR) {
+        Ok(env_path) if Path::new(&env_path).exists() => Ok(env_path),
+        Ok(env_path) => {
+            tracing::error!(
+                "VAULT_CACERT={env_path} does not exist. Refusing to connect without TLS verification."
+            );
+            Err(eyre!("Vault root CA not found"))
+        }
+        Err(_) => {
+            tracing::error!(
+                "Vault root CA not found at {}. Refusing to connect without TLS verification.",
+                configured_path
+            );
+            Err(eyre!("Vault root CA not found"))
+        }
+    }
+}
+
+impl ForgeVaultClientConfig {
+    pub fn vault_root_ca_path(&self) -> Result<String, eyre::Report> {
+        resolve_vault_root_ca_path(&self.vault_root_ca_path)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -100,14 +134,11 @@ where
         .address(vault_client_config.vault_address.clone())
         .timeout(Some(Duration::from_secs(60)));
 
-    let vault_client_settings_builder =
-        if Path::new(&vault_client_config.vault_root_ca_path).exists() {
-            vault_client_settings_builder
-                .ca_certs(vec![vault_client_config.vault_root_ca_path.clone()])
-                .verify(true)
-        } else {
-            vault_client_settings_builder.verify(false)
-        };
+    let ca_path = vault_client_config.vault_root_ca_path()?;
+
+    let vault_client_settings_builder = vault_client_settings_builder
+        .ca_certs(vec![ca_path])
+        .verify(true);
 
     Ok(vault_client_settings_builder.build()?)
 }
@@ -692,6 +723,7 @@ pub struct VaultConfig {
     pub pki_mount_location: Option<String>,
     pub pki_role_name: Option<String>,
     pub token: Option<String>,
+    pub vault_cacert: Option<String>,
 }
 
 impl VaultConfig {
@@ -729,13 +761,25 @@ impl VaultConfig {
             .or(env::var("VAULT_TOKEN").ok())
             .context("VAULT_TOKEN")
     }
+
+    pub fn vault_cacert(&self) -> eyre::Result<String> {
+        self.vault_cacert
+            .clone()
+            .or(env::var(VAULT_CACERT_ENV_VAR).ok())
+            .context("VAULT_CACERT")
+    }
 }
 
 pub fn create_vault_client(
     vault_config: &VaultConfig,
     meter: Meter,
 ) -> eyre::Result<Arc<ForgeVaultClient>> {
-    let vault_root_ca_path = "/var/run/secrets/forge-roots/ca.crt".to_string();
+    let configured_ca_path = vault_config
+        .vault_cacert()
+        .unwrap_or_else(|_| DEFAULT_VAULT_CA_PATH.to_string());
+
+    let vault_root_ca_path = resolve_vault_root_ca_path(configured_ca_path.as_str())?;
+
     let service_account_token_path =
         Path::new("/var/run/secrets/kubernetes.io/serviceaccount/token");
     let auth_type = if service_account_token_path.exists() {

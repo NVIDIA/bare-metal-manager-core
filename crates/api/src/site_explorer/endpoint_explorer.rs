@@ -149,6 +149,7 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
+        is_bf2: bool,
     ) -> Result<(), EndpointExplorationError>;
 
     async fn create_bmc_user(

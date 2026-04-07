@@ -144,6 +144,128 @@ if [ -z "$CARGO_HOME" ]; then
 fi
 '''
 
+[tasks.build-cargo-docker-image]
+category = "Build"
+description = "Build the Linux build container image for running Cargo via Docker (e.g. on macOS). Use with cargo-docker task."
+workspace = false
+script = '''
+set -e
+if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
+docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.build-container-x86_64 -t carbide-build-x86_64 ${REPO_ROOT}/dev/docker
+echo "Image carbide-build-x86_64 built. Run: cargo make cargo-docker -- build -p carbide-admin-cli --release"
+'''
+
+[tasks.build-cargo-docker-image-minimal]
+category = "Build"
+description = "Build minimal Cargo Docker image (Rust 1.90 + protoc). Quick (~2-5 min). Required once before cargo-docker-minimal for workspace builds (e.g. carbide-rpc)."
+workspace = false
+script = '''
+set -e
+docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.cargo-docker-minimal -t carbide-build-minimal ${REPO_ROOT}/dev/docker
+echo "Image carbide-build-minimal built. Run: cargo make cargo-docker-minimal -- build -p carbide-admin-cli --release"
+'''
+
+[tasks.cargo-docker]
+category = "Build"
+description = "Run Cargo inside the carbide-build-x86_64 Docker container. Requires build-cargo-docker-image first (slow on Apple Silicon). Pass cargo args after -- without extra quotes."
+workspace = false
+dependencies = ["check-cargo-home-set"]
+script = '''
+set -e
+if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
+CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p carbide-admin-cli --release}"
+CARGO_ARGS="${CARGO_ARGS//;/ }"
+CARGO_ARGS="${CARGO_ARGS#-- }"
+docker run --rm \
+  -v "${REPO_ROOT}":/code \
+  -v "${CARGO_HOME}":/cargo \
+  -w /code \
+  -u $(id -u):$(id -g) \
+  -e CARGO_HOME=/cargo \
+  carbide-build-x86_64 \
+  cargo ${CARGO_ARGS}
+'''
+
+[tasks.fix-target-permissions]
+category = "Build"
+description = "Fix ownership of target/ (and repo root if needed) so cargo-docker-minimal can write. Run once if you see 'Permission denied' writing to /code/target. Uses sudo."
+workspace = false
+script = '''
+set -e
+cd "${REPO_ROOT}"
+if [ -d target ]; then
+  sudo chown -R $(id -u):$(id -g) target
+  echo "Fixed target/ ownership."
+else
+  sudo chown -R $(id -u):$(id -g) .
+  echo "Fixed repo ownership (no target/ yet)."
+fi
+'''
+
+[tasks.cargo-docker-minimal]
+category = "Build"
+description = "Run Cargo in minimal Linux image (Rust 1.90 + protoc). Requires build-cargo-docker-image-minimal once (~2-5 min). For DB tests set DATABASE_URL (use host.docker.internal, not localhost). Runs as root and chowns /code afterward so target/ stays writable on macOS/Colima."
+workspace = false
+dependencies = ["check-cargo-home-set"]
+script = '''
+set -e
+if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
+# cargo-make may join task args with semicolons; normalize to spaces and strip leading --
+CARGO_ARGS="${CARGO_MAKE_TASK_ARGS:-build -p carbide-admin-cli --release}"
+CARGO_ARGS="${CARGO_ARGS//;/ }"
+CARGO_ARGS="${CARGO_ARGS#-- }"
+# Pass DATABASE_URL into container so DB tests can connect (use host.docker.internal from Mac)
+DOCKER_EXTRA=
+[ -n "$DATABASE_URL" ] && DOCKER_EXTRA="-e DATABASE_URL=$DATABASE_URL"
+# Persistent sccache so repeat cargo test/build are much faster (optional: set SCCACHE_DIR on host)
+SCCACHE_HOST="${SCCACHE_DIR:-$HOME/.sccache}"
+mkdir -p "$SCCACHE_HOST"
+# Allow container to reach host (e.g. Postgres); needed on Colima, harmless on Docker Desktop
+# Run as root and chown /code afterward so target/ is always writable on the host (avoids
+# recurring "Permission denied" with Colima/virtiofs UID mapping on macOS).
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
+docker run --rm \
+  --add-host=host.docker.internal:host-gateway \
+  -v "${REPO_ROOT}":/code \
+  -v "${CARGO_HOME}":/cargo \
+  -v "${SCCACHE_HOST}":/sccache \
+  -w /code \
+  -e CARGO_HOME=/cargo \
+  -e SCCACHE_DIR=/sccache \
+  -e HOST_UID="${HOST_UID}" \
+  -e HOST_GID="${HOST_GID}" \
+  $DOCKER_EXTRA \
+  carbide-build-minimal \
+  sh -c 'r=0; cargo "$@" || r=$?; chown -R ${HOST_UID}:${HOST_GID} /code 2>/dev/null || true; exit $r' sh ${CARGO_ARGS}
+'''
+
+[tasks.test-docker-postgres-smoke]
+category = "Build"
+description = "Quick Postgres connectivity test via Docker (~10–30 s). Set DATABASE_URL (host.docker.internal). Use this instead of long carbide-api tests for a fast sanity check."
+workspace = false
+dependencies = ["check-cargo-home-set"]
+script = '''
+set -e
+if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
+DOCKER_EXTRA=
+[ -n "$DATABASE_URL" ] && DOCKER_EXTRA="-e DATABASE_URL=$DATABASE_URL"
+SCCACHE_HOST="${SCCACHE_DIR:-$HOME/.sccache}"
+mkdir -p "$SCCACHE_HOST"
+docker run --rm \
+  --add-host=host.docker.internal:host-gateway \
+  -v "${REPO_ROOT}":/code \
+  -v "${CARGO_HOME}":/cargo \
+  -v "${SCCACHE_HOST}":/sccache \
+  -w /code \
+  -u $(id -u):$(id -g) \
+  -e CARGO_HOME=/cargo \
+  -e SCCACHE_DIR=/sccache \
+  $DOCKER_EXTRA \
+  carbide-build-minimal \
+  cargo test -p postgres-smoke-test
+'''
+
 [tasks.build-cli-cross-aarch64]
 category = "Build"
 description = "Cross compile forge-scout and carbide-admin-cli for aarch64, intended only for local artifact builds."

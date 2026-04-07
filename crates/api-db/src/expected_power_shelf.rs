@@ -140,7 +140,7 @@ pub async fn create(
         .expected_power_shelf_id
         .unwrap_or_else(Uuid::new_v4);
     let query = "INSERT INTO expected_power_shelves
-            (expected_power_shelf_id, bmc_mac_address, bmc_username, bmc_password, serial_number, ip_address, metadata_name, metadata_description, metadata_labels, rack_id)
+            (expected_power_shelf_id, bmc_mac_address, bmc_username, bmc_password, serial_number, bmc_ip_address, metadata_name, metadata_description, metadata_labels, rack_id)
             VALUES
             ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::inet, $7, $8, $9::jsonb, $10) RETURNING *";
 
@@ -150,7 +150,7 @@ pub async fn create(
         .bind(&power_shelf.bmc_username)
         .bind(&power_shelf.bmc_password)
         .bind(&power_shelf.serial_number)
-        .bind(power_shelf.ip_address)
+        .bind(power_shelf.bmc_ip_address)
         .bind(&power_shelf.metadata.name)
         .bind(&power_shelf.metadata.description)
         .bind(sqlx::types::Json(&power_shelf.metadata.labels))
@@ -261,7 +261,7 @@ pub async fn update(
 
     let query = format!(
         "UPDATE expected_power_shelves \
-         SET bmc_username=$1, bmc_password=$2, serial_number=$3, ip_address=$4, \
+         SET bmc_username=$1, bmc_password=$2, serial_number=$3, bmc_ip_address=$4, \
              metadata_name=$5, metadata_description=$6, metadata_labels=$7, rack_id=$8 \
          WHERE {where_clause}"
     );
@@ -270,7 +270,7 @@ pub async fn update(
         .bind(&power_shelf.bmc_username)
         .bind(&power_shelf.bmc_password)
         .bind(&power_shelf.serial_number)
-        .bind(power_shelf.ip_address)
+        .bind(power_shelf.bmc_ip_address)
         .bind(&power_shelf.metadata.name)
         .bind(&power_shelf.metadata.description)
         .bind(sqlx::types::Json(&power_shelf.metadata.labels))

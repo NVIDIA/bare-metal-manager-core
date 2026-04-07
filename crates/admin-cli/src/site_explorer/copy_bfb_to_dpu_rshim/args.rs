@@ -26,7 +26,7 @@ pub struct Args {
     pub mac: Option<MacAddress>,
     #[clap(
         long,
-        help = "Host BMC IP address. Provide this if you want to power cycle the host before SCPing."
+        help = "Host BMC IP address. If provided, the host will be power-cycled before BFB copy to ensure rshim control."
     )]
     pub host_bmc_ip: Option<String>,
 }

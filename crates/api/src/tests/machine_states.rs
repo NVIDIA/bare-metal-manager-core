@@ -16,6 +16,7 @@
  */
 use std::collections::HashMap;
 
+use base64::prelude::*;
 use chrono::Duration;
 use common::api_fixtures::dpu::{
     create_dpu_machine, create_dpu_machine_in_waiting_for_network_install,
@@ -41,8 +42,11 @@ use model::machine::{
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{HealthReportOverride, InsertHealthReportOverrideRequest, TpmCaCert, TpmCaCertId};
 use rpc::forge_agent_control_response::Action;
+use rpc::machine_discovery::AttestKeyInfo;
+use rpc::{DiscoveryData, DiscoveryInfo};
 use tonic::{Code, Request};
 
+use crate::handlers::measured_boot::rpc_forge::MachineDiscoveryInfo;
 use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::handler::{
@@ -82,7 +86,7 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
 
     assert!(carbide_machines_per_state.contains(&(
         "{fresh=\"true\",state=\"ready\",substate=\"\"}".to_string(),
-        "2".to_string()
+        "3".to_string()
     )));
 
     let expected_states_entered = &[
@@ -1627,5 +1631,46 @@ async fn test_scout_heartbeat_timeout_alert_not_cleared_when_unhealthy_allocatio
     assert!(
         host.health_report_overrides.merges.contains_key("scout"),
         "expected scout_heartbeat_timeout alert to remain when unhealthy allocation is blocked"
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_tpm_logging(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let host_config = env.managed_host_config();
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
+
+    let machine_interface_id = host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
+
+    // First discovery - establishes the host with the original TPM-based ID
+    host_discover_machine(&env, &host_config, machine_interface_id).await;
+
+    // Second discovery - different TPM EK cert simulates TPM replacement
+    // without force-delete, producing a different stable_machine_id
+    let mut discovery_info =
+        DiscoveryInfo::try_from(model::hardware_info::HardwareInfo::from(&host_config)).unwrap();
+    // Use a different valid EK cert to simulate TPM replacement
+    discovery_info.tpm_ek_certificate =
+        Some(BASE64_STANDARD.encode(common::api_fixtures::tpm_attestation::EK_CERT_SERIALIZED));
+    discovery_info.attest_key_info = Some(AttestKeyInfo {
+        ek_pub: common::api_fixtures::tpm_attestation::EK_PUB_SERIALIZED.to_vec(),
+        ak_pub: common::api_fixtures::tpm_attestation::AK_PUB_SERIALIZED.to_vec(),
+        ak_name: common::api_fixtures::tpm_attestation::AK_NAME_SERIALIZED.to_vec(),
+    });
+    let result = env
+        .api
+        .discover_machine(Request::new(MachineDiscoveryInfo {
+            machine_interface_id: Some(machine_interface_id),
+            discovery_data: Some(DiscoveryData::Info(discovery_info)),
+            create_machine: false,
+        }))
+        .await;
+
+    let err = result.expect_err("Expected FK violation from mismatched TPM");
+    assert_eq!(err.code(), Code::FailedPrecondition);
+    assert!(
+        err.message().contains("machine_id foreign key violation"),
+        "Expected TPM mismatch error, got: {}",
+        err.message()
     );
 }

@@ -167,6 +167,8 @@ message EthernetInterface {
   optional string description = 2;
   optional bool interface_enabled = 3;
   optional string mac_address = 4;
+  // Redfish LinkStatus (e.g. LinkUp, LinkDown, NoLink)
+  optional string link_status = 5;
 }
 
 // `Chassis` definition. Matches redfish definition

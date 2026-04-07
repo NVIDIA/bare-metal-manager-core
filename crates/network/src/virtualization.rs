@@ -83,8 +83,7 @@ impl sqlx::Decode<'_, sqlx::Postgres> for VpcVirtualizationType {
     fn decode(value: sqlx::postgres::PgValueRef<'_>) -> Result<Self, sqlx::error::BoxDynError> {
         let s = <&str as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         match s {
-            // Legacy 'etv' rows are treated as EthernetVirtualizerWithNvue
-            "etv" | "etv_nvue" => Ok(Self::EthernetVirtualizerWithNvue),
+            "etv" | "etv_nvue" => Ok(Self::EthernetVirtualizer),
             "fnn" => Ok(Self::Fnn),
             other => {
                 Err(format!("invalid value {:?} for enum VpcVirtualizationType", other).into())
@@ -128,16 +127,6 @@ mod sqlx_tests {
     }
 }
 
-impl VpcVirtualizationType {
-    pub fn supports_nvue(&self) -> bool {
-        match self {
-            Self::EthernetVirtualizer => false,
-            Self::EthernetVirtualizerWithNvue => true,
-            Self::Fnn => true,
-        }
-    }
-}
-
 impl Default for VpcVirtualizationType {
     fn default() -> Self {
         Self::EthernetVirtualizer
@@ -147,8 +136,7 @@ impl Default for VpcVirtualizationType {
 impl fmt::Display for VpcVirtualizationType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::EthernetVirtualizer => write!(f, "etv"),
-            Self::EthernetVirtualizerWithNvue => write!(f, "etv_nvue"),
+            Self::EthernetVirtualizer | Self::EthernetVirtualizerWithNvue => write!(f, "etv"),
             Self::Fnn => write!(f, "fnn"),
         }
     }
@@ -161,8 +149,10 @@ impl TryFrom<i32> for VpcVirtualizationType {
             x if x == rpc::VpcVirtualizationType::EthernetVirtualizer as i32 => {
                 Self::EthernetVirtualizer
             }
+            // If we get proto enum field 2, which is ETHERNET_VIRTUALIZER_WITH_NVUE,
+            // just map it to EthernetVirtualizer.
             x if x == rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue as i32 => {
-                Self::EthernetVirtualizerWithNvue
+                Self::EthernetVirtualizer
             }
             x if x == rpc::VpcVirtualizationType::Fnn as i32 => Self::Fnn,
             _ => {
@@ -176,9 +166,8 @@ impl From<rpc::VpcVirtualizationType> for VpcVirtualizationType {
     fn from(v: rpc::VpcVirtualizationType) -> Self {
         match v {
             rpc::VpcVirtualizationType::EthernetVirtualizer => Self::EthernetVirtualizer,
-            rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue => {
-                Self::EthernetVirtualizerWithNvue
-            }
+            // ETHERNET_VIRTUALIZER_WITH_NVUE is equivalent to EthernetVirtualizer
+            rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue => Self::EthernetVirtualizer,
             rpc::VpcVirtualizationType::Fnn => Self::Fnn,
             // Following are deprecated.
             rpc::VpcVirtualizationType::FnnClassic => Self::Fnn,
@@ -190,11 +179,9 @@ impl From<rpc::VpcVirtualizationType> for VpcVirtualizationType {
 impl From<VpcVirtualizationType> for rpc::VpcVirtualizationType {
     fn from(nvt: VpcVirtualizationType) -> Self {
         match nvt {
-            VpcVirtualizationType::EthernetVirtualizer => {
+            VpcVirtualizationType::EthernetVirtualizer
+            | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
                 rpc::VpcVirtualizationType::EthernetVirtualizer
-            }
-            VpcVirtualizationType::EthernetVirtualizerWithNvue => {
-                rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue
             }
             VpcVirtualizationType::Fnn => rpc::VpcVirtualizationType::Fnn,
         }
@@ -206,8 +193,7 @@ impl FromStr for VpcVirtualizationType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "etv" => Ok(Self::EthernetVirtualizer),
-            "etv_nvue" => Ok(Self::EthernetVirtualizerWithNvue),
+            "etv" | "etv_nvue" => Ok(Self::EthernetVirtualizer),
             "fnn" => Ok(Self::Fnn),
             x => Err(eyre::eyre!(format!("Unknown virt type {}", x))),
         }
@@ -255,4 +241,61 @@ pub fn get_svi_ip(
         return Ok(Some(IpNetwork::new(*svi_ip, prefix)?));
     }
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_str_etv_nvue_maps_to_etv() {
+        assert_eq!(
+            "etv_nvue".parse::<VpcVirtualizationType>().unwrap(),
+            VpcVirtualizationType::EthernetVirtualizer
+        );
+    }
+
+    #[test]
+    fn from_str_etv_maps_to_etv() {
+        assert_eq!(
+            "etv".parse::<VpcVirtualizationType>().unwrap(),
+            VpcVirtualizationType::EthernetVirtualizer
+        );
+    }
+
+    #[test]
+    fn proto_value_2_maps_to_etv() {
+        // Make sure our proto From implementation turns
+        // ETHERNET_VIRTUALIZER_WITH_NVUE into EthernetVirtualizer.
+        let vtype = VpcVirtualizationType::try_from(2).unwrap();
+        assert_eq!(vtype, VpcVirtualizationType::EthernetVirtualizer);
+    }
+
+    #[test]
+    fn proto_value_0_maps_to_etv() {
+        let vtype = VpcVirtualizationType::try_from(0).unwrap();
+        assert_eq!(vtype, VpcVirtualizationType::EthernetVirtualizer);
+    }
+
+    #[test]
+    fn from_rpc_etv_with_nvue_maps_to_etv() {
+        let vtype: VpcVirtualizationType =
+            rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue.into();
+        assert_eq!(vtype, VpcVirtualizationType::EthernetVirtualizer);
+    }
+
+    #[test]
+    fn to_rpc_etv_maps_to_proto_etv() {
+        let rpc_vtype: rpc::VpcVirtualizationType =
+            VpcVirtualizationType::EthernetVirtualizer.into();
+        assert_eq!(rpc_vtype, rpc::VpcVirtualizationType::EthernetVirtualizer);
+    }
+
+    #[test]
+    fn display_etv_with_nvue_shows_etv() {
+        assert_eq!(
+            VpcVirtualizationType::EthernetVirtualizerWithNvue.to_string(),
+            "etv"
+        );
+    }
 }

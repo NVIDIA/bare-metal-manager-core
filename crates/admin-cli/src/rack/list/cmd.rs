@@ -63,6 +63,12 @@ pub async fn list_racks(api_client: &ApiClient, config: &RuntimeConfig) -> Resul
                     .collect::<Vec<_>>()
                     .join("\n");
                 let expected_nvlink_switches = r.expected_nvlink_switches.join("\n");
+                let current_switches: String = r
+                    .switches
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 table.add_row(prettytable::row![
                     r.id.map(|id| id.to_string()).unwrap_or_default(),
                     r.rack_state.as_str(),
@@ -71,7 +77,7 @@ pub async fn list_racks(api_client: &ApiClient, config: &RuntimeConfig) -> Resul
                     expected_power_shelves,
                     current_power_shelves,
                     expected_nvlink_switches,
-                    "",
+                    current_switches,
                 ]);
             }
             table.printstd();

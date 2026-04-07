@@ -47,6 +47,7 @@ use model::network_security_group::NetworkSecurityGroupRule;
 use model::network_segment::NetworkDefinition;
 use model::resource_pool::define::ResourcePoolDef;
 use model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
+use model::tenant::TENANT_IDENTITY_SIGNING_JWT_ALG;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use utils::HostPortPair;
@@ -346,6 +347,12 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub machine_validation_config: MachineValidationConfig,
 
+    /// Rack-level validation configuration. Runs
+    /// multi-node partition tests after firmware upgrade
+    /// and maintenance to verify rack health.
+    #[serde(default)]
+    pub rack_validation_config: RackValidationConfig,
+
     /// Machine identity (SPIFFE JWT-SVID) settings,
     /// used by `SignMachineIdentity` to issue short-lived
     /// identity tokens to tenant workloads.
@@ -616,6 +623,10 @@ pub struct DpfConfig {
     /// Whether to create the bf.cfg ConfigMap during initialization.
     #[serde(default = "default_to_true")]
     pub bfcfg_enabled: bool,
+    /// Are we testing v2 version??
+    /// This is just temporary flag and will be removed once v2 becomes only option.
+    #[serde(default)]
+    pub v2: bool,
 }
 
 impl Default for DpfConfig {
@@ -628,6 +639,7 @@ impl Default for DpfConfig {
             bfb_url: String::new(),
             services: None,
             bfcfg_enabled: true,
+            v2: false,
         }
     }
 }
@@ -679,13 +691,24 @@ pub struct MachineIdentityConfig {
     /// Optional HTTP proxy for token endpoint calls (SSRF mitigation).
     #[serde(default)]
     pub token_endpoint_http_proxy: Option<String>,
+    /// Key-id for encryption/decryption of signing keys (selects from secrets `machine_identity.encryption_keys`).
+    #[serde(default)]
+    pub current_encryption_key_id: Option<String>,
+    /// Trust domains allowed for tenant JWT `iss` (normalized host). Empty = allow any.
+    /// Patterns: exact hostname, `*.suffix` (one label under suffix), `**.suffix` (suffix or any subdomain).
+    #[serde(default)]
+    pub trust_domain_allowlist: Vec<String>,
+    /// Allowed DNS names for the `token_endpoint` URL host (`http://` / `https://` only). Empty = allow any.
+    /// Same pattern syntax as [`Self::trust_domain_allowlist`].
+    #[serde(default)]
+    pub token_endpoint_domain_allowlist: Vec<String>,
 }
 
 fn machine_identity_default_enabled() -> bool {
-    true
+    false
 }
 fn machine_identity_default_algorithm() -> String {
-    "ES256".to_string()
+    TENANT_IDENTITY_SIGNING_JWT_ALG.to_string()
 }
 fn machine_identity_default_token_ttl_min_sec() -> u32 {
     60
@@ -702,6 +725,9 @@ impl Default for MachineIdentityConfig {
             token_ttl_min_sec: machine_identity_default_token_ttl_min_sec(),
             token_ttl_max_sec: machine_identity_default_token_ttl_max_sec(),
             token_endpoint_http_proxy: None,
+            current_encryption_key_id: None,
+            trust_domain_allowlist: Vec::new(),
+            token_endpoint_domain_allowlist: Vec::new(),
         }
     }
 }
@@ -712,7 +738,19 @@ impl From<MachineIdentityConfig> for model::tenant::IdentityConfigValidationBoun
             token_ttl_min_sec: mi.token_ttl_min_sec,
             token_ttl_max_sec: mi.token_ttl_max_sec,
             algorithm: mi.algorithm,
-            encryption_key_id: "placeholder-encryption-key".to_string(),
+            encryption_key_id: mi.current_encryption_key_id.expect(
+                "current_encryption_key_id is required when machine identity is enabled; \
+                 statup validation in parse_carbide_config failed",
+            ),
+            trust_domain_allowlist: mi.trust_domain_allowlist,
+        }
+    }
+}
+
+impl From<MachineIdentityConfig> for model::tenant::TokenDelegationValidationBounds {
+    fn from(mi: MachineIdentityConfig) -> Self {
+        Self {
+            token_endpoint_domain_allowlist: mi.token_endpoint_domain_allowlist,
         }
     }
 }
@@ -826,6 +864,11 @@ pub struct FnnRoutingProfileConfig {
     /// into the underlay?
     #[serde(default)]
     pub leak_tenant_host_routes_to_underlay: bool,
+
+    /// Are route-leak communities sent by the host OS honored by the DPU for allowing
+    /// routes advertised by the host OS to be leaked into the underlay?
+    #[serde(default)]
+    pub tenant_leak_communities_accepted: bool,
 }
 
 /// FNN configuration specific to the admin network.
@@ -2259,6 +2302,8 @@ pub struct FirmwareGlobal {
     /// administrator approval.
     #[serde(default)]
     pub requires_manual_upgrade: bool,
+    #[serde(default = "FirmwareGlobal::max_concurrent_bfb_copies_default")]
+    pub max_concurrent_bfb_copies: usize,
 }
 
 impl FirmwareGlobal {
@@ -2277,6 +2322,7 @@ impl FirmwareGlobal {
             no_reset_retries: false,
             hgx_bmc_gpu_reboot_delay: FirmwareGlobal::hgx_bmc_gpu_reboot_delay_default(),
             requires_manual_upgrade: false,
+            max_concurrent_bfb_copies: FirmwareGlobal::max_concurrent_bfb_copies_default(),
         }
     }
 
@@ -2333,6 +2379,9 @@ impl FirmwareGlobal {
     pub fn hgx_bmc_gpu_reboot_delay_default() -> Duration {
         Duration::seconds(30)
     }
+    pub fn max_concurrent_bfb_copies_default() -> usize {
+        10
+    }
 }
 
 impl Default for FirmwareGlobal {
@@ -2351,6 +2400,7 @@ impl Default for FirmwareGlobal {
             no_reset_retries: false,
             hgx_bmc_gpu_reboot_delay: FirmwareGlobal::hgx_bmc_gpu_reboot_delay_default(),
             requires_manual_upgrade: false,
+            max_concurrent_bfb_copies: FirmwareGlobal::max_concurrent_bfb_copies_default(),
         }
     }
 }
@@ -2694,6 +2744,35 @@ impl MachineValidationConfig {
     }
 }
 
+/// Configuration for rack-level validation (partition-based
+/// multi-node tests run after firmware upgrade / maintenance).
+///
+/// Example:
+/// ```toml
+/// [rack_validation_config]
+/// enabled = true
+/// run_interval = "60s"
+/// ```
+#[derive(Default, Clone, Debug, Deserialize, Serialize)]
+pub struct RackValidationConfig {
+    /// Enables rack validation testing.
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(
+        default = "RackValidationConfig::default_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub run_interval: std::time::Duration,
+}
+
+impl RackValidationConfig {
+    const fn default_run_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(60)
+    }
+}
+
 /// The VPC isolation behavior enforced within a site.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -2794,6 +2873,7 @@ impl From<CarbideConfig> for rpc::forge::RuntimeConfig {
             max_find_by_ids: value.max_find_by_ids,
             dpu_network_pinger_type: value.dpu_network_monitor_pinger_type,
             machine_validation_enabled: value.machine_validation_config.enabled,
+            rack_validation_enabled: value.rack_validation_config.enabled,
             bom_validation_enabled: value.bom_validation.enabled,
             bom_validation_ignore_unassigned_machines: value
                 .bom_validation
@@ -2977,7 +3057,7 @@ pub struct DpaConfig {
 /// DSX Exchange Event Bus configuration for publishing state change events via MQTT 3.1.1.
 ///
 /// When configured, Carbide will publish `ManagedHostState` transitions to the
-/// topic `carbide/v1/machine/{machineId}/state` as defined in `carbide.yaml`.
+/// topic `nico/v1/machine/{machineId}/state` as defined in `carbide.yaml`.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct DsxExchangeEventBusConfig {
     /// Enable/disable the DSX Exchange Event Bus.
@@ -3728,6 +3808,7 @@ mod tests {
         }
         assert_eq!(config.firmware_global.max_uploads, 3);
         assert_eq!(config.firmware_global.run_interval, Duration::seconds(20));
+        assert_eq!(config.firmware_global.max_concurrent_bfb_copies, 7);
         assert_eq!(config.max_find_by_ids, 75);
         assert_eq!(config.dpu_network_monitor_pinger_type, None);
         assert_eq!(

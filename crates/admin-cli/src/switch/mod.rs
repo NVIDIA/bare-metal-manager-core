@@ -15,7 +15,9 @@
  * limitations under the License.
  */
 
+mod force_delete;
 mod list;
+pub mod metadata;
 mod show;
 
 #[cfg(test)]
@@ -31,4 +33,8 @@ pub enum Cmd {
     Show(show::Args),
     #[clap(about = "List all switches")]
     List(list::Args),
+    #[clap(about = "Force delete a switch and optionally its interfaces")]
+    ForceDelete(force_delete::Args),
+    #[clap(subcommand, about = "Manage Switch Metadata")]
+    Metadata(metadata::Args),
 }

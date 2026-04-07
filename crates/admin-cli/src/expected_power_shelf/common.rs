@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::net::IpAddr;
+
 use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
@@ -29,5 +31,5 @@ pub struct ExpectedPowerShelfJson {
     pub metadata: Option<rpc::forge::Metadata>,
     pub host_name: Option<String>,
     pub rack_id: Option<RackId>,
-    pub ip_address: Option<String>,
+    pub bmc_ip_address: Option<IpAddr>,
 }

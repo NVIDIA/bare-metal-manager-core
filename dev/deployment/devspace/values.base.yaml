@@ -1,11 +1,11 @@
 carbide-api:
   resources:
     limits:
-      cpu: "1"
-      memory: 1Gi
+      cpu: "16"
+      memory: "16Gi"
     requests:
-      cpu: 100m
-      memory: 512Mi
+      cpu: "1"
+      memory: "1Gi"
   siteConfig:
     enabled: true
     carbideApiSiteConfig: |
@@ -15,9 +15,14 @@ carbide-api:
       initial_domain_name = "local.forge"
       initial_dpu_agent_upgrade_policy = "off"
 
+      # DB transactions in carbide should be quick, pool size should ≈ the
+      # number of cores. Default postgres configuration is a 100 connection
+      # limit, so let's stay safely below that.
+      max_database_connections = 64
+
       [pools.lo-ip]
       type = "ipv4"
-      ranges = [{ start = "10.180.62.1", end = "10.180.62.62" }]
+      ranges = [{ start = "10.180.64.1", end = "10.180.127.254" }]
 
       [pools.vlan-id]
       type = "integer"
@@ -31,24 +36,28 @@ carbide-api:
       type = "integer"
       ranges = [{ start = "2024500", end = "2024550" }]
 
+      [pools.fnn-asn]
+      type = "integer"
+      ranges = [{ start = "1000", end = "10000" }]
+
       [networks.admin]
       type = "admin"
-      prefix = "192.168.176.0/20"
-      gateway = "192.168.176.1"
+      prefix = "192.168.64.0/18"
+      gateway = "192.168.64.1"
       mtu = 9000
-      reserve_first = 0
+      reserve_first = 2
 
       [networks.DEV-K3S-DPU-ACORN-0]
       type = "underlay"
-      prefix = "192.168.192.0/20"
-      gateway = "192.168.192.1"
+      prefix = "192.168.128.0/18"
+      gateway = "192.168.128.1"
       mtu = 1500
       reserve_first = 2
 
       [networks.DEV-K3S-X86-BMC-UNDERLAY-ACORN-X86-0]
       type = "underlay"
-      prefix = "192.168.208.0/20"
-      gateway = "192.168.208.1"
+      prefix = "192.168.192.0/18"
+      gateway = "192.168.192.1"
       mtu = 1500
       reserve_first = 2
 
@@ -68,6 +77,10 @@ carbide-api:
       dpu_wait_time = "1s"
       skip_polling_checks = true
 
+      [machine_state_controller.controller]
+      iteration_time = "30s"
+      max_concurrency = 100
+
       [machine_validation_config]
       enabled = false
 
@@ -78,6 +91,9 @@ carbide-api:
       allow_zero_dpu_hosts = true
       bmc_proxy = "machine-a-tron-bmc-mock.forge-system.svc.cluster.local:1266"
       run_interval = "10s"
+      machines_created_per_run = 1000
+      explorations_per_run = 1000
+      concurrent_explorations = 100
 
       [firmware_global]
       autoupdate = true

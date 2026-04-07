@@ -23,10 +23,12 @@ use super::override_queue::{OverrideJob, OverrideQueue};
 use super::{CollectorEvent, DataSink, EventContext};
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
-use crate::config::HealthOverrideSinkConfig;
+use crate::config::{HealthOverrideLevel, HealthOverrideSinkConfig};
+use crate::sink::{Classification, HealthReport, HealthReportSuccess};
 
 pub struct HealthOverrideSink {
     queue: Arc<OverrideQueue<MachineId>>,
+    level: HealthOverrideLevel,
 }
 
 impl HealthOverrideSink {
@@ -78,19 +80,75 @@ impl HealthOverrideSink {
             });
         }
 
-        Ok(Self { queue })
+        Ok(Self {
+            queue,
+            level: config.level,
+        })
     }
 
     #[cfg(feature = "bench-hooks")]
     pub fn new_for_bench() -> Result<Self, HealthError> {
         Ok(Self {
             queue: Arc::new(OverrideQueue::new()),
+            level: HealthOverrideLevel::Warning,
         })
     }
 
     #[cfg(feature = "bench-hooks")]
     pub fn pop_pending_for_bench(&self) -> Option<(MachineId, Arc<super::HealthReport>)> {
         self.queue.pop().map(|job| (job.id, job.report))
+    }
+
+    fn classification_rank(classification: Classification) -> u8 {
+        match classification {
+            Classification::SensorOk => 0,
+            Classification::SensorWarning => 1,
+            Classification::SensorCritical => 2,
+            Classification::SensorFatal => 3,
+            Classification::SensorFailure => 4,
+            Classification::Leak | Classification::LeakDetector => 4,
+        }
+    }
+
+    fn threshold_rank(level: HealthOverrideLevel) -> u8 {
+        match level {
+            HealthOverrideLevel::Warning => 1,
+            HealthOverrideLevel::Critical => 2,
+            HealthOverrideLevel::Fatal => 3,
+        }
+    }
+
+    fn should_alert(level: HealthOverrideLevel, classifications: &[Classification]) -> bool {
+        let threshold = Self::threshold_rank(level);
+        classifications
+            .iter()
+            .copied()
+            .map(Self::classification_rank)
+            .max()
+            .is_some_and(|rank| rank >= threshold)
+    }
+
+    fn filter_report(&self, report: &HealthReport) -> HealthReport {
+        let mut successes = report.successes.clone();
+        let mut alerts = Vec::new();
+
+        for alert in &report.alerts {
+            if Self::should_alert(self.level, &alert.classifications) {
+                alerts.push(alert.clone());
+            } else {
+                successes.push(HealthReportSuccess {
+                    probe_id: alert.probe_id,
+                    target: alert.target.clone(),
+                });
+            }
+        }
+
+        HealthReport {
+            source: report.source,
+            observed_at: report.observed_at,
+            successes,
+            alerts,
+        }
     }
 }
 
@@ -102,9 +160,10 @@ impl DataSink for HealthOverrideSink {
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         if let CollectorEvent::HealthReport(report) = event {
             if let Some(machine_id) = context.machine_id() {
+                let filtered_report = Arc::new(self.filter_report(report));
                 self.queue.save_latest(OverrideJob {
                     id: machine_id,
-                    report: Arc::clone(report),
+                    report: filtered_report,
                 });
             } else {
                 tracing::warn!(
@@ -121,7 +180,7 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::sink::{HealthReport, ReportSource};
+    use crate::sink::{Classification, HealthReport, HealthReportAlert, Probe, ReportSource};
 
     fn report(source: ReportSource) -> HealthReport {
         HealthReport {
@@ -201,5 +260,55 @@ mod tests {
         assert_eq!(second.id, machine_b);
         assert_eq!(third.id, machine_a);
         assert_eq!(third.report.source, ReportSource::TrayLeakDetection);
+    }
+
+    #[test]
+    fn downgrades_alerts_below_configured_level_to_successes() {
+        let sink = HealthOverrideSink {
+            queue: Arc::new(OverrideQueue::new()),
+            level: HealthOverrideLevel::Critical,
+        };
+
+        let report = HealthReport {
+            source: ReportSource::BmcSensors,
+            observed_at: None,
+            successes: Vec::new(),
+            alerts: vec![HealthReportAlert {
+                probe_id: Probe::Sensor,
+                target: Some("sensor-1".to_string()),
+                message: "warning".to_string(),
+                classifications: vec![Classification::SensorWarning],
+            }],
+        };
+
+        let filtered = sink.filter_report(&report);
+        assert!(filtered.alerts.is_empty());
+        assert_eq!(filtered.successes.len(), 1);
+        assert_eq!(filtered.successes[0].probe_id, Probe::Sensor);
+        assert_eq!(filtered.successes[0].target.as_deref(), Some("sensor-1"));
+    }
+
+    #[test]
+    fn keeps_alerts_at_or_above_configured_level() {
+        let sink = HealthOverrideSink {
+            queue: Arc::new(OverrideQueue::new()),
+            level: HealthOverrideLevel::Critical,
+        };
+
+        let report = HealthReport {
+            source: ReportSource::BmcSensors,
+            observed_at: None,
+            successes: Vec::new(),
+            alerts: vec![HealthReportAlert {
+                probe_id: Probe::Sensor,
+                target: Some("sensor-1".to_string()),
+                message: "critical".to_string(),
+                classifications: vec![Classification::SensorCritical],
+            }],
+        };
+
+        let filtered = sink.filter_report(&report);
+        assert!(filtered.successes.is_empty());
+        assert_eq!(filtered.alerts.len(), 1);
     }
 }

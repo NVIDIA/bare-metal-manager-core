@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
-use carbide_uuid::rack::RackId;
-use db::rack as db_rack;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData, ExpectedMachineRequest};
@@ -86,7 +84,6 @@ pub(crate) async fn add(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
-    let request_rack_id = request.rack_id.clone();
     let id = request
         .id
         .as_ref()
@@ -107,19 +104,6 @@ pub(crate) async fn add(
     let mut txn = api.txn_begin().await?;
 
     db::expected_machine::create(&mut txn, machine).await?;
-
-    if let Some(ref rack_id) = request_rack_id {
-        let adopted = db_rack::adopt_expected_machine(&mut txn, rack_id, parsed_mac)
-            .await
-            .map_err(CarbideError::from)?;
-        if !adopted {
-            tracing::debug!(
-                "rack {} does not exist yet, machine {} will be adopted later.",
-                rack_id,
-                parsed_mac
-            );
-        }
-    }
 
     txn.commit().await?;
 
@@ -174,7 +158,6 @@ pub(crate) async fn update(
         .bmc_mac_address
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
-    let request_rack_id = request.rack_id.clone();
     let data: ExpectedMachineData = request.try_into()?;
 
     let machine = ExpectedMachine {
@@ -188,19 +171,6 @@ pub(crate) async fn update(
     db::expected_machine::update(&mut txn, &machine)
         .await
         .map_err(CarbideError::from)?;
-
-    if let Some(ref rack_id) = request_rack_id {
-        let adopted = db_rack::adopt_expected_machine(&mut txn, rack_id, parsed_mac)
-            .await
-            .map_err(CarbideError::from)?;
-        if !adopted {
-            tracing::debug!(
-                "rack {} does not exist yet, machine {} will be adopted later.",
-                rack_id,
-                parsed_mac
-            );
-        }
-    }
 
     txn.commit().await?;
 
@@ -316,25 +286,6 @@ fn sanitize_expected_machine_and_get_ids(
     Ok((id, parsed_mac))
 }
 
-/// process_rack_association registers an expected machine MAC with a rack, creating the rack if needed.
-async fn process_rack_association(
-    txn: &mut sqlx::PgConnection,
-    rack_id: &RackId,
-    parsed_mac: MacAddress,
-) -> Result<(), CarbideError> {
-    let adopted = db_rack::adopt_expected_machine(txn, rack_id, parsed_mac)
-        .await
-        .map_err(CarbideError::from)?;
-    if !adopted {
-        tracing::debug!(
-            "rack {} does not exist yet, machine {} will be adopted later.",
-            rack_id,
-            parsed_mac
-        );
-    }
-    Ok(())
-}
-
 /// Helper function to create a single expected machine within a transaction
 async fn create_expected_machine(
     txn: &mut sqlx::PgConnection,
@@ -342,7 +293,6 @@ async fn create_expected_machine(
     id: Uuid,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
-    let request_rack_id = machine.rack_id.clone();
     let db_data: ExpectedMachineData = machine.try_into()?;
 
     let expected_machine = ExpectedMachine {
@@ -352,11 +302,6 @@ async fn create_expected_machine(
     };
 
     db::expected_machine::create(txn, expected_machine).await?;
-
-    // Handle rack association
-    if let Some(ref rack_id) = request_rack_id {
-        process_rack_association(txn, rack_id, parsed_mac).await?;
-    }
 
     Ok(())
 }
@@ -368,7 +313,6 @@ async fn update_expected_machine(
     id: Uuid,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
-    let request_rack_id = machine.rack_id.clone();
     let data: ExpectedMachineData = machine.try_into()?;
 
     let expected_machine = ExpectedMachine {
@@ -378,11 +322,6 @@ async fn update_expected_machine(
     };
 
     db::expected_machine::update(txn, &expected_machine).await?;
-
-    // Handle rack association
-    if let Some(ref rack_id) = request_rack_id {
-        process_rack_association(txn, rack_id, parsed_mac).await?;
-    }
 
     Ok(())
 }

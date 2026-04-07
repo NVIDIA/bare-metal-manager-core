@@ -38,19 +38,32 @@ pub async fn handle_ready(
         ));
     }
 
-    if is_switch_reprovisioning_requested(state) {
-        tracing::info!("Switch reprovisioning requested, transitioning to ReProvisioning::Start");
+    if let Some(req) = &state.switch_reprovisioning_requested {
+        if req.initiator.starts_with("rack-") {
+            tracing::info!(
+                "Rack-level firmware upgrade requested — transitioning to WaitingForRackFirmwareUpgrade"
+            );
+            return Ok(StateHandlerOutcome::transition(
+                SwitchControllerState::ReProvisioning {
+                    reprovisioning_state: ReProvisioningState::WaitingForRackFirmwareUpgrade,
+                },
+            ));
+        }
+
+        tracing::warn!(
+            "unknown initiator for switch reprovisioning request: {}",
+            req.initiator
+        );
         return Ok(StateHandlerOutcome::transition(
-            SwitchControllerState::ReProvisioning {
-                reprovisioning_state: ReProvisioningState::Start,
+            SwitchControllerState::Error {
+                cause: format!(
+                    "unknown initiator for switch reprovisioning request: {}",
+                    req.initiator
+                ),
             },
         ));
     }
 
     tracing::info!("Switch is ready");
     Ok(StateHandlerOutcome::do_nothing())
-}
-
-fn is_switch_reprovisioning_requested(switch: &Switch) -> bool {
-    switch.switch_reprovisioning_requested.is_some()
 }

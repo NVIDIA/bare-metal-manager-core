@@ -17,6 +17,7 @@
 
 mod delete;
 mod list;
+pub mod metadata;
 mod show;
 
 #[cfg(test)]
@@ -34,4 +35,6 @@ pub enum Cmd {
     List(list::Args),
     #[clap(about = "Delete the rack")]
     Delete(delete::Args),
+    #[clap(subcommand, about = "Edit Metadata associated with a Rack")]
+    Metadata(metadata::Args),
 }

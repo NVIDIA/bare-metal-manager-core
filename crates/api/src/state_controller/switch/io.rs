@@ -19,7 +19,6 @@
 
 use carbide_uuid::switch::SwitchId;
 use config_version::{ConfigVersion, Versioned};
-use db::switch::SwitchSearchConfig;
 use db::{DatabaseError, ObjectColumnFilter, switch as db_switch};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
@@ -63,7 +62,6 @@ impl StateControllerIO for SwitchStateControllerIO {
         let mut switches = db_switch::find_by(
             txn,
             ObjectColumnFilter::One(db::switch::IdColumn, switch_id),
-            SwitchSearchConfig::default(),
         )
         .await?;
         if switches.is_empty() {

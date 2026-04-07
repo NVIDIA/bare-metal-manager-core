@@ -115,8 +115,9 @@ pub async fn persist(
                 vlan_id,
                 vni_id,
                 network_segment_type,
-                can_stretch)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                can_stretch,
+                allocation_strategy)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING id";
     let segment_id: NetworkSegmentId = sqlx::query_as(query)
         .bind(value.id)
@@ -131,6 +132,7 @@ pub async fn persist(
         .bind(value.vni)
         .bind(value.segment_type)
         .bind(value.can_stretch)
+        .bind(value.allocation_strategy)
         .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -562,6 +564,16 @@ pub async fn find_by_name(
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(&query, e))
+}
+
+/// Well-known name for the static assignments "anchor segment",
+/// making it extra-obvious that it's a special one.
+pub const STATIC_ASSIGNMENTS_SEGMENT_NAME: &str = "static-assignments";
+
+/// Returns the static-assignments anchor segment, used for external
+/// static IP assignments that don't fall within any managed network prefix.
+pub async fn static_assignments(txn: &mut PgConnection) -> Result<NetworkSegment, DatabaseError> {
+    find_by_name(txn, STATIC_ASSIGNMENTS_SEGMENT_NAME).await
 }
 
 /// This method returns Admin network segment.

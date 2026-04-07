@@ -594,6 +594,7 @@ impl BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
+        is_bf2: bool,
     ) -> Result<(), EndpointExplorationError> {
         let (username, password) = match credentials.clone() {
             Credentials::UsernamePassword { username, password } => (username, password),
@@ -610,6 +611,7 @@ impl BmcEndpointExplorer {
             username,
             password,
             UNIFIED_PREINGESTION_BFB_PATH.to_string(),
+            is_bf2,
         )
         .await
         .map_err(|err| EndpointExplorationError::Other {
@@ -1112,12 +1114,13 @@ impl EndpointExplorer for BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
+        is_bf2: bool,
     ) -> Result<(), EndpointExplorationError> {
         let bmc_mac_address = interface.mac_address;
 
         match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
-                self.copy_bfb_to_dpu_rshim(bmc_ip_address, credentials)
+                self.copy_bfb_to_dpu_rshim(bmc_ip_address, credentials, is_bf2)
                     .await
             }
             Err(e) => {

@@ -67,18 +67,39 @@ pub fn rack_id_link(id: impl Display) -> ::askama::Result<String> {
     let mut rack_id = String::new();
     askama_escape::Html.write_escaped(&mut rack_id, &id)?;
 
-    let short_id = if rack_id.len() < 10 {
-        &rack_id
+    let formatted = if rack_id.len() < 10 {
+        format!(r#"<a href="/admin/rack/{link_path}">{rack_id}</a>"#)
     } else {
-        &rack_id[0..6] // Shorter to have space for ellipsis ("...")
-    };
-
-    // machine_id is used here since its already a defined CSS class
-    let formatted = format!(
-        r#"
+        let short_id = &rack_id[0..6];
+        format!(
+            r#"
     <a href="/admin/rack/{link_path}">
         <div class="machine_id">
             <div>{rack_id}</div><div>{short_id}</div>
+        </div>
+    </a>"#
+        )
+    };
+
+    Ok(formatted)
+}
+
+pub fn power_shelf_id_link(id: impl Display) -> ::askama::Result<String> {
+    let id = id.to_string();
+    if id == "Unlinked" || id.is_empty() {
+        return Ok("Unlinked".to_string());
+    }
+    let link_path: String = url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
+
+    let mut escaped_id = String::new();
+    askama_escape::Html.write_escaped(&mut escaped_id, &id)?;
+
+    let short_id = &escaped_id[escaped_id.len().saturating_sub(6)..];
+    let formatted = format!(
+        r#"
+    <a href="/admin/power-shelf/{link_path}">
+        <div class="machine_id">
+            <div>{escaped_id}</div><div>{short_id}</div>
         </div>
     </a>"#
     );

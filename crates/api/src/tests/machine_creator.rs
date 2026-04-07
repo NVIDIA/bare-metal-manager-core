@@ -21,7 +21,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
-use carbide_uuid::rack::RackId;
 use itertools::Itertools;
 use mac_address::MacAddress;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -249,9 +248,13 @@ async fn test_site_explorer_creates_managed_host(
     .await
     .unwrap()
     .unwrap();
-    assert_eq!(
+    assert!(
+        matches!(
+            dpu_machine.current_state(),
+            ManagedHostState::DpuDiscoveringState { .. }
+        ),
+        "expected DpuDiscoveringState, got {:?}",
         dpu_machine.current_state(),
-        &ManagedHostState::VerifyRmsMembership,
     );
     assert_eq!(
         dpu_machine.hardware_info.as_ref().unwrap().machine_type,
@@ -309,9 +312,13 @@ async fn test_site_explorer_creates_managed_host(
     let host_machine = db::machine::find_host_by_dpu_machine_id(&mut txn, &dpu_machine.id)
         .await?
         .unwrap();
-    assert_eq!(
+    assert!(
+        matches!(
+            host_machine.current_state(),
+            ManagedHostState::DpuDiscoveringState { .. }
+        ),
+        "expected DpuDiscoveringState, got {:?}",
         host_machine.current_state(),
-        &ManagedHostState::VerifyRmsMembership,
     );
     assert!(host_machine.bmc_info.ip.is_some());
 
@@ -337,9 +344,7 @@ async fn test_site_explorer_creates_managed_host(
         .build();
     env.override_machine_state_controller_handler(handler).await;
 
-    // 1 iteration: VerifyRmsMembership -> DpuDiscoveringState (no rack_id, skips)
-    // 1 iteration: DpuDiscoveringState/Initializing -> DpuDiscoveringState/Configuring
-    env.run_machine_state_controller_iteration().await;
+    // DpuDiscovering/Initializing -> DpuDiscovering/Configuring
     env.run_machine_state_controller_iteration().await;
 
     let dpu_machine = db::machine::find_one(
@@ -804,12 +809,23 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         }
     );
 
-    let expected_state = ManagedHostState::VerifyRmsMembership;
-
-    assert_eq!(host_machine.unwrap().current_state(), &expected_state);
+    assert!(
+        matches!(
+            host_machine.unwrap().current_state(),
+            ManagedHostState::DpuDiscoveringState { .. }
+        ),
+        "expected DpuDiscoveringState for host",
+    );
 
     for dpu in &dpu_machines {
-        assert_eq!(dpu.current_state(), &expected_state);
+        assert!(
+            matches!(
+                dpu.current_state(),
+                ManagedHostState::DpuDiscoveringState { .. }
+            ),
+            "expected DpuDiscoveringState for DPU {:?}",
+            dpu.id,
+        );
     }
 
     let mut interfaces_map =
@@ -1409,560 +1425,6 @@ async fn test_site_explorer_creates_managed_host_with_dpf_enabled(
     for machine in machines {
         assert!(machine.dpf.enabled);
     }
-
-    Ok(())
-}
-
-/// End-to-end test for a fresh host with rack_id: the node isn't in RMS
-/// inventory yet, so it goes through verification (not found) -> registration
-/// -> DpuDiscoveringState.
-/// Flow: VerifyRmsMembership -> RegisterRmsMembership -> DpuDiscoveringState
-#[crate::sqlx_test]
-async fn test_rms_registration_with_rack_id(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = common::api_fixtures::get_config();
-    config.dpu_config.dpu_models = HashMap::new();
-    let env = common::api_fixtures::create_test_env_with_overrides(
-        pool,
-        TestEnvOverrides::with_config(config),
-    )
-    .await;
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: true,
-        explorations_per_run: 2,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
-        power_shelves_created_per_run: 1,
-        create_switches: Arc::new(true.into()),
-        switches_created_per_run: 1,
-        ..Default::default()
-    };
-
-    let machine_creator = MachineCreator::new(
-        env.pool.clone(),
-        explorer_config,
-        env.common_pools.clone(),
-        None,
-    );
-
-    let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
-    env.api
-        .discover_dhcp(
-            DhcpDiscovery::builder(oob_mac, "192.0.1.1")
-                .vendor_string("NVIDIA/OOB")
-                .tonic_request(),
-        )
-        .await
-        .unwrap();
-
-    let dpu_serial = "MT2328XZ185R".to_string();
-    let mock_dpu = DpuConfig::with_serial(dpu_serial.clone());
-    let mock_host = ManagedHostConfig::with_dpus(vec![mock_dpu.clone()]);
-    let mut dpu_report: EndpointExplorationReport = mock_dpu.clone().into();
-    dpu_report.generate_machine_id(false)?;
-
-    let response = env
-        .api
-        .discover_dhcp(
-            DhcpDiscovery::builder(mock_host.bmc_mac_address, "192.0.1.1")
-                .vendor_string("NVIDIA/OOB")
-                .tonic_request(),
-        )
-        .await
-        .unwrap()
-        .into_inner();
-    let interface_id = response.machine_interface_id;
-    let mut ifaces = env
-        .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
-            id: Some(interface_id.unwrap()),
-            ip: None,
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-    let iface = ifaces.interfaces.remove(0);
-    let mut addresses = iface.address;
-    let host_bmc_ip = addresses.remove(0);
-
-    let dpu_report = Arc::new(dpu_report);
-    let exploration_report = ExploredManagedHost {
-        host_bmc_ip: IpAddr::from_str(&host_bmc_ip)?,
-        dpus: vec![ExploredDpu {
-            bmc_ip: IpAddr::from_str(response.address.as_str())?,
-            host_pf_mac_address: Some(mock_dpu.host_mac_address),
-            report: dpu_report.clone(),
-        }],
-    };
-
-    // Create an expected machine WITH a rack_id in the DB.
-    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
-    let mut txn = env.pool.begin().await.unwrap();
-    db::expected_machine::create(
-        &mut txn,
-        model::expected_machine::ExpectedMachine {
-            id: None,
-            bmc_mac_address: mock_host.bmc_mac_address,
-            data: model::expected_machine::ExpectedMachineData {
-                rack_id: Some(rack_id),
-                ..Default::default()
-            },
-        },
-    )
-    .await?;
-    txn.commit().await?;
-
-    // Create the managed host (starts in VerifyRmsMembership).
-    assert!(
-        machine_creator
-            .create_managed_host(
-                &exploration_report,
-                &mut EndpointExplorationReport::default(),
-                None,
-                &env.pool,
-            )
-            .await?
-    );
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let host_machine =
-        db::machine::find_host_by_dpu_machine_id(&mut txn, dpu_report.machine_id.as_ref().unwrap())
-            .await?
-            .unwrap();
-    assert_eq!(
-        host_machine.current_state(),
-        &ManagedHostState::VerifyRmsMembership,
-    );
-
-    let handler = MachineStateHandlerBuilder::builder()
-        .dpu_up_threshold(chrono::Duration::minutes(1))
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .dpu_enable_secure_boot(env.config.dpu_config.dpu_enable_secure_boot)
-        .power_options_config(env.config.power_manager_options.clone().into())
-        .build();
-    env.override_machine_state_controller_handler(handler).await;
-
-    // Iteration 1: VerifyRmsMembership -> RegisterRmsMembership
-    // (node not found in inventory — needs registration)
-    env.run_machine_state_controller_iteration().await;
-    let host_machine = db::machine::find_one(
-        txn.as_mut(),
-        &host_machine.id,
-        MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(
-        host_machine.current_state(),
-        &ManagedHostState::RegisterRmsMembership,
-    );
-
-    // Iteration 2: RegisterRmsMembership -> DpuDiscoveringState
-    // (add_node succeeds)
-    env.run_machine_state_controller_iteration().await;
-    let host_machine = db::machine::find_one(
-        txn.as_mut(),
-        &host_machine.id,
-        MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert!(
-        matches!(
-            host_machine.current_state(),
-            ManagedHostState::DpuDiscoveringState { .. }
-        ),
-        "Expected DpuDiscoveringState, got: {}",
-        host_machine.current_state()
-    );
-
-    Ok(())
-}
-
-/// Test that RMS registration retries when the add_node call fails.
-/// Flow: VerifyRmsMembership -> RegisterRmsMembership (fails, stays) ->
-///       RegisterRmsMembership (succeeds) -> DpuDiscoveringState
-#[crate::sqlx_test]
-async fn test_rms_registration_retries_on_failure(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = common::api_fixtures::get_config();
-    config.dpu_config.dpu_models = HashMap::new();
-    let env = common::api_fixtures::create_test_env_with_overrides(
-        pool,
-        TestEnvOverrides::with_config(config),
-    )
-    .await;
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: true,
-        explorations_per_run: 2,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
-        power_shelves_created_per_run: 1,
-        create_switches: Arc::new(true.into()),
-        switches_created_per_run: 1,
-        ..Default::default()
-    };
-
-    let machine_creator = MachineCreator::new(
-        env.pool.clone(),
-        explorer_config,
-        env.common_pools.clone(),
-        None,
-    );
-
-    let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
-    env.api
-        .discover_dhcp(
-            DhcpDiscovery::builder(oob_mac, "192.0.1.1")
-                .vendor_string("NVIDIA/OOB")
-                .tonic_request(),
-        )
-        .await
-        .unwrap();
-
-    let dpu_serial = "MT2328XZ185R".to_string();
-    let mock_dpu = DpuConfig::with_serial(dpu_serial.clone());
-    let mock_host = ManagedHostConfig::with_dpus(vec![mock_dpu.clone()]);
-    let mut dpu_report: EndpointExplorationReport = mock_dpu.clone().into();
-    dpu_report.generate_machine_id(false)?;
-
-    let response = env
-        .api
-        .discover_dhcp(
-            DhcpDiscovery::builder(mock_host.bmc_mac_address, "192.0.1.1")
-                .vendor_string("NVIDIA/OOB")
-                .tonic_request(),
-        )
-        .await
-        .unwrap()
-        .into_inner();
-    let interface_id = response.machine_interface_id;
-    let mut ifaces = env
-        .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
-            id: Some(interface_id.unwrap()),
-            ip: None,
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-    let iface = ifaces.interfaces.remove(0);
-    let mut addresses = iface.address;
-    let host_bmc_ip = addresses.remove(0);
-
-    let dpu_report = Arc::new(dpu_report);
-    let exploration_report = ExploredManagedHost {
-        host_bmc_ip: IpAddr::from_str(&host_bmc_ip)?,
-        dpus: vec![ExploredDpu {
-            bmc_ip: IpAddr::from_str(response.address.as_str())?,
-            host_pf_mac_address: Some(mock_dpu.host_mac_address),
-            report: dpu_report.clone(),
-        }],
-    };
-
-    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
-    let mut txn = env.pool.begin().await.unwrap();
-    db::expected_machine::create(
-        &mut txn,
-        model::expected_machine::ExpectedMachine {
-            id: None,
-            bmc_mac_address: mock_host.bmc_mac_address,
-            data: model::expected_machine::ExpectedMachineData {
-                rack_id: Some(rack_id),
-                ..Default::default()
-            },
-        },
-    )
-    .await?;
-    txn.commit().await?;
-
-    assert!(
-        machine_creator
-            .create_managed_host(
-                &exploration_report,
-                &mut EndpointExplorationReport::default(),
-                None,
-                &env.pool,
-            )
-            .await?
-    );
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let host_machine =
-        db::machine::find_host_by_dpu_machine_id(&mut txn, dpu_report.machine_id.as_ref().unwrap())
-            .await?
-            .unwrap();
-
-    let handler = MachineStateHandlerBuilder::builder()
-        .dpu_up_threshold(chrono::Duration::minutes(1))
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .dpu_enable_secure_boot(env.config.dpu_config.dpu_enable_secure_boot)
-        .power_options_config(env.config.power_manager_options.clone().into())
-        .build();
-    env.override_machine_state_controller_handler(handler).await;
-
-    // Iteration 1: VerifyRmsMembership -> RegisterRmsMembership (not found)
-    env.run_machine_state_controller_iteration().await;
-    let host_machine = db::machine::find_one(
-        txn.as_mut(),
-        &host_machine.id,
-        MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(
-        host_machine.current_state(),
-        &ManagedHostState::RegisterRmsMembership,
-    );
-
-    // Make add_node fail
-    env.rms_sim.set_fail_add_node(true);
-
-    // Iteration 2: RegisterRmsMembership stays (add_node fails)
-    env.run_machine_state_controller_iteration().await;
-    let host_machine = db::machine::find_one(
-        txn.as_mut(),
-        &host_machine.id,
-        MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(
-        host_machine.current_state(),
-        &ManagedHostState::RegisterRmsMembership,
-        "Expected to stay in RegisterRmsMembership on RMS failure, got: {}",
-        host_machine.current_state()
-    );
-
-    // Let add_node succeed
-    env.rms_sim.set_fail_add_node(false);
-
-    // Iteration 3: RegisterRmsMembership -> DpuDiscoveringState (succeeds)
-    env.run_machine_state_controller_iteration().await;
-    let host_machine = db::machine::find_one(
-        txn.as_mut(),
-        &host_machine.id,
-        MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert!(
-        matches!(
-            host_machine.current_state(),
-            ManagedHostState::DpuDiscoveringState { .. }
-        ),
-        "Expected DpuDiscoveringState, got: {}",
-        host_machine.current_state()
-    );
-
-    Ok(())
-}
-
-/// Test VerifyRmsMembership failure paths:
-/// - API error -> stays in VerifyRmsMembership (retry)
-/// - Node not found -> goes to RegisterRmsMembership
-/// - After registration, node is found -> skips to DpuDiscoveringState
-#[crate::sqlx_test]
-async fn test_rms_verification_failure_paths(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = common::api_fixtures::get_config();
-    config.dpu_config.dpu_models = HashMap::new();
-    let env = common::api_fixtures::create_test_env_with_overrides(
-        pool,
-        TestEnvOverrides::with_config(config),
-    )
-    .await;
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: true,
-        explorations_per_run: 2,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
-        power_shelves_created_per_run: 1,
-        create_switches: Arc::new(true.into()),
-        switches_created_per_run: 1,
-        ..Default::default()
-    };
-
-    let machine_creator = MachineCreator::new(
-        env.pool.clone(),
-        explorer_config,
-        env.common_pools.clone(),
-        None,
-    );
-
-    let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
-    env.api
-        .discover_dhcp(
-            DhcpDiscovery::builder(oob_mac, "192.0.1.1")
-                .vendor_string("NVIDIA/OOB")
-                .tonic_request(),
-        )
-        .await
-        .unwrap();
-
-    let dpu_serial = "MT2328XZ185R".to_string();
-    let mock_dpu = DpuConfig::with_serial(dpu_serial.clone());
-    let mock_host = ManagedHostConfig::with_dpus(vec![mock_dpu.clone()]);
-    let mut dpu_report: EndpointExplorationReport = mock_dpu.clone().into();
-    dpu_report.generate_machine_id(false)?;
-
-    let response = env
-        .api
-        .discover_dhcp(
-            DhcpDiscovery::builder(mock_host.bmc_mac_address, "192.0.1.1")
-                .vendor_string("NVIDIA/OOB")
-                .tonic_request(),
-        )
-        .await
-        .unwrap()
-        .into_inner();
-    let interface_id = response.machine_interface_id;
-    let mut ifaces = env
-        .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
-            id: Some(interface_id.unwrap()),
-            ip: None,
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-    let iface = ifaces.interfaces.remove(0);
-    let mut addresses = iface.address;
-    let host_bmc_ip = addresses.remove(0);
-
-    let dpu_report = Arc::new(dpu_report);
-    let exploration_report = ExploredManagedHost {
-        host_bmc_ip: IpAddr::from_str(&host_bmc_ip)?,
-        dpus: vec![ExploredDpu {
-            bmc_ip: IpAddr::from_str(response.address.as_str())?,
-            host_pf_mac_address: Some(mock_dpu.host_mac_address),
-            report: dpu_report.clone(),
-        }],
-    };
-
-    let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
-    let mut txn = env.pool.begin().await.unwrap();
-    db::expected_machine::create(
-        &mut txn,
-        model::expected_machine::ExpectedMachine {
-            id: None,
-            bmc_mac_address: mock_host.bmc_mac_address,
-            data: model::expected_machine::ExpectedMachineData {
-                rack_id: Some(rack_id),
-                ..Default::default()
-            },
-        },
-    )
-    .await?;
-    txn.commit().await?;
-
-    assert!(
-        machine_creator
-            .create_managed_host(
-                &exploration_report,
-                &mut EndpointExplorationReport::default(),
-                None,
-                &env.pool,
-            )
-            .await?
-    );
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let host_machine =
-        db::machine::find_host_by_dpu_machine_id(&mut txn, dpu_report.machine_id.as_ref().unwrap())
-            .await?
-            .unwrap();
-
-    // Make inventory_get fail so verification can't proceed
-    env.rms_sim.set_fail_inventory_get(true);
-
-    let handler = MachineStateHandlerBuilder::builder()
-        .dpu_up_threshold(chrono::Duration::minutes(1))
-        .hardware_models(env.config.get_firmware_config())
-        .reachability_params(env.reachability_params)
-        .attestation_enabled(env.attestation_enabled)
-        .dpu_enable_secure_boot(env.config.dpu_config.dpu_enable_secure_boot)
-        .power_options_config(env.config.power_manager_options.clone().into())
-        .build();
-    env.override_machine_state_controller_handler(handler).await;
-
-    // Iteration 1: VerifyRmsMembership stays (inventory_get API error)
-    env.run_machine_state_controller_iteration().await;
-    let host_machine = db::machine::find_one(
-        txn.as_mut(),
-        &host_machine.id,
-        MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(
-        host_machine.current_state(),
-        &ManagedHostState::VerifyRmsMembership,
-        "Expected to stay in VerifyRmsMembership on API error, got: {}",
-        host_machine.current_state()
-    );
-
-    // Let inventory_get succeed — node is NOT in inventory (fresh host)
-    env.rms_sim.set_fail_inventory_get(false);
-
-    // Iteration 2: VerifyRmsMembership -> RegisterRmsMembership (not found)
-    env.run_machine_state_controller_iteration().await;
-    let host_machine = db::machine::find_one(
-        txn.as_mut(),
-        &host_machine.id,
-        MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(
-        host_machine.current_state(),
-        &ManagedHostState::RegisterRmsMembership,
-    );
-
-    // Iteration 3: RegisterRmsMembership -> DpuDiscoveringState (succeeds)
-    env.run_machine_state_controller_iteration().await;
-    let host_machine = db::machine::find_one(
-        txn.as_mut(),
-        &host_machine.id,
-        MachineSearchConfig::default(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert!(
-        matches!(
-            host_machine.current_state(),
-            ManagedHostState::DpuDiscoveringState { .. }
-        ),
-        "Expected DpuDiscoveringState, got: {}",
-        host_machine.current_state()
-    );
 
     Ok(())
 }

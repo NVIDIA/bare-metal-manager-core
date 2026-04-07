@@ -28,4 +28,14 @@ pub enum AddressSelectionStrategy {
     /// For example, `NextAvailablePrefix(30)` allocates a /30 block
     /// (used by FNN to allocate a 4-address subnet per DPU).
     NextAvailablePrefix(u8),
+
+    /// Assign a specific IP address to the interface.
+    ///
+    /// This IP address can either be a "reservation" within an
+    /// existing carbide-dhcp managed network (and allows you
+    /// to pin your device to an IP within a managed network),
+    /// or it can be outside of the Carbide-managed networks
+    /// entirely, allowing you to effectively BYO DHCP for
+    /// underlay interfaces.
+    StaticAddress(std::net::IpAddr),
 }

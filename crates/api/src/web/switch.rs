@@ -64,16 +64,17 @@ pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
 }
 
 async fn fetch_switches(api: &Api) -> Result<Vec<SwitchRecord>, (http::StatusCode, String)> {
-    let response = match api
-        .find_switches(tonic::Request::new(rpc::forge::SwitchQuery {
-            name: None,
-            switch_id: None,
-        }))
+    // Use find_switch_ids (which respects DeletedFilter::Exclude by default)
+    // followed by find_switches_by_ids.
+    let switch_ids = match api
+        .find_switch_ids(tonic::Request::new(
+            rpc::forge::SwitchSearchFilter::default(),
+        ))
         .await
     {
-        Ok(response) => response.into_inner(),
+        Ok(response) => response.into_inner().ids,
         Err(err) => {
-            tracing::error!(%err, "list_switches");
+            tracing::error!(%err, "find_switch_ids");
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Failed to list switches".to_string(),
@@ -81,15 +82,43 @@ async fn fetch_switches(api: &Api) -> Result<Vec<SwitchRecord>, (http::StatusCod
         }
     };
 
-    let switches = response
-        .switches
+    if switch_ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut all_switches = Vec::new();
+    let mut offset = 0;
+    while offset < switch_ids.len() {
+        const PAGE_SIZE: usize = 100;
+        let page_size = PAGE_SIZE.min(switch_ids.len() - offset);
+        let next_ids = &switch_ids[offset..offset + page_size];
+        let page = match api
+            .find_switches_by_ids(tonic::Request::new(rpc::forge::SwitchesByIdsRequest {
+                switch_ids: next_ids.to_vec(),
+            }))
+            .await
+        {
+            Ok(response) => response.into_inner(),
+            Err(err) => {
+                tracing::error!(%err, "find_switches_by_ids");
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Failed to fetch switches".to_string(),
+                ));
+            }
+        };
+        all_switches.extend(page.switches);
+        offset += page_size;
+    }
+
+    let switches = all_switches
         .into_iter()
         .map(|switch| {
             let state = parse_controller_state(&switch.controller_state);
 
-            let config = switch.config.unwrap();
+            let config = switch.config.unwrap_or_default();
             SwitchRecord {
-                id: switch.id.unwrap().to_string(),
+                id: switch.id.map(|id| id.to_string()).unwrap_or_default(),
                 name: config.name,
                 state,
                 location: config.location.unwrap_or_else(|| "N/A".to_string()),
@@ -121,6 +150,8 @@ fn capitalize(s: &str) -> String {
 struct SwitchDetail {
     id: String,
     controller_state: String,
+    state_version: String,
+    time_in_state: String,
     name: String,
     location: String,
     enable_nmxc: bool,
@@ -128,6 +159,7 @@ struct SwitchDetail {
     power_state: Option<String>,
     health_status: Option<String>,
     bmc_info: Option<rpc::forge::BmcInfo>,
+    metadata_detail: super::MetadataDetail,
 }
 
 #[derive(serde::Serialize)]
@@ -143,8 +175,8 @@ struct SwitchDetailJson {
     bmc_mac: Option<String>,
 }
 
-impl From<rpc::forge::Switch> for SwitchDetail {
-    fn from(switch: rpc::forge::Switch) -> Self {
+impl SwitchDetail {
+    fn new(switch: rpc::forge::Switch) -> Self {
         let id = switch
             .id
             .as_ref()
@@ -154,9 +186,16 @@ impl From<rpc::forge::Switch> for SwitchDetail {
         let state_reason = switch.status.as_ref().and_then(|s| s.state_reason.clone());
         let power_state = switch.status.as_ref().and_then(|s| s.power_state.clone());
         let health_status = switch.status.as_ref().and_then(|s| s.health_status.clone());
+        let time_in_state = config_version::since_state_change_humanized(&switch.state_version);
+        let metadata_detail = super::MetadataDetail {
+            metadata: switch.metadata.unwrap_or_default(),
+            metadata_version: switch.version,
+        };
         Self {
             id,
             controller_state: parse_controller_state(&switch.controller_state),
+            state_version: switch.state_version,
+            time_in_state,
             name: config.name,
             location: config.location.unwrap_or_else(|| "N/A".to_string()),
             enable_nmxc: config.enable_nmxc,
@@ -164,6 +203,7 @@ impl From<rpc::forge::Switch> for SwitchDetail {
             power_state,
             health_status,
             bmc_info: switch.bmc_info,
+            metadata_detail,
         }
     }
 }
@@ -190,7 +230,7 @@ pub async fn detail(
         Err(response) => return response,
     };
 
-    let detail = SwitchDetail::from(switch);
+    let detail = SwitchDetail::new(switch);
 
     if show_json {
         let json = SwitchDetailJson {

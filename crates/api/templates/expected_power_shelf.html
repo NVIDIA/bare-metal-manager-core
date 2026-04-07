@@ -36,7 +36,7 @@
                                 <td>{{ shelf.bmc_mac_address }}</td>
                                 <td>{{ shelf.explored_bmc_ip }}</td>
                                 <td>{{ shelf.rack_id|rack_id_link|safe }}</td>
-                                <td>{{ shelf.power_shelf_id }}</td>
+                                <td>{{ shelf.power_shelf_id|power_shelf_id_link|safe }}</td>
                             </tr>
                             {% endfor %}
                             </tbody>

@@ -350,7 +350,7 @@ async fn test_vpc_peering_network_config_mixed(
     let response = create_vpc_peering(
         &env,
         VpcVirtualizationType::Fnn,
-        VpcVirtualizationType::EthernetVirtualizerWithNvue,
+        VpcVirtualizationType::EthernetVirtualizer,
     )
     .await;
 
@@ -397,7 +397,7 @@ async fn test_vpc_peering_network_config_exclusive_etv_with_nvue(
     let (_, _, _, _, dpu_machine_id) = create_vpc_peering(
         &env,
         VpcVirtualizationType::EthernetVirtualizer,
-        VpcVirtualizationType::EthernetVirtualizerWithNvue,
+        VpcVirtualizationType::EthernetVirtualizer,
     )
     .await?;
 

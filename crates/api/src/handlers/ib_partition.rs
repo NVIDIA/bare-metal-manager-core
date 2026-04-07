@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
+use config_version::ConfigVersion;
 use db::resource_pool::ResourcePoolDatabaseError;
 use db::{ObjectColumnFilter, ib_partition};
 use model::ib::DEFAULT_IB_FABRIC_NAME;
@@ -89,6 +90,83 @@ pub(crate) async fn create(
     txn.commit().await?;
 
     Ok(resp)
+}
+
+pub(crate) async fn update(
+    api: &Api,
+    request: Request<rpc::IbPartitionUpdateRequest>,
+) -> Result<Response<rpc::IbPartition>, Status> {
+    log_request_data(&request);
+
+    let mut txn = api.txn_begin().await?;
+
+    let req = request.into_inner();
+    let id = req.id.ok_or(CarbideError::MissingArgument("id"))?;
+    let config = req.config.ok_or(CarbideError::MissingArgument("config"))?;
+    let metadata = req
+        .metadata
+        .ok_or(CarbideError::MissingArgument("metadata"))?;
+
+    let mut partitions = db::ib_partition::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(ib_partition::IdColumn, &id),
+    )
+    .await?;
+
+    let mut partition = match partitions.len() {
+        1 => partitions.remove(0),
+        _ => {
+            return Err(CarbideError::NotFoundError {
+                kind: "ib_partition",
+                id: id.to_string(),
+            }
+            .into());
+        }
+    };
+
+    if let Some(if_version_match) = req.if_version_match {
+        let target_version = if_version_match
+            .parse::<ConfigVersion>()
+            .map_err(CarbideError::from)?;
+
+        if partition.version != target_version {
+            return Err(CarbideError::ConcurrentModificationError(
+                "IBPartition",
+                target_version.to_string(),
+            )
+            .into());
+        }
+    }
+
+    if config.tenant_organization_id != partition.config.tenant_organization_id.to_string() {
+        return Err(CarbideError::InvalidArgument(
+            "Tenant organization ID should not be updated".to_string(),
+        )
+        .into());
+    }
+
+    if config.pkey.is_some() {
+        let req_pkey = config
+            .pkey
+            .as_ref()
+            .and_then(|s| u16::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+            .and_then(|v| PartitionKey::try_from(v).ok());
+        let cur_pkey = partition.status.as_ref().and_then(|s| s.pkey);
+        if req_pkey != cur_pkey {
+            return Err(CarbideError::InvalidArgument(
+                "Partition key cannot be updated".to_string(),
+            )
+            .into());
+        }
+    }
+
+    // Update the metadata of the partition
+    partition.metadata = metadata.try_into().map_err(CarbideError::from)?;
+
+    let resp = db::ib_partition::update(&partition, &mut txn).await?;
+    txn.commit().await?;
+
+    Ok(Response::new(rpc::IbPartition::try_from(resp)?))
 }
 
 pub(crate) async fn find_ids(

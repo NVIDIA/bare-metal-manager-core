@@ -22,7 +22,7 @@ use mac_address::MacAddress;
 use rpc::DiscoveryInfo;
 use serde_json::json;
 
-use crate::{PowerControl, hw, redfish};
+use crate::{BootOptionKind, Callbacks, hw, redfish};
 
 #[allow(dead_code)]
 pub struct LenovoGB300Nvl<'a> {
@@ -99,18 +99,18 @@ impl LenovoGB300Nvl<'_> {
         }
     }
 
-    pub fn system_config(
-        &self,
-        power_control: Arc<dyn PowerControl>,
-    ) -> redfish::computer_system::Config {
+    pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
         let system_id = "System_0";
         // TODO: It is PXE but apparently if enable HTTP in bios HTTP
         // (Uefi) boot options will show up here...
         let boot_options = std::iter::once(
-            redfish::boot_option::builder(&redfish::boot_option::resource(system_id, "0002"))
-                .boot_option_reference("Boot0002")
-                .display_name("ubuntu")
-                .build(),
+            redfish::boot_option::builder(
+                &redfish::boot_option::resource(system_id, "0002"),
+                BootOptionKind::Disk,
+            )
+            .boot_option_reference("Boot0002")
+            .display_name("ubuntu")
+            .build(),
         )
         .chain(
             [&self.embedded_1g_nic.ethernet_nic(), &self.dpu.host_nic()]
@@ -120,18 +120,22 @@ impl LenovoGB300Nvl<'_> {
                     let id = format!("{:04X}", n + 3); // Starting with 0003
                     // TODO should be taken from NIC:
                     let pci_path = "PciRoot(0x0)/Pci(0x10,0x0)/Pci(0x0,0x0)";
-                    redfish::boot_option::builder(&redfish::boot_option::resource(system_id, &id))
-                .boot_option_reference(&format!("Boot{id}"))
-                // Real "Description": "DisplayName": "[Slot16]UEFI: PXE IPv4 Nvidia Network Adapter - 90:E3:17:95:01:DE",
-                .display_name(&format!(
-                    "[SlotFFFF]: PXE IPv4 Some Network Adapter - {}",
-                    nic.mac_address
-                ))
-                .uefi_device_path(&format!(
-                    "{pci_path}/MAC({},0x1)/IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()",
-                    nic.mac_address.to_string().replace(":", "")
-                ))
-                .build()
+                    redfish::boot_option::builder(
+                        &redfish::boot_option::resource(system_id, &id),
+                        BootOptionKind::Network,
+                    )
+                    .boot_option_reference(&format!("Boot{id}"))
+                    // Real "Description": "DisplayName": "[Slot16]UEFI: PXE IPv4 Nvidia Network Adapter - 90:E3:17:95:01:DE",
+                    .display_name(&format!(
+                        "[SlotFFFF]: PXE IPv4 Some Network Adapter - {}",
+                        nic.mac_address
+                    ))
+                    .uefi_device_path(&format!(
+                        "{pci_path}/MAC({},0x1)\
+                             /IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()",
+                        nic.mac_address.to_string().replace(":", "")
+                    ))
+                    .build()
                 }),
         )
         .collect();
@@ -168,7 +172,7 @@ impl LenovoGB300Nvl<'_> {
                     manufacturer: Some("NVIDIA".into()),
                     model: Some("GB300 1CPU:2GPU Board PC".into()),
                     oem: redfish::computer_system::Oem::Generic,
-                    power_control: None,
+                    callbacks: None,
                     secure_boot_available: false,
                     serial_number: Some(self.hgx_serial_number.to_string().into()),
                     storage: None,
@@ -187,7 +191,7 @@ impl LenovoGB300Nvl<'_> {
                     manufacturer: Some("Lenovo".into()),
                     model: Some("HG634N_V2".into()),
                     oem: redfish::computer_system::Oem::Generic,
-                    power_control: Some(power_control),
+                    callbacks: Some(callbacks),
                     secure_boot_available: true,
                     serial_number: Some(self.system_0_serial_number.to_string().into()),
                     storage: None,

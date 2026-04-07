@@ -86,6 +86,8 @@ version-compare = { workspace = true }
 carbide-version = { path = "../version" }
 
 [dev-dependencies]
+base64 = { workspace = true }
+carbide-secrets = { path = "../secrets" }
 lazy_static = { workspace = true }
 carbide-macros = { path = "../macros" }
 carbide-sqlx-testing = { path = "../sqlx-testing" }

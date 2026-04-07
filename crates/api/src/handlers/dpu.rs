@@ -153,7 +153,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
     // prevent the host from using the DPU at all.
     let use_admin_network = dpu_snapshot.use_admin_network() || !dpu_has_tenant_interface_config;
 
-    let mut network_virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
+    let mut network_virtualization_type = VpcVirtualizationType::EthernetVirtualizer;
 
     let mut use_fnn_over_admin_nw = false;
 
@@ -263,17 +263,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 None
             };
 
-            // EthernetVirtualizer is treated as EthernetVirtualizerWithNvue — NVUE is
-            // always enabled, and the non-NVUE ETV agent code path has been removed.
-            // In practice the DB decode already maps "etv" -> EthernetVirtualizerWithNvue,
-            // so EthernetVirtualizer shouldn't appear here, but we handle it defensively.
-            network_virtualization_type = match vpc.network_virtualization_type {
-                VpcVirtualizationType::EthernetVirtualizer
-                | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
-                    VpcVirtualizationType::EthernetVirtualizerWithNvue
-                }
-                VpcVirtualizationType::Fnn => VpcVirtualizationType::Fnn,
-            };
+            network_virtualization_type = vpc.network_virtualization_type;
 
             vpc_vni = vpc.status.as_ref().and_then(|v| v.vni.map(|x|x as u32));
 
@@ -646,9 +636,17 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 .version_string()
         },
         remote_id: dpu_machine_id.remote_id(),
-        network_virtualization_type: Some(
-            rpc::VpcVirtualizationType::from(network_virtualization_type).into(),
-        ),
+        // TODO(chet): Once all agents are upgraded past the ETV cleanup PRs, this can
+        // use rpc::VpcVirtualizationType::from(network_virtualization_type).into() instead.
+        // For now, force ETV to proto value 2 (ETHERNET_VIRTUALIZER_WITH_NVUE) so that
+        // older agents that reject proto value 0 (ETHERNET_VIRTUALIZER) continue to work.
+        network_virtualization_type: Some(match network_virtualization_type {
+            VpcVirtualizationType::EthernetVirtualizer
+            | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+                rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue.into()
+            }
+            VpcVirtualizationType::Fnn => rpc::VpcVirtualizationType::Fnn.into(),
+        }),
         vpc_vni,
         // Deprecated: this field is always true now.
         // This should be removed in future version.
@@ -667,6 +665,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 })
         }),
         routing_profile: routing_profile.map(|p| rpc::RoutingProfile {
+            tenant_leak_communities_accepted: p.tenant_leak_communities_accepted,
             leak_default_route_from_underlay: p.leak_default_route_from_underlay,
             leak_tenant_host_routes_to_underlay: p.leak_tenant_host_routes_to_underlay,
             route_target_imports: p

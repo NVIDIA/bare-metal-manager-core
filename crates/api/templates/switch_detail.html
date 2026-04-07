@@ -15,6 +15,10 @@
 		<td>{{ id }}</td>
 	</tr>
 	<tr>
+		<th>Rack ID</th>
+		<td>TBD</td>
+	</tr>
+	<tr>
 		<th>State</th>
 		<td>
 			{% if controller_state == "Ready" %}
@@ -27,8 +31,16 @@
 		</td>
 	</tr>
 	<tr>
-		<th>State Reason</th>
+		<th>State Handler Outcome</th>
 		<td>{{ state_reason|controller_state_reason_fmt|safe }}</td>
+	</tr>
+	<tr>
+		<th>State Version</th>
+		<td>{{ state_version|config_version|safe }}</td>
+	</tr>
+	<tr>
+		<th>Time in State</th>
+		<td>{{ time_in_state }}</td>
 	</tr>
 	{% if let Some(power_state) = power_state %}
 	<tr>
@@ -52,7 +64,7 @@
 	{% endif %}
 </table>
 
-<h2>Metadata</h2>
+<h2>Configuration</h2>
 <table class="detailsview">
 	<tr>
 		<th>Name</th>
@@ -67,6 +79,9 @@
 		<td>{{ enable_nmxc }}</td>
 	</tr>
 </table>
+
+<h2>Metadata</h2>
+{{ metadata_detail|safe }}
 
 <h2>Health</h2>
 <table class="detailsview">

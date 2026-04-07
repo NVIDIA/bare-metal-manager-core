@@ -25,7 +25,7 @@ use serde_json::json;
 use utils::models::arch::CpuArchitecture;
 
 use crate::json::JsonExt;
-use crate::{PowerControl, hw, redfish};
+use crate::{BootOptionKind, Callbacks, hw, redfish};
 
 pub struct NvidiaDgxH100<'a> {
     pub dgx_system_serial_number: Cow<'a, str>,
@@ -99,9 +99,9 @@ impl NvidiaDgxH100<'_> {
         }
     }
 
-    pub fn system_config(&self, pc: Arc<dyn PowerControl>) -> redfish::computer_system::Config {
+    pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
         let system_id = "DGX";
-        let power_control = Some(pc);
+        let callbacks = Some(callbacks);
         let storage_nic0_ports = self.storage_nic0.ethernet_nics();
         let storage_nic1_ports = self.storage_nic1.ethernet_nics();
 
@@ -141,24 +141,30 @@ impl NvidiaDgxH100<'_> {
             let id = format!("{:04X}", n + 10); // Starting with 000A
             // TODO should be taken from NIC:
             let pci_path = "PciRoot(0x0)/Pci(0x10,0x0)/Pci(0x0,0x0)";
-            redfish::boot_option::builder(&redfish::boot_option::resource(system_id, &id))
-                .boot_option_reference(&format!("Boot{id}"))
-                // Real DisplayName: "UEFI P0: HTTP IPv4 Nvidia Network Adapter - 94:6D:AE:00:00:00"
-                .display_name(&format!("UEFI Pn: HTTP IPv4 - {}", nic.mac_address))
-                .alias("UefiHttp")
-                .uefi_device_path(&format!(
-                    "{pci_path}/MAC({},0x1)/IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()",
-                    nic.mac_address.to_string().replace(":", "")
-                ))
-                // libredfish model requires @odata.etag field.
-                .odata_etag("MakeLibRedfishHappy")
-                .build()
+            redfish::boot_option::builder(
+                &redfish::boot_option::resource(system_id, &id),
+                BootOptionKind::Network,
+            )
+            .boot_option_reference(&format!("Boot{id}"))
+            // Real DisplayName: "UEFI P0: HTTP IPv4 Nvidia Network Adapter - 94:6D:AE:00:00:00"
+            .display_name(&format!("UEFI Pn: HTTP IPv4 - {}", nic.mac_address))
+            .alias("UefiHttp")
+            .uefi_device_path(&format!(
+                "{pci_path}/MAC({},0x1)/IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()",
+                nic.mac_address.to_string().replace(":", "")
+            ))
+            // libredfish model requires @odata.etag field.
+            .odata_etag("MakeLibRedfishHappy")
+            .build()
         })
         .chain(std::iter::once(
-            redfish::boot_option::builder(&redfish::boot_option::resource(system_id, "0030"))
-                .boot_option_reference("Boot0030")
-                .display_name("UEFI OS")
-                .build(),
+            redfish::boot_option::builder(
+                &redfish::boot_option::resource(system_id, "0030"),
+                BootOptionKind::Disk,
+            )
+            .boot_option_reference("Boot0030")
+            .display_name("UEFI OS")
+            .build(),
         ))
         .collect();
 
@@ -171,7 +177,7 @@ impl NvidiaDgxH100<'_> {
                     eth_interfaces,
                     serial_number: Some(self.dgx_system_serial_number.to_string().into()),
                     boot_order_mode: redfish::computer_system::BootOrderMode::ViaSettings,
-                    power_control,
+                    callbacks,
                     chassis: vec!["BMC".into()],
                     boot_options: Some(boot_options),
                     bios_mode: redfish::computer_system::BiosMode::Generic,
@@ -187,7 +193,7 @@ impl NvidiaDgxH100<'_> {
                     model: None,
                     chassis: vec!["HGX_BMC_0".into()],
                     eth_interfaces: None,
-                    power_control: None,
+                    callbacks: None,
                     boot_options: None,
                     serial_number: None,
                     boot_order_mode: redfish::computer_system::BootOrderMode::Generic,

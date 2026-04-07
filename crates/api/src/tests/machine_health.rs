@@ -492,14 +492,15 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
 
     // Check the health history
     let mut records = load_host_health_history(&env, &host_machine_id).await;
-    let mut records = records.split_off(num_ignored_records);
+    let records_len = records.len();
+    let _ = records.split_off(records_len.saturating_sub(num_ignored_records));
 
     assert_eq!(records.len(), 3);
 
     check_reports_equal(
         "aggregate-host-health",
         records.remove(0).health.unwrap().try_into().unwrap(),
-        health1,
+        health3,
     );
     check_reports_equal(
         "aggregate-host-health",
@@ -509,8 +510,27 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     check_reports_equal(
         "aggregate-host-health",
         records.remove(0).health.unwrap().try_into().unwrap(),
-        health3,
+        health1,
     );
+
+    // Test limit
+    const EXPECTED_LIMIT: usize = 250;
+    for i in 0..EXPECTED_LIMIT + 10 {
+        let health = hr(
+            "override",
+            vec![],
+            vec![(&format!("Fan {i}"), None, "Reason")],
+        );
+        send_health_report_override(
+            &env,
+            &host_machine_id,
+            (health.clone(), OverrideMode::Replace),
+        )
+        .await;
+        env.run_machine_state_controller_iteration().await;
+    }
+    let records = load_host_health_history(&env, &host_machine_id).await;
+    assert_eq!(records.len(), EXPECTED_LIMIT);
 
     Ok(())
 }
@@ -709,8 +729,8 @@ async fn create_env(pool: sqlx::PgPool) -> TestEnv {
 /// Creates a health report.
 fn hr(
     source: &str,
-    successes: Vec<(&'static str, Option<&'static str>)>,
-    alerts: Vec<(&'static str, Option<&'static str>, &'static str)>,
+    successes: Vec<(&str, Option<&str>)>,
+    alerts: Vec<(&str, Option<&str>, &str)>,
 ) -> health_report::HealthReport {
     health_report::HealthReport {
         source: source.to_string(),
@@ -781,7 +801,7 @@ async fn find_machine(
 async fn load_host_health_history(
     env: &TestEnv,
     machine_id: &::carbide_uuid::machine::MachineId,
-) -> Vec<::rpc::forge::MachineHealthHistoryRecord> {
+) -> Vec<::rpc::forge::HealthHistoryRecord> {
     env.api
         .find_machine_health_histories(tonic::Request::new(
             ::rpc::forge::MachineHealthHistoriesRequest {
@@ -871,7 +891,7 @@ async fn load_health_alerts_by_time_range(
     machine_id: &::carbide_uuid::machine::MachineId,
     start_time: chrono::DateTime<chrono::Utc>,
     end_time: chrono::DateTime<chrono::Utc>,
-) -> Vec<::rpc::forge::MachineHealthHistoryRecord> {
+) -> Vec<::rpc::forge::HealthHistoryRecord> {
     let response = env
         .api
         .find_machine_health_histories(tonic::Request::new(
@@ -1210,14 +1230,12 @@ async fn test_find_health_alerts_by_time_range(
 
     assert_eq!(all_alerts.len(), 3, "Should have 3 alert records");
 
-    // Verify first record has 2 alerts (no successes!)
-    let health0 = all_alerts[0].health.as_ref().unwrap();
-    assert_eq!(health0.alerts.len(), 2);
-    assert_eq!(health0.alerts[0].id, "Failure1");
-    assert_eq!(health0.alerts[0].target, Some("TestComponent1".to_string()));
-    assert_eq!(health0.alerts[0].message, "First test failure");
-    assert_eq!(health0.alerts[1].id, "Failure2");
-    assert_eq!(health0.source, "aggregate-host-health");
+    // Verify first record has 1 alert
+    let health2 = all_alerts[0].health.as_ref().unwrap();
+    assert_eq!(health2.alerts.len(), 1);
+    assert_eq!(health2.alerts[0].id, "Failure3");
+    assert_eq!(health2.alerts[0].target, Some("TestComponent3".to_string()));
+    assert_eq!(health2.source, "aggregate-host-health");
 
     // Verify second record has 1 alert (success filtered out!)
     let health1 = all_alerts[1].health.as_ref().unwrap();
@@ -1227,12 +1245,14 @@ async fn test_find_health_alerts_by_time_range(
     assert_eq!(health1.alerts[0].message, "Fan failure detected");
     assert_eq!(health1.source, "aggregate-host-health");
 
-    // Verify third record has 1 alert
-    let health2 = all_alerts[2].health.as_ref().unwrap();
-    assert_eq!(health2.alerts.len(), 1);
-    assert_eq!(health2.alerts[0].id, "Failure3");
-    assert_eq!(health2.alerts[0].target, Some("TestComponent3".to_string()));
-    assert_eq!(health2.source, "aggregate-host-health");
+    // Verify third record has 2 alerts (no successes!)
+    let health0 = all_alerts[2].health.as_ref().unwrap();
+    assert_eq!(health0.alerts.len(), 2);
+    assert_eq!(health0.alerts[0].id, "Failure1");
+    assert_eq!(health0.alerts[0].target, Some("TestComponent1".to_string()));
+    assert_eq!(health0.alerts[0].message, "First test failure");
+    assert_eq!(health0.alerts[1].id, "Failure2");
+    assert_eq!(health0.source, "aggregate-host-health");
 
     // TEST 2: Query MIDDLE time range only (should get only second record)
     let middle_alerts = load_health_alerts_by_time_range(

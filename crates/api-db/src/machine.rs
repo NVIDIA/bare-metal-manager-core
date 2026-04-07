@@ -24,7 +24,7 @@ use std::str::FromStr;
 
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineType};
-use chrono::prelude::*;
+use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use health_report::{HealthReport, OverrideMode};
 use itertools::Itertools;
@@ -1142,11 +1142,16 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
         };
     }
 
-    // Update the machine state and heatlh history to account for the rename
+    // Update the machine state and health history to account for the rename
     crate::machine_state_history::update_machine_ids(txn, current_machine_id, stable_machine_id)
         .await?;
-    crate::machine_health_history::update_machine_ids(txn, current_machine_id, stable_machine_id)
-        .await?;
+    crate::health_history::update_object_ids(
+        txn,
+        crate::health_history::HealthHistoryTableId::Machine,
+        &current_machine_id,
+        &stable_machine_id,
+    )
+    .await?;
 
     // Table machine_interfaces has a FK ON UPDATE CASCADE so machine_interfaces.machine_id will
     // also change.
@@ -1733,6 +1738,11 @@ pub async fn find_machine_ids(
         qb.push_bind(rack_id);
     }
 
+    if let Some(state) = search_config.controller_state {
+        qb.push(" AND controller_state->>'state' = ");
+        qb.push_bind(state);
+    }
+
     if search_config.for_update {
         qb.push(" FOR UPDATE");
     }
@@ -1983,6 +1993,22 @@ pub async fn set_firmware_autoupdate(
         .bind(state)
         .bind(machine_id)
         .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
+pub async fn update_rack_fw_details(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    details: Option<&model::rack::RackFirmwareUpgradeStatus>,
+) -> Result<(), DatabaseError> {
+    let query =
+        "UPDATE machines SET rack_fw_details = $1, updated = NOW() WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(details.map(|d| sqlx::types::Json(d.clone())))
+        .bind(machine_id)
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())

@@ -26,7 +26,8 @@ use model::dns::NewDomain;
 use model::firmware::AgentUpgradePolicyChoice;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::metadata::Metadata;
-use model::network_segment::{NetworkDefinition, NewNetworkSegment};
+use model::network_prefix::NewNetworkPrefix;
+use model::network_segment::{NetworkDefinition, NetworkSegmentType, NewNetworkSegment};
 use model::vpc::{NewVpc, VpcStatus};
 use sqlx::{Pool, Postgres};
 
@@ -92,7 +93,51 @@ pub async fn create_initial_networks(
         crate::handlers::network_segment::save(api, &mut txn, ns, true, false).await?;
         tracing::info!("Created network segment {name}");
     }
+
+    ensure_static_assignments_segment(api, &mut txn, Some(domain_id)).await?;
+
     txn.commit().await?;
+    Ok(())
+}
+
+/// Create the static-assignments anchor segment if it doesn't exist.
+/// This segment holds external static IP assignments that don't fall
+/// within any managed network prefix. The 169.254.254.254/32 prefix is
+/// a link-local placeholder -- the allocator will never hand out IPs
+/// from it, it exists only because the schema requires a prefix.
+pub async fn ensure_static_assignments_segment(
+    api: &Api,
+    txn: &mut db::Transaction<'_>,
+    subdomain_id: Option<carbide_uuid::domain::DomainId>,
+) -> Result<(), CarbideError> {
+    let segment_name = network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME;
+    if db::network_segment::find_by_name(txn, segment_name)
+        .await
+        .is_ok()
+    {
+        return Ok(());
+    }
+
+    let ns = NewNetworkSegment {
+        id: uuid::Uuid::new_v4().into(),
+        name: segment_name.to_string(),
+        subdomain_id,
+        vpc_id: None,
+        mtu: 1500,
+        prefixes: vec![NewNetworkPrefix {
+            prefix: "169.254.254.254/32".parse().unwrap(),
+            gateway: None,
+            num_reserved: 1,
+        }],
+        vlan_id: None,
+        vni: None,
+        segment_type: NetworkSegmentType::Underlay,
+        can_stretch: Some(false),
+        allocation_strategy: model::network_segment::AllocationStrategy::Reserved,
+    };
+    crate::handlers::network_segment::save(api, txn, ns, true, false).await?;
+    tracing::info!("Created internal {segment_name} segment for holding static assignments");
+
     Ok(())
 }
 

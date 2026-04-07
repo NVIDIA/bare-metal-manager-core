@@ -16,7 +16,6 @@
  */
 
 use std::borrow::Cow;
-use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -29,8 +28,8 @@ use crate::endpoint::{BmcEndpoint, EndpointSource};
 use crate::sharding::ShardManager;
 use crate::sink::DataSink;
 
-fn active_keys(sharded_endpoints: &[Arc<BmcEndpoint>]) -> HashSet<Cow<'static, str>> {
-    sharded_endpoints.iter().map(|e| e.hash_key()).collect()
+fn active_keys<'a>(sharded_endpoints: &'a [Arc<BmcEndpoint>]) -> Vec<Cow<'a, str>> {
+    sharded_endpoints.iter().map(|e| e.identity()).collect()
 }
 
 pub async fn run_discovery_iteration(
@@ -75,7 +74,7 @@ pub async fn run_discovery_iteration(
     }
 
     let active_endpoints = active_keys(&sharded_endpoints);
-    stop_removed_bmc_collectors(ctx, &active_endpoints);
+    stop_removed_bmc_collectors(ctx, &active_endpoints.iter().map(Cow::as_ref).collect());
 
     let iteration_duration = iteration_start.elapsed();
     ctx.discovery_iteration_histogram
@@ -125,8 +124,9 @@ mod tests {
         let ep1 = endpoint(MacAddress::from_str("42:9e:b1:bd:9d:dd").unwrap(), false);
         let ep2 = endpoint(MacAddress::from_str("11:22:33:44:55:66").unwrap(), true);
 
-        let keys = active_keys(&[ep1.clone(), ep2.clone()]);
-
-        assert_eq!(keys, HashSet::from([ep1.hash_key(), ep2.hash_key()]));
+        assert_eq!(
+            active_keys(&[ep1.clone(), ep2.clone()]),
+            vec![ep1.identity(), ep2.identity()]
+        );
     }
 }

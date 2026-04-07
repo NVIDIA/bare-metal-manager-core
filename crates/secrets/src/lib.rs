@@ -24,13 +24,15 @@ pub use crate::chained_reader::ChainedCredentialReader;
 /// through `create_credential_manager` instead of using the vault client directly.
 pub use crate::forge_vault::{ForgeVaultClient, VaultConfig, create_vault_client};
 pub use crate::local_credentials::{
-    CredentialSnapshot, EnvCredentialsConfig, FileCredentialsConfig, UsernamePassword,
+    CredentialSnapshot, EnvCredentialsConfig, FileCredentialsConfig, MachineIdentityConfig,
+    UsernamePassword,
 };
 
 pub mod certificates;
 pub(crate) mod chained_reader;
 pub mod credentials;
 pub mod forge_vault;
+pub mod key_encryption;
 pub(crate) mod local_credentials;
 
 use credentials::{CompositeCredentialManager, CredentialManager, CredentialReader};

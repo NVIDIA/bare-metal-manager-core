@@ -190,6 +190,10 @@ pub struct HealthOverrideSinkConfig {
 
     /// Number of concurrent workers submitting reports to Carbide API.
     pub workers: usize,
+
+    /// Minimum health level that should be reported as an alert override.
+    /// Lower-level findings are downgraded to successes.
+    pub level: HealthOverrideLevel,
 }
 
 impl Default for HealthOverrideSinkConfig {
@@ -197,8 +201,17 @@ impl Default for HealthOverrideSinkConfig {
         Self {
             connection: CarbideApiConnectionConfig::default(),
             workers: 4,
+            level: HealthOverrideLevel::Critical,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum HealthOverrideLevel {
+    Warning,
+    Critical,
+    Fatal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -675,6 +688,7 @@ mod tests {
                 "/var/run/secrets/spiffe.io/ca.crt"
             );
             assert_eq!(health_override.workers, 8);
+            assert_eq!(health_override.level, HealthOverrideLevel::Warning);
         } else {
             panic!("health override sink is disabled")
         }

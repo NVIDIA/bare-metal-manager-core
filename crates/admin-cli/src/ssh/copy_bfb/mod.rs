@@ -25,7 +25,7 @@ use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 
 impl Run for Args {
-    async fn run(self, _ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
-        cmd::copy_bfb(self).await
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::copy_bfb(&ctx.api_client, self).await
     }
 }

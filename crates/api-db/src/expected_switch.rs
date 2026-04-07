@@ -177,9 +177,9 @@ pub async fn create(
 ) -> DatabaseResult<ExpectedSwitch> {
     let id = switch.expected_switch_id.unwrap_or_else(Uuid::new_v4);
     let query = "INSERT INTO expected_switches
-             (expected_switch_id, bmc_mac_address, bmc_username, bmc_password, serial_number, metadata_name, metadata_description, rack_id, metadata_labels, nvos_username, nvos_password, nvos_mac_addresses)
+             (expected_switch_id, bmc_mac_address, bmc_username, bmc_password, serial_number, bmc_ip_address, metadata_name, metadata_description, rack_id, metadata_labels, nvos_username, nvos_password, nvos_mac_addresses)
              VALUES
-             ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::varchar, $7::varchar, $8::varchar, $9::jsonb, $10::varchar, $11::varchar, $12::macaddr[]) RETURNING *";
+             ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::inet, $7::varchar, $8::varchar, $9::varchar, $10::jsonb, $11::varchar, $12::varchar, $13::macaddr[]) RETURNING *";
 
     sqlx::query_as(query)
         .bind(id)
@@ -187,6 +187,7 @@ pub async fn create(
         .bind(&switch.bmc_username)
         .bind(&switch.bmc_password)
         .bind(&switch.serial_number)
+        .bind(switch.bmc_ip_address)
         .bind(&switch.metadata.name)
         .bind(&switch.metadata.description)
         .bind(&switch.rack_id)
@@ -303,18 +304,18 @@ pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
 /// matches by ID; otherwise matches by bmc_mac_address.
 pub async fn update(txn: &mut PgConnection, switch: &ExpectedSwitch) -> DatabaseResult<()> {
     let (where_clause, target_id) = match switch.expected_switch_id {
-        Some(id) => ("expected_switch_id=$11::uuid", id.to_string()),
+        Some(id) => ("expected_switch_id=$12::uuid", id.to_string()),
         None => (
-            "bmc_mac_address=$11::macaddr",
+            "bmc_mac_address=$12::macaddr",
             switch.bmc_mac_address.to_string(),
         ),
     };
 
     let query = format!(
         "UPDATE expected_switches \
-         SET bmc_username=$1, bmc_password=$2, serial_number=$3, \
-             metadata_name=$4, metadata_description=$5, metadata_labels=$6, \
-             rack_id=$7, nvos_username=$8, nvos_password=$9, nvos_mac_addresses=$10::macaddr[] \
+         SET bmc_username=$1, bmc_password=$2, serial_number=$3, bmc_ip_address=$4, \
+             metadata_name=$5, metadata_description=$6, metadata_labels=$7, \
+             rack_id=$8, nvos_username=$9, nvos_password=$10, nvos_mac_addresses=$11::macaddr[] \
          WHERE {where_clause}"
     );
 
@@ -322,6 +323,7 @@ pub async fn update(txn: &mut PgConnection, switch: &ExpectedSwitch) -> Database
         .bind(&switch.bmc_username)
         .bind(&switch.bmc_password)
         .bind(&switch.serial_number)
+        .bind(switch.bmc_ip_address)
         .bind(&switch.metadata.name)
         .bind(&switch.metadata.description)
         .bind(sqlx::types::Json(&switch.metadata.labels))

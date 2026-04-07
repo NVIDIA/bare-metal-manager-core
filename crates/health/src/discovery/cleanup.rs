@@ -15,44 +15,30 @@
  * limitations under the License.
  */
 
-use std::borrow::Cow;
 use std::collections::HashSet;
 
 use super::context::{CollectorKind, DiscoveryLoopContext};
 
-fn stop_collectors_for_keys(
-    ctx: &mut DiscoveryLoopContext,
-    kind: CollectorKind,
-    removed_keys: &HashSet<Cow<'static, str>>,
-) {
-    let collectors = ctx.collectors.map_mut_for_kind(kind);
-    for key in removed_keys {
-        if let Some(collector) = collectors.remove(key) {
-            tracing::info!(
-                endpoint_key = %key,
-                remaining_collectors = collectors.len(),
-                "{}",
-                kind.stop_message()
-            );
-            tokio::spawn(async move {
-                collector.stop().await;
-            });
-        }
-    }
-}
-
 pub(super) fn stop_removed_bmc_collectors(
     ctx: &mut DiscoveryLoopContext,
-    active_endpoints: &HashSet<Cow<'static, str>>,
+    active_endpoints: &HashSet<&str>,
 ) {
-    let removed_keys = ctx.collectors.removed_keys(active_endpoints);
-    for kind in CollectorKind::ALL {
-        stop_collectors_for_keys(ctx, kind, &removed_keys);
+    let removed_collectors = ctx.collectors.remove_inactive_collectors(active_endpoints);
+    let removed_count = removed_collectors.len();
+    for (kind, key, collector) in removed_collectors {
+        tracing::info!(
+            endpoint_key = %key,
+            "{}",
+            kind.stop_message()
+        );
+        tokio::spawn(async move {
+            collector.stop().await;
+        });
     }
 
-    if !removed_keys.is_empty() {
+    if removed_count != 0 {
         tracing::info!(
-            removed_count = removed_keys.len(),
+            removed_count,
             remaining_sensors = ctx.collectors.len(CollectorKind::Sensor),
             remaining_collectors = ctx.collectors.len(CollectorKind::Logs),
             remaining_firmware_collectors = ctx.collectors.len(CollectorKind::Firmware),

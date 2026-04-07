@@ -22,7 +22,7 @@ use carbide_uuid::vpc::{VpcId, VpcPrefixId};
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::network_prefix::NewNetworkPrefix;
-use model::network_segment::NewNetworkSegment;
+use model::network_segment::{AllocationStrategy, NewNetworkSegment};
 use sqlx::PgConnection;
 
 use crate::{CarbideError, CarbideResult};
@@ -188,6 +188,7 @@ impl PrefixAllocator {
             vni: None,
             segment_type: model::network_segment::NetworkSegmentType::Tenant,
             can_stretch: Some(false), // All segments allocated here are FNN linknets.
+            allocation_strategy: AllocationStrategy::Dynamic,
         };
 
         let mut segment = db::network_segment::persist(

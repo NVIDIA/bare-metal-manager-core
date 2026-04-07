@@ -38,6 +38,7 @@ use sha2::{Digest, Sha256};
 use tonic::Request;
 
 use crate::tests::common;
+use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 use crate::tests::common::api_fixtures::{
     create_managed_host_multi_dpu, create_managed_host_with_config,
 };
@@ -205,6 +206,15 @@ async fn test_find_machine_without_rack_id(pool: sqlx::PgPool) {
 async fn test_find_machine_by_rack_id(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let rack_id: RackId = "Rack1".parse().unwrap();
+
+    let mut txn = env.pool.acquire().await.unwrap();
+    TestRackDbBuilder::new()
+        .with_rack_id(rack_id.clone())
+        .persist(&mut txn)
+        .await
+        .unwrap();
+    drop(txn);
+
     let host_config = ManagedHostConfig::with_expected_machine_data(ExpectedMachineData {
         rack_id: rack_id.clone().into(),
         ..Default::default()

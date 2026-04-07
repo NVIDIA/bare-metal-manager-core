@@ -35,4 +35,5 @@ lazy_static::lazy_static! {
     pub static ref PostConfigCheckWait: HealthProbeId = "PostConfigCheckWait".parse().unwrap();
     pub static ref DpuDiskUtilizationCheck: HealthProbeId = "DpuDiskUtilizationCheck".parse().unwrap();
     pub static ref DpuDiskUtilizationCritical: HealthProbeId = "DpuDiskUtilizationCritical".parse().unwrap();
+    pub static ref NvueApiRunning: HealthProbeId = "NvueApiRunning".parse().unwrap();
 }

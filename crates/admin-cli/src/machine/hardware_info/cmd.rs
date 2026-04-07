@@ -16,7 +16,6 @@
  */
 
 use std::fs;
-use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge as forgerpc;
@@ -43,7 +42,7 @@ pub async fn handle_update_machine_hardware_info_gpus(
 
 pub fn handle_show_machine_hardware_info(
     _api_client: &ApiClient,
-    _output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    _output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     _output_format: &OutputFormat,
     _machine_id: MachineId,
 ) -> CarbideCliResult<()> {

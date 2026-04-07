@@ -278,9 +278,8 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert!(forge_vpc.status.and_then(|s| s.vni).is_some());
     // The 'config' VNI is still None because this was an auto-allocated VNI
     assert!(forge_vpc.vni.is_none());
-    // We default to EthernetVirtualizerWithNvue (proto value 2).
-    // The DB stores "etv" but decodes as EthernetVirtualizerWithNvue.
-    assert_eq!(forge_vpc.network_virtualization_type, Some(2));
+    // We default to EthernetVirtualizer (proto value 0).
+    assert_eq!(forge_vpc.network_virtualization_type, Some(0));
 
     let no_org_vpc = env
         .api
@@ -359,10 +358,10 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     assert_eq!(updated_vpc.metadata, updated_metadata);
     assert_eq!(updated_vpc.version.version_nr(), 2);
 
-    // DB value "etv" decodes as EthernetVirtualizerWithNvue since NVUE is always enabled.
+    // DB value "etv" decodes as EthernetVirtualizer.
     assert_eq!(
         updated_vpc.network_virtualization_type,
-        VpcVirtualizationType::EthernetVirtualizerWithNvue
+        VpcVirtualizationType::EthernetVirtualizer
     );
 
     // Update virtualization type.
@@ -408,7 +407,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let first = vpcs.swap_remove(0);
     assert_eq!(
         first.network_virtualization_type,
-        VpcVirtualizationType::EthernetVirtualizerWithNvue
+        VpcVirtualizationType::EthernetVirtualizer
     );
 
     // Update on outdated version

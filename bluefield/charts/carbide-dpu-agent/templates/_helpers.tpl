@@ -47,3 +47,10 @@ Selector labels
 app.kubernetes.io/name: {{ include "carbide-dpu-agent.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Server Port
+*/}}
+{{- define "carbide-dpu-agent.serverPort" -}}
+{{- default 8888 .Values.serverPort -}}
+{{- end -}}

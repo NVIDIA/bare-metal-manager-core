@@ -50,6 +50,15 @@ use crate::api::Api;
 use crate::auth::{AuthContext, Principal};
 use crate::cfg::file::CarbideConfig;
 
+/// Reusable template for rendering metadata (name, description, labels, version)
+/// in entity detail pages. Render with `{{ metadata_detail|safe }}`.
+#[derive(Template)]
+#[template(path = "metadata_details.html")]
+pub(crate) struct MetadataDetail {
+    pub metadata: rpc::forge::Metadata,
+    pub metadata_version: String,
+}
+
 mod action_status;
 mod attestation;
 mod auth;
@@ -400,6 +409,7 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             )
             .route("/power-shelf", get(power_shelf::show_html))
             .route("/power-shelf.json", get(power_shelf::show_json))
+            .route("/power-shelf/{power_shelf_id}", get(power_shelf::detail))
             .route(
                 "/power-shelf/{power_shelf_id}/state-history",
                 get(power_shelf_state_history::show_state_history),

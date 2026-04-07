@@ -22,7 +22,7 @@ use url::Url;
 
 use crate::machine_info::DpuSettings;
 use crate::{
-    DpuMachineInfo, HostHardwareType, HostMachineInfo, MachineInfo, MockPowerState, PowerControl,
+    Callbacks, DpuMachineInfo, HostHardwareType, HostMachineInfo, MachineInfo, MockPowerState,
     SetSystemPowerError, SystemPowerControl, machine_router,
 };
 pub mod axum_http_client;
@@ -30,9 +30,9 @@ pub mod axum_http_client;
 use axum_http_client::AxumRouterHttpClient;
 
 #[derive(Debug)]
-struct NoopPowerControl;
+struct NoopCallbacks;
 
-impl PowerControl for NoopPowerControl {
+impl Callbacks for NoopCallbacks {
     fn get_power_state(&self) -> MockPowerState {
         MockPowerState::On
     }
@@ -43,6 +43,8 @@ impl PowerControl for NoopPowerControl {
     ) -> Result<(), SetSystemPowerError> {
         Ok(())
     }
+
+    fn state_refresh_indication(&self) {}
 }
 
 pub type TestBmc = HttpBmc<AxumRouterHttpClient>;
@@ -60,61 +62,76 @@ fn test_bmc(router: axum::Router) -> Arc<TestBmc> {
 }
 
 pub fn wiwynn_gb200_bmc() -> Arc<TestBmc> {
-    test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::WiwynnGB200Nvl,
-            vec![
-                DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
-                DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
-            ],
-        )),
-        Arc::new(NoopPowerControl),
-        "test-host-id".to_string(),
-    ))
+    test_bmc(
+        machine_router(
+            MachineInfo::Host(HostMachineInfo::new(
+                HostHardwareType::WiwynnGB200Nvl,
+                vec![
+                    DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
+                    DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
+                ],
+            )),
+            Arc::new(NoopCallbacks),
+            "test-host-id".to_string(),
+        )
+        .0,
+    )
 }
 
 pub fn liteon_powershelf_bmc() -> Arc<TestBmc> {
-    test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::LiteOnPowerShelf,
-            vec![],
-        )),
-        Arc::new(NoopPowerControl),
-        "test-host-id".to_string(),
-    ))
+    test_bmc(
+        machine_router(
+            MachineInfo::Host(HostMachineInfo::new(
+                HostHardwareType::LiteOnPowerShelf,
+                vec![],
+            )),
+            Arc::new(NoopCallbacks),
+            "test-host-id".to_string(),
+        )
+        .0,
+    )
 }
 
 pub fn nvidia_switch_nd5200_ld_bmc() -> Arc<TestBmc> {
-    test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::NvidiaSwitchNd5200Ld,
-            vec![],
-        )),
-        Arc::new(NoopPowerControl),
-        "test-host-id".to_string(),
-    ))
+    test_bmc(
+        machine_router(
+            MachineInfo::Host(HostMachineInfo::new(
+                HostHardwareType::NvidiaSwitchNd5200Ld,
+                vec![],
+            )),
+            Arc::new(NoopCallbacks),
+            "test-host-id".to_string(),
+        )
+        .0,
+    )
 }
 
 pub fn dell_poweredge_r750_bmc() -> Arc<TestBmc> {
-    test_bmc(machine_router(
-        MachineInfo::Host(HostMachineInfo::new(
-            HostHardwareType::DellPowerEdgeR750,
-            vec![],
-        )),
-        Arc::new(NoopPowerControl),
-        "test-host-id".to_string(),
-    ))
+    test_bmc(
+        machine_router(
+            MachineInfo::Host(HostMachineInfo::new(
+                HostHardwareType::DellPowerEdgeR750,
+                vec![],
+            )),
+            Arc::new(NoopCallbacks),
+            "test-host-id".to_string(),
+        )
+        .0,
+    )
 }
 
 pub fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> Arc<TestBmc> {
-    test_bmc(machine_router(
-        MachineInfo::Dpu(DpuMachineInfo::new(
-            HostHardwareType::DellPowerEdgeR750,
-            settings,
-        )),
-        Arc::new(NoopPowerControl),
-        "test-dpu-id".to_string(),
-    ))
+    test_bmc(
+        machine_router(
+            MachineInfo::Dpu(DpuMachineInfo::new(
+                HostHardwareType::DellPowerEdgeR750,
+                settings,
+            )),
+            Arc::new(NoopCallbacks),
+            "test-dpu-id".to_string(),
+        )
+        .0,
+    )
 }
 
 #[cfg(test)]
@@ -129,14 +146,17 @@ mod test {
 
     #[tokio::test]
     async fn transport_supports_expand_query_through_mock_expander() {
-        let client = AxumRouterHttpClient::new(machine_router(
-            MachineInfo::Host(HostMachineInfo::new(
-                HostHardwareType::DellPowerEdgeR750,
-                vec![],
-            )),
-            Arc::new(NoopPowerControl),
-            "test-host-id".to_string(),
-        ));
+        let client = AxumRouterHttpClient::new(
+            machine_router(
+                MachineInfo::Host(HostMachineInfo::new(
+                    HostHardwareType::DellPowerEdgeR750,
+                    vec![],
+                )),
+                Arc::new(NoopCallbacks),
+                "test-host-id".to_string(),
+            )
+            .0,
+        );
         let url =
             Url::parse("https://bmc-mock.local/redfish/v1/Chassis?$expand=.($levels=1)").unwrap();
 

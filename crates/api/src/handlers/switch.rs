@@ -15,8 +15,10 @@
  * limitations under the License.
  */
 
+use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
-use db::switch as db_switch;
+use db::{ObjectColumnFilter, switch as db_switch};
+use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -40,7 +42,6 @@ pub async fn find_switch(
         db_switch::find_by(
             &mut txn,
             db::ObjectColumnFilter::One(db_switch::IdColumn, &id),
-            db_switch::SwitchSearchConfig::default(),
         )
         .await
         .map_err(|e| CarbideError::Internal {
@@ -51,7 +52,6 @@ pub async fn find_switch(
         db_switch::find_by(
             &mut txn,
             db::ObjectColumnFilter::One(db_switch::NameColumn, &name),
-            db_switch::SwitchSearchConfig::default(),
         )
         .await
         .map_err(|e| CarbideError::Internal {
@@ -59,15 +59,11 @@ pub async fn find_switch(
         })?
     } else {
         // No filter - return all
-        db_switch::find_by(
-            &mut txn,
-            db::ObjectColumnFilter::<db_switch::IdColumn>::All,
-            db_switch::SwitchSearchConfig::default(),
-        )
-        .await
-        .map_err(|e| CarbideError::Internal {
-            message: format!("Failed to find switch: {}", e),
-        })?
+        db_switch::find_by(&mut txn, db::ObjectColumnFilter::<db_switch::IdColumn>::All)
+            .await
+            .map_err(|e| CarbideError::Internal {
+                message: format!("Failed to find switch: {}", e),
+            })?
     };
 
     let bmc_info_map: std::collections::HashMap<String, rpc::BmcInfo> = {
@@ -102,6 +98,91 @@ pub async fn find_switch(
         .map(|s| {
             let serial = s.config.name.clone();
             let bmc_info = bmc_info_map.get(&serial).cloned();
+
+            rpc::Switch::try_from(s).map(|mut rpc_switch| {
+                rpc_switch.bmc_info = bmc_info;
+                rpc_switch
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Failed to convert switch: {}", e),
+        })?;
+
+    Ok(Response::new(rpc::SwitchList { switches }))
+}
+
+pub async fn find_ids(
+    api: &Api,
+    request: Request<rpc::SwitchSearchFilter>,
+) -> Result<Response<rpc::SwitchIdList>, Status> {
+    log_request_data(&request);
+
+    let filter: model::switch::SwitchSearchFilter = request.into_inner().into();
+
+    let switch_ids = db_switch::find_ids(&api.database_connection, filter).await?;
+
+    Ok(Response::new(rpc::SwitchIdList { ids: switch_ids }))
+}
+
+pub async fn find_by_ids(
+    api: &Api,
+    request: Request<rpc::SwitchesByIdsRequest>,
+) -> Result<Response<rpc::SwitchList>, Status> {
+    log_request_data(&request);
+
+    let switch_ids = request.into_inner().switch_ids;
+
+    let max_find_by_ids = api.runtime_config.max_find_by_ids as usize;
+    if switch_ids.len() > max_find_by_ids {
+        return Err(CarbideError::InvalidArgument(format!(
+            "no more than {max_find_by_ids} IDs can be accepted"
+        ))
+        .into());
+    } else if switch_ids.is_empty() {
+        return Err(
+            CarbideError::InvalidArgument("at least one ID must be provided".to_string()).into(),
+        );
+    }
+
+    let mut txn = api.txn_begin().await?;
+
+    let switch_list = db_switch::find_by(
+        &mut txn,
+        ObjectColumnFilter::List(db_switch::IdColumn, &switch_ids),
+    )
+    .await?;
+
+    let bmc_info_map: std::collections::HashMap<_, _> = {
+        let rows = db_switch::find_bmc_info_by_switch_ids(&mut txn, &switch_ids)
+            .await
+            .map_err(|e| CarbideError::Internal {
+                message: format!("Failed to get switch BMC info: {}", e),
+            })?;
+
+        rows.into_iter()
+            .map(|row| {
+                (
+                    row.switch_id,
+                    rpc::BmcInfo {
+                        ip: Some(row.bmc_ip.to_string()),
+                        mac: Some(row.bmc_mac.to_string()),
+                        version: None,
+                        firmware_version: None,
+                        port: None,
+                    },
+                )
+            })
+            .collect()
+    };
+
+    let _ = txn.rollback().await;
+
+    let switches: Vec<rpc::Switch> = switch_list
+        .into_iter()
+        .map(|s| {
+            let id = s.id;
+            let bmc_info = bmc_info_map.get(&id).cloned();
 
             rpc::Switch::try_from(s).map(|mut rpc_switch| {
                 rpc_switch.bmc_info = bmc_info;
@@ -182,7 +263,6 @@ pub async fn delete_switch(
     let mut switch_list = db_switch::find_by(
         &mut txn,
         db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
-        db_switch::SwitchSearchConfig::default(),
     )
     .await
     .map_err(|e| CarbideError::Internal {
@@ -209,4 +289,117 @@ pub async fn delete_switch(
     })?;
 
     Ok(Response::new(rpc::SwitchDeletionResult {}))
+}
+
+/// Force deletes a switch and optionally its associated interfaces from the database.
+/// Unlike `delete_switch` (soft delete), this immediately hard-deletes the switch,
+/// its state history, and optionally its machine interfaces.
+pub async fn admin_force_delete_switch(
+    api: &Api,
+    request: Request<rpc::AdminForceDeleteSwitchRequest>,
+) -> Result<Response<rpc::AdminForceDeleteSwitchResponse>, Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+
+    let switch_id = request
+        .switch_id
+        .ok_or_else(|| CarbideError::InvalidArgument("switch_id is required".to_string()))?;
+
+    let mut txn = api.txn_begin().await?;
+
+    // Verify the switch exists.
+    let switch_list = db_switch::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    if switch_list.is_empty() {
+        return Err(CarbideError::NotFoundError {
+            kind: "switch",
+            id: switch_id.to_string(),
+        }
+        .into());
+    }
+
+    // Optionally delete associated machine interfaces.
+    let mut interfaces_deleted: u32 = 0;
+    if request.delete_interfaces {
+        let interface_ids = db::machine_interface::find_ids_by_switch_id(&mut txn, &switch_id)
+            .await
+            .map_err(CarbideError::from)?;
+        for interface_id in &interface_ids {
+            db::machine_interface::delete(interface_id, &mut txn)
+                .await
+                .map_err(CarbideError::from)?;
+        }
+        interfaces_deleted = interface_ids.len() as u32;
+    }
+
+    // Delete state history.
+    db::switch_state_history::delete_by_switch_id(&mut txn, &switch_id)
+        .await
+        .map_err(CarbideError::from)?;
+
+    // Hard-delete the switch.
+    db_switch::final_delete(switch_id, &mut txn)
+        .await
+        .map_err(CarbideError::from)?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(rpc::AdminForceDeleteSwitchResponse {
+        switch_id: switch_id.to_string(),
+        interfaces_deleted,
+    }))
+}
+
+pub(crate) async fn update_switch_metadata(
+    api: &Api,
+    request: Request<rpc::SwitchMetadataUpdateRequest>,
+) -> std::result::Result<tonic::Response<()>, tonic::Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+    let switch_id = request
+        .switch_id
+        .ok_or_else(|| CarbideError::from(RpcDataConversionError::MissingArgument("switch_id")))?;
+
+    let metadata = match request.metadata {
+        Some(m) => Metadata::try_from(m).map_err(CarbideError::from)?,
+        _ => {
+            return Err(
+                CarbideError::from(RpcDataConversionError::MissingArgument("metadata")).into(),
+            );
+        }
+    };
+    metadata.validate(true).map_err(CarbideError::from)?;
+
+    let mut txn = api.txn_begin().await?;
+
+    let switches = db_switch::find_by(
+        &mut txn,
+        db::ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    let switch = switches
+        .into_iter()
+        .next()
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "switch",
+            id: switch_id.to_string(),
+        })?;
+
+    let expected_version: config_version::ConfigVersion = match request.if_version_match {
+        Some(version) => version.parse().map_err(CarbideError::from)?,
+        None => switch.version,
+    };
+
+    db_switch::update_metadata(&mut txn, &switch_id, expected_version, metadata).await?;
+
+    txn.commit().await?;
+
+    Ok(tonic::Response::new(()))
 }

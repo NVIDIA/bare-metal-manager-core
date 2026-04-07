@@ -79,16 +79,26 @@ service Forge {
   rpc FindIBPartitionsByIds(IBPartitionsByIdsRequest) returns (IBPartitionList);
   // Create a IB partition
   rpc CreateIBPartition(IBPartitionCreationRequest) returns (IBPartition);
+  // Update a IB partition
+  rpc UpdateIBPartition(IBPartitionUpdateRequest) returns (IBPartition);
   // Delete a IB partition
   rpc DeleteIBPartition(IBPartitionDeletionRequest) returns (IBPartitionDeletionResult);
   // Find all IB partitions under a specified tenant
   rpc IBPartitionsForTenant(TenantSearchQuery) returns (IBPartitionList);
 
   rpc FindPowerShelves(PowerShelfQuery) returns (PowerShelfList);
+  rpc FindPowerShelfIds(PowerShelfSearchFilter) returns (PowerShelfIdList);
+  rpc FindPowerShelvesByIds(PowerShelvesByIdsRequest) returns (PowerShelfList);
   rpc DeletePowerShelf(PowerShelfDeletionRequest) returns (PowerShelfDeletionResult);
+  // Force deletes a Power Shelf and optionally its associated interfaces from the database.
+  rpc AdminForceDeletePowerShelf(AdminForceDeletePowerShelfRequest) returns (AdminForceDeletePowerShelfResponse);
 
   rpc FindSwitches(SwitchQuery) returns (SwitchList);
+  rpc FindSwitchIds(SwitchSearchFilter) returns (SwitchIdList);
+  rpc FindSwitchesByIds(SwitchesByIdsRequest) returns (SwitchList);
   rpc DeleteSwitch(SwitchDeletionRequest) returns (SwitchDeletionResult);
+  // Force deletes a Switch and optionally its associated interfaces from the database.
+  rpc AdminForceDeleteSwitch(AdminForceDeleteSwitchRequest) returns (AdminForceDeleteSwitchResponse);
 
   // InfiniBand Fabrics
   // Returns the list of all InfiniBand fabrics available within the site
@@ -170,6 +180,10 @@ service Forge {
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
   rpc ExpireDhcpLease(ExpireDhcpLeaseRequest) returns (ExpireDhcpLeaseResponse);
 
+  rpc AssignStaticAddress(AssignStaticAddressRequest) returns (AssignStaticAddressResponse);
+  rpc RemoveStaticAddress(RemoveStaticAddressRequest) returns (RemoveStaticAddressResponse);
+  rpc FindInterfaceAddresses(FindInterfaceAddressesRequest) returns (FindInterfaceAddressesResponse);
+
   // PRIVILEGED: Find things
   rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
   rpc DeleteInterface(InterfaceDeleteQuery) returns (google.protobuf.Empty);
@@ -177,7 +191,7 @@ service Forge {
   rpc FindMachineIds(MachineSearchConfig) returns (common.MachineIdList);
   rpc FindMachinesByIds(MachinesByIdsRequest) returns (MachineList);
   rpc FindMachineStateHistories(MachineStateHistoriesRequest) returns (MachineStateHistories);
-  rpc FindMachineHealthHistories(MachineHealthHistoriesRequest) returns (MachineHealthHistories);
+  rpc FindMachineHealthHistories(MachineHealthHistoriesRequest) returns (HealthHistories);
   rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (PowerShelfStateHistories);
   rpc FindRackStateHistories(RackStateHistoriesRequest) returns (RackStateHistories);
   rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (SwitchStateHistories);
@@ -270,6 +284,15 @@ service Forge {
 
   // Update the Metadata of a Machine
   rpc UpdateMachineMetadata(MachineMetadataUpdateRequest) returns (google.protobuf.Empty);
+
+  // Update the Metadata of a Rack
+  rpc UpdateRackMetadata(RackMetadataUpdateRequest) returns (google.protobuf.Empty);
+
+  // Update the Metadata of a Switch
+  rpc UpdateSwitchMetadata(SwitchMetadataUpdateRequest) returns (google.protobuf.Empty);
+
+  // Update the Metadata of a PowerShelf
+  rpc UpdatePowerShelfMetadata(PowerShelfMetadataUpdateRequest) returns (google.protobuf.Empty);
 
   // Update the NVLink Info of a Machine
   rpc UpdateMachineNvLinkInfo(UpdateMachineNvLinkInfoRequest) returns (google.protobuf.Empty);
@@ -717,6 +740,9 @@ service Forge {
   rpc GetTokenDelegation(GetTokenDelegationRequest) returns (TokenDelegationResponse);
   rpc SetTokenDelegation(TokenDelegationRequest) returns (TokenDelegationResponse);
   rpc DeleteTokenDelegation(GetTokenDelegationRequest) returns (google.protobuf.Empty);
+  // Public discovery: JWKS and OpenID provider metadata (intended for unauthenticated fetch via REST gateway).
+  rpc GetJWKS(JwksRequest) returns (Jwks);
+  rpc GetOpenIDConfiguration(OpenIdConfigRequest) returns (OpenIdConfiguration);
 
   // ScoutStream establishes a bidirectional streaming connection between
   // scout agents and carbide-api. The initial use-case for this is for
@@ -889,11 +915,14 @@ message GetIdentityConfigRequest {
 
 message IdentityConfig {
   bool enabled = 1;
+  // JWT `iss` / OIDC issuer string: `https://` or `http://` URL (trust domain = host),
+  // `spiffe://<trust-domain>/...` (scheme ASCII case-insensitive), or bare DNS hostname / IP.
   string issuer = 2;
   string default_audience = 3;
   repeated string allowed_audiences = 4;
   uint32 token_ttl_sec = 5;
-  string subject_prefix = 6;
+  // When unset or empty, defaults to spiffe://<trust-domain-from-issuer>
+  optional string subject_prefix = 6;
   bool rotate_key = 7;
 }
 
@@ -953,6 +982,44 @@ message TokenDelegation {
 message TokenDelegationRequest {
   string organization_id = 1;
   TokenDelegation config = 2;
+}
+
+// Carried JWKS document for GetJWKS. Standard key fields live in `jwks` only (RFC 7517).
+message Jwks {
+  // UTF-8 JSON text: {"keys":[ ... ]} per RFC 7517.
+  string jwks = 1;
+}
+
+message OpenIdConfiguration {
+  string issuer = 1;
+  string jwks_uri = 2;
+  // OAuth-style access token (JWT bearer) only; no OIDC `id_token` is issued.
+  repeated string response_types_supported = 3;
+  repeated string subject_types_supported = 4;
+  // Always empty: OIDC ID tokens are not supported. Verifiers use `jwks_uri` / `spiffe_jwks_uri`
+  // and GetJWKS `jwks` (`keys[].alg`) for machine-identity JWT bearer signature verification.
+  repeated string id_token_signing_alg_values_supported = 5;
+  // SPIFFE trust-domain style JWKS URL: `{issuer}/.well-known/spiffe/jwks.json` (GetJWKS with Spiffe kind).
+  string spiffe_jwks_uri = 7;
+}
+
+// Which JWKS document GetJWKS should return.
+enum JwksKind {
+  Unspecified = 0;  // Same as Oidc: tenant OIDC-style JWT signing JWKS (current default).
+  // Keys for verifying JWTs from this org issuer (e.g. machine identity ES256 public key).
+  Oidc = 1;
+  // SPIFFE trust-domain bundle keys (federation / SVID validation); distinct from OIDC OP JWKS above.
+  Spiffe = 2;
+}
+
+message JwksRequest {
+  string organization_id = 1;
+  // When omitted, treated as Unspecified / Oidc behavior.
+  optional JwksKind kind = 2;
+}
+
+message OpenIdConfigRequest {
+  string organization_id = 1;
 }
 
 // Determines machine ingestion state in relation to the power on gate
@@ -1164,6 +1231,8 @@ message RuntimeConfig {
   int32 dpa_subnet_mask = 48;
 
   bool dpf_enabled = 49;
+
+  bool rack_validation_enabled = 50;
 }
 
 message EchoRequest {
@@ -1348,7 +1417,9 @@ message VpcCreationRequest {
 enum VpcVirtualizationType {
   ETHERNET_VIRTUALIZER = 0;
   // 1 was previously FORGE_NATIVE_NETWORKING
-  ETHERNET_VIRTUALIZER_WITH_NVUE = 2;
+  // ETHERNET_VIRTUALIZER_WITH_NVUE is deprecated. NVUE is now
+  // implied; just use ETHERNET_VIRTUALIZER.
+  ETHERNET_VIRTUALIZER_WITH_NVUE = 2 [deprecated = true];
   // Deprecated: FN_CLASSIC and FNN_L3 are deprecated now. Use FNN only.
   FNN_CLASSIC = 3;
   FNN_L3 = 4;
@@ -1647,6 +1718,17 @@ message IBPartitionCreationRequest {
   Metadata metadata = 3;
 }
 
+message IBPartitionUpdateRequest {
+  common.IBPartitionId id = 1; 
+ 
+  // New IBPartitionConfig to be applied to the IBPartition.
+  IBPartitionConfig config = 2;
+
+  optional string if_version_match = 3;
+
+  Metadata metadata = 4;
+}
+
 message IBPartitionDeletionRequest {
   common.IBPartitionId id = 1;
 }
@@ -1693,6 +1775,8 @@ message PowerShelfStatus {
   optional string power_state = 4;
   // Health status: "ok", "warning", "critical"
   optional string health_status = 5;
+  // The controller state machine state (e.g. "initializing", "ready", "error")
+  optional string controller_state = 6;
 }
 
 // Describe a PowerShelf configuration and status
@@ -1706,7 +1790,16 @@ message PowerShelf {
   // Timestamp when the power shelf was marked as deleted
   optional google.protobuf.Timestamp deleted = 4;
 
+  // Deprecated: use status.controller_state instead
   string controller_state = 5;
+
+  Metadata metadata = 6;
+  string version = 7;
+
+  BmcInfo bmc_info = 8;
+
+  // Version string for the current controller state (e.g. "V3-T1774905143273055").
+  string state_version = 9;
 }
 
 message PowerShelfList {
@@ -1751,12 +1844,36 @@ message PowerShelfQuery {
   common.PowerShelfId power_shelf_id = 2;
 }
 
+// Filter for controlling whether deleted resources are included in search results.
+enum DeletedFilter {
+  // Exclude deleted resources (default behavior)
+  DELETED_FILTER_EXCLUDE = 0;
+  // Return only deleted resources
+  DELETED_FILTER_ONLY = 1;
+  // Include both deleted and non-deleted resources
+  DELETED_FILTER_INCLUDE = 2;
+}
+
+message PowerShelfSearchFilter {
+  optional common.RackId rack_id = 1;
+  // Controls whether deleted power shelves are included. Defaults to EXCLUDE.
+  DeletedFilter deleted = 2;
+  // Filter by controller state (e.g. "ready", "initializing", "error")
+  optional string controller_state = 3;
+  // Filter by BMC MAC address via machine_interfaces
+  optional string bmc_mac = 4;
+}
+
+message PowerShelvesByIdsRequest {
+  repeated common.PowerShelfId power_shelf_ids = 1;
+}
+
 message ExpectedPowerShelf {
   string bmc_mac_address = 1;
   string bmc_username = 2;
   string bmc_password = 3;
   string shelf_serial_number = 4;
-  string ip_address = 5;
+  string bmc_ip_address = 5;
   // Metadata that will automatically get associated with a newly created PowerShelf
   Metadata metadata = 6;
   optional common.RackId rack_id = 7;
@@ -1816,6 +1933,8 @@ message SwitchStatus {
   optional string power_state = 4;
   // Health status: "ok", "warning", "critical"
   optional string health_status = 5;
+  // The controller state machine state (e.g. "initializing", "ready", "error")
+  optional string controller_state = 6;
 }
 
 // Describe a Switch configuration and status
@@ -1829,9 +1948,16 @@ message Switch {
   // Timestamp when the switch was marked as deleted
   optional google.protobuf.Timestamp deleted = 4;
 
+  // Deprecated: use status.controller_state instead
   string controller_state = 5;
 
   BmcInfo bmc_info = 6;
+
+  // Version string for the current controller state (e.g. "V3-T1774905143273055").
+  string state_version = 7;
+
+  Metadata metadata = 8;
+  string version = 9;
 }
 
 message SwitchList {
@@ -1878,6 +2004,20 @@ message SwitchQuery {
   common.SwitchId switch_id = 2;
 }
 
+message SwitchSearchFilter {
+  optional common.RackId rack_id = 1;
+  // Controls whether deleted switches are included. Defaults to EXCLUDE.
+  DeletedFilter deleted = 2;
+  // Filter by controller state (e.g. "ready", "initializing", "error")
+  optional string controller_state = 3;
+  // Filter by BMC MAC address via machine_interfaces
+  optional string bmc_mac = 4;
+}
+
+message SwitchesByIdsRequest {
+  repeated common.SwitchId switch_ids = 1;
+}
+
 message ExpectedSwitch {
   string bmc_mac_address = 1;
   string bmc_username = 2;
@@ -1891,6 +2031,7 @@ message ExpectedSwitch {
   // Unique identifier for the expected switch. When omitted, server generates one.
   optional common.UUID expected_switch_id = 9;
   repeated string nvos_mac_addresses = 10;
+  string bmc_ip_address = 11;
 }
 
 message ExpectedSwitchRequest {
@@ -2749,18 +2890,18 @@ message MachineHealthHistoriesRequest {
   google.protobuf.Timestamp end_time = 3;
 }
 
-message MachineHealthHistories {
+message HealthHistories {
   // The Health History for each Machine
-  map<string, MachineHealthHistoryRecords> histories = 1;
+  map<string, HealthHistoryRecords> histories = 1;
 }
 
-// A list of Machine health history records, starting by the oldest
-message MachineHealthHistoryRecords {
-  repeated MachineHealthHistoryRecord records = 1;
+// A list of health history records, starting by the oldest
+message HealthHistoryRecords {
+  repeated HealthHistoryRecord records = 1;
 }
 
-// The observed health for a Machine at a certain point in time
-message MachineHealthHistoryRecord {
+// The observed health for a resource at a certain point in time
+message HealthHistoryRecord {
   // The observed health
   health.HealthReport health = 1;
   // The time when the health was observed
@@ -2798,6 +2939,53 @@ message InterfaceDeleteQuery {
 message InterfaceSearchQuery {
   optional common.MachineInterfaceId id = 1;
   optional string ip = 2;
+}
+
+message AssignStaticAddressRequest {
+  common.MachineInterfaceId interface_id = 1;
+  string ip_address = 2;
+}
+
+enum AssignStaticAddressStatus {
+  ASSIGN_STATIC_ADDRESS_STATUS_ASSIGNED = 0;
+  ASSIGN_STATIC_ADDRESS_STATUS_REPLACED_STATIC = 1;
+  ASSIGN_STATIC_ADDRESS_STATUS_REPLACED_DHCP = 2;
+}
+
+message AssignStaticAddressResponse {
+  common.MachineInterfaceId interface_id = 1;
+  string ip_address = 2;
+  AssignStaticAddressStatus status = 3;
+}
+
+message RemoveStaticAddressRequest {
+  common.MachineInterfaceId interface_id = 1;
+  string ip_address = 2;
+}
+
+enum RemoveStaticAddressStatus {
+  REMOVE_STATIC_ADDRESS_STATUS_REMOVED = 0;
+  REMOVE_STATIC_ADDRESS_STATUS_NOT_FOUND = 1;
+}
+
+message RemoveStaticAddressResponse {
+  common.MachineInterfaceId interface_id = 1;
+  string ip_address = 2;
+  RemoveStaticAddressStatus status = 3;
+}
+
+message FindInterfaceAddressesRequest {
+  common.MachineInterfaceId interface_id = 1;
+}
+
+message InterfaceAddress {
+  string address = 1;
+  string allocation_type = 2;
+}
+
+message FindInterfaceAddressesResponse {
+  common.MachineInterfaceId interface_id = 1;
+  repeated InterfaceAddress addresses = 2;
 }
 
 enum MachineType {
@@ -2950,6 +3138,48 @@ message MachineMetadataUpdateRequest {
   optional string if_version_match = 2;
 
   // New Metadata to be utilized by the Machine
+  Metadata metadata = 3;
+}
+
+message RackMetadataUpdateRequest {
+  // The ID of the Rack for which the Metadata update will apply
+  common.RackId rack_id = 1;
+
+  // If the field here is set, the update will only be applied if the version
+  // is equivalent to the current Rack `version` on the Forge Site.
+  // If a concurrent update changed the site configuration, the API will return
+  // a `ConcurrentModificationError`.
+  optional string if_version_match = 2;
+
+  // New Metadata to be utilized by the Rack
+  Metadata metadata = 3;
+}
+
+message SwitchMetadataUpdateRequest {
+  // The ID of the Switch for which the Metadata update will apply
+  common.SwitchId switch_id = 1;
+
+  // If the field here is set, the update will only be applied if the version
+  // is equivalent to the current Switch `version` on the Forge Site.
+  // If a concurrent update changed the site configuration, the API will return
+  // a `ConcurrentModificationError`.
+  optional string if_version_match = 2;
+
+  // New Metadata to be utilized by the Switch
+  Metadata metadata = 3;
+}
+
+message PowerShelfMetadataUpdateRequest {
+  // The ID of the PowerShelf for which the Metadata update will apply
+  common.PowerShelfId power_shelf_id = 1;
+
+  // If the field here is set, the update will only be applied if the version
+  // is equivalent to the current PowerShelf `version` on the Forge Site.
+  // If a concurrent update changed the site configuration, the API will return
+  // a `ConcurrentModificationError`.
+  optional string if_version_match = 2;
+
+  // New Metadata to be utilized by the PowerShelf
   Metadata metadata = 3;
 }
 
@@ -3262,6 +3492,9 @@ message SshRequest {
 message CopyBfbToDpuRshimRequest {
   SshRequest ssh_request = 1;
   reserved 2;
+  // Optional host BMC IP; if provided, the host will be power-cycled
+  // before BFB copy to ensure the DPU has rshim control.
+  optional string host_bmc_ip = 3;
 }
 
 message UpdateMachineHardwareInfoRequest {
@@ -6035,12 +6268,14 @@ message Rack {
   repeated string expected_nvlink_switches = 5;
   repeated common.MachineId compute_trays = 6;
   repeated common.PowerShelfId power_shelves = 7;
-  // repeated common.NvlinkSwitchId nvlink_switches = 8;
+  repeated common.SwitchId switches = 8;
   google.protobuf.Timestamp created = 9;
   google.protobuf.Timestamp updated = 10;
   google.protobuf.Timestamp deleted = 11;
   health.HealthReport health = 12;
   repeated HealthOverrideOrigin health_overrides = 13;
+  Metadata metadata = 14;
+  string version = 15;
 }
 
 message RackStateHistoryRecord {
@@ -6736,6 +6971,11 @@ message RoutingProfile {
   repeated common.RouteTarget route_targets_on_exports = 2;
   bool leak_default_route_from_underlay                = 3;
   bool leak_tenant_host_routes_to_underlay             = 4;
+  
+  // Are route-leak communities sent by the host OS honored by the DPU for allowing
+  // routes advertised by the host OS to be leaked into the underlay?
+  bool tenant_leak_communities_accepted                = 5;
+
 }
 
 // ============================================================================
@@ -7079,4 +7319,34 @@ message DeviceFirmwareVersions {
 
 message ListComponentFirmwareVersionsResponse {
   repeated DeviceFirmwareVersions devices = 1;
+}
+
+// Force deletes a Switch and optionally its associated interfaces.
+message AdminForceDeleteSwitchRequest {
+  // The Switch ID to force delete.
+  common.SwitchId switch_id = 1;
+  // Should we delete the machine interfaces associated with this switch?
+  bool delete_interfaces = 2;
+}
+
+message AdminForceDeleteSwitchResponse {
+  // The ID of the switch that was deleted.
+  string switch_id = 1;
+  // Number of interfaces deleted.
+  uint32 interfaces_deleted = 2;
+}
+
+// Force deletes a Power Shelf and optionally its associated interfaces.
+message AdminForceDeletePowerShelfRequest {
+  // The Power Shelf ID to force delete.
+  common.PowerShelfId power_shelf_id = 1;
+  // Should we delete the machine interfaces associated with this power shelf?
+  bool delete_interfaces = 2;
+}
+
+message AdminForceDeletePowerShelfResponse {
+  // The ID of the power shelf that was deleted.
+  string power_shelf_id = 1;
+  // Number of interfaces deleted.
+  uint32 interfaces_deleted = 2;
 }

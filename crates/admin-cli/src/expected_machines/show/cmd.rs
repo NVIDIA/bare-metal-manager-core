@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 use std::collections::HashMap;
-use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use mac_address::MacAddress;
@@ -30,7 +29,7 @@ pub async fn show_expected_machines(
     expected_machine_query: &Args,
     api_client: &ApiClient,
     output_format: OutputFormat,
-    output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
 ) -> CarbideCliResult<()> {
     let req: Option<ExpectedMachineRequest> = expected_machine_query.try_into()?;
 
@@ -114,7 +113,7 @@ pub async fn show_expected_machines(
 }
 
 async fn convert_and_print_into_nice_table(
-    output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     expected_machines: &::rpc::forge::ExpectedMachineList,
     expected_discovered_machine_ids: &HashMap<String, String>,
     expected_discovered_machine_interfaces: &HashMap<MacAddress, ::rpc::forge::MachineInterface>,

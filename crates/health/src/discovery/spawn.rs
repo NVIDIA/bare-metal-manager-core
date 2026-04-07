@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -39,8 +40,8 @@ pub(super) async fn spawn_collectors_for_endpoint(
     data_sink: Option<Arc<dyn DataSink>>,
     metrics_prefix: &str,
 ) -> Result<(), HealthError> {
-    let key = endpoint.hash_key();
-    let endpoint_arc = endpoint.clone();
+    let key: Cow<'static, str> = Cow::Owned(endpoint.identity().into_owned());
+    let endpoint_arc = Arc::clone(endpoint);
     if let Configurable::Enabled(sensor_cfg) = &ctx.sensors_config
         && !ctx.collectors.contains(CollectorKind::Sensor, &key)
     {
@@ -87,7 +88,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
     if let Configurable::Enabled(logs_cfg) = &ctx.logs_config
         && !ctx.collectors.contains(CollectorKind::Logs, &key)
     {
-        let endpoint_id = endpoint.log_identity().into_owned();
+        let endpoint_id = key.clone().into_owned();
         let state_file_path = logs_state_file_path(&logs_cfg.logs_state_file, &endpoint_id);
 
         let log_writer = match create_log_file_writer(
@@ -315,7 +316,7 @@ mod tests {
             None,
         );
 
-        assert_eq!(endpoint.log_identity().as_ref(), "AA:BB:CC:DD:EE:FF");
+        assert_eq!(endpoint.identity().as_ref(), "AA:BB:CC:DD:EE:FF");
     }
 
     #[test]
@@ -336,7 +337,7 @@ mod tests {
             None,
         );
 
-        assert_eq!(endpoint.log_identity().as_ref(), "switch-serial-1");
+        assert_eq!(endpoint.identity().as_ref(), "switch-serial-1");
     }
 
     #[tokio::test]

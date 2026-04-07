@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Write;
 
 use carbide_uuid::switch::SwitchId;
+use prettytable::{Table, row};
 use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use rpc::forge::{LinkedExpectedSwitch, MachineInterface, Switch};
 use serde::Serialize;
@@ -284,57 +284,44 @@ fn show_detail_view(m: &ManagedSwitchOutput) -> CarbideCliResult<()> {
 }
 
 fn show_table_view(outputs: &[ManagedSwitchOutput]) {
-    println!(
-        "{:<36} {:<20} {:<18} {:<18} {:<20} {:<10} {:<10} {:<15}",
-        "Switch ID", "Name", "Serial", "BMC MAC", "NVOS MAC", "Power", "Health", "State"
-    );
-    println!("{:-<160}", "");
+    let mut table = Table::new();
+    table.set_titles(row![
+        "Switch ID",
+        "Name",
+        "Serial",
+        "BMC MAC",
+        "NVOS MAC",
+        "Power",
+        "Health",
+        "State"
+    ]);
 
     for m in outputs {
-        let id = m
-            .switch_id
-            .as_ref()
-            .map(|s| Cow::Borrowed(s.as_str()))
-            .unwrap_or(Cow::Borrowed("N/A"));
-
-        let name = if m.name.len() > 18 {
-            Cow::Owned(format!("{}…", &m.name[..17]))
-        } else {
-            Cow::Borrowed(m.name.as_str())
-        };
-
-        let serial = if m.serial_number.len() > 16 {
-            Cow::Owned(format!("{}…", &m.serial_number[..15]))
-        } else if m.serial_number.is_empty() {
-            Cow::Borrowed("N/A")
-        } else {
-            Cow::Borrowed(m.serial_number.as_str())
-        };
-
-        let bmc_mac = if m.bmc_mac.is_empty() {
-            Cow::Borrowed("N/A")
-        } else {
-            Cow::Borrowed(m.bmc_mac.as_str())
-        };
-
-        let nvos_mac: Cow<str> = if m.nvos_mac_addresses.is_empty() {
-            Cow::Borrowed("N/A")
-        } else {
-            Cow::Borrowed(m.nvos_mac_addresses[0].as_str())
-        };
-
-        println!(
-            "{:<36} {:<20} {:<18} {:<18} {:<20} {:<10} {:<10} {:<15}",
-            id,
-            name,
-            serial,
-            bmc_mac,
-            nvos_mac,
+        table.add_row(row![
+            m.switch_id.as_deref().unwrap_or("N/A"),
+            m.name,
+            if m.serial_number.is_empty() {
+                "N/A"
+            } else {
+                &m.serial_number
+            },
+            if m.bmc_mac.is_empty() {
+                "N/A"
+            } else {
+                &m.bmc_mac
+            },
+            if m.nvos_mac_addresses.is_empty() {
+                "N/A".to_string()
+            } else {
+                m.nvos_mac_addresses.join(", ")
+            },
             m.power_state.as_deref().unwrap_or("N/A"),
             m.health_status.as_deref().unwrap_or("N/A"),
             m.controller_state,
-        );
+        ]);
     }
+
+    table.printstd();
 }
 
 fn show_csv(outputs: &[ManagedSwitchOutput]) {

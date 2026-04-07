@@ -217,6 +217,18 @@ impl Iterator for IpAllocator {
                 }
             }
             AddressSelectionStrategy::NextAvailablePrefix(len) => len,
+            AddressSelectionStrategy::StaticAddress(_) => {
+                // Static addresses don't use the allocator at all, and should
+                // have gone through create_static_path. If it makes it through
+                // into here, yell. Fwiw, this is a benefit to AddressSelectionStrategy
+                // in general, we can catch potential bugs like this.
+                return Some((
+                    segment_prefix.id,
+                    Err(DatabaseError::internal(
+                        "StaticAddress cannot be allocated by the DHCP allocator".to_string(),
+                    )),
+                ));
+            }
         };
 
         // And now get the next available network prefix of prefix_length

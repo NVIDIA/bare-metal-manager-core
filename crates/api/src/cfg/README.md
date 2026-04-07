@@ -304,7 +304,7 @@ Extends `StateControllerConfig` with:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | `bool` | `true` | Master switch for machine identity APIs. |
+| `enabled` | `bool` | `false` | Master switch for machine identity APIs (opt-in; set `true` with `current_encryption_key_id` and credentials). |
 | `algorithm` | `String` | `"ES256"` | Signing algorithm for per-org keys. |
 | `token_ttl_min_sec` | `u32` | `60` | Minimum token TTL in seconds. |
 | `token_ttl_max_sec` | `u32` | `86400` | Maximum token TTL in seconds. |

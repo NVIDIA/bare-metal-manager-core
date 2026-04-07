@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 use carbide_dns::config::{Config, ConfigError};
 use carbide_dns::start;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use eyre::WrapErr;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithExportConfig;
@@ -31,6 +31,17 @@ use tracing_subscriber::prelude::*;
 #[tokio::main]
 async fn main() -> Result<(), eyre::Report> {
     let options = Options::parse();
+
+    if options.version {
+        println!("{}", carbide_version::version!());
+        return Ok(());
+    }
+    let cmd = match options.command {
+        None => {
+            return Ok(Options::command().print_long_help()?);
+        }
+        Some(s) => s,
+    };
 
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
@@ -48,7 +59,7 @@ async fn main() -> Result<(), eyre::Report> {
         .add_directive("carbide_dns::pdns=debug".parse()?)
         .add_directive("rpc=info".parse()?);
 
-    match options.command {
+    match cmd {
         Command::Run(run_command) => {
             let config: Config = run_command.try_into()?;
 
@@ -109,8 +120,11 @@ async fn main() -> Result<(), eyre::Report> {
 
 #[derive(Parser)]
 pub struct Options {
+    #[clap(long, default_value = "false", help = "Print version number and exit")]
+    pub version: bool,
+
     #[clap(subcommand)]
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 #[derive(Parser)]

@@ -30,8 +30,8 @@ use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch, json_patch};
 use crate::redfish::Builder;
 use crate::{
-    LogServices, MockPowerState, POWER_CYCLE_DELAY, PowerControl, SetSystemPowerError, http,
-    redfish,
+    BootOptionKind, Callbacks, LogServices, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError,
+    http, redfish,
 };
 
 pub fn collection() -> redfish::Collection<'static> {
@@ -129,7 +129,7 @@ pub struct SingleSystemConfig {
     pub manufacturer: Option<Cow<'static, str>>,
     pub model: Option<Cow<'static, str>>,
     pub boot_order_mode: BootOrderMode,
-    pub power_control: Option<Arc<dyn PowerControl>>,
+    pub callbacks: Option<Arc<dyn Callbacks>>,
     pub chassis: Vec<Cow<'static, str>>,
     pub boot_options: Option<Vec<redfish::boot_option::BootOption>>,
     pub bios_mode: BiosMode,
@@ -193,6 +193,12 @@ impl SystemState {
         let systems = configs.into_iter().map(SingleSystemState::new).collect();
         Self { systems }
     }
+
+    pub fn resolve_current_boot_selection(&self) -> Option<BootOptionKind> {
+        self.systems
+            .iter()
+            .find_map(|system| system.resolve_current_boot_selection())
+    }
 }
 
 impl SingleSystemState {
@@ -220,6 +226,27 @@ impl SingleSystemState {
     fn boot_order_override(&self) -> Option<Vec<String>> {
         self.boot_order_override.lock().unwrap().clone()
     }
+
+    fn resolve_current_boot_selection(&self) -> Option<BootOptionKind> {
+        self.boot_order_override()
+            .and_then(|overrides| {
+                overrides.first().and_then(|optref| {
+                    self.config
+                        .boot_options
+                        .iter()
+                        .flatten()
+                        .find(|v| v.boot_reference() == optref)
+                        .map(|opt| opt.kind)
+                })
+            })
+            .or_else(|| {
+                self.config
+                    .boot_options
+                    .as_ref()?
+                    .first()
+                    .map(|opt| opt.kind)
+            })
+    }
 }
 
 async fn get_system_collection(State(state): State<BmcState>) -> Response {
@@ -242,9 +269,9 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
     let config = &system_state.config;
 
     if let Some(state) = config
-        .power_control
+        .callbacks
         .as_ref()
-        .map(|control| control.get_power_state())
+        .map(|callbacks| callbacks.get_power_state())
     {
         b = b.power_state(state)
     }
@@ -433,7 +460,7 @@ async fn post_reset_system(
     let Some(system_state) = state.system_state.find(&system_id) else {
         return http::not_found();
     };
-    let Some(power_control) = system_state.config.power_control.as_ref() else {
+    let Some(callbacks) = system_state.config.callbacks.as_ref() else {
         return http::not_found();
     };
     let Some(reset_type) = power_request
@@ -451,7 +478,7 @@ async fn post_reset_system(
     // introduce a deadlock if the API server holds a lock on the row for this machine
     // while issuing a redfish call, and MachineStateMachine is blocked waiting for the row lock
     // to be released.
-    match power_control.set_power_state(reset_type) {
+    match callbacks.set_power_state(reset_type) {
         Ok(_) => json!({}).into_ok_response(),
         Err(SetSystemPowerError::BadRequest(_)) => StatusCode::BAD_REQUEST.into_response(),
         Err(SetSystemPowerError::CommandSendError(_)) => {

@@ -65,6 +65,8 @@ async fn scp_write<LOCAL, REMOTE>(
     ip_address: SocketAddr,
     username: &str,
     password: &str,
+    timeout_secs: u64,
+    buffer_size_bytes: usize,
 ) -> Result<(), SshError>
 where
     LOCAL: AsRef<Path> + std::fmt::Display,
@@ -79,8 +81,6 @@ where
         russh_client_config(),
     )
     .await?;
-    let timeout_secs = 20 * 60; // i'm seeing transfer speeds of 1.3MiB/sec with a 1.3GiB file, so....
-    let buffer_size_bytes = 1024 * 1024; // this needs to be fairly large for a large file.
     let show_progress = true;
     client
         .upload_file(
@@ -135,13 +135,27 @@ pub async fn copy_bfb_to_bmc_rshim(
     username: String,
     password: String,
     bfb_path: String,
+    is_bf2: bool,
 ) -> Result<(), SshError> {
+    // BF2 BMCs cannot handle the default 1 MiB SFTP buffer (transfer fails immediately).
+    // Tested BF2 transfer speeds for a 1.5 GB BFB:
+    //   SFTP 128 KiB buffer: ~325 KB/s  (~70 min)
+    //   regular SCP:         ~480 KB/s  (~50 min)
+    //   SFTP 1 MiB buffer:   fails immediately
+    let (timeout_secs, buffer_size_bytes) = if is_bf2 {
+        (80 * 60, 128 * 1024) // 80 min, 128 KiB buffer
+    } else {
+        (30 * 60, 1024 * 1024) // 30 min, 1 MiB buffer
+    };
+
     scp_write(
         bfb_path,
         "/dev/rshim0/boot",
         ip_address,
         username.as_str(),
         password.as_str(),
+        timeout_secs,
+        buffer_size_bytes,
     )
     .await?;
     Ok(())

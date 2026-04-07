@@ -814,6 +814,9 @@ pub struct Machine {
 
     /// The rack that this machine is associated with
     pub rack_id: Option<RackId>,
+
+    /// Rack-level firmware upgrade status, updated by the rack state machine.
+    pub rack_fw_details: Option<RackFirmwareUpgradeStatus>,
 }
 
 // Dpf status field.
@@ -1242,18 +1245,6 @@ pub struct DpuReprovisionStates {
 /// Only DPU machine field in DB will contain state. Host will be empty. DPU state field will be
 /// used to derive state for DPU and Host both.
 pub enum ManagedHostState {
-    /// Verifying the host is registered with RMS by checking inventory.
-    /// If no RMS client or no rack_id, skips ahead immediately.
-    /// If the node is found, skips registration and transitions forward.
-    /// If the node is not found or RMS returns NotFound, transitions to
-    /// RegisterRmsMembership. On other API errors, retries next tick.
-    VerifyRmsMembership,
-
-    /// Registering the host with Rack Manager Service.
-    /// On success, transitions forward to DpuDiscoveringState.
-    /// On failure, retries on next tick.
-    RegisterRmsMembership,
-
     /// Dpu was discovered by a site-explorer and is being configuring via redfish.
     DpuDiscoveringState {
         dpu_states: DpuDiscoveringStates,
@@ -1577,6 +1568,7 @@ pub enum HostReprovisionState {
         report_time: Option<DateTime<Utc>>,
         reason: Option<String>,
     },
+    WaitingForRackFirmwareUpgrade,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -2039,6 +2031,8 @@ pub struct HostReprovisionRequest {
     pub request_reset: Option<bool>,
 }
 
+pub use crate::rack::RackFirmwareUpgradeStatus;
+
 /// Should a forge-dpu-agent upgrade itself?
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpgradeDecision {
@@ -2150,8 +2144,6 @@ impl Display for MeasuringState {
 impl Display for ManagedHostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ManagedHostState::RegisterRmsMembership => write!(f, "RegisterRmsMembership"),
-            ManagedHostState::VerifyRmsMembership => write!(f, "VerifyRmsMembership"),
             ManagedHostState::DpuDiscoveringState { dpu_states } => {
                 // Min state indicates the least processed DPU. The state machine is blocked
                 // becasue of this.
@@ -2234,8 +2226,6 @@ impl Display for ManagedHostState {
 impl ManagedHostState {
     pub fn dpu_state_string(&self, dpu_id: &MachineId) -> String {
         match self {
-            ManagedHostState::RegisterRmsMembership => "RegisterRmsMembership".to_string(),
-            ManagedHostState::VerifyRmsMembership => "VerifyRmsMembership".to_string(),
             ManagedHostState::DpuDiscoveringState { dpu_states } => dpu_states
                 .states
                 .get(dpu_id)
@@ -2463,25 +2453,6 @@ impl From<MachineStateHistory> for rpc::MachineEvent {
     }
 }
 
-/// History of Machine health for a single Machine
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MachineHealthHistoryRecord {
-    /// The observed health of the Machine
-    pub health: health_report::HealthReport,
-
-    /// The time when the health was observed
-    pub time: DateTime<Utc>,
-}
-
-impl From<MachineHealthHistoryRecord> for rpc::forge::MachineHealthHistoryRecord {
-    fn from(record: MachineHealthHistoryRecord) -> rpc::forge::MachineHealthHistoryRecord {
-        rpc::forge::MachineHealthHistoryRecord {
-            health: Some(record.health.into()),
-            time: Some(record.time.into()),
-        }
-    }
-}
-
 /// Returns the SLA for the current state.
 ///
 /// If any alert in `aggregate_health` carries the `ExcludeFromStateMachineSla` classification,
@@ -2512,9 +2483,6 @@ pub fn state_sla(
         .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
 
     match state {
-        ManagedHostState::RegisterRmsMembership | ManagedHostState::VerifyRmsMembership => {
-            StateSla::no_sla()
-        }
         ManagedHostState::DpuDiscoveringState { dpu_states } => {
             // Min state indicates the least processed DPU. The state machine is blocked
             // because of this.

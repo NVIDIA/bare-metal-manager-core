@@ -22,7 +22,7 @@ use rpc::machine_discovery::{BlockDevice, CpuInfo, DiscoveryInfo, DmiData, NvmeD
 use serde_json::json;
 use utils::models::arch::CpuArchitecture;
 
-use crate::{PowerControl, hw, redfish};
+use crate::{BootOptionKind, Callbacks, hw, redfish};
 
 pub struct WiwynnGB200Nvl<'a> {
     pub system_serial_number: Cow<'a, str>,
@@ -72,23 +72,23 @@ impl WiwynnGB200Nvl<'_> {
         }
     }
 
-    pub fn system_config(&self, pc: Arc<dyn PowerControl>) -> redfish::computer_system::Config {
+    pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
         let system_id = "System_0";
-        let power_control = Some(pc);
+        let callbacks = Some(callbacks);
         let serial_number = Some(self.system_serial_number.to_string().into());
-        let boot_opt_builder = |id: &str| {
-            redfish::boot_option::builder(&redfish::boot_option::resource(system_id, id))
+        let boot_opt_builder = |id: &str, kind| {
+            redfish::boot_option::builder(&redfish::boot_option::resource(system_id, id), kind)
                 .boot_option_reference(id)
         };
         let boot_options = [
-            boot_opt_builder("Boot0020")
+            boot_opt_builder("Boot0020", BootOptionKind::Disk)
                 .display_name("Ubuntu")
                 .uefi_device_path("HD(1,GPT,C07AA982-7D30-4663-9538-776771BBED85,0x800,0x219800)/\\EFI\\ubuntu\\shimaa64.efi")
                 .build()
         ].into_iter().chain([&self.dpu1, &self.dpu2].into_iter().enumerate().map(|(index, dpu)| {
             let mac = dpu.host_mac_address.to_string().replace(":", "").to_uppercase();
             let display_name = format!("UEFI HTTPv4 (MAC:{mac})");
-            boot_opt_builder(&format!("Boot{index:04X}"))
+            boot_opt_builder(&format!("Boot{index:04X}"), BootOptionKind::Network)
                 .display_name(&display_name)
                 .uefi_device_path(&format!("MAC({mac},0x1)/IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()"))
                 .build()
@@ -103,7 +103,7 @@ impl WiwynnGB200Nvl<'_> {
                     eth_interfaces: None,
                     serial_number,
                     boot_order_mode: redfish::computer_system::BootOrderMode::ViaSettings,
-                    power_control,
+                    callbacks,
                     chassis: vec!["BMC_0".into()],
                     boot_options: Some(boot_options),
                     bios_mode: redfish::computer_system::BiosMode::Generic,
@@ -125,7 +125,7 @@ impl WiwynnGB200Nvl<'_> {
                     model: Some("GB200 NVL".into()),
                     chassis: vec!["HGX_Chassis_0".into()],
                     eth_interfaces: None,
-                    power_control: None,
+                    callbacks: None,
                     boot_options: None,
                     serial_number: None,
                     boot_order_mode: redfish::computer_system::BootOrderMode::Generic,

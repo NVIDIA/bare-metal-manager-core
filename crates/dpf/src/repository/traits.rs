@@ -239,6 +239,17 @@ pub trait K8sConfigRepository: Send + Sync {
     ) -> Result<(), DpfError>;
 }
 
+/// Repository for DPFOperatorConfig resources.
+#[async_trait]
+pub trait DpfOperatorConfigRepository: Send + Sync {
+    async fn patch(
+        &self,
+        name: &str,
+        namespace: &str,
+        patch: serde_json::Value,
+    ) -> Result<(), DpfError>;
+}
+
 /// Combined trait for all DPF repository operations.
 ///
 /// Implementors of this trait provide access to all DPF CRD operations,
@@ -259,6 +270,7 @@ pub trait DpfRepository:
     + DpuServiceChainRepository
     + DpuServiceInterfaceRepository
     + K8sConfigRepository
+    + DpfOperatorConfigRepository
     + Send
     + Sync
 {

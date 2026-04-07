@@ -15,17 +15,22 @@
  * limitations under the License.
  */
 
+use std::collections::HashMap;
+
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::rack::RackId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
+use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
 use crate::StateSla;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
+use crate::metadata::Metadata;
 
 pub mod power_shelf_id;
 pub mod slas;
@@ -34,6 +39,8 @@ pub mod slas;
 pub struct NewPowerShelf {
     pub id: PowerShelfId,
     pub config: PowerShelfConfig,
+    pub metadata: Option<Metadata>,
+    pub rack_id: Option<RackId>,
 }
 
 impl TryFrom<rpc::PowerShelfCreationRequest> for NewPowerShelf {
@@ -53,6 +60,8 @@ impl TryFrom<rpc::PowerShelfCreationRequest> for NewPowerShelf {
         Ok(NewPowerShelf {
             id,
             config: PowerShelfConfig::try_from(conf)?,
+            metadata: None,
+            rack_id: None,
         })
     }
 }
@@ -85,9 +94,14 @@ pub struct PowerShelf {
 
     /// The result of the last attempt to change state
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
+
+    /// The rack that this power shelf is associated with.
+    pub rack_id: Option<RackId>,
     // Columns for these exist, but are unused in rust code
     // pub created: DateTime<Utc>,
     // pub updated: DateTime<Utc>,
+    pub metadata: Metadata,
+    pub version: ConfigVersion,
 }
 
 impl<'r> FromRow<'r, PgRow> for PowerShelf {
@@ -99,6 +113,12 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
         let controller_state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome").ok();
 
+        let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
+        let metadata = Metadata {
+            name: row.try_get("name")?,
+            description: row.try_get("description")?,
+            labels: labels.0,
+        };
         Ok(PowerShelf {
             id: row.try_get("id")?,
             config: config.0,
@@ -109,6 +129,9 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
                 version: row.try_get("controller_state_version")?,
             },
             controller_state_outcome: controller_state_outcome.map(|o| o.0),
+            metadata,
+            version: row.try_get("version")?,
+            rack_id: row.try_get("rack_id").ok().flatten(),
         })
     }
 }
@@ -130,15 +153,30 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
     type Error = RpcDataConversionError;
 
     fn try_from(src: PowerShelf) -> Result<Self, Self::Error> {
-        let status = src.status.map(|s| rpc::PowerShelfStatus {
-            state_reason: None, // TODO: implement state_reason
-            state_sla: Some(rpc::StateSla {
-                sla: None,
-                time_in_state_above_sla: false,
-            }),
-            shelf_name: Some(s.shelf_name),
-            power_state: Some(s.power_state),
-            health_status: Some(s.health_status),
+        let controller_state = serde_json::to_string(&src.controller_state.value).unwrap();
+        let status = Some(match src.status {
+            Some(s) => rpc::PowerShelfStatus {
+                state_reason: None, // TODO: implement state_reason
+                state_sla: Some(rpc::StateSla {
+                    sla: None,
+                    time_in_state_above_sla: false,
+                }),
+                shelf_name: Some(s.shelf_name),
+                power_state: Some(s.power_state),
+                health_status: Some(s.health_status),
+                controller_state: Some(controller_state.clone()),
+            },
+            None => rpc::PowerShelfStatus {
+                state_reason: None,
+                state_sla: Some(rpc::StateSla {
+                    sla: None,
+                    time_in_state_above_sla: false,
+                }),
+                shelf_name: None,
+                power_state: None,
+                health_status: None,
+                controller_state: Some(controller_state.clone()),
+            },
         });
 
         let config = rpc::PowerShelfConfig {
@@ -153,13 +191,17 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
         } else {
             None
         };
-        let controller_state = serde_json::to_string(&src.controller_state.value).unwrap();
+        let state_version = src.controller_state.version.to_string();
         Ok(rpc::PowerShelf {
             id: Some(src.id),
             config: Some(config),
             status,
             deleted,
             controller_state,
+            metadata: Some(src.metadata.into()),
+            version: src.version.version_string(),
+            bmc_info: None,
+            state_version,
         })
     }
 }
@@ -232,6 +274,25 @@ impl From<PowerShelfStateHistoryRecord> for rpc::PowerShelfStateHistoryRecord {
             state: value.state,
             version: value.state_version.version_string(),
             time: Some(value.state_version.timestamp().into()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct PowerShelfSearchFilter {
+    pub rack_id: Option<RackId>,
+    pub deleted: crate::DeletedFilter,
+    pub controller_state: Option<String>,
+    pub bmc_mac: Option<MacAddress>,
+}
+
+impl From<rpc::PowerShelfSearchFilter> for PowerShelfSearchFilter {
+    fn from(filter: rpc::PowerShelfSearchFilter) -> Self {
+        PowerShelfSearchFilter {
+            rack_id: filter.rack_id,
+            deleted: crate::DeletedFilter::from(filter.deleted),
+            controller_state: filter.controller_state,
+            bmc_mac: filter.bmc_mac.and_then(|m| m.parse::<MacAddress>().ok()),
         }
     }
 }

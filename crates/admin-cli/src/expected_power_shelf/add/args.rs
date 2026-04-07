@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::net::IpAddr;
+
 use carbide_uuid::rack::RackId;
 use clap::Parser;
 use mac_address::MacAddress;
@@ -76,12 +78,12 @@ pub struct Args {
     pub rack_id: Option<RackId>,
 
     #[clap(
-        long = "ip_address",
-        value_name = "IP_ADDRESS",
-        help = "IP address of the power shelf",
+        long = "bmc-ip-address",
+        value_name = "BMC_IP_ADDRESS",
+        help = "BMC IP address of the power shelf",
         action = clap::ArgAction::Append
     )]
-    pub ip_address: Option<String>,
+    pub bmc_ip_address: Option<IpAddr>,
 }
 
 impl From<Args> for rpc::forge::ExpectedPowerShelf {
@@ -98,7 +100,10 @@ impl From<Args> for rpc::forge::ExpectedPowerShelf {
             bmc_username: value.bmc_username,
             bmc_password: value.bmc_password,
             shelf_serial_number: value.shelf_serial_number,
-            ip_address: value.ip_address.unwrap_or_default(),
+            bmc_ip_address: value
+                .bmc_ip_address
+                .map(|ip| ip.to_string())
+                .unwrap_or_default(),
             rack_id: value.rack_id,
             metadata: Some(metadata),
         }

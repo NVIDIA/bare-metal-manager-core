@@ -79,3 +79,42 @@ fn parse_list() {
 
     assert!(matches!(cmd, Cmd::List(_)));
 }
+
+// parse_list_with_filters ensures list parses with filter flags.
+#[test]
+fn parse_list_with_filters() {
+    let cmd = Cmd::try_parse_from([
+        "power-shelf",
+        "list",
+        "--deleted",
+        "only",
+        "--controller-state",
+        "ready",
+        "--bmc-mac",
+        "AA:BB:CC:DD:EE:FF",
+    ])
+    .expect("should parse list with filters");
+
+    match cmd {
+        Cmd::List(args) => {
+            assert!(matches!(args.deleted, rpc::forge::DeletedFilter::Only));
+            assert_eq!(args.controller_state, Some("ready".to_string()));
+            assert!(args.bmc_mac.is_some());
+        }
+        _ => panic!("expected List variant"),
+    }
+}
+
+// parse_list_invalid_deleted ensures invalid deleted value is rejected.
+#[test]
+fn parse_list_invalid_deleted() {
+    let result = Cmd::try_parse_from(["power-shelf", "list", "--deleted", "bogus"]);
+    assert!(result.is_err());
+}
+
+// parse_list_invalid_bmc_mac ensures invalid MAC is rejected.
+#[test]
+fn parse_list_invalid_bmc_mac() {
+    let result = Cmd::try_parse_from(["power-shelf", "list", "--bmc-mac", "not-a-mac"]);
+    assert!(result.is_err());
+}

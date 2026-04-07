@@ -44,10 +44,23 @@ use crate::tests::common::api_fixtures::{
 const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 const DUPLICATE_ITERATIONS: usize = 10;
 
+fn dpf_left_operator_provisioning_substates(host: &ManagedHostState) -> bool {
+    match host {
+        ManagedHostState::DPUInit { dpu_states } => dpu_states
+            .states
+            .values()
+            .all(|s| !matches!(s, DpuInitState::DpfStates { .. })),
+        ManagedHostState::HostInit { .. } => true,
+        _ => false,
+    }
+}
+
 fn dpf_config() -> crate::cfg::file::DpfConfig {
     crate::cfg::file::DpfConfig {
         enabled: true,
         bfb_url: "http://example.com/test.bfb".to_string(),
+        services: None,
+        v2: true,
         ..Default::default()
     }
 }
@@ -104,7 +117,8 @@ async fn get_host_state(
 }
 
 /// Many iterations while the device is ready and no reboot is required.
-/// The host must reach Ready and stay there despite repeated processing.
+/// The host must leave DPF `DpfStates` (or enter host init) and stay there
+/// despite repeated processing.
 #[crate::sqlx_test]
 async fn test_duplicate_ready_events_reach_ready(pool: sqlx::PgPool) {
     let mut mock = MockDpfOperations::new();
@@ -141,8 +155,8 @@ async fn test_duplicate_ready_events_reach_ready(pool: sqlx::PgPool) {
 
     let host = get_host_state(&env, &mh).await;
     assert!(
-        !matches!(host, ManagedHostState::DPUInit { .. }),
-        "Host should have transitioned out of DPUInit after {} iterations, got: {:?}",
+        dpf_left_operator_provisioning_substates(&host),
+        "Host should have left DPF operator substates after {} iterations, got: {:?}",
         DUPLICATE_ITERATIONS,
         host
     );
@@ -224,8 +238,8 @@ async fn test_duplicate_reboot_events_send_single_reboot(pool: sqlx::PgPool) {
     );
 }
 
-/// Many iterations after reboot completes. The host must advance
-/// past DPUInit and not regress or panic.
+/// Many iterations after reboot completes. The host must leave DPF `DpfStates`
+/// and not regress or panic.
 #[crate::sqlx_test]
 async fn test_duplicate_events_after_reboot_complete(pool: sqlx::PgPool) {
     let mut mock = MockDpfOperations::new();
@@ -285,8 +299,8 @@ async fn test_duplicate_events_after_reboot_complete(pool: sqlx::PgPool) {
 
     let host = get_host_state(&env, &mh).await;
     assert!(
-        !matches!(host, ManagedHostState::DPUInit { .. }),
-        "Host should have transitioned out of DPUInit after reboot + {} duplicate iterations, got: {:?}",
+        dpf_left_operator_provisioning_substates(&host),
+        "Host should have left DPF operator substates after reboot + {} duplicate iterations, got: {:?}",
         DUPLICATE_ITERATIONS,
         host
     );
@@ -358,8 +372,8 @@ async fn test_duplicate_events_while_not_ready(pool: sqlx::PgPool) {
 
     let host = get_host_state(&env, &mh).await;
     assert!(
-        !matches!(host, ManagedHostState::DPUInit { .. }),
-        "Host should have transitioned out of DPUInit after DPU became ready, got: {:?}",
+        dpf_left_operator_provisioning_substates(&host),
+        "Host should have left DPF operator substates after DPU became ready, got: {:?}",
         host
     );
 }

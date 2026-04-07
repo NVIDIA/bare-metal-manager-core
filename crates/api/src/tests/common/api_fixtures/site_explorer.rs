@@ -28,7 +28,6 @@ use db::{DatabaseError, power_shelf as db_power_shelf, rack as db_rack, switch a
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use futures_util::FutureExt;
 use health_report::HealthReport;
-use mac_address::MacAddress;
 use model::address_selection_strategy::AddressSelectionStrategy;
 use model::expected_machine::ExpectedMachine;
 use model::hardware_info::HardwareInfo;
@@ -408,9 +407,16 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
-                10,
-                ManagedHostState::HostInit {
-                    machine_state: MachineState::EnableIpmiOverLan,
+                35,
+                ManagedHostState::DPUInit {
+                    dpu_states: model::machine::DpuInitStates {
+                        states: self
+                            .dpu_machine_ids
+                            .clone()
+                            .into_values()
+                            .map(|machine_id| (machine_id, DpuInitState::WaitingForNetworkConfig))
+                            .collect::<HashMap<MachineId, DpuInitState>>(),
+                    },
                 },
             )
             .await;
@@ -1502,6 +1508,8 @@ pub async fn new_power_shelf(
     let new_power_shelf = NewPowerShelf {
         id: power_shelf_id,
         config,
+        metadata: None,
+        rack_id: None,
     };
 
     let _power_shelf = db_power_shelf::create(&mut txn, &new_power_shelf)
@@ -1544,9 +1552,6 @@ do it without regard to the underlying impl and in a way that makes it
 clear looking at the test what the intent of the configuration is.
 */
 pub struct TestRackDbBuilder {
-    expected_compute_trays: Vec<MacAddress>,
-    expected_power_shelves: Vec<MacAddress>,
-    expected_switches: Vec<MacAddress>,
     rack_id: RackId,
     rack_type: Option<String>,
 }
@@ -1554,11 +1559,8 @@ pub struct TestRackDbBuilder {
 impl Default for TestRackDbBuilder {
     fn default() -> Self {
         TestRackDbBuilder {
-            expected_compute_trays: vec![],
-            expected_power_shelves: vec![],
-            expected_switches: vec![],
             rack_id: RackId::new(uuid::Uuid::new_v4().to_string()),
-            rack_type: None,
+            rack_type: Some("rack".to_string()),
         }
     }
 }
@@ -1575,54 +1577,17 @@ impl TestRackDbBuilder {
         self
     }
 
-    pub fn with_expected_compute_trays(mut self, expected_compute_trays: Vec<[u8; 6]>) -> Self {
-        self.expected_compute_trays = expected_compute_trays
-            .into_iter()
-            .map(MacAddress::new)
-            .collect();
-        self
-    }
-
-    pub fn with_expected_power_shelves(mut self, expected_power_shelves: Vec<[u8; 6]>) -> Self {
-        self.expected_power_shelves = expected_power_shelves
-            .into_iter()
-            .map(MacAddress::new)
-            .collect();
-        self
-    }
-
-    pub fn with_expected_switches(mut self, expected_switches: Vec<[u8; 6]>) -> Self {
-        self.expected_switches = expected_switches.into_iter().map(MacAddress::new).collect();
-        self
-    }
-
     pub fn with_rack_type(mut self, rack_type: impl Into<String>) -> Self {
         self.rack_type = Some(rack_type.into());
         self
     }
 
     pub async fn persist(&self, txn: &mut PgConnection) -> Result<RackId, DatabaseError> {
-        db_rack::create(
-            txn,
-            &self.rack_id,
-            self.expected_compute_trays.clone(),
-            self.expected_switches.clone(),
-            self.expected_power_shelves.clone(),
-        )
-        .await?;
-
-        let cfg = RackConfig {
-            // TODO: represent compute_trays and power_shelves in builder.
-            compute_trays: vec![],
-            power_shelves: vec![],
-            expected_compute_trays: self.expected_compute_trays.clone(),
-            expected_switches: self.expected_switches.clone(),
-            expected_power_shelves: self.expected_power_shelves.clone(),
+        let rack_config = RackConfig {
             rack_type: self.rack_type.clone(),
-            validation_run_id: None,
+            ..Default::default()
         };
-
-        db_rack::update(txn, &self.rack_id, &cfg).await?;
+        db_rack::create(txn, &self.rack_id, &rack_config, None).await?;
 
         Ok(self.rack_id.clone())
     }
@@ -1670,6 +1635,8 @@ pub async fn new_switch(
         id: switch_id,
         config,
         bmc_mac_address: Some(expected_switch.bmc_mac_address),
+        metadata: None,
+        rack_id: None,
     };
 
     let _switch = db_switch::create(&mut txn, &new_switch)
@@ -1736,7 +1703,7 @@ pub async fn new_mock_host_with_dpf(
     // these futures. Prior to this we were hitting stack space limits (going over 2MB in stack) in
     // unit tests. This buys us some savings so that we don't have to fiddle with adjusting the
     // default stack size.
-    mock_explored_host
+    mock_explored_host = mock_explored_host
         // ...Then run host BMC's DHCP
         .discover_dhcp_host_bmc(|_, _| Ok(()))
         .boxed()
@@ -1756,7 +1723,16 @@ pub async fn new_mock_host_with_dpf(
         .await?
         .dpu_state_controller_iterations_with_dpf()
         .boxed()
-        .await
+        .await;
+
+    let dpu_ids: Vec<MachineId> = mock_explored_host
+        .dpu_machine_ids
+        .values()
+        .copied()
+        .collect();
+    network_configured(env, &dpu_ids).await;
+
+    mock_explored_host
         .discover_machine(|_, _| Ok(()))
         .boxed()
         .await?
@@ -1811,6 +1787,7 @@ pub async fn create_expected_switches(
             } else {
                 None
             },
+            bmc_ip_address: None,
             metadata: Metadata {
                 name: format!("Switch{}", i + 1),
                 description: format!("Test Switch {}", i + 1),
@@ -1879,7 +1856,7 @@ pub async fn create_expected_power_shelves(
             serial_number: format!("PS-SN-{:03}", i + 1),
             bmc_username: "ADMIN".into(),
             bmc_password: "Pwd2023x0x0x0x0x7".into(),
-            ip_address: if (3..=4).contains(&i) {
+            bmc_ip_address: if (3..=4).contains(&i) {
                 Some(format!("192.168.1.{}", 100 + i - 3).parse().unwrap())
             } else {
                 None

@@ -567,6 +567,22 @@ impl K8sConfigRepository for KubeRepository {
     }
 }
 
+#[async_trait]
+impl DpfOperatorConfigRepository for KubeRepository {
+    async fn patch(
+        &self,
+        name: &str,
+        namespace: &str,
+        patch: serde_json::Value,
+    ) -> Result<(), DpfError> {
+        use crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig;
+        let api: Api<DPFOperatorConfig> = Api::namespaced(self.client.clone(), namespace);
+        api.patch(name, &PatchParams::default(), &Patch::Merge(&patch))
+            .await?;
+        Ok(())
+    }
+}
+
 // Implement the meta trait
 impl DpfRepository for KubeRepository {}
 

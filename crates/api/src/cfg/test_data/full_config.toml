@@ -129,6 +129,7 @@ host_disable_autoupdate = [
 ]
 run_interval = "20s"
 max_uploads = 3
+max_concurrent_bfb_copies = 7
 
 [machine_updater]
 instance_autoreboot_period.start = "2025-01-07T00:00:00Z"

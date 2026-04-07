@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::net::IpAddr;
+
 use carbide_uuid::rack::RackId;
 use clap::Parser;
 use mac_address::MacAddress;
@@ -73,6 +75,13 @@ pub struct Args {
         action = clap::ArgAction::Append
     )]
     pub rack_id: Option<RackId>,
+
+    #[clap(
+        long = "bmc-ip-address",
+        value_name = "BMC_IP_ADDRESS",
+        help = "BMC IP address of the expected switch"
+    )]
+    pub bmc_ip_address: Option<IpAddr>,
 }
 
 impl From<Args> for rpc::forge::ExpectedSwitch {
@@ -98,6 +107,10 @@ impl From<Args> for rpc::forge::ExpectedSwitch {
                 .collect(),
             nvos_username: value.nvos_username,
             nvos_password: value.nvos_password,
+            bmc_ip_address: value
+                .bmc_ip_address
+                .map(|ip| ip.to_string())
+                .unwrap_or_default(),
         }
     }
 }

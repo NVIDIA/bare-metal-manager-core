@@ -47,3 +47,10 @@ Selector labels
 app.kubernetes.io/name: {{ include "carbide-dhcp-server.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Server Port
+*/}}
+{{- define "carbide-dhcp-server.serverPort" -}}
+{{- default 10079 .Values.serverPort -}}
+{{- end -}}

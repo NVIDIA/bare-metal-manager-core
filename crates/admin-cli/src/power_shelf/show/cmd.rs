@@ -15,85 +15,92 @@
  * limitations under the License.
  */
 
+use std::str::FromStr;
+
+use carbide_uuid::power_shelf::PowerShelfId;
 use color_eyre::Result;
+use prettytable::{Table, row};
 use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use rpc::forge::PowerShelf;
 
 use super::args::Args;
+use crate::cfg::runtime::RuntimeConfig;
 use crate::rpc::ApiClient;
 
 pub fn show_power_shelves(
     power_shelves: Vec<PowerShelf>,
     output_format: OutputFormat,
 ) -> Result<()> {
-    match output_format {
-        OutputFormat::AsciiTable => {
-            println!("Power Shelves:");
-            println!(
-                "{:<36} {:<20} {:<10} {:<10} {:<15} {:<10} {:<10} {:<10}",
-                "ID",
-                "Name",
-                "Capacity(W)",
-                "Voltage(V)",
-                "Location",
-                "Power State",
-                "Health",
-                "State"
-            );
-            println!("{:-<120}", "");
+    let build_table = |shelves: &[PowerShelf]| -> Table {
+        let mut table = Table::new();
+        table.set_titles(row![
+            "ID",
+            "Name",
+            "Metadata Name",
+            "Capacity(W)",
+            "Voltage(V)",
+            "Location",
+            "Power State",
+            "Health",
+            "State"
+        ]);
 
-            for shelf in power_shelves {
-                let id = shelf
+        for shelf in shelves {
+            let metadata_name = shelf
+                .metadata
+                .as_ref()
+                .map(|m| m.name.as_str())
+                .unwrap_or("N/A");
+
+            table.add_row(row![
+                shelf
                     .id
                     .as_ref()
                     .map(|id| id.to_string())
-                    .unwrap_or_else(|| "N/A".to_string());
-
-                let name = shelf
+                    .unwrap_or_else(|| "N/A".to_string()),
+                shelf
                     .config
                     .as_ref()
-                    .map(|config| config.name.as_str())
-                    .unwrap_or_else(|| "N/A");
-
-                let capacity = shelf
+                    .map(|c| c.name.as_str())
+                    .unwrap_or("N/A"),
+                metadata_name,
+                shelf
                     .config
                     .as_ref()
-                    .and_then(|config| config.capacity)
+                    .and_then(|c| c.capacity)
                     .map(|c| c.to_string())
-                    .unwrap_or_else(|| "N/A".to_string());
-
-                let voltage = shelf
+                    .unwrap_or_else(|| "N/A".to_string()),
+                shelf
                     .config
                     .as_ref()
-                    .and_then(|config| config.voltage)
+                    .and_then(|c| c.voltage)
                     .map(|v| v.to_string())
-                    .unwrap_or_else(|| "N/A".to_string());
-
-                let location = shelf
+                    .unwrap_or_else(|| "N/A".to_string()),
+                shelf
                     .config
                     .as_ref()
-                    .and_then(|config| config.location.as_deref())
-                    .unwrap_or("N/A");
-
-                let power_state = shelf
+                    .and_then(|c| c.location.as_deref())
+                    .unwrap_or("N/A"),
+                shelf
                     .status
                     .as_ref()
-                    .and_then(|status| status.power_state.as_deref())
-                    .unwrap_or("N/A");
-
-                let health = shelf
+                    .and_then(|s| s.power_state.as_deref())
+                    .unwrap_or("N/A"),
+                shelf
                     .status
                     .as_ref()
-                    .and_then(|status| status.health_status.as_deref())
-                    .unwrap_or("N/A");
+                    .and_then(|s| s.health_status.as_deref())
+                    .unwrap_or("N/A"),
+                shelf.controller_state,
+            ]);
+        }
 
-                let controller_state = shelf.controller_state.as_str();
+        table
+    };
 
-                println!(
-                    "{:<36} {:<20} {:<10} {:<10} {:<15} {:<10} {:<10} {:<25}",
-                    id, name, capacity, voltage, location, power_state, health, controller_state
-                );
-            }
+    match output_format {
+        OutputFormat::AsciiTable => {
+            build_table(&power_shelves).printstd();
         }
         OutputFormat::Json => {
             println!("JSON output not supported for PowerShelf (protobuf type)");
@@ -104,59 +111,7 @@ pub fn show_power_shelves(
             println!("Use ASCII table format instead.");
         }
         OutputFormat::Csv => {
-            println!("ID,Name,Capacity(W),Voltage(V),Location,Power State,Health");
-            for shelf in &power_shelves {
-                let id = shelf
-                    .id
-                    .as_ref()
-                    .map(|id| id.to_string())
-                    .unwrap_or_else(|| "N/A".to_string());
-
-                let name = shelf
-                    .config
-                    .as_ref()
-                    .map(|config| config.name.as_str())
-                    .unwrap_or_else(|| "N/A");
-
-                let capacity = shelf
-                    .config
-                    .as_ref()
-                    .and_then(|config| config.capacity)
-                    .map(|c| c.to_string())
-                    .unwrap_or_else(|| "N/A".to_string());
-
-                let voltage = shelf
-                    .config
-                    .as_ref()
-                    .and_then(|config| config.voltage)
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "N/A".to_string());
-
-                let location = shelf
-                    .config
-                    .as_ref()
-                    .and_then(|config| config.location.as_deref())
-                    .unwrap_or("N/A");
-
-                let power_state = shelf
-                    .status
-                    .as_ref()
-                    .and_then(|status| status.power_state.as_deref())
-                    .unwrap_or("N/A");
-
-                let health = shelf
-                    .status
-                    .as_ref()
-                    .and_then(|status| status.health_status.as_deref())
-                    .unwrap_or("N/A");
-
-                let controller_state = shelf.controller_state.as_str();
-
-                println!(
-                    "{},{},{},{},{},{},{},{}",
-                    id, name, capacity, voltage, location, power_state, health, controller_state
-                );
-            }
+            build_table(&power_shelves).to_csv(std::io::stdout()).ok();
         }
     }
 
@@ -165,12 +120,35 @@ pub fn show_power_shelves(
 
 pub async fn handle_show(
     args: Args,
-    output_format: OutputFormat,
     api_client: &ApiClient,
+    config: &RuntimeConfig,
 ) -> CarbideCliResult<()> {
-    let response = api_client.0.find_power_shelves(args).await?;
-    let power_shelves = response.power_shelves;
+    let power_shelves = match args.identifier {
+        Some(id) if !id.is_empty() => match PowerShelfId::from_str(&id) {
+            Ok(power_shelf_id) => {
+                api_client
+                    .get_one_power_shelf(power_shelf_id)
+                    .await?
+                    .power_shelves
+            }
+            Err(_) => {
+                // Fall back to name-based lookup
+                let query = rpc::forge::PowerShelfQuery {
+                    name: Some(id),
+                    power_shelf_id: None,
+                };
+                api_client.0.find_power_shelves(query).await?.power_shelves
+            }
+        },
+        _ => {
+            let filter = rpc::forge::PowerShelfSearchFilter::default();
+            api_client
+                .get_all_power_shelves(filter, config.page_size)
+                .await?
+                .power_shelves
+        }
+    };
 
-    show_power_shelves(power_shelves, output_format).ok();
+    show_power_shelves(power_shelves, config.format).ok();
     Ok(())
 }

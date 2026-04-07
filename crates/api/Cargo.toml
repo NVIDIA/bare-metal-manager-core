@@ -124,6 +124,7 @@ opentelemetry_sdk = { workspace = true, features = [
   "testing",
 ] }
 pkcs1 = { workspace = true }
+p256 = { workspace = true }
 prometheus = { workspace = true }
 prost-types = { workspace = true }
 rand = { workspace = true }

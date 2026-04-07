@@ -35,6 +35,18 @@ pub const PATH_ACL: &str = "etc/cumulus/acl/policy.d/70-forge_nvue.rules";
 const TMPL_ETV_WITH_NVUE: &str = include_str!("../templates/nvue_startup_etv.conf");
 const TMPL_FNN: &str = include_str!("../templates/nvue_startup_fnn.conf");
 
+/// Returns the NVUE template for the given virtualization type.
+/// EthernetVirtualizerWithNvue is hanging around for a bit longer in here
+/// just for an extra sense of security and compatibilty; it all goes
+/// to EthernetVirtualizer.
+pub fn template_for(vtype: VpcVirtualizationType) -> eyre::Result<&'static str> {
+    match vtype {
+        VpcVirtualizationType::EthernetVirtualizer
+        | VpcVirtualizationType::EthernetVirtualizerWithNvue => Ok(TMPL_ETV_WITH_NVUE),
+        VpcVirtualizationType::Fnn => Ok(TMPL_FNN),
+    }
+}
+
 /// This value is added to the priority value specified
 /// by users for their NSG rules.
 const NETWORK_SECURITY_GROUP_RULE_PRIORITY_START: u32 = 2000;
@@ -93,13 +105,7 @@ fn split_prefixes_by_family(prefixes: &[String], start_index: usize) -> (Vec<Pre
 }
 
 pub fn build(conf: NvueConfig) -> eyre::Result<String> {
-    if !conf.vpc_virtualization_type.supports_nvue() {
-        return Err(eyre::eyre!(
-            "cannot nvue::build. provided virtualizaton type does not support nvue: {}",
-            conf.vpc_virtualization_type,
-        ));
-    }
-
+    let template = template_for(conf.vpc_virtualization_type)?;
     let host_interfaces: Vec<TmplHostInterfaces> = conf
         .ct_access_vlans
         .into_iter()
@@ -120,6 +126,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         .ct_routing_profile
         .as_ref()
         .map(|rt| TmplRoutingProfile {
+            TenantLeakCommunitiesAccepted: rt.tenant_leak_communities_accepted,
             LeakDefaultRouteFromUnderlay: rt.leak_default_route_from_underlay,
             LeakTenantHostRoutesToUnderlay: rt.leak_tenant_host_routes_to_underlay,
             RouteTargetImports: rt
@@ -497,17 +504,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         IncludeBridge: include_bridge,
     };
 
-    let virtualization_template = match conf.vpc_virtualization_type {
-        VpcVirtualizationType::EthernetVirtualizerWithNvue => TMPL_ETV_WITH_NVUE,
-        VpcVirtualizationType::Fnn => TMPL_FNN,
-        VpcVirtualizationType::EthernetVirtualizer => {
-            return Err(eyre::eyre!(
-                "EthernetVirtualizer is not supported -- this shouldn't have snuck in here"
-            ));
-        }
-    };
-
-    gtmpl::template(virtualization_template, params).map_err(|e| {
+    gtmpl::template(template, params).map_err(|e| {
         println!("ERR filling template: {e}",);
         e.into()
     })
@@ -926,6 +923,7 @@ pub struct RoutingProfile {
     pub leak_tenant_host_routes_to_underlay: bool,
     pub route_target_imports: Vec<RouteTargetConfig>,
     pub route_targets_on_exports: Vec<RouteTargetConfig>,
+    pub tenant_leak_communities_accepted: bool,
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -1183,6 +1181,7 @@ struct TmplRoutingProfile {
     LeakDefaultRouteFromUnderlay: bool,
     RouteTargetImports: Vec<TmplRouteTargetConfig>,
     RouteTargetsOnExports: Vec<TmplRouteTargetConfig>,
+    TenantLeakCommunitiesAccepted: bool,
 }
 
 #[allow(non_snake_case)]
@@ -1460,11 +1459,11 @@ mod tests {
     }
 
     /// Helper to build a minimal NvueConfig for template rendering tests.
-    /// Uses EthernetVirtualizerWithNvue (ETV) by default.
+    /// Uses EthernetVirtualizer (ETV) by default.
     fn minimal_nvue_config() -> NvueConfig {
         NvueConfig {
             is_fnn: false,
-            vpc_virtualization_type: VpcVirtualizationType::EthernetVirtualizerWithNvue,
+            vpc_virtualization_type: VpcVirtualizationType::EthernetVirtualizer,
             use_admin_network: false,
             loopback_ip: "10.0.0.1".to_string(),
             asn: 65000,
@@ -1502,6 +1501,22 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_template_for_etv() {
+        assert!(template_for(VpcVirtualizationType::EthernetVirtualizer).is_ok());
+    }
+
+    #[test]
+    fn test_template_for_etv_with_nvue() {
+        // EthernetVirtualizerWithNvue is kept for wire compat with older API servers
+        assert!(template_for(VpcVirtualizationType::EthernetVirtualizerWithNvue).is_ok());
+    }
+
+    #[test]
+    fn test_template_for_fnn() {
+        assert!(template_for(VpcVirtualizationType::Fnn).is_ok());
+    }
+
     /// Helper to compare build() output against a golden file, using the same
     /// diff-based comparison as the ethernet_virtualization tests.
     fn assert_build_matches_golden(conf: NvueConfig, golden_file: &str) {
@@ -1515,15 +1530,10 @@ mod tests {
     }
 
     #[test]
-    fn test_build_rejects_legacy_ethernet_virtualizer() {
+    fn test_build_accepts_ethernet_virtualizer() {
         let mut conf = minimal_nvue_config();
         conf.vpc_virtualization_type = VpcVirtualizationType::EthernetVirtualizer;
-        let err = build(conf).unwrap_err();
-        let msg = err.to_string();
-        assert!(
-            msg.contains("does not support nvue"),
-            "unexpected error message: {msg}"
-        );
+        assert!(build(conf).is_ok());
     }
 
     #[test]
@@ -1569,6 +1579,7 @@ mod tests {
         conf.deny_prefixes = vec!["192.0.2.0/24".into(), "2001:db8:bad::/48".into()];
         conf.site_fabric_prefixes = vec!["10.0.0.0/16".into(), "fd00:abcd::/32".into()];
         conf.ct_routing_profile = Some(RoutingProfile {
+            tenant_leak_communities_accepted: false,
             leak_default_route_from_underlay: false,
             leak_tenant_host_routes_to_underlay: false,
             route_target_imports: vec![],
@@ -1643,6 +1654,7 @@ mod tests {
         conf.deny_prefixes = vec!["192.0.2.0/24".into()];
         conf.site_fabric_prefixes = vec!["10.0.0.0/16".into(), "fd00::/48".into()];
         conf.ct_routing_profile = Some(RoutingProfile {
+            tenant_leak_communities_accepted: false,
             leak_default_route_from_underlay: false,
             leak_tenant_host_routes_to_underlay: false,
 
@@ -1722,6 +1734,7 @@ mod tests {
         conf.use_vpc_isolation = true;
         conf.site_fabric_prefixes = vec!["10.0.0.0/16".into(), "fd00::/32".into()];
         conf.ct_routing_profile = Some(RoutingProfile {
+            tenant_leak_communities_accepted: false,
             leak_default_route_from_underlay: false,
             leak_tenant_host_routes_to_underlay: false,
             route_target_imports: vec![],

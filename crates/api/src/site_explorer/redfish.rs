@@ -836,6 +836,7 @@ async fn fetch_ethernet_interfaces(
             id: iface.id,
             interface_enabled: iface.interface_enabled,
             mac_address,
+            link_status: iface.link_status.map(|s| s.to_string()),
             uefi_device_path,
         };
 
@@ -921,6 +922,7 @@ async fn get_oob_interface(
                     id: id.clone(),
                     interface_enabled: None,
                     mac_address: Some(mac_addr),
+                    link_status: None,
                     uefi_device_path: None,
                 });
             }

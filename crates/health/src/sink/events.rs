@@ -40,7 +40,7 @@ pub struct EventContext {
 impl EventContext {
     pub fn from_endpoint(endpoint: &BmcEndpoint, collector_type: &'static str) -> Self {
         Self {
-            endpoint_key: endpoint.hash_key().into_owned(),
+            endpoint_key: endpoint.identity().into_owned(),
             addr: endpoint.addr.clone(),
             collector_type,
             metadata: endpoint.metadata.clone(),

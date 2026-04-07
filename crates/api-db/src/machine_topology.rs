@@ -93,7 +93,22 @@ pub async fn create_or_update(
         .bind(sqlx::types::Json(&topology_data))
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))?;
+        .map_err(|e| match &e {
+            sqlx::Error::Database(db_err)
+                if db_err.constraint() == Some("machine_topologies_machine_id_fkey") =>
+            {
+                tracing::error!(
+                    %machine_id,
+                    "Machine discovery failed: hardware reports a different machine id \
+                    (Caused by installing a TPM without force-deleting the machine). Power off the machine, force-delete it, \
+                    then re-ingest."
+                );
+                DatabaseError::FailedPrecondition(format!(
+                    "Machine topology machine_id foreign key violation: {e}"
+                ))
+            }
+            _ => DatabaseError::query(query, e),
+        })?;
 
     Ok(res)
 }

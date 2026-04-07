@@ -131,7 +131,7 @@ impl Collector {
 
         let mut runner = C::new_runner(bmc.clone(), endpoint.clone(), config)?;
 
-        let endpoint_key = endpoint.hash_key().to_string();
+        let endpoint_key = endpoint.identity().to_string();
         let const_labels = HashMap::from([
             (
                 "collector_type".to_string(),
