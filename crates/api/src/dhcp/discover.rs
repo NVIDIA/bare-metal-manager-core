@@ -263,9 +263,7 @@ pub async fn discover_dhcp(
     )
     .await
     .map_err(|e| {
-        if let db::DatabaseError::Internal { message } = &e
-            && message.contains("configured for static DHCP leases only; no static reservation")
-        {
+        if e.is_reserved_segment_no_reservation() {
             record_static_ip_failure(api, "reserved_segment_no_reservation");
         }
         CarbideError::from(e)

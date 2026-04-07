@@ -278,6 +278,14 @@ impl From<DatabaseError> for CarbideError {
             DatabaseError::GenericErrorFromReport(e) => GenericErrorFromReport(e),
             DatabaseError::HardwareInfoError(e) => HardwareInfoError(e),
             DatabaseError::Internal { message } => Internal { message },
+            DatabaseError::ReservedSegmentNoReservation {
+                segment_name,
+                mac_address,
+            } => Internal {
+                message: format!(
+                    "segment {segment_name} configured for static DHCP leases only; no static reservation for MAC {mac_address}"
+                ),
+            },
             DatabaseError::InvalidArgument(e) => InvalidArgument(e),
             DatabaseError::InvalidConfiguration(e) => InvalidConfiguration(e),
             DatabaseError::MissingArgument(e) => MissingArgument(e),
