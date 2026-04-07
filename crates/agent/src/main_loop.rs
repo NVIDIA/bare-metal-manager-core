@@ -1046,7 +1046,7 @@ fn effective_virtualization_type(
     // table for the VPC this DPU is in).
     //
     // This may be unset, which means to just use
-    // EthernetVirtualizerWithNvue.
+    // EthernetVirtualizer.
     let virtualization_type_from_remote = conf
         .network_virtualization_type
         .map(rpc::VpcVirtualizationType::try_from)
@@ -1055,7 +1055,7 @@ fn effective_virtualization_type(
 
     // And now see if the remote virtualization type should be overwritten
     // by runtime options. If it's not, and the remote value was also unset,
-    // then just use EthernetVirtualizerWithNvue.
+    // then just use EthernetVirtualizer.
     let virtualization_type = options
         .override_network_virtualization_type // dev
         .or(virtualization_type_from_remote)

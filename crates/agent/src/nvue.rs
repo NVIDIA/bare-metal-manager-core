@@ -36,9 +36,6 @@ const TMPL_ETV_WITH_NVUE: &str = include_str!("../templates/nvue_startup_etv.con
 const TMPL_FNN: &str = include_str!("../templates/nvue_startup_fnn.conf");
 
 /// Returns the NVUE template for the given virtualization type.
-/// EthernetVirtualizerWithNvue is hanging around for a bit longer in here
-/// just for an extra sense of security and compatibilty; it all goes
-/// to EthernetVirtualizer.
 pub fn template_for(vtype: VpcVirtualizationType) -> eyre::Result<&'static str> {
     match vtype {
         VpcVirtualizationType::EthernetVirtualizer
@@ -1508,7 +1505,9 @@ mod tests {
 
     #[test]
     fn test_template_for_etv_with_nvue() {
-        // EthernetVirtualizerWithNvue is kept for wire compat with older API servers
+        // EthernetVirtualizerWithNvue is the same as EthernetVirtualizer
+        // now, and while we shouldn't see it coming through anymore, lets
+        // still make sure we support it.
         assert!(template_for(VpcVirtualizationType::EthernetVirtualizerWithNvue).is_ok());
     }
 

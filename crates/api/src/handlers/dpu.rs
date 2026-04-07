@@ -636,17 +636,9 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 .version_string()
         },
         remote_id: dpu_machine_id.remote_id(),
-        // TODO(chet): Once all agents are upgraded past the ETV cleanup PRs, this can
-        // use rpc::VpcVirtualizationType::from(network_virtualization_type).into() instead.
-        // For now, force ETV to proto value 2 (ETHERNET_VIRTUALIZER_WITH_NVUE) so that
-        // older agents that reject proto value 0 (ETHERNET_VIRTUALIZER) continue to work.
-        network_virtualization_type: Some(match network_virtualization_type {
-            VpcVirtualizationType::EthernetVirtualizer
-            | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
-                rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue.into()
-            }
-            VpcVirtualizationType::Fnn => rpc::VpcVirtualizationType::Fnn.into(),
-        }),
+        network_virtualization_type: Some(
+            rpc::VpcVirtualizationType::from(network_virtualization_type).into(),
+        ),
         vpc_vni,
         // Deprecated: this field is always true now.
         // This should be removed in future version.
