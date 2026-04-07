@@ -329,6 +329,13 @@ impl Forge for Api {
         crate::handlers::power_shelf::delete_power_shelf(self, request).await
     }
 
+    async fn admin_force_delete_power_shelf(
+        &self,
+        request: Request<rpc::AdminForceDeletePowerShelfRequest>,
+    ) -> Result<Response<rpc::AdminForceDeletePowerShelfResponse>, Status> {
+        crate::handlers::power_shelf::admin_force_delete_power_shelf(self, request).await
+    }
+
     async fn find_switches(
         &self,
         request: Request<rpc::SwitchQuery>,
@@ -355,6 +362,13 @@ impl Forge for Api {
         request: Request<rpc::SwitchDeletionRequest>,
     ) -> Result<Response<rpc::SwitchDeletionResult>, Status> {
         crate::handlers::switch::delete_switch(self, request).await
+    }
+
+    async fn admin_force_delete_switch(
+        &self,
+        request: Request<rpc::AdminForceDeleteSwitchRequest>,
+    ) -> Result<Response<rpc::AdminForceDeleteSwitchResponse>, Status> {
+        crate::handlers::switch::admin_force_delete_switch(self, request).await
     }
 
     async fn find_ib_fabric_ids(

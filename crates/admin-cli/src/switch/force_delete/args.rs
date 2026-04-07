@@ -15,26 +15,19 @@
  * limitations under the License.
  */
 
-mod force_delete;
-mod list;
-pub mod metadata;
-mod show;
-
-#[cfg(test)]
-mod tests;
-
+use carbide_uuid::switch::SwitchId;
 use clap::Parser;
 
-use crate::cfg::dispatch::Dispatch;
+#[derive(Parser, Debug)]
+pub struct Args {
+    #[clap(help = "Switch ID to force delete.")]
+    pub switch_id: SwitchId,
 
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Show power shelf information")]
-    Show(show::Args),
-    #[clap(about = "List all power shelves")]
-    List(list::Args),
-    #[clap(about = "Force delete a power shelf and optionally its interfaces")]
-    ForceDelete(force_delete::Args),
-    #[clap(subcommand, about = "Manage Power Shelf Metadata")]
-    Metadata(metadata::Args),
+    #[clap(
+        short = 'd',
+        long,
+        action,
+        help = "Delete machine interfaces associated with this switch."
+    )]
+    pub delete_interfaces: bool,
 }

@@ -19,7 +19,7 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use db::power_shelf as db_power_shelf;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig, PowerShelfStatus};
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{PowerShelfDeletionRequest, PowerShelfQuery};
+use rpc::forge::{AdminForceDeletePowerShelfRequest, PowerShelfDeletionRequest, PowerShelfQuery};
 use tonic::Code;
 
 use crate::tests::common::api_fixtures::create_test_env;
@@ -612,6 +612,125 @@ async fn test_new_power_shelf_fixture(
     // Verify the custom power shelf was created
     assert!(!custom_power_shelf_id.to_string().is_empty());
     assert_ne!(power_shelf_id, custom_power_shelf_id);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_force_delete_power_shelf_success(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let power_shelf_id = new_power_shelf(
+        &env,
+        Some("ForceDelete Power Shelf".to_string()),
+        Some(5000),
+        Some(240),
+        None,
+    )
+    .await?;
+
+    // Force delete without deleting interfaces.
+    let response = env
+        .api
+        .admin_force_delete_power_shelf(tonic::Request::new(AdminForceDeletePowerShelfRequest {
+            power_shelf_id: Some(power_shelf_id),
+            delete_interfaces: false,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.power_shelf_id, power_shelf_id.to_string());
+    assert_eq!(response.interfaces_deleted, 0);
+
+    // Verify the power shelf is completely gone (not just soft-deleted).
+    let find_result = env
+        .api
+        .find_power_shelves(tonic::Request::new(PowerShelfQuery {
+            name: None,
+            power_shelf_id: Some(power_shelf_id),
+        }))
+        .await?
+        .into_inner();
+
+    assert!(
+        find_result.power_shelves.is_empty(),
+        "Power shelf should be hard-deleted"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_force_delete_power_shelf_not_found(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let non_existent_id = PowerShelfId::from(uuid::Uuid::new_v4());
+    let result = env
+        .api
+        .admin_force_delete_power_shelf(tonic::Request::new(AdminForceDeletePowerShelfRequest {
+            power_shelf_id: Some(non_existent_id),
+            delete_interfaces: false,
+        }))
+        .await;
+
+    assert!(result.is_err());
+    assert_eq!(result.unwrap_err().code(), Code::NotFound);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_force_delete_power_shelf_already_soft_deleted(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let power_shelf_id = new_power_shelf(
+        &env,
+        Some("SoftDeleted Power Shelf".to_string()),
+        Some(3000),
+        Some(120),
+        None,
+    )
+    .await?;
+
+    // Soft-delete the power shelf first.
+    env.api
+        .delete_power_shelf(tonic::Request::new(PowerShelfDeletionRequest {
+            id: Some(power_shelf_id),
+        }))
+        .await?;
+
+    // Force-delete should still work on a soft-deleted power shelf.
+    let response = env
+        .api
+        .admin_force_delete_power_shelf(tonic::Request::new(AdminForceDeletePowerShelfRequest {
+            power_shelf_id: Some(power_shelf_id),
+            delete_interfaces: false,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.power_shelf_id, power_shelf_id.to_string());
+
+    // Verify completely gone.
+    let find_result = env
+        .api
+        .find_power_shelves(tonic::Request::new(PowerShelfQuery {
+            name: None,
+            power_shelf_id: Some(power_shelf_id),
+        }))
+        .await?
+        .into_inner();
+
+    assert!(
+        find_result.power_shelves.is_empty(),
+        "Power shelf should be hard-deleted after force delete"
+    );
 
     Ok(())
 }

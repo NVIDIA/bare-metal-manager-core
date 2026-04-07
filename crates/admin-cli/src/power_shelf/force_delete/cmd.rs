@@ -15,26 +15,27 @@
  * limitations under the License.
  */
 
-mod force_delete;
-mod list;
-pub mod metadata;
-mod show;
+use rpc::forge::AdminForceDeletePowerShelfRequest;
 
-#[cfg(test)]
-mod tests;
+use super::args::Args;
+use crate::rpc::ApiClient;
 
-use clap::Parser;
+pub async fn force_delete(data: Args, api_client: &ApiClient) -> color_eyre::Result<()> {
+    let response = api_client
+        .0
+        .admin_force_delete_power_shelf(AdminForceDeletePowerShelfRequest {
+            power_shelf_id: Some(data.power_shelf_id),
+            delete_interfaces: data.delete_interfaces,
+        })
+        .await?;
 
-use crate::cfg::dispatch::Dispatch;
+    println!(
+        "Power shelf {} force deleted successfully.",
+        response.power_shelf_id
+    );
+    if response.interfaces_deleted > 0 {
+        println!("{} interface(s) deleted.", response.interfaces_deleted);
+    }
 
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Show power shelf information")]
-    Show(show::Args),
-    #[clap(about = "List all power shelves")]
-    List(list::Args),
-    #[clap(about = "Force delete a power shelf and optionally its interfaces")]
-    ForceDelete(force_delete::Args),
-    #[clap(subcommand, about = "Manage Power Shelf Metadata")]
-    Metadata(metadata::Args),
+    Ok(())
 }

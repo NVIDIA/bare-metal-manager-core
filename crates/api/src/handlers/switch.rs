@@ -291,6 +291,70 @@ pub async fn delete_switch(
     Ok(Response::new(rpc::SwitchDeletionResult {}))
 }
 
+/// Force deletes a switch and optionally its associated interfaces from the database.
+/// Unlike `delete_switch` (soft delete), this immediately hard-deletes the switch,
+/// its state history, and optionally its machine interfaces.
+pub async fn admin_force_delete_switch(
+    api: &Api,
+    request: Request<rpc::AdminForceDeleteSwitchRequest>,
+) -> Result<Response<rpc::AdminForceDeleteSwitchResponse>, Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+
+    let switch_id = request
+        .switch_id
+        .ok_or_else(|| CarbideError::InvalidArgument("switch_id is required".to_string()))?;
+
+    let mut txn = api.txn_begin().await?;
+
+    // Verify the switch exists.
+    let switch_list = db_switch::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(db_switch::IdColumn, &switch_id),
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    if switch_list.is_empty() {
+        return Err(CarbideError::NotFoundError {
+            kind: "switch",
+            id: switch_id.to_string(),
+        }
+        .into());
+    }
+
+    // Optionally delete associated machine interfaces.
+    let mut interfaces_deleted: u32 = 0;
+    if request.delete_interfaces {
+        let interface_ids = db::machine_interface::find_ids_by_switch_id(&mut txn, &switch_id)
+            .await
+            .map_err(CarbideError::from)?;
+        for interface_id in &interface_ids {
+            db::machine_interface::delete(interface_id, &mut txn)
+                .await
+                .map_err(CarbideError::from)?;
+        }
+        interfaces_deleted = interface_ids.len() as u32;
+    }
+
+    // Delete state history.
+    db::switch_state_history::delete_by_switch_id(&mut txn, &switch_id)
+        .await
+        .map_err(CarbideError::from)?;
+
+    // Hard-delete the switch.
+    db_switch::final_delete(switch_id, &mut txn)
+        .await
+        .map_err(CarbideError::from)?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(rpc::AdminForceDeleteSwitchResponse {
+        switch_id: switch_id.to_string(),
+        interfaces_deleted,
+    }))
+}
+
 pub(crate) async fn update_switch_metadata(
     api: &Api,
     request: Request<rpc::SwitchMetadataUpdateRequest>,

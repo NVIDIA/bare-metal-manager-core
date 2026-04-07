@@ -90,11 +90,15 @@ service Forge {
   rpc FindPowerShelfIds(PowerShelfSearchFilter) returns (PowerShelfIdList);
   rpc FindPowerShelvesByIds(PowerShelvesByIdsRequest) returns (PowerShelfList);
   rpc DeletePowerShelf(PowerShelfDeletionRequest) returns (PowerShelfDeletionResult);
+  // Force deletes a Power Shelf and optionally its associated interfaces from the database.
+  rpc AdminForceDeletePowerShelf(AdminForceDeletePowerShelfRequest) returns (AdminForceDeletePowerShelfResponse);
 
   rpc FindSwitches(SwitchQuery) returns (SwitchList);
   rpc FindSwitchIds(SwitchSearchFilter) returns (SwitchIdList);
   rpc FindSwitchesByIds(SwitchesByIdsRequest) returns (SwitchList);
   rpc DeleteSwitch(SwitchDeletionRequest) returns (SwitchDeletionResult);
+  // Force deletes a Switch and optionally its associated interfaces from the database.
+  rpc AdminForceDeleteSwitch(AdminForceDeleteSwitchRequest) returns (AdminForceDeleteSwitchResponse);
 
   // InfiniBand Fabrics
   // Returns the list of all InfiniBand fabrics available within the site
@@ -7310,4 +7314,34 @@ message DeviceFirmwareVersions {
 
 message ListComponentFirmwareVersionsResponse {
   repeated DeviceFirmwareVersions devices = 1;
+}
+
+// Force deletes a Switch and optionally its associated interfaces.
+message AdminForceDeleteSwitchRequest {
+  // The Switch ID to force delete.
+  common.SwitchId switch_id = 1;
+  // Should we delete the machine interfaces associated with this switch?
+  bool delete_interfaces = 2;
+}
+
+message AdminForceDeleteSwitchResponse {
+  // The ID of the switch that was deleted.
+  string switch_id = 1;
+  // Number of interfaces deleted.
+  uint32 interfaces_deleted = 2;
+}
+
+// Force deletes a Power Shelf and optionally its associated interfaces.
+message AdminForceDeletePowerShelfRequest {
+  // The Power Shelf ID to force delete.
+  common.PowerShelfId power_shelf_id = 1;
+  // Should we delete the machine interfaces associated with this power shelf?
+  bool delete_interfaces = 2;
+}
+
+message AdminForceDeletePowerShelfResponse {
+  // The ID of the power shelf that was deleted.
+  string power_shelf_id = 1;
+  // Number of interfaces deleted.
+  uint32 interfaces_deleted = 2;
 }

@@ -115,6 +115,20 @@ pub async fn persist(
         .map(Into::into)
 }
 
+/// Delete all state history entries for a power shelf.
+pub async fn delete_by_power_shelf_id(
+    txn: &mut PgConnection,
+    power_shelf_id: &PowerShelfId,
+) -> DatabaseResult<u64> {
+    let query = "DELETE FROM power_shelf_state_history WHERE power_shelf_id = $1";
+    let result = sqlx::query(query)
+        .bind(power_shelf_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::new(query, e))?;
+    Ok(result.rows_affected())
+}
+
 /// Renames all history entries using one Power Shelf ID into using another Power Shelf ID
 pub async fn update_power_shelf_ids(
     txn: &mut PgConnection,

@@ -15,26 +15,18 @@
  * limitations under the License.
  */
 
-mod force_delete;
-mod list;
-pub mod metadata;
-mod show;
+pub mod args;
+pub mod cmd;
 
-#[cfg(test)]
-mod tests;
+use ::rpc::admin_cli::CarbideCliResult;
+pub use args::Args;
 
-use clap::Parser;
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
 
-use crate::cfg::dispatch::Dispatch;
-
-#[derive(Parser, Debug, Dispatch)]
-pub enum Cmd {
-    #[clap(about = "Show power shelf information")]
-    Show(show::Args),
-    #[clap(about = "List all power shelves")]
-    List(list::Args),
-    #[clap(about = "Force delete a power shelf and optionally its interfaces")]
-    ForceDelete(force_delete::Args),
-    #[clap(subcommand, about = "Manage Power Shelf Metadata")]
-    Metadata(metadata::Args),
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::force_delete(self, &ctx.api_client).await?;
+        Ok(())
+    }
 }

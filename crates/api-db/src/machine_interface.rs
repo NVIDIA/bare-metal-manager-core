@@ -1317,6 +1317,32 @@ pub async fn delete_by_ip(txn: &mut PgConnection, ip: IpAddr) -> Result<Option<(
     Ok(Some(()))
 }
 
+/// Find all machine interface IDs associated with a switch.
+pub async fn find_ids_by_switch_id(
+    txn: &mut PgConnection,
+    switch_id: &SwitchId,
+) -> Result<Vec<MachineInterfaceId>, DatabaseError> {
+    let query = "SELECT id FROM machine_interfaces WHERE switch_id = $1";
+    sqlx::query_as::<_, MachineInterfaceId>(query)
+        .bind(switch_id)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
+/// Find all machine interface IDs associated with a power shelf.
+pub async fn find_ids_by_power_shelf_id(
+    txn: &mut PgConnection,
+    power_shelf_id: &PowerShelfId,
+) -> Result<Vec<MachineInterfaceId>, DatabaseError> {
+    let query = "SELECT id FROM machine_interfaces WHERE power_shelf_id = $1";
+    sqlx::query_as::<_, MachineInterfaceId>(query)
+        .bind(power_shelf_id)
+        .fetch_all(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))
+}
+
 #[async_trait::async_trait]
 impl<DB> UsedIpResolver<DB> for UsedAdminNetworkIpResolver
 where

@@ -225,6 +225,71 @@ pub async fn delete_power_shelf(
     Ok(Response::new(rpc::PowerShelfDeletionResult {}))
 }
 
+/// Force deletes a power shelf and optionally its associated interfaces from the database.
+/// Unlike `delete_power_shelf` (soft delete), this immediately hard-deletes the power shelf,
+/// its state history, and optionally its machine interfaces.
+pub async fn admin_force_delete_power_shelf(
+    api: &Api,
+    request: Request<rpc::AdminForceDeletePowerShelfRequest>,
+) -> Result<Response<rpc::AdminForceDeletePowerShelfResponse>, Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+
+    let power_shelf_id = request
+        .power_shelf_id
+        .ok_or_else(|| CarbideError::InvalidArgument("power_shelf_id is required".to_string()))?;
+
+    let mut txn = api.txn_begin().await?;
+
+    // Verify the power shelf exists.
+    let power_shelf_list = db_power_shelf::find_by(
+        &mut txn,
+        db::ObjectColumnFilter::One(db_power_shelf::IdColumn, &power_shelf_id),
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    if power_shelf_list.is_empty() {
+        return Err(CarbideError::NotFoundError {
+            kind: "power_shelf",
+            id: power_shelf_id.to_string(),
+        }
+        .into());
+    }
+
+    // Optionally delete associated machine interfaces.
+    let mut interfaces_deleted: u32 = 0;
+    if request.delete_interfaces {
+        let interface_ids =
+            db::machine_interface::find_ids_by_power_shelf_id(&mut txn, &power_shelf_id)
+                .await
+                .map_err(CarbideError::from)?;
+        for interface_id in &interface_ids {
+            db::machine_interface::delete(interface_id, &mut txn)
+                .await
+                .map_err(CarbideError::from)?;
+        }
+        interfaces_deleted = interface_ids.len() as u32;
+    }
+
+    // Delete state history.
+    db::power_shelf_state_history::delete_by_power_shelf_id(&mut txn, &power_shelf_id)
+        .await
+        .map_err(CarbideError::from)?;
+
+    // Hard-delete the power shelf.
+    db_power_shelf::final_delete(power_shelf_id, &mut txn)
+        .await
+        .map_err(CarbideError::from)?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(rpc::AdminForceDeletePowerShelfResponse {
+        power_shelf_id: power_shelf_id.to_string(),
+        interfaces_deleted,
+    }))
+}
+
 pub(crate) async fn update_power_shelf_metadata(
     api: &Api,
     request: Request<rpc::PowerShelfMetadataUpdateRequest>,
