@@ -303,7 +303,6 @@ State keys and resource identifiers are **enum variants**.
 pub enum StateKey {
     // Power
     PowerState,
-    PowerCycleCompleted,
     // Firmware — real version strings from hardware
     FirmwareBmcVersion,
     FirmwareBiosVersion,
@@ -337,10 +336,11 @@ pub enum StateKey {
     // ...
 
     // Parameterized variants for per-device state (SPDM)
-    AttestationDeviceMetadataFetched(usize),
-    AttestationDeviceCertificateFetched(usize),
-    AttestationDeviceVerified(usize),
-    AttestationDeviceAppraised(usize),
+    AttestationDeviceMetadataHash(usize),
+    AttestationDeviceCertFingerprint(usize),
+    AttestationDeviceMeasurementHash(usize),
+    AttestationDeviceVerifierResult(usize),
+    AttestationDeviceAppraisalResult(usize),
     AttestationDeviceStatus(usize),
 }
 
@@ -526,12 +526,12 @@ This preserves the sequential pipeline of the FSM. Operations like `initialize_h
 ```
 configure_bios:         provides BiosSettingsHash,       guard: PowerState = "on"
 configure_network:      provides NetworkConfigVersion,   guard: PowerState = "on"
-install_scout:          provides ScoutVersion,           guard: PowerState = "on"
+load_scout:             provides ScoutVersion,           guard: PowerState = "on"
 update_bmc_firmware:    provides FirmwareBmcVersion,     guard: PowerState = "on"
 enable_lockdown:        provides LockdownEnabled,        guard: PowerState = "on"
 ```
 
-There is no `initialize_host` operation — that was an FSM bucket. The engine sees that `BiosSettingsHash` differs from desired and schedules `configure_bios`; that `ScoutVersion` is empty and schedules `install_scout`. These may run in parallel or in dependency order, determined by guards, not by a hardcoded phase sequence.
+There is no `initialize_host` operation — that was an FSM bucket. The engine sees that `BiosSettingsHash` differs from desired and schedules `configure_bios`; that `ScoutVersion` is empty and schedules `load_scout`. These may run in parallel or in dependency order, determined by guards, not by a hardcoded phase sequence.
 
 **Corollary: real observables, not boolean flags.** State keys should hold **real observable data**, not boolean step-completion flags. A boolean like `ScoutInstalled = "true"` is a phase marker in disguise — it records "we completed this step" rather than reflecting ground truth. Prefer:
 
@@ -560,7 +560,7 @@ Real observables also eliminate meaningless desired state. `DpuDiscovered = "tru
 **Guards express physical constraints, not lifecycle ordering.** The only valid guard predicates are real hardware constraints:
 
 - Can't flash firmware if power is off → `guard: eq(PowerState, "on")`
-- Can't install scout if network isn't configured → `guard: eq(NetworkConfigVersion, desired(NetworkConfigVersion))`
+- Can't load scout if network isn't configured → `guard: eq(NetworkConfigVersion, desired(NetworkConfigVersion))`
 - Can't configure DPU network without agent → `guard: neq(DpuAgentVersion, "")`
 - Can't run two firmware flashes at once → `locks: [Firmware]`
 
@@ -587,11 +587,11 @@ The FSM's phase ordering (init before validation before ready) is artificial —
 
 The following documents tries map each existing state handler to the convergence engine model:
 
-- [Machine Handler](machine.md) — `ManagedHostState` variants
-- [Rack Handler](rack.md) — 7 `RackState` variants
-- [Switch Handler](switch.md) — 9 `SwitchControllerState` variants
-- [IB Partition Handler](ib-partition.md) — 4 `IBPartitionControllerState` variants
-- [DPA Interface Handler](dpa-interface.md) — 9 `DpaInterfaceControllerState` variants
-- [SPDM / Attestation Handler](spdm.md) — 6+5 `AttestationState` + `AttestationDeviceState` variants
-- [Network Segment Handler](network-segment.md) — 3 `NetworkSegmentControllerState` variants
-- [Power Shelf Handler](power-shelf.md) — 6 `PowerShelfControllerState` variants
+- [Machine Handler](machine.md)
+- [Rack Handler](rack.md)
+- [Switch Handler](switch.md)
+- [IB Partition Handler](ib-partition.md)
+- [DPA Interface Handler](dpa-interface.md)
+- [SPDM / Attestation Handler](spdm.md)
+- [Network Segment Handler](network-segment.md)
+- [Power Shelf Handler](power-shelf.md)

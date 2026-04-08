@@ -123,13 +123,16 @@ op!(power_off {
 ```
 
 ```rust
-op!(power_cycle {
-    provides: [PowerCycleCompleted],
-    guard: eq(PowerState, "on"),
+op!(reboot_host {
+    provides: [BootGeneration],
+    guard: and(
+        eq(PowerState, "on"),
+        neq(BootGeneration, desired(BootGeneration)),
+    ),
     locks: [Power],
-    effects: [PowerCycleCompleted => "true"],
+    effects: [BootGeneration => desired(BootGeneration)],
     steps: [
-        action(redfish_power_cycle, reset_type = "ForceRestart"),
+        action(redfish_power_cycle),
         action(wait_for_power_state, target = "on", timeout_seconds = 180),
     ],
     priority: 95,
@@ -325,7 +328,7 @@ op!(configure_dpu_network {
 Previously buried inside the monolithic `initialize_host` FSM phase. As independent properties, each can be tested, retried, and monitored individually. Note how guards reference real data — `ScoutVersion` guards on `neq(ScoutVersion, "")`, not on a boolean flag.
 
 ```rust
-op!(install_scout {
+op!(load_scout {
     provides: [ScoutVersion],
     guard: and(
         eq(PowerState, "on"),
@@ -335,7 +338,7 @@ op!(install_scout {
     locks: [Scout],
     effects: [ScoutVersion => desired(ScoutVersion)],
     steps: [
-        action(deploy_scout_agent, version = desired(ScoutVersion)),
+        action(boot_scout_via_initrd, version = desired(ScoutVersion)),
         action(verify_scout_running),
     ],
     priority: 84,
@@ -436,7 +439,7 @@ op!(erase_drives {
 ```
 
 ```rust
-op!(remove_scout {
+op!(stop_scout {
     provides: [ScoutVersion],
     guard: and(
         eq(InstanceAssigned, "false"),
@@ -444,12 +447,12 @@ op!(remove_scout {
     ),
     locks: [Scout],
     effects: [ScoutVersion => ""],
-    steps: [action(remove_scout_agent)],
+    steps: [action(stop_scout_agent)],
     priority: 59,
 });
 ```
 
-Note: `remove_scout` and `install_scout` both provide `ScoutVersion`. The scheduler selects based on which direction the delta points — if desired `ScoutVersion` is non-empty and observed is empty, `install_scout` fires; if desired is empty and observed is non-empty, `remove_scout` fires.
+Note: `stop_scout` and `load_scout` both provide `ScoutVersion`. The scheduler selects based on which direction the delta points — if desired `ScoutVersion` is non-empty and observed is empty, `load_scout` fires; if desired is empty and observed is non-empty, `stop_scout` fires.
 
 ### 3.11 Lifecycle
 
@@ -475,8 +478,8 @@ The following FSM concepts have no operation equivalent in the convergence model
 | FSM Concept | Why It Disappears |
 |-------------|-------------------|
 | `DPUInit` | Decomposed into `configure_dpu_interfaces` (→ `DpuInterfaceIp`), `set_dpu_mode` (→ `DpuMode`), `wait_for_dpu_agent` (→ `DpuAgentVersion`) — three real observables with physical-constraint guards. |
-| `HostInit` | The "init phase" bundled BIOS, network, scout, and reachability. These are now independent operations with real observables: `configure_bios` (→ `BiosSettingsHash`), `configure_network` (→ `NetworkConfigVersion`), `install_scout` (→ `ScoutVersion`). Reachability is observed continuously (`ScoutHeartbeat`). |
-| `WaitingForCleanup` | Decomposed into `erase_drives` (→ `DriveEraseStatus`) and `remove_scout` (→ `ScoutVersion = ""`). Power-off is already its own operation. |
+| `HostInit` | The "init phase" bundled BIOS, network, scout, and reachability. These are now independent operations with real observables: `configure_bios` (→ `BiosSettingsHash`), `configure_network` (→ `NetworkConfigVersion`), `load_scout` (→ `ScoutVersion`). Reachability is observed continuously (`ScoutHeartbeat`). |
+| `WaitingForCleanup` | Decomposed into `erase_drives` (→ `DriveEraseStatus`) and `stop_scout` (→ `ScoutVersion = ""`). Power-off is already its own operation. |
 | `HostReprovision` | Not an operation — it's a desired-state change. When an operator requests reprovisioning, `S_d` is updated (new firmware version, new BIOS hash, new scout version). The engine detects the deltas and converges. |
 | `DPUReprovision` | Same: update `S_d` with the new DPU firmware version, the engine runs `update_dpu_firmware`. |
 | `Ready` | Not a state — it's the absence of a delta. When `Δ = ∅`, the machine is "ready." |
@@ -493,7 +496,7 @@ The machine handler maps to multiple hardware profiles, organized in an inherita
 ```
 common
 ├── power_on, power_off, configure_bios, enable_lockdown
-├── register_with_rms, configure_network, install_scout, remove_scout
+├── register_with_rms, configure_network, load_scout, stop_scout
 ├── validate_machine, validate_bom, run_attestation
 ├── erase_drives, delete_machine
 │
@@ -588,9 +591,9 @@ Note: keys like `RmsInventoryId`, `DpuCount`, `DpuAgentVersion`, `ScoutHeartbeat
 
 **Tick 3:**
 - `FirmwareBmcVersion = "2.14.0"`, `BiosSettingsHash = "a3f8c2"`, `NetworkConfigVersion = "v12"`, `DpuInterfaceIp = "10.0.1.5"`.
-- `install_scout` is ready (power on, network matches desired, `ScoutVersion` differs). Scheduled.
+- `load_scout` is ready (power on, network matches desired, `ScoutVersion` differs). Scheduled.
 - `set_dpu_mode` is ready (`DpuInterfaceIp ≠ ""`, `DpuMode ≠ "dpu"`). Scheduled.
-- **Actions:** `install_scout`, `set_dpu_mode` (parallel).
+- **Actions:** `load_scout`, `set_dpu_mode` (parallel).
 
 **Tick 4:**
 - `ScoutVersion = "3.2.1"`, `DpuMode = "dpu"`. Observation refreshes: `ScoutHeartbeat = "alive"` (heartbeat detected).
