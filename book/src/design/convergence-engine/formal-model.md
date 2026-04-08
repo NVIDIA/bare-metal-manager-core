@@ -1,6 +1,6 @@
 # Convergence Engine — Formal Model
 
-This document contains the complete mathematical specification of the convergence engine. For the approachable overview, see the [main specification](README.md).
+This document contains the mathematical specification of the convergence engine.
 
 ---
 
