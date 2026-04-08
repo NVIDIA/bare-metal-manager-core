@@ -34,8 +34,7 @@ pub const DEFAULT_CARBIDE_HELM_REGISTRY: &str =
 pub const DEFAULT_DOCA_IMAGE_REGISTRY: &str = "nvcr.io/nvidia/doca";
 
 /// Default Carbide container image registry prefix.
-pub const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str =
-    "gitlab-master.nvidia.com/aadvani/my-helm-project";
+pub const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "gitlab-master.nvidia.com/aadvani/my-helm-project";
 
 /// HBN service Definitions
 pub const DOCA_HBN_SERVICE_NAME: &str = "doca-hbn";
