@@ -44,6 +44,40 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: forge-dpu-agent-init
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          args:
+            - hardware
+            - "--output-file=/etc/carbide/hardware/discovery_info.json"
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP  # always resolves to cluster-internal IP
+            - name: RUST_BACKTRACE
+              value: "full"
+            - name: RUST_LIB_BACKTRACE
+              value: "0"
+            - name: RUST_LOG
+              value: "info"
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: agent-discovery-info
+              mountPath: /etc/carbide/hardware
       containers:
         - name: forge-dpu-agent
           securityContext:
@@ -53,7 +87,7 @@ spec:
             - run
             - "--hbn-config-mode=nvue-rest"
             - "--agent-platform-type=containerized"
-            - "--discovery-info-file={{ .Values.discovery.hardware_file }}"
+            - "--discovery-info-file=/etc/carbide/hardware/discovery_info.json"
             {{- if not (empty .Values.dhcp_server.interface_prepend) }}
             - "--dhcp-server-interface-prepend={{ .Values.dhcp_server.interface_prepend }}"
             {{ end }}
@@ -103,11 +137,17 @@ spec:
           volumeMounts:
             - name: forge-certs
               mountPath: /opt/forge
+            - name: agent-discovery-info
+              mountPath: /etc/carbide/hardware
+              readOnly: true
       volumes:
         - name: forge-certs
           hostPath:
             path: /opt/forge
             type: DirectoryOrCreate
+        - name: agent-discovery-info
+          emptyDir:
+            sizeLimit: 1Gi
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
