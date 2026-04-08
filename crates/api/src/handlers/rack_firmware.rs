@@ -994,11 +994,10 @@ pub async fn apply(
     // All DB work is done upfront so the connection is dropped before async
     // credential lookups and the RMS call (avoids txn-held-across-await).
     let (machine_bmc_endpoints, switch_endpoints) = {
-        let mut conn = api
-            .database_connection
-            .acquire()
-            .await
-            .map_err(|e| CarbideError::from(DatabaseError::new("acquire for device lookup", e)))?;
+        let mut conn =
+            api.database_connection.acquire().await.map_err(|e| {
+                CarbideError::from(DatabaseError::new("acquire for device lookup", e))
+            })?;
 
         let machine_ids: Vec<carbide_uuid::machine::MachineId> =
             sqlx::query_as("SELECT id FROM machines WHERE rack_id = $1 AND deleted IS NULL")
@@ -1024,14 +1023,11 @@ pub async fn apply(
         let machine_bmc = if machine_ids.is_empty() {
             vec![]
         } else {
-            db::machine_topology::find_machine_bmc_endpoints_by_machine_id(
-                &mut *conn,
-                machine_ids,
-            )
-            .await
-            .map_err(|e| CarbideError::Internal {
-                message: format!("Failed to resolve compute tray BMC endpoints: {}", e),
-            })?
+            db::machine_topology::find_machine_bmc_endpoints_by_machine_id(&mut *conn, machine_ids)
+                .await
+                .map_err(|e| CarbideError::Internal {
+                    message: format!("Failed to resolve compute tray BMC endpoints: {}", e),
+                })?
         };
 
         let switch_ep = if switch_ids.is_empty() {
