@@ -84,7 +84,6 @@ pub struct ServiceConfigPort {
     pub node_port: Option<i64>,
 }
 
-
 /// Service Network Attachment Definition (NAD)
 #[derive(Debug, Clone)]
 pub enum ServiceNADResourceType {
@@ -137,7 +136,6 @@ pub struct ServiceDefinition {
     /// Optional service Network Attachment Definition specification
     pub service_nad: Option<ServiceNAD>,
 }
-
 
 /// Service Network Attachment Definition (NAD)
 #[derive(Debug, Clone)]

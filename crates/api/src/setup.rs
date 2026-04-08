@@ -419,7 +419,9 @@ pub async fn start_api(
         )];
         let reg = crate::dpf_services::CarbideServiceRegistryConfig::default();
         let v2_services = vec![
-            carbide_dpf::services::dts_service(&carbide_dpf::services::ServiceRegistryConfig::default()),
+            carbide_dpf::services::dts_service(
+                &carbide_dpf::services::ServiceRegistryConfig::default(),
+            ),
             crate::dpf_services::dhcp_server_service(&reg),
             crate::dpf_services::doca_hbn_service(&reg),
             crate::dpf_services::dpu_agent_service(&reg),

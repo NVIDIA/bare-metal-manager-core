@@ -28,14 +28,14 @@ use crate::crds::bfbs_generated::BFB;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpuflavors_generated::DPUFlavor;
 use crate::crds::dpuserviceconfigurations_generated::DPUServiceConfiguration;
-use crate::crds::dpuservicetemplates_generated::DPUServiceTemplate;
-use crate::crds::dpuservicenads_generated::DPUServiceNAD;
 use crate::crds::dpuserviceinterfaces_generated::DPUServiceInterface;
+use crate::crds::dpuservicenads_generated::DPUServiceNAD;
+use crate::crds::dpuservicetemplates_generated::DPUServiceTemplate;
 use crate::error::DpfError;
 use crate::repository::{
     BfbRepository, DpfOperatorConfigRepository, DpuDeploymentRepository, DpuFlavorRepository,
-    DpuServiceConfigurationRepository, DpuServiceInterfaceRepository, DpuServiceTemplateRepository,
-    DpuServiceNADRepository, K8sConfigRepository,
+    DpuServiceConfigurationRepository, DpuServiceInterfaceRepository, DpuServiceNADRepository,
+    DpuServiceTemplateRepository, K8sConfigRepository,
 };
 use crate::types::*;
 
@@ -212,12 +212,11 @@ impl DpuServiceNADRepository for InitializationMock {
 
 #[async_trait]
 impl DpuServiceInterfaceRepository for InitializationMock {
-    async fn get(
-        &self,
-        name: &str,
-        ns: &str,
-    ) -> Result<Option<DPUServiceInterface>, DpfError> {
-        Ok(self.service_interfaces.get(&ns_key(ns, name)).map(|r| r.clone()))
+    async fn get(&self, name: &str, ns: &str) -> Result<Option<DPUServiceInterface>, DpfError> {
+        Ok(self
+            .service_interfaces
+            .get(&ns_key(ns, name))
+            .map(|r| r.clone()))
     }
     async fn list(&self, ns: &str) -> Result<Vec<DPUServiceInterface>, DpfError> {
         let prefix = format!("{}/", ns);
@@ -228,11 +227,9 @@ impl DpuServiceInterfaceRepository for InitializationMock {
             .map(|entry| entry.value().clone())
             .collect())
     }
-    async fn apply(
-        &self,
-        iface: &DPUServiceInterface,
-    ) -> Result<DPUServiceInterface, DpfError> {
-        self.service_interfaces.insert(resource_key(iface), iface.clone());
+    async fn apply(&self, iface: &DPUServiceInterface) -> Result<DPUServiceInterface, DpfError> {
+        self.service_interfaces
+            .insert(resource_key(iface), iface.clone());
         Ok(iface.clone())
     }
 }
@@ -359,7 +356,8 @@ async fn test_generate_yaml_for_v2_services() {
     let mock = InitializationMock::default();
 
     let doca_helm = "https://helm.ngc.nvidia.com/nvidia/doca";
-    let carbide_helm = "https://gitlab-master.nvidia.com/aadvani/my-helm-project/-/raw/main/charts-repo";
+    let carbide_helm =
+        "https://gitlab-master.nvidia.com/aadvani/my-helm-project/-/raw/main/charts-repo";
     let doca_image = "nvcr.io/nvidia/doca";
     let carbide_image = "https://gitlab-master.nvidia.com/aadvani/my-helm-project";
 
@@ -383,7 +381,12 @@ async fn test_generate_yaml_for_v2_services() {
                 ipam: Some(false),
                 mtu: Some(1500),
             }),
-            ..ServiceDefinition::new("carbide-dhcp-server", carbide_helm, "carbide-dhcp-server", "2.0.9")
+            ..ServiceDefinition::new(
+                "carbide-dhcp-server",
+                carbide_helm,
+                "carbide-dhcp-server",
+                "2.0.9",
+            )
         },
         ServiceDefinition {
             helm_values: Some(serde_json::json!({
@@ -411,8 +414,14 @@ async fn test_generate_yaml_for_v2_services() {
                 }
             })),
             interfaces: vec![
-                ServiceInterface { name: "p0_if".to_string(), network: "mybrhbn".to_string() },
-                ServiceInterface { name: "pf0hpf_if".to_string(), network: "mybrhbn".to_string() },
+                ServiceInterface {
+                    name: "p0_if".to_string(),
+                    network: "mybrhbn".to_string(),
+                },
+                ServiceInterface {
+                    name: "pf0hpf_if".to_string(),
+                    network: "mybrhbn".to_string(),
+                },
             ],
             ..ServiceDefinition::new("doca-hbn", doca_helm, "doca-hbn", "1.0.5")
         },
@@ -423,7 +432,12 @@ async fn test_generate_yaml_for_v2_services() {
                     "tag": "v0.3-arm64-multistage",
                 }
             })),
-            ..ServiceDefinition::new("carbide-dpu-agent", carbide_helm, "carbide-dpu-agent", "0.4.0")
+            ..ServiceDefinition::new(
+                "carbide-dpu-agent",
+                carbide_helm,
+                "carbide-dpu-agent",
+                "0.4.0",
+            )
         },
     ];
 

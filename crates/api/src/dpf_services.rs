@@ -18,21 +18,22 @@
 //! Carbide-specific DPU service definitions for DPUServiceTemplate / DPUServiceConfiguration.
 
 use carbide_dpf::{
-    ConfigPortsServiceType, ServiceConfigPort,
-    ServiceConfigPortProtocol, ServiceDefinition, ServiceInterface,
-    ServiceNAD, ServiceNADResourceType,
+    ConfigPortsServiceType, ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition,
+    ServiceInterface, ServiceNAD, ServiceNADResourceType,
 };
 
 /// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
 pub const DEFAULT_DOCA_HELM_REGISTRY: &str = "https://helm.ngc.nvidia.com/nvidia/doca";
 
-pub const DEFAULT_CARBIDE_HELM_REGISTRY: &str = "https://gitlab-master.nvidia.com/aadvani/my-helm-project/-/raw/main/charts-repo";
+pub const DEFAULT_CARBIDE_HELM_REGISTRY: &str =
+    "https://gitlab-master.nvidia.com/aadvani/my-helm-project/-/raw/main/charts-repo";
 
 /// Default DOCA container image registry prefix.
 pub const DEFAULT_DOCA_IMAGE_REGISTRY: &str = "nvcr.io/nvidia/doca";
 
 /// Default Carbide container image registry prefix.
-pub const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "https://gitlab-master.nvidia.com/aadvani/my-helm-project";
+pub const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str =
+    "https://gitlab-master.nvidia.com/aadvani/my-helm-project";
 
 /// HBN service Definitions
 pub const DOCA_HBN_SERVICE_NAME: &str = "doca-hbn";
@@ -74,7 +75,7 @@ pub struct CarbideServiceRegistryConfig {
 impl Default for CarbideServiceRegistryConfig {
     fn default() -> Self {
         Self {
-            doca_helm_registry:DEFAULT_DOCA_HELM_REGISTRY.to_string(),
+            doca_helm_registry: DEFAULT_DOCA_HELM_REGISTRY.to_string(),
             doca_image_registry: DEFAULT_DOCA_IMAGE_REGISTRY.to_string(),
             carbide_helm_registry: DEFAULT_CARBIDE_HELM_REGISTRY.to_string(),
             carbide_image_registry: DEFAULT_CARBIDE_IMAGE_REGISTRY.to_string(),
@@ -122,14 +123,14 @@ pub fn doca_hbn_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition
             ServiceInterface {
                 name: "pf0hpf_if".to_string(),
                 network: DOCA_HBN_SERVICE_NETWORK.to_string(),
-            }
+            },
         ],
 
         ..ServiceDefinition::new(
             DOCA_HBN_SERVICE_NAME,
             &reg.doca_helm_registry,
             DOCA_HBN_SERVICE_HELM_NAME,
-            DOCA_HBN_SERVICE_HELM_VERSION
+            DOCA_HBN_SERVICE_HELM_VERSION,
         )
     }
 }
@@ -202,12 +203,10 @@ pub fn dhcp_server_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinit
             }
         })),
 
-        interfaces: vec![
-            ServiceInterface {
-                name: "d_pf0hpf_if".to_string(),
-                network: DHCP_SERVER_SERVICE_NAD_NAME.to_string(),
-            }
-        ],
+        interfaces: vec![ServiceInterface {
+            name: "d_pf0hpf_if".to_string(),
+            network: DHCP_SERVER_SERVICE_NAD_NAME.to_string(),
+        }],
 
         service_nad: Some(ServiceNAD {
             name: DHCP_SERVER_SERVICE_NAD_NAME.to_string(),
@@ -221,7 +220,7 @@ pub fn dhcp_server_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinit
             DHCP_SERVER_SERVICE_NAME,
             &reg.carbide_helm_registry,
             DHCP_SERVER_SERVICE_HELM_NAME,
-            DHCP_SERVER_SERVICE_HELM_VERSION
+            DHCP_SERVER_SERVICE_HELM_VERSION,
         )
     }
 }

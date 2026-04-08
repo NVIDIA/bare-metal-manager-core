@@ -50,24 +50,24 @@ use crate::crds::dpuserviceconfigurations_generated::{
     DpuServiceConfigurationServiceConfigurationServiceDaemonSet, DpuServiceConfigurationSpec,
     DpuServiceConfigurationUpgradePolicy,
 };
+use crate::crds::dpuservicenads_generated::{
+    DPUServiceNAD, DpuServiceNadResourceType, DpuServiceNadSpec,
+};
 use crate::crds::dpuservicetemplates_generated::{
     DPUServiceTemplate, DpuServiceTemplateHelmChart, DpuServiceTemplateHelmChartSource,
     DpuServiceTemplateSpec,
 };
-use crate::crds::dpuservicenads_generated::{
-    DPUServiceNAD, DpuServiceNadSpec, DpuServiceNadResourceType,
-};
-use crate::types::{DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType, ServiceNADResourceType};
 use crate::error::DpfError;
 use crate::repository::{
     BfbRepository, DpfOperatorConfigRepository, DpuDeploymentRepository, DpuDeviceRepository,
     DpuFlavorRepository, DpuNodeMaintenanceRepository, DpuNodeRepository, DpuRepository,
-    DpuServiceConfigurationRepository, DpuServiceTemplateRepository,
-    DpuServiceNADRepository, K8sConfigRepository,
+    DpuServiceConfigurationRepository, DpuServiceNADRepository, DpuServiceTemplateRepository,
+    K8sConfigRepository,
 };
 use crate::types::{
     BmcPasswordProvider, ConfigPortsServiceType, DpuDeviceInfo, DpuFlavorDefinition, DpuNodeInfo,
-    DpuPhase, InitDpfResourcesConfig, ServiceConfigPortProtocol, ServiceDefinition,
+    DpuPhase, DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType,
+    InitDpfResourcesConfig, ServiceConfigPortProtocol, ServiceDefinition, ServiceNADResourceType,
 };
 use crate::watcher::DpuWatcherBuilder;
 
@@ -730,8 +730,7 @@ fn build_service_configuration(
     }
 }
 
-pub fn build_service_nad(svc: &ServiceDefinition, namespace: &str) ->
-    Option<DPUServiceNAD> {
+pub fn build_service_nad(svc: &ServiceDefinition, namespace: &str) -> Option<DPUServiceNAD> {
     svc.service_nad.as_ref().map(|service_nad| DPUServiceNAD {
         metadata: ObjectMeta {
             name: Some(service_nad.name.clone()),
@@ -778,26 +777,17 @@ fn build_deployment<L: ResourceLabeler>(
 
     let all_switches: Vec<DpuDeploymentServiceChainsSwitches> = vec![
         DpuDeploymentServiceChainsSwitches {
-            ports: vec![
-                DpuDeploymentServiceChainsSwitchesPorts {
-                    service_interface: Some(
-                        DpuDeploymentServiceChainsSwitchesPortsServiceInterface {
-                            match_labels: BTreeMap::from([(
-                                "interface".to_string(),
-                                "p0".to_string(),
-                            )]),
-                            ipam: None,
-                        },
-                    ),
-                    service: Some(
-                        DpuDeploymentServiceChainsSwitchesPortsService {
-                            name: "doca-hbn".to_string(),
-                            interface: "p0_if".to_string(),
-                            ipam: None,
-                        }
-                    )
-                }
-            ],
+            ports: vec![DpuDeploymentServiceChainsSwitchesPorts {
+                service_interface: Some(DpuDeploymentServiceChainsSwitchesPortsServiceInterface {
+                    match_labels: BTreeMap::from([("interface".to_string(), "p0".to_string())]),
+                    ipam: None,
+                }),
+                service: Some(DpuDeploymentServiceChainsSwitchesPortsService {
+                    name: "doca-hbn".to_string(),
+                    interface: "p0_if".to_string(),
+                    ipam: None,
+                }),
+            }],
             service_mtu: None,
         },
         DpuDeploymentServiceChainsSwitches {
@@ -812,27 +802,23 @@ fn build_deployment<L: ResourceLabeler>(
                             ipam: None,
                         },
                     ),
-                    service: Some(
-                        DpuDeploymentServiceChainsSwitchesPortsService {
-                            name: "doca-hbn".to_string(),
-                            interface: "pf0hpf_if".to_string(),
-                            ipam: None,
-                        }
-                    )
+                    service: Some(DpuDeploymentServiceChainsSwitchesPortsService {
+                        name: "doca-hbn".to_string(),
+                        interface: "pf0hpf_if".to_string(),
+                        ipam: None,
+                    }),
                 },
                 DpuDeploymentServiceChainsSwitchesPorts {
                     service_interface: None,
-                    service: Some(
-                        DpuDeploymentServiceChainsSwitchesPortsService {
-                            name: "carbide-dhcp-server".to_string(),
-                            interface: "d_pf0hpf_if".to_string(),
-                            ipam: None,
-                        }
-                    )
-                }
+                    service: Some(DpuDeploymentServiceChainsSwitchesPortsService {
+                        name: "carbide-dhcp-server".to_string(),
+                        interface: "d_pf0hpf_if".to_string(),
+                        ipam: None,
+                    }),
+                },
             ],
             service_mtu: None,
-        }
+        },
     ];
 
     let service_chains = if all_switches.is_empty() {
@@ -892,47 +878,150 @@ fn build_deployment<L: ResourceLabeler>(
 }
 
 /// Build each standard DPU service interface template and apply it to the repository in one pass.
-pub async fn apply_service_interface_templates<R: crate::repository::DpuServiceInterfaceRepository>(
+pub async fn apply_service_interface_templates<
+    R: crate::repository::DpuServiceInterfaceRepository,
+>(
     repo: &R,
     namespace: &str,
 ) -> Result<(), crate::error::DpfError> {
     use kube::core::ObjectMeta;
+
     use crate::crds::dpuserviceinterfaces_generated::{
-        DPUServiceInterface, DpuServiceInterfaceSpec,
-        DpuServiceInterfaceTemplate, DpuServiceInterfaceTemplateSpec,
-        DpuServiceInterfaceTemplateSpecTemplate, DpuServiceInterfaceTemplateSpecTemplateSpec,
+        DPUServiceInterface, DpuServiceInterfaceSpec, DpuServiceInterfaceTemplate,
+        DpuServiceInterfaceTemplateSpec, DpuServiceInterfaceTemplateSpecTemplate,
+        DpuServiceInterfaceTemplateSpecTemplateMetadata,
+        DpuServiceInterfaceTemplateSpecTemplateSpec,
         DpuServiceInterfaceTemplateSpecTemplateSpecInterfaceType,
         DpuServiceInterfaceTemplateSpecTemplateSpecPf,
         DpuServiceInterfaceTemplateSpecTemplateSpecPhysical,
         DpuServiceInterfaceTemplateSpecTemplateSpecVf,
-        DpuServiceInterfaceTemplateSpecTemplateMetadata,
     };
 
     let interfaces: Vec<DpuServiceInterfaceTemplateDefinition> = vec![
-        DpuServiceInterfaceTemplateDefinition { name: "p0".into(),     iface_type: DpuServiceInterfaceTemplateType::Physical, pf_id: 0, vf_id: 0 },
-        DpuServiceInterfaceTemplateDefinition { name: "p1".into(),     iface_type: DpuServiceInterfaceTemplateType::Physical, pf_id: 1, vf_id: 0 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf0hpf".into(), iface_type: DpuServiceInterfaceTemplateType::Pf,       pf_id: 0, vf_id: 0 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf1hpf".into(), iface_type: DpuServiceInterfaceTemplateType::Pf,       pf_id: 1, vf_id: 0 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf0vf0".into(), iface_type: DpuServiceInterfaceTemplateType::Vf,       pf_id: 0, vf_id: 0 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf0vf1".into(), iface_type: DpuServiceInterfaceTemplateType::Vf,       pf_id: 0, vf_id: 1 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf0vf2".into(), iface_type: DpuServiceInterfaceTemplateType::Vf,       pf_id: 0, vf_id: 2 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf0vf3".into(), iface_type: DpuServiceInterfaceTemplateType::Vf,       pf_id: 0, vf_id: 3 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf0vf4".into(), iface_type: DpuServiceInterfaceTemplateType::Vf,       pf_id: 0, vf_id: 4 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf0vf5".into(), iface_type: DpuServiceInterfaceTemplateType::Vf,       pf_id: 0, vf_id: 5 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf0vf6".into(), iface_type: DpuServiceInterfaceTemplateType::Vf,       pf_id: 0, vf_id: 6 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf0vf7".into(), iface_type: DpuServiceInterfaceTemplateType::Vf,       pf_id: 0, vf_id: 7 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf1vf0".into(), iface_type: DpuServiceInterfaceTemplateType::Vf,       pf_id: 1, vf_id: 0 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf1vf1".into(), iface_type: DpuServiceInterfaceTemplateType::Vf,       pf_id: 1, vf_id: 1 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf1vf2".into(), iface_type: DpuServiceInterfaceTemplateType::Vf,       pf_id: 1, vf_id: 2 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf1vf3".into(), iface_type: DpuServiceInterfaceTemplateType::Vf,       pf_id: 1, vf_id: 3 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf1vf4".into(), iface_type: DpuServiceInterfaceTemplateType::Vf,       pf_id: 1, vf_id: 4 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf1vf5".into(), iface_type: DpuServiceInterfaceTemplateType::Vf,       pf_id: 1, vf_id: 5 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf1vf6".into(), iface_type: DpuServiceInterfaceTemplateType::Vf,       pf_id: 1, vf_id: 6 },
-        DpuServiceInterfaceTemplateDefinition { name: "pf1vf7".into(), iface_type: DpuServiceInterfaceTemplateType::Vf,       pf_id: 1, vf_id: 7 },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "p0".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Physical,
+            pf_id: 0,
+            vf_id: 0,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "p1".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Physical,
+            pf_id: 1,
+            vf_id: 0,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf0hpf".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Pf,
+            pf_id: 0,
+            vf_id: 0,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf1hpf".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Pf,
+            pf_id: 1,
+            vf_id: 0,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf0vf0".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 0,
+            vf_id: 0,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf0vf1".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 0,
+            vf_id: 1,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf0vf2".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 0,
+            vf_id: 2,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf0vf3".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 0,
+            vf_id: 3,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf0vf4".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 0,
+            vf_id: 4,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf0vf5".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 0,
+            vf_id: 5,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf0vf6".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 0,
+            vf_id: 6,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf0vf7".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 0,
+            vf_id: 7,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf1vf0".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 1,
+            vf_id: 0,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf1vf1".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 1,
+            vf_id: 1,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf1vf2".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 1,
+            vf_id: 2,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf1vf3".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 1,
+            vf_id: 3,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf1vf4".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 1,
+            vf_id: 4,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf1vf5".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 1,
+            vf_id: 5,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf1vf6".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 1,
+            vf_id: 6,
+        },
+        DpuServiceInterfaceTemplateDefinition {
+            name: "pf1vf7".into(),
+            iface_type: DpuServiceInterfaceTemplateType::Vf,
+            pf_id: 1,
+            vf_id: 7,
+        },
     ];
 
     let active_interfaces = &interfaces[0..4];
-    
+
     for iface in active_interfaces {
         let (interface_type, physical, pf, vf) = match iface.iface_type {
             DpuServiceInterfaceTemplateType::Physical => (
@@ -957,7 +1046,11 @@ pub async fn apply_service_interface_templates<R: crate::repository::DpuServiceI
                 None,
                 None,
                 Some(DpuServiceInterfaceTemplateSpecTemplateSpecVf {
-                    parent_interface_ref: Some(if iface.pf_id == 0 { "p0".to_string() } else { "p1".to_string() }),
+                    parent_interface_ref: Some(if iface.pf_id == 0 {
+                        "p0".to_string()
+                    } else {
+                        "p1".to_string()
+                    }),
                     pf_id: iface.pf_id,
                     vf_id: iface.vf_id,
                     virtual_network: None,
@@ -977,9 +1070,10 @@ pub async fn apply_service_interface_templates<R: crate::repository::DpuServiceI
                         template: DpuServiceInterfaceTemplateSpecTemplate {
                             metadata: Some(DpuServiceInterfaceTemplateSpecTemplateMetadata {
                                 annotations: None,
-                                labels: Some(std::collections::BTreeMap::from([
-                                    ("interface".to_string(), iface.name.clone()),
-                                ])),
+                                labels: Some(std::collections::BTreeMap::from([(
+                                    "interface".to_string(),
+                                    iface.name.clone(),
+                                )])),
                             }),
                             spec: DpuServiceInterfaceTemplateSpecTemplateSpec {
                                 interface_type,
