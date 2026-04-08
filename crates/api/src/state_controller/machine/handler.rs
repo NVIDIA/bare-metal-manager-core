@@ -5224,7 +5224,8 @@ impl StateHandler for InstanceStateHandler {
                         }
                         InstanceNetworkSyncStatus::InstanceNetworkSynced => {}
                         InstanceNetworkSyncStatus::ZeroDpuNoObservationNeeded => {
-                            return Ok(StateHandlerOutcome::transition(next_state));
+                            // We don't need the DPU observation - but we still want to check
+                            // whether NVLink and IB configs are applied
                         }
                         InstanceNetworkSyncStatus::InstanceNetworkNotSynced(outdated_dpus) => {
                             return Ok(StateHandlerOutcome::wait(format!(
