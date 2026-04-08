@@ -60,9 +60,15 @@ impl<B: Bmc> ExploredChassisCollection<B> {
     }
 
     pub fn is_liteon_powershelf(&self) -> bool {
-        self.members
-            .iter()
-            .any(|m| m.chassis.id().into_inner() == "powershelf")
+        self.members.iter().any(|m| {
+            m.chassis.id().into_inner() == "powershelf"
+                || (m.chassis.id().into_inner() == "chassis"
+                    && m.chassis
+                        .hardware_id()
+                        .manufacturer
+                        .as_ref()
+                        .is_some_and(|mfg| mfg.as_ref().to_lowercase().contains("lite-on")))
+        })
     }
 
     pub fn is_gb300(&self) -> bool {

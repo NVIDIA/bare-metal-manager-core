@@ -615,6 +615,7 @@ impl RedfishClient {
         bmc_ip_address: SocketAddr,
         username: String,
         password: String,
+        chassis_id: &str,
     ) -> Result<String, EndpointExplorationError> {
         let client = self
             .create_authenticated_redfish_client(
@@ -625,9 +626,9 @@ impl RedfishClient {
             .map_err(map_redfish_client_creation_error)?;
 
         let chassis_all = client.get_chassis_all().await.map_err(map_redfish_error)?;
-        if chassis_all.contains(&"powershelf".to_string()) {
+        if chassis_all.contains(&chassis_id.to_string()) {
             let chassis = client
-                .get_chassis("powershelf")
+                .get_chassis(chassis_id)
                 .await
                 .map_err(map_redfish_error)?;
             if let Some(x) = chassis.manufacturer {
@@ -647,8 +648,26 @@ async fn is_switch(client: &dyn Redfish) -> Result<bool, RedfishError> {
 }
 
 async fn is_powershelf(client: &dyn Redfish) -> Result<bool, RedfishError> {
-    let chassis = client.get_chassis_all().await?;
-    Ok(chassis.contains(&"powershelf".to_string()))
+    let chassis_ids = client.get_chassis_all().await?;
+    if chassis_ids.contains(&"powershelf".to_string()) {
+        return Ok(true);
+    }
+    // Some Lite-On power shelf BMCs use "chassis" as their chassis ID,
+    // so if we failed to find "powershelf" as the chassis ID, fall
+    // back to the other "chassis" chassis ID and check the manufacturer
+    // type.
+    // TODO(chet): This should be able to go away in a later update
+    // of the lite-on firmware.
+    if chassis_ids.contains(&"chassis".to_string())
+        && let Ok(chassis) = client.get_chassis("chassis").await
+        && chassis
+            .manufacturer
+            .as_ref()
+            .is_some_and(|m| m.to_lowercase().contains("lite-on"))
+    {
+        return Ok(true);
+    }
+    Ok(false)
 }
 
 async fn fetch_manager(client: &dyn Redfish) -> Result<Manager, RedfishError> {
