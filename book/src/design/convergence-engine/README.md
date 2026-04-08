@@ -85,8 +85,6 @@ The engine works with two key-value maps:
 
 Both maps use the same set of strongly-typed keys (the `StateKey` enum — see §5). Any key can appear in either map. Which keys appear in `state_desired` is a runtime decision, not a property of the key itself.
 
-In code: `HostState` is a `BTreeMap<StateKey, StateValue>`. Keys are enum variants (compile-time safe, zero-cost, impossible to misspell). Values are a typed union (`Bool`, `Int`, `Str`, `Version`) with cross-type equality.
-
 ### 3.2 Delta: What Needs to Change
 
 The **delta** is the set of keys where observed and desired disagree. If the desired state says `FirmwareBmcVersion = "2.4.0"` but the observed state shows `FirmwareBmcVersion = "2.3.1"`, that key is in the delta.
