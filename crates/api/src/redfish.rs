@@ -27,6 +27,7 @@ use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialReader, CredentialType, Credentials,
 };
 use libredfish::model::BootProgress;
+use libredfish::model::service_root::RedfishVendor;
 use libredfish::{Endpoint, PowerState, Redfish, RedfishError, SystemPowerControl};
 use mac_address::MacAddress;
 use model::machine::Machine;
@@ -83,14 +84,17 @@ impl RedfishAuth {
 pub trait RedfishClientPool: Send + Sync + 'static {
     // MARK: - Required methods
 
-    /// Creates a new Redfish client for a Machines BMC
-    /// `host` is the IP address or hostname of the BMC
+    /// Creates a new Redfish client for a Machines BMC.
+    /// `host` is the IP address or hostname of the BMC.
+    /// `vendor` allows you to pre-assign the underlying
+    /// RedfishVendor to use for the client, saving the
+    /// service root call to auto-detect the vendor.
     async fn create_client(
         &self,
         host: &str,
         port: Option<u16>,
         auth: RedfishAuth,
-        initialize: bool, // fetch some initial values like system id and manager id
+        vendor: Option<RedfishVendor>,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError>;
 
     /// Returns a CredentialReader for use in setting credentials in the UEFI/BMC.
@@ -120,7 +124,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             })
             .map(|machine_interface| RedfishAuth::for_bmc_mac(machine_interface.mac_address))?;
 
-        self.create_client(&ip.to_string(), Some(port), auth_key, true)
+        self.create_client(&ip.to_string(), Some(port), auth_key, None)
             .await
     }
 
@@ -144,7 +148,7 @@ pub trait RedfishClientPool: Send + Sync + 'static {
             })
             .map(|machine_interface| RedfishAuth::for_bmc_mac(machine_interface.mac_address))?;
 
-        self.create_client(&ip.to_string(), port, auth_key, true)
+        self.create_client(&ip.to_string(), port, auth_key, None)
             .await
     }
 
@@ -331,7 +335,7 @@ impl RedfishClientPool for RedfishClientPoolImpl {
         host: &str,
         port: Option<u16>,
         auth: RedfishAuth,
-        initialize: bool,
+        vendor: Option<RedfishVendor>,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         let original_host = host;
 
@@ -393,19 +397,19 @@ impl RedfishClientPool for RedfishClientPoolImpl {
             Vec::default()
         };
 
-        if initialize {
-            // Creating the client performs a HTTP request to determine the BMC vendor
-            self.pool
+        match vendor {
+            // Auto-detect vendor from the service root.
+            None => self
+                .pool
                 .create_client_with_custom_headers(endpoint, custom_headers)
                 .await
-                .map_err(RedfishClientCreationError::RedfishError)
-        } else {
-            // This client does not make any HTTP requests
-            let client: Box<dyn Redfish> = self
+                .map_err(RedfishClientCreationError::RedfishError),
+            // Use the provided vendor directly.
+            Some(vendor) => self
                 .pool
-                .create_standard_client_with_custom_headers(endpoint, custom_headers)
-                .map_err(RedfishClientCreationError::RedfishError)?;
-            Ok(client)
+                .create_client_with_vendor(endpoint, vendor, custom_headers)
+                .await
+                .map_err(RedfishClientCreationError::RedfishError),
         }
     }
 
@@ -1948,7 +1952,7 @@ pub mod test_support {
             host: &str,
             port: Option<u16>,
             _auth: RedfishAuth,
-            _initialize: bool,
+            _vendor: Option<RedfishVendor>,
         ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
             {
                 self.state
@@ -1992,7 +1996,7 @@ pub mod test_support {
                         bmc_mac_address: MacAddress::default(),
                     },
                 }),
-                true,
+                None,
             )
             .await
         }
@@ -2024,7 +2028,7 @@ mod tests {
                 RedfishAuth::Key(CredentialKey::HostRedfish {
                     credential_type: CredentialType::SiteDefault,
                 }),
-                true,
+                None,
             )
             .await
             .unwrap();
@@ -2043,7 +2047,7 @@ mod tests {
                 RedfishAuth::Key(CredentialKey::HostRedfish {
                     credential_type: CredentialType::SiteDefault,
                 }),
-                true,
+                None,
             )
             .await
             .unwrap();

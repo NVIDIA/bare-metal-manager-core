@@ -162,6 +162,7 @@ impl BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
         boot_interface_mac: Option<MacAddress>,
+        vendor: Option<RedfishVendor>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         match self.mode {
             SiteExplorerExploreMode::LibRedfish => {
@@ -170,6 +171,7 @@ impl BmcEndpointExplorer {
                         bmc_ip_address,
                         credentials.clone(),
                         boot_interface_mac,
+                        vendor,
                     )
                     .await
             }
@@ -185,6 +187,7 @@ impl BmcEndpointExplorer {
                         bmc_ip_address,
                         credentials.clone(),
                         boot_interface_mac,
+                        vendor,
                     )
                     .await;
                 let nvredfish = self
@@ -293,7 +296,8 @@ impl BmcEndpointExplorer {
         self.set_bmc_root_credentials(bmc_mac_address, &bmc_credentials)
             .await?;
 
-        self.generate_exploration_report(bmc_ip_address, bmc_credentials, None)
+        self.redfish_client
+            .generate_exploration_report(bmc_ip_address, bmc_credentials, None, Some(vendor))
             .await
     }
 
@@ -757,7 +761,12 @@ impl EndpointExplorer for BmcEndpointExplorer {
         let report = match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
                 match self
-                    .generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
+                    .generate_exploration_report(
+                        bmc_ip_address,
+                        credentials,
+                        boot_interface_mac,
+                        Some(vendor),
+                    )
                     .await
                 {
                     Ok(report) => report,

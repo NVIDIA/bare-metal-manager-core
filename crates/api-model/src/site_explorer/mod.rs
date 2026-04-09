@@ -2348,7 +2348,7 @@ mod tests {
         let report = EndpointExplorationReport {
             chassis: vec![Chassis {
                 id: "powershelf".to_string(),
-                manufacturer: Some("lite-on technology corp.".to_string()),
+                manufacturer: Some("doesnt-matter-in-this-case".to_string()),
                 ..Default::default()
             }],
             ..Default::default()
