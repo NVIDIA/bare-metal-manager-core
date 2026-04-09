@@ -676,6 +676,7 @@ async fn create_client(
     let base_upstream_uri = Uri::builder()
         .scheme("https")
         .authority(base_authority.as_ref())
+        .path_and_query("/")
         .build()
         .map_err(|e| {
             BmcProxyError::InternalProxying(format!("Error building upstream URI: {e}"))
