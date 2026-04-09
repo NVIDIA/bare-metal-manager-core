@@ -789,6 +789,7 @@ impl MainLoop {
                             match ethernet_virtualization::interfaces(
                                 &conf,
                                 self.factory_mac_address,
+                                self.nvue_client.as_ref(),
                             )
                             .await
                             {
