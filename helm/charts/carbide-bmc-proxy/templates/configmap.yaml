@@ -12,30 +12,6 @@ data:
     {{- else }}
     {{- .Files.Get "files/carbide-bmc-proxy.toml" | nindent 4 }}
     {{- end }}
-{{- if .Values.siteConfig.enabled }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: carbide-bmc-proxy-site-config-files
-  namespace: {{ include "carbide-bmc-proxy.namespace" . }}
-  labels:
-    {{- include "carbide-bmc-proxy.labels" . | nindent 4 }}
-data:
-  carbide-api-site-config.toml: |
-    {{- with .Values.siteConfig.carbideApiSiteConfig }}
-    {{- . | nindent 4 }}
-
-    {{- end }}
-    [bmc_proxy]
-    listen = {{ .Values.bmcProxy.listen | quote }}
-    allowed_principals = [
-    {{- range $index, $principal := .Values.bmcProxy.allowedPrincipals }}
-      {{- if $index }},{{ end }}
-      {{ $principal | quote }}
-    {{- end }}
-    ]
-{{- end }}
 {{- if .Values.databaseConfig }}
 ---
 apiVersion: v1

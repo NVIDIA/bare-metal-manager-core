@@ -102,7 +102,7 @@ carbide-api:
 
 carbide-bmc-proxy:
   enabled: true
-  siteConfig:
+  configFiles:
     enabled: true
     carbideBmcProxyConfig: |
       listen = "[::]:1079"

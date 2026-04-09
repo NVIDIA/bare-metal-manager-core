@@ -91,7 +91,7 @@ serviceMonitor:
   scrapeTimeout: 25s
 
 configFiles:
-  carbideApiConfig: ""
+  carbideBmcProxyConfig: ""
 
 bmcProxy:
   listen: "[::]:1079"
