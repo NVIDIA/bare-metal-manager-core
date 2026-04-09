@@ -19,12 +19,9 @@
 
 use carbide_uuid::rack::RackId;
 use db::rack as db_rack;
-use model::rack::{
-    FirmwareUpgradeState, Rack, RackConfig, RackMaintenanceState, RackState, RackValidationState,
-};
+use model::rack::{FirmwareUpgradeState, Rack, RackConfig, RackMaintenanceState, RackState};
 
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
-use crate::state_controller::rack::validating::load_partition_summary;
 use crate::state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
@@ -62,28 +59,5 @@ pub async fn handle_ready(
         .with_txn(txn));
     }
 
-    let summary = load_partition_summary(id, state, ctx).await?;
-
-    if summary.validated == summary.total_partitions {
-        Ok(StateHandlerOutcome::wait(
-            "rack is ready, all partitions validated".into(),
-        ))
-    } else if summary.failed > 0 {
-        tracing::info!(
-            "Rack {} re-entering validation from Ready (failures detected)",
-            id
-        );
-        Ok(StateHandlerOutcome::transition(RackState::Validating {
-            validating_state: RackValidationState::FailedPartial,
-        }))
-    } else if summary.in_progress > 0 || summary.validated > 0 || summary.failed > 0 {
-        tracing::info!("Rack {} re-entering validation from Ready", id);
-        Ok(StateHandlerOutcome::transition(RackState::Validating {
-            validating_state: RackValidationState::InProgress,
-        }))
-    } else {
-        Ok(StateHandlerOutcome::wait(
-            "rack is ready, no validation activity".into(),
-        ))
-    }
+    Ok(StateHandlerOutcome::do_nothing())
 }

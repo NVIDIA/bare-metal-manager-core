@@ -34,9 +34,37 @@ use model::rack::{
 };
 
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
+use crate::state_controller::rack::validating::strip_rv_labels;
 use crate::state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
+
+/// Strips all `rv.*` metadata labels from every machine in the rack.
+///
+/// Called on `Maintenance(Completed)` to ensure machines enter the next
+/// validation cycle with a clean slate. RVS is expected to re-populate these
+/// labels when it starts a new run.
+async fn clear_rv_labels(
+    rack: &Rack,
+    ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
+) -> Result<(), StateHandlerError> {
+    let mut txn = ctx.services.db_pool.begin().await?;
+
+    let machines = super::get_machines_from_rack(rack, &mut txn).await?;
+
+    for machine in machines.into_iter() {
+        let mut metadata = machine.metadata;
+        let id = machine.id;
+        let ver = machine.version;
+
+        if strip_rv_labels(&mut metadata) {
+            db_machine::update_metadata(&mut txn, &id, ver, metadata).await?;
+        }
+    }
+
+    txn.commit().await?;
+    Ok(())
+}
 
 /// Fetches BMC root credentials from Vault for the given MAC address,
 /// falling back to sitewide BMC root credentials if per-device creds are not found.
@@ -476,19 +504,14 @@ pub async fn handle_maintenance(
             }
         },
         RackMaintenanceState::Completed => {
-            let run_id = format!("run-{}-{}", id, chrono::Utc::now().format("%Y%m%d-%H%M%S"));
             tracing::info!(
-                "Rack {} maintenance completed, entering validation (run_id={})",
-                id,
-                run_id
+                "Rack {} maintenance completed, clearing rv.* labels and entering Validating(Pending)",
+                id
             );
-            state.config.validation_run_id = Some(run_id);
-            let mut txn = ctx.services.db_pool.begin().await?;
-            db_rack::update(txn.as_mut(), id, &state.config).await?;
+            clear_rv_labels(state, ctx).await?;
             Ok(StateHandlerOutcome::transition(RackState::Validating {
                 validating_state: RackValidationState::Pending,
-            })
-            .with_txn(txn))
+            }))
         }
     }
 }

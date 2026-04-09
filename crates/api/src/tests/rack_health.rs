@@ -368,7 +368,6 @@ async fn test_host_replace_overrides_rack_alerts(
         .await?;
     let config = RackConfig {
         rack_type: None,
-        validation_run_id: None,
         ..Default::default()
     };
     db::rack::update(&mut txn, &rack_id, &config).await?;
@@ -441,7 +440,6 @@ async fn test_host_replace_takes_full_precedence_over_rack_replace(
         .await?;
     let config = RackConfig {
         rack_type: None,
-        validation_run_id: None,
         ..Default::default()
     };
     db::rack::update(&mut txn, &rack_id, &config).await?;

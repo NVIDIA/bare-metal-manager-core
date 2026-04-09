@@ -23,16 +23,20 @@ use ::rpc::forge::{
     ManagedHostNetworkConfigRequest, ManagedHostNetworkStatusRequest,
 };
 use common::api_fixtures::{self, create_managed_host, dpu, network_configured_with_health};
+use forge_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use model::machine::network::ManagedHostQuarantineMode;
 use rpc::forge::forge_server::Forge;
 
 use crate::tests::common;
+use crate::tests::common::api_fixtures::TestEnvOverrides;
+use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
 
 #[crate::sqlx_test]
 async fn test_managed_host_network_config(pool: sqlx::PgPool) {
     let env = api_fixtures::create_test_env(pool).await;
     let host_config = env.managed_host_config();
-    let dpu_machine_id = dpu::create_dpu_machine(&env, &host_config).await;
+    let mh = dpu::create_dpu_machine_in_waiting_for_network_install(&env, &host_config).await;
+    let dpu_machine_id = mh.dpu().id;
 
     // Fetch a Machines network config
     let response = env
@@ -43,6 +47,102 @@ async fn test_managed_host_network_config(pool: sqlx::PgPool) {
         .await;
 
     assert!(response.is_ok());
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_with_sitewide_bgp_password(pool: sqlx::PgPool) {
+    // Enable site-wide DPU BGP passwords in runtime config.
+    let mut config = api_fixtures::get_config();
+    config.bgp_leaf_session_password = Some(crate::cfg::file::BgpLeafSessionPassword::SiteWide);
+
+    let env =
+        api_fixtures::create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config))
+            .await;
+
+    // Seed the site-wide DPU BGP credential.
+    env.api
+        .credential_manager
+        .set_credentials(
+            &CredentialKey::Bgp {
+                credential_type: BgpCredentialType::SiteWideLeafPassword,
+            },
+            &Credentials::UsernamePassword {
+                username: "".to_string(),
+                password: "test-bgp-password".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+
+    // Create a DPU that can request managed host network config.
+    let host_config = env.managed_host_config();
+    let dpu_machine_id = dpu::create_dpu_machine(&env, &host_config).await;
+
+    // Verify the handler returns the configured site-wide BGP password.
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(
+        response.bgp_leaf_session_password,
+        Some("test-bgp-password".to_string())
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_errors_when_sitewide_bgp_password_missing(
+    pool: sqlx::PgPool,
+) {
+    // Enable site-wide DPU BGP passwords in runtime config without creating the credential.
+    let mut config = api_fixtures::get_config();
+    config.bgp_leaf_session_password = Some(crate::cfg::file::BgpLeafSessionPassword::SiteWide);
+
+    let env =
+        api_fixtures::create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config))
+            .await;
+
+    // Create a DPU without advancing to the point where the fixture fetches network config.
+    // We'll fetch config next to validate the failure case.
+    let host_config = env.managed_host_config();
+
+    let mock_explored_host = MockExploredHost::new(&env, host_config)
+        .discover_dhcp_dpu_bmc(0, |_, _| Ok(()))
+        .await
+        .unwrap()
+        .discover_dhcp_dpu_primary_iface(0)
+        .await
+        // Discover the host BMC and persist the exploration results.
+        .discover_dhcp_host_bmc(|_, _| Ok(()))
+        .await
+        .unwrap()
+        .insert_site_exploration_results()
+        .unwrap()
+        .run_site_explorer_iteration()
+        .await
+        .mark_preingestion_complete()
+        .await
+        .unwrap()
+        .run_site_explorer_iteration()
+        .await;
+
+    let dpu_machine_id = mock_explored_host.dpu_machine_ids[&0];
+
+    // Verify the handler fails when the site-wide BGP credential is missing.
+    let err = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id),
+        }))
+        .await
+        .expect_err("missing site-wide BGP password should fail");
+
+    assert_eq!(err.code(), tonic::Code::Internal);
+    assert!(err.message().contains("Could not find BGP credential"));
 }
 
 #[crate::sqlx_test]

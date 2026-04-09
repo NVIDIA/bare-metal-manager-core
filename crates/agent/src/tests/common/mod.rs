@@ -118,6 +118,7 @@ pub fn setup_agent_run_env(
             hbn_config_mode: crate::command_line::HbnConfigMode::ContainerExec,
             agent_platform_type: crate::command_line::AgentPlatformType::DpuOs,
             discovery_info_file: None,
+            dhcp_server_interface_prepend: None,
         }))),
     };
 

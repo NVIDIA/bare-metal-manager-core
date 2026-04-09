@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use carbide_uuid::rack::RackId;
 use db::{expected_rack as db_expected_rack, rack as db_rack};
 use model::expected_rack::ExpectedRack;
@@ -106,7 +107,7 @@ fn single_capabilities() -> RackCapabilitiesSet {
     }
 }
 
-fn config_with_rack_types() -> crate::cfg::file::CarbideConfig {
+pub(crate) fn config_with_rack_types() -> crate::cfg::file::CarbideConfig {
     let mut config = get_config();
     config.rack_types = RackTypeConfig {
         rack_types: [
@@ -121,7 +122,7 @@ fn config_with_rack_types() -> crate::cfg::file::CarbideConfig {
     config
 }
 
-fn new_rack_id() -> RackId {
+pub(crate) fn new_rack_id() -> RackId {
     RackId::new(uuid::Uuid::new_v4().to_string())
 }
 
@@ -133,6 +134,16 @@ async fn create_expected_rack(pool: &sqlx::PgPool, rack_id: &RackId, rack_type: 
         ..Default::default()
     };
     db_expected_rack::create(&mut txn, &er).await.unwrap();
+}
+
+pub(crate) fn new_machine_id(seed: u8) -> MachineId {
+    let mut hash = [0u8; 32];
+    hash[0] = seed;
+    MachineId::new(
+        MachineIdSource::ProductBoardChassisSerial,
+        hash,
+        MachineType::Host,
+    )
 }
 
 /// test_expected_no_definition_stays_parked verifies that a rack without an
@@ -687,7 +698,7 @@ async fn test_maintenance_completed_transitions_to_validation(
                         validating_state: RackValidationState::Pending,
                     }
                 ),
-                "Maintenance::Completed should transition to Validation(Pending), got {:?}",
+                "Maintenance::Completed should transition to Validating(Pending), got {:?}",
                 next_state
             );
         }
@@ -739,8 +750,11 @@ async fn test_ready_with_no_labels_stays_ready(
         .await?;
 
     assert!(
-        matches!(outcome, StateHandlerOutcome::Wait { .. }),
-        "Ready with no labels should wait, got {:?}",
+        matches!(
+            outcome,
+            StateHandlerOutcome::Wait { .. } | StateHandlerOutcome::DoNothing { .. }
+        ),
+        "Ready with no labels should wait or do nothing, got {:?}",
         std::mem::discriminant(&outcome)
     );
 
@@ -1031,25 +1045,19 @@ async fn test_validation_failed_transitions_to_error(
     };
 
     let failed_state = RackState::Validating {
-        validating_state: RackValidationState::Failed,
+        validating_state: RackValidationState::Failed {
+            run_id: "test-run".to_string(),
+        },
     };
     let outcome = handler_instance
         .handle_object_state(&rack_id, &mut rack, &failed_state, &mut ctx)
         .await?;
 
-    match outcome {
-        StateHandlerOutcome::Transition { next_state, .. } => {
-            assert!(
-                matches!(next_state, RackState::Error { .. }),
-                "Validation(Failed) should transition to Error, got {:?}",
-                next_state
-            );
-        }
-        other => panic!(
-            "Expected Transition to Error, got {:?}",
-            std::mem::discriminant(&other)
-        ),
-    }
+    assert!(
+        matches!(outcome, StateHandlerOutcome::DoNothing { .. }),
+        "Validation(Failed) should wait for intervention, got {:?}",
+        std::mem::discriminant(&outcome)
+    );
 
     Ok(())
 }

@@ -136,9 +136,12 @@ fi
 # -----------------------------------------------------------------------------
 # Environment
 # -----------------------------------------------------------------------------
-export CARBIDE_WEB_AUTH_TYPE="${CARBIDE_WEB_AUTH_TYPE:-basic}"
+export CARBIDE_WEB_AUTH_TYPE="${CARBIDE_WEB_AUTH_TYPE:-none}"
 export DATABASE_URL="postgresql://postgres:admin@localhost"
 export VAULT_ADDR="$VAULT_ADDR"
+# Vault runs without TLS in local dev (HTTP). The code requires VAULT_CACERT to
+# point to an existing file; for HTTP connections the cert is never actually used.
+export VAULT_CACERT="$REPO_ROOT/dev/certs/localhost/ca.crt"
 export VAULT_KV_MOUNT_LOCATION="secrets"
 export VAULT_PKI_MOUNT_LOCATION="certs"
 export VAULT_PKI_ROLE_NAME="role"

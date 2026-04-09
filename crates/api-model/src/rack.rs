@@ -260,6 +260,10 @@ pub enum RackState {
 
     /// Rack is in the validation phase. The sub-state tracks progress from
     /// waiting for RVS through partition-level pass/fail to a final verdict.
+    ///
+    /// The active RVS run ID is stored inside each non-`Pending` substate of
+    /// `rack_validation`. It is set on the `Pending -> InProgress` transition
+    /// when Carbide first observes an `rv.run-id` label on a rack machine.
     #[serde(alias = "validation")]
     Validating {
         #[serde(alias = "rack_validation")]
@@ -360,6 +364,11 @@ impl Display for RackPowerState {
 /// The rack enters validation after maintenance completes (starting in
 /// `Pending`). RVS drives transitions by writing instance metadata labels
 /// that BMMC polls and aggregates into partition-level summaries.
+///
+/// All non-`Pending` substates carry the `run_id` of the active RVS run.
+/// The run ID is set when the first `rv.run-id` label is observed on a
+/// rack machine (the `Pending -> InProgress` transition); all subsequent
+/// substates inherit it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RackValidationState {
     /// All nodes discovered and all machines have reached
@@ -378,34 +387,48 @@ pub enum RackValidationState {
 
     /// At least one partition has started validation, but none have
     /// completed (neither passed nor failed yet).
-    InProgress,
+    InProgress { run_id: String },
 
     /// At least one partition has passed validation, and no partitions
     /// have failed. Waiting for remaining partitions to complete.
-    Partial,
+    Partial { run_id: String },
 
     /// At least one partition has failed validation.
     /// Can recover to Partial if failed partitions are re-validated.
-    FailedPartial,
+    FailedPartial { run_id: String },
 
     /// All partitions have passed validation successfully.
     /// Rack is ready to transition to the Ready state.
-    Validated,
+    Validated { run_id: String },
 
     /// All partitions have failed validation.
     /// Requires intervention before the rack can be used.
-    Failed,
+    Failed { run_id: String },
+}
+
+impl RackValidationState {
+    /// Returns the active RVS run ID, or `None` for the `Pending` substate.
+    pub fn run_id(&self) -> Option<&str> {
+        match self {
+            RackValidationState::InProgress { run_id }
+            | RackValidationState::Partial { run_id }
+            | RackValidationState::FailedPartial { run_id }
+            | RackValidationState::Validated { run_id }
+            | RackValidationState::Failed { run_id } => Some(run_id),
+            RackValidationState::Pending => None,
+        }
+    }
 }
 
 impl Display for RackValidationState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RackValidationState::Pending => write!(f, "Pending"),
-            RackValidationState::InProgress => write!(f, "InProgress"),
-            RackValidationState::Partial => write!(f, "Partial"),
-            RackValidationState::FailedPartial => write!(f, "FailedPartial"),
-            RackValidationState::Validated => write!(f, "Validated"),
-            RackValidationState::Failed => write!(f, "Failed"),
+            RackValidationState::InProgress { .. } => write!(f, "InProgress"),
+            RackValidationState::Partial { .. } => write!(f, "Partial"),
+            RackValidationState::FailedPartial { .. } => write!(f, "FailedPartial"),
+            RackValidationState::Validated { .. } => write!(f, "Validated"),
+            RackValidationState::Failed { .. } => write!(f, "Failed"),
         }
     }
 }
@@ -432,7 +455,7 @@ impl Display for RackState {
 pub enum MachineRvLabels {
     /// Partition ID grouping nodes into validation partitions.
     PartitionId,
-    /// Run correlation ID -- must match rack's validation_run_id.
+    /// Run correlation ID -- used to filter stale labels from prior runs.
     RunId,
     /// Per-node validation status.
     State,
@@ -470,11 +493,6 @@ pub struct RackConfig {
     /// up at runtime so config changes apply retroactively to all racks.
     #[serde(default)]
     pub rack_type: Option<String>,
-
-    /// Active validation run ID. Set when entering Validating(Pending),
-    /// used to filter stale machine labels from previous runs.
-    #[serde(default)]
-    pub validation_run_id: Option<String>,
 
     /// When set, the Ready state handler will transition back to Maintenance
     /// to re-provision the rack to a new version.

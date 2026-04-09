@@ -563,6 +563,20 @@ pub struct CarbideConfig {
     /// manager integration.
     #[serde(default)]
     pub component_manager: Option<component_manager::config::ComponentManagerConfig>,
+
+    /// The password source to use for sites where the LEAF TOR
+    /// requires session passwords.
+    #[serde(default)]
+    pub bgp_leaf_session_password: Option<BgpLeafSessionPassword>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub enum BgpLeafSessionPassword {
+    /// Use a defined site-wide password.
+    /// The password should already exist in the credentials
+    /// store.
+    #[default]
+    SiteWide,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]

@@ -145,15 +145,15 @@ impl InternalRBACRules {
         );
         x.perm(
             "ListRackHealthReportOverrides",
-            vec![ForgeAdminCLI, DsxExchangeConsumer],
+            vec![ForgeAdminCLI, Health, DsxExchangeConsumer],
         );
         x.perm(
             "InsertRackHealthReportOverride",
-            vec![ForgeAdminCLI, DsxExchangeConsumer],
+            vec![ForgeAdminCLI, Health, DsxExchangeConsumer],
         );
         x.perm(
             "RemoveRackHealthReportOverride",
-            vec![ForgeAdminCLI, DsxExchangeConsumer],
+            vec![ForgeAdminCLI, Health, DsxExchangeConsumer],
         );
         x.perm("DpuAgentUpgradeCheck", vec![Scout]);
         x.perm("DpuAgentUpgradePolicyAction", vec![ForgeAdminCLI]);
@@ -406,7 +406,7 @@ impl InternalRBACRules {
         x.perm("PersistValidationResult", vec![Scout]);
         x.perm("GetMachineValidationResults", vec![ForgeAdminCLI, Scout]);
         x.perm("MachineValidationCompleted", vec![Machineatron, Scout]);
-        x.perm("MachineSetAutoUpdate", vec![ForgeAdminCLI]);
+        x.perm("MachineSetAutoUpdate", vec![ForgeAdminCLI, Rla]);
         x.perm(
             "GetMachineValidationExternalConfig",
             vec![ForgeAdminCLI, Scout],
@@ -1018,6 +1018,12 @@ mod rbac_rule_tests {
         ));
         assert!(InternalRBACRules::allowed_from_static(
             "RemoveHealthReportOverride",
+            &[Principal::SpiffeServiceIdentifier(
+                "carbide-rla".to_string()
+            )]
+        ));
+        assert!(InternalRBACRules::allowed_from_static(
+            "MachineSetAutoUpdate",
             &[Principal::SpiffeServiceIdentifier(
                 "carbide-rla".to_string()
             )]

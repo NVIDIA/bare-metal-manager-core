@@ -817,11 +817,21 @@ impl EndpointExplorationReport {
         self.identify_dpu().is_some()
     }
 
-    /// Return `true` if the explored endpoint is a PowerShelf
+    /// Return `true` if the explored endpoint is a PowerShelf.
+    /// This checks if the chassis ID is /Chassis/powershelf, or,
+    /// if that fails, checks to see if /Chassis/chassis has
+    /// a manufacturer containing "lite-on".
+    ///
+    /// TODO(chet): These are obviously workarounds for now while
+    /// we work with vendors to update their BMC firmware.
     pub fn is_power_shelf(&self) -> bool {
-        self.chassis
-            .iter()
-            .any(|c| c.id.to_lowercase().contains("powershelf"))
+        self.chassis.iter().any(|c| {
+            c.id.to_lowercase().contains("powershelf")
+                || (c.id == "chassis"
+                    && c.manufacturer
+                        .as_ref()
+                        .is_some_and(|m| m.to_lowercase().contains("lite-on")))
+        })
     }
 
     /// Return `true` if the explored endpoint is a Switch
@@ -2331,5 +2341,57 @@ mod tests {
         assert_eq!(report.compute_tray_index, None);
         assert_eq!(report.topology_id, None);
         assert_eq!(report.revision_id, None);
+    }
+
+    #[test]
+    fn is_power_shelf_with_powershelf_chassis_id() {
+        let report = EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: "powershelf".to_string(),
+                manufacturer: Some("lite-on technology corp.".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(report.is_power_shelf());
+    }
+
+    #[test]
+    fn is_power_shelf_with_chassis_id_and_liteon_manufacturer() {
+        let report = EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: "chassis".to_string(),
+                manufacturer: Some("LITE-ON TECHNOLOGY CORP.".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(report.is_power_shelf());
+    }
+
+    #[test]
+    fn is_power_shelf_with_generic_chassis_id_not_liteon() {
+        let report = EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: "chassis".to_string(),
+                manufacturer: Some("Dell Inc.".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!report.is_power_shelf());
+    }
+
+    #[test]
+    fn is_power_shelf_with_no_manufacturer() {
+        let report = EndpointExplorationReport {
+            chassis: vec![Chassis {
+                id: "chassis".to_string(),
+                manufacturer: None,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!report.is_power_shelf());
     }
 }

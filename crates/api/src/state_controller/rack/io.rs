@@ -124,11 +124,11 @@ impl StateControllerIO for RackStateControllerIO {
             RackState::Discovering => ("discovering", ""),
             RackState::Validating { validating_state } => match validating_state {
                 RackValidationState::Pending => ("validation", "pending"),
-                RackValidationState::InProgress => ("validation", "in_progress"),
-                RackValidationState::Partial => ("validation", "partial"),
-                RackValidationState::FailedPartial => ("validation", "failed_partial"),
-                RackValidationState::Validated => ("validation", "validated"),
-                RackValidationState::Failed => ("validation", "failed"),
+                RackValidationState::InProgress { .. } => ("validation", "in_progress"),
+                RackValidationState::Partial { .. } => ("validation", "partial"),
+                RackValidationState::FailedPartial { .. } => ("validation", "failed_partial"),
+                RackValidationState::Validated { .. } => ("validation", "validated"),
+                RackValidationState::Failed { .. } => ("validation", "failed"),
             },
             RackState::Ready => ("ready", ""),
             RackState::Maintenance { maintenance_state } => match maintenance_state {

@@ -80,7 +80,7 @@ pub use types::{
     BmcPasswordProvider, ConfigPortsServiceType, DpuDeviceInfo, DpuErrorEvent, DpuEvent,
     DpuNodeInfo, DpuPhase, DpuReadyEvent, InitDpfResourcesConfig, MaintenanceEvent,
     RebootRequiredEvent, ServiceChainSwitch, ServiceConfigPort, ServiceConfigPortProtocol,
-    ServiceDefinition, ServiceInterface,
+    ServiceDefinition, ServiceInterface, ServiceNAD, ServiceNADResourceType,
 };
 pub use watcher::{DpuWatcher, DpuWatcherBuilder};
 

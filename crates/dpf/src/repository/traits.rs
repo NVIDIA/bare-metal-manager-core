@@ -34,6 +34,7 @@ use crate::crds::dpus_generated::DPU;
 use crate::crds::dpuservicechains_generated::DPUServiceChain;
 use crate::crds::dpuserviceconfigurations_generated::DPUServiceConfiguration;
 use crate::crds::dpuserviceinterfaces_generated::DPUServiceInterface;
+use crate::crds::dpuservicenads_generated::DPUServiceNAD;
 use crate::crds::dpuservices_generated::DPUService;
 use crate::crds::dpuservicetemplates_generated::DPUServiceTemplate;
 use crate::crds::dpusets_generated::DPUSet;
@@ -194,6 +195,14 @@ pub trait DpuServiceRepository: Send + Sync {
     async fn list(&self, namespace: &str) -> Result<Vec<DPUService>, DpfError>;
 }
 
+/// Repository for DPUServiceNAD resources.
+#[async_trait]
+pub trait DpuServiceNADRepository: Send + Sync {
+    async fn get(&self, name: &str, namespace: &str) -> Result<Option<DPUServiceNAD>, DpfError>;
+    async fn list(&self, namespace: &str) -> Result<Vec<DPUServiceNAD>, DpfError>;
+    async fn apply(&self, nad: &DPUServiceNAD) -> Result<DPUServiceNAD, DpfError>;
+}
+
 /// Repository for DPUServiceChain resources.
 #[async_trait]
 pub trait DpuServiceChainRepository: Send + Sync {
@@ -210,6 +219,7 @@ pub trait DpuServiceInterfaceRepository: Send + Sync {
         namespace: &str,
     ) -> Result<Option<DPUServiceInterface>, DpfError>;
     async fn list(&self, namespace: &str) -> Result<Vec<DPUServiceInterface>, DpfError>;
+    async fn apply(&self, iface: &DPUServiceInterface) -> Result<DPUServiceInterface, DpfError>;
 }
 
 /// Repository for Kubernetes ConfigMaps and Secrets.

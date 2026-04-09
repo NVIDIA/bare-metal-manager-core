@@ -409,6 +409,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         split_prefixes_by_family(&conf.deny_prefixes, 1000 + deny_prefix_index_offset);
 
     let params = TmplNvue {
+        HasBgpLeafSessionPassword: conf.bgp_leaf_session_password.is_some(),
+        BgpLeafSessionPassword: conf.bgp_leaf_session_password.unwrap_or_default(),
         UseAdminNetwork: conf.use_admin_network,
         LoopbackIP: conf.loopback_ip,
         HasSiteGlobalVpcVni: conf.site_global_vpc_vni.is_some(),
@@ -874,6 +876,7 @@ pub struct NvueConfig {
     pub site_global_vpc_vni: Option<u32>,
     pub common_internal_route_target: Option<RouteTargetConfig>,
     pub additional_route_target_imports: Vec<RouteTargetConfig>,
+    pub bgp_leaf_session_password: Option<String>,
 
     pub secondary_overlay_vtep_ip: Option<String>,
     pub vf_intercept_bridge_port_name: Option<String>,
@@ -1140,6 +1143,11 @@ struct TmplNvue {
     StorageLoopback: String,  // XXX (Classic, L3)
     DPUstorageprefix: String, // XXX (Classic, L3)
     IncludeBridge: bool,
+
+    HasBgpLeafSessionPassword: bool,
+    /// A password to use for the BGP session with the
+    /// leaf TOR.
+    BgpLeafSessionPassword: String,
 }
 
 #[allow(non_snake_case)]
@@ -1462,6 +1470,7 @@ mod tests {
     /// Uses EthernetVirtualizer (ETV) by default.
     fn minimal_nvue_config() -> NvueConfig {
         NvueConfig {
+            bgp_leaf_session_password: None,
             is_fnn: false,
             vpc_virtualization_type: VpcVirtualizationType::EthernetVirtualizer,
             use_admin_network: false,

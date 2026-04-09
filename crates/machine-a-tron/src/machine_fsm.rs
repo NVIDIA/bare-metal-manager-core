@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use bmc_mock::MockPowerState;
+use bmc_mock::{BmcEvent, MockPowerState};
 
 use crate::machine_state_machine::OsImage;
 
@@ -153,7 +153,13 @@ impl MachineFsm {
 
     fn fsm_init(self, event: Event) -> (Self, Vec<Action>) {
         match event {
-            Event::TimerAlert(Timer::MachineOn) => (self, vec![Action::Dhcp(DhcpType::Machine)]),
+            Event::TimerAlert(Timer::MachineOn) => (
+                self,
+                vec![
+                    Action::BmcEvent(BmcEvent::PowerOn),
+                    Action::Dhcp(DhcpType::Machine),
+                ],
+            ),
             Event::DhcpComplete(DhcpType::Machine) => {
                 (Self::DhcpComplete, vec![Action::PxeBootRequest])
             }
@@ -183,7 +189,8 @@ impl MachineFsm {
                     OsImage::DpuAgent => OsFsm::DpuAgent(DpuAgentFsm::Discovery),
                     OsImage::Scout => OsFsm::Scout(ScoutFsm::Discovery),
                 };
-                let actions = os_fsm.init_actions();
+                let mut actions = os_fsm.init_actions();
+                actions.push(Action::BmcEvent(BmcEvent::BootCompleted));
                 (Self::MachineUp { os_fsm }, actions)
             }
             _ => (self, vec![]),
@@ -206,7 +213,10 @@ impl MachineFsm {
             Event::PowerOff => (Self::BmcOnlyMachineDown, vec![]),
             Event::PowerCycle => (
                 Self::BmcOnlyMachineDown,
-                vec![Action::SetTimer(Timer::PowerCycle)],
+                vec![
+                    Action::CleanupOnPowerOff,
+                    Action::SetTimer(Timer::PowerCycle),
+                ],
             ),
             _ => (self, vec![]),
         }
@@ -216,7 +226,10 @@ impl MachineFsm {
         match event {
             Event::PowerCycle => (
                 Self::BmcOnlyMachineDown,
-                vec![Action::SetTimer(Timer::PowerCycle)],
+                vec![
+                    Action::CleanupOnPowerOff,
+                    Action::SetTimer(Timer::PowerCycle),
+                ],
             ),
             Event::PowerOn | Event::TimerAlert(Timer::PowerCycle) => {
                 (Self::BmcOnlyMachineUp, vec![])
@@ -264,6 +277,7 @@ pub enum Action {
     AgentControlRequest(OsImage),
     DpuAgentNetworkObservation,
     CleanupOnPowerOff,
+    BmcEvent(BmcEvent),
 }
 
 #[derive(Copy, Clone, Debug)]

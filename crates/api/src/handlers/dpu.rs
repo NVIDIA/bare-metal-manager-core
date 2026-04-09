@@ -27,6 +27,7 @@ use db::{
     DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_security_group,
     network_segment,
 };
+use forge_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use futures_util::future::join_all;
 use itertools::Itertools;
 use model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
@@ -45,7 +46,7 @@ use crate::api::{Api, log_machine_id, log_request_data};
 use crate::cfg::file::VpcIsolationBehaviorType;
 use crate::handlers::extension_service;
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::{CarbideError, ethernet_virtualization};
+use crate::{CarbideError, cfg, ethernet_virtualization};
 
 /// vxlan48 is special HBN single vxlan device. It handles networking between machines on the
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
@@ -719,6 +720,20 @@ pub(crate) async fn get_managed_host_network_config_inner(
             .unwrap_or_default(),
         instance: maybe_instance,
         dpu_extension_services: extension_services,
+        bgp_leaf_session_password: match api.runtime_config.bgp_leaf_session_password.as_ref() {
+            Some(p) => match p {
+                cfg::file::BgpLeafSessionPassword::SiteWide => Some(
+                    get_bgp_password(
+                        &api.credential_manager,
+                        CredentialKey::Bgp {
+                            credential_type: BgpCredentialType::SiteWideLeafPassword,
+                        },
+                    )
+                    .await?,
+                ),
+            },
+            None => None,
+        },
     };
 
     // If this all worked, we shouldn't emit a log line
@@ -1239,4 +1254,26 @@ pub(crate) async fn list_dpu_waiting_for_reprovisioning(
         .collect_vec();
 
     Ok(Response::new(rpc::DpuReprovisioningListResponse { dpus }))
+}
+
+/// Get the configured BGP password.
+pub(crate) async fn get_bgp_password(
+    credential_reader: &dyn forge_secrets::credentials::CredentialReader,
+    credential_key: forge_secrets::credentials::CredentialKey,
+) -> Result<String, CarbideError> {
+    let credential = credential_reader
+        .get_credentials(&credential_key)
+        .await
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Could not find the credential: {}", e),
+        })?;
+
+    Ok(match credential {
+        Some(Credentials::UsernamePassword { password, .. }) => password,
+        _ => {
+            return Err(CarbideError::Internal {
+                message: "Could not find BGP credential".to_string(),
+            });
+        }
+    })
 }

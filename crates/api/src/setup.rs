@@ -417,6 +417,15 @@ pub async fn start_api(
         let services = vec![carbide_dpf::services::dts_service(
             &carbide_dpf::services::ServiceRegistryConfig::default(),
         )];
+        let reg = crate::dpf_services::CarbideServiceRegistryConfig::default();
+        let v2_services = vec![
+            carbide_dpf::services::dts_service(
+                &carbide_dpf::services::ServiceRegistryConfig::default(),
+            ),
+            crate::dpf_services::dhcp_server_service(&reg),
+            crate::dpf_services::doca_hbn_service(&reg),
+            crate::dpf_services::dpu_agent_service(&reg),
+        ];
 
         let bfcfg_template = if carbide_config.dpf.bfcfg_enabled {
             Some(crate::dpf::render_bfcfg(&carbide_config)?)
@@ -445,8 +454,7 @@ pub async fn start_api(
                 carbide_config.dpf.deployment_name.clone()
             },
             services: if carbide_config.dpf.v2 {
-                // Enable all the services.
-                Vec::new()
+                v2_services
             } else {
                 services
             },

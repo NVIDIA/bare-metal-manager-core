@@ -48,7 +48,9 @@ use crate::dpu::DpuNetworkInterfaces;
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::duppet::{SummaryFormat, SyncOptions};
-use crate::ethernet_virtualization::{NvueUpdateFlavor, ServiceAddresses};
+use crate::ethernet_virtualization::{
+    InterfaceTranslationMode, NvueUpdateFlavor, ServiceAddresses,
+};
 use crate::fmds_client::FmdsUpdater;
 use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
@@ -354,6 +356,11 @@ pub async fn setup_and_run(
         &options.agent_platform_type,
     );
 
+    let dhcp_interface_translation_mode = options
+        .dhcp_server_interface_prepend
+        .as_ref()
+        .map(|prefix| InterfaceTranslationMode::Prepend(prefix.clone()));
+
     let mut main_loop = MainLoop {
         forge_client_config,
         build_version,
@@ -381,6 +388,7 @@ pub async fn setup_and_run(
         network_monitor_handle,
         extension_service_manager,
         nvue_client,
+        dhcp_interface_translation_mode,
     };
 
     main_loop.run().await
@@ -413,6 +421,7 @@ struct MainLoop {
     close_sender: watch::Sender<bool>,
     extension_service_manager: extension_services::ExtensionServiceManager,
     nvue_client: Option<nvue_client::NvueClient>,
+    dhcp_interface_translation_mode: Option<InterfaceTranslationMode>,
 }
 
 struct IterationResult {
@@ -634,6 +643,7 @@ impl MainLoop {
                         &self.service_addrs,
                         self.hbn_device_names.clone(),
                         self.options.dhcp_grpc_server.clone(),
+                        self.dhcp_interface_translation_mode.as_ref(),
                     )
                     .await;
 

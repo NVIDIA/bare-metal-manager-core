@@ -20,8 +20,11 @@ use std::io::Write;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
-use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialType, Credentials};
+use forge_secrets::credentials::{
+    BgpCredentialType, BmcCredentialType, CredentialKey, CredentialType, Credentials,
+};
 use mac_address::MacAddress;
+use model::ConfigValidationError;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use tonic::{Request, Response, Status};
 
@@ -34,6 +37,12 @@ use crate::handlers::utils::convert_and_log_machine_id;
 const DEFAULT_FORGE_ADMIN_BMC_USERNAME: &str = "root";
 
 pub const DEFAULT_NMX_M_NAME: &str = "forge-nmx-m";
+
+/// The maximum size that will be accepted in the underlying BGP config
+/// on the DPU.  This was directly verified by checking the maximum accepted
+/// by FRR on the DPU.  NVUE will silently accept seemingly any length,
+/// but FRR reloads fail above this length.
+pub const MAX_BGP_PASSWORD_LENGTH: usize = 80;
 
 pub(crate) async fn create_credential(
     api: &Api,
@@ -239,6 +248,26 @@ pub(crate) async fn create_credential(
                 return Err(CarbideError::InvalidArgument("missing username".to_string()).into());
             }
         }
+        rpc::CredentialType::BgpSiteWideLeafPassword => {
+            api.credential_manager
+                .set_credentials(
+                    &CredentialKey::Bgp {
+                        credential_type: BgpCredentialType::SiteWideLeafPassword,
+                    },
+                    &Credentials::UsernamePassword {
+                        username: "".to_string(),
+                        password: if password.len() <= MAX_BGP_PASSWORD_LENGTH {
+                            password
+                        } else {
+                            return Err(CarbideError::InvalidConfiguration(ConfigValidationError::InvalidValue(format!("BGP password length exceeds {MAX_BGP_PASSWORD_LENGTH} characters"))).into())
+                        },
+                    },
+                )
+                .await
+                .map_err(|e| {
+                    CarbideError::internal(format!("Error setting BGP credential: {e:?}"))
+                })?;
+        }
     };
 
     Ok(Response::new(rpc::CredentialCreationResult {}))
@@ -311,6 +340,16 @@ pub(crate) async fn delete_credential(
         | rpc::CredentialType::BmcForgeAdminByMacAddress
         | rpc::CredentialType::NmxM => {
             // Not support delete credential for these types
+        }
+        rpc::CredentialType::BgpSiteWideLeafPassword => {
+            api.credential_manager
+                .delete_credentials(&CredentialKey::Bgp {
+                    credential_type: BgpCredentialType::SiteWideLeafPassword,
+                })
+                .await
+                .map_err(|e| {
+                    CarbideError::internal(format!("Error deleting BGP credential: {e:?}"))
+                })?;
         }
     };
 

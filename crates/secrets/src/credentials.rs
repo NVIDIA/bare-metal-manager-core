@@ -336,6 +336,12 @@ pub enum BmcCredentialType {
     BmcForgeAdmin { bmc_mac_address: MacAddress },
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum BgpCredentialType {
+    // Site Wide Credentials
+    SiteWideLeafPassword,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MqttCredentialType {
     Dpa,
@@ -353,6 +359,9 @@ pub enum CredentialKey {
     },
     DpuRedfish {
         credential_type: CredentialType,
+    },
+    Bgp {
+        credential_type: BgpCredentialType,
     },
     HostRedfish {
         credential_type: CredentialType,
@@ -481,6 +490,9 @@ impl CredentialKey {
             CredentialKey::MachineIdentityEncryptionKey { key_id } => {
                 Cow::from(format!("machine_identity/encryption_keys/{key_id}"))
             }
+            CredentialKey::Bgp { credential_type } => match credential_type {
+                BgpCredentialType::SiteWideLeafPassword => Cow::from("bgp/leaf/site/auth"),
+            },
         }
     }
 }

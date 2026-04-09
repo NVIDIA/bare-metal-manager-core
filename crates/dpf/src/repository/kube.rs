@@ -43,6 +43,7 @@ use crate::crds::dpus_generated::DPU;
 use crate::crds::dpuservicechains_generated::DPUServiceChain;
 use crate::crds::dpuserviceconfigurations_generated::DPUServiceConfiguration;
 use crate::crds::dpuserviceinterfaces_generated::DPUServiceInterface;
+use crate::crds::dpuservicenads_generated::DPUServiceNAD;
 use crate::crds::dpuservices_generated::DPUService;
 use crate::crds::dpuservicetemplates_generated::DPUServiceTemplate;
 use crate::crds::dpusets_generated::DPUSet;
@@ -441,6 +442,33 @@ impl DpuServiceConfigurationRepository for KubeRepository {
 }
 
 #[async_trait]
+impl DpuServiceNADRepository for KubeRepository {
+    async fn get(&self, name: &str, namespace: &str) -> Result<Option<DPUServiceNAD>, DpfError> {
+        let api = self.api(namespace);
+        Ok(api.get_opt(name).await?)
+    }
+
+    async fn list(&self, namespace: &str) -> Result<Vec<DPUServiceNAD>, DpfError> {
+        let api = self.api(namespace);
+        let list = api.list(&ListParams::default()).await?;
+        Ok(list.items)
+    }
+
+    async fn apply(&self, nad: &DPUServiceNAD) -> Result<DPUServiceNAD, DpfError> {
+        let namespace = nad.meta().namespace.as_deref().unwrap_or("default");
+        let name = nad.meta().name.as_deref().unwrap_or("default");
+        let api = self.api(namespace);
+        Ok(api
+            .patch(
+                name,
+                &PatchParams::apply("carbide-dpf-sdk").force(),
+                &Patch::Apply(nad),
+            )
+            .await?)
+    }
+}
+
+#[async_trait]
 impl DpuServiceRepository for KubeRepository {
     async fn get(&self, name: &str, namespace: &str) -> Result<Option<DPUService>, DpfError> {
         let api = self.api(namespace);
@@ -483,6 +511,19 @@ impl DpuServiceInterfaceRepository for KubeRepository {
         let api = self.api(namespace);
         let list = api.list(&ListParams::default()).await?;
         Ok(list.items)
+    }
+
+    async fn apply(&self, iface: &DPUServiceInterface) -> Result<DPUServiceInterface, DpfError> {
+        let namespace = iface.meta().namespace.as_deref().unwrap_or("default");
+        let name = iface.meta().name.as_deref().unwrap_or("default");
+        let api = self.api(namespace);
+        Ok(api
+            .patch(
+                name,
+                &PatchParams::apply("carbide-dpf-sdk").force(),
+                &Patch::Apply(iface),
+            )
+            .await?)
     }
 }
 

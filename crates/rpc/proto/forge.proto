@@ -1113,6 +1113,7 @@ enum CredentialType {
   RootBmcByMacAddress = 8;
   BmcForgeAdminByMacAddress = 9;
   NmxM = 10;
+  BgpSiteWideLeafPassword = 11;
 }
 
 message CredentialCreationRequest {
@@ -3658,6 +3659,10 @@ message ManagedHostNetworkConfigResponse {
   // will still use the dynamically allocated VNI for deriving
   // route-targets.
   optional uint32 site_global_vpc_vni = 117;
+
+  // The password the DPU should use when configuring a
+  // BGP session with the its TOR
+  optional string bgp_leaf_session_password = 118;
 }
 
 message TrafficInterceptConfig {

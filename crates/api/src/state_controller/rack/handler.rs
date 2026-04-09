@@ -32,6 +32,10 @@ use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 
+//------------------------------------------------------------------------------
+
+// STATE HANDLER IMPLEMENTATION
+
 #[derive(Debug, Default, Clone)]
 pub struct RackStateHandler {}
 

@@ -214,6 +214,12 @@ pub struct NvueOptions {
         help = "Full JSON representation of a RoutingProfile (see nvue.rs)."
     )]
     pub ct_routing_profile: Option<String>,
+
+    #[clap(
+        long,
+        help = "BGP password to use with session between the DPU and the TOR"
+    )]
+    pub bgp_leaf_session_password: Option<String>,
 }
 
 #[derive(Parser, Debug)]
@@ -323,6 +329,13 @@ pub struct RunOptions {
         env = "DISCOVERY_INFO_FILE"
     )]
     pub discovery_info_file: Option<PathBuf>,
+
+    #[clap(
+        long,
+        help = "Prepend this string to interface names before sending them to the DHCP server",
+        env = "DHCP_SERVER_INTERFACE_PREPEND"
+    )]
+    pub dhcp_server_interface_prepend: Option<String>,
 }
 
 #[derive(Parser, Debug, Clone)]

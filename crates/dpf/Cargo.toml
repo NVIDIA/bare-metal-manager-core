@@ -59,6 +59,7 @@ tower-test = { workspace = true }
 hyper = { features = ["client", "http1"], workspace = true }
 http = { workspace = true }
 once_cell = { workspace = true }
+serde_yaml = { workspace = true }
 
 [build-dependencies]
 # requires this patch version for kopium. without this we have to specify a specific anyhow patch version in the main workspace.

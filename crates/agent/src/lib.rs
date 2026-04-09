@@ -396,6 +396,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                         .map(|r| serde_json::from_str::<nvue::RoutingProfile>(&r))
                         .transpose()?,
                     network_security_groups,
+                    bgp_leaf_session_password: opts.bgp_leaf_session_password,
                 };
                 let contents = nvue::build(conf)?;
                 std::fs::write(&opts.path, contents)?;

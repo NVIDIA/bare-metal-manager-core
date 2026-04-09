@@ -411,6 +411,12 @@ impl MachineStateMachine {
                     }
                     Err(_) => return Some(self.config.run_interval_working),
                 },
+                FsmAction::BmcEvent(event) => {
+                    if let Some(bmc_state) = &self.bmc_state {
+                        bmc_state.on_event(event)
+                    }
+                    self.actions.pop_front();
+                }
                 FsmAction::InitialDiscoveryRequest(os_image) => {
                     match self.initial_discovery_request(*os_image).await {
                         Ok(None) => {
