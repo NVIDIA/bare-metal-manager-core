@@ -298,7 +298,9 @@ async fn redfish_reboot_host(
         ..Default::default()
     };
 
-    let pool = libredfish::RedfishClientPool::builder().build()?;
+    let pool = libredfish::RedfishClientPool::builder()
+        .danger_accept_invalid_certs()
+        .build()?;
     let client: Box<dyn Redfish> = pool.create_client(endpoint).await?;
 
     // Snapshot the boot progress timestamp before restarting.

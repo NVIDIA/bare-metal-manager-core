@@ -77,7 +77,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         password: args.password,
     };
 
-    let rf_pool = libredfish::RedfishClientPool::builder().build()?;
+    let rf_pool = libredfish::RedfishClientPool::builder()
+        .danger_accept_invalid_certs()
+        .build()?;
     let proxy_address = Arc::new(ArcSwap::new(None.into()));
     let credential_provider = Arc::new(TestCredentialManager::new(fallback_credentials.clone()));
 

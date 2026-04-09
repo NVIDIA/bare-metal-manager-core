@@ -143,6 +143,7 @@ pub async fn run(
 
     let redfish_pool = {
         let rf_pool = libredfish::RedfishClientPool::builder()
+            .danger_accept_invalid_certs()
             .build()
             .map_err(CarbideError::from)?;
 
