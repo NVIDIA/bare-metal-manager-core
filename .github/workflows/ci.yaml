@@ -163,13 +163,21 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
           VERSION: ${{ steps.version.outputs.version }}
-          BUILD_CONTAINER_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_container }}
-          RUNTIME_CONTAINER_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.runtime_container }}
-          RUNTIME_CONTAINER_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.runtime_container_aarch64 }}
-          BUILD_CONTAINER_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_container_aarch64 }}
-          BUILD_ARTIFACTS_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_x86_64 }}
-          BUILD_ARTIFACTS_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_aarch64 }}
-          POWERDNS_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.powerdns_container }}
+          # FIXME: Bring back after test
+          # BUILD_CONTAINER_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_container }}
+          # RUNTIME_CONTAINER_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.runtime_container }}
+          # RUNTIME_CONTAINER_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.runtime_container_aarch64 }}
+          # BUILD_CONTAINER_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_container_aarch64 }}
+          # BUILD_ARTIFACTS_X86_64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_x86_64 }}
+          # BUILD_ARTIFACTS_AARCH64_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.build_artifacts_aarch64 }}
+          # POWERDNS_DOCKERFILE_CHANGED: ${{ steps.build-container-changes.outputs.powerdns_container }}
+          # FIXME: Test later
+          BUILD_CONTAINER_X86_64_DOCKERFILE_CHANGED: true
+          RUNTIME_CONTAINER_X86_64_DOCKERFILE_CHANGED: true
+          RUNTIME_CONTAINER_AARCH64_DOCKERFILE_CHANGED: true
+          BUILD_CONTAINER_AARCH64_DOCKERFILE_CHANGED: true
+          BUILD_ARTIFACTS_X86_64_DOCKERFILE_CHANGED: true
+          BUILD_ARTIFACTS_AARCH64_DOCKERFILE_CHANGED: true
           PROTO_FILES_CHANGED: ${{ steps.build-container-changes.outputs.proto_files }}
           SOURCE_FILES_CHANGED: ${{ steps.build-container-changes.outputs.source_files }}
         run: |
