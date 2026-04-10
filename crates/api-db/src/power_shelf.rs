@@ -346,15 +346,18 @@ pub async fn find_power_shelf_endpoints_by_ids(
     db: impl crate::db_read::DbReader<'_>,
     power_shelf_ids: &[PowerShelfId],
 ) -> DatabaseResult<Vec<PowerShelfEndpointRow>> {
+    // DISTINCT ON guards against a machine_interface having multiple addresses
     let sql = r#"
-        SELECT
+        SELECT DISTINCT ON (ps.id)
             ps.id                AS power_shelf_id,
             eps.bmc_mac_address  AS pmc_mac,
-            eps.bmc_ip_address       AS pmc_ip
+            mia.address          AS pmc_ip
         FROM power_shelves ps
         JOIN expected_power_shelves eps ON eps.serial_number = ps.config->>'name'
+        JOIN machine_interfaces mi ON mi.mac_address = eps.bmc_mac_address
+        JOIN machine_interface_addresses mia ON mia.interface_id = mi.id
         WHERE ps.id = ANY($1)
-          AND eps.bmc_ip_address IS NOT NULL
+        ORDER BY ps.id
     "#;
 
     sqlx::query_as(sql)
