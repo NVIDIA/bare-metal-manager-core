@@ -588,7 +588,7 @@ jobs:
       build_type: boot
       cargo_make_task: build-boot-artifacts-bfb-ci
       build_container: nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}
-      runner: linux-arm64-cpu8
+      runner: linux-arm64-cpu16
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
       inject_extras: true
@@ -631,7 +631,7 @@ jobs:
       build_type: ephemeral
       cargo_make_task: create-ephemeral-image-arm-host-ci
       version: ${{ needs.prepare.outputs.version }}
-      runner: linux-arm64-cpu8
+      runner: linux-arm64-cpu16
       use_container: false
       sa_enablement: true
       inject_extras: true
