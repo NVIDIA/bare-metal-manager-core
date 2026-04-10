@@ -15,13 +15,11 @@
  * limitations under the License.
  */
 
-use std::process;
-
 use carbide_host_support::hardware_enumeration::enumerate_hardware;
 use carbide_host_support::registration;
 use carbide_host_support::registration::RegistrationError;
 use carbide_uuid::machine::MachineId;
-use tracing::{error, info};
+use tracing::info;
 use tss_esapi::Context;
 use tss_esapi::handles::KeyHandle;
 
@@ -53,7 +51,7 @@ pub async fn run(
     if !is_dpu {
         // set the max auth fail to 256 as a stop gap measure to prevent machines from failing during
         // repeated reingestion cycle
-        set_tpm_max_auth_fail()?;
+        crate::tpm::set_tpm_max_auth_fail()?;
 
         // create tss context
         let mut tss_ctx = attest::create_context_from_path(tpm_path)
@@ -176,39 +174,4 @@ pub async fn run(
     }
 
     Ok((machine_id, interface_id))
-}
-
-// this is taken from here - https://superuser.com/questions/1404738/tpm-2-0-hardware-error-da-lockout-mode
-fn set_tpm_max_auth_fail() -> Result<(), CarbideClientError> {
-    let output = process::Command::new("tpm2_dictionarylockout")
-        .arg("--setup-parameters")
-        .arg("--max-tries=256")
-        .arg("--clear-lockout")
-        .output()
-        .map_err(|e| {
-            CarbideClientError::TpmError(format!("tpm2_dictionarylockout call failed: {e}"))
-        })?;
-    info!(
-        "Tried setting TPM_PT_MAX_AUTH_FAIL to 256. Return code is: {0}",
-        output
-            .status
-            .code()
-            .map(|v| v.to_string())
-            .unwrap_or("NO RETURN CODE PRESENT".to_string())
-    );
-
-    if !output.stderr.is_empty() {
-        error!(
-            "TPM_PT_MAX_AUTH_FAIL stderr is {0}",
-            String::from_utf8(output.stderr).unwrap_or_else(|_| "Invalid UTF8".to_string())
-        );
-    }
-    if !output.stdout.is_empty() {
-        info!(
-            "TPM_PT_MAX_AUTH_FAIL stdout is {0}",
-            String::from_utf8(output.stdout).unwrap_or_else(|_| "Invalid UTF8".to_string())
-        );
-    }
-
-    Ok(())
 }

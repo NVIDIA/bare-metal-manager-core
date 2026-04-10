@@ -834,7 +834,7 @@ pub(crate) async fn run(config: &Options, machine_id: &MachineId) -> CarbideClie
     Ok(())
 }
 
-pub async fn run_no_api() -> Result<(), CarbideClientError> {
+pub async fn run_no_api(tpm_path: &str) -> Result<(), CarbideClientError> {
     if !is_host() {
         tracing::info!("No cleanup needed on DPU.");
         return Ok(());
@@ -845,6 +845,8 @@ pub async fn run_no_api() -> Result<(), CarbideClientError> {
         Err(_) => "None".to_string(),
     };
     tracing::info!("stdin is {}", stdin_link);
+
+    crate::tpm::clear_tpm_platform_hierarchy(tpm_path)?;
 
     if stdin_link == "/dev/null" {
         match all_nvme_cleanup().await {
