@@ -404,6 +404,17 @@ impl RedfishClientPool for RedfishClientPoolImpl {
                 .create_client_with_custom_headers(endpoint, custom_headers)
                 .await
                 .map_err(RedfishClientCreationError::RedfishError),
+            // Unknown means "no vendor" — return a standard client without
+            // making any HTTP calls (used by the anonymous probe client).
+            // This restores the behavior of the old `initialize: false` path
+            // which called create_standard_client. The full initialization
+            // path (create_client_with_vendor) makes HTTP calls to /Systems,
+            // /Managers, etc. that fail with 401 on BMCs requiring auth.
+            Some(RedfishVendor::Unknown) => self
+                .pool
+                .create_standard_client_with_custom_headers(endpoint, custom_headers)
+                .map_err(RedfishClientCreationError::RedfishError)
+                .map(|c| c as Box<dyn Redfish>),
             // Use the provided vendor directly.
             Some(vendor) => self
                 .pool
