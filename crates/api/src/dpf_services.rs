@@ -47,18 +47,18 @@ pub const DOCA_HBN_SERVICE_NETWORK: &str = "mybrhbn";
 /// DHCP Service Definitions
 pub const DHCP_SERVER_SERVICE_NAME: &str = "carbide-dhcp-server";
 pub const DHCP_SERVER_SERVICE_HELM_NAME: &str = "carbide-dhcp-server";
-pub const DHCP_SERVER_SERVICE_HELM_VERSION: &str = "2.0.9";
+pub const DHCP_SERVER_SERVICE_HELM_VERSION: &str = env!("CARBIDE_BUILD_HELM_VERSION");
 pub const DHCP_SERVER_SERVICE_IMAGE_NAME: &str = "forge-dhcp-server";
-pub const DHCP_SERVER_SERVICE_IMAGE_TAG: &str = "v1.9.5-arm64-distroless";
+pub const DHCP_SERVER_SERVICE_IMAGE_TAG: &str = env!("CARBIDE_BUILD_GIT_TAG");
 pub const DHCP_SERVER_SERVICE_NAD_NAME: &str = "mybrsfc-dhcp";
 pub const DHCP_SERVER_SERVICE_MTU: i64 = 1500;
 
 // DPU Agent Service Definitions
 pub const DPU_AGENT_SERVICE_NAME: &str = "carbide-dpu-agent";
 pub const DPU_AGENT_SERVICE_HELM_NAME: &str = "carbide-dpu-agent";
-pub const DPU_AGENT_SERVICE_HELM_VERSION: &str = "0.4.0";
+pub const DPU_AGENT_SERVICE_HELM_VERSION: &str = env!("CARBIDE_BUILD_HELM_VERSION");
 pub const DPU_AGENT_SERVICE_IMAGE_NAME: &str = "forge-dpu-agent";
-pub const DPU_AGENT_SERVICE_IMAGE_TAG: &str = "v0.3-arm64-multistage";
+pub const DPU_AGENT_SERVICE_IMAGE_TAG: &str = env!("CARBIDE_BUILD_GIT_TAG");
 
 /// Extended registry configuration for Carbide DPU services.
 #[derive(Debug, Clone)]
@@ -161,7 +161,12 @@ fn carbide_service(
 #[allow(dead_code)]
 /// OpenTelemetry Collector service definition.
 pub fn otelcol_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
-    let mut svc = carbide_service(reg, "carbide-otelcol", "otelcol-contrib", "0.1.0");
+    let mut svc = carbide_service(
+        reg,
+        "carbide-otelcol",
+        "otelcol-contrib",
+        env!("CARBIDE_BUILD_HELM_VERSION"),
+    );
     svc.config_ports = Some(vec![ServiceConfigPort {
         name: "prometheus".to_string(),
         port: 9999,
@@ -240,6 +245,6 @@ pub fn dpu_otel_agent_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefi
         reg,
         "carbide-dpu-otel-agent",
         "forge-dpu-otel-agent",
-        "0.1.0",
+        env!("CARBIDE_BUILD_HELM_VERSION"),
     )
 }

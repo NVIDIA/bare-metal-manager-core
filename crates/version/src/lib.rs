@@ -94,6 +94,19 @@ pub fn build() {
     println!("cargo:rustc-env=FORGE_BUILD_GIT_TAG={build_version}");
     println!("cargo:rustc-env=CARBIDE_BUILD_GIT_TAG={build_version}");
 
+    // Helm chart version: strip leading 'v' and replace last '-' with '.'
+    // e.g. v1.2.3-42-gabcdef1 -> 1.2.3-42.gabcdef1
+    // Matches the HELM_VERSION transformation in ci.yaml's prepare job.
+    let helm_version = build_version.strip_prefix('v').unwrap_or(&build_version);
+    let helm_version = if let Some(pos) = helm_version.rfind('-') {
+        let mut s = helm_version.to_string();
+        s.replace_range(pos..=pos, ".");
+        s
+    } else {
+        helm_version.to_string()
+    };
+    println!("cargo:rustc-env=CARBIDE_BUILD_HELM_VERSION={helm_version}");
+
     // Only re-calculate all of this when there's a new commit... but use an env var to allow
     // avoiding rebuilds when the commit hash changes. (This is good for local development iteration
     // loops when we want to avoid recompiling and when we don't really care if the generated
@@ -199,6 +212,9 @@ macro_rules! v {
     };
     (build_hostname) => {
         option_env!("FORGE_BUILD_HOSTNAME").unwrap_or_default()
+    };
+    (helm_version) => {
+        option_env!("CARBIDE_BUILD_HELM_VERSION").unwrap_or_default()
     };
 }
 
