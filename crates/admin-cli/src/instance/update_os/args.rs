@@ -17,7 +17,7 @@
 
 use carbide_uuid::instance::InstanceId;
 use clap::Parser;
-use rpc::forge::OperatingSystemConfig;
+use rpc::forge::InstanceOperatingSystemConfig;
 
 #[derive(Parser, Debug)]
 pub struct Args {
@@ -29,5 +29,5 @@ pub struct Args {
         help = "OS definition in JSON format",
         value_name = "OS_JSON"
     )]
-    pub os: OperatingSystemConfig,
+    pub os: InstanceOperatingSystemConfig,
 }

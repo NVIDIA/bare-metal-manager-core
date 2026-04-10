@@ -196,11 +196,11 @@ async fn test_zero_dpu_instance_allocation_explicit_network_config(
                     tenant_keyset_ids: vec![],
                 }),
                 network_security_group_id: None,
-                os: Some(forge::OperatingSystemConfig {
+                os: Some(forge::InstanceOperatingSystemConfig {
                     phone_home_enabled: false,
                     run_provisioning_instructions_on_every_boot: false,
                     user_data: None,
-                    variant: Some(forge::operating_system_config::Variant::Ipxe(
+                    variant: Some(forge::instance_operating_system_config::Variant::Ipxe(
                         forge::InlineIpxe {
                             ipxe_script: "exit".to_string(),
                             user_data: None,
@@ -292,11 +292,11 @@ async fn test_zero_dpu_instance_allocation_no_network_config(
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
-                os: Some(forge::OperatingSystemConfig {
+                os: Some(forge::InstanceOperatingSystemConfig {
                     phone_home_enabled: false,
                     run_provisioning_instructions_on_every_boot: false,
                     user_data: None,
-                    variant: Some(forge::operating_system_config::Variant::Ipxe(
+                    variant: Some(forge::instance_operating_system_config::Variant::Ipxe(
                         forge::InlineIpxe {
                             ipxe_script: "exit".to_string(),
                             user_data: None,
@@ -388,11 +388,11 @@ async fn test_zero_dpu_instance_allocation_multi_segment_no_network_config(
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
-                os: Some(forge::OperatingSystemConfig {
+                os: Some(forge::InstanceOperatingSystemConfig {
                     phone_home_enabled: false,
                     run_provisioning_instructions_on_every_boot: false,
                     user_data: None,
-                    variant: Some(forge::operating_system_config::Variant::Ipxe(
+                    variant: Some(forge::instance_operating_system_config::Variant::Ipxe(
                         forge::InlineIpxe {
                             ipxe_script: "exit".to_string(),
                             user_data: None,
@@ -515,11 +515,11 @@ async fn test_reject_single_dpu_instance_allocation_no_network_config(
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
-                os: Some(forge::OperatingSystemConfig {
+                os: Some(forge::InstanceOperatingSystemConfig {
                     phone_home_enabled: false,
                     run_provisioning_instructions_on_every_boot: false,
                     user_data: None,
-                    variant: Some(forge::operating_system_config::Variant::Ipxe(
+                    variant: Some(forge::instance_operating_system_config::Variant::Ipxe(
                         forge::InlineIpxe {
                             ipxe_script: "exit".to_string(),
                             user_data: None,
@@ -575,11 +575,11 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
-                os: Some(forge::OperatingSystemConfig {
+                os: Some(forge::InstanceOperatingSystemConfig {
                     phone_home_enabled: false,
                     run_provisioning_instructions_on_every_boot: false,
                     user_data: None,
-                    variant: Some(forge::operating_system_config::Variant::Ipxe(
+                    variant: Some(forge::instance_operating_system_config::Variant::Ipxe(
                         forge::InlineIpxe {
                             ipxe_script: "exit".to_string(),
                             user_data: None,
@@ -724,11 +724,11 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
-                os: Some(forge::OperatingSystemConfig {
+                os: Some(forge::InstanceOperatingSystemConfig {
                     phone_home_enabled: false,
                     run_provisioning_instructions_on_every_boot: false,
                     user_data: None,
-                    variant: Some(forge::operating_system_config::Variant::Ipxe(
+                    variant: Some(forge::instance_operating_system_config::Variant::Ipxe(
                         forge::InlineIpxe {
                             ipxe_script: "exit".to_string(),
                             user_data: None,
@@ -784,11 +784,11 @@ async fn test_single_dpu_instance_allocation(
                     hostname: None,
                     tenant_keyset_ids: vec![],
                 }),
-                os: Some(forge::OperatingSystemConfig {
+                os: Some(forge::InstanceOperatingSystemConfig {
                     phone_home_enabled: false,
                     run_provisioning_instructions_on_every_boot: false,
                     user_data: None,
-                    variant: Some(forge::operating_system_config::Variant::Ipxe(
+                    variant: Some(forge::instance_operating_system_config::Variant::Ipxe(
                         forge::InlineIpxe {
                             ipxe_script: "exit".to_string(),
                             user_data: None,

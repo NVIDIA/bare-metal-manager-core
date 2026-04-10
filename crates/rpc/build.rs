@@ -270,11 +270,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("forge.NetworkSegmentList", "#[derive(serde::Serialize)]")
         .type_attribute(
-            "forge.OperatingSystemConfig",
+            "forge.InstanceOperatingSystemConfig",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .type_attribute(
-            "forge.OperatingSystemConfig.variant",
+            "forge.InstanceOperatingSystemConfig.variant",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .type_attribute("forge.InterfaceList", "#[derive(serde::Serialize)]")

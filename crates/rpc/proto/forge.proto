@@ -2319,7 +2319,7 @@ message TenantConfig {
   string tenant_organization_id = 1;
 
   // These fields have been used for OS configuration in the past.
-  // They are now replaced with the OperatingSystemConfig message.
+  // They are now replaced with the InstanceOperatingSystemConfig message.
   reserved 11, 12, 13, 14;
 
   optional string hostname = 15;
@@ -2329,7 +2329,7 @@ message TenantConfig {
   repeated string tenantKeysetIds = 8; // this may be empty
 }
 
-message OperatingSystemConfig {
+message InstanceOperatingSystemConfig {
   // Contains the operating system definition based on the variant of operating system
   oneof variant {
     InlineIpxe ipxe = 1;
@@ -2381,7 +2381,7 @@ message InstanceConfig {
   TenantConfig tenant = 1;
 
   // Operating system. This is required if no operating system reference is provided
-  OperatingSystemConfig os = 2;
+  InstanceOperatingSystemConfig os = 2;
   // Can be used to reference an OS in the OS library based on a unique ID
   // string os_reference = 3;
 
@@ -2466,7 +2466,7 @@ message InstanceOperatingSystemUpdateRequest {
   optional string if_version_match = 2;
 
   // Operating system. This is required if no operating system reference is provided
-  OperatingSystemConfig os = 3;
+  InstanceOperatingSystemConfig os = 3;
   // Can be used to reference an OS in the OS library based on a unique ID
   // string os_reference = 4;
 }
