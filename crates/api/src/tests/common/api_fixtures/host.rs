@@ -36,6 +36,9 @@ use crate::tests::common::rpc_builder::DhcpDiscovery;
 
 pub const X86_INFO_JSON: &[u8] =
     include_bytes!("../../../../../api-model/src/hardware_info/test_data/x86_info.json");
+pub const SUPERMICRO_ARS121_INFO_JSON: &[u8] = include_bytes!(
+    "../../../../../api-model/src/hardware_info/test_data/supermicro_ars121_info.json"
+);
 // TODO: Remove when there's no longer a need to handle the old topology format
 pub const X86_V1_CPU_INFO_JSON: &[u8] =
     include_bytes!("../../../../../api-model/src/hardware_info/test_data/x86_v1_cpu_info.json");

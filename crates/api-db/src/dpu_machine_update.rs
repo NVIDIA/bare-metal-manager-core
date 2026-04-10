@@ -58,6 +58,7 @@ pub async fn trigger_reprovisioning_for_managed_host(
             started_at: None,
             user_approval_received: false,
             restart_reprovision_requested_at: reprovision_time,
+            dpu_power_cycle_issued_at: None,
         };
 
         let query = r#"UPDATE machines SET reprovisioning_requested=$1 WHERE controller_state = '{"state": "ready"}' AND id=$2 RETURNING id"#;

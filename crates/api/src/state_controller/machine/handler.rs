@@ -2647,6 +2647,19 @@ async fn handle_dpu_reprovision(
                 )));
             }
 
+            // For Supermicro ARS-121L-DNR machines, perform DPU power cycle sequence
+            // before powering the host back on. This is split into two phases across
+            // handler invocations to avoid sleeping while holding a DB lock:
+            //   Phase 1: Issue PowerCycle, record timestamp, return Wait.
+            //   Phase 2: After 10s elapsed, issue chassis_reset, then proceed.
+            match reprovision_dpu_power_cycle_grace_grace(state, ctx).await? {
+                GraceGraceDpuPowerCycleOutcome::NotApplicable
+                | GraceGraceDpuPowerCycleOutcome::Done => {}
+                GraceGraceDpuPowerCycleOutcome::Wait(reason) => {
+                    return Ok(StateHandlerOutcome::wait(reason));
+                }
+            }
+
             // Mark all re-provisioned DPUs for topology update.
             let dpus_snapshots_for_reprov = &state
                 .dpu_snapshots
@@ -2860,6 +2873,148 @@ async fn handle_dpu_reprovision(
 }
 
 // Returns true if update_manager flagged this managed host as needing its firmware examined
+
+/// For Supermicro ARS-121L-DNR machines, issue a DPU power cycle followed by an ERoT graceful
+/// restart to all DPUs after the host is powered off during DPU reprovision. This is needed as
+/// as Grace-Grace's DPU has power sources from both nodes in the chassis. Shutting down a host
+/// does not necessarily shutdown the DPU.
+enum GraceGraceDpuPowerCycleOutcome {
+    /// Machine is not a Grace Grace, nothing to do.
+    NotApplicable,
+    /// All DPUs have been power-cycled and chassis-reset. Proceed.
+    Done,
+    /// Waiting for the power cycle delay to elapse before issuing chassis reset.
+    Wait(String),
+}
+
+const GRACE_GRACE_POWER_CYCLE_DELAY: Duration = Duration::seconds(10);
+
+async fn reprovision_dpu_power_cycle_grace_grace(
+    state: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<GraceGraceDpuPowerCycleOutcome, StateHandlerError> {
+    let is_grace_grace = state
+        .host_snapshot
+        .hardware_info
+        .as_ref()
+        .and_then(|hi| hi.dmi_data.as_ref())
+        .is_some_and(|dmi| {
+            bmc_vendor::BMCVendor::from_udev_dmi(&dmi.sys_vendor).is_supermicro()
+                && dmi.product_name == "ARS-121L-DNR"
+        });
+    if !is_grace_grace {
+        return Ok(GraceGraceDpuPowerCycleOutcome::NotApplicable);
+    }
+
+    let dpus_for_reprovision: Vec<_> = state
+        .dpu_snapshots
+        .iter()
+        .filter(|dpu| dpu.reprovision_requested.is_some())
+        .collect();
+
+    // Phase 2: If power cycle was already issued for all DPUs, check if enough time
+    // has elapsed and then issue the chassis reset.
+    let all_power_cycled = dpus_for_reprovision.iter().all(|dpu| {
+        dpu.reprovision_requested
+            .as_ref()
+            .and_then(|r| r.dpu_power_cycle_issued_at)
+            .is_some()
+    });
+
+    if all_power_cycled {
+        let last_issued = dpus_for_reprovision
+            .iter()
+            .filter_map(|dpu| {
+                dpu.reprovision_requested
+                    .as_ref()
+                    .and_then(|r| r.dpu_power_cycle_issued_at)
+            })
+            .max();
+
+        if let Some(issued_at) = last_issued
+            && Utc::now() < issued_at + GRACE_GRACE_POWER_CYCLE_DELAY
+        {
+            return Ok(GraceGraceDpuPowerCycleOutcome::Wait(format!(
+                "Waiting for DPU power cycle delay to elapse for host {}",
+                state.host_snapshot.id
+            )));
+        }
+
+        // Delay has elapsed — issue chassis reset for all DPUs.
+        // If a DPU's BMC is unreachable (e.g. already powered off), skip it.
+        for dpu in &dpus_for_reprovision {
+            let bmc_ip = dpu
+                .bmc_addr()
+                .map_or_else(|| "unknown".to_string(), |a| a.to_string());
+            let dpu_bmc_client = match ctx.services.create_redfish_client_from_machine(dpu).await {
+                Ok(client) => client,
+                Err(e) => {
+                    tracing::warn!(
+                        dpu_id = %dpu.id,
+                        bmc_ip = %bmc_ip,
+                        error = %e,
+                        "Skipping DPU chassis reset: BMC is unreachable (DPU may be powered off)"
+                    );
+                    continue;
+                }
+            };
+            if let Err(e) = dpu_bmc_client
+                .chassis_reset("Bluefield_ERoT", SystemPowerControl::GracefulRestart)
+                .await
+            {
+                tracing::warn!(
+                    dpu_id = %dpu.id,
+                    bmc_ip = %bmc_ip,
+                    error = %e,
+                    "Skipping DPU chassis reset: command failed (DPU may be powered off)"
+                );
+            }
+        }
+        return Ok(GraceGraceDpuPowerCycleOutcome::Done);
+    }
+
+    // Phase 1: Issue PowerCycle for all DPUs and record the timestamp.
+    // If a DPU's BMC is unreachable (e.g. already powered off), skip it.
+    for dpu in &dpus_for_reprovision {
+        let bmc_ip = dpu
+            .bmc_addr()
+            .map_or_else(|| "unknown".to_string(), |a| a.to_string());
+        let dpu_bmc_client = match ctx.services.create_redfish_client_from_machine(dpu).await {
+            Ok(client) => client,
+            Err(e) => {
+                tracing::warn!(
+                    dpu_id = %dpu.id,
+                    bmc_ip = %bmc_ip,
+                    error = %e,
+                    "Skipping DPU power cycle: BMC is unreachable (DPU may be powered off)"
+                );
+                continue;
+            }
+        };
+        if let Err(e) = dpu_bmc_client.power(SystemPowerControl::PowerCycle).await {
+            tracing::warn!(
+                dpu_id = %dpu.id,
+                bmc_ip = %bmc_ip,
+                error = %e,
+                "Skipping DPU power cycle: power command failed (DPU may be powered off)"
+            );
+        }
+    }
+
+    let now = Utc::now();
+    let mut txn = ctx.services.db_pool.begin().await?;
+
+    for dpu in &dpus_for_reprovision {
+        db::machine::set_dpu_reprovision_power_cycle_issued_at(&dpu.id, now, &mut txn).await?;
+    }
+    txn.commit().await?;
+
+    Ok(GraceGraceDpuPowerCycleOutcome::Wait(format!(
+        "Issued DPU power cycle for host {}, waiting before chassis reset",
+        state.host_snapshot.id
+    )))
+}
+
 fn host_reprovisioning_requested(state: &ManagedHostStateSnapshot) -> bool {
     state.host_snapshot.host_reprovision_requested.is_some()
 }

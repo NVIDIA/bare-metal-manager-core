@@ -33,8 +33,10 @@ use crate::redfish::test_support::RedfishSimAction;
 use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
+use crate::tests::common::api_fixtures::managed_host::HardwareInfoTemplate;
 use crate::tests::common::api_fixtures::{
-    TestManagedHost, create_managed_host, forge_agent_control, update_time_params,
+    TestManagedHost, create_managed_host, create_managed_host_with_hardware_info_template,
+    forge_agent_control, update_time_params,
 };
 
 #[crate::sqlx_test]
@@ -1917,4 +1919,128 @@ impl TestManagedHost {
             .await
             .unwrap();
     }
+
+    /// Triggers DPU reprovisioning and advances the state machine through
+    /// InstallDpuOs -> WaitingForNetworkInstall -> PoweringOffHost -> PowerDown.
+    async fn advance_dpu_reprovision_to_power_down(&self, env: &common::api_fixtures::TestEnv) {
+        self.mark_machine_for_updates().await;
+        self.dpu()
+            .trigger_dpu_reprovisioning(Mode::Set, false)
+            .await;
+
+        // Ready -> InstallDpuOs { InstallingBFB }
+        env.run_machine_state_controller_iteration().await;
+        // InstallDpuOs -> (intermediate) -> WaitingForNetworkInstall
+        env.run_machine_state_controller_iteration().await;
+        env.run_machine_state_controller_iteration().await;
+        // Agent control + discovery to advance past WaitingForNetworkInstall
+        let _response = self.dpu().forge_agent_control().await;
+        self.dpu().discovery_completed().await;
+        // WaitingForNetworkInstall -> PoweringOffHost
+        env.run_machine_state_controller_iteration().await;
+        // PoweringOffHost -> PowerDown
+        env.run_machine_state_controller_iteration().await;
+    }
+}
+
+#[crate::sqlx_test]
+async fn test_dpu_reprovision_power_cycle_grace_grace(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host_with_hardware_info_template(
+        &env,
+        HardwareInfoTemplate::Custom(
+            crate::tests::common::api_fixtures::host::SUPERMICRO_ARS121_INFO_JSON,
+        ),
+    )
+    .await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu_bmc_ip = mh.dpu().bmc_ip(&mut txn).await.unwrap().to_string();
+    txn.commit().await.unwrap();
+
+    mh.advance_dpu_reprovision_to_power_down(&env).await;
+
+    // PowerDown phase 1: Grace-Grace DPU power cycle issued, stays in PowerDown (Wait)
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpu_reprovision_state(ReprovisionState::PowerDown),
+        "Should stay in PowerDown waiting for power cycle delay"
+    );
+
+    // Verify PowerCycle was issued to DPU BMC in phase 1
+    let dpu_actions = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .for_host(&dpu_bmc_ip);
+    assert_eq!(
+        dpu_actions,
+        vec![RedfishSimAction::Power(SystemPowerControl::PowerCycle)],
+    );
+
+    // Backdate the dpu_power_cycle_issued_at timestamp so the delay is elapsed
+    let mut txn = env.pool.begin().await.unwrap();
+    db::machine::set_dpu_reprovision_power_cycle_issued_at(
+        &mh.dpu().id,
+        Utc::now() - chrono::Duration::seconds(30),
+        &mut txn,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    // PowerDown phase 2: ChassisReset issued, then transitions to VerifyFirmwareVersions
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpu_reprovision_state(ReprovisionState::VerifyFirmareVersions)
+    );
+
+    // Verify ChassisReset was issued to DPU BMC in phase 2
+    let dpu_actions = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .for_host(&dpu_bmc_ip);
+    assert_eq!(
+        dpu_actions,
+        vec![RedfishSimAction::ChassisReset {
+            chassis_id: "Bluefield_ERoT".to_string(),
+            reset_type: SystemPowerControl::GracefulRestart,
+        }],
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_dpu_reprovision_power_cycle_not_triggered_for_non_grace_grace(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    // Default fixture uses Dell hardware info (sys_vendor: "Dell Inc.")
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let mut txn = env.pool.begin().await.unwrap();
+    let dpu_bmc_ip = mh.dpu().bmc_ip(&mut txn).await.unwrap().to_string();
+    txn.commit().await.unwrap();
+
+    mh.advance_dpu_reprovision_to_power_down(&env).await;
+
+    // PowerDown -> VerifyFirmwareVersions (no Grace-Grace delay for Dell)
+    let redfish_timepoint = env.redfish_sim.timepoint();
+    let dpu = mh.dpu().next_iteration_machine(&env).await;
+    assert_eq!(
+        dpu.current_state(),
+        &mh.new_dpu_reprovision_state(ReprovisionState::VerifyFirmareVersions)
+    );
+
+    // No PowerCycle or ChassisReset should be sent to the DPU BMC for non-Supermicro machines
+    let dpu_actions = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .for_host(&dpu_bmc_ip);
+    assert!(
+        !dpu_actions.iter().any(|a| matches!(
+            a,
+            RedfishSimAction::Power(SystemPowerControl::PowerCycle)
+                | RedfishSimAction::ChassisReset { .. }
+        )),
+        "unexpected DPU BMC actions for non-Supermicro machine: {dpu_actions:?}"
+    );
 }

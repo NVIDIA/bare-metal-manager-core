@@ -2019,6 +2019,8 @@ pub struct ReprovisionRequest {
     pub user_approval_received: bool,
     #[serde(default)]
     pub restart_reprovision_requested_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dpu_power_cycle_issued_at: Option<DateTime<Utc>>,
 }
 
 /// Struct to store information if host reprovision is requested.

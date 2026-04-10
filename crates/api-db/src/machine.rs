@@ -1333,6 +1333,7 @@ pub async fn trigger_dpu_reprovisioning_request(
         started_at: None,
         user_approval_received: false,
         restart_reprovision_requested_at: reprovision_time,
+        dpu_power_cycle_issued_at: None,
     };
 
     let query = "UPDATE machines SET reprovisioning_requested=$2 WHERE id=$1 RETURNING id";
@@ -1364,6 +1365,26 @@ pub async fn update_dpu_reprovision_explicit_start_time(
                         SET reprovisioning_requested=
                                     jsonb_set(reprovisioning_requested,
                                                 '{started_at}', $2, true)
+                       WHERE id=$1 RETURNING id"#;
+    let _id = sqlx::query_as::<_, MachineId>(query)
+        .bind(machine_id)
+        .bind(sqlx::types::Json(time))
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
+pub async fn set_dpu_reprovision_power_cycle_issued_at(
+    machine_id: &MachineId,
+    time: DateTime<Utc>,
+    txn: &mut PgConnection,
+) -> Result<(), DatabaseError> {
+    let query = r#"UPDATE machines
+                        SET reprovisioning_requested=
+                                    jsonb_set(reprovisioning_requested,
+                                                '{dpu_power_cycle_issued_at}', $2, true)
                        WHERE id=$1 RETURNING id"#;
     let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id)
