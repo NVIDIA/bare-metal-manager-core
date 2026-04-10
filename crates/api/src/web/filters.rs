@@ -59,32 +59,8 @@ fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String
     Ok(formatted)
 }
 
-pub fn rack_id_link(id: impl Display) -> ::askama::Result<String> {
-    // Sanitize rack ID for HTML content and links (it can contain arbitrary content)
-    let id = id.to_string();
-    let link_path: String = url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
-
-    let mut rack_id = String::new();
-    askama_escape::Html.write_escaped(&mut rack_id, &id)?;
-
-    let formatted = if rack_id.len() < 10 {
-        format!(r#"<a href="/admin/rack/{link_path}">{rack_id}</a>"#)
-    } else {
-        let short_id = &rack_id[0..6];
-        format!(
-            r#"
-    <a href="/admin/rack/{link_path}">
-        <div class="machine_id">
-            <div>{rack_id}</div><div>{short_id}</div>
-        </div>
-    </a>"#
-        )
-    };
-
-    Ok(formatted)
-}
-
-pub fn power_shelf_id_link(id: impl Display) -> ::askama::Result<String> {
+fn escaped_shortened_id_link(id: impl Display, path: impl Display) -> ::askama::Result<String> {
+    // Sanitize ID for HTML content and links (it can contain arbitrary content)
     let id = id.to_string();
     if id == "Unlinked" || id.is_empty() {
         return Ok("Unlinked".to_string());
@@ -97,7 +73,7 @@ pub fn power_shelf_id_link(id: impl Display) -> ::askama::Result<String> {
     let short_id = &escaped_id[escaped_id.len().saturating_sub(6)..];
     let formatted = format!(
         r#"
-    <a href="/admin/power-shelf/{link_path}">
+    <a href="/admin/{path}/{link_path}">
         <div class="machine_id">
             <div>{escaped_id}</div><div>{short_id}</div>
         </div>
@@ -105,6 +81,18 @@ pub fn power_shelf_id_link(id: impl Display) -> ::askama::Result<String> {
     );
 
     Ok(formatted)
+}
+
+pub fn rack_id_link(id: impl Display) -> ::askama::Result<String> {
+    escaped_shortened_id_link(id, "rack")
+}
+
+pub fn power_shelf_id_link(id: impl Display) -> ::askama::Result<String> {
+    escaped_shortened_id_link(id, "power-shelf")
+}
+
+pub fn switch_id_link(id: impl Display) -> ::askama::Result<String> {
+    escaped_shortened_id_link(id, "switch")
 }
 
 /// Formats labels into HTML

@@ -11,8 +11,8 @@
 <h2>Info</h2>
 <table class="detailsview">
 	<tr>
-		<th>Rack ID</th>
-		<td><a href="/admin/rack/{{ id }}">{{ id }}</a></td>
+		<th>ID</th>
+		<td>{{ id }}</td>
 	</tr>
 	<tr>
 		<th>State</th>
@@ -75,7 +75,7 @@
 	<tbody>
 	{% for switch_id in associated_switches %}
 		<tr>
-			<td><a href="/admin/switch/{{ switch_id }}">{{ switch_id }}</a></td>
+			<td>{{ switch_id|switch_id_link|safe }}</td>
 		</tr>
 	{% endfor %}
 	</tbody>
@@ -91,7 +91,7 @@
 	<tbody>
 	{% for ps_id in associated_power_shelves %}
 		<tr>
-			<td>{{ ps_id }}</td>
+			<td>{{ ps_id|power_shelf_id_link|safe }}</td>
 		</tr>
 	{% endfor %}
 	</tbody>
