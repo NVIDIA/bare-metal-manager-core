@@ -5,6 +5,8 @@ use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
 use serde::{Deserialize, Serialize};
 
+use crate::error::RvsError;
+
 /// Top-level RVS service configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -15,6 +17,8 @@ pub struct Config {
     pub metrics_endpoint: SocketAddr,
     /// Path to the scenario definition TOML.
     pub scenario_config_path: String,
+    /// How long to wait between validation poll cycles (seconds).
+    pub poll_interval_secs: u64,
     /// NICC connection settings.
     pub nicc: NiccConfig,
     /// TLS / mTLS certificate paths.
@@ -30,6 +34,9 @@ pub struct NiccConfig {
     /// NICC gRPC endpoint URL.
     pub url: String,
     /// Per-RPC timeout in seconds.
+    ///
+    /// TODO[#416]: not yet wired - ApiConfig has no timeout field. Wire via
+    /// tokio::time::timeout per call or a tower timeout layer once available.
     pub rpc_timeout_secs: u64,
 }
 
@@ -63,6 +70,7 @@ impl Default for Config {
             listen: "[::]:1089".parse().unwrap(),
             metrics_endpoint: "[::]:9019".parse().unwrap(),
             scenario_config_path: "/etc/forge/rvs/scenario.toml".to_string(),
+            poll_interval_secs: 30,
             nicc: NiccConfig::default(),
             tls: TlsConfig::default(),
             artifact_cache: ArtifactCacheConfig::default(),
@@ -101,7 +109,7 @@ impl Default for ArtifactCacheConfig {
 
 impl Config {
     /// Load config: defaults -> TOML file -> CARBIDE_RVS__* env vars.
-    pub fn load(config_path: Option<&Path>) -> Result<Self, String> {
+    pub fn load(config_path: Option<&Path>) -> Result<Self, RvsError> {
         let mut figment = Figment::new().merge(Serialized::defaults(Config::default()));
 
         if let Some(path) = config_path {
@@ -112,7 +120,7 @@ impl Config {
 
         let config: Config = figment
             .extract()
-            .map_err(|e| format!("failed to load config: {e}"))?;
+            .map_err(|e| RvsError::Config(format!("failed to load config: {e}")))?;
 
         Ok(config)
     }

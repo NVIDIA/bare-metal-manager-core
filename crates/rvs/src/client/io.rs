@@ -30,27 +30,50 @@ impl NiccClient {
         Ok(response.rack.into_iter().map(RackData::from).collect())
     }
 
-    /// Replace all `rv.*` labels on a machine with the provided map.
-    ///
-    /// RVS owns all `rv.*` labels, so replacing them wholesale is safe within
-    /// its scope. Non-`rv.*` labels on the machine are not affected because
-    /// the caller is responsible for passing the correct complete set.
+    /// Update `rv.*` labels on a machine, preserving all non-`rv.*` labels.
     pub async fn update_rv_labels(
         &self,
         tray_id: &str,
-        labels: &HashMap<String, String>,
+        updates: &HashMap<String, String>,
     ) -> Result<(), RvsError> {
-        let machine_id = tray_id.parse()?;
-        let label_protos = labels
-            .iter()
+        let mut response = self
+            .inner
+            .find_machines_by_ids(MachinesByIdsRequest {
+                machine_ids: vec![tray_id.parse().map_err(RvsError::from)?],
+                include_history: false,
+            })
+            .await?;
+
+        let count = response.machines.len();
+        if count != 1 {
+            return Err(RvsError::UnexpectedMachineCount {
+                tray_id: tray_id.to_string(),
+                count,
+            });
+        }
+
+        // SAFETY: len is already checked above, index access is safe here
+        let machine = &mut response.machines[0];
+        let metadata = machine.metadata.take().unwrap_or_default();
+        let labels = metadata.labels;
+
+        let existing = labels
+            .into_iter()
+            .map(|label| (label.key, label.value.unwrap_or_default()))
+            .collect();
+
+        let merged = merge_rv_labels(&existing, updates);
+        let label_protos = merged
+            .into_iter()
             .map(|(k, v)| Label {
-                key: k.clone(),
-                value: Some(v.clone()),
+                key: k,
+                value: Some(v),
             })
             .collect();
+
         self.inner
             .update_machine_metadata(MachineMetadataUpdateRequest {
-                machine_id: Some(machine_id),
+                machine_id: Some(tray_id.parse()?),
                 if_version_match: None,
                 metadata: Some(Metadata {
                     name: String::new(),
@@ -147,5 +170,79 @@ impl NiccClient {
         }
 
         Ok(trays)
+    }
+}
+
+/// Merge `rv.*` label updates into an existing full label map.
+///
+/// Keeps all non-`rv.*` keys from `existing` unchanged.
+/// Replaces or adds every key from `updates` (all of which are `rv.*`).
+/// Drops `rv.*` keys present in `existing` but absent from `updates`.
+fn merge_rv_labels(
+    existing: &HashMap<String, String>,
+    updates: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    existing
+        .iter()
+        .filter(|(k, _)| !k.starts_with("rv."))
+        .chain(updates.iter())
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn map(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn test_merge_preserves_non_rv_labels() {
+        let existing = map(&[("owner", "ops"), ("rv.run-id", "old")]);
+        let updates = map(&[("rv.run-id", "new")]);
+        let result = merge_rv_labels(&existing, &updates);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result["owner"], "ops");
+        assert_eq!(result["rv.run-id"], "new");
+    }
+
+    #[test]
+    fn test_merge_drops_stale_rv_keys() {
+        let existing = map(&[("rv.run-id", "old"), ("rv.st", "pass")]);
+        let updates = map(&[("rv.run-id", "new")]);
+        let result = merge_rv_labels(&existing, &updates);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result["rv.run-id"], "new");
+        assert!(!result.contains_key("rv.st"));
+    }
+
+    #[test]
+    fn test_merge_adds_new_rv_keys() {
+        let existing = map(&[("owner", "ops")]);
+        let updates = map(&[("rv.run-id", "abc")]);
+        let result = merge_rv_labels(&existing, &updates);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result["rv.run-id"], "abc");
+        assert_eq!(result["owner"], "ops");
+    }
+
+    #[test]
+    fn test_merge_empty_existing() {
+        let existing = map(&[]);
+        let updates = map(&[("rv.run-id", "abc")]);
+        let result = merge_rv_labels(&existing, &updates);
+        assert_eq!(result, updates);
+    }
+
+    #[test]
+    fn test_merge_empty_updates() {
+        let existing = map(&[("owner", "ops"), ("rv.run-id", "old")]);
+        let result = merge_rv_labels(&existing, &map(&[]));
+        assert_eq!(result, map(&[("owner", "ops")]));
     }
 }

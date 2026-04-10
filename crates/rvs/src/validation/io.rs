@@ -8,9 +8,8 @@ use crate::error::RvsError;
 use crate::partitions::Partitions;
 use crate::rack::Tray;
 
-/// Decided run ID and the label writes needed to apply it.
+/// Label writes needed to apply for machines.
 struct RunIdPlan {
-    run_id: String,
     /// Per-tray label maps to write. Empty when the run ID was reused as-is.
     updates: Vec<(String, HashMap<String, String>)>,
 }
@@ -21,7 +20,11 @@ struct RunIdPlan {
 /// Otherwise generates a fresh UUID and prepares updated labels for every tray.
 fn prepare_run_id(trays: &HashMap<String, Tray>) -> RunIdPlan {
     match existing_run_id(trays) {
-        Some(id) => RunIdPlan { run_id: id, updates: vec![] },
+        Some(_) => RunIdPlan {
+            // We don't really need an old ID - let's just say to a client
+            // that no updates are required.
+            updates: vec![],
+        },
         None => {
             let id = Uuid::new_v4().to_string();
             let updates = trays
@@ -32,17 +35,24 @@ fn prepare_run_id(trays: &HashMap<String, Tray>) -> RunIdPlan {
                     (tray_id.clone(), labels)
                 })
                 .collect();
-            RunIdPlan { run_id: id, updates }
+            RunIdPlan { updates }
         }
     }
 }
 
+/// Return the shared run ID if every tray already carries the same `rv.run-id`.
+fn existing_run_id(trays: &HashMap<String, Tray>) -> Option<String> {
+    // Iter over all run-ids from a set of trays belonging to a partition
+    let mut run_ids = trays.values().filter_map(|t| t.rv_labels.get("rv.run-id"));
+    let first = run_ids.next()?;
+    if run_ids.all(|id| id == first) {
+        Some(first.clone())
+    } else {
+        None
+    }
+}
+
 /// Convert filtered partitions into validation jobs.
-///
-/// Full preparation pipeline per partition:
-///   1. assign_run_id   - stamp every tray with a consistent rv.run-id
-///   2. allocate_instances - boot a validation OS instance on each tray
-///   3. wait_for_boot   - block until every instance is ready
 pub async fn plan(
     partitions: Partitions,
     nicc: &NiccClient,
@@ -62,7 +72,6 @@ pub async fn plan(
 /// Ensure every tray carries a consistent `rv.run-id`, writing it if absent.
 async fn assign_run_id(trays: &HashMap<String, Tray>, nicc: &NiccClient) -> Result<(), RvsError> {
     let plan = prepare_run_id(trays);
-    tracing::info!(run_id = %plan.run_id, reused = plan.updates.is_empty(), "validation: run ID resolved");
     for (tray_id, labels) in plan.updates {
         nicc.update_rv_labels(&tray_id, &labels).await?;
     }
@@ -117,14 +126,20 @@ mod tests {
         Tray::new(
             "rack-1".to_string(),
             "Validation(Pending)".to_string(),
-            rv_labels.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            rv_labels
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
             NvlNode::new(0),
             IbNode::new(0, 0),
         )
     }
 
     fn trays(entries: &[(&str, &[(&str, &str)])]) -> HashMap<String, Tray> {
-        entries.iter().map(|(id, labels)| (id.to_string(), tray(labels))).collect()
+        entries
+            .iter()
+            .map(|(id, labels)| (id.to_string(), tray(labels)))
+            .collect()
     }
 
     #[test]
@@ -134,7 +149,6 @@ mod tests {
             ("m2", &[("rv.run-id", "run-abc")]),
         ]);
         let plan = prepare_run_id(&t);
-        assert_eq!(plan.run_id, "run-abc");
         assert!(plan.updates.is_empty());
     }
 
@@ -142,10 +156,9 @@ mod tests {
     fn test_prepare_run_id_assigns_new_when_missing() {
         let t = trays(&[("m1", &[]), ("m2", &[])]);
         let plan = prepare_run_id(&t);
-        assert!(!plan.run_id.is_empty());
         assert_eq!(plan.updates.len(), 2);
         for (_, labels) in &plan.updates {
-            assert_eq!(labels["rv.run-id"], plan.run_id);
+            assert!(!labels["rv.run-id"].is_empty());
         }
     }
 
@@ -157,9 +170,10 @@ mod tests {
             ("m2", &[("rv.run-id", "run-xyz")]),
         ]);
         let plan = prepare_run_id(&t);
-        assert_ne!(plan.run_id, "run-abc");
-        assert_ne!(plan.run_id, "run-xyz");
         assert_eq!(plan.updates.len(), 2);
+        for (_, labels) in &plan.updates {
+            assert!(!labels["rv.run-id"].is_empty());
+        }
     }
 
     #[test]
@@ -168,25 +182,13 @@ mod tests {
         let plan = prepare_run_id(&t);
         let (_, labels) = plan.updates.iter().find(|(id, _)| id == "m1").unwrap();
         assert_eq!(labels["rv.st"], "pass");
-        assert_eq!(labels["rv.run-id"], plan.run_id);
+        assert!(!labels["rv.run-id"].is_empty());
     }
 
     #[test]
     fn test_prepare_run_id_empty_trays() {
         let t = trays(&[]);
         let plan = prepare_run_id(&t);
-        assert!(!plan.run_id.is_empty());
         assert!(plan.updates.is_empty());
-    }
-}
-
-/// Return the shared run ID if every tray already carries the same `rv.run-id`.
-fn existing_run_id(trays: &HashMap<String, Tray>) -> Option<String> {
-    let mut ids = trays.values().filter_map(|t| t.rv_labels.get("rv.run-id"));
-    let first = ids.next()?.clone();
-    if ids.all(|id| *id == first) {
-        Some(first)
-    } else {
-        None
     }
 }

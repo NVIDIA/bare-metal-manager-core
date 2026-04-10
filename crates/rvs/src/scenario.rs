@@ -23,6 +23,9 @@ pub struct Artifact {
     pub name: String,
     pub output: String,
     /// Direct download URL (mutually exclusive with `sotpath`).
+    // TODO[#416]: enforce exactly one of `uri`/`sotpath` is set - add a
+    // post-deserialization validation step in Scenario::load or a custom
+    // Deserialize impl. Currently both can be set (or neither) without error.
     pub uri: Option<String>,
     /// JSONPath into SOT JSON to resolve download URL.
     pub sotpath: Option<String>,
@@ -77,7 +80,8 @@ mod tests {
 
     #[test]
     fn test_load_example_scenario() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("doc/example_scenario.toml");
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("doc/example_scenario.toml");
         let scenario = Scenario::load(&path).unwrap();
         assert_eq!(scenario.rack.model, "gb200nvl");
         assert_eq!(scenario.rack.sot_release, "1.2.5");

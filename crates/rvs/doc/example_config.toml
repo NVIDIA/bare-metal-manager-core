@@ -26,6 +26,9 @@ listen = "[::]:1089"
 # Metrics endpoint (Prometheus scrape target)
 metrics_endpoint = "[::]:9019"
 
+# How long to wait between validation poll cycles
+poll_interval_secs = 30
+
 # -----------------------------------------------------------------------------
 # NICC CONNECTION
 # -----------------------------------------------------------------------------
