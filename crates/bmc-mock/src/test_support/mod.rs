@@ -30,7 +30,7 @@ pub mod axum_http_client;
 use axum_http_client::AxumRouterHttpClient;
 
 #[derive(Debug)]
-struct NoopCallbacks;
+pub struct NoopCallbacks;
 
 impl Callbacks for NoopCallbacks {
     fn get_power_state(&self) -> MockPowerState {
