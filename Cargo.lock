@@ -1354,6 +1354,7 @@ dependencies = [
  "carbide-dpf",
  "carbide-health-report",
  "carbide-host-support",
+ "carbide-ipxe-renderer",
  "carbide-libmlx",
  "carbide-macros",
  "carbide-measured-boot",
@@ -1475,6 +1476,7 @@ dependencies = [
  "carbide-api-model",
  "carbide-health-report",
  "carbide-host-support",
+ "carbide-ipxe-renderer",
  "carbide-libmlx",
  "carbide-macros",
  "carbide-measured-boot",
@@ -1548,6 +1550,7 @@ dependencies = [
  "carbide-dpf",
  "carbide-health-report",
  "carbide-host-support",
+ "carbide-ipxe-renderer",
  "carbide-libmlx",
  "carbide-network",
  "carbide-rpc",
@@ -1983,6 +1986,16 @@ dependencies = [
  "tower-service",
  "tracing",
  "tryhard",
+]
+
+[[package]]
+name = "carbide-ipxe-renderer"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

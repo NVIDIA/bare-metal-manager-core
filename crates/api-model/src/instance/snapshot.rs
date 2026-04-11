@@ -145,42 +145,45 @@ impl InstanceSnapshot {
 /// JSONB_AGG functions. Its fields need to match the column names of the instances table exactly.
 /// It's expected that we read this directly from the JSON returned by the query, and then
 /// convert it into an InstanceSnapshot.
+/// OS-related fields are `pub` so that api-db can merge OS definition with instance overrides when building the snapshot.
 #[derive(Serialize, Deserialize)]
 pub struct InstanceSnapshotPgJson {
-    id: InstanceId,
-    machine_id: MachineId,
-    name: String,
-    description: String,
-    labels: HashMap<String, String>,
-    network_config: InstanceNetworkConfig,
-    network_config_version: String,
-    ib_config: InstanceInfinibandConfig,
-    ib_config_version: String,
-    storage_config_version: String,
-    nvlink_config: InstanceNvLinkConfig,
-    nvlink_config_version: String,
-    config_version: String,
-    phone_home_last_contact: Option<DateTime<Utc>>,
-    use_custom_pxe_on_boot: bool,
+    pub id: InstanceId,
+    pub machine_id: MachineId,
+    pub name: String,
+    pub description: String,
+    pub labels: HashMap<String, String>,
+    pub network_config: InstanceNetworkConfig,
+    pub network_config_version: String,
+    pub ib_config: InstanceInfinibandConfig,
+    pub ib_config_version: String,
+    pub storage_config_version: String,
+    pub nvlink_config: InstanceNvLinkConfig,
+    pub nvlink_config_version: String,
+    pub config_version: String,
+    pub phone_home_last_contact: Option<DateTime<Utc>>,
+    pub use_custom_pxe_on_boot: bool,
     #[serde(default)]
-    custom_pxe_reboot_requested: bool,
-    tenant_org: Option<String>,
-    keyset_ids: Vec<String>,
-    hostname: Option<String>,
-    os_user_data: Option<String>,
-    os_ipxe_script: String,
-    os_always_boot_with_ipxe: bool,
-    os_phone_home_enabled: bool,
-    os_image_id: Option<uuid::Uuid>,
-    instance_type_id: Option<InstanceTypeId>,
-    network_security_group_id: Option<NetworkSecurityGroupId>,
-    extension_services_config: InstanceExtensionServicesConfig,
-    extension_services_config_version: String,
-    requested: DateTime<Utc>,
-    started: DateTime<Utc>,
-    finished: Option<DateTime<Utc>>,
-    deleted: Option<DateTime<Utc>>,
-    update_network_config_request: Option<InstanceNetworkConfigUpdate>,
+    pub custom_pxe_reboot_requested: bool,
+    pub tenant_org: Option<String>,
+    pub keyset_ids: Vec<String>,
+    pub hostname: Option<String>,
+    pub os_user_data: Option<String>,
+    pub os_ipxe_script: String,
+    pub os_always_boot_with_ipxe: bool,
+    pub os_phone_home_enabled: bool,
+    pub os_image_id: Option<uuid::Uuid>,
+    /// Reference to operating_systems table. Instance must have an OS; overrides (above) apply on top of OS.
+    pub operating_system_id: Option<uuid::Uuid>,
+    pub instance_type_id: Option<InstanceTypeId>,
+    pub network_security_group_id: Option<NetworkSecurityGroupId>,
+    pub extension_services_config: InstanceExtensionServicesConfig,
+    pub extension_services_config_version: String,
+    pub requested: DateTime<Utc>,
+    pub started: DateTime<Utc>,
+    pub finished: Option<DateTime<Utc>>,
+    pub deleted: Option<DateTime<Utc>>,
+    pub update_network_config_request: Option<InstanceNetworkConfigUpdate>,
 }
 
 impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
@@ -190,6 +193,91 @@ impl<'r> FromRow<'r, PgRow> for InstanceSnapshot {
             .map_err(|err| sqlx::Error::Decode(err.into()))?
             .try_into()
     }
+}
+
+/// Builds an [`InstanceSnapshot`] from DB JSON and a pre-merged [`OperatingSystem`].
+/// Use this when the instance row has `operating_system_id` and the OS was loaded and merged with instance overrides.
+pub fn from_pg_json_and_os(
+    value: InstanceSnapshotPgJson,
+    os: OperatingSystem,
+) -> Result<InstanceSnapshot, sqlx::Error> {
+    let metadata = Metadata {
+        name: value.name,
+        description: value.description,
+        labels: value.labels,
+    };
+
+    let tenant_organization_id =
+        TenantOrganizationId::try_from(value.tenant_org.unwrap_or_default())
+            .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
+
+    let config = InstanceConfig {
+        tenant: TenantConfig {
+            tenant_organization_id,
+            tenant_keyset_ids: value.keyset_ids,
+            hostname: value.hostname,
+        },
+        os,
+        network: value.network_config,
+        infiniband: value.ib_config,
+        nvlink: value.nvlink_config,
+        network_security_group_id: value.network_security_group_id,
+        extension_services: value.extension_services_config,
+    };
+
+    Ok(InstanceSnapshot {
+        id: value.id,
+        machine_id: value.machine_id,
+        instance_type_id: value.instance_type_id,
+        metadata,
+        config,
+        config_version: value.config_version.parse().map_err(|e| {
+            sqlx::error::Error::ColumnDecode {
+                index: "config_version".to_string(),
+                source: Box::new(e),
+            }
+        })?,
+        network_config_version: value.network_config_version.parse().map_err(|e| {
+            sqlx::error::Error::ColumnDecode {
+                index: "network_config_version".to_string(),
+                source: Box::new(e),
+            }
+        })?,
+        ib_config_version: value.ib_config_version.parse().map_err(|e| {
+            sqlx::error::Error::ColumnDecode {
+                index: "ib_config_version".to_string(),
+                source: Box::new(e),
+            }
+        })?,
+        nvlink_config_version: value.nvlink_config_version.parse().map_err(|e| {
+            sqlx::error::Error::ColumnDecode {
+                index: "nvl_config_version".to_string(),
+                source: Box::new(e),
+            }
+        })?,
+        storage_config_version: value.storage_config_version.parse().map_err(|e| {
+            sqlx::error::Error::ColumnDecode {
+                index: "storage_config_version".to_string(),
+                source: Box::new(e),
+            }
+        })?,
+        extension_services_config_version: value
+            .extension_services_config_version
+            .parse()
+            .map_err(|e| sqlx::error::Error::ColumnDecode {
+                index: "extension_services_config_version".to_string(),
+                source: Box::new(e),
+            })?,
+        observations: InstanceStatusObservations {
+            network: HashMap::default(),
+            extension_services: HashMap::default(),
+            phone_home_last_contact: value.phone_home_last_contact,
+        },
+        use_custom_pxe_on_boot: value.use_custom_pxe_on_boot,
+        custom_pxe_reboot_requested: value.custom_pxe_reboot_requested,
+        deleted: value.deleted,
+        update_network_config_request: value.update_network_config_request,
+    })
 }
 
 impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
@@ -206,12 +294,25 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             TenantOrganizationId::try_from(value.tenant_org.unwrap_or_default())
                 .map_err(|e| sqlx::Error::Decode(Box::new(e)))?;
 
+        // Derive OS variant from the instance columns.
+        // Priority: operating_system_id > os_image_id > inline iPXE script.
         let os = OperatingSystem {
-            variant: match value.os_image_id {
-                Some(x) => OperatingSystemVariant::OsImage(x),
-                None => OperatingSystemVariant::Ipxe(InlineIpxe {
+            variant: if let Some(os_id) = value.operating_system_id {
+                OperatingSystemVariant::OperatingSystemId(os_id)
+            } else if let Some(image_id) = value.os_image_id {
+                OperatingSystemVariant::OsImage(image_id)
+            } else if !value.os_ipxe_script.trim().is_empty() {
+                OperatingSystemVariant::Ipxe(InlineIpxe {
                     ipxe_script: value.os_ipxe_script,
-                }),
+                })
+            } else {
+                return Err(sqlx::Error::ColumnDecode {
+                    index: "os_ipxe_script".to_string(),
+                    source: Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "instance has no operating_system_id, no os_image_id, and no iPXE script",
+                    )),
+                });
             },
             run_provisioning_instructions_on_every_boot: value.os_always_boot_with_ipxe,
             phone_home_enabled: value.os_phone_home_enabled,
@@ -289,5 +390,144 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             // started: value.started,
             // finished: value.finished,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    use super::*;
+
+    fn minimal_pg_json() -> InstanceSnapshotPgJson {
+        let version = ConfigVersion::initial().version_string();
+        InstanceSnapshotPgJson {
+            id: InstanceId::from(uuid::Uuid::nil()),
+            machine_id: MachineId::from_str(
+                "fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0",
+            )
+            .unwrap(),
+            name: String::new(),
+            description: String::new(),
+            labels: HashMap::new(),
+            network_config: InstanceNetworkConfig::default(),
+            network_config_version: version.clone(),
+            ib_config: InstanceInfinibandConfig::default(),
+            ib_config_version: version.clone(),
+            storage_config_version: version.clone(),
+            nvlink_config: InstanceNvLinkConfig::default(),
+            nvlink_config_version: version.clone(),
+            config_version: version.clone(),
+            phone_home_last_contact: None,
+            use_custom_pxe_on_boot: false,
+            custom_pxe_reboot_requested: false,
+            tenant_org: Some("TenantA".to_string()),
+            keyset_ids: vec![],
+            hostname: None,
+            os_user_data: None,
+            os_ipxe_script: String::new(),
+            os_always_boot_with_ipxe: false,
+            os_phone_home_enabled: false,
+            os_image_id: None,
+            operating_system_id: None,
+            instance_type_id: None,
+            network_security_group_id: None,
+            extension_services_config: InstanceExtensionServicesConfig::default(),
+            extension_services_config_version: version,
+            requested: Utc::now(),
+            started: Utc::now(),
+            finished: None,
+            deleted: None,
+            update_network_config_request: None,
+        }
+    }
+
+    #[test]
+    fn test_from_pg_json_and_os_uses_provided_os() {
+        let mut pg_json = minimal_pg_json();
+        pg_json.operating_system_id = Some(Uuid::nil());
+        let os = OperatingSystem {
+            user_data: Some("user-data".to_string()),
+            variant: OperatingSystemVariant::Ipxe(InlineIpxe {
+                ipxe_script: "script-from-os".to_string(),
+            }),
+            run_provisioning_instructions_on_every_boot: true,
+            phone_home_enabled: true,
+        };
+        let snapshot = from_pg_json_and_os(pg_json, os.clone()).unwrap();
+        assert_eq!(snapshot.config.os.variant, os.variant);
+        assert_eq!(snapshot.config.os.user_data, os.user_data);
+        assert_eq!(snapshot.config.os.phone_home_enabled, os.phone_home_enabled);
+        if let OperatingSystemVariant::Ipxe(ipxe) = &snapshot.config.os.variant {
+            assert_eq!(ipxe.ipxe_script, "script-from-os");
+        } else {
+            panic!("expected Ipxe variant");
+        }
+    }
+
+    #[test]
+    fn test_try_from_legacy_ipxe_derives_os_from_instance_columns() {
+        let mut pg_json = minimal_pg_json();
+        pg_json.operating_system_id = None;
+        pg_json.os_ipxe_script = "legacy-inline-script".to_string();
+        pg_json.os_image_id = None;
+        pg_json.os_user_data = Some("legacy-user-data".to_string());
+        pg_json.os_phone_home_enabled = true;
+        let snapshot = InstanceSnapshot::try_from(pg_json).unwrap();
+        assert!(matches!(
+            &snapshot.config.os.variant,
+            OperatingSystemVariant::Ipxe(_)
+        ));
+        if let OperatingSystemVariant::Ipxe(ipxe) = &snapshot.config.os.variant {
+            assert_eq!(ipxe.ipxe_script, "legacy-inline-script");
+        }
+        assert_eq!(
+            snapshot.config.os.user_data.as_deref(),
+            Some("legacy-user-data")
+        );
+        assert!(snapshot.config.os.phone_home_enabled);
+    }
+
+    #[test]
+    fn test_try_from_legacy_os_image_derives_os_from_instance_columns() {
+        let image_uuid = uuid::uuid!("a1b2c3d4-e5f6-4780-a123-456789abcdef");
+        let mut pg_json = minimal_pg_json();
+        pg_json.operating_system_id = None;
+        pg_json.os_image_id = Some(image_uuid);
+        pg_json.os_ipxe_script = "ignored".to_string();
+        let snapshot = InstanceSnapshot::try_from(pg_json).unwrap();
+        assert!(matches!(
+            &snapshot.config.os.variant,
+            OperatingSystemVariant::OsImage(id) if *id == image_uuid
+        ));
+    }
+
+    #[test]
+    fn test_try_from_errors_when_no_os_and_no_ipxe_script() {
+        let mut pg_json = minimal_pg_json();
+        pg_json.operating_system_id = None;
+        pg_json.os_image_id = None;
+        pg_json.os_ipxe_script = String::new();
+        let err = InstanceSnapshot::try_from(pg_json).unwrap_err();
+        assert!(matches!(err, sqlx::Error::ColumnDecode { .. }));
+        assert!(format!("{err}").contains("no operating_system_id"));
+        assert!(format!("{err}").contains("no iPXE script"));
+    }
+
+    #[test]
+    fn test_try_from_with_operating_system_id() {
+        let os_uuid = uuid::uuid!("b2c3d4e5-f6a7-4890-b234-567890abcdef");
+        let mut pg_json = minimal_pg_json();
+        pg_json.operating_system_id = Some(os_uuid);
+        pg_json.os_ipxe_script = String::new();
+        pg_json.os_image_id = None;
+        let snapshot = InstanceSnapshot::try_from(pg_json).unwrap();
+        assert!(matches!(
+            &snapshot.config.os.variant,
+            OperatingSystemVariant::OperatingSystemId(id) if *id == os_uuid
+        ));
     }
 }

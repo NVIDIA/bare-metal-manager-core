@@ -2059,6 +2059,69 @@ impl Forge for Api {
     ) -> Result<Response<rpc::OsImage>, Status> {
         crate::storage::update_os_image(self, request).await
     }
+
+    async fn create_operating_system(
+        &self,
+        request: Request<rpc::CreateOperatingSystemRequest>,
+    ) -> Result<Response<rpc::OperatingSystem>, Status> {
+        crate::handlers::operating_system::create_operating_system(self, request).await
+    }
+
+    async fn get_operating_system(
+        &self,
+        request: Request<::carbide_uuid::operating_system::OperatingSystemId>,
+    ) -> Result<Response<rpc::OperatingSystem>, Status> {
+        crate::handlers::operating_system::get_operating_system(self, request).await
+    }
+
+    async fn update_operating_system(
+        &self,
+        request: Request<rpc::UpdateOperatingSystemRequest>,
+    ) -> Result<Response<rpc::OperatingSystem>, Status> {
+        crate::handlers::operating_system::update_operating_system(self, request).await
+    }
+
+    async fn delete_operating_system(
+        &self,
+        request: Request<rpc::DeleteOperatingSystemRequest>,
+    ) -> Result<Response<rpc::DeleteOperatingSystemResponse>, Status> {
+        crate::handlers::operating_system::delete_operating_system(self, request).await
+    }
+
+    async fn find_operating_system_ids(
+        &self,
+        request: Request<rpc::OperatingSystemSearchFilter>,
+    ) -> Result<Response<rpc::OperatingSystemIdList>, Status> {
+        crate::handlers::operating_system::find_operating_system_ids(self, request).await
+    }
+
+    async fn find_operating_systems_by_ids(
+        &self,
+        request: Request<rpc::OperatingSystemsByIdsRequest>,
+    ) -> Result<Response<rpc::OperatingSystemList>, Status> {
+        crate::handlers::operating_system::find_operating_systems_by_ids(self, request).await
+    }
+
+    async fn get_operating_system_cachable_ipxe_template_artifacts(
+        &self,
+        request: Request<rpc::GetOperatingSystemCachableIpxeTemplateArtifactsRequest>,
+    ) -> Result<Response<rpc::IpxeTemplateArtifactList>, Status> {
+        crate::handlers::operating_system::get_operating_system_cachable_ipxe_script_artifacts(
+            self, request,
+        )
+        .await
+    }
+
+    async fn update_operating_system_cachable_ipxe_template_artifacts(
+        &self,
+        request: Request<rpc::UpdateOperatingSystemIpxeTemplateArtifactRequest>,
+    ) -> Result<Response<rpc::IpxeTemplateArtifactList>, Status> {
+        crate::handlers::operating_system::update_operating_system_cachable_ipxe_script_artifacts(
+            self, request,
+        )
+        .await
+    }
+
     async fn get_machine_validation_runs(
         &self,
         request: Request<rpc::MachineValidationRunListGetRequest>,
@@ -3075,6 +3138,84 @@ impl Forge for Api {
         request: Request<rpc::ListComponentFirmwareVersionsRequest>,
     ) -> Result<Response<rpc::ListComponentFirmwareVersionsResponse>, Status> {
         crate::handlers::component_manager::list_component_firmware_versions(self, request).await
+    }
+
+    async fn get_ipxe_template(
+        &self,
+        request: tonic::Request<::rpc::forge::GetIpxeTemplateRequest>,
+    ) -> Result<tonic::Response<::rpc::forge::IpxeTemplate>, Status> {
+        use carbide_ipxe_renderer::IpxeScriptRenderer;
+
+        let req = request.into_inner();
+        let id = req
+            .id
+            .ok_or_else(|| Status::invalid_argument("id is required"))?;
+        let renderer = carbide_ipxe_renderer::DefaultIpxeScriptRenderer::new();
+
+        match renderer.get_template_by_id(&id.to_string()) {
+            Some(template) => Ok(tonic::Response::new(::rpc::forge::IpxeTemplate {
+                id: Some(id),
+                name: template.name.clone(),
+                template: template.template.clone(),
+                required_params: template.required_params.clone(),
+                description: template.description.clone(),
+                reserved_params: template.reserved_params.clone(),
+                required_artifacts: template.required_artifacts.clone(),
+                scope: ipxe_template_scope_to_proto(template.scope).into(),
+            })),
+            None => Err(Status::not_found(format!(
+                "iPXE template '{}' not found",
+                id
+            ))),
+        }
+    }
+
+    async fn list_ipxe_templates(
+        &self,
+        _request: tonic::Request<::rpc::forge::ListIpxeTemplatesRequest>,
+    ) -> Result<tonic::Response<::rpc::forge::IpxeTemplateList>, Status> {
+        use carbide_ipxe_renderer::IpxeScriptRenderer;
+
+        let renderer = carbide_ipxe_renderer::DefaultIpxeScriptRenderer::new();
+        let template_names = renderer.list_templates();
+
+        let templates = template_names
+            .iter()
+            .filter_map(|name| renderer.get_template_by_name(name))
+            .map(|t| {
+                let id = t.id.parse().map_err(|e| {
+                    Status::internal(format!(
+                        "embedded iPXE template '{}' has malformed id '{}': {e}",
+                        t.name, t.id,
+                    ))
+                })?;
+                Ok(::rpc::forge::IpxeTemplate {
+                    id: Some(id),
+                    name: t.name.clone(),
+                    template: t.template.clone(),
+                    required_params: t.required_params.clone(),
+                    description: t.description.clone(),
+                    reserved_params: t.reserved_params.clone(),
+                    required_artifacts: t.required_artifacts.clone(),
+                    scope: ipxe_template_scope_to_proto(t.scope).into(),
+                })
+            })
+            .collect::<Result<Vec<_>, Status>>()?;
+
+        Ok(tonic::Response::new(::rpc::forge::IpxeTemplateList {
+            templates,
+        }))
+    }
+}
+
+fn ipxe_template_scope_to_proto(
+    scope: carbide_ipxe_renderer::IpxeTemplateScope,
+) -> ::rpc::forge::IpxeTemplateScope {
+    use ::rpc::forge::IpxeTemplateScope as ProtoScope;
+    use carbide_ipxe_renderer::IpxeTemplateScope as RendererScope;
+    match scope {
+        RendererScope::Internal => ProtoScope::Internal,
+        RendererScope::Public => ProtoScope::Public,
     }
 }
 

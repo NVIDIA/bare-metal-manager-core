@@ -62,6 +62,7 @@ mod instance;
 mod instance_type;
 mod inventory;
 mod ip;
+mod ipxe_template;
 mod jump;
 mod machine;
 mod machine_interfaces;
@@ -76,6 +77,7 @@ mod network_security_group;
 mod network_segment;
 mod nvl_logical_partition;
 mod nvl_partition;
+mod operating_system;
 mod os_image;
 mod ping;
 mod power_shelf;
@@ -235,7 +237,9 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::NetworkSecurityGroup(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NetworkSegment(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NvlPartition(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::IpxeTemplate(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::OsImage(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::OperatingSystem(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Ping(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::PowerShelf(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Rack(cmd) => cmd.dispatch(ctx).await?,
