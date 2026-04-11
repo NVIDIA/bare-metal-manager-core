@@ -19,19 +19,19 @@ use ::rpc::forge::{self as rpc};
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
-use db::ObjectFilter;
+use db::{AnnotatedSqlxError, ObjectFilter};
 use itertools::Itertools;
 use libredfish::model::component_integrity::{ComponentIntegrities, ComponentIntegrity};
 use model::attestation::spdm::{SpdmAttestationState, SpdmDeviceAttestation};
 use model::bmc_info::BmcInfo;
 use model::machine::machine_search_config::MachineSearchConfig;
+use sqlx::PgPool;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::handlers::utils::convert_and_log_machine_id;
 
-#[allow(txn_held_across_await)]
 pub(crate) async fn trigger_machine_attestation(
     api: &Api,
     request: Request<MachineId>,
@@ -41,10 +41,10 @@ pub(crate) async fn trigger_machine_attestation(
     let machine_id = request.get_ref();
     log_machine_id(machine_id);
 
-    let mut txn = api.txn_begin().await?;
+    let mut db_reader = api.db_reader();
 
     let machines = db::machine::find(
-        &mut txn,
+        &mut db_reader,
         ObjectFilter::List(&[*machine_id]),
         MachineSearchConfig::default(),
     )
@@ -80,9 +80,7 @@ pub(crate) async fn trigger_machine_attestation(
         })?;
 
     let records_inserted =
-        trigger_attestation(&mut txn, redfish_client, bmc_info, machine_id).await?;
-
-    txn.commit().await?;
+        trigger_attestation(api.pg_pool(), redfish_client, bmc_info, machine_id).await?;
 
     Ok(Response::new(rpc::SpdmMachineAttestationTriggerResponse {
         machine_id: Some(*machine_id),
@@ -90,9 +88,8 @@ pub(crate) async fn trigger_machine_attestation(
     }))
 }
 
-#[allow(txn_held_across_await)]
 pub async fn trigger_attestation(
-    txn: &mut sqlx::PgConnection,
+    db_pool: &PgPool,
     redfish_client: Box<dyn libredfish::Redfish>,
     bmc_info: &BmcInfo,
     machine_id: &MachineId,
@@ -139,15 +136,27 @@ pub async fn trigger_attestation(
         .map(|x| from_component_integrity(x.clone(), machine_id, &time_now, bmc_info))
         .collect_vec();
 
-    let records_inserted =
-        db::attestation::spdm::insert_device_attestations(txn, machine_id, device_attestations)
-            .await
-            .map_err(|e| {
-                CarbideError::AttestationError(format!(
-                    "Error inserting device attestations into DB: {}",
-                    e
-                ))
-            })?;
+    let mut txn = db_pool
+        .begin()
+        .await
+        .map_err(|e| AnnotatedSqlxError::new("trigger_attestation begin", e))?;
+
+    let records_inserted = db::attestation::spdm::insert_device_attestations(
+        &mut txn,
+        machine_id,
+        device_attestations,
+    )
+    .await
+    .map_err(|e| {
+        CarbideError::AttestationError(format!(
+            "Error inserting device attestations into DB: {}",
+            e
+        ))
+    })?;
+
+    txn.commit()
+        .await
+        .map_err(|e| AnnotatedSqlxError::new("trigger_attestation commit", e))?;
 
     tracing::info!(
         "SPDM attestation commenced for machine {}, scheduled {} SPDM device attestations",

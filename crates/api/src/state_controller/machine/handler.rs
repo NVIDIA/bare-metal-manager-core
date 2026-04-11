@@ -10271,10 +10271,8 @@ async fn handle_spdm_trigger_state(
         .create_client_from_machine(&mh_snapshot.host_snapshot, db_pool)
         .await?;
 
-    let mut txn = db_pool.begin().await?;
-
     let devices_scheduled = attestation_handlers::trigger_attestation(
-        &mut txn,
+        db_pool,
         redfish_client,
         &mh_snapshot.host_snapshot.bmc_info,
         host_machine_id,
@@ -10289,9 +10287,9 @@ async fn handle_spdm_trigger_state(
             machine_id = %host_machine_id,
             "No devices scheduled for SPDM attestation"
         );
-        Ok(StateHandlerOutcome::transition(next_skip_state).with_txn(txn))
+        Ok(StateHandlerOutcome::transition(next_skip_state))
     } else {
-        Ok(StateHandlerOutcome::transition(next_spdm_state).with_txn(txn))
+        Ok(StateHandlerOutcome::transition(next_spdm_state))
     }
 }
 

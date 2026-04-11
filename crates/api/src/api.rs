@@ -3031,6 +3031,10 @@ impl Api {
         self.database_connection.clone().into()
     }
 
+    pub fn pg_pool(&self) -> &PgPool {
+        &self.database_connection
+    }
+
     // This function can just async when
     // https://github.com/rust-lang/rust/issues/110011 will be
     // implemented
