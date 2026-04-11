@@ -106,7 +106,9 @@ pub struct OperatingSystem {
 impl TryFrom<rpc::forge::InstanceOperatingSystemConfig> for OperatingSystem {
     type Error = RpcDataConversionError;
 
-    fn try_from(mut config: rpc::forge::InstanceOperatingSystemConfig) -> Result<Self, Self::Error> {
+    fn try_from(
+        mut config: rpc::forge::InstanceOperatingSystemConfig,
+    ) -> Result<Self, Self::Error> {
         let variant = config
             .variant
             .take()
@@ -139,7 +141,9 @@ impl TryFrom<rpc::forge::InstanceOperatingSystemConfig> for OperatingSystem {
 impl TryFrom<OperatingSystem> for rpc::forge::InstanceOperatingSystemConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: OperatingSystem) -> Result<rpc::forge::InstanceOperatingSystemConfig, Self::Error> {
+    fn try_from(
+        config: OperatingSystem,
+    ) -> Result<rpc::forge::InstanceOperatingSystemConfig, Self::Error> {
         let variant = match config.variant {
             OperatingSystemVariant::Ipxe(ipxe) => {
                 let mut ipxe: rpc::forge::InlineIpxe = ipxe.try_into()?;

@@ -21,11 +21,11 @@ use bmc_mock::MachineInfo;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use mac_address::MacAddress;
-use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::instance_operating_system_config::Variant;
+use rpc::forge::machine_cleanup_info::CleanupStepResult;
 use rpc::forge::{
-    ConfigSetting, ExpectedMachine, InlineIpxe, MachinesByIdsRequest, InstanceOperatingSystemConfig,
-    PxeInstructions, SetDynamicConfigRequest,
+    ConfigSetting, ExpectedMachine, InlineIpxe, InstanceOperatingSystemConfig,
+    MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest,
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
 

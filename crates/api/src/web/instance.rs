@@ -357,13 +357,15 @@ impl From<forgerpc::Instance> for InstanceDetail {
                             .run_provisioning_instructions_on_every_boot,
                         phone_home_enabled: os.phone_home_enabled,
                     },
-                    forgerpc::instance_operating_system_config::Variant::OsImageId(_id) => InstanceOs {
-                        ipxe_script: "".to_string(),
-                        userdata: os.user_data.clone().unwrap_or_default(),
-                        run_provisioning_instructions_on_every_boot: os
-                            .run_provisioning_instructions_on_every_boot,
-                        phone_home_enabled: os.phone_home_enabled,
-                    },
+                    forgerpc::instance_operating_system_config::Variant::OsImageId(_id) => {
+                        InstanceOs {
+                            ipxe_script: "".to_string(),
+                            userdata: os.user_data.clone().unwrap_or_default(),
+                            run_provisioning_instructions_on_every_boot: os
+                                .run_provisioning_instructions_on_every_boot,
+                            phone_home_enabled: os.phone_home_enabled,
+                        }
+                    }
                 },
                 None => InstanceOs::default(),
             })

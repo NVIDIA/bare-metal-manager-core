@@ -6173,9 +6173,11 @@ async fn test_allocate_instance_with_invalid_os_image(
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: None,
-        variant: Some(rpc::forge::instance_operating_system_config::Variant::OsImageId(
-            rpc::Uuid::from(invalid_os_image_id),
-        )),
+        variant: Some(
+            rpc::forge::instance_operating_system_config::Variant::OsImageId(rpc::Uuid::from(
+                invalid_os_image_id,
+            )),
+        ),
     };
 
     let result = env
