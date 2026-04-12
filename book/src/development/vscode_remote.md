@@ -35,7 +35,7 @@ development feeling.
 
 ### Basic remote setup
 
-Start `VS Code` using the `code` command in the same shell after running `nvinit`:
+Start `VS Code` using the `code` command in the same shell:
 
 Click the remote button on the lower left of the IDE window:
 ![](../static/remote_button.png).

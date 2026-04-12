@@ -212,7 +212,7 @@ Now that you're in the container go into `/carbide` and work normally (`cargo bu
 
 The build may hang the first time. I don't know why. Ctrl-C and try again. You may want to `docker commit` after it succeeds to update the image.
 
-Remember to `strip` before you scp so that scp goes faster. scp to DPU example (`nvinit` first): `scp -v -J grahamk@155.130.12.194 /home/graham/src/carbide/target/release/forge-dpu-agent ubuntu@10.180.198.23:.`
+Remember to `strip` before you scp so that scp goes faster. Example: `scp -v -J grahamk@155.130.12.194 /home/graham/src/carbide/target/release/forge-dpu-agent ubuntu@10.180.198.23:.`
 
 ## Next steps
 

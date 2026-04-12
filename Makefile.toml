@@ -165,6 +165,65 @@ docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.cargo-docker-minimal -t carbi
 echo "Image carbide-build-minimal built. Run: cargo make cargo-docker-minimal -- build -p carbide-admin-cli --release"
 '''
 
+[tasks.build-pxe-build-container]
+category = "Build"
+description = "Build the PXE artifact build container image (Ubuntu 24.04 + Rust 1.90 + mkosi deps). Required once before pxe-docker-x86."
+workspace = false
+script = '''
+set -e
+docker build -f ${REPO_ROOT}/dev/docker/Dockerfile.pxe-build-container -t carbide-pxe-builder ${REPO_ROOT}/dev/docker
+echo "Image carbide-pxe-builder built. Run: cargo make pxe-docker-x86"
+'''
+
+[tasks.pxe-docker-x86]
+category = "Build"
+description = "Build x86_64 PXE boot artifacts inside a privileged container. Requires build-pxe-build-container first. Artifacts land in pxe/static/blobs/internal/x86_64/ via the repo mount."
+workspace = false
+script = '''
+set -e
+if [ -z "$CARGO_HOME" ]; then CARGO_HOME="$HOME/.cargo"; fi
+SCCACHE_HOST="${SCCACHE_DIR:-$HOME/.sccache}"
+mkdir -p "$SCCACHE_HOST"
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
+# Compute a dpkg-valid version (must start with a digit).
+# With tags: git describe yields e.g. 1.2.3-4-gabcdef (valid).
+# Without tags: git describe yields a bare commit hash; prefix with 0.0.0- to satisfy dpkg.
+PKG_VERSION=$(git -C "${REPO_ROOT}" describe --tags --first-parent --always --long 2>/dev/null | sed 's/^v//')
+case "${PKG_VERSION}" in
+  [0-9]*) ;;
+  *) PKG_VERSION="0.0.0-${PKG_VERSION}" ;;
+esac
+# --privileged is required so mkosi can use Linux user namespaces inside the container.
+# SA_ENABLEMENT=1 tells the iPXE build to use ld.bfd instead of lld (iPXE requires GNU ld).
+# PKG_VERSION is passed via --env so cargo-make uses it instead of re-running git describe
+# inside the container (where the version would be the same, but this makes the version
+# explicit and avoids any safe.directory edge cases in the packaging step).
+docker run --rm \
+  --privileged \
+  -v "${REPO_ROOT}":/code \
+  -v "${CARGO_HOME}":/cargo \
+  -v "${SCCACHE_HOST}":/sccache \
+  -w /code \
+  -e CARGO_HOME=/cargo \
+  -e SCCACHE_DIR=/sccache \
+  -e SA_ENABLEMENT=1 \
+  -e PKG_VERSION="${PKG_VERSION}" \
+  -e HOST_UID="${HOST_UID}" \
+  -e HOST_GID="${HOST_GID}" \
+  carbide-pxe-builder \
+  sh -c 'git config --global --add safe.directory /code && git config --global --add safe.directory /code/pxe/ipxe/upstream && r=0; cargo make --cwd pxe --env PKG_VERSION=${PKG_VERSION} --env SA_ENABLEMENT=1 build-boot-artifacts-x86-host-sa || r=$?; chown -R ${HOST_UID}:${HOST_GID} /code 2>/dev/null || true; exit $r'
+'''
+
+[tasks.pxe-native-x86]
+category = "Build"
+description = "Build x86_64 PXE boot artifacts natively on the host/runner. All deps must be pre-installed (CI: use setup-mkosi-environment action; local: see book/src/development.md). Artifacts land in pxe/static/blobs/internal/x86_64/."
+workspace = false
+script = '''
+set -e
+cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-x86-host-sa
+'''
+
 [tasks.cargo-docker]
 category = "Build"
 description = "Run Cargo inside the carbide-build-x86_64 Docker container. Requires build-cargo-docker-image first (slow on Apple Silicon). Pass cargo args after -- without extra quotes."
@@ -496,6 +555,24 @@ category = "Test"
 dependencies = ["install-clippy"]
 command = "cargo"
 args = ["clippy", "--locked", "--all-targets", "--all-features"]
+
+# clippy-release is used by Docker/CI instead of clippy-flow for two reasons:
+#   1. --release: compiled artifacts are shared with the subsequent build-release step, so clippy
+#      does not trigger a second full compilation of all 64 workspace crates.
+#   2. workspace = false: cargo-make runs the task once at the workspace root rather than
+#      iterating per member (see note on --no-workspace in Dockerfile.release-container-sa-x86_64).
+#
+# Coverage trade-off: --all-targets here vs. default targets in build-release means clippy sees
+# test/bench code that build-release does not compile. In practice this is a net benefit (more
+# coverage), but if a test-only dep activates features that conflict at the workspace level you
+# may see different lint results than a per-crate clippy run would produce.
+[tasks.clippy-release]
+workspace = false
+description = "Runs clippy in release mode. Used by Docker/CI builds so clippy shares compiled artifacts with build-release, avoiding a full double-compilation."
+category = "Test"
+dependencies = ["install-clippy"]
+command = "cargo"
+args = ["clippy", "--locked", "--all-targets", "--all-features", "--release"]
 
 [tasks.build-debug-test-prerequisites]
 script = '''
