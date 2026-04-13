@@ -153,7 +153,7 @@ async fn scp_cmd_write(
             "-o",
             "StrictHostKeyChecking=no",
             "-o",
-            "UserKnownHostsFile=/dev/null",
+            "PubkeyAuthentication=no",
             "-P",
             &port_str,
             local_path,
