@@ -20,12 +20,15 @@
 //! External validation orchestrator for NICC. Bridges NICC with test
 //! frameworks (Benchpress, MPI-based, SLURM-based, etc.) to perform
 //! partition-aware rack validation.
-//!
-//! NOTE: This is still a tracer / playground. The abstractions are
-//! crystallizing but main.rs is not yet the final shape.
 
 use std::path::PathBuf;
 
+use carbide_rvs::config::Config;
+use carbide_rvs::ctx::RvsCtx;
+use carbide_rvs::error::RvsError;
+use carbide_rvs::partitions::Partitions;
+use carbide_rvs::{artifact, client, rack, scenario, validation};
+use clap::Parser;
 use forge_tls::client_config::ClientCert;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
 use tokio::signal::unix::{SignalKind, signal};
@@ -35,20 +38,16 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-mod client;
-mod config;
-mod error;
-mod partitions;
-mod rack;
-mod scenario;
-mod validation;
-
-use client::NiccClient;
-use config::Config;
-use partitions::Partitions;
+#[derive(Parser)]
+#[command(about = "Rack Validation Service")]
+struct Cli {
+    /// Path to TOML config file. Defaults and CARBIDE_RVS__* env vars apply if omitted.
+    #[arg(long, value_name = "PATH")]
+    config: Option<PathBuf>,
+}
 
 #[tokio::main]
-async fn main() -> Result<(), error::RvsError> {
+async fn main() -> Result<(), RvsError> {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy();
@@ -60,50 +59,63 @@ async fn main() -> Result<(), error::RvsError> {
 
     tracing::info!("carbide-rvs: Rack Validation Service starting");
 
+    let cli = Cli::parse();
+
     // Load config: defaults -> optional TOML -> CARBIDE_RVS__* env vars
-    let config_path = parse_config_path()?;
-    let cfg = Config::load(config_path.as_deref())?;
+    let cfg = Config::load(cli.config.as_deref())?;
     tracing::info!(config = ?cfg, "config loaded");
 
-    // Try loading scenario -- soft fail, this is tracer code
-    let scenario = match scenario::Scenario::load(std::path::Path::new(&cfg.scenario_config_path)) {
-        Ok(s) => {
-            tracing::info!(scenario = ?s, "scenario loaded");
-            Some(s)
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "scenario not loaded, continuing without it");
-            None
-        }
-    };
-    let os_uri = scenario.as_ref().map(|s| s.os.uri.as_str()).unwrap_or("");
+    // Load all scenarios -- soft fail per file so a single bad config doesn't block others.
+    let scenarios: Vec<scenario::Scenario> = cfg
+        .scenario_config_paths
+        .iter()
+        .filter_map(|path| {
+            match scenario::Scenario::load(std::path::Path::new(path)) {
+                Ok(s) => {
+                    tracing::info!(path, model = %s.rack.model, sot_release = %s.rack.sot_release, "scenario loaded");
+                    Some(s)
+                }
+                Err(e) => {
+                    tracing::warn!(path, error = %e, "scenario not loaded, skipping");
+                    None
+                }
+            }
+        })
+        .collect();
 
     // Build NICC client from config
     let client_cert = ClientCert {
-        cert_path: cfg.tls.identity_pemfile_path,
-        key_path: cfg.tls.identity_keyfile_path,
+        cert_path: cfg.tls.identity_pemfile_path.clone(),
+        key_path: cfg.tls.identity_keyfile_path.clone(),
     };
-    let client_config = ForgeClientConfig::new(cfg.tls.root_cafile_path, Some(client_cert));
+    let client_config = ForgeClientConfig::new(cfg.tls.root_cafile_path.clone(), Some(client_cert));
     let api_config = ApiConfig::new(&cfg.nicc.url, &client_config);
-    let nicc = NiccClient::new(&api_config);
+    let nicc = client::NiccClient::new(&api_config);
+
+    let ctx = RvsCtx {
+        nicc,
+        scenarios,
+        cfg,
+        sot_override_path: None,
+    };
 
     // TODO[#416]: re-introduce a liveness/health probe (bound to
     // `cfg.metrics_endpoint`) once RVS runs as a long-lived service with
     // graceful shutdown and real health checks. For now, "alive" just means
-    // the process is running -- the current stub probe would only echo 200
-    // and buys nothing.
+    // the process is running -- a stub probe would only echo 200 and buys
+    // nothing.
 
     let cancel_token = CancellationToken::new();
     let validation_cancel_token = cancel_token.clone();
 
     tokio::spawn(async move {
+        let Ok(mut sigint) = signal(SignalKind::interrupt()) else {
+            return;
+        };
+        let Ok(mut sigterm) = signal(SignalKind::terminate()) else {
+            return;
+        };
         loop {
-            let Ok(mut sigint) = signal(SignalKind::interrupt()) else {
-                break;
-            };
-            let Ok(mut sigterm) = signal(SignalKind::terminate()) else {
-                break;
-            };
             // Wait for SIGINT or SIGTERM
             let received_signal = tokio::select! {
                 _ = sigint.recv() => "SIGINT",
@@ -121,40 +133,23 @@ async fn main() -> Result<(), error::RvsError> {
         }
     });
 
-    run_validation(
-        &nicc,
-        os_uri,
-        cfg.poll_interval_secs,
-        validation_cancel_token,
-    )
-    .await
-}
-
-/// Parse `--config <path>` from argv. Returns `None` if the flag is absent.
-fn parse_config_path() -> Result<Option<PathBuf>, error::RvsError> {
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        if arg == "--config" {
-            let path = args.next().ok_or_else(|| {
-                error::RvsError::InvalidArg("--config requires a path argument".to_string())
-            })?;
-            return Ok(Some(PathBuf::from(path)));
-        }
-    }
-    Ok(None)
+    run_validation(&ctx, validation_cancel_token).await
 }
 
 // Rack validation high-level flow
-async fn run_validation(
-    nicc: &NiccClient,
-    os_uri: &str,
-    poll_interval_secs: u64,
-    cancel_token: CancellationToken,
-) -> Result<(), error::RvsError> {
+async fn run_validation(ctx: &RvsCtx, cancel_token: CancellationToken) -> Result<(), RvsError> {
+    artifact::start_cache_server(ctx).await?;
+    let poll_interval_secs = ctx.cfg.poll_interval_secs;
     let interval = std::time::Duration::from_secs(poll_interval_secs);
     loop {
-        let racks = rack::fetch_racks(nicc).await?;
-        for job in validation::plan(Partitions::try_from(racks)?, nicc, os_uri).await? {
+        let racks = rack::fetch_racks(&ctx.nicc).await?;
+        artifact::process_artifacts(&racks, ctx).await?;
+        let os_uri = ctx
+            .scenarios
+            .first()
+            .map(|s| s.os.uri.as_str())
+            .unwrap_or("");
+        for job in validation::plan(Partitions::try_from(racks)?, &ctx.nicc, os_uri).await? {
             let report = validation::validate_partition(job).await?;
             validation::submit_report(report).await?;
         }

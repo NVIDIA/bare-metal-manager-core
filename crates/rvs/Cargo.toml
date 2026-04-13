@@ -22,23 +22,32 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
-[[bin]]
-name = "carbide-rvs"
-path = "src/main.rs"
+[lib]
+name = "carbide_rvs"
+path = "src/lib.rs"
 
 [dependencies]
 carbide-uuid = { path = "../uuid" }
 carbide-rpc = { path = "../rpc" }
 carbide-tls = { path = "../tls" }
+axum = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
 figment = { workspace = true, features = ["toml", "env"] }
 uuid = { workspace = true, features = ["v4"] }
 logfmt = { path = "../logfmt" }
 serde = { features = ["derive"], workspace = true }
+serde_json = { workspace = true }
+futures = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
+jsonpath-rust = "1.0.4"
+reqwest = { default-features = false, features = ["rustls", "stream"], workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 toml = { workspace = true }
 thiserror = { workspace = true }
 tonic = { workspace = true }
+tower-http = { workspace = true, features = ["fs"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 

@@ -15,8 +15,8 @@ pub struct Config {
     pub listen: SocketAddr,
     /// Prometheus metrics / liveness probe endpoint.
     pub metrics_endpoint: SocketAddr,
-    /// Path to the scenario definition TOML.
-    pub scenario_config_path: String,
+    /// Paths to scenario definition TOMLs (one per rack model/release).
+    pub scenario_config_paths: Vec<String>,
     /// How long to wait between validation poll cycles (seconds).
     pub poll_interval_secs: u64,
     /// NICC connection settings.
@@ -62,6 +62,8 @@ pub struct ArtifactCacheConfig {
     pub download_timeout_secs: u64,
     /// Max parallel artifact downloads.
     pub max_concurrent_downloads: u32,
+    /// Port for the HTTP artifact cache server (nodes pull from this).
+    pub serve_port: u16,
 }
 
 impl Default for Config {
@@ -69,7 +71,7 @@ impl Default for Config {
         Self {
             listen: "[::]:1089".parse().unwrap(),
             metrics_endpoint: "[::]:9019".parse().unwrap(),
-            scenario_config_path: "/etc/forge/rvs/scenario.toml".to_string(),
+            scenario_config_paths: vec!["/etc/forge/rvs/scenario.toml".to_string()],
             poll_interval_secs: 30,
             nicc: NiccConfig::default(),
             tls: TlsConfig::default(),
@@ -103,6 +105,7 @@ impl Default for ArtifactCacheConfig {
             cache_dir: "/rvs-cache".to_string(),
             download_timeout_secs: 600,
             max_concurrent_downloads: 4,
+            serve_port: 8080,
         }
     }
 }

@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use carbide_uuid::machine::MachineId;
 use rpc::forge::{
     GetRackRequest, Instance, InstanceAllocationRequest, InstanceConfig, Label,
-    MachineMetadataUpdateRequest, MachinesByIdsRequest, Metadata,
+    MachineMetadataUpdateRequest, MachinesByIdsRequest, Metadata, RackFirmwareGetRequest,
+    RackFirmwareSearchFilter,
 };
 use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::ApiConfig;
@@ -12,7 +13,7 @@ use rpc::protos::forge::{
     instance_operating_system_config,
 };
 
-use super::{RackData, TrayData};
+use super::{RackData, RackFirmwareData, TrayData};
 use crate::error::RvsError;
 
 /// NICC gRPC client wrapper -- translates gRPC responses into IR types.
@@ -32,6 +33,34 @@ impl NiccClient {
     pub async fn get_racks(&self) -> Result<Vec<RackData>, RvsError> {
         let response = self.inner.get_rack(GetRackRequest { id: None }).await?;
         response.rack.into_iter().map(RackData::try_from).collect()
+    }
+
+    /// Fetch a rack firmware record (SOT JSON) by ID.
+    #[allow(dead_code)]
+    pub async fn get_rack_firmware(&self, firmware_id: &str) -> Result<RackFirmwareData, RvsError> {
+        let response = self
+            .inner
+            .get_rack_firmware(RackFirmwareGetRequest {
+                id: firmware_id.to_string(),
+            })
+            .await?;
+        RackFirmwareData::try_from(response)
+    }
+
+    /// List all rack firmware records (SOT JSON blobs) from NICC.
+    pub async fn list_rack_firmware(&self) -> Result<Vec<RackFirmwareData>, RvsError> {
+        let response = self
+            .inner
+            .list_rack_firmware(RackFirmwareSearchFilter {
+                only_available: false,
+                rack_hardware_type: None,
+            })
+            .await?;
+        response
+            .configs
+            .into_iter()
+            .map(RackFirmwareData::try_from)
+            .collect()
     }
 
     /// Update `rv.*` labels on a machine, preserving all non-`rv.*` labels.
