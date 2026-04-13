@@ -80,6 +80,7 @@ mod instance;
 mod instance_type;
 mod interface;
 mod ipam;
+mod ipxe_template;
 mod machine;
 mod machine_validation;
 pub mod managed_host;
@@ -89,6 +90,7 @@ mod network_segment;
 mod network_status;
 mod nmxm_browser;
 mod nvlink;
+mod operating_system;
 mod power_shelf;
 mod rack;
 mod redfish_actions;
@@ -497,6 +499,9 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 "/network-security-group/{network_security_group_id}/delete",
                 post(network_security_group::delete),
             )
+            .route("/ipxe-template", get(ipxe_template::show_html))
+            .route("/ipxe-template.json", get(ipxe_template::show_all_json))
+            .route("/ipxe-template/{name}", get(ipxe_template::detail))
             .route("/network-segment", get(network_segment::show_html))
             .route("/network-segment.json", get(network_segment::show_all_json))
             .route(
@@ -505,6 +510,12 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             )
             .route("/network-status", get(network_status::show_html))
             .route("/network-status.json", get(network_status::show_all_json))
+            .route("/operating-system", get(operating_system::show_html))
+            .route(
+                "/operating-system.json",
+                get(operating_system::show_all_json),
+            )
+            .route("/operating-system/{os_id}", get(operating_system::detail))
             .route("/nmxm-browser", get(nmxm_browser::query))
             .route(
                 "/nvlink-partition",

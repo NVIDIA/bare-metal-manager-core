@@ -54,6 +54,38 @@ use crate::cfg::file::ComputeAllocationEnforcement;
 use crate::network_segment::allocate::PrefixAllocator;
 use crate::{CarbideError, CarbideResult};
 
+/// Validates that an operating system definition referenced by ID exists, is active,
+/// and has status READY.  Returns `Ok(())` when the OS variant is not
+/// `OperatingSystemId` (inline iPXE / OS image variants need no lookup).
+pub async fn validate_os_definition_usable(
+    txn: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+    os: &model::os::OperatingSystem,
+) -> Result<(), CarbideError> {
+    let os_id = match os.variant {
+        OperatingSystemVariant::OperatingSystemId(id) => id,
+        _ => return Ok(()),
+    };
+    let row = db::operating_system::get(txn, os_id).await.map_err(|e| {
+        if e.is_not_found() {
+            CarbideError::FailedPrecondition(format!("Operating system `{os_id}` does not exist"))
+        } else {
+            CarbideError::internal(format!("Failed to get operating system: {e}"))
+        }
+    })?;
+    if !row.is_active {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "Operating system `{os_id}` is not active"
+        )));
+    }
+    if row.status != db::operating_system::OS_STATUS_READY {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "Operating system `{os_id}` is not ready (status: {})",
+            row.status
+        )));
+    }
+    Ok(())
+}
+
 /// User parameters for creating an instance
 #[derive(Debug)]
 pub struct InstanceAllocationRequest {
@@ -693,6 +725,11 @@ pub async fn batch_allocate_instances(
                 )))
             };
         }
+    }
+
+    // Validate each OS definition reference is active and READY
+    for request in &requests {
+        validate_os_definition_usable(&mut txn, &request.config.os).await?;
     }
 
     // Validate IB partition ownership for all requests

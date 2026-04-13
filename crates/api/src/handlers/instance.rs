@@ -50,7 +50,7 @@ use crate::api::{Api, log_machine_id, log_request_data, log_tenant_organization_
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::instance::{
     InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
-    validate_ib_partition_ownership,
+    validate_ib_partition_ownership, validate_os_definition_usable,
 };
 use crate::redfish::RedfishAuth;
 use crate::{CarbideError, CarbideResult};
@@ -994,6 +994,8 @@ pub(crate) async fn update_operating_system(
 
     let mut txn = api.txn_begin().await?;
 
+    validate_os_definition_usable(&mut txn, &os).await?;
+
     let instance = db::instance::find_by_id(&mut txn, instance_id)
         .await?
         .ok_or(CarbideError::NotFoundError {
@@ -1116,6 +1118,8 @@ pub(crate) async fn update_instance_config(
         .config
         .verify_update_allowed_to(&config)
         .map_err(CarbideError::from)?;
+
+    validate_os_definition_usable(&mut txn, &config.os).await?;
 
     let expected_version = match request.if_version_match {
         Some(version) => version.parse().map_err(CarbideError::from)?,

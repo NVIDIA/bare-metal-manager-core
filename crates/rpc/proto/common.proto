@@ -94,6 +94,14 @@ message ComputeAllocationId {
   string value = 1;
 }
 
+message OperatingSystemId {
+  string value = 1;
+}
+
+message IpxeTemplateId {
+  string value = 1;
+}
+
 enum SystemPowerControl {
   SYSTEM_POWER_CONTROL_UNKNOWN = 0;
   // Power on a machine

@@ -56,6 +56,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".common.VpcPeeringId", "::carbide_uuid::vpc_peering::VpcPeeringId")
         .extern_path(".common.VpcPrefixId", "::carbide_uuid::vpc::VpcPrefixId")
         .extern_path(".common.ComputeAllocationId", "::carbide_uuid::compute_allocation::ComputeAllocationId")
+        .extern_path(".common.OperatingSystemId", "::carbide_uuid::operating_system::OperatingSystemId")
+        .extern_path(".common.IpxeTemplateId", "::carbide_uuid::ipxe_template::IpxeTemplateId")
         .extern_path(".measured_boot.MeasurementSystemProfileId", "::carbide_uuid::measured_boot::MeasurementSystemProfileId")
         .extern_path(".measured_boot.MeasurementSystemProfileAttrId", "::carbide_uuid::measured_boot::MeasurementSystemProfileAttrId")
         .extern_path(".measured_boot.MeasurementBundleId", "::carbide_uuid::measured_boot::MeasurementBundleId")
@@ -110,6 +112,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .type_attribute("forge.InstanceStorageConfig", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.IpxeTemplateParameter",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.IpxeTemplateArtifact",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.IpxeTemplate",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.IpxeTemplateArtifactCacheStrategy",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
         .type_attribute("forge.TenantConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceDpuExtensionServicesConfig", "#[derive(serde::Serialize)]")
@@ -276,6 +294,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute(
             "forge.InstanceOperatingSystemConfig.variant",
             "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.OperatingSystem",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.OperatingSystemList",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .type_attribute(
+            "forge.OperatingSystemType",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .type_attribute("forge.InterfaceList", "#[derive(serde::Serialize)]")
         .type_attribute(
@@ -857,6 +887,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             (
                 ".common.ComputeAllocationId",
                 "::carbide_uuid::compute_allocation::ComputeAllocationId",
+            ),
+            (
+                ".common.OperatingSystemId",
+                "::carbide_uuid::operating_system::OperatingSystemId",
+            ),
+            (
+                ".common.IpxeTemplateId",
+                "::carbide_uuid::ipxe_template::IpxeTemplateId",
             ),
             (".common.RackId", "::carbide_uuid::rack::RackId"),
             (

@@ -132,6 +132,11 @@ async fn convert_instance_to_nice_format(
                     Some(::rpc::forge::instance_operating_system_config::Variant::OsImageId(
                         image,
                     )) => Some(Cow::Owned(format!("OS Image ID: {}", image.value))),
+                    Some(
+                        ::rpc::forge::instance_operating_system_config::Variant::OperatingSystemId(
+                            id,
+                        ),
+                    ) => Some(Cow::Owned(format!("Operating System ID: {}", id))),
                     None => None,
                 })
                 .unwrap_or_default(),

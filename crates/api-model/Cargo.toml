@@ -36,6 +36,7 @@ carbide-libmlx = { path = "../libmlx" }
 carbide-network = { path = "../network", features = ["sqlx"] }
 carbide-version = { path = "../version" }
 carbide-health-report = { path = "../health-report" }
+carbide-ipxe-renderer = { path = "../ipxe-renderer" }
 carbide-rpc = { path = "../rpc", features = ["sqlx"] }
 carbide-utils = { path = "../utils", features = ["sqlx"] }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
