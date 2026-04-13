@@ -40,7 +40,7 @@ pub const DEFAULT_CARBIDE_IMAGE_REGISTRY: &str = "gitlab-master.nvidia.com/aadva
 pub const DOCA_HBN_SERVICE_NAME: &str = "doca-hbn";
 pub const DOCA_HBN_SERVICE_HELM_NAME: &str = "doca-hbn";
 pub const DOCA_HBN_SERVICE_HELM_VERSION: &str = "1.0.5";
-pub const DOCA_HBN_SERVICE_IMAGE_NAME: &str = "doca-hbn";
+pub const DOCA_HBN_SERVICE_IMAGE_NAME: &str = "doca_hbn";
 pub const DOCA_HBN_SERVICE_IMAGE_TAG: &str = "3.2.1-doca3.2.1";
 pub const DOCA_HBN_SERVICE_NETWORK: &str = "mybrhbn";
 
