@@ -14,10 +14,7 @@
 		<th>ID</th>
 		<td>{{ id }}</td>
 	</tr>
-	<tr>
-		<th>Rack ID</th>
-		<td>TBD</td>
-	</tr>
+	<tr><th>Rack ID</th><td>{{ rack_id|rack_id_link|safe }}</td></tr>
 	<tr>
 		<th>State</th>
 		<td>

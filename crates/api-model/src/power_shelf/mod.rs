@@ -202,6 +202,7 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
             version: src.version.version_string(),
             bmc_info: None,
             state_version,
+            rack_id: src.rack_id,
         })
     }
 }

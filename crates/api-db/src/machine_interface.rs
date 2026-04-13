@@ -366,23 +366,28 @@ pub async fn validate_existing_mac_and_create(
                     )));
                 }
 
-                // TODO: add fixed_ip handling
-                if let Some(expected_nic) = host_nic.clone()
-                    && let Some(ipaddr) = expected_nic.fixed_ip
+                // If a fixed IP is specified for this NIC, use static
+                // allocation instead of the pool allocator.
+                let strategy = if let Some(ref expected_nic) = host_nic
+                    && let Some(ref ipaddr) = expected_nic.fixed_ip
                 {
-                    return Err(DatabaseError::internal(format!(
-                        "IP reservation per MAC address not implemented yet for {ipaddr}, {mac_address}"
-                    )));
-                }
+                    let fixed_addr: IpAddr = ipaddr.parse().map_err(|_| {
+                        DatabaseError::internal(format!(
+                            "invalid fixed_ip '{ipaddr}' for MAC {mac_address}"
+                        ))
+                    })?;
+                    AddressSelectionStrategy::StaticAddress(fixed_addr)
+                } else {
+                    AddressSelectionStrategy::NextAvailableIp
+                };
 
-                // actually create the interface
                 let v = create(
                     txn,
                     &segment,
                     &mac_address,
                     segment.subdomain_id,
                     true,
-                    AddressSelectionStrategy::NextAvailableIp,
+                    strategy,
                 )
                 .await?;
                 Ok(v)

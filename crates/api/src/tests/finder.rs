@@ -388,3 +388,49 @@ async fn test_identify_serial(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
 
     Ok(())
 }
+
+/// `FindIpAddress` returns `IpTypeStaticBmcIp` when the address is a static/operator BMC
+/// allocation (`AllocationType::Static` after `preallocate_machine_interface` on underlay).
+#[crate::sqlx_test]
+async fn test_static_bmc_ip_finder(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
+    use std::net::IpAddr;
+
+    use crate::handlers::machine_interface_address::preallocate_machine_interface;
+
+    let env = create_test_env(db_pool.clone()).await;
+
+    let static_ip: IpAddr = "10.178.160.100".parse().unwrap();
+    let bmc_mac = "AA:BB:CC:DD:EE:99".parse().unwrap();
+
+    let mut txn = db_pool.begin().await.unwrap();
+    preallocate_machine_interface(txn.as_mut(), bmc_mac, static_ip)
+        .await
+        .expect("preallocate static BMC interface");
+    txn.commit().await.unwrap();
+
+    // Query the IP via finder
+    let req = rpc::forge::FindIpAddressRequest {
+        ip: "10.178.160.100".to_string(),
+    };
+    let res = env
+        .api
+        .find_ip_address(tonic::Request::new(req))
+        .await
+        .expect("find_ip_address should succeed")
+        .into_inner();
+
+    assert!(!res.matches.is_empty(), "Should find at least one match");
+
+    // Verify it's classified as StaticBmcIp
+    let has_static_bmc_ip = res
+        .matches
+        .iter()
+        .any(|m| m.ip_type == IpType::StaticBmcIp as i32);
+
+    assert!(
+        has_static_bmc_ip,
+        "Static IP should be classified as IpTypeStaticBmcIp"
+    );
+
+    Ok(())
+}

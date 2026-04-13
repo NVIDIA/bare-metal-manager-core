@@ -452,7 +452,7 @@ pub(crate) async fn admin_force_delete_machine(
                         RedfishAuth::Key(CredentialKey::BmcCredentials {
                             credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
                         }),
-                        true,
+                        None,
                     )
                     .await
                 {

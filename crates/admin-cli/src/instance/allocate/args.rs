@@ -18,7 +18,7 @@
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::vpc::VpcPrefixId;
 use clap::{ArgGroup, Parser};
-use rpc::forge::OperatingSystem;
+use rpc::forge::InstanceOperatingSystemConfig;
 
 #[derive(Parser, Debug)]
 #[clap(group(ArgGroup::new("selector").required(true).args(&["subnet", "vpc_prefix_id"])))]
@@ -59,7 +59,7 @@ pub struct Args {
     pub instance_type_id: Option<String>,
 
     #[clap(long, help = "OS definition in JSON format", value_name = "OS_JSON")]
-    pub os: Option<OperatingSystem>,
+    pub os: Option<InstanceOperatingSystemConfig>,
 
     #[clap(long, help = "The subnet to assign to a VF")]
     pub vf_subnet: Vec<String>,

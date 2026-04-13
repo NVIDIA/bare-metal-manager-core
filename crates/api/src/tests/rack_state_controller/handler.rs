@@ -58,6 +58,7 @@ fn test_capabilities() -> RackCapabilitiesSet {
             vendor: None,
             slot_ids: None,
         },
+        ..Default::default()
     }
 }
 
@@ -81,6 +82,7 @@ fn simple_capabilities() -> RackCapabilitiesSet {
             vendor: None,
             slot_ids: None,
         },
+        ..Default::default()
     }
 }
 
@@ -104,6 +106,7 @@ fn single_capabilities() -> RackCapabilitiesSet {
             vendor: None,
             slot_ids: None,
         },
+        ..Default::default()
     }
 }
 

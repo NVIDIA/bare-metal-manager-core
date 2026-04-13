@@ -274,6 +274,18 @@ impl ApiClient {
         Ok(racks)
     }
 
+    pub async fn get_rack_capabilities(
+        &self,
+        rack_id: RackId,
+    ) -> CarbideCliResult<rpc::GetRackCapabilitiesResponse> {
+        Ok(self
+            .0
+            .get_rack_capabilities(rpc::GetRackCapabilitiesRequest {
+                rack_id: Some(rack_id),
+            })
+            .await?)
+    }
+
     async fn get_rack_ids(&self) -> CarbideCliResult<rpc::RackIdList> {
         Ok(self.0.find_rack_ids().await?)
     }
@@ -536,6 +548,9 @@ impl ApiClient {
         Ok(self.0.set_dynamic_config(request).await?)
     }
 
+    /// Partially updates an expected machine: merges CLI-provided fields with the current API
+    /// record, then calls `update_expected_machine`. When `bmc_ip_address` is supplied, the server
+    /// runs the same static-interface reconciliation as a full RPC update.
     #[allow(clippy::too_many_arguments)]
     pub async fn patch_expected_machine(
         &self,
@@ -552,6 +567,7 @@ impl ApiClient {
         rack_id: Option<RackId>,
         default_pause_ingestion_and_poweron: Option<bool>,
         dpf_enabled: Option<bool>,
+        bmc_ip_address: Option<String>,
     ) -> Result<(), CarbideCliError> {
         let get_req = match (bmc_mac_address, id) {
             (Some(_), Some(_)) => {
@@ -630,10 +646,14 @@ impl ApiClient {
             #[allow(deprecated)]
             dpf_enabled: dpf_enabled.unwrap_or_default(),
             is_dpf_enabled: dpf_enabled,
+            bmc_ip_address: bmc_ip_address.or(expected_machine.bmc_ip_address),
         };
 
         Ok(self.0.update_expected_machine(request).await?)
     }
+
+    /// Replaces the entire expected-machine table from JSON. Entries with `bmc_ip_address` trigger
+    /// the same static BMC `machine_interface` setup as a single create.
     pub async fn replace_all_expected_machines(
         &self,
         expected_machine_list: Vec<ExpectedMachineJson>,
@@ -659,6 +679,7 @@ impl ApiClient {
                     #[allow(deprecated)]
                     dpf_enabled: machine.dpf_enabled.unwrap_or_default(),
                     is_dpf_enabled: machine.dpf_enabled,
+                    bmc_ip_address: machine.bmc_ip_address,
                 })
                 .collect(),
         };

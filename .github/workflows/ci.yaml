@@ -588,7 +588,7 @@ jobs:
       build_type: boot
       cargo_make_task: build-boot-artifacts-bfb-ci
       build_container: nvcr.io/0837451325059433/carbide-dev/build-artifacts-container-aarch64:${{ needs.prepare.outputs.build_artifacts_container_aarch64_version }}
-      runner: linux-arm64-cpu8
+      runner: linux-arm64-cpu16
       version: ${{ needs.prepare.outputs.version }}
       use_container: true
       inject_extras: true
@@ -631,7 +631,7 @@ jobs:
       build_type: ephemeral
       cargo_make_task: create-ephemeral-image-arm-host-ci
       version: ${{ needs.prepare.outputs.version }}
-      runner: linux-arm64-cpu8
+      runner: linux-arm64-cpu16
       use_container: false
       sa_enablement: true
       inject_extras: true
@@ -910,7 +910,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Package and push Helm chart to NGC
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: helm
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -1112,7 +1112,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Package and push carbide-otelcol chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/carbide-otelcol
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -1122,12 +1122,8 @@ jobs:
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
 
-      # helm-package-push expects exactly one .tgz in package/, so we have to clean the previously built chart
-      - name: Clean helm package directory
-        run: rm -rf package/
-
       - name: Package and push carbide-dpu-agent chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/carbide-dpu-agent
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -1137,12 +1133,8 @@ jobs:
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
 
-      # helm-package-push expects exactly one .tgz in package/, so we have to clean the previously built chart
-      - name: Clean helm package directory
-        run: rm -rf package/
-
       - name: Package and push carbide-dhcp-server chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/carbide-dhcp-server
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -1152,12 +1144,8 @@ jobs:
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
 
-      # helm-package-push expects exactly one .tgz in package/, so we have to clean the previously built chart
-      - name: Clean helm package directory
-        run: rm -rf package/
-
       - name: Package and push carbide-dpu-otel-agent chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/carbide-dpu-otel-agent
           chart-version: ${{ needs.prepare.outputs.helm_version }}
@@ -1167,12 +1155,8 @@ jobs:
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
 
-      # helm-package-push expects exactly one .tgz in package/, so we have to clean the previously built chart
-      - name: Clean helm package directory
-        run: rm -rf package/
-
       - name: Package and push carbide-fmds chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@94bde998f5d7965576b0c663db7d5d709c918167
+        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/carbide-fmds
           chart-version: ${{ needs.prepare.outputs.helm_version }}

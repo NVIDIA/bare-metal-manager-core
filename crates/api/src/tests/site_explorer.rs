@@ -169,6 +169,8 @@ impl FakePowerShelf {
         }
     }
 
+    /// Builds model input for `add_expected_power_shelf`; `bmc_ip_address` drives the same static
+    /// BMC pre-allocation path as expected machines / switches.
     fn as_expected_power_shelf(&self) -> model::expected_power_shelf::ExpectedPowerShelf {
         model::expected_power_shelf::ExpectedPowerShelf {
             expected_power_shelf_id: None,
@@ -1428,6 +1430,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
                 host_nics: vec![],
                 rack_id: None,
                 dpf_enabled: Some(true),
+                bmc_ip_address: None,
             },
         },
     )
@@ -1476,6 +1479,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         host_nics: vec![],
         rack_id: None,
         dpf_enabled: Some(true),
+        bmc_ip_address: None,
     };
     db::expected_machine::update(&mut txn, &host1_expected_machine).await?;
     txn.commit().await?;
@@ -2435,6 +2439,7 @@ async fn test_machine_creation_with_sku(
                 host_nics: vec![],
                 rack_id: None,
                 dpf_enabled: Some(true),
+                bmc_ip_address: None,
             },
         },
     )
@@ -2568,6 +2573,7 @@ async fn test_expected_machine_device_type_metrics(
                 host_nics: vec![],
                 rack_id: None,
                 dpf_enabled: Some(true),
+                bmc_ip_address: None,
             },
         },
     )
@@ -2589,6 +2595,7 @@ async fn test_expected_machine_device_type_metrics(
                 host_nics: vec![],
                 rack_id: None,
                 dpf_enabled: Some(true),
+                bmc_ip_address: None,
             },
         },
     )
@@ -2610,6 +2617,7 @@ async fn test_expected_machine_device_type_metrics(
                 host_nics: vec![],
                 rack_id: None,
                 dpf_enabled: Some(true),
+                bmc_ip_address: None,
             },
         },
     )
@@ -3719,12 +3727,7 @@ async fn test_site_explorer_creates_power_shelf(
     // Test power shelf creation
     assert!(
         explorer
-            .create_power_shelf(
-                explored_endpoint.clone(),
-                exploration_report.clone(),
-                &expected_power_shelf,
-                &env.pool,
-            )
+            .create_power_shelf(explored_endpoint.clone(), &expected_power_shelf, &env.pool,)
             .await?
     );
 
@@ -3747,12 +3750,7 @@ async fn test_site_explorer_creates_power_shelf(
     // Test that duplicate creation returns false
     assert!(
         !explorer
-            .create_power_shelf(
-                explored_endpoint,
-                exploration_report,
-                &expected_power_shelf,
-                &env.pool,
-            )
+            .create_power_shelf(explored_endpoint, &expected_power_shelf, &env.pool,)
             .await?
     );
 
@@ -3945,12 +3943,7 @@ async fn test_power_shelf_state_history(
     // Create the power shelf using site explorer
     assert!(
         explorer
-            .create_power_shelf(
-                explored_endpoint.clone(),
-                exploration_report.clone(),
-                &expected_power_shelf,
-                &env.pool,
-            )
+            .create_power_shelf(explored_endpoint.clone(), &expected_power_shelf, &env.pool,)
             .await?
     );
 
@@ -4206,7 +4199,6 @@ async fn test_power_shelf_state_history_multiple(
         explorer
             .create_power_shelf(
                 explored_endpoint1.clone(),
-                exploration_report1.clone(),
                 &expected_power_shelf1,
                 &env.pool,
             )
@@ -4217,7 +4209,6 @@ async fn test_power_shelf_state_history_multiple(
         explorer
             .create_power_shelf(
                 explored_endpoint2.clone(),
-                exploration_report2.clone(),
                 &expected_power_shelf2,
                 &env.pool,
             )
@@ -4427,12 +4418,7 @@ async fn test_power_shelf_state_history_error_handling(
     // Create the power shelf using site explorer
     assert!(
         explorer
-            .create_power_shelf(
-                explored_endpoint.clone(),
-                exploration_report.clone(),
-                &expected_power_shelf,
-                &env.pool,
-            )
+            .create_power_shelf(explored_endpoint.clone(), &expected_power_shelf, &env.pool,)
             .await?
     );
 

@@ -37,15 +37,23 @@ use nv_redfish::resource::PowerState;
 use nv_redfish::{Bmc, Resource, ResourceProvidesStatus};
 use regex::Regex;
 
-use crate::{Error, ExploredChassisCollection, compare_boot_options, hw};
+use crate::{
+    Config as ExploreConfig, Error, ErrorClass, ExploredChassisCollection, compare_boot_options, hw,
+};
 
 const UEFI_MAC_PATTERN_CAPTURE: &str = "mac";
 lazy_static::lazy_static! {
     static ref UEFI_MAC_PATTERN: Regex = Regex::new(&format!(r"MAC\((?<{UEFI_MAC_PATTERN_CAPTURE}>[[:alnum:]]+)\,")).unwrap();
 }
 
-pub struct Config {
+pub struct Config<'a, B: Bmc> {
     pub need_oem_nvidia_bluefield: bool,
+    // Temporary workaround for BlueField DPU BMCs that intermittently return
+    // HTTP 404 for the OOB interface or the full EthernetInterfaces collection.
+    // This is expected to be fixed in BMC firmware 24.10-39, which adds
+    // internal retries.
+    pub retry_404_on_eth_interfaces: bool,
+    pub explore: &'a ExploreConfig<'a, B>,
 }
 
 pub struct ExploredComputerSystem<B: Bmc> {
@@ -58,7 +66,10 @@ pub struct ExploredComputerSystem<B: Bmc> {
 }
 
 impl<B: Bmc> ExploredComputerSystem<B> {
-    pub async fn explore(system: ComputerSystem<B>, config: &Config) -> Result<Self, Error<B>> {
+    pub async fn explore(
+        system: ComputerSystem<B>,
+        config: &Config<'_, B>,
+    ) -> Result<Self, Error<B>> {
         let boot_options = if let Some(collection) = system
             .boot_options()
             .await
@@ -74,17 +85,9 @@ impl<B: Bmc> ExploredComputerSystem<B> {
 
         let bios = system.bios().await.map_err(Error::nv_redfish("bios"))?;
 
-        let ethernet_interfaces = match system.ethernet_interfaces().await {
-            Ok(Some(ifaces)) => ifaces
-                .members()
-                .await
-                .map_err(Error::nv_redfish("system ethernet interfaces members"))?,
-            Ok(None) => vec![],
-            Err(err) => Err(Error::NvRedfish {
-                context: "system ethernet interfaces",
-                err,
-            })?,
-        };
+        let ethernet_interfaces = Self::fetch_eth_interfaces(&system, config)
+            .await
+            .map_err(Error::nv_redfish("system ethernet interfaces"))?;
 
         let oem_nvidia_bluefield = if config.need_oem_nvidia_bluefield {
             system
@@ -108,6 +111,39 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             oem_nvidia_bluefield,
             secure_boot,
         })
+    }
+
+    async fn fetch_eth_interfaces(
+        system: &ComputerSystem<B>,
+        config: &Config<'_, B>,
+    ) -> Result<Vec<EthernetInterface<B>>, nv_redfish::Error<B>> {
+        // Total tries: 3 (initial + 2 retries).
+        let mut retries_remaining = 2;
+        loop {
+            let result = match system.ethernet_interfaces().await {
+                Ok(Some(ifaces)) => ifaces.members().await,
+                Ok(None) => Ok(vec![]),
+                Err(err) => Err(err),
+            };
+            match result {
+                Ok(v) => break Ok(v),
+                Err(err) if config.retry_404_on_eth_interfaces && retries_remaining != 0 => {
+                    if let nv_redfish::Error::Bmc(bmc_error) = &err
+                        && (config.explore.error_classifier)(bmc_error)
+                            == Some(ErrorClass::HttpNotFound)
+                    {
+                        tracing::warn!(
+                            "received 404 on system's ethernet collection fetch. Retrying. {retries_remaining} tries left"
+                        );
+                        retries_remaining -= 1;
+                        tokio::time::sleep(config.explore.retry_timeout).await;
+                    } else {
+                        break Err(err);
+                    }
+                }
+                Err(err) => break Err(err),
+            }
+        }
     }
 
     pub fn to_model(

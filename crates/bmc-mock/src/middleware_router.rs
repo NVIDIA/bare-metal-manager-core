@@ -20,7 +20,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use axum::extract::{Request, State};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use tracing::instrument;
 
@@ -56,6 +56,10 @@ async fn process(State(mut state): State<Middleware>, request: Request<Body>) ->
             "Error is injected waiting for {delay:?} for request",
         );
         tokio::time::sleep(delay).await;
+    }
+    if let Some(status) = state.injected_bugs.http_error(&method, &path) {
+        tracing::warn!(method, path, %status, "Injected HTTP error for request",);
+        return status.into_response();
     }
     let response = state.call_inner_router(request).await;
     if !response.status().is_success() {

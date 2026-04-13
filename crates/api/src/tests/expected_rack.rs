@@ -52,6 +52,7 @@ fn config_with_rack_types() -> crate::cfg::file::CarbideConfig {
                         vendor: None,
                         slot_ids: None,
                     },
+                    ..Default::default()
                 },
             ),
             (
@@ -75,6 +76,7 @@ fn config_with_rack_types() -> crate::cfg::file::CarbideConfig {
                         vendor: None,
                         slot_ids: None,
                     },
+                    ..Default::default()
                 },
             ),
         ]

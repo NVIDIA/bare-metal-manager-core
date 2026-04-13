@@ -670,6 +670,7 @@ service Forge {
   // Deprecated: Use FindRackIds
   rpc GetRack(GetRackRequest) returns (GetRackResponse);
   rpc DeleteRack(DeleteRackRequest) returns (google.protobuf.Empty);
+  rpc GetRackCapabilities(GetRackCapabilitiesRequest) returns (GetRackCapabilitiesResponse);
 
   //
   // Compute Allocations
@@ -1801,6 +1802,9 @@ message PowerShelf {
 
   // Version string for the current controller state (e.g. "V3-T1774905143273055").
   string state_version = 9;
+
+  // The rack that this powershelf is associated with
+  optional common.RackId rack_id = 10;
 }
 
 message PowerShelfList {
@@ -1959,6 +1963,9 @@ message Switch {
 
   Metadata metadata = 8;
   string version = 9;
+
+  // The rack that this switch is associated with
+  optional common.RackId rack_id = 10;
 }
 
 message SwitchList {
@@ -2312,7 +2319,7 @@ message TenantConfig {
   string tenant_organization_id = 1;
 
   // These fields have been used for OS configuration in the past.
-  // They are now replaced with the OperatingSystem message.
+  // They are now replaced with the InstanceOperatingSystemConfig message.
   reserved 11, 12, 13, 14;
 
   optional string hostname = 15;
@@ -2322,7 +2329,7 @@ message TenantConfig {
   repeated string tenantKeysetIds = 8; // this may be empty
 }
 
-message OperatingSystem {
+message InstanceOperatingSystemConfig {
   // Contains the operating system definition based on the variant of operating system
   oneof variant {
     InlineIpxe ipxe = 1;
@@ -2374,7 +2381,7 @@ message InstanceConfig {
   TenantConfig tenant = 1;
 
   // Operating system. This is required if no operating system reference is provided
-  OperatingSystem os = 2;
+  InstanceOperatingSystemConfig os = 2;
   // Can be used to reference an OS in the OS library based on a unique ID
   // string os_reference = 3;
 
@@ -2459,7 +2466,7 @@ message InstanceOperatingSystemUpdateRequest {
   optional string if_version_match = 2;
 
   // Operating system. This is required if no operating system reference is provided
-  OperatingSystem os = 3;
+  InstanceOperatingSystemConfig os = 3;
   // Can be used to reference an OS in the OS library based on a unique ID
   // string os_reference = 4;
 }
@@ -3104,6 +3111,7 @@ message Machine {
 
   optional MachineNVLinkStatusObservation nvlink_status_observation = 44;
 
+  // The rack that this machine is associated with
   optional common.RackId rack_id = 45;
 }
 
@@ -4213,6 +4221,13 @@ message PxeInstructionRequest {
 
 message PxeInstructions {
   string pxe_script = 1;
+  // URL overrides for external clients (e.g. on the static-assignments
+  // segment). When set, carbide-pxe uses these instead of its global
+  // env var URLs, allowing external hosts to reach services via an
+  // alternate hostname or IP that they can resolve.
+  optional string api_url_override = 2;
+  optional string pxe_url_override = 3;
+  optional string static_pxe_url_override = 4;
 }
 
 message CloudInitDiscoveryInstructions {
@@ -4249,6 +4264,12 @@ message CloudInitInstructions {
   optional string custom_cloud_init = 1;
   optional CloudInitDiscoveryInstructions discovery_instructions = 2;
   optional CloudInitMetaData metadata = 3;
+  // URL overrides for external clients (e.g. on the static-assignments
+  // segment). When set, carbide-pxe uses these instead of its global
+  // env var URLs, allowing external hosts to reach services via an
+  // alternate hostname or IP that they can resolve.
+  optional string api_url_override = 4;
+  optional string pxe_url_override = 5;
 }
 
 // Specifies whether a network interface is physical network function (PF)
@@ -4787,6 +4808,12 @@ enum IpType {
   // DB records specifically say their source type is `admin`.
   IpTypeRouteServerFromAdminApi = 10;
   IpTypeDpaInterface = 11;
+  // IpTypeStaticBmcIp are BMC IPs that were statically assigned via
+  // ExpectedMachine.bmc_ip_address, ExpectedPowerShelf.bmc_ip_address,
+  // ExpectedSwitch.bmc_ip_address, or operator static assignment
+  // (AllocationType::Static / static-assignments segment), as opposed to
+  // a normal DHCP allocation.
+  IpTypeStaticBmcIp = 12;
 }
 
 message MachineBootOverride {
@@ -4999,6 +5026,9 @@ message ExpectedMachine {
   // deprecated
   bool dpf_enabled = 12 [deprecated = true];
   optional bool is_dpf_enabled = 13;
+  // Static BMC IP (optional). Pre-allocates a machine_interface like expected
+  // switches and power shelves; external IPs use the static-assignments segment.
+  optional string bmc_ip_address = 14;
 }
 
 message ExpectedMachineRequest {
@@ -6303,6 +6333,71 @@ message RackStateHistoryRecords {
 
 message DeleteRackRequest {
   string id = 1;
+}
+
+// Rack Capabilities
+
+enum RackHardwareType {
+  RACK_HARDWARE_TYPE_UNSPECIFIED = 0;
+  RACK_HARDWARE_TYPE_DSX_GB200NVL_36X1 = 1;
+  RACK_HARDWARE_TYPE_DSX_GB200NVL_36X2 = 2;
+  RACK_HARDWARE_TYPE_DSX_GB200NVL_72X1 = 3;
+}
+
+enum RackHardwareTopology {
+  RACK_HARDWARE_TOPOLOGY_UNSPECIFIED = 0;
+  RACK_HARDWARE_TOPOLOGY_GB200_NVL36R1_C2G4 = 1;
+  RACK_HARDWARE_TOPOLOGY_GB300_NVL36R1_C2G4 = 2;
+  RACK_HARDWARE_TOPOLOGY_GB200_NVL72R1_C2G4 = 3;
+  RACK_HARDWARE_TOPOLOGY_GB300_NVL72R1_C2G4 = 4;
+  RACK_HARDWARE_TOPOLOGY_VR_NVL8R1_C2G4_RTF = 5;
+  RACK_HARDWARE_TOPOLOGY_VR_NVL72R1_C2G4 = 6;
+}
+
+enum RackHardwareClass {
+  RACK_HARDWARE_CLASS_UNSPECIFIED = 0;
+  RACK_HARDWARE_CLASS_DEV = 1;
+  RACK_HARDWARE_CLASS_PROD = 2;
+}
+
+message RackCapabilityCompute {
+  optional string name = 1;
+  uint32 count = 2;
+  optional string vendor = 3;
+  repeated uint32 slot_ids = 4;
+}
+
+message RackCapabilitySwitch {
+  optional string name = 1;
+  uint32 count = 2;
+  optional string vendor = 3;
+  repeated uint32 slot_ids = 4;
+}
+
+message RackCapabilityPowerShelf {
+  optional string name = 1;
+  uint32 count = 2;
+  optional string vendor = 3;
+  repeated uint32 slot_ids = 4;
+}
+
+message RackCapabilitiesSet {
+  RackHardwareType rack_hardware_type = 1;
+  RackHardwareTopology rack_hardware_topology = 2;
+  RackHardwareClass rack_hardware_class = 3;
+  RackCapabilityCompute compute = 4;
+  RackCapabilitySwitch switch = 5;
+  RackCapabilityPowerShelf power_shelf = 6;
+}
+
+message GetRackCapabilitiesRequest {
+  common.RackId rack_id = 1;
+}
+
+message GetRackCapabilitiesResponse {
+  common.RackId rack_id = 1;
+  string rack_type = 2;
+  RackCapabilitiesSet capabilities = 3;
 }
 
 // put some sample rack manager commands in for now

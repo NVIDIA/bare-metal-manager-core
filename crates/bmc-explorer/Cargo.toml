@@ -45,9 +45,11 @@ nv-redfish = { workspace = true, features = [
 ] }
 regex = { workspace = true }
 lazy_static = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+axum = { workspace = true }
 bmc-mock = { path = "../bmc-mock" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 

@@ -16,6 +16,8 @@
  */
 #![recursion_limit = "256"]
 
+mod common;
+
 use bmc_explorer::nv_generate_exploration_report;
 use bmc_mock::test_support;
 use model::site_explorer::EndpointType;
@@ -23,8 +25,10 @@ use tokio::test;
 
 #[test]
 async fn explore_nvidia_switch() {
-    let bmc = test_support::nvidia_switch_nd5200_ld_bmc();
-    let report = nv_generate_exploration_report(bmc, None).await.unwrap();
+    let h = test_support::nvidia_switch_nd5200_ld_bmc();
+    let report = nv_generate_exploration_report(h.bmc, &common::explorer_config())
+        .await
+        .unwrap();
 
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
     assert_eq!(report.vendor, Some(bmc_vendor::BMCVendor::Nvidia));

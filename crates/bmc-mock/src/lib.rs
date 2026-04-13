@@ -23,7 +23,7 @@ use tokio::time::Instant;
 pub mod ipmi;
 
 mod bmc_state;
-mod bug;
+pub mod bug;
 mod combined_server;
 mod combined_service;
 mod http;

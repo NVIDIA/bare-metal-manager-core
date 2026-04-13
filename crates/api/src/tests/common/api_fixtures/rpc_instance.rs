@@ -120,7 +120,7 @@ impl<'a> RpcInstanceConfig<'a> {
         self.0.tenant.as_ref().unwrap()
     }
 
-    pub fn os(&self) -> &'a rpc::forge::OperatingSystem {
+    pub fn os(&self) -> &'a rpc::forge::InstanceOperatingSystemConfig {
         self.0.os.as_ref().unwrap()
     }
 

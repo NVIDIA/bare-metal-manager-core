@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
@@ -181,6 +181,20 @@ impl NvueClient {
             }
         }?;
         Ok(build_value.into())
+    }
+
+    /// Get the MAC table for a bridge.
+    pub async fn bridge_mac_table(
+        &self,
+        bridge_domain: &str,
+    ) -> Result<Vec<crate::types::MacTableEntry>, NvueClientError> {
+        let path = format!("/nvue_v1/bridge/domain/{bridge_domain}/mac-table");
+        let builder = self.request(Method::GET, &path)?;
+        let request = builder.build()?;
+        let response = self.execute(request).await?;
+        let resonse_body: BTreeMap<String, _> = response.json().await?;
+        let response = resonse_body.into_values().collect();
+        Ok(response)
     }
 }
 

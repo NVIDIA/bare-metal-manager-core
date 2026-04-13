@@ -38,8 +38,8 @@ fn capitalize(s: &str) -> String {
 }
 
 #[derive(Template)]
-#[template(path = "power_shelf.html")]
-struct PowerShelf {
+#[template(path = "power_shelf_show.html")]
+struct PowerShelfShow {
     power_shelves: Vec<PowerShelfRecord>,
 }
 
@@ -57,10 +57,46 @@ struct PowerShelfRecord {
 pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
     let power_shelves = match fetch_power_shelves(&state).await {
         Ok(shelves) => shelves,
-        Err((code, msg)) => return (code, msg).into_response(),
+        Err(err) => {
+            tracing::error!(%err, "fetch_power_shelves");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error loading power shelves",
+            )
+                .into_response();
+        }
     };
 
-    let display = PowerShelf { power_shelves };
+    let power_shelves = power_shelves
+        .power_shelves
+        .into_iter()
+        .map(|shelf| {
+            let state = shelf
+                .status
+                .as_ref()
+                .and_then(|s| s.controller_state.clone())
+                .map(|s| capitalize(&s))
+                .unwrap_or_else(|| "Unknown".to_string());
+
+            let config = shelf.config.unwrap_or_default();
+            PowerShelfRecord {
+                id: shelf.id.map(|id| id.to_string()).unwrap_or_default(),
+                name: config.name,
+                state,
+                capacity: config
+                    .capacity
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "N/A".to_string()),
+                voltage: config
+                    .voltage
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "N/A".to_string()),
+                location: config.location.unwrap_or_else(|| "N/A".to_string()),
+            }
+        })
+        .collect();
+
+    let display = PowerShelfShow { power_shelves };
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 
@@ -68,8 +104,16 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
 pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
     let power_shelves = match fetch_power_shelves(&state).await {
         Ok(shelves) => shelves,
-        Err((code, msg)) => return (code, msg).into_response(),
+        Err(err) => {
+            tracing::error!(%err, "fetch_power_shelves");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error loading power shelves",
+            )
+                .into_response();
+        }
     };
+    let _ = serde_json::to_string(&power_shelves);
     (StatusCode::OK, Json(power_shelves)).into_response()
 }
 
@@ -77,6 +121,7 @@ pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
 #[template(path = "power_shelf_detail.html")]
 struct PowerShelfDetail {
     id: String,
+    rack_id: String,
     controller_state: String,
     state_version: String,
     time_in_state: String,
@@ -113,6 +158,7 @@ impl PowerShelfDetail {
         };
         Self {
             id,
+            rack_id: shelf.rack_id.map(|id| id.to_string()).unwrap_or_default(),
             controller_state,
             state_version: shelf.state_version,
             time_in_state,
@@ -147,11 +193,7 @@ pub async fn detail(
     let shelf = match fetch_power_shelf(&api, &power_shelf_id).await {
         Ok(Some(shelf)) => shelf,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                format!("Power shelf {power_shelf_id} not found"),
-            )
-                .into_response();
+            return super::not_found_response(power_shelf_id);
         }
         Err(response) => return response,
     };
@@ -191,83 +233,37 @@ async fn fetch_power_shelf(
     Ok(response.power_shelves.into_iter().next())
 }
 
-async fn fetch_power_shelves(
-    api: &Api,
-) -> Result<Vec<PowerShelfRecord>, (http::StatusCode, String)> {
+async fn fetch_power_shelves(api: &Api) -> Result<rpc::forge::PowerShelfList, tonic::Status> {
     // Use find_power_shelf_ids (which respects DeletedFilter::Exclude by default)
     // followed by find_power_shelves_by_ids (which also fetches BMC info).
-    let power_shelf_ids = match api
+    let power_shelf_ids = api
         .find_power_shelf_ids(tonic::Request::new(
             rpc::forge::PowerShelfSearchFilter::default(),
         ))
-        .await
-    {
-        Ok(response) => response.into_inner().ids,
-        Err(err) => {
-            tracing::error!(%err, "find_power_shelf_ids");
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to list power shelves".to_string(),
-            ));
-        }
-    };
+        .await?
+        .into_inner()
+        .ids;
 
     if power_shelf_ids.is_empty() {
-        return Ok(vec![]);
+        return Ok(Default::default());
     }
 
-    let mut all_shelves = Vec::new();
+    let mut power_shelves = Vec::new();
     let mut offset = 0;
     while offset < power_shelf_ids.len() {
         const PAGE_SIZE: usize = 100;
         let page_size = PAGE_SIZE.min(power_shelf_ids.len() - offset);
         let next_ids = &power_shelf_ids[offset..offset + page_size];
-        let page = match api
+        let page = api
             .find_power_shelves_by_ids(tonic::Request::new(rpc::forge::PowerShelvesByIdsRequest {
                 power_shelf_ids: next_ids.to_vec(),
             }))
-            .await
-        {
-            Ok(response) => response.into_inner(),
-            Err(err) => {
-                tracing::error!(%err, "find_power_shelves_by_ids");
-                return Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to fetch power shelves".to_string(),
-                ));
-            }
-        };
-        all_shelves.extend(page.power_shelves);
+            .await?
+            .into_inner();
+
+        power_shelves.extend(page.power_shelves);
         offset += page_size;
     }
 
-    let power_shelves = all_shelves
-        .into_iter()
-        .map(|shelf| {
-            let state = shelf
-                .status
-                .as_ref()
-                .and_then(|s| s.controller_state.clone())
-                .map(|s| capitalize(&s))
-                .unwrap_or_else(|| "Unknown".to_string());
-
-            let config = shelf.config.unwrap_or_default();
-            PowerShelfRecord {
-                id: shelf.id.map(|id| id.to_string()).unwrap_or_default(),
-                name: config.name,
-                state,
-                capacity: config
-                    .capacity
-                    .map(|c| c.to_string())
-                    .unwrap_or_else(|| "N/A".to_string()),
-                voltage: config
-                    .voltage
-                    .map(|v| v.to_string())
-                    .unwrap_or_else(|| "N/A".to_string()),
-                location: config.location.unwrap_or_else(|| "N/A".to_string()),
-            }
-        })
-        .collect();
-
-    Ok(power_shelves)
+    Ok(rpc::forge::PowerShelfList { power_shelves })
 }

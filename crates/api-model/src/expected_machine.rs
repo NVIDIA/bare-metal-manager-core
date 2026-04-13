@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use std::collections::HashMap;
+use std::net::IpAddr;
 
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::rack::RackId;
@@ -99,6 +100,11 @@ pub struct ExpectedMachineData {
     pub rack_id: Option<RackId>,
     pub default_pause_ingestion_and_poweron: Option<bool>,
     pub dpf_enabled: Option<bool>,
+    /// When set, the API pre-allocates a `machine_interface` for this BMC MAC at this address
+    /// (same pattern as expected switches / power shelves) so Site Explorer can reach the BMC
+    /// without DHCP. IPs outside Carbide-managed prefixes land on the `static-assignments` segment.
+    #[serde(default)]
+    pub bmc_ip_address: Option<IpAddr>,
 }
 // Important : new fields for expected machine (and data) should be optional _and_ serde(default),
 // unless you want to go update all the files in each production deployment that autoload
@@ -131,6 +137,7 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
                 default_pause_ingestion_and_poweron: row
                     .try_get("default_pause_ingestion_and_poweron")?,
                 dpf_enabled: row.try_get("dpf_enabled")?,
+                bmc_ip_address: row.try_get("bmc_ip_address")?,
             },
         })
     }
@@ -188,6 +195,11 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
             #[allow(deprecated)]
             dpf_enabled: expected_machine.data.dpf_enabled.unwrap_or_default(),
             is_dpf_enabled: expected_machine.data.dpf_enabled,
+            // Optional configured BMC IP (proto optional string).
+            bmc_ip_address: expected_machine
+                .data
+                .bmc_ip_address
+                .map(|ip| ip.to_string()),
         }
     }
 }
@@ -217,6 +229,8 @@ impl From<LinkedExpectedMachine> for rpc::forge::LinkedExpectedMachine {
     }
 }
 
+/// Parses gRPC `ExpectedMachine` into persisted model data, including optional `bmc_ip_address`
+/// (empty or unset proto field becomes `None`; invalid strings fail conversion).
 impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
     type Error = RpcDataConversionError;
 
@@ -232,6 +246,12 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
             rack_id: em.rack_id,
             default_pause_ingestion_and_poweron: em.default_pause_ingestion_and_poweron,
             dpf_enabled: em.is_dpf_enabled,
+            bmc_ip_address: match em.bmc_ip_address.as_deref() {
+                None | Some("") => None,
+                Some(s) => Some(s.parse::<IpAddr>().map_err(|_| {
+                    RpcDataConversionError::InvalidArgument(format!("Invalid BMC IP address: {s}"))
+                })?),
+            },
         })
     }
 }

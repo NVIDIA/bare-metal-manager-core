@@ -435,7 +435,7 @@ pub async fn start_api(
 
         let bfb_url = if carbide_config.dpf.v2 && carbide_config.dpf.bfb_url.is_empty() {
             // This should move to cfg/file as a default value once v2 is the only mode.
-            "https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04/bf-bundle-3.2.0-113_25.10_ubuntu-22.04_prod.bfb".to_string()
+            "https://content.mellanox.com/BlueField/BFBs/Ubuntu24.04/bf-bundle-3.2.1-34_25.11_ubuntu-24.04_64k_prod.bfb".to_string()
         } else if carbide_config.dpf.bfb_url.is_empty() {
             crate::dpf::resolve_bfb_url().await?
         } else {
@@ -463,11 +463,6 @@ pub async fn start_api(
                 None
             } else {
                 bfcfg_template
-            },
-            dpu_flavor: if carbide_config.dpf.v2 {
-                Some((*carbide_config).clone().into())
-            } else {
-                None
             },
         };
 

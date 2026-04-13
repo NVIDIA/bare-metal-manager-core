@@ -3451,11 +3451,11 @@ async fn test_instance_cannot_allocate_requested_ip_with_network_segment(
                 .machine_id(mh.id)
                 .config(rpc::InstanceConfig {
                     tenant: Some(default_tenant_config()),
-                    os: Some(rpc::forge::OperatingSystem {
+                    os: Some(rpc::forge::InstanceOperatingSystemConfig {
                         phone_home_enabled: false,
                         run_provisioning_instructions_on_every_boot: false,
                         user_data: Some("SomeRandomData1".to_string()),
-                        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+                        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
                             rpc::forge::InlineIpxe {
                                 ipxe_script: "SomeRandomiPxe1".to_string(),
                                 user_data: Some("SomeRandomData1".to_string()),
@@ -3762,11 +3762,11 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
     let _segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let initial_os = rpc::forge::OperatingSystem {
+    let initial_os = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
@@ -4157,11 +4157,11 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
     let _segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let initial_os = rpc::forge::OperatingSystem {
+    let initial_os = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
@@ -5117,11 +5117,11 @@ async fn test_can_not_update_instance_config_after_deletion(
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let initial_os = rpc::forge::OperatingSystem {
+    let initial_os = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
@@ -6169,13 +6169,15 @@ async fn test_allocate_instance_with_invalid_os_image(
     // Use a non-existent OS image ID
     let invalid_os_image_id = uuid::Uuid::new_v4();
 
-    let os_config = rpc::forge::OperatingSystem {
+    let os_config = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: None,
-        variant: Some(rpc::forge::operating_system::Variant::OsImageId(
-            rpc::Uuid::from(invalid_os_image_id),
-        )),
+        variant: Some(
+            rpc::forge::instance_operating_system_config::Variant::OsImageId(rpc::Uuid::from(
+                invalid_os_image_id,
+            )),
+        ),
     };
 
     let result = env

@@ -34,6 +34,7 @@ build:
     - image: carbide-api
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.api.localdev
+        noCache: true
       sync:
         infer:
           - "carbide-api"

@@ -482,7 +482,7 @@ async fn test_assign_external_ip_moves_to_static_assignments(
         }))
         .await?;
 
-    // Verify the interface moved to static-assignments with None domain_id.
+    // Verify the interface moved to static-assignments with the segment's domain.
     let mut txn = env.pool.begin().await?;
     let updated = db::machine_interface::find_one(&mut *txn, interface.id).await?;
     let static_seg = db::network_segment::static_assignments(&mut txn).await?;
@@ -490,9 +490,9 @@ async fn test_assign_external_ip_moves_to_static_assignments(
         updated.segment_id, static_seg.id,
         "interface should have moved to the static-assignments segment"
     );
-    assert!(
-        updated.domain_id.is_none(),
-        "domain_id should be None on static-assignments segment"
+    assert_eq!(
+        updated.domain_id, static_seg.subdomain_id,
+        "domain_id should match the static-assignments segment's subdomain"
     );
 
     Ok(())

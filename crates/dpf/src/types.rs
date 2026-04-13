@@ -50,8 +50,6 @@ pub struct InitDpfResourcesConfig {
     /// Rendered bf.cfg template content for the DPU configuration ConfigMap.
     /// When set, a ConfigMap is created during initialization.
     pub bfcfg_template: Option<String>,
-    /// Custom fields for DPUFlavor
-    pub dpu_flavor: Option<DpuFlavorDefinition>,
 }
 
 impl Default for InitDpfResourcesConfig {
@@ -62,7 +60,6 @@ impl Default for InitDpfResourcesConfig {
             flavor_name: crate::flavor::DEFAULT_FLAVOR_NAME.to_string(),
             services: Vec::new(),
             bfcfg_template: None,
-            dpu_flavor: None,
         }
     }
 }
@@ -197,14 +194,6 @@ impl ServiceDefinition {
             ..Default::default()
         }
     }
-}
-
-/// Definition of a DPUFlavor. This struct contains only customizable fields.
-#[derive(Debug, Clone, Default)]
-pub struct DpuFlavorDefinition {
-    pub carbide_hbn_reps: Option<String>,
-    pub carbide_hbn_sfs: Option<String>,
-    pub bridge_def: Option<DpuFlavorBridgeDefinition>,
 }
 
 #[derive(Debug, Clone, Default)]

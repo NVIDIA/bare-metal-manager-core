@@ -707,6 +707,7 @@ impl InternalRBACRules {
         x.perm("FindRacksByIds", vec![ForgeAdminCLI, SiteAgent, Rla]);
         x.perm("GetRack", vec![ForgeAdminCLI, Rla]);
         x.perm("DeleteRack", vec![ForgeAdminCLI, Rla]);
+        x.perm("GetRackCapabilities", vec![ForgeAdminCLI]);
         x.perm("RackManagerCall", vec![ForgeAdminCLI]);
         x.perm("ScoutStream", vec![Scout]);
         x.perm("ScoutStreamShowConnections", vec![ForgeAdminCLI]);

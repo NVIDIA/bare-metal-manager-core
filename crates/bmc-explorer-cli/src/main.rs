@@ -121,6 +121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     bmc_ip_address,
                     fallback_credentials.clone(),
                     args.boot_mac,
+                    None,
                 )
                 .await?;
         }
@@ -134,7 +135,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .generate_exploration_report(
                         bmc_ip_address,
                         fallback_credentials.clone(),
-                        args.boot_mac
+                        args.boot_mac,
+                        None,
                     )
                     .await?,
             )

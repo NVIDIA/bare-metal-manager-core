@@ -30,11 +30,11 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let initial_os = rpc::forge::OperatingSystem {
+    let initial_os = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
@@ -63,11 +63,11 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     let initial_config_version = instance.config_version();
     assert_eq!(initial_config_version.version_nr(), 1);
 
-    let updated_os_1 = rpc::forge::OperatingSystem {
+    let updated_os_1 = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: true,
         run_provisioning_instructions_on_every_boot: true,
         user_data: Some("SomeRandomData2".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe2".to_string(),
                 user_data: Some("SomeRandomData2".to_string()),
@@ -92,11 +92,11 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     let updated_config_version = instance.config_version.parse::<ConfigVersion>().unwrap();
     assert_eq!(updated_config_version.version_nr(), 2);
 
-    let updated_os_2 = rpc::forge::OperatingSystem {
+    let updated_os_2 = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData3".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe3".to_string(),
                 user_data: Some("SomeRandomData3".to_string()),
@@ -169,11 +169,11 @@ async fn test_update_instance_operating_system(_: PgPoolOptions, options: PgConn
     );
 
     // Try to update to an invalid OS
-    let invalid_os = rpc::forge::OperatingSystem {
+    let invalid_os = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: true,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData2".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "".to_string(),
                 user_data: None,

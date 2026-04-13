@@ -272,11 +272,7 @@ pub async fn show_detail(
     }
     .network_security_groups
     .pop() else {
-        return (
-            StatusCode::NOT_FOUND,
-            "Requested network security group not found",
-        )
-            .into_response();
+        return super::not_found_response(network_security_group_id);
     };
 
     if show_json {

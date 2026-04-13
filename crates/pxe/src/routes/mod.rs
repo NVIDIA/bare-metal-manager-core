@@ -32,7 +32,7 @@ impl RpcContext {
         product: Option<String>,
         url: &str,
         client_config: &ForgeClientConfig,
-    ) -> Result<String, String> {
+    ) -> Result<rpc::PxeInstructions, String> {
         let api_config = ApiConfig::new(url, client_config);
         let mut client = forge_tls_client::ForgeTlsClient::retry_build(&api_config)
             .await
@@ -45,7 +45,7 @@ impl RpcContext {
         client
             .get_pxe_instructions(request)
             .await
-            .map(|response| response.into_inner().pxe_script)
+            .map(|response| response.into_inner())
             .map_err(|error| {
                 format!(
                     "Error in updating build needed flag for instance for machine {interface_id:?}; Error: {error}."

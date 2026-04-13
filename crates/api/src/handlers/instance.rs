@@ -962,7 +962,7 @@ pub(crate) async fn invoke_power(
             RedfishAuth::Key(CredentialKey::BmcCredentials {
                 credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
             }),
-            true,
+            None,
         )
         .await
         .map_err(|e| CarbideError::internal(e.to_string()))?;

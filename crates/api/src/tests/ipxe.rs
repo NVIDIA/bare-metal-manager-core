@@ -18,7 +18,9 @@ use std::collections::HashMap;
 
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use chrono::Utc;
-use common::api_fixtures::{TestEnv, create_test_env};
+use common::api_fixtures::{
+    TestEnv, TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_config,
+};
 use db::{self};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
@@ -26,6 +28,7 @@ use model::machine::{DpuInitState, HostReprovisionState, MachineState, ManagedHo
 use rpc::forge::CloudInitInstructionsRequest;
 use rpc::forge::forge_server::Forge;
 
+use crate::handlers::machine_interface_address::preallocate_machine_interface;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
@@ -454,4 +457,195 @@ async fn test_cloud_init_after_dpu_update(pool: sqlx::PgPool) {
         .into_inner();
 
     assert!(cloud_init_cfg.discovery_instructions.is_some());
+}
+
+/// Helper to create a test env with external URL overrides configured.
+async fn create_env_with_external_urls(pool: sqlx::PgPool) -> TestEnv {
+    let mut config = get_config();
+    config.external_api_url = Some("https://10.99.0.1:1079".to_string());
+    config.external_pxe_url = Some("http://10.99.0.1:8080".to_string());
+    config.external_static_pxe_url = Some("http://10.99.0.1:8081".to_string());
+    create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await
+}
+
+/// Preallocate a static interface on the static-assignments segment and
+/// return its interface ID plus the IP address used.
+async fn preallocate_external_interface(
+    env: &TestEnv,
+    mac: &str,
+    ip: &str,
+) -> (MachineInterfaceId, String) {
+    let mac_address: MacAddress = mac.parse().unwrap();
+    let ip_addr: std::net::IpAddr = ip.parse().unwrap();
+
+    let mut txn = env.pool.begin().await.unwrap();
+    preallocate_machine_interface(&mut txn, mac_address, ip_addr)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    // Look up the interface ID that was created.
+    let mut txn = env.pool.begin().await.unwrap();
+    let interfaces = db::machine_interface::find_by_mac_address(txn.as_mut(), mac_address)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(
+        interfaces.len(),
+        1,
+        "expected exactly one interface for MAC {mac}"
+    );
+    (interfaces[0].id, ip.to_string())
+}
+
+#[crate::sqlx_test]
+async fn test_pxe_url_overrides_for_external_host(pool: sqlx::PgPool) {
+    let env = create_env_with_external_urls(pool).await;
+
+    // Use an IP outside any managed prefix so it lands on static-assignments.
+    let (interface_id, _ip) =
+        preallocate_external_interface(&env, "AA:BB:CC:DD:EE:01", "10.99.0.50").await;
+
+    let instructions = get_pxe_instructions(
+        &env,
+        interface_id,
+        rpc::forge::MachineArchitecture::X86,
+        None,
+    )
+    .await;
+
+    // The interface is on the static-assignments segment, so the API should
+    // return the configured external URLs as overrides.
+    assert_eq!(
+        instructions.api_url_override.as_deref(),
+        Some("https://10.99.0.1:1079"),
+        "expected api_url_override for external host"
+    );
+    assert_eq!(
+        instructions.pxe_url_override.as_deref(),
+        Some("http://10.99.0.1:8080"),
+        "expected pxe_url_override for external host"
+    );
+    assert_eq!(
+        instructions.static_pxe_url_override.as_deref(),
+        Some("http://10.99.0.1:8081"),
+        "expected static_pxe_url_override for external host"
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_cloud_init_url_overrides_for_external_host(pool: sqlx::PgPool) {
+    let env = create_env_with_external_urls(pool).await;
+
+    let (_interface_id, ip) =
+        preallocate_external_interface(&env, "AA:BB:CC:DD:EE:02", "10.99.0.51").await;
+
+    let cloud_init = env
+        .api
+        .get_cloud_init_instructions(tonic::Request::new(CloudInitInstructionsRequest { ip }))
+        .await
+        .expect("get_cloud_init_instructions returned an error")
+        .into_inner();
+
+    assert!(
+        cloud_init.discovery_instructions.is_some(),
+        "expected discovery instructions for external host"
+    );
+
+    assert_eq!(
+        cloud_init.api_url_override.as_deref(),
+        Some("https://10.99.0.1:1079"),
+        "expected api_url_override for external host cloud-init"
+    );
+    assert_eq!(
+        cloud_init.pxe_url_override.as_deref(),
+        Some("http://10.99.0.1:8080"),
+        "expected pxe_url_override for external host cloud-init"
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_pxe_url_overrides_none_for_internal_host(pool: sqlx::PgPool) {
+    let env = create_env_with_external_urls(pool).await;
+
+    // Create a normal managed host -- its interface is on the admin segment, not
+    // static-assignments.
+    let (host_id, _dpu_id) = common::api_fixtures::create_managed_host(&env).await.into();
+    let mut txn = env.pool.begin().await.unwrap();
+    let host_interface_id = db::machine_interface::find_by_machine_ids(&mut txn, &[host_id])
+        .await
+        .unwrap()[&host_id][0]
+        .id;
+    txn.commit().await.unwrap();
+
+    let instructions = get_pxe_instructions(
+        &env,
+        host_interface_id,
+        rpc::forge::MachineArchitecture::X86,
+        None,
+    )
+    .await;
+
+    // Internal hosts should NOT get URL overrides.
+    assert_eq!(
+        instructions.api_url_override, None,
+        "internal host should not get api_url_override"
+    );
+    assert_eq!(
+        instructions.pxe_url_override, None,
+        "internal host should not get pxe_url_override"
+    );
+    assert_eq!(
+        instructions.static_pxe_url_override, None,
+        "internal host should not get static_pxe_url_override"
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_cloud_init_url_overrides_none_for_internal_host(pool: sqlx::PgPool) {
+    let env = create_env_with_external_urls(pool).await;
+
+    // Discover a regular DHCP interface on a managed segment.
+    let mac_address = "AA:BB:CC:DD:EE:03".to_string();
+    // Use the admin segment gateway IP as the relay so the interface lands
+    // on the admin segment.
+    env.api
+        .discover_dhcp(DhcpDiscovery::builder(&mac_address, "192.0.2.1").tonic_request())
+        .await
+        .unwrap();
+
+    // Look up the actual allocated IP for this interface.
+    let mut txn = env.pool.begin().await.unwrap();
+    let interfaces = db::machine_interface::find_by_mac_address(
+        txn.as_mut(),
+        mac_address.parse::<MacAddress>().unwrap(),
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    assert_eq!(interfaces.len(), 1);
+    let allocated_ip = interfaces[0].addresses[0].to_string();
+
+    let cloud_init = env
+        .api
+        .get_cloud_init_instructions(tonic::Request::new(CloudInitInstructionsRequest {
+            ip: allocated_ip,
+        }))
+        .await
+        .expect("get_cloud_init_instructions returned an error")
+        .into_inner();
+
+    assert!(cloud_init.discovery_instructions.is_some());
+
+    // Internal hosts should NOT get URL overrides.
+    assert_eq!(
+        cloud_init.api_url_override, None,
+        "internal host should not get api_url_override"
+    );
+    assert_eq!(
+        cloud_init.pxe_url_override, None,
+        "internal host should not get pxe_url_override"
+    );
 }

@@ -978,6 +978,7 @@ dependencies = [
 name = "bmc-explorer"
 version = "0.1.0"
 dependencies = [
+ "axum 0.8.6",
  "bmc-mock",
  "bmc-vendor",
  "carbide-api-model",
@@ -5657,7 +5658,7 @@ dependencies = [
 [[package]]
 name = "libredfish"
 version = "0.0.0"
-source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.43.5#add240967b48f7781fead48b8e3b223acbbc96d3"
+source = "git+https://github.com/NVIDIA/libredfish.git?tag=v0.43.9#a2f873edee9a49494a05b737e49c9c4e6378761b"
 dependencies = [
  "async-trait",
  "chrono",

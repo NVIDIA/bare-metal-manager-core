@@ -21,7 +21,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use carbide_dpf::types::{DpuFlavorBridgeDefinition, DpuFlavorDefinition};
 use carbide_dpf::{
     BmcPasswordProvider, DpfError, DpfSdk, DpuDeviceInfo, DpuNodeInfo, DpuPhase, DpuWatcher,
     KubeRepository, ResourceLabeler, node_id_from_dpu_node_cr_name,
@@ -418,44 +417,6 @@ impl DpfOperations for DpfSdkOps {
 
     async fn verify_node_labels(&self, node_name: &str) -> Result<bool, DpfError> {
         self.sdk.verify_node_labels(node_name).await
-    }
-}
-
-impl From<CarbideConfig> for DpuFlavorDefinition {
-    fn from(config: CarbideConfig) -> Self {
-        let mut definition = Self {
-            carbide_hbn_reps: None,
-            carbide_hbn_sfs: None,
-            bridge_def: None,
-        };
-        if let Some(vmaas) = config.vmaas_config.as_ref() {
-            if let Some(hbn_reps) = vmaas.hbn_reps.as_ref() {
-                definition.carbide_hbn_reps = Some(hbn_reps.clone());
-            }
-            if let Some(hbn_sfs) = vmaas.hbn_sfs.as_ref() {
-                definition.carbide_hbn_sfs = Some(hbn_sfs.clone());
-            }
-
-            if let Some(bridge) = vmaas.bridging.as_ref() {
-                let vf_intercept_bridge_name = bridge.vf_intercept_bridge_name.clone();
-                let vf_intercept_bridge_port = bridge.vf_intercept_bridge_port.clone();
-                let host_intercept_bridge_name = bridge.host_intercept_bridge_name.clone();
-                let host_intercept_bridge_port = bridge.host_intercept_bridge_port.clone();
-                let vf_intercept_bridge_sf = bridge.vf_intercept_bridge_sf.clone();
-
-                let bridge = DpuFlavorBridgeDefinition {
-                    vf_intercept_bridge_name,
-                    vf_intercept_bridge_port,
-                    host_intercept_bridge_name,
-                    host_intercept_bridge_port,
-                    vf_intercept_bridge_sf,
-                };
-
-                definition.bridge_def = Some(bridge);
-            }
-        }
-
-        definition
     }
 }
 

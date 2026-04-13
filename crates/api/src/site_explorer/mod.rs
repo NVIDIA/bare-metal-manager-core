@@ -610,7 +610,7 @@ impl SiteExplorer {
         explored_power_shelves: Vec<(ExploredEndpoint, EndpointExplorationReport)>,
         expected_endpoint_index: &ExploredEndpointIndex,
     ) -> CarbideResult<()> {
-        for (endpoint, report) in explored_power_shelves {
+        for (endpoint, _report) in explored_power_shelves {
             let address = endpoint.address;
             let Some(expected_power_shelf) =
                 expected_endpoint_index.matched_expected_power_shelf(&endpoint.address)
@@ -623,12 +623,7 @@ impl SiteExplorer {
             };
 
             match self
-                .create_power_shelf(
-                    endpoint,
-                    report,
-                    expected_power_shelf,
-                    &self.database_connection,
-                )
+                .create_power_shelf(endpoint, expected_power_shelf, &self.database_connection)
                 .await
             {
                 Ok(true) => {
@@ -652,7 +647,6 @@ impl SiteExplorer {
     pub async fn create_power_shelf(
         &self,
         explored_endpoint: ExploredEndpoint,
-        report: EndpointExplorationReport,
         expected_shelf: &ExpectedPowerShelf,
         pool: &PgPool,
     ) -> CarbideResult<bool> {
@@ -732,30 +726,16 @@ impl SiteExplorer {
 
         db_power_shelf::create(&mut txn, &new_power_shelf).await?;
 
-        let mac_addresses = report.all_mac_addresses();
-        for mac_address in mac_addresses {
-            let mi = db::machine_interface::find_by_mac_address(&mut *txn, mac_address).await?;
-            if let Some(interface) = mi.first() {
-                db::machine_interface::associate_interface_with_machine(
-                    &interface.id,
-                    MachineInterfaceAssociation::PowerShelf(power_shelf_id),
-                    &mut txn,
-                )
+        let mi =
+            db::machine_interface::find_by_mac_address(&mut *txn, expected_shelf.bmc_mac_address)
                 .await?;
-            }
-        }
-
-        let mac_addresses = report.all_mac_addresses();
-        for mac_address in mac_addresses {
-            let mi = db::machine_interface::find_by_mac_address(&mut *txn, mac_address).await?;
-            if let Some(interface) = mi.first() {
-                db::machine_interface::associate_interface_with_machine(
-                    &interface.id,
-                    MachineInterfaceAssociation::PowerShelf(power_shelf_id),
-                    &mut txn,
-                )
-                .await?;
-            }
+        if let Some(interface) = mi.first() {
+            db::machine_interface::associate_interface_with_machine(
+                &interface.id,
+                MachineInterfaceAssociation::PowerShelf(power_shelf_id),
+                &mut txn,
+            )
+            .await?;
         }
 
         if let Some(ref rack_id) = expected_shelf.rack_id {

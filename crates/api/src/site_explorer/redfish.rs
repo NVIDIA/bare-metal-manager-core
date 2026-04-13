@@ -19,6 +19,7 @@ use std::error::Error;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use carbide_network::deserialize_input_mac_to_address;
 use forge_secrets::credentials::Credentials;
@@ -63,14 +64,14 @@ impl RedfishClient {
         &self,
         bmc_ip_address: SocketAddr,
         auth: RedfishAuth,
-        initialize: bool,
+        vendor: Option<RedfishVendor>,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         self.redfish_client_pool
             .create_client(
                 &bmc_ip_address.ip().to_string(),
                 Some(bmc_ip_address.port()),
                 auth,
-                initialize,
+                vendor,
             )
             .await
     }
@@ -79,20 +80,29 @@ impl RedfishClient {
         &self,
         bmc_ip_address: SocketAddr,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        self.create_redfish_client(bmc_ip_address, RedfishAuth::Anonymous, false)
-            .await
+        // This currently uses a "standard" client without any vendor
+        // specific implementations. If we end up ever needing vendor
+        // specific support for a caller using this, we could simply
+        // just drop in vendor: Option<RedfishVendor> to support an
+        // override of using RedfishVendor::Unknown.
+        self.create_redfish_client(
+            bmc_ip_address,
+            RedfishAuth::Anonymous,
+            Some(RedfishVendor::Unknown),
+        )
+        .await
     }
 
-    async fn create_direct_redfish_client(
+    pub async fn create_direct_redfish_client(
         &self,
         bmc_ip_address: SocketAddr,
         Credentials::UsernamePassword { username, password }: Credentials,
-        initialize: bool,
+        vendor: Option<RedfishVendor>,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         self.create_redfish_client(
             bmc_ip_address,
             RedfishAuth::Direct(username, password),
-            initialize,
+            vendor,
         )
         .await
     }
@@ -102,7 +112,7 @@ impl RedfishClient {
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        self.create_direct_redfish_client(bmc_ip_address, credentials, true)
+        self.create_direct_redfish_client(bmc_ip_address, credentials, None)
             .await
     }
 
@@ -135,11 +145,19 @@ impl RedfishClient {
         let (curr_user, curr_password) = match &current_bmc_root_credentials {
             Credentials::UsernamePassword { username, password } => (username, password),
         };
-        let mut client = self
+        // Create a vendor-specific client based on the provided
+        // vendor hardware attempting to set the BMC root password.
+        // NOTE(chet): This used to use a "standard"/Unknown client,
+        // but after adding support for vendored clients, I was able
+        // to change it. If this ends up causing problems in some
+        // way, presumably the "fix" should end up being a libredfish
+        // (or eventually nv-redfish) vendor implementation change (I
+        // would think).
+        let client = self
             .create_direct_redfish_client(
                 bmc_ip_address,
                 current_bmc_root_credentials.clone(),
-                false,
+                Some(vendor),
             )
             .await
             .map_err(|e| {
@@ -213,19 +231,17 @@ impl RedfishClient {
             }
         };
 
-        // log in using the new credentials
-        client = self
-            .create_authenticated_redfish_client(
-                bmc_ip_address,
-                Credentials::UsernamePassword {
-                    username: curr_user.to_string(),
-                    password: new_password,
-                },
-            )
+        // Log in using the new credentials and set the vendor-specific password policy.
+        let new_credentials = Credentials::UsernamePassword {
+            username: curr_user.to_string(),
+            password: new_password,
+        };
+        let vendored_client = self
+            .create_direct_redfish_client(bmc_ip_address, new_credentials, Some(vendor))
             .await
             .map_err(map_redfish_client_creation_error)?;
 
-        client
+        vendored_client
             .set_machine_password_policy()
             .await
             .map_err(map_redfish_error)?;
@@ -238,9 +254,10 @@ impl RedfishClient {
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
         boot_interface_mac: Option<MacAddress>,
+        vendor: Option<RedfishVendor>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let client = self
-            .create_authenticated_redfish_client(bmc_ip_address, credentials)
+            .create_direct_redfish_client(bmc_ip_address, credentials, vendor)
             .await
             .map_err(map_redfish_client_creation_error)?;
 
@@ -316,9 +333,12 @@ impl RedfishClient {
             .nv_redfish_client_pool
             .cached_nv_redfish_bmc(bmc_ip_address, credentials.clone())
         {
-            bmc_explorer::nv_generate_exploration_report(bmc, boot_interface_mac)
-                .await
-                .map_err(map_nv_redfish_explore_error)
+            bmc_explorer::nv_generate_exploration_report(
+                bmc,
+                &nv_bmc_explore_config(boot_interface_mac),
+            )
+            .await
+            .map_err(map_nv_redfish_explore_error)
         } else {
             let bmc = self
                 .nv_redfish_client_pool
@@ -357,9 +377,12 @@ impl RedfishClient {
             };
             self.nv_redfish_client_pool
                 .update_cache(bmc_ip_address, credentials, bmc);
-            bmc_explorer::nv_generate_exploration_report_from_root(root, boot_interface_mac)
-                .await
-                .map_err(map_nv_redfish_explore_error)
+            bmc_explorer::nv_generate_exploration_report_from_root(
+                root,
+                &nv_bmc_explore_config(boot_interface_mac),
+            )
+            .await
+            .map_err(map_nv_redfish_explore_error)
         }
     }
 
@@ -615,7 +638,6 @@ impl RedfishClient {
         bmc_ip_address: SocketAddr,
         username: String,
         password: String,
-        chassis_id: &str,
     ) -> Result<String, EndpointExplorationError> {
         let client = self
             .create_authenticated_redfish_client(
@@ -625,14 +647,14 @@ impl RedfishClient {
             .await
             .map_err(map_redfish_client_creation_error)?;
 
-        let chassis_all = client.get_chassis_all().await.map_err(map_redfish_error)?;
-        if chassis_all.contains(&chassis_id.to_string()) {
+        let chassis_ids = client.get_chassis_all().await.map_err(map_redfish_error)?;
+        for chassis_id in &chassis_ids {
             let chassis = client
                 .get_chassis(chassis_id)
                 .await
                 .map_err(map_redfish_error)?;
-            if let Some(x) = chassis.manufacturer {
-                return Ok(x);
+            if let Some(manufacturer) = chassis.manufacturer {
+                return Ok(manufacturer);
             }
         }
 
@@ -649,23 +671,18 @@ async fn is_switch(client: &dyn Redfish) -> Result<bool, RedfishError> {
 
 async fn is_powershelf(client: &dyn Redfish) -> Result<bool, RedfishError> {
     let chassis_ids = client.get_chassis_all().await?;
-    if chassis_ids.contains(&"powershelf".to_string()) {
-        return Ok(true);
-    }
-    // Some Lite-On power shelf BMCs use "chassis" as their chassis ID,
-    // so if we failed to find "powershelf" as the chassis ID, fall
-    // back to the other "chassis" chassis ID and check the manufacturer
-    // type.
-    // TODO(chet): This should be able to go away in a later update
-    // of the lite-on firmware.
-    if chassis_ids.contains(&"chassis".to_string())
-        && let Ok(chassis) = client.get_chassis("chassis").await
-        && chassis
-            .manufacturer
-            .as_ref()
-            .is_some_and(|m| m.to_lowercase().contains("lite-on"))
-    {
-        return Ok(true);
+    for chassis_id in &chassis_ids {
+        if chassis_id == "powershelf" {
+            return Ok(true);
+        }
+        if let Ok(chassis) = client.get_chassis(chassis_id).await
+            && chassis
+                .manufacturer
+                .as_ref()
+                .is_some_and(|m| m.to_lowercase().contains("lite-on"))
+        {
+            return Ok(true);
+        }
     }
     Ok(false)
 }
@@ -1273,6 +1290,32 @@ pub(crate) fn map_redfish_error(error: RedfishError) -> EndpointExplorationError
             response_body: None,
             response_code: None,
         },
+    }
+}
+
+fn nv_error_classifier(
+    err: &<crate::nv_redfish::NvRedfishBmc as nv_redfish::Bmc>::Error,
+) -> Option<bmc_explorer::ErrorClass> {
+    type BmcError = nv_redfish::bmc_http::reqwest::BmcError;
+    match err {
+        BmcError::InvalidResponse {
+            status: http::StatusCode::NOT_FOUND,
+            ..
+        } => Some(bmc_explorer::ErrorClass::HttpNotFound),
+        _ => None,
+    }
+}
+
+fn nv_bmc_explore_config(
+    boot_interface_mac: Option<MacAddress>,
+) -> bmc_explorer::Config<'static, crate::nv_redfish::NvRedfishBmc> {
+    bmc_explorer::Config {
+        boot_interface_mac,
+        error_classifier: &nv_error_classifier,
+        // Chosen arbitrarily: we want to wait a bit between tries,
+        // but not for too long relative to the total exploration
+        // time.
+        retry_timeout: Duration::from_millis(1000),
     }
 }
 

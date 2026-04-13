@@ -21,11 +21,11 @@ use bmc_mock::MachineInfo;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use mac_address::MacAddress;
+use rpc::forge::instance_operating_system_config::Variant;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
-use rpc::forge::operating_system::Variant;
 use rpc::forge::{
-    ConfigSetting, ExpectedMachine, InlineIpxe, MachinesByIdsRequest, OperatingSystem,
-    PxeInstructions, SetDynamicConfigRequest,
+    ConfigSetting, ExpectedMachine, InlineIpxe, InstanceOperatingSystemConfig,
+    MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest,
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
 
@@ -273,7 +273,7 @@ impl ApiClient {
 
         let instance_config = rpc::InstanceConfig {
             tenant: Some(tenant_config),
-            os: Some(OperatingSystem {
+            os: Some(InstanceOperatingSystemConfig {
                 variant: Some(Variant::Ipxe(InlineIpxe {
                     ipxe_script: "Non-existing-ipxe".to_string(),
                     user_data: None,
@@ -478,6 +478,8 @@ impl ApiClient {
             .map_err(ClientApiError::InvocationError)
     }
 
+    /// Registers a mock expected machine. Static BMC (`bmc_ip_address`) is left unset here;
+    /// real environments set it through the admin CLI / API when DHCP discovery is not used.
     pub async fn add_expected_machine(
         &self,
         bmc_mac_address: String,
@@ -499,6 +501,7 @@ impl ApiClient {
                 #[allow(deprecated)]
                 dpf_enabled: true,
                 is_dpf_enabled: Some(true),
+                bmc_ip_address: None,
             })
             .await
             .map_err(ClientApiError::InvocationError)

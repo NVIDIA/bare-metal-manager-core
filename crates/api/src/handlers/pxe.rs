@@ -34,13 +34,44 @@ pub(crate) async fn get_pxe_instructions(
 
     let mut txn = api.txn_begin().await?;
 
-    let request = request.into_inner().try_into()?;
+    let target: model::pxe::PxeInstructionRequest = request.into_inner().try_into()?;
+    let interface_id = target.interface_id;
+    let pxe_script = PxeInstructions::get_pxe_instructions(&mut txn, target).await?;
 
-    let pxe_script = PxeInstructions::get_pxe_instructions(&mut txn, request).await?;
+    // For interfaces on the static-assignments segment, include
+    // URL overrides so external hosts can reach services via an
+    // alternate hostname or IP they can resolve and/or connect
+    // to for carbide-pxe and carbide-api.
+    let (api_url_override, pxe_url_override, static_pxe_url_override) = {
+        let iface = db::machine_interface::find_one(txn.as_pgconn(), interface_id).await?;
+        let is_external = iface.segment_id
+            == db::network_segment::static_assignments(txn.as_pgconn())
+                .await
+                .map(|s| s.id)
+                .unwrap_or_default();
+
+        if is_external {
+            (
+                api.runtime_config.external_api_url.clone(),
+                api.runtime_config.external_pxe_url.clone(),
+                api.runtime_config
+                    .external_static_pxe_url
+                    .clone()
+                    .or_else(|| api.runtime_config.external_pxe_url.clone()),
+            )
+        } else {
+            (None, None, None)
+        }
+    };
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::PxeInstructions { pxe_script }))
+    Ok(Response::new(rpc::PxeInstructions {
+        pxe_script,
+        api_url_override,
+        pxe_url_override,
+        static_pxe_url_override,
+    }))
 }
 
 pub(crate) async fn get_cloud_init_instructions(
@@ -108,6 +139,31 @@ pub(crate) async fn get_cloud_init_instructions(
                     platform,
                 });
 
+            // For interfaces on the static-assignments segment, include
+            // hostname or IP-based URL overrides so external hosts can
+            // reach carbide-api and carbide-pxe services. Just to reiterate,
+            // these can be either routable IPs, or externally resolvable
+            // hostnames to routable IPs.
+            let is_external = {
+                let mut conn = db.acquire().await.map_err(|e| {
+                    CarbideError::internal(format!("Failed to acquire database connection: {e}"))
+                })?;
+                machine_interface.segment_id
+                    == db::network_segment::static_assignments(&mut conn)
+                        .await
+                        .map(|s| s.id)
+                        .unwrap_or_default()
+            };
+
+            let (api_url_override, pxe_url_override) = if is_external {
+                (
+                    api.runtime_config.external_api_url.clone(),
+                    api.runtime_config.external_pxe_url.clone(),
+                )
+            } else {
+                (None, None)
+            };
+
             rpc::CloudInitInstructions {
                 custom_cloud_init,
                 discovery_instructions: Some(rpc::CloudInitDiscoveryInstructions {
@@ -162,6 +218,8 @@ pub(crate) async fn get_cloud_init_instructions(
                     ),
                 }),
                 metadata,
+                api_url_override,
+                pxe_url_override,
             }
         }
 
@@ -185,6 +243,8 @@ pub(crate) async fn get_cloud_init_instructions(
                     cloud_name,
                     platform,
                 }),
+                api_url_override: None,
+                pxe_url_override: None,
             }
         }
     };

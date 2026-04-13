@@ -89,6 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("forge.ClientSecretBasic", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute(".dns", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.FabricManagerConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FlatInterfaceConfig", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.InstanceInterfaceConfig",
@@ -269,11 +270,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("forge.NetworkSegmentList", "#[derive(serde::Serialize)]")
         .type_attribute(
-            "forge.OperatingSystem",
+            "forge.InstanceOperatingSystemConfig",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .type_attribute(
-            "forge.OperatingSystem.variant",
+            "forge.InstanceOperatingSystemConfig.variant",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
         .type_attribute("forge.InterfaceList", "#[derive(serde::Serialize)]")
@@ -344,6 +345,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.StorageVolume", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.Switch", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.SwitchConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.SwitchList", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.SwitchStatus", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.DeleteStoragePoolRequest",
             "#[derive(serde::Serialize)]",
@@ -638,6 +643,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.RackFirmwareHistoryRecord", "#[derive(serde::Serialize)]")
         .type_attribute("forge.RackFirmwareHistoryRecords", "#[derive(serde::Serialize)]")
         .type_attribute("forge.RackFirmwareHistoryResponse", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.RackCapabilitiesSet", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.RackCapabilityCompute", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.RackCapabilitySwitch", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.RackCapabilityPowerShelf", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.GetRackCapabilitiesResponse", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.MachineHardwareInfoGpu",
             "#[derive(serde::Deserialize, serde::Serialize)]",
@@ -704,6 +714,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("forge.PowerShelf", "#[derive(serde::Serialize)]")
         .type_attribute("forge.PowerShelfConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.PowerShelfList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.PowerShelfStatus", "#[derive(serde::Serialize)]")
         .type_attribute(
             "common.Uint32List",

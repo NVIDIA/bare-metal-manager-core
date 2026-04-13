@@ -210,6 +210,8 @@ struct IpMatch {
     message: String,
 }
 
+/// Renders the IP search page via the API `find_ip_address` handler, including `StaticBmcIp`
+/// matches for operator-configured BMC addresses.
 async fn find_ip(state: Arc<Api>, ip: &str) -> impl IntoResponse {
     let mut found = Vec::new();
     let req = forgerpc::FindIpAddressRequest { ip: ip.to_string() };
@@ -247,6 +249,8 @@ async fn find_ip(state: Arc<Api>, ip: &str) -> impl IntoResponse {
             InstanceAddress => ("Instance", format!("/admin/instance/{owner}")),
             MachineAddress => ("Machine", format!("/admin/machine/{owner}")),
             BmcIp => ("BMC IP", format!("/admin/machine/{owner}")),
+            // Operator/reserved BMC (static allocation or static-assignments segment); see finder.
+            StaticBmcIp => ("Static BMC IP", format!("/admin/machine/{owner}")),
             ExploredEndpoint => (
                 "Explored Endpoint",
                 format!("/admin/explored-endpoint/{owner}"),

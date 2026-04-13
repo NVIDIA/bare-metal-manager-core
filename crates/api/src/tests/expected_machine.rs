@@ -84,6 +84,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
                 host_nics: vec![],
                 rack_id: None,
                 dpf_enabled: Some(true),
+                bmc_ip_address: None,
             },
         },
     )
@@ -728,6 +729,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         host_nics: vec![],
         rack_id: None,
         is_dpf_enabled: Some(true),
+        bmc_ip_address: None,
         #[allow(deprecated)]
         dpf_enabled: true,
     };
@@ -1881,4 +1883,294 @@ async fn test_patch_dpf_enabled_true_stays_true_when_patched_with_null(pool: sql
         .into_inner();
 
     assert_eq!(retrieved.is_dpf_enabled, Some(true),);
+}
+
+// --- Optional `ExpectedMachine.bmc_ip_address`: persists configured BMC IP and exercises API
+// pre-allocation (`preallocate_machine_interface` / `update_preallocated_machine_interface`). ---
+#[crate::sqlx_test()]
+async fn test_add_expected_machine_with_static_ip(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: "5A:5B:5C:5D:5E:60".to_string(),
+        bmc_username: "root".into(),
+        bmc_password: "testpass".into(),
+        chassis_serial_number: "STATIC-IP-TEST".into(),
+        bmc_ip_address: Some("10.0.0.100".to_string()),
+        metadata: Some(rpc::forge::Metadata::default()),
+        id: Some(::rpc::common::Uuid {
+            value: uuid::Uuid::new_v4().to_string(),
+        }),
+        ..Default::default()
+    };
+
+    env.api
+        .add_expected_machine(tonic::Request::new(expected_machine.clone()))
+        .await
+        .expect("unable to add expected machine with static IP");
+
+    let retrieved_machine = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: "5A:5B:5C:5D:5E:60".to_string(),
+            id: None,
+        }))
+        .await
+        .expect("unable to retrieve expected machine")
+        .into_inner();
+
+    assert_eq!(
+        retrieved_machine.bmc_ip_address,
+        Some("10.0.0.100".to_string())
+    );
+    assert_eq!(retrieved_machine.bmc_username, "root");
+}
+
+#[crate::sqlx_test()]
+async fn test_update_expected_machine_add_static_ip(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    // Create machine without static IP
+    let expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: "5A:5B:5C:5D:5E:62".to_string(),
+        bmc_username: "root".into(),
+        bmc_password: "testpass".into(),
+        chassis_serial_number: "UPDATE-STATIC-IP".into(),
+        bmc_ip_address: None,
+        metadata: Some(rpc::forge::Metadata::default()),
+        id: Some(::rpc::common::Uuid {
+            value: uuid::Uuid::new_v4().to_string(),
+        }),
+        ..Default::default()
+    };
+
+    env.api
+        .add_expected_machine(tonic::Request::new(expected_machine.clone()))
+        .await
+        .expect("unable to add expected machine");
+
+    // Update to add static IP
+    let mut updated_machine = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: "5A:5B:5C:5D:5E:62".to_string(),
+            id: None,
+        }))
+        .await
+        .expect("unable to retrieve expected machine")
+        .into_inner();
+
+    updated_machine.id = None;
+    updated_machine.bmc_ip_address = Some("192.168.1.50".to_string());
+
+    env.api
+        .update_expected_machine(tonic::Request::new(updated_machine.clone()))
+        .await
+        .expect("unable to update expected machine with static IP");
+
+    let retrieved_machine = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: "5A:5B:5C:5D:5E:62".to_string(),
+            id: None,
+        }))
+        .await
+        .expect("unable to retrieve expected machine after update")
+        .into_inner();
+
+    assert_eq!(
+        retrieved_machine.bmc_ip_address,
+        Some("192.168.1.50".to_string())
+    );
+}
+
+#[crate::sqlx_test()]
+async fn test_update_expected_machine_change_static_ip(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    // Create machine with static IP
+    let expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: "5A:5B:5C:5D:5E:63".to_string(),
+        bmc_username: "root".into(),
+        bmc_password: "testpass".into(),
+        chassis_serial_number: "CHANGE-STATIC-IP".into(),
+        bmc_ip_address: Some("10.0.0.200".to_string()),
+        metadata: Some(rpc::forge::Metadata::default()),
+        id: Some(::rpc::common::Uuid {
+            value: uuid::Uuid::new_v4().to_string(),
+        }),
+        ..Default::default()
+    };
+
+    env.api
+        .add_expected_machine(tonic::Request::new(expected_machine.clone()))
+        .await
+        .expect("unable to add expected machine");
+
+    // Update to change static IP
+    let mut updated_machine = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: "5A:5B:5C:5D:5E:63".to_string(),
+            id: None,
+        }))
+        .await
+        .expect("unable to retrieve expected machine")
+        .into_inner();
+
+    updated_machine.id = None;
+    updated_machine.bmc_ip_address = Some("10.0.0.201".to_string());
+
+    env.api
+        .update_expected_machine(tonic::Request::new(updated_machine.clone()))
+        .await
+        .expect("unable to update expected machine IP");
+
+    let retrieved_machine = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: "5A:5B:5C:5D:5E:63".to_string(),
+            id: None,
+        }))
+        .await
+        .expect("unable to retrieve expected machine after IP change")
+        .into_inner();
+
+    assert_eq!(
+        retrieved_machine.bmc_ip_address,
+        Some("10.0.0.201".to_string())
+    );
+}
+
+#[crate::sqlx_test()]
+async fn test_add_expected_machine_with_invalid_static_ip(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: "5A:5B:5C:5D:5E:64".to_string(),
+        bmc_username: "root".into(),
+        bmc_password: "testpass".into(),
+        chassis_serial_number: "INVALID-IP".into(),
+        bmc_ip_address: Some("not-a-valid-ip".to_string()),
+        metadata: Some(rpc::forge::Metadata::default()),
+        id: Some(::rpc::common::Uuid {
+            value: uuid::Uuid::new_v4().to_string(),
+        }),
+        ..Default::default()
+    };
+
+    let result = env
+        .api
+        .add_expected_machine(tonic::Request::new(expected_machine.clone()))
+        .await;
+
+    assert!(
+        result.is_err(),
+        "Should fail when adding machine with invalid IP address"
+    );
+}
+
+/// Adding an expected machine with host_nics[].fixed_ip should
+/// pre-allocate a machine_interface with a static address.
+#[crate::sqlx_test]
+async fn test_add_with_host_nic_fixed_ip_creates_interface(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "7A:7B:7C:7D:7E:01".parse().unwrap();
+    let nic_mac: MacAddress = "7A:7B:7C:7D:7E:02".parse().unwrap();
+    let fixed_ip = "192.0.2.230";
+
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-FIXEDIP-001".into(),
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: nic_mac.to_string(),
+                nic_type: Some("onboard".into()),
+                fixed_ip: Some(fixed_ip.into()),
+                fixed_mask: None,
+                fixed_gateway: None,
+            }],
+            ..Default::default()
+        }))
+        .await?;
+
+    // Verify a machine_interface was created for the host NIC MAC.
+    let mut txn = env.pool.begin().await?;
+    let interfaces = db::machine_interface::find_by_mac_address(&mut *txn, nic_mac).await?;
+    assert_eq!(
+        interfaces.len(),
+        1,
+        "should have one interface for the host NIC MAC"
+    );
+    assert!(
+        interfaces[0].addresses.contains(&fixed_ip.parse().unwrap()),
+        "interface should have the fixed IP"
+    );
+
+    let addrs =
+        db::machine_interface_address::find_for_interface(&mut txn, interfaces[0].id).await?;
+    assert_eq!(addrs.len(), 1);
+    assert_eq!(
+        addrs[0].allocation_type,
+        model::allocation_type::AllocationType::Static
+    );
+
+    Ok(())
+}
+
+/// When a device DHCPs with a MAC that has a fixed_ip in the expected
+/// machine's host_nics, it should get the fixed IP (not a pool allocation).
+#[crate::sqlx_test]
+async fn test_dhcp_discover_uses_fixed_ip_from_host_nics(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "7A:7B:7C:7D:7E:03".parse().unwrap();
+    let nic_mac: MacAddress = "7A:7B:7C:7D:7E:04".parse().unwrap();
+    let fixed_ip = "192.0.2.231";
+
+    // Register expected machine with host NIC fixed_ip.
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-DHCP-001".into(),
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: nic_mac.to_string(),
+                nic_type: Some("onboard".into()),
+                fixed_ip: Some(fixed_ip.into()),
+                fixed_mask: None,
+                fixed_gateway: None,
+            }],
+            ..Default::default()
+        }))
+        .await?;
+
+    // DHCP discover with the host NIC MAC -- should get the fixed IP.
+    let nic_mac_str = nic_mac.to_string();
+    let response = env
+        .api
+        .discover_dhcp(
+            common::rpc_builder::DhcpDiscovery::builder(
+                &nic_mac_str,
+                common::api_fixtures::FIXTURE_DHCP_RELAY_ADDRESS,
+            )
+            .tonic_request(),
+        )
+        .await?
+        .into_inner();
+
+    assert_eq!(
+        response.address, fixed_ip,
+        "DHCP should return the fixed IP from host_nics"
+    );
+
+    Ok(())
 }

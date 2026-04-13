@@ -34,7 +34,7 @@
                             <tbody>
                             {% for shelf in power_shelves %}
                             <tr>
-                                <td><a href="/admin/power-shelf/{{ shelf.id }}">{{ shelf.id }}</a></td>
+                                <td>{{ shelf.id|power_shelf_id_link|safe }}</td>
                                 <td>{{ shelf.name }}</td>
                                 <td>{{ shelf.state }}</td>
                                 <td>{{ shelf.capacity }}</td>

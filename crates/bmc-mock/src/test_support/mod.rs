@@ -22,8 +22,8 @@ use url::Url;
 
 use crate::machine_info::DpuSettings;
 use crate::{
-    Callbacks, DpuMachineInfo, HostHardwareType, HostMachineInfo, MachineInfo, MockPowerState,
-    SetSystemPowerError, SystemPowerControl, machine_router,
+    BmcState, Callbacks, DpuMachineInfo, HostHardwareType, HostMachineInfo, MachineInfo,
+    MockPowerState, SetSystemPowerError, SystemPowerControl, machine_router,
 };
 pub mod axum_http_client;
 
@@ -49,89 +49,83 @@ impl Callbacks for NoopCallbacks {
 
 pub type TestBmc = HttpBmc<AxumRouterHttpClient>;
 
-fn test_bmc(router: axum::Router) -> Arc<TestBmc> {
+#[derive(Clone)]
+pub struct TestBmcHandle {
+    pub bmc: Arc<TestBmc>,
+    pub state: BmcState,
+}
+
+fn test_bmc((router, state): (axum::Router, BmcState)) -> TestBmcHandle {
     let client = AxumRouterHttpClient::new(router);
     let endpoint = Url::parse("https://bmc-mock.local").expect("valid URL");
     let credentials = BmcCredentials::new("root".to_string(), "password".to_string());
-    Arc::new(HttpBmc::new(
-        client,
-        endpoint,
-        credentials,
-        CacheSettings::with_capacity(32),
+    TestBmcHandle {
+        bmc: Arc::new(HttpBmc::new(
+            client,
+            endpoint,
+            credentials,
+            CacheSettings::with_capacity(32),
+        )),
+        state,
+    }
+}
+
+pub fn wiwynn_gb200_bmc() -> TestBmcHandle {
+    test_bmc(machine_router(
+        MachineInfo::Host(HostMachineInfo::new(
+            HostHardwareType::WiwynnGB200Nvl,
+            vec![
+                DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
+                DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
+            ],
+        )),
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
     ))
 }
 
-pub fn wiwynn_gb200_bmc() -> Arc<TestBmc> {
-    test_bmc(
-        machine_router(
-            MachineInfo::Host(HostMachineInfo::new(
-                HostHardwareType::WiwynnGB200Nvl,
-                vec![
-                    DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
-                    DpuMachineInfo::new(HostHardwareType::WiwynnGB200Nvl, DpuSettings::default()),
-                ],
-            )),
-            Arc::new(NoopCallbacks),
-            "test-host-id".to_string(),
-        )
-        .0,
-    )
+pub fn liteon_powershelf_bmc() -> TestBmcHandle {
+    test_bmc(machine_router(
+        MachineInfo::Host(HostMachineInfo::new(
+            HostHardwareType::LiteOnPowerShelf,
+            vec![],
+        )),
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
+    ))
 }
 
-pub fn liteon_powershelf_bmc() -> Arc<TestBmc> {
-    test_bmc(
-        machine_router(
-            MachineInfo::Host(HostMachineInfo::new(
-                HostHardwareType::LiteOnPowerShelf,
-                vec![],
-            )),
-            Arc::new(NoopCallbacks),
-            "test-host-id".to_string(),
-        )
-        .0,
-    )
+pub fn nvidia_switch_nd5200_ld_bmc() -> TestBmcHandle {
+    test_bmc(machine_router(
+        MachineInfo::Host(HostMachineInfo::new(
+            HostHardwareType::NvidiaSwitchNd5200Ld,
+            vec![],
+        )),
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
+    ))
 }
 
-pub fn nvidia_switch_nd5200_ld_bmc() -> Arc<TestBmc> {
-    test_bmc(
-        machine_router(
-            MachineInfo::Host(HostMachineInfo::new(
-                HostHardwareType::NvidiaSwitchNd5200Ld,
-                vec![],
-            )),
-            Arc::new(NoopCallbacks),
-            "test-host-id".to_string(),
-        )
-        .0,
-    )
+pub fn dell_poweredge_r750_bmc() -> TestBmcHandle {
+    test_bmc(machine_router(
+        MachineInfo::Host(HostMachineInfo::new(
+            HostHardwareType::DellPowerEdgeR750,
+            vec![],
+        )),
+        Arc::new(NoopCallbacks),
+        "test-host-id".to_string(),
+    ))
 }
 
-pub fn dell_poweredge_r750_bmc() -> Arc<TestBmc> {
-    test_bmc(
-        machine_router(
-            MachineInfo::Host(HostMachineInfo::new(
-                HostHardwareType::DellPowerEdgeR750,
-                vec![],
-            )),
-            Arc::new(NoopCallbacks),
-            "test-host-id".to_string(),
-        )
-        .0,
-    )
-}
-
-pub fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> Arc<TestBmc> {
-    test_bmc(
-        machine_router(
-            MachineInfo::Dpu(DpuMachineInfo::new(
-                HostHardwareType::DellPowerEdgeR750,
-                settings,
-            )),
-            Arc::new(NoopCallbacks),
-            "test-dpu-id".to_string(),
-        )
-        .0,
-    )
+pub fn dell_poweredge_r750_bluefield3_bmc(settings: DpuSettings) -> TestBmcHandle {
+    test_bmc(machine_router(
+        MachineInfo::Dpu(DpuMachineInfo::new(
+            HostHardwareType::DellPowerEdgeR750,
+            settings,
+        )),
+        Arc::new(NoopCallbacks),
+        "test-dpu-id".to_string(),
+    ))
 }
 
 #[cfg(test)]

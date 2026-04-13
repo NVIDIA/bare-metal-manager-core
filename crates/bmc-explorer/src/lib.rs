@@ -25,6 +25,7 @@ mod network_adapter;
 use std::collections::HashMap;
 use std::convert::identity;
 use std::sync::Arc;
+use std::time::Duration;
 
 use chassis::ExploredChassisCollection;
 use computer_system::ExploredComputerSystem;
@@ -57,19 +58,32 @@ pub async fn explore_root<B: Bmc>(bmc: Arc<B>) -> Result<ServiceRoot<B>, Error<B
         .map_err(Error::nv_redfish("service_root"))
 }
 
+#[derive(PartialEq, Eq)]
+pub enum ErrorClass {
+    HttpNotFound,
+}
+
+pub type ErrorClassifier<'a, B> = &'a (dyn Fn(&<B as Bmc>::Error) -> Option<ErrorClass> + Sync);
+
+pub struct Config<'a, B: Bmc> {
+    pub boot_interface_mac: Option<MacAddress>,
+    pub error_classifier: ErrorClassifier<'a, B>,
+    pub retry_timeout: Duration,
+}
+
 pub async fn nv_generate_exploration_report<B: Bmc>(
     bmc: Arc<B>,
-    boot_interface_mac: Option<MacAddress>,
+    config: &Config<'_, B>,
 ) -> Result<EndpointExplorationReport, Error<B>> {
     let root = ServiceRoot::new(bmc)
         .await
         .map_err(Error::nv_redfish("service_root"))?;
-    nv_generate_exploration_report_from_root(root, boot_interface_mac).await
+    nv_generate_exploration_report_from_root(root, config).await
 }
 
 pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
     mut root: ServiceRoot<B>,
-    boot_interface_mac: Option<MacAddress>,
+    config: &Config<'_, B>,
 ) -> Result<EndpointExplorationReport, Error<B>> {
     let chassis_explore_config = chassis::Config {
         network_adapter: network_adapter::Config {
@@ -119,6 +133,8 @@ pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
 
     let system_explore_config = computer_system::Config {
         need_oem_nvidia_bluefield: system.id().into_inner() == "Bluefield",
+        retry_404_on_eth_interfaces: system.id().into_inner() == "Bluefield",
+        explore: config,
     };
     let explored_system = ExploredComputerSystem::explore(system, &system_explore_config).await?;
 
@@ -202,7 +218,7 @@ pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
                 &explored_chassis,
                 &explored_system,
                 &lockdown_status,
-                boot_interface_mac,
+                config.boot_interface_mac,
             )
         })
         .unwrap_or_else(|| MachineSetupStatus {

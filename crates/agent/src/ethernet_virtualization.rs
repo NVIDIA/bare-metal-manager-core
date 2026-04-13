@@ -934,6 +934,7 @@ pub async fn update_dhcp(
 pub async fn interfaces(
     network_config: &rpc::ManagedHostNetworkConfigResponse,
     factory_mac_address: MacAddress,
+    nvue_client: Option<&NvueClient>,
 ) -> eyre::Result<Vec<rpc::InstanceInterfaceStatusObservation>> {
     let mut interfaces = vec![];
     if network_config.use_admin_network {
@@ -957,13 +958,21 @@ pub async fn interfaces(
             .iter()
             .any(|iface| iface.function_type == rpc::InterfaceFunctionType::Virtual as i32)
         {
-            let fdb_json = hbn::run_in_container(
-                &hbn::get_hbn_container_id().await?,
-                &["bridge", "-j", "fdb", "show"],
-                true,
-            )
-            .await?;
-            parse_fdb(&fdb_json)?
+            match nvue_client {
+                Some(nvue_client) => {
+                    let mac_table = nvue_client.bridge_mac_table("br_default").await?;
+                    vlan_fdb_map_from_nvue_mac_table(mac_table)
+                }
+                None => {
+                    let fdb_json = hbn::run_in_container(
+                        &hbn::get_hbn_container_id().await?,
+                        &["bridge", "-j", "fdb", "show"],
+                        true,
+                    )
+                    .await?;
+                    parse_fdb(&fdb_json)?
+                }
+            }
         } else {
             HashMap::new()
         };
@@ -1295,6 +1304,59 @@ struct Fdb {
     ifname: String,
     state: String,
     vlan: Option<u32>,
+}
+
+impl Fdb {
+    pub fn is_permanent(&self) -> bool {
+        self.state == "permanent"
+    }
+}
+
+impl From<nvue_client::types::MacTableEntry> for Fdb {
+    fn from(mac_table_entry: nvue_client::types::MacTableEntry) -> Self {
+        let nvue_client::types::MacTableEntry {
+            mac,
+            interface,
+            entry_type,
+            vlan,
+        } = mac_table_entry;
+        let vlan = vlan.map(u32::from);
+        Self {
+            mac,
+            ifname: interface,
+            state: entry_type,
+            vlan,
+        }
+    }
+}
+
+fn vlan_fdb_map_from_nvue_mac_table(
+    mac_table: Vec<nvue_client::types::MacTableEntry>,
+) -> HashMap<u32, Vec<Fdb>> {
+    let entries_by_vlan = mac_table.into_iter().filter_map(|table_entry| {
+        let fdb = Fdb::from(table_entry);
+        if let Some(vlan_id) = fdb.vlan
+            && !fdb.is_permanent()
+        {
+            Some((vlan_id, fdb))
+        } else {
+            None
+        }
+    });
+
+    use std::collections::hash_map::Entry;
+    let mut fdb_table: HashMap<_, Vec<_>> = HashMap::new();
+    for (vlan_id, fdb_entry) in entries_by_vlan {
+        match fdb_table.entry(vlan_id) {
+            Entry::Occupied(mut occupied_entry) => {
+                occupied_entry.get_mut().push(fdb_entry);
+            }
+            Entry::Vacant(vacant_entry) => {
+                vacant_entry.insert(vec![fdb_entry]);
+            }
+        }
+    }
+    fdb_table
 }
 
 #[derive(Deserialize, Debug)]

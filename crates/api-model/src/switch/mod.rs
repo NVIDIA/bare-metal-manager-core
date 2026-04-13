@@ -251,6 +251,7 @@ impl TryFrom<Switch> for rpc::Switch {
             state_version,
             metadata: Some(src.metadata.into()),
             version: src.version.version_string(),
+            rack_id: src.rack_id,
         })
     }
 }

@@ -162,6 +162,7 @@ impl BmcEndpointExplorer {
         bmc_ip_address: SocketAddr,
         credentials: Credentials,
         boot_interface_mac: Option<MacAddress>,
+        vendor: Option<RedfishVendor>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         match self.mode {
             SiteExplorerExploreMode::LibRedfish => {
@@ -170,6 +171,7 @@ impl BmcEndpointExplorer {
                         bmc_ip_address,
                         credentials.clone(),
                         boot_interface_mac,
+                        vendor,
                     )
                     .await
             }
@@ -185,6 +187,7 @@ impl BmcEndpointExplorer {
                         bmc_ip_address,
                         credentials.clone(),
                         boot_interface_mac,
+                        vendor,
                     )
                     .await;
                 let nvredfish = self
@@ -293,7 +296,8 @@ impl BmcEndpointExplorer {
         self.set_bmc_root_credentials(bmc_mac_address, &bmc_credentials)
             .await?;
 
-        self.generate_exploration_report(bmc_ip_address, bmc_credentials, None)
+        self.redfish_client
+            .generate_exploration_report(bmc_ip_address, bmc_credentials, None, Some(vendor))
             .await
     }
 
@@ -670,6 +674,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
 
     // 1) Authenticate and set the BMC root account credentials
     // 2) Authenticate and set the BMC forge-admin account credentials (TODO)
+    #[tracing::instrument(skip_all, fields(object_id=%bmc_ip_address))]
     async fn explore_endpoint(
         &self,
         bmc_ip_address: SocketAddr,
@@ -710,36 +715,41 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 // using the Vendor details we found here (either changing from the
                 // expected defaults, or taking whatever was in Vault and potentially
                 // re-writing it with something new).
-                let (username, password) =
-                    match self.get_bmc_root_credentials(bmc_mac_address).await {
-                        Ok(Credentials::UsernamePassword { username, password }) => {
-                            (username, password)
+                let (username, password) = match self
+                    .get_bmc_root_credentials(bmc_mac_address)
+                    .await
+                {
+                    Ok(Credentials::UsernamePassword { username, password }) => {
+                        (username, password)
+                    }
+                    Err(_) => {
+                        if let Some(eps) = expected_power_shelf {
+                            (eps.bmc_username.clone(), eps.bmc_password.clone())
+                        } else if let Some(es) = expected_switch {
+                            (es.bmc_username.clone(), es.bmc_password.clone())
+                        } else if let Some(em) = expected_machine {
+                            (em.data.bmc_username.clone(), em.data.bmc_password.clone())
+                        } else {
+                            tracing::debug!(%bmc_ip_address, "No credentials available for Lite-On workaround, returning original probe error");
+                            return Err(e);
                         }
-                        Err(_) => {
-                            if let Some(eps) = expected_power_shelf {
-                                (eps.bmc_username.clone(), eps.bmc_password.clone())
-                            } else if let Some(es) = expected_switch {
-                                (es.bmc_username.clone(), es.bmc_password.clone())
-                            } else if let Some(em) = expected_machine {
-                                (em.data.bmc_username.clone(), em.data.bmc_password.clone())
-                            } else {
-                                return Err(e);
-                            }
-                        }
-                    };
+                    }
+                };
 
-                // Lite-On power shelf BMCs use "chassis" as their Chassis ID,
-                // so that's the one we'll need to collect data from (we actually
-                // look at the Manufacturer name).
-                //
-                // TODO(chet): This hack was added for Lite-On power shelves,
-                // but I'd really like to try to at least make it some generic
-                // fallback eventually (although I think Lite-On is working on
-                // a fix on their side).
-                let vendor = self
+                // Lite-On power shelf BMCs don't expose vendor details in the
+                // service root, so we fall back to checking the Manufacturer
+                // field across all Chassis entries.
+                let vendor = match self
                     .redfish_client
-                    .probe_vendor_name_from_chassis(bmc_ip_address, username, password, "chassis")
-                    .await?;
+                    .probe_vendor_name_from_chassis(bmc_ip_address, username, password)
+                    .await
+                {
+                    Ok(v) => v,
+                    Err(chassis_err) => {
+                        tracing::error!(%bmc_ip_address, "Failed to probe vendor from chassis: {chassis_err}");
+                        return Err(e);
+                    }
+                };
                 if !vendor.to_lowercase().contains("lite-on") {
                     return Err(e);
                 }
@@ -757,7 +767,12 @@ impl EndpointExplorer for BmcEndpointExplorer {
         let report = match self.get_bmc_root_credentials(bmc_mac_address).await {
             Ok(credentials) => {
                 match self
-                    .generate_exploration_report(bmc_ip_address, credentials, boot_interface_mac)
+                    .generate_exploration_report(
+                        bmc_ip_address,
+                        credentials,
+                        boot_interface_mac,
+                        Some(vendor),
+                    )
                     .await
                 {
                     Ok(report) => report,

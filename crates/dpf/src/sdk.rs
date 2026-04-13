@@ -35,7 +35,6 @@ use crate::crds::dpudeployments_generated::{
     DpuDeploymentServiceChainsUpgradePolicy, DpuDeploymentServices, DpuDeploymentSpec,
 };
 use crate::crds::dpudevices_generated::{DPUDevice, DpuDeviceSpec};
-use crate::crds::dpuflavors_generated::{DPUFlavor, DpuFlavorNvconfig};
 use crate::crds::dpunodes_generated::{
     DPUNode, DpuNodeDpus, DpuNodeNodeRebootMethod, DpuNodeNodeRebootMethodExternal, DpuNodeSpec,
 };
@@ -65,9 +64,9 @@ use crate::repository::{
     K8sConfigRepository,
 };
 use crate::types::{
-    BmcPasswordProvider, ConfigPortsServiceType, DpuDeviceInfo, DpuFlavorDefinition, DpuNodeInfo,
-    DpuPhase, DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType,
-    InitDpfResourcesConfig, ServiceConfigPortProtocol, ServiceDefinition, ServiceNADResourceType,
+    BmcPasswordProvider, ConfigPortsServiceType, DpuDeviceInfo, DpuNodeInfo, DpuPhase,
+    DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType, InitDpfResourcesConfig,
+    ServiceConfigPortProtocol, ServiceDefinition, ServiceNADResourceType,
 };
 use crate::watcher::DpuWatcherBuilder;
 
@@ -428,170 +427,31 @@ async fn create_bfb<R: BfbRepository>(
     }
 }
 
-// Right now there are only couple of parameters which needs to be compared for the mismatch.
-// Here we are not comparing each parameter.
-fn is_new_flavor_needed(
-    old_flavor: &DPUFlavor,
-    new_bfcfg: &[String],
-    ovs_commands: &[String],
-) -> bool {
-    let old_bfcfg_parameters = old_flavor.spec.bfcfg_parameters.clone().unwrap_or_default();
-
-    if !new_bfcfg.iter().all(|x| old_bfcfg_parameters.contains(x)) {
-        return false;
-    }
-
-    let old_ovs_commands = old_flavor
-        .spec
-        .ovs
-        .clone()
-        .and_then(|x| x.raw_config_script)
-        .unwrap_or_default();
-
-    old_ovs_commands == ovs_commands.join("\n")
-}
-
+// DPU flavor is immutable. You should never add any parameter here.
 async fn create_dpu_flavor<R: DpuFlavorRepository>(
     repo: &R,
     namespace: &str,
-    dpu_flavor_def: &Option<DpuFlavorDefinition>,
-    existing_flavor_name: Option<String>,
     default_flavor_name: &str,
-) -> Result<String, DpfError> {
-    let mut flavor = crate::flavor::default_flavor(namespace, default_flavor_name);
-
-    let mut bfcfg_parameters = vec![
-        "ENABLE_BR_HBN=yes".to_string(),
-        "ENABLE_BR_SFC=yes".to_string(),
-    ];
-
-    // These parameters are taken from CarbdieConfig which can be changed at runtime.
-    // If these parameters are changed, we need to create a new DPUFlavor since DPUFlavor specs are
-    // immutable.
-    let (should_try_create_dpu_flavor, name) = if let Some(definition) = dpu_flavor_def {
-        if let Some(carbide_hbn_reps) = &definition.carbide_hbn_reps {
-            bfcfg_parameters.push(format!("BR_HBN_REPS={carbide_hbn_reps}"));
-        }
-
-        if let Some(carbide_hbn_sfs) = &definition.carbide_hbn_sfs {
-            bfcfg_parameters.push(format!("BR_HBN_SFS={carbide_hbn_sfs}"));
-        }
-
-        let mut ovs_commands = vec![];
-        if let Some(bridge) = &definition.bridge_def {
-            let vf_intercept_bridge_name = bridge.vf_intercept_bridge_name.clone();
-            let vf_intercept_bridge_port = bridge.vf_intercept_bridge_port.clone();
-            let host_intercept_bridge_name = bridge.host_intercept_bridge_name.clone();
-            let host_intercept_bridge_port = bridge.host_intercept_bridge_port.clone();
-            let vf_intercept_bridge_sf = bridge.vf_intercept_bridge_sf.clone();
-            let vf_intercept_hbn_port = format!("patch-hbn-{vf_intercept_bridge_port}");
-            let host_intercept_hbn_port = format!("patch-hbn-{host_intercept_bridge_port}");
-            let vf_intercept_bridge_sf_representor = format!("{vf_intercept_bridge_sf}_r");
-            let vf_intercept_bridge_sf_hbn_bridge_representor =
-                format!("{vf_intercept_bridge_sf}_if_r");
-
-            ovs_commands.push(format!("_ovs-vsctl --may-exist add-br {vf_intercept_bridge_name} -- set bridge {vf_intercept_bridge_name} datapath_type=netdev -- set interface {vf_intercept_bridge_name} mtu_request=9216"));
-            ovs_commands.push("next_br_hbn_ofport_index=$(($(_ovs-vsctl get bridge br-hbn external_ids | grep -o '[0-9]*')+1))".to_string());
-            ovs_commands.push(
-                "_ovs-vsctl set bridge br-hbn external_ids:ofport_index=${next_br_hbn_ofport_index}"
-                    .to_string(),
-            );
-            ovs_commands.push(format!("_ovs-vsctl --may-exist add-port br-hbn {vf_intercept_hbn_port} -- set interface {vf_intercept_hbn_port} type=patch options:peer={vf_intercept_bridge_port} ofport_request=\"${{next_br_hbn_ofport_index}}\""));
-            ovs_commands.push(format!("_ovs-vsctl --may-exist add-port {vf_intercept_bridge_name} {vf_intercept_bridge_port} -- set interface {vf_intercept_bridge_port} type=patch options:peer={vf_intercept_hbn_port}"));
-            ovs_commands.push(format!("sed -i 's/br-hbn~{vf_intercept_bridge_sf_representor}~{vf_intercept_bridge_sf_hbn_bridge_representor}/br-hbn~{vf_intercept_hbn_port}~{vf_intercept_bridge_sf_hbn_bridge_representor}/' /etc/mellanox/sfc.conf"));
-            ovs_commands.push(format!("_ovs-vsctl set interface {vf_intercept_bridge_port} ofport_request=$(_ovs-vsctl get interface {vf_intercept_bridge_port} ofport)"));
-            ovs_commands.push(format!("sed -i ':a;N;$!ba;s/{vf_intercept_bridge_sf_representor}:{vf_intercept_bridge_sf_hbn_bridge_representor}\\n*//' /etc/mellanox/sfc.conf"));
-            ovs_commands.push(format!(
-                "_ovs-vsctl --if-exists del-port {vf_intercept_bridge_sf_representor}"
-            ));
-
-            ovs_commands.push(format!("_ovs-vsctl --may-exist add-br {host_intercept_bridge_name} -- set bridge {host_intercept_bridge_name} datapath_type=netdev"));
-            ovs_commands.push("next_br_hbn_ofport_index=$(($(_ovs-vsctl get bridge br-hbn external_ids | grep -o '[0-9]*')+1))".to_string());
-            ovs_commands.push("_ovs-vsctl set bridge br-hbn external_ids:ofport_index=${next_br_hbn_ofport_index}".to_string());
-            ovs_commands.push(format!("_ovs-vsctl --may-exist add-port br-hbn {host_intercept_hbn_port} -- set interface {host_intercept_hbn_port} type=patch options:peer={host_intercept_bridge_port} ofport_request=\"${{next_br_hbn_ofport_index}}\" external_ids='{{dependencies=pf0hpf_if_r, hbn_netdev=pf0hpf_if, hbn_rep_ofport=pf0hpf_if_r}}'"));
-            ovs_commands.push(format!("_ovs-vsctl --may-exist add-port {host_intercept_bridge_name} {host_intercept_bridge_port} -- set interface {host_intercept_bridge_port} type=patch options:peer={host_intercept_hbn_port}"));
-            ovs_commands.push(format!("_ovs-vsctl set interface {host_intercept_bridge_port} ofport_request=$(_ovs-vsctl get interface {host_intercept_bridge_port} ofport)"));
-            ovs_commands.push(format!("sed -i 's/br-hbn~pf0hpf~pf0hpf_if_r~pf0hpf_if~pf0hpf_if_r/br-hbn~{host_intercept_hbn_port}~pf0hpf_if_r~pf0hpf_if~pf0hpf_if_r/' /etc/mellanox/sfc.conf"));
-            ovs_commands.push(format!("_ovs-vsctl --if-exists del-port pf0hpf -- --may-exist add-port {host_intercept_bridge_name} pf0hpf -- set interface pf0hpf type=dpdk mtu_request=9216 external_ids='{{}}'"));
-            ovs_commands.push("_ovs-vsctl set interface pf0hpf ofport_request=$(_ovs-vsctl get interface pf0hpf ofport)".to_string());
-
-            flavor.spec.ovs = Some(crate::crds::dpuflavors_generated::DpuFlavorOvs {
-                raw_config_script: Some(ovs_commands.join("\n")),
-            });
-        }
-
-        let nvue_params = vec![
-            "SRIOV_EN=True".to_string(),
-            "NUM_OF_VFS=16".to_string(),
-            "HIDE_PORT2_PF=True".to_string(),
-            "NUM_OF_PF=1".to_string(),
-            "LINK_TYPE_P1=2".to_string(),
-            "LINK_TYPE_P2=2".to_string(),
-        ];
-
-        flavor.spec.nvconfig = Some(vec![DpuFlavorNvconfig {
-            // DPF does not allow anyother wild card. It takes only '*'
-            device: Some("*".to_string()),
-            host_power_cycle_required: None,
-            parameters: Some(nvue_params),
-        }]);
-
-        if let Some(name) = existing_flavor_name {
-            let existing_flavor = DpuFlavorRepository::get(repo, &name, namespace).await?;
-            if let Some(flavor) = &existing_flavor {
-                // Flavor exists. Check if we have to create new or not.
-                let is_flavor_needed =
-                    is_new_flavor_needed(flavor, &bfcfg_parameters, &ovs_commands);
-
-                match is_flavor_needed {
-                    true => {
-                        let name = format!("{}-{}", default_flavor_name, uuid::Uuid::new_v4());
-                        (true, name)
-                    }
-                    // no need to create a new flavor. It is already exists with same parameter.
-                    false => (false, name.to_string()),
-                }
-            } else {
-                // No flavor exists with given name.
-                // It should not happen.
-                tracing::error!(
-                    "No DPUFlavor exists with name {name}. Will try again to create DPUFlavor."
-                );
-                (true, name.to_string())
-            }
-        } else {
-            (true, default_flavor_name.to_string())
-        }
-    } else {
-        (true, default_flavor_name.to_string())
-    };
-
-    if !should_try_create_dpu_flavor {
-        return Ok(name);
-    }
-
-    flavor.spec.bfcfg_parameters = Some(bfcfg_parameters);
-
-    // Update name as we decided in last stage.
-    flavor.metadata.name = Some(name.clone());
+) -> Result<(), DpfError> {
+    let flavor = crate::flavor::default_flavor(namespace, default_flavor_name);
 
     match DpuFlavorRepository::create(repo, &flavor).await {
-        Ok(_) => Ok(name),
+        Ok(_) => Ok(()),
         Err(DpfError::KubeError(kube::Error::Api(ref err)))
             if err.is_already_exists() || err.is_conflict() =>
         {
-            let existing = DpuFlavorRepository::get(repo, &name, namespace).await?;
+            let existing = DpuFlavorRepository::get(repo, default_flavor_name, namespace).await?;
             if existing
                 .as_ref()
                 .is_some_and(|f| f.metadata.deletion_timestamp.is_some())
             {
                 return Err(DpfError::InvalidState(format!(
-                    "DPUFlavor {name} is being deleted (has deletionTimestamp); \
+                    "DPUFlavor {default_flavor_name} is being deleted (has deletionTimestamp); \
                      cannot re-create until the old resource is fully removed",
                 )));
             }
             tracing::debug!("DPU flavor already exists");
-            Ok(name)
+            Ok(())
         }
         Err(e) => Err(e),
     }
@@ -757,7 +617,7 @@ fn build_deployment<L: ResourceLabeler>(
     services: &[ServiceDefinition],
     deployment_name: &str,
     bfb_name: &str,
-    flavor_name: String,
+    flavor_name: &str,
     namespace: &str,
     labeler: &L,
 ) -> DPUDeployment {
@@ -873,7 +733,7 @@ fn build_deployment<L: ResourceLabeler>(
                         match_labels: Some(node_labels),
                     }),
                 }]),
-                flavor: flavor_name,
+                flavor: flavor_name.to_string(),
                 node_effect: Some(DpuDeploymentDpusNodeEffect {
                     custom_action: None,
                     custom_label: None,
@@ -1131,20 +991,9 @@ async fn create_flavor_services_and_deployment<
     services: &[ServiceDefinition],
     deployment_name: &str,
     bfb_name: &str,
-    dpu_flavor_def: &Option<DpuFlavorDefinition>,
     default_flavor_name: &str,
 ) -> Result<(), DpfError> {
-    let existing_deployment =
-        DpuDeploymentRepository::get(repo, deployment_name, namespace).await?;
-
-    let flavor_name = create_dpu_flavor(
-        repo,
-        namespace,
-        dpu_flavor_def,
-        existing_deployment.map(|x| x.spec.dpus.flavor),
-        default_flavor_name,
-    )
-    .await?;
+    create_dpu_flavor(repo, namespace, default_flavor_name).await?;
 
     apply_service_interface_templates(repo, namespace).await?;
 
@@ -1164,7 +1013,7 @@ async fn create_flavor_services_and_deployment<
         services,
         deployment_name,
         bfb_name,
-        flavor_name,
+        default_flavor_name,
         namespace,
         labeler,
     );
@@ -1209,7 +1058,6 @@ impl<
             &services,
             &config.deployment_name,
             &bfb_name,
-            &config.dpu_flavor,
             &config.flavor_name,
         )
         .await?;
@@ -2488,7 +2336,6 @@ mod tests {
             flavor_name: "my-flavor".to_string(),
             services: vec![],
             bfcfg_template: None,
-            dpu_flavor: None,
         };
 
         assert_eq!(config.bfb_url, "http://example.com/test.bfb");
@@ -2678,15 +2525,9 @@ mod tests {
             .unwrap()
             .insert(SdkMock::key(&terminating_flavor), terminating_flavor);
 
-        let err = create_dpu_flavor(
-            &mock,
-            TEST_NAMESPACE,
-            &None,
-            None,
-            crate::flavor::DEFAULT_FLAVOR_NAME,
-        )
-        .await
-        .unwrap_err();
+        let err = create_dpu_flavor(&mock, TEST_NAMESPACE, crate::flavor::DEFAULT_FLAVOR_NAME)
+            .await
+            .unwrap_err();
         assert!(
             matches!(err, DpfError::InvalidState(_)),
             "expected InvalidState, got: {err:?}"
@@ -2703,15 +2544,9 @@ mod tests {
             .unwrap()
             .insert(SdkMock::key(&flavor), flavor);
 
-        create_dpu_flavor(
-            &mock,
-            TEST_NAMESPACE,
-            &None,
-            None,
-            crate::flavor::DEFAULT_FLAVOR_NAME,
-        )
-        .await
-        .unwrap();
+        create_dpu_flavor(&mock, TEST_NAMESPACE, crate::flavor::DEFAULT_FLAVOR_NAME)
+            .await
+            .unwrap();
     }
 
     #[derive(Clone, Default)]

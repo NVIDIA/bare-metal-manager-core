@@ -37,16 +37,15 @@ async fn resolve_segment_for_static_ip(
     }
 }
 
-/// Pre-allocate a machine_interface with a static address so
-/// site_explorer can discover the BMC at that IP.
+/// Pre-allocate a `machine_interface` with a static address so Site Explorer can discover the BMC
+/// at that IP. Expected machine / switch / power shelf handlers call this when the operator sets a
+/// configured BMC IP before DHCP has appeared.
 ///
-/// If the IP is within a managed network prefix, the interface is
-/// created on that segment. Otherwise it falls back to the special
-/// "static-assignments" segment where we track static assignments.
+/// If the IP is within a managed network prefix, the interface is created on that segment.
+/// Otherwise it uses the internal `static-assignments` anchor segment.
 ///
-/// This fails if a machine_interface already exists for this MAC.
-/// Use update_preallocated_machine_interface` to change the IP on
-/// an existing interface.
+/// Fails if a `machine_interface` already exists for this MAC. Use
+/// [`update_preallocated_machine_interface`] to follow up on an existing interface.
 pub async fn preallocate_machine_interface(
     txn: &mut sqlx::PgConnection,
     bmc_mac_address: MacAddress,

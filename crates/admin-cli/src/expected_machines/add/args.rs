@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::net::IpAddr;
+
 use carbide_uuid::rack::RackId;
 use clap::Parser;
 use mac_address::MacAddress;
@@ -22,6 +24,8 @@ use rpc::admin_cli::{CarbideCliError, CarbideCliResult};
 use serde::{Deserialize, Serialize};
 use utils::has_duplicates;
 
+/// `forge-admin-cli expected-machine add` — mirrors expected switch flags; optional
+/// `--bmc-ip-address` forwards to the API static-BMC pre-allocation path.
 #[derive(Parser, Debug, Serialize, Deserialize)]
 pub struct Args {
     #[clap(short = 'a', long, help = "BMC MAC Address of the expected machine")]
@@ -111,6 +115,13 @@ pub struct Args {
         help = "DPF enable/disable for this machine. Default is updated as true.",
     )]
     pub dpf_enabled: Option<bool>,
+
+    #[clap(
+        long = "bmc-ip-address",
+        value_name = "BMC_IP_ADDRESS",
+        help = "Static BMC IP (pre-allocates machine_interface for site explorer, same as expected switches)"
+    )]
+    pub bmc_ip_address: Option<IpAddr>,
 }
 
 impl Args {
@@ -160,6 +171,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
             #[allow(deprecated)]
             dpf_enabled: value.dpf_enabled.unwrap_or_default(),
             is_dpf_enabled: value.dpf_enabled,
+            bmc_ip_address: value.bmc_ip_address.map(|ip| ip.to_string()),
         })
     }
 }

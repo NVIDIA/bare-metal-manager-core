@@ -86,11 +86,14 @@ pub async fn create_underlay_network_segment(api: &Api) -> NetworkSegmentId {
     .await
 }
 
-pub async fn create_static_assignments_segment(api: &Api) -> NetworkSegmentId {
+pub async fn create_static_assignments_segment(
+    api: &Api,
+    subdomain_id: Option<carbide_uuid::domain::DomainId>,
+) -> NetworkSegmentId {
     let mut txn = db::Transaction::begin(&api.database_connection)
         .await
         .unwrap();
-    crate::db_init::ensure_static_assignments_segment(api, &mut txn, None)
+    crate::db_init::ensure_static_assignments_segment(api, &mut txn, subdomain_id)
         .await
         .unwrap();
     txn.commit().await.unwrap();
