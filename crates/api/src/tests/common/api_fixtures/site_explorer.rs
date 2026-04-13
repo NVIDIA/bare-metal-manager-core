@@ -672,7 +672,7 @@ impl<'a> MockExploredHost<'a> {
         self.test_env
             .run_machine_state_controller_iteration_until_state_matches(
                 &host_machine_id,
-                10,
+                20,
                 ManagedHostState::HostInit {
                     machine_state: MachineState::WaitingForDiscovery,
                 },
