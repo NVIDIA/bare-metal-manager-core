@@ -314,10 +314,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.ResourcePool", "#[derive(serde::Serialize)]")
         .type_attribute("forge.DpaInterface", "#[derive(serde::Serialize)]")
         .type_attribute("forge.DpaInterfaceList", "#[derive(serde::Serialize)]")
-        .type_attribute(
-            "forge.DpaInterfaceStateHistoryRecord",
-            "#[derive(serde::Serialize)]",
-        )
         .type_attribute("forge.Vpc", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcList", "#[derive(serde::Serialize)]")
@@ -336,6 +332,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute("forge.VpcPeering", "#[derive(serde::Serialize)]")
         .type_attribute("forge.VpcPeeringList", "#[derive(serde::Serialize)]")
+        .type_attribute(
+            "forge.StateHistoryRecord",
+            "#[derive(serde::Serialize)]",
+        )
         .type_attribute("forge.StorageCluster", "#[derive(serde::Serialize)]")
         .type_attribute("forge.StoragePoolAttributes", "#[derive(serde::Serialize)]")
         .type_attribute("forge.StoragePool", "#[derive(serde::Serialize)]")
@@ -784,6 +784,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute(
             "forge.GetBmcCredentialsRequest",
+            "#[derive(serde::Serialize)]",
+        ).type_attribute(
+            "forge.PlacementInRack",
             "#[derive(serde::Serialize)]",
         )
         .build_server(true)

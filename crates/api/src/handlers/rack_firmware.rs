@@ -1044,7 +1044,7 @@ pub async fn apply(
         ),
     ];
 
-    for &(lookup_key, node_type, display_name, has_devices, activate) in device_types {
+    for &(lookup_key, node_type, display_name, has_devices, _) in device_types {
         if !has_devices {
             continue;
         }
@@ -1122,13 +1122,11 @@ pub async fn apply(
         );
 
         let rms_request = librms::protos::rack_manager::UpdateFirmwareByNodeTypeRequest {
-            metadata: None,
-            node_type,
-            filename: String::new(),
-            target: String::new(),
-            rack_id: rack_id.to_string(),
+            force_update: true,
             firmware_targets,
-            activate,
+            node_type,
+            rack_id: rack_id.to_string(),
+            ..Default::default()
         };
 
         match rms_client

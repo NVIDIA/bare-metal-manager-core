@@ -293,7 +293,7 @@ pub async fn admin_force_delete_power_shelf(
 pub async fn find_power_shelf_state_histories(
     api: &Api,
     request: Request<rpc::PowerShelfStateHistoriesRequest>,
-) -> Result<Response<rpc::PowerShelfStateHistories>, Status> {
+) -> Result<Response<rpc::StateHistories>, Status> {
     log_request_data(&request);
     let request = request.into_inner();
     let power_shelf_ids = request.power_shelf_ids;
@@ -317,11 +317,11 @@ pub async fn find_power_shelf_state_histories(
             .await
             .map_err(CarbideError::from)?;
 
-    let mut response = rpc::PowerShelfStateHistories::default();
+    let mut response = rpc::StateHistories::default();
     for (power_shelf_id, records) in results {
         response.histories.insert(
             power_shelf_id.to_string(),
-            ::rpc::forge::PowerShelfStateHistoryRecords {
+            ::rpc::forge::StateHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
         );

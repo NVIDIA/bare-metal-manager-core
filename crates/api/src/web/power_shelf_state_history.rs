@@ -32,11 +32,11 @@ use crate::api::Api;
 #[template(path = "power_shelf_state_history.html")]
 struct PowerShelfStateHistory {
     id: String,
-    records: Vec<PowerShelfStateHistoryRecord>,
+    records: Vec<StateHistoryRecord>,
 }
 
 #[derive(Debug, serde::Serialize)]
-pub(super) struct PowerShelfStateHistoryRecord {
+pub(super) struct StateHistoryRecord {
     pub state: String,
     pub version: String,
     pub time: String,
@@ -55,7 +55,7 @@ pub async fn show_state_history(
 
     let records = records
         .into_iter()
-        .map(|record| PowerShelfStateHistoryRecord {
+        .map(|record| StateHistoryRecord {
             state: record.state,
             version: record.version,
             time: record
@@ -83,9 +83,9 @@ pub async fn show_state_history_json(
             Err((code, msg)) => return (code, msg).into_response(),
         };
 
-    let records: Vec<PowerShelfStateHistoryRecord> = health_records
+    let records: Vec<StateHistoryRecord> = health_records
         .into_iter()
-        .map(|record| PowerShelfStateHistoryRecord {
+        .map(|record| StateHistoryRecord {
             state: record.state,
             version: record.version,
             time: record
@@ -104,7 +104,7 @@ pub async fn fetch_state_history_records(
 ) -> Result<
     (
         carbide_uuid::power_shelf::PowerShelfId,
-        Vec<::rpc::forge::PowerShelfStateHistoryRecord>,
+        Vec<::rpc::forge::StateHistoryRecord>,
     ),
     (http::StatusCode, String),
 > {

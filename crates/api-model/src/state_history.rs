@@ -14,31 +14,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use carbide_uuid::rack::RackId;
+
 use config_version::ConfigVersion;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 
-/// History of Rack states for a single Rack
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
-pub struct DbRackStateHistory {
-    /// The ID of the rack that experienced the state change
-    pub rack_id: RackId,
-
+/// History of Switch states for a single Switch
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateHistoryRecord {
     /// The state that was entered
     pub state: String,
-
-    /// Current version.
+    // The version number associated with the state change
     pub state_version: ConfigVersion,
-    // The timestamp of the state change, currently unused
-    // timestamp: DateTime<Utc>,
 }
 
-impl From<DbRackStateHistory> for crate::rack::RackStateHistory {
-    fn from(event: DbRackStateHistory) -> Self {
-        Self {
-            state: event.state,
-            state_version: event.state_version,
+impl From<StateHistoryRecord> for ::rpc::forge::StateHistoryRecord {
+    fn from(value: StateHistoryRecord) -> ::rpc::forge::StateHistoryRecord {
+        ::rpc::forge::StateHistoryRecord {
+            state: value.state,
+            version: value.state_version.version_string(),
+            time: Some(value.state_version.timestamp().into()),
         }
     }
 }

@@ -39,7 +39,6 @@ pub fn show_power_shelves(
             "Metadata Name",
             "Capacity(W)",
             "Voltage(V)",
-            "Location",
             "Power State",
             "Health",
             "State"
@@ -76,11 +75,6 @@ pub fn show_power_shelves(
                     .and_then(|c| c.voltage)
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| "N/A".to_string()),
-                shelf
-                    .config
-                    .as_ref()
-                    .and_then(|c| c.location.as_deref())
-                    .unwrap_or("N/A"),
                 shelf
                     .status
                     .as_ref()

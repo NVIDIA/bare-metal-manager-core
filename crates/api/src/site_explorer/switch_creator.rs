@@ -160,10 +160,12 @@ impl SwitchCreator {
             name,
             enable_nmxc: false,
             fabric_manager_config: None,
-            location: Some("US/CA/DC/San Jose/1000 N Mathilda Ave".to_string()),
         };
+
         let new_switch = model::switch::NewSwitch {
             id: switch_id,
+            slot_number: None,
+            tray_index: None,
             config,
             bmc_mac_address: Some(expected_switch.bmc_mac_address),
             metadata: Some(expected_switch.metadata.clone()),

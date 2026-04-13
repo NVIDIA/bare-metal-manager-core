@@ -49,6 +49,7 @@ RUN CACHEKEY=${CI_COMMIT_SHORT_SHA} apt update && \
 		libssl-dev \
 		libtss2-dev \
 		libudev-dev \
+		pigz \
 		pkg-config \
 		postgresql-13 \
 		protobuf-compiler \

@@ -744,21 +744,21 @@ impl Forge for Api {
     async fn find_power_shelf_state_histories(
         &self,
         request: Request<rpc::PowerShelfStateHistoriesRequest>,
-    ) -> Result<Response<rpc::PowerShelfStateHistories>, Status> {
+    ) -> Result<Response<rpc::StateHistories>, Status> {
         crate::handlers::power_shelf::find_power_shelf_state_histories(self, request).await
     }
 
     async fn find_rack_state_histories(
         &self,
         request: tonic::Request<rpc::RackStateHistoriesRequest>,
-    ) -> Result<Response<rpc::RackStateHistories>, Status> {
+    ) -> Result<Response<rpc::StateHistories>, Status> {
         crate::handlers::rack::find_rack_state_histories(self, request).await
     }
 
     async fn find_switch_state_histories(
         &self,
         request: Request<rpc::SwitchStateHistoriesRequest>,
-    ) -> Result<Response<rpc::SwitchStateHistories>, Status> {
+    ) -> Result<Response<rpc::StateHistories>, Status> {
         crate::handlers::switch::find_switch_state_histories(self, request).await
     }
 

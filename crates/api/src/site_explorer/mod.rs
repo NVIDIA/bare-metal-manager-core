@@ -31,12 +31,12 @@ use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
 use chrono::Utc;
 use config_version::ConfigVersion;
 use db::{self, DatabaseError, ObjectFilter, Transaction, machine, power_shelf as db_power_shelf};
+use forge_secrets::credentials::CredentialManager;
 use futures_util::stream::FuturesUnordered;
 use futures_util::{StreamExt, TryFutureExt};
 use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use librms::RmsApi;
-use librms::protos::rack_manager::{NewNodeInfo, NodeType as RmsNodeType};
 use mac_address::MacAddress;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::expected_switch::ExpectedSwitch;
@@ -65,7 +65,6 @@ mod metrics;
 pub use metrics::SiteExplorationMetrics;
 mod bmc_endpoint_explorer;
 mod redfish;
-pub mod rms;
 pub use bmc_endpoint_explorer::BmcEndpointExplorer;
 mod boot_order_tracker;
 use boot_order_tracker::BootOrderTracker;
@@ -127,6 +126,31 @@ pub(crate) async fn ensure_rack_exists(
     }
 }
 
+/// Fetches slot_number and tray_index from the RMS for a given rack/node pair.
+/// Returns `(None, None)` on any failure, logging a warning with `entity_label`.
+pub(crate) async fn fetch_slot_and_tray(
+    rms_client: &dyn librms::RmsApi,
+    request: librms::protos::rack_manager::GetDeviceInfoByDeviceListRequest,
+) -> (Option<i32>, Option<i32>) {
+    match rms_client.get_device_info_by_device_list(request).await {
+        Ok(info) => {
+            if !info.node_device_info.is_empty() {
+                let node_device_info = info.node_device_info.first().unwrap();
+                (node_device_info.slot_number, node_device_info.tray_index)
+            } else {
+                (None, None)
+            }
+        }
+        Err(e) => {
+            tracing::warn!(
+                %e,
+                "Failed to get device info from RMS, slot_number and tray_index will be unset"
+            );
+            (None, None)
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Endpoint<'a> {
     address: IpAddr,
@@ -170,7 +194,7 @@ pub struct SiteExplorer {
     machine_creator: MachineCreator,
     switch_creator: SwitchCreator,
     boot_order_tracker: BootOrderTracker,
-    rms_client: Option<Arc<dyn RmsApi>>,
+    // rms_client: Option<Arc<dyn RmsApi>>,
 }
 
 impl SiteExplorer {
@@ -186,6 +210,7 @@ impl SiteExplorer {
         common_pools: Arc<CommonPools>,
         work_lock_manager_handle: WorkLockManagerHandle,
         rms_client: Option<Arc<dyn RmsApi>>,
+        credential_manager: Arc<dyn CredentialManager>,
     ) -> Self {
         // We want to hold metrics for longer than the iteration interval, so there is continuity
         // in emitting metrics. However we want to avoid reporting outdated metrics in case
@@ -202,6 +227,7 @@ impl SiteExplorer {
                 explorer_config.clone(),
                 common_pools,
                 rms_client.clone(),
+                credential_manager,
             ),
             switch_creator: SwitchCreator::new(
                 database_connection.clone(),
@@ -215,7 +241,6 @@ impl SiteExplorer {
             firmware_config,
             work_lock_manager_handle,
             boot_order_tracker: BootOrderTracker::default(),
-            rms_client,
         }
     }
 
@@ -691,9 +716,6 @@ impl SiteExplorer {
         let power_shelf_serial = expected_shelf.metadata.name.as_str();
         let power_shelf_vendor = "NVIDIA"; // Default vendor for power shelves
         let power_shelf_model = "PowerShelf"; // Default model identifier
-        // TODO: Fetch power shelf location from chassis metadata or configuration
-        // NOTE: Metadata does not have a 'location' field, so use a default for now.
-
         let power_shelf_id = match model::power_shelf::power_shelf_id::from_hardware_info(
             power_shelf_serial,
             power_shelf_vendor,
@@ -714,7 +736,6 @@ impl SiteExplorer {
             name: expected_shelf.metadata.name.clone(),
             capacity: Some(100),
             voltage: Some(240),
-            location: Some("US/CA/DC/San Jose/1000 N Mathilda Ave".to_string()),
         };
 
         let new_power_shelf = NewPowerShelf {
@@ -751,43 +772,6 @@ impl SiteExplorer {
             power_shelf_id,
             explored_endpoint.address
         );
-
-        // Register the power shelf with Rack Manager if RMS client is available
-        if let Some(rms_client) = &self.rms_client {
-            if let Some(ref rack_id) = expected_shelf.rack_id {
-                let new_node_info = NewNodeInfo {
-                    rack_id: rack_id.to_string(),
-                    node_id: power_shelf_id.to_string(),
-                    mac_address: expected_shelf.bmc_mac_address.to_string(),
-                    ip_address: explored_endpoint.address.to_string(),
-                    port: 443,
-                    username: None,
-                    password: None,
-                    r#type: Some(RmsNodeType::Powershelf.into()),
-                    vault_path: String::new(),
-                    host_ip_addresses: vec![],
-                    host_mac_addresses: vec![],
-                };
-                if let Err(e) = rms::add_node_to_rms(rms_client.as_ref(), new_node_info).await {
-                    tracing::warn!(
-                        "Failed to add power shelf {} to Rack Manager: {}",
-                        power_shelf_id,
-                        e
-                    );
-                } else {
-                    tracing::info!(
-                        "Added power shelf {} to Rack Manager for endpoint {}",
-                        power_shelf_id,
-                        explored_endpoint.address,
-                    );
-                }
-            } else {
-                tracing::warn!(
-                    "Cannot add power shelf {} to Rack Manager: rack_id is missing",
-                    power_shelf_id
-                );
-            }
-        }
 
         Ok(true)
     }

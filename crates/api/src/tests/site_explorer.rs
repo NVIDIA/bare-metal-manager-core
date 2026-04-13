@@ -237,6 +237,7 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     // check the ingestion state of the machine
@@ -447,6 +448,7 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -913,6 +915,7 @@ async fn test_site_explorer_audit_exploration_results(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -1119,6 +1122,7 @@ async fn test_site_explorer_reexplore(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -1386,6 +1390,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
@@ -1604,6 +1609,7 @@ async fn test_site_explorer_health_report(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     // Run site explorer and check the health state of the Machine
@@ -2179,6 +2185,7 @@ async fn test_site_explorer_unknown_vendor(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -2395,6 +2402,7 @@ async fn test_machine_creation_with_sku(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     // Create expected_machine entry for host1 w.o fallback_dpu_serial_number
@@ -2732,6 +2740,7 @@ async fn test_expected_machine_device_type_metrics(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     // Run site explorer to collect metrics
@@ -2880,6 +2889,7 @@ async fn test_site_explorer_power_shelf_discovery(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -3033,6 +3043,7 @@ async fn test_site_explorer_switch_discovery(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -3182,6 +3193,7 @@ async fn test_site_explorer_power_shelf_with_expected_config(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -3336,6 +3348,7 @@ async fn test_site_explorer_power_shelf_creation_limit(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -3470,6 +3483,7 @@ async fn test_site_explorer_power_shelf_disabled(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -3573,6 +3587,7 @@ async fn test_site_explorer_power_shelf_error_handling(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();
@@ -3639,6 +3654,7 @@ async fn test_site_explorer_creates_power_shelf(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     // Create a power shelf using FakePowerShelf
@@ -3938,6 +3954,7 @@ async fn test_power_shelf_state_history(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     // Create the power shelf using site explorer
@@ -4192,6 +4209,7 @@ async fn test_power_shelf_state_history_multiple(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     // Create the power shelves using site explorer
@@ -4413,6 +4431,7 @@ async fn test_power_shelf_state_history_error_handling(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     // Create the power shelf using site explorer
@@ -4587,6 +4606,7 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
         env.common_pools.clone(),
         env.api.work_lock_manager_handle.clone(),
         env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
     );
 
     explorer.run_single_iteration().await.unwrap();

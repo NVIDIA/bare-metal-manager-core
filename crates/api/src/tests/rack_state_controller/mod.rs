@@ -28,7 +28,7 @@ use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::{
     FirmwareUpgradeState, Rack, RackConfig, RackMaintenanceState, RackState, RackValidationState,
 };
-use rpc::forge::RackStateHistoryRecord;
+use rpc::forge::StateHistoryRecord;
 use rpc::forge::forge_server::Forge;
 use tokio_util::sync::CancellationToken;
 
@@ -136,10 +136,7 @@ impl StateHandler for TestRackStateHandler {
     }
 }
 
-fn validate_state_change_history(
-    histories: &[RackStateHistoryRecord],
-    expected: &Vec<&str>,
-) -> bool {
+fn validate_state_change_history(histories: &[StateHistoryRecord], expected: &Vec<&str>) -> bool {
     for &s in expected {
         if !histories.iter().any(|e| e.state == s) {
             return false;

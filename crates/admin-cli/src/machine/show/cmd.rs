@@ -56,6 +56,24 @@ fn convert_machine_to_nice_format(
         ("VERSION", machine.version),
         ("SKU", sku),
         ("SKU DEVICE TYPE", sku_device_type),
+        (
+            "SLOT NUMBER",
+            machine
+                .placement_in_rack
+                .as_ref()
+                .and_then(|p| p.slot_number)
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "N/A".to_string()),
+        ),
+        (
+            "TRAY INDEX",
+            machine
+                .placement_in_rack
+                .as_ref()
+                .and_then(|p| p.tray_index)
+                .map(|t| t.to_string())
+                .unwrap_or_else(|| "N/A".to_string()),
+        ),
     ];
     if let Some(di) = machine.discovery_info
         && let Some(dmi) = di.dmi_data
@@ -223,6 +241,8 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
         "MAC Address",
         "Type",
         "Vendor",
+        "Slot",
+        "Tray",
         "Labels",
     ]);
 
@@ -275,6 +295,19 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
 
         let labels = crate::metadata::get_nice_labels_from_rpc_metadata(machine.metadata.as_ref());
 
+        let slot_number = machine
+            .placement_in_rack
+            .as_ref()
+            .and_then(|p| p.slot_number)
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let tray_index = machine
+            .placement_in_rack
+            .as_ref()
+            .and_then(|p| p.tray_index)
+            .map(|t| t.to_string())
+            .unwrap_or_default();
+
         let is_unhealthy = machine
             .health
             .map(|x| !x.alerts.is_empty())
@@ -291,6 +324,8 @@ fn convert_machines_to_nice_table(machines: forgerpc::MachineList) -> Box<Table>
             mac,
             machine_type,
             vendor,
+            slot_number,
+            tray_index,
             labels.join(", ")
         ]);
     }

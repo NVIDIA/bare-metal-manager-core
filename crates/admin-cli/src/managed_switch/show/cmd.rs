@@ -43,7 +43,8 @@ struct ManagedSwitchOutput {
     expected_switch_id: Option<String>,
     explored_endpoint: Option<String>,
     rack_id: Option<String>,
-    location: Option<String>,
+    slot_number: Option<i32>,
+    tray_index: Option<i32>,
     state_reason: Option<String>,
 }
 
@@ -120,8 +121,10 @@ fn build_managed_switch_outputs(
                 .map(|id| id.value.clone()),
             explored_endpoint: linked_switch.explored_endpoint_address.clone(),
             rack_id: linked_switch.rack_id.as_ref().map(|id| id.to_string()),
-            location: switch
-                .and_then(|s| s.config.as_ref().and_then(|c| c.location.as_ref().cloned())),
+            slot_number: switch
+                .and_then(|s| s.placement_in_rack.as_ref().and_then(|p| p.slot_number)),
+            tray_index: switch
+                .and_then(|s| s.placement_in_rack.as_ref().and_then(|p| p.tray_index)),
             state_reason: switch.and_then(|s| {
                 s.status
                     .as_ref()
@@ -168,7 +171,11 @@ fn build_managed_switch_outputs(
             expected_switch_id: None,
             explored_endpoint: None,
             rack_id: None,
-            location: switch.config.as_ref().and_then(|c| c.location.clone()),
+            slot_number: switch
+                .placement_in_rack
+                .as_ref()
+                .and_then(|p| p.slot_number),
+            tray_index: switch.placement_in_rack.as_ref().and_then(|p| p.tray_index),
             state_reason: switch
                 .status
                 .as_ref()
@@ -275,8 +282,20 @@ fn show_detail_view(m: &ManagedSwitchOutput) -> CarbideCliResult<()> {
     writeln!(
         &mut lines,
         "{:<width$}: {}",
-        "  Location",
-        m.location.as_deref().unwrap_or(UNKNOWN)
+        "  Slot Number",
+        m.slot_number
+            .map(|v| v.to_string())
+            .as_deref()
+            .unwrap_or(UNKNOWN)
+    )?;
+    writeln!(
+        &mut lines,
+        "{:<width$}: {}",
+        "  Tray Index",
+        m.tray_index
+            .map(|v| v.to_string())
+            .as_deref()
+            .unwrap_or(UNKNOWN)
     )?;
 
     println!("{lines}");

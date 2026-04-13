@@ -82,7 +82,7 @@ applicable.
 | `mlxconfig_profiles` | `Option<HashMap<String, MlxConfigProfile>>` | — | Named Mellanox NIC register configuration profiles for superNIC firmware flashing. TOML key: `mlx-config-profiles`. |
 | `rack_management_enabled` | `bool` | `false` | Standalone infrastructure manager mode for GB200/GB300/VR144. See doc comment for full behavioral changes. |
 | `force_dpu_nic_mode` | `bool` | `false` | Treat DPUs as regular NICs (skip managed DPU config). For dev labs with BF DPUs. |
-| `rms_api_url` | `Option<String>` | — | Rack Manager Service API URL for rack-level firmware and power operations. |
+| `rms` | `RmsConfig` | *(see below)* | Rack Manager Service configuration for API connectivity and mTLS (see [RmsConfig](#rmsconfig)). |
 | `rack_types` | `RackTypeConfig` | *(default)* | Rack type definitions referenced by expected racks. |
 | `spdm` | `SpdmConfig` | *(see below)* | SPDM hardware attestation (see [SpdmConfig](#spdmconfig)). |
 | `bgp_leaf_session_password` | `Option<BgpLeafSessionPassword>` | — | Selects the credential source for leaf-facing BGP session passwords returned to agents in managed host network config. Supported value: `site_wide`. |
@@ -293,6 +293,16 @@ Extends `StateControllerConfig` with:
 | `bfb_url` | `String` | `""` | BlueField firmware bundle URL. |
 | `deployment_name` | `Option<String>` | — | Kubernetes deployment name. |
 | `services` | `Option<Vec<DpfServiceConfig>>` | — | Additional Helm services. |
+
+### `RmsConfig`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `api_url` | `Option<String>` | — | RMS API URL for rack-level firmware upgrades and power sequencing. |
+| `root_ca_path` | `Option<String>` | — | Path to the root CA certificate for TLS verification. |
+| `client_cert` | `Option<String>` | — | Path to the client certificate PEM for mTLS. |
+| `client_key` | `Option<String>` | — | Path to the client private key PEM for mTLS. |
+| `enforce_tls` | `bool` | `true` | Enforce TLS when connecting to RMS. |
 
 ### `SpdmConfig`
 

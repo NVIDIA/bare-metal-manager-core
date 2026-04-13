@@ -102,7 +102,7 @@ pub async fn fetch_state_history_records(
 ) -> Result<
     (
         carbide_uuid::switch::SwitchId,
-        Vec<::rpc::forge::SwitchStateHistoryRecord>,
+        Vec<::rpc::forge::StateHistoryRecord>,
     ),
     (http::StatusCode, String),
 > {

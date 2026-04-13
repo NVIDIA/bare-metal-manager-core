@@ -123,14 +123,12 @@ async fn test_delete_switch_success(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     let env = create_test_env(pool).await;
 
     // First create a switch
-    let switch_config = rpc::forge::SwitchConfig {
-        name: "Switch1".to_string(),
-        enable_nmxc: false,
-        fabric_manager_config: None,
-        location: Some("Rack 3".to_string()),
-    };
-
-    let switch_id = new_switch(&env, Some(switch_config.name), switch_config.location).await?;
+    let switch_id = new_switch(
+        &env,
+        Some("Switch1".to_string()),
+        Some("Rack 3".to_string()),
+    )
+    .await?;
 
     // Now delete the switch
     let delete_request = SwitchDeletionRequest {
@@ -200,7 +198,6 @@ async fn test_switch_database_operations(
         name: "Switch1".to_string(),
         enable_nmxc: false,
         fabric_manager_config: None,
-        location: Some("High Voltage Rack".to_string()),
     };
 
     let switch_id = SwitchId::from(uuid::Uuid::new_v4());
@@ -210,16 +207,16 @@ async fn test_switch_database_operations(
         bmc_mac_address: None,
         metadata: None,
         rack_id: None,
+        slot_number: Some(5),
+        tray_index: Some(3),
     };
 
     let created_switch = db_switch::create(&mut txn, &new_switch).await?;
 
     assert_eq!(created_switch.id, switch_id);
     assert_eq!(created_switch.config.name, "Switch1");
-    assert_eq!(
-        created_switch.config.location,
-        Some("High Voltage Rack".to_string())
-    );
+    assert_eq!(created_switch.slot_number, Some(5));
+    assert_eq!(created_switch.tray_index, Some(3));
 
     // Test finding the switch
     let found_switches = db_switch::find_by(
@@ -252,7 +249,6 @@ async fn test_switch_status_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         name: "Switch1".to_string(),
         enable_nmxc: false,
         fabric_manager_config: None,
-        location: Some("Status Test Rack".to_string()),
     };
 
     let switch_id = SwitchId::from(uuid::Uuid::new_v4());
@@ -262,6 +258,8 @@ async fn test_switch_status_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
         bmc_mac_address: None,
         metadata: None,
         rack_id: None,
+        slot_number: Some(1),
+        tray_index: Some(0),
     };
 
     let mut switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -298,7 +296,6 @@ async fn test_switch_controller_state_transitions(
         name: "Switch1".to_string(),
         enable_nmxc: false,
         fabric_manager_config: None,
-        location: Some("Controller Test Rack".to_string()),
     };
 
     let switch_id = SwitchId::from(uuid::Uuid::new_v4());
@@ -308,6 +305,8 @@ async fn test_switch_controller_state_transitions(
         bmc_mac_address: None,
         metadata: None,
         rack_id: None,
+        slot_number: Some(2),
+        tray_index: Some(1),
     };
 
     let switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -394,7 +393,6 @@ async fn test_switch_conversion_roundtrip(
         name: "Switch1".to_string(),
         enable_nmxc: false,
         fabric_manager_config: None,
-        location: Some("Conversion Test Rack".to_string()),
     };
 
     let switch_id = SwitchId::from(uuid::Uuid::new_v4());
@@ -404,6 +402,8 @@ async fn test_switch_conversion_roundtrip(
         bmc_mac_address: None,
         metadata: None,
         rack_id: None,
+        slot_number: Some(3),
+        tray_index: Some(2),
     };
 
     let mut switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -449,7 +449,6 @@ async fn test_switch_find_all(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
             name: name.to_string(),
             enable_nmxc: false,
             fabric_manager_config: None,
-            location: Some("List Test Rack".to_string()),
         };
 
         let switch_id = SwitchId::from(uuid::Uuid::new_v4());
@@ -459,6 +458,8 @@ async fn test_switch_find_all(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
             bmc_mac_address: None,
             metadata: None,
             rack_id: None,
+            slot_number: Some(0),
+            tray_index: Some(0),
         };
 
         let switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -492,7 +493,6 @@ async fn test_switch_controller_state_outcome(
         name: "Switch1".to_string(),
         enable_nmxc: false,
         fabric_manager_config: None,
-        location: Some("Outcome Test Rack".to_string()),
     };
 
     let switch_id = SwitchId::from(uuid::Uuid::new_v4());
@@ -502,6 +502,8 @@ async fn test_switch_controller_state_outcome(
         bmc_mac_address: None,
         metadata: None,
         rack_id: None,
+        slot_number: Some(4),
+        tray_index: Some(1),
     };
 
     let _switch = db_switch::create(&mut txn, &new_switch).await?;

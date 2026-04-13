@@ -16,7 +16,8 @@
  */
 use carbide_uuid::power_shelf::PowerShelfId;
 use config_version::ConfigVersion;
-use model::power_shelf::{PowerShelfControllerState, PowerShelfStateHistoryRecord};
+use model::power_shelf::PowerShelfControllerState;
+use model::state_history::StateHistoryRecord;
 use sqlx::{FromRow, PgConnection};
 
 use crate::{DatabaseError, DatabaseResult};
@@ -36,7 +37,7 @@ struct DbPowerShelfStateHistoryRecord {
     //timestamp: DateTime<Utc>,
 }
 
-impl From<DbPowerShelfStateHistoryRecord> for PowerShelfStateHistoryRecord {
+impl From<DbPowerShelfStateHistoryRecord> for StateHistoryRecord {
     fn from(event: DbPowerShelfStateHistoryRecord) -> Self {
         Self {
             state: event.state,
@@ -56,7 +57,7 @@ impl From<DbPowerShelfStateHistoryRecord> for PowerShelfStateHistoryRecord {
 pub async fn find_by_power_shelf_ids(
     txn: &mut PgConnection,
     ids: &[PowerShelfId],
-) -> DatabaseResult<std::collections::HashMap<PowerShelfId, Vec<PowerShelfStateHistoryRecord>>> {
+) -> DatabaseResult<std::collections::HashMap<PowerShelfId, Vec<StateHistoryRecord>>> {
     let query = "SELECT power_shelf_id, state::TEXT, state_version, timestamp
         FROM power_shelf_state_history
         WHERE power_shelf_id=ANY($1)
@@ -69,9 +70,9 @@ pub async fn find_by_power_shelf_ids(
 
     let mut histories = std::collections::HashMap::new();
     for result in query_results.into_iter() {
-        let events: &mut Vec<PowerShelfStateHistoryRecord> =
+        let events: &mut Vec<StateHistoryRecord> =
             histories.entry(result.power_shelf_id).or_default();
-        events.push(PowerShelfStateHistoryRecord {
+        events.push(StateHistoryRecord {
             state: result.state,
             state_version: result.state_version,
         });
@@ -82,7 +83,7 @@ pub async fn find_by_power_shelf_ids(
 pub async fn for_power_shelf(
     txn: &mut PgConnection,
     id: &PowerShelfId,
-) -> DatabaseResult<Vec<PowerShelfStateHistoryRecord>> {
+) -> DatabaseResult<Vec<StateHistoryRecord>> {
     let query = "SELECT power_shelf_id, state::TEXT, state_version, timestamp
         FROM power_shelf_state_history
         WHERE power_shelf_id=$1
@@ -101,7 +102,7 @@ pub async fn persist(
     power_shelf_id: &PowerShelfId,
     state: &PowerShelfControllerState,
     state_version: ConfigVersion,
-) -> DatabaseResult<PowerShelfStateHistoryRecord> {
+) -> DatabaseResult<StateHistoryRecord> {
     let query = "INSERT INTO power_shelf_state_history (power_shelf_id, state, state_version)
         VALUES ($1, $2, $3)
         RETURNING power_shelf_id, state::TEXT, state_version, timestamp";
@@ -127,21 +128,4 @@ pub async fn delete_by_power_shelf_id(
         .await
         .map_err(|e| DatabaseError::new(query, e))?;
     Ok(result.rows_affected())
-}
-
-/// Renames all history entries using one Power Shelf ID into using another Power Shelf ID
-pub async fn update_power_shelf_ids(
-    txn: &mut PgConnection,
-    old_power_shelf_id: &PowerShelfId,
-    new_power_shelf_id: &PowerShelfId,
-) -> DatabaseResult<()> {
-    let query = "UPDATE power_shelf_state_history SET power_shelf_id=$1 WHERE power_shelf_id=$2";
-    sqlx::query(query)
-        .bind(new_power_shelf_id)
-        .bind(old_power_shelf_id)
-        .execute(txn)
-        .await
-        .map_err(|e| DatabaseError::new(query, e))?;
-
-    Ok(())
 }

@@ -1317,6 +1317,22 @@ pub async fn create(
     Ok(machine)
 }
 
+pub async fn update_slot_and_tray(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    slot_number: Option<i32>,
+    tray_index: Option<i32>,
+) -> DatabaseResult<()> {
+    sqlx::query("UPDATE machines SET slot_number = $1, tray_index = $2 WHERE id = $3")
+        .bind(slot_number)
+        .bind(tray_index)
+        .bind(machine_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::new("update_slot_and_tray", e))?;
+    Ok(())
+}
+
 // Trigger DPU reprovisioning. For machine assigned to user, needs user approval to start
 // reprovisioning.
 pub async fn trigger_dpu_reprovisioning_request(

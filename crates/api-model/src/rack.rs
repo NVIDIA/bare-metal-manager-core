@@ -478,14 +478,6 @@ impl MachineRvLabels {
 // RACK CONFIG & HISTORY
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RackStateHistory {
-    /// The state that was entered
-    pub state: String,
-    /// The version number associated with the state change
-    pub state_version: ConfigVersion,
-}
-
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RackConfig {
     /// rack_type is the name of the rack type (e.g. "NVL72") that maps to
@@ -524,15 +516,5 @@ pub fn state_sla(state: &RackState, state_version: &ConfigVersion) -> StateSla {
         RackState::Maintenance { .. } => StateSla::no_sla(),
         RackState::Error { .. } => StateSla::no_sla(),
         RackState::Deleting => StateSla::no_sla(),
-    }
-}
-
-impl From<RackStateHistory> for rpc::forge::RackStateHistoryRecord {
-    fn from(value: RackStateHistory) -> rpc::forge::RackStateHistoryRecord {
-        rpc::forge::RackStateHistoryRecord {
-            state: value.state,
-            version: value.state_version.version_string(),
-            time: Some(value.state_version.timestamp().into()),
-        }
     }
 }

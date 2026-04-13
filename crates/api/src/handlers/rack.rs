@@ -195,7 +195,7 @@ pub async fn find_by_ids(
 pub async fn find_rack_state_histories(
     api: &Api,
     request: Request<rpc::RackStateHistoriesRequest>,
-) -> Result<Response<rpc::RackStateHistories>, Status> {
+) -> Result<Response<rpc::StateHistories>, Status> {
     log_request_data(&request);
     let request = request.into_inner();
     let rack_ids = request.rack_ids;
@@ -218,11 +218,11 @@ pub async fn find_rack_state_histories(
         .await
         .map_err(CarbideError::from)?;
 
-    let mut response = rpc::RackStateHistories::default();
+    let mut response = rpc::StateHistories::default();
     for (rack_id, records) in results {
         response.histories.insert(
             rack_id.to_string(),
-            ::rpc::forge::RackStateHistoryRecords {
+            ::rpc::forge::StateHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
         );

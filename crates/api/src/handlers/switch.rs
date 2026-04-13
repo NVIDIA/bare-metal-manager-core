@@ -200,7 +200,7 @@ pub async fn find_by_ids(
 pub async fn find_switch_state_histories(
     api: &Api,
     request: Request<rpc::SwitchStateHistoriesRequest>,
-) -> Result<Response<rpc::SwitchStateHistories>, Status> {
+) -> Result<Response<rpc::StateHistories>, Status> {
     log_request_data(&request);
     let request = request.into_inner();
     let switch_ids = request.switch_ids;
@@ -223,11 +223,11 @@ pub async fn find_switch_state_histories(
         .await
         .map_err(CarbideError::from)?;
 
-    let mut response = rpc::SwitchStateHistories::default();
+    let mut response = rpc::StateHistories::default();
     for (switch_id, records) in results {
         response.histories.insert(
             switch_id.to_string(),
-            ::rpc::forge::SwitchStateHistoryRecords {
+            ::rpc::forge::StateHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
         );

@@ -192,9 +192,9 @@ service Forge {
   rpc FindMachinesByIds(MachinesByIdsRequest) returns (MachineList);
   rpc FindMachineStateHistories(MachineStateHistoriesRequest) returns (MachineStateHistories);
   rpc FindMachineHealthHistories(MachineHealthHistoriesRequest) returns (HealthHistories);
-  rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (PowerShelfStateHistories);
-  rpc FindRackStateHistories(RackStateHistoriesRequest) returns (RackStateHistories);
-  rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (SwitchStateHistories);
+  rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (StateHistories);
+  rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
+  rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
@@ -1760,8 +1760,7 @@ message PowerShelfConfig {
   optional int32 capacity = 2;
   // Voltage in volts
   optional int32 voltage = 3;
-  // Physical location
-  optional string location = 4;
+  reserved 4; // location moved to PowerShelf message
 }
 
 // Describe the status and applied configuration of a PowerShelf
@@ -1826,22 +1825,8 @@ message PowerShelfDeletionRequest {
 message PowerShelfDeletionResult {
 }
 
-message PowerShelfStateHistoryRecord {
-  string state = 1;
-  string version = 2;
-  google.protobuf.Timestamp time = 3;
-}
-
 message PowerShelfStateHistoriesRequest {
   repeated common.PowerShelfId power_shelf_ids = 1;
-}
-
-message PowerShelfStateHistories {
-  map<string, PowerShelfStateHistoryRecords> histories = 1;
-}
-
-message PowerShelfStateHistoryRecords {
-  repeated PowerShelfStateHistoryRecord records = 1;
 }
 
 message PowerShelfQuery {
@@ -1916,8 +1901,7 @@ message SwitchConfig {
   string name = 1;
   bool enable_nmxc = 2;
   FabricManagerConfig fabric_manager_config = 3;
-  // Physical location
-  optional string location = 4;
+  reserved 4; // location moved to Switch message
 }
 
 // Describe the desired configuration of Fabric Manager
@@ -1940,6 +1924,11 @@ message SwitchStatus {
   optional string health_status = 5;
   // The controller state machine state (e.g. "initializing", "ready", "error")
   optional string controller_state = 6;
+}
+
+message PlacementInRack {
+  optional int32 slot_number = 1;
+  optional int32 tray_index = 2;
 }
 
 // Describe a Switch configuration and status
@@ -1966,6 +1955,7 @@ message Switch {
 
   // The rack that this switch is associated with
   optional common.RackId rack_id = 10;
+  optional PlacementInRack placement_in_rack = 11;
 }
 
 message SwitchList {
@@ -1978,6 +1968,8 @@ message SwitchCreationRequest {
   // a random ID.
   // The Switch ID must be unique within the Forge site.
   optional common.UUID id = 2;
+
+  optional PlacementInRack placement_in_rack = 3;
 }
 
 message SwitchDeletionRequest {
@@ -1987,25 +1979,25 @@ message SwitchDeletionRequest {
 message SwitchDeletionResult {
 }
 
-
-message SwitchStateHistoryRecord {
+// The state that a object/resource had at a certain point in time
+message StateHistoryRecord {
   string state = 1;
   string version = 2;
   google.protobuf.Timestamp time = 3;
+}
+
+message StateHistoryRecords {
+  repeated StateHistoryRecord records = 1;
 }
 
 message SwitchStateHistoriesRequest {
   repeated common.SwitchId switch_ids = 1;
 }
 
-message SwitchStateHistories {
-  map<string, SwitchStateHistoryRecords> histories = 1;
+message StateHistories {
+  // Maps from the object identifier to a list of state history records
+  map<string, StateHistoryRecords> histories = 1;
 }
-
-message SwitchStateHistoryRecords {
-  repeated SwitchStateHistoryRecord records = 1;
-}
-
 
 message SwitchQuery {
   optional string name = 1;
@@ -3113,6 +3105,8 @@ message Machine {
 
   // The rack that this machine is associated with
   optional common.RackId rack_id = 45;
+
+  optional PlacementInRack placement_in_rack = 46;
 }
 
 message InstanceNetworkRestrictions {
@@ -6067,7 +6061,7 @@ message DpaInterface {
   string network_config = 11;
   string network_config_version = 12;
 
-  repeated DpaInterfaceStateHistoryRecord history = 13;
+  repeated StateHistoryRecord history = 13;
 
   google.protobuf.Timestamp last_hb_time = 14;
 
@@ -6108,12 +6102,6 @@ message DpaInterfacesByIdsRequest {
 
 message DpaInterfaceList {
   repeated DpaInterface interfaces = 1;
-}
-
-message DpaInterfaceStateHistoryRecord {
-  string state = 1;
-  string version = 2;
-  google.protobuf.Timestamp time = 3;
 }
 
 message DpaNetworkObservationSetRequest {
@@ -6313,22 +6301,8 @@ message Rack {
   string version = 15;
 }
 
-message RackStateHistoryRecord {
-  string state = 1;
-  string version = 2;
-  google.protobuf.Timestamp time = 3;
-}
-
 message RackStateHistoriesRequest {
   repeated common.RackId rack_ids = 1;
-}
-
-message RackStateHistories {
-  map<string, RackStateHistoryRecords> histories = 1;
-}
-
-message RackStateHistoryRecords {
-  repeated RackStateHistoryRecord records = 1;
 }
 
 message DeleteRackRequest {

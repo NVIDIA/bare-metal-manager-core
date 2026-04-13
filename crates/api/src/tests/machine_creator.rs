@@ -73,6 +73,7 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
         explorer_config,
         env.common_pools.clone(),
         None,
+        env.test_credential_manager.clone(),
     );
 
     let host_bmc_mac = MacAddress::from_str("a0:88:c2:08:81:98")?;
@@ -155,6 +156,7 @@ async fn test_site_explorer_creates_managed_host(
         explorer_config,
         env.common_pools.clone(),
         None,
+        env.test_credential_manager.clone(),
     );
 
     let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
@@ -603,6 +605,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         explorer_config,
         env.common_pools.clone(),
         None,
+        env.test_credential_manager.clone(),
     );
     let mut txn = env.pool.begin().await.unwrap();
     const NUM_DPUS: usize = 2;
@@ -962,6 +965,7 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
         explorer_config,
         env.common_pools.clone(),
         None,
+        env.test_credential_manager.clone(),
     );
 
     // Machine interface should not have any machine id associated with it right now.
@@ -1065,6 +1069,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
         explorer_config,
         env.common_pools.clone(),
         None,
+        env.test_credential_manager.clone(),
     );
 
     // No way to find a machine_interface using machine id as machine id is not yet associated with
@@ -1173,6 +1178,7 @@ async fn test_site_explorer_creates_managed_host_with_dpf_disable(
         explorer_config,
         env.common_pools.clone(),
         None,
+        env.test_credential_manager.clone(),
     );
 
     let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
@@ -1257,7 +1263,7 @@ async fn test_site_explorer_creates_managed_host_with_dpf_disable(
             .create_managed_host(
                 &exploration_report,
                 &mut EndpointExplorationReport::default(),
-                Some(&expected_machine.data),
+                Some(&expected_machine),
                 &env.pool,
             )
             .await?
@@ -1320,6 +1326,7 @@ async fn test_site_explorer_creates_managed_host_with_dpf_enabled(
         explorer_config,
         env.common_pools.clone(),
         None,
+        env.test_credential_manager.clone(),
     );
 
     let oob_mac = MacAddress::from_str("a0:88:c2:08:80:95")?;
@@ -1404,7 +1411,7 @@ async fn test_site_explorer_creates_managed_host_with_dpf_enabled(
             .create_managed_host(
                 &exploration_report,
                 &mut EndpointExplorationReport::default(),
-                Some(&expected_machine.data),
+                Some(&expected_machine),
                 &env.pool,
             )
             .await?
