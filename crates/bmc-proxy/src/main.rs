@@ -139,7 +139,7 @@ async fn connect_to_database(config: &Config) -> Result<PgPool, Error> {
     if !tls_disabled {
         tracing::info!("using TLS for postgres connection.");
         database_connect_options = database_connect_options
-            .ssl_mode(PgSslMode::VerifyFull)
+            .ssl_mode(PgSslMode::Require)
             .ssl_root_cert(&config.tls.root_cafile_path);
     }
     sqlx::pool::PoolOptions::new()
