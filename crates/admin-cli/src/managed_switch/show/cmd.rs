@@ -81,6 +81,10 @@ fn build_managed_switch_outputs(
             .as_ref()
             .and_then(|id| switch_map.get(&id.to_string()));
 
+        if switch.is_none() {
+            continue;
+        }
+
         let switch_id_str = linked_switch.switch_id.as_ref().map(|id| id.to_string());
 
         if let Some(ref id) = switch_id_str {
