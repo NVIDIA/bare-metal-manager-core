@@ -484,8 +484,10 @@ pub struct CarbideConfig {
     #[serde(default)]
     pub rack_management_enabled: bool,
 
-    /// URL of the Rack Manager Service API for rack-level firmware upgrades and power sequencing.
-    pub rms_api_url: Option<String>,
+    /// Rack Manager Service configuration for rack-level firmware upgrades,
+    /// power sequencing, and mTLS connectivity.
+    #[serde(default)]
+    pub rms: RmsConfig,
 
     /// rack_types contains the rack type definitions. When expected racks
     /// are created, they are given a rack_type name to reference. This maps
@@ -2018,6 +2020,30 @@ fn default_listen() -> SocketAddr {
 
 fn default_max_database_connections() -> u32 {
     1000
+}
+
+fn default_rms_enforce_tls() -> bool {
+    true
+}
+
+/// Rack Manager Service (RMS) configuration for API connectivity and mTLS.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct RmsConfig {
+    /// URL of the RMS API for rack-level firmware upgrades and power sequencing.
+    pub api_url: Option<String>,
+
+    /// Path to the root CA certificate for TLS verification when connecting to RMS.
+    pub root_ca_path: Option<String>,
+
+    /// Path to the client certificate PEM for mTLS with RMS.
+    pub client_cert: Option<String>,
+
+    /// Path to the client private key PEM for mTLS with RMS.
+    pub client_key: Option<String>,
+
+    /// Enforce TLS when connecting to RMS. Defaults to true.
+    #[serde(default = "default_rms_enforce_tls")]
+    pub enforce_tls: bool,
 }
 
 /// DpuConfig related internal configuration

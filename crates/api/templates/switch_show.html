@@ -25,7 +25,8 @@
                                 <th>ID</th>
                                 <th>Name</th>
                                 <th>State</th>
-                                <th>Location</th>
+                                <th>Slot</th>
+                                <th>Tray</th>
                                 <th>Actions</th>
                             </tr>
                             </thead>
@@ -43,7 +44,8 @@
                                         <span class="bubble">{{ switch.state }}</span>
                                     {% endif %}
                                 </td>
-                                <td>{{ switch.location }}</td>
+                                <td>{{ switch.slot_number }}</td>
+                                <td>{{ switch.tray_index }}</td>
                                 <td>
                                     <a href="/admin/switch/{{ switch.id }}/state-history"
                                        class="btn btn-sm btn-outline-primary">

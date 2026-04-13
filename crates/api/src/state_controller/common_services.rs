@@ -60,7 +60,6 @@ pub struct CommonStateHandlerServices {
     pub dpa_info: Option<Arc<DpaInfo>>,
 
     /// Rack Manager Service client
-    #[allow(dead_code)]
     pub rms_client: Option<Arc<dyn RmsApi>>,
 
     /// Credential manager (Vault) for fetching BMC credentials

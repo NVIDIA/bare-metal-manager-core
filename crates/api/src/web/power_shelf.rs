@@ -50,7 +50,6 @@ struct PowerShelfRecord {
     state: String,
     capacity: String,
     voltage: String,
-    location: String,
 }
 
 /// Show all power shelves
@@ -91,7 +90,6 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
                     .voltage
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| "N/A".to_string()),
-                location: config.location.unwrap_or_else(|| "N/A".to_string()),
             }
         })
         .collect();
@@ -128,7 +126,6 @@ struct PowerShelfDetail {
     state_reason: Option<rpc::forge::ControllerStateReason>,
     power_state: Option<String>,
     name: String,
-    location: String,
     capacity: String,
     voltage: String,
     bmc_info: Option<rpc::forge::BmcInfo>,
@@ -165,7 +162,6 @@ impl PowerShelfDetail {
             state_reason,
             power_state,
             name: config.name,
-            location: config.location.unwrap_or_else(|| "N/A".to_string()),
             capacity: config
                 .capacity
                 .map(|c| c.to_string())
@@ -264,6 +260,5 @@ async fn fetch_power_shelves(api: &Api) -> Result<rpc::forge::PowerShelfList, to
         power_shelves.extend(page.power_shelves);
         offset += page_size;
     }
-
     Ok(rpc::forge::PowerShelfList { power_shelves })
 }

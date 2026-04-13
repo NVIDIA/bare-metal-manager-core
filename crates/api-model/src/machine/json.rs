@@ -107,6 +107,10 @@ pub struct MachineSnapshotPgJson {
     pub dpf: Dpf,
     #[serde(default)]
     pub rack_fw_details: Option<RackFirmwareUpgradeStatus>,
+    #[serde(default)]
+    pub slot_number: Option<i32>,
+    #[serde(default)]
+    pub tray_index: Option<i32>,
 }
 
 impl TryFrom<MachineSnapshotPgJson> for Machine {
@@ -220,6 +224,8 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             nvlink_info: value.nvlink_info,
             dpf: value.dpf,
             rack_fw_details: value.rack_fw_details,
+            slot_number: value.slot_number,
+            tray_index: value.tray_index,
         })
     }
 }

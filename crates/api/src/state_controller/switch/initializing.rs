@@ -18,6 +18,7 @@
 //! Handler for SwitchControllerState::Initializing.
 
 use carbide_uuid::switch::SwitchId;
+use forge_secrets::credentials::{CredentialKey, Credentials};
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::switch::{ConfiguringState, InitializingState, Switch, SwitchControllerState};
 
@@ -56,6 +57,17 @@ async fn handle_wait_for_os_machine_interface(
             },
         ));
     };
+
+    let nvos_credentials = {
+        let key = CredentialKey::SwitchNvosAdmin { bmc_mac_address };
+        match ctx.services.credential_manager.get_credentials(&key).await {
+            Ok(Some(Credentials::UsernamePassword { username, password })) => {
+                Some((username, password))
+            }
+            _ => None,
+        }
+    };
+
     let mut txn = ctx.services.db_pool.begin().await?;
 
     let expected_switch =
@@ -97,6 +109,7 @@ async fn handle_wait_for_os_machine_interface(
 
     let mut associated_count = 0usize;
     let total = nvos_mac_addresses.len();
+    let mut nvos_interfaces: Vec<(mac_address::MacAddress, Option<std::net::IpAddr>)> = Vec::new();
 
     for mac_address in nvos_mac_addresses {
         let mi = db::machine_interface::find_by_mac_address(&mut *txn, *mac_address).await?;
@@ -122,6 +135,7 @@ async fn handle_wait_for_os_machine_interface(
                     },
                 ));
             }
+            nvos_interfaces.push((*mac_address, interface.addresses.first().copied()));
             associated_count += 1;
             continue;
         }
@@ -138,22 +152,85 @@ async fn handle_wait_for_os_machine_interface(
             interface.id,
             mac_address
         );
+        nvos_interfaces.push((*mac_address, interface.addresses.first().copied()));
         associated_count += 1;
     }
 
+    let rack_id = expected_switch.rack_id.clone();
+    txn.commit().await?;
+
+    tracing::info!(
+        "Switch {:?}: associated {} NVOS interfaces for BMC MAC {}",
+        switch_id,
+        associated_count,
+        bmc_mac_address
+    );
     if associated_count >= 1 {
+        if let (Some(rack_id), Some(rms_client)) = (&rack_id, &ctx.services.rms_client) {
+            let request = librms::protos::rack_manager::GetDeviceInfoByDeviceListRequest {
+                nodes: Some(librms::protos::rack_manager::NodeSet {
+                    devices: vec![librms::protos::rack_manager::NewNodeInfo {
+                        node_id: switch_id.to_string(),
+                        rack_id: rack_id.to_string(),
+                        r#type: Some(librms::protos::rack_manager::NodeType::Switch as i32),
+                        host_endpoint: Some(librms::protos::rack_manager::HostEndpoint {
+                            interfaces: nvos_interfaces
+                                .iter()
+                                .map(|(mac, ip)| librms::protos::rack_manager::NetworkInterface {
+                                    ip_address: ip.map(|a| a.to_string()).unwrap_or_default(),
+                                    mac_address: mac.to_string(),
+                                })
+                                .collect(),
+                            port: 0,
+                            credentials: nvos_credentials.map(|(username, password)| {
+                                librms::protos::rack_manager::Credentials {
+                                    auth: Some(
+                                        librms::protos::rack_manager::credentials::Auth::UserPass(
+                                            librms::protos::rack_manager::UsernamePassword {
+                                                username,
+                                                password,
+                                            },
+                                        ),
+                                    ),
+                                }
+                            }),
+                        }),
+                        ..Default::default()
+                    }],
+                }),
+                ..Default::default()
+            };
+            let (slot_number, tray_index) =
+                crate::site_explorer::fetch_slot_and_tray(rms_client.as_ref(), request).await;
+            let mut update_txn = ctx.services.db_pool.begin().await?;
+            if let Err(e) = db::switch::update_slot_and_tray(
+                &mut update_txn,
+                switch_id,
+                slot_number,
+                tray_index,
+            )
+            .await
+            {
+                tracing::warn!(
+                    %e,
+                    %switch_id,
+                    "Failed to update slot_number and tray_index for switch"
+                );
+            }
+            update_txn.commit().await?;
+        }
+
         tracing::info!(
             "Switch {:?}: at least one NVOS interface associated ({}/{}), transitioning to Configuring",
             switch_id,
             associated_count,
             total
         );
-        Ok(
-            StateHandlerOutcome::transition(SwitchControllerState::Configuring {
+        Ok(StateHandlerOutcome::transition(
+            SwitchControllerState::Configuring {
                 config_state: ConfiguringState::RotateOsPassword,
-            })
-            .with_txn(txn),
-        )
+            },
+        ))
     } else {
         tracing::info!(
             "Switch {:?}: {}/{} NVOS interfaces associated, waiting",
@@ -164,7 +241,6 @@ async fn handle_wait_for_os_machine_interface(
         Ok(StateHandlerOutcome::wait(format!(
             "{}/{} NVOS interfaces associated, waiting",
             associated_count, total
-        ))
-        .with_txn(txn))
+        )))
     }
 }

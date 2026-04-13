@@ -33,11 +33,12 @@ async fn test_switch_metadata_defaults(
             name: "switch-serial-001".to_string(),
             enable_nmxc: false,
             fabric_manager_config: None,
-            location: None,
         },
         bmc_mac_address: None,
         metadata: None,
         rack_id: None,
+        slot_number: None,
+        tray_index: None,
     };
 
     let switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -73,11 +74,12 @@ async fn test_switch_metadata_from_expected(
             name: "switch-serial-002".to_string(),
             enable_nmxc: false,
             fabric_manager_config: None,
-            location: None,
         },
         bmc_mac_address: None,
         metadata: Some(expected_metadata),
         rack_id: None,
+        slot_number: None,
+        tray_index: None,
     };
 
     let switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -101,11 +103,12 @@ async fn test_switch_metadata_update(pool: sqlx::PgPool) -> Result<(), Box<dyn s
             name: "switch-serial-003".to_string(),
             enable_nmxc: false,
             fabric_manager_config: None,
-            location: None,
         },
         bmc_mac_address: None,
         metadata: None,
         rack_id: None,
+        slot_number: None,
+        tray_index: None,
     };
 
     let switch = db_switch::create(&mut txn, &new_switch).await?;
@@ -153,11 +156,12 @@ async fn test_switch_metadata_version_conflict(
             name: "switch-serial-004".to_string(),
             enable_nmxc: false,
             fabric_manager_config: None,
-            location: None,
         },
         bmc_mac_address: None,
         metadata: None,
         rack_id: None,
+        slot_number: None,
+        tray_index: None,
     };
 
     let switch = db_switch::create(&mut txn, &new_switch).await?;

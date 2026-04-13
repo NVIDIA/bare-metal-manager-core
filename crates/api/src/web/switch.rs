@@ -40,7 +40,8 @@ struct SwitchRecord {
     id: String,
     name: String,
     state: String,
-    location: String,
+    slot_number: String,
+    tray_index: String,
 }
 
 /// Show all switches
@@ -64,7 +65,18 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
                 id: switch.id.map(|id| id.to_string()).unwrap_or_default(),
                 name: config.name,
                 state,
-                location: config.location.unwrap_or_else(|| "N/A".to_string()),
+                slot_number: switch
+                    .placement_in_rack
+                    .as_ref()
+                    .and_then(|p| p.slot_number)
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "N/A".to_string()),
+                tray_index: switch
+                    .placement_in_rack
+                    .as_ref()
+                    .and_then(|p| p.tray_index)
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "N/A".to_string()),
             }
         })
         .collect();
@@ -145,7 +157,8 @@ struct SwitchDetail {
     state_version: String,
     time_in_state: String,
     name: String,
-    location: String,
+    slot_number: String,
+    tray_index: String,
     enable_nmxc: bool,
     state_reason: Option<rpc::forge::ControllerStateReason>,
     power_state: Option<String>,
@@ -177,7 +190,18 @@ impl SwitchDetail {
             state_version: switch.state_version,
             time_in_state,
             name: config.name,
-            location: config.location.unwrap_or_else(|| "N/A".to_string()),
+            slot_number: switch
+                .placement_in_rack
+                .as_ref()
+                .and_then(|p| p.slot_number)
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "N/A".to_string()),
+            tray_index: switch
+                .placement_in_rack
+                .as_ref()
+                .and_then(|p| p.tray_index)
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "N/A".to_string()),
             enable_nmxc: config.enable_nmxc,
             state_reason,
             power_state,

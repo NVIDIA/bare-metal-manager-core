@@ -1470,7 +1470,7 @@ pub async fn new_power_shelf(
     name: Option<String>,
     capacity: Option<u32>,
     voltage: Option<u32>,
-    location: Option<String>,
+    _location: Option<String>,
 ) -> eyre::Result<PowerShelfId> {
     let mut txn = env.pool.begin().await.unwrap();
 
@@ -1501,7 +1501,6 @@ pub async fn new_power_shelf(
         name: power_shelf_name,
         capacity: capacity.or(Some(100)),
         voltage: voltage.or(Some(240)),
-        location: location.or(Some("US/CA/DC/San Jose/1000 N Mathilda Ave".to_string())),
     };
 
     // Create the power shelf
@@ -1601,7 +1600,7 @@ impl TestRackDbBuilder {
 pub async fn new_switch(
     env: &TestEnv,
     name: Option<String>,
-    location: Option<String>,
+    _location: Option<String>,
 ) -> eyre::Result<SwitchId> {
     let mut txn = env.pool.begin().await.unwrap();
 
@@ -1628,7 +1627,6 @@ pub async fn new_switch(
         name: expected_switch.metadata.name.clone(),
         enable_nmxc: false,
         fabric_manager_config: None,
-        location: location.or(Some("US/CA/DC/San Jose/1000 N Mathilda Ave".to_string())),
     };
 
     let new_switch = NewSwitch {
@@ -1637,6 +1635,8 @@ pub async fn new_switch(
         bmc_mac_address: Some(expected_switch.bmc_mac_address),
         metadata: None,
         rack_id: None,
+        slot_number: Some(0),
+        tray_index: Some(0),
     };
 
     let _switch = db_switch::create(&mut txn, &new_switch)

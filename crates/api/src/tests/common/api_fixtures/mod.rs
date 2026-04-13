@@ -1203,9 +1203,12 @@ pub fn get_config() -> CarbideConfig {
         }),
         mlxconfig_profiles: None,
         rack_management_enabled: false,
-        rms_api_url: Some(
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080).to_string(),
-        ),
+        rms: crate::cfg::file::RmsConfig {
+            api_url: Some(
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080).to_string(),
+            ),
+            ..Default::default()
+        },
         rack_types: Default::default(),
         spdm_state_controller: SpdmStateControllerConfig {
             controller: StateControllerConfig::default(),
@@ -1682,6 +1685,7 @@ pub async fn create_test_env_with_overrides(
         common_pools.clone(),
         work_lock_manager_handle.clone(),
         rms_sim.as_rms_client(),
+        credential_manager.clone(),
     );
 
     // Create some instance types

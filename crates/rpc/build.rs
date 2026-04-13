@@ -785,6 +785,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute(
             "forge.GetBmcCredentialsRequest",
             "#[derive(serde::Serialize)]",
+        ).type_attribute(
+            "forge.PlacementInRack",
+            "#[derive(serde::Serialize)]",
         )
         .build_server(true)
         .build_client(true)

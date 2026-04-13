@@ -75,6 +75,30 @@ pub mod test_support {
 
     #[async_trait::async_trait]
     impl RmsApi for MockRmsClient {
+        async fn get_device_info_by_device_list(
+            &self,
+            _cmd: rms::GetDeviceInfoByDeviceListRequest,
+        ) -> Result<rms::GetDeviceInfoByDeviceListResponse, RackManagerError> {
+            Ok(rms::GetDeviceInfoByDeviceListResponse::default())
+        }
+        async fn get_node_device_info(
+            &self,
+            _cmd: rms::GetNodeDeviceInfoRequest,
+        ) -> Result<rms::GetNodeDeviceInfoResponse, RackManagerError> {
+            Ok(rms::GetNodeDeviceInfoResponse::default())
+        }
+        async fn get_device_info_by_node_type(
+            &self,
+            _cmd: rms::GetDeviceInfoByNodeTypeRequest,
+        ) -> Result<rms::GetDeviceInfoByNodeTypeResponse, RackManagerError> {
+            Ok(rms::GetDeviceInfoByNodeTypeResponse::default())
+        }
+        async fn update_firmware_by_device_list(
+            &self,
+            _cmd: rms::UpdateFirmwareByDeviceListRequest,
+        ) -> Result<rms::UpdateFirmwareByDeviceListResponse, RackManagerError> {
+            Ok(rms::UpdateFirmwareByDeviceListResponse::default())
+        }
         async fn set_power_state(
             &self,
             _cmd: rms::SetPowerStateRequest,
@@ -123,9 +147,6 @@ pub mod test_support {
             for node in cmd.node_info {
                 registered.push(librms::protos::rack_manager::NodeInventoryInfo {
                     node_id: node.node_id.clone(),
-                    ip_address: node.ip_address.clone(),
-                    port: node.port,
-                    mac_address: node.mac_address.clone(),
                     rack_id: node.rack_id.clone(),
                     r#type: node.r#type.unwrap_or(0),
                     ..Default::default()
@@ -168,18 +189,6 @@ pub mod test_support {
             _cmd: rms::GetNodeFirmwareInventoryRequest,
         ) -> Result<rms::GetNodeFirmwareInventoryResponse, RackManagerError> {
             Ok(rms::GetNodeFirmwareInventoryResponse::default())
-        }
-        async fn update_node_firmware(
-            &self,
-            _cmd: rms::UpdateNodeFirmwareRequest,
-        ) -> Result<rms::UpdateNodeFirmwareResponse, RackManagerError> {
-            Ok(rms::UpdateNodeFirmwareResponse::default())
-        }
-        async fn update_firmware_by_node_type(
-            &self,
-            _cmd: rms::UpdateFirmwareByNodeTypeRequest,
-        ) -> Result<rms::UpdateFirmwareByNodeTypeResponse, RackManagerError> {
-            Ok(rms::UpdateFirmwareByNodeTypeResponse::default())
         }
         async fn get_rack_firmware_inventory(
             &self,
@@ -228,42 +237,6 @@ pub mod test_support {
             _cmd: rms::ListSwitchSystemImagesRequest,
         ) -> Result<rms::ListSwitchSystemImagesResponse, RackManagerError> {
             Ok(rms::ListSwitchSystemImagesResponse::default())
-        }
-        async fn update_scale_up_fabric_config(
-            &self,
-            _cmd: rms::UpdateScaleUpFabricConfigRequest,
-        ) -> Result<rms::UpdateScaleUpFabricConfigResponse, RackManagerError> {
-            Ok(rms::UpdateScaleUpFabricConfigResponse::default())
-        }
-        async fn get_scale_up_fabric_state(
-            &self,
-            _cmd: rms::GetScaleUpFabricStateRequest,
-        ) -> Result<rms::GetScaleUpFabricStateResponse, RackManagerError> {
-            Ok(rms::GetScaleUpFabricStateResponse::default())
-        }
-        async fn get_scale_up_fabric_services_status(
-            &self,
-            _cmd: rms::GetScaleUpFabricServicesStatusRequest,
-        ) -> Result<rms::GetScaleUpFabricServicesStatusResponse, RackManagerError> {
-            Ok(rms::GetScaleUpFabricServicesStatusResponse::default())
-        }
-        async fn enable_scale_up_fabric_manager(
-            &self,
-            _cmd: rms::EnableScaleUpFabricManagerRequest,
-        ) -> Result<rms::EnableScaleUpFabricManagerResponse, RackManagerError> {
-            Ok(rms::EnableScaleUpFabricManagerResponse::default())
-        }
-        async fn restart_scale_up_fabric_services(
-            &self,
-            _cmd: rms::RestartScaleUpFabricServicesRequest,
-        ) -> Result<rms::RestartScaleUpFabricServicesResponse, RackManagerError> {
-            Ok(rms::RestartScaleUpFabricServicesResponse::default())
-        }
-        async fn check_scale_up_fabric_services_connectivity(
-            &self,
-            _cmd: rms::CheckScaleUpFabricServicesConnectivityRequest,
-        ) -> Result<rms::CheckScaleUpFabricServicesConnectivityResponse, RackManagerError> {
-            Ok(rms::CheckScaleUpFabricServicesConnectivityResponse::default())
         }
         async fn enable_scale_up_fabric_telemetry_interface(
             &self,

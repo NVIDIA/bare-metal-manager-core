@@ -263,11 +263,14 @@ pub async fn start_api(
     )
     .await?;
 
-    let rms_client = match carbide_config.rms_api_url.clone() {
+    let rms_client = match carbide_config.rms.api_url.clone() {
         Some(url) if !url.is_empty() => {
-            // let the crate pick up default certs, enforce tls
-            let rms_client_config =
-                librms::client_config::RmsClientConfig::new(None, None, None, true);
+            let rms_client_config = librms::client_config::RmsClientConfig::new(
+                carbide_config.rms.root_ca_path.clone(),
+                carbide_config.rms.client_cert.clone(),
+                carbide_config.rms.client_key.clone(),
+                carbide_config.rms.enforce_tls,
+            );
             let rms_api_config = librms::client::RmsApiConfig::new(&url, &rms_client_config);
             let rms_client_pool = librms::RmsClientPool::new(&rms_api_config);
             let shared_rms_client = rms_client_pool.create_client().await;
@@ -1015,6 +1018,7 @@ pub async fn initialize_and_start_controllers(
         common_pools.clone(),
         work_lock_manager_handle.clone(),
         rms_client.clone(),
+        credential_manager.clone(),
     )
     .start(join_set, cancel_token.clone())?;
 

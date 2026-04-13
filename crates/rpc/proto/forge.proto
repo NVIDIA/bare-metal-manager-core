@@ -1760,8 +1760,7 @@ message PowerShelfConfig {
   optional int32 capacity = 2;
   // Voltage in volts
   optional int32 voltage = 3;
-  // Physical location
-  optional string location = 4;
+  reserved 4; // location moved to PowerShelf message
 }
 
 // Describe the status and applied configuration of a PowerShelf
@@ -1916,8 +1915,7 @@ message SwitchConfig {
   string name = 1;
   bool enable_nmxc = 2;
   FabricManagerConfig fabric_manager_config = 3;
-  // Physical location
-  optional string location = 4;
+  reserved 4; // location moved to Switch message
 }
 
 // Describe the desired configuration of Fabric Manager
@@ -1940,6 +1938,11 @@ message SwitchStatus {
   optional string health_status = 5;
   // The controller state machine state (e.g. "initializing", "ready", "error")
   optional string controller_state = 6;
+}
+
+message PlacementInRack {
+  optional int32 slot_number = 1;
+  optional int32 tray_index = 2;
 }
 
 // Describe a Switch configuration and status
@@ -1966,6 +1969,7 @@ message Switch {
 
   // The rack that this switch is associated with
   optional common.RackId rack_id = 10;
+  optional PlacementInRack placement_in_rack = 11;
 }
 
 message SwitchList {
@@ -1978,6 +1982,8 @@ message SwitchCreationRequest {
   // a random ID.
   // The Switch ID must be unique within the Forge site.
   optional common.UUID id = 2;
+
+  optional PlacementInRack placement_in_rack = 3;
 }
 
 message SwitchDeletionRequest {
@@ -3113,6 +3119,8 @@ message Machine {
 
   // The rack that this machine is associated with
   optional common.RackId rack_id = 45;
+
+  optional PlacementInRack placement_in_rack = 46;
 }
 
 message InstanceNetworkRestrictions {
