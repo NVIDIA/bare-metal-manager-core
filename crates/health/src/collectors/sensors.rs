@@ -26,7 +26,7 @@ use futures::{StreamExt, stream};
 use nv_redfish::chassis::{Chassis, PowerSupply};
 use nv_redfish::computer_system::{ComputerSystem, Drive, Memory, Processor, Storage};
 use nv_redfish::core::{Bmc, EntityTypeRef, ToSnakeCase};
-use nv_redfish::sensor::SensorRef;
+use nv_redfish::sensor::SensorLink;
 use nv_redfish::{Resource, ServiceRoot};
 
 use crate::HealthError;
@@ -89,35 +89,35 @@ impl<B: Bmc + 'static> PeriodicCollector<B> for SensorCollector<B> {
 enum MonitoredEntity<B: Bmc> {
     Processor {
         entity: Arc<Processor<B>>,
-        sensor: SensorRef<B>,
+        sensor: SensorLink<B>,
         system: Arc<ComputerSystem<B>>,
     },
     Memory {
         entity: Arc<Memory<B>>,
-        sensor: SensorRef<B>,
+        sensor: SensorLink<B>,
         system: Arc<ComputerSystem<B>>,
     },
     Drive {
         entity: Arc<Drive<B>>,
-        sensor: SensorRef<B>,
+        sensor: SensorLink<B>,
         system: Arc<ComputerSystem<B>>,
         storage: Arc<Storage<B>>,
     },
     PowerSupply {
         entity: Arc<PowerSupply<B>>,
-        sensor: SensorRef<B>,
+        sensor: SensorLink<B>,
         chassis: Arc<Chassis<B>>,
     },
     Chassis {
         entity: Arc<Chassis<B>>,
-        sensor: SensorRef<B>,
+        sensor: SensorLink<B>,
     },
 }
 
 /// Trait for entities that can record sensor metrics
 trait SensorRecordable<B: Bmc> {
     fn metric_prefix(&self) -> &'static str;
-    fn sensor(&self) -> &SensorRef<B>;
+    fn sensor(&self) -> &SensorLink<B>;
     fn base_attributes(&self) -> Vec<MetricLabel>;
     fn entity_specific_attributes(&self) -> Vec<MetricLabel>;
     fn entity_metrics(&self, attributes: &[MetricLabel]) -> Vec<SensorHealthData>;
@@ -128,7 +128,7 @@ impl<B: Bmc> SensorRecordable<B> for MonitoredEntity<B> {
         "hw_sensor"
     }
 
-    fn sensor(&self) -> &SensorRef<B> {
+    fn sensor(&self) -> &SensorLink<B> {
         match self {
             MonitoredEntity::Processor { sensor, .. }
             | MonitoredEntity::Memory { sensor, .. }
@@ -368,7 +368,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             .then(|processor| async move {
                 let processor = Arc::new(processor);
                 let env_sensors = processor
-                    .environment_sensors()
+                    .environment_sensor_links()
                     .await
                     .log_and_ok(
                         "Failed to get processors enviroment sensors",
@@ -377,7 +377,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                     )
                     .unwrap_or_default();
                 let metric_sensors = processor
-                    .metrics_sensors()
+                    .metrics_sensor_links()
                     .await
                     .log_and_ok(
                         "Failed to get processors metric sensors",
@@ -419,7 +419,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             .then(|memory| async move {
                 let memory = Arc::new(memory);
                 let env_sensors = memory
-                    .environment_sensors()
+                    .environment_sensor_links()
                     .await
                     .log_and_ok(
                         "Failed to get memory enviroment sensors",
@@ -472,7 +472,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
                     async move {
                         let drive = Arc::new(drive);
                         let env_sensors = drive
-                            .environment_sensors()
+                            .environment_sensor_links()
                             .await
                             .log_and_ok(
                                 "Failed to get drives enviroment sensors",
@@ -515,7 +515,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
             .then(|ps| async move {
                 let ps = Arc::new(ps);
                 let metric_sensors = ps
-                    .metrics_sensors()
+                    .metrics_sensor_links()
                     .await
                     .log_and_ok(
                         "Failed to get power supplies metrics sensors",
@@ -542,7 +542,7 @@ impl<B: Bmc + 'static> SensorCollector<B> {
         chassis: Arc<Chassis<B>>,
         fetch_failures: &AtomicUsize,
     ) -> Vec<MonitoredEntity<B>> {
-        match chassis.sensors().await {
+        match chassis.sensor_links().await {
             Ok(Some(sensors)) => sensors
                 .into_iter()
                 .map(move |sensor| MonitoredEntity::Chassis {

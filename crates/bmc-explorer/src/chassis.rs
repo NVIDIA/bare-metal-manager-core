@@ -20,6 +20,7 @@ use std::convert::identity;
 use model::site_explorer::Chassis;
 use nv_redfish::assembly::Model as AssemblyModel;
 use nv_redfish::chassis::Chassis as NvChassis;
+use nv_redfish::core::ODataId;
 use nv_redfish::hardware_id::{Manufacturer, Model};
 use nv_redfish::pcie_device::PcieDevice;
 use nv_redfish::resource::ResourceIdRef;
@@ -32,6 +33,7 @@ type AssemblyModelFilterFn = fn(Option<AssemblyModel<&str>>) -> bool;
 pub struct Config {
     pub network_adapter: network_adapter::Config,
     pub need_assembly_sn: fn(ResourceIdRef) -> Option<AssemblyModelFilterFn>,
+    pub lazy_fetch: Option<fn(&ODataId) -> bool>,
 }
 
 pub struct ExploredChassisCollection<B: Bmc> {
@@ -40,19 +42,43 @@ pub struct ExploredChassisCollection<B: Bmc> {
 
 impl<B: Bmc> ExploredChassisCollection<B> {
     pub async fn explore(root: &ServiceRoot<B>, config: &Config) -> Result<Self, Error<B>> {
-        let nv_members = root
-            .chassis()
-            .await
-            .map_err(Error::nv_redfish("chassis collection"))?
-            .ok_or_else(Error::bmc_not_provided("chassis collection"))?
-            .members()
-            .await
-            .map_err(Error::nv_redfish("chassis collection members"))?;
         let mut members = Vec::new();
-        for m in nv_members {
+        for m in Self::fetch_members(root, config).await? {
             members.push(ExploredChassis::explore(m, config).await?);
         }
         Ok(Self { members })
+    }
+
+    async fn fetch_members(
+        root: &ServiceRoot<B>,
+        config: &Config,
+    ) -> Result<Vec<NvChassis<B>>, Error<B>> {
+        if let Some(filter) = config.lazy_fetch {
+            let links = root
+                .chassis_links()
+                .await
+                .map_err(Error::nv_redfish("chassis collection"))?
+                .ok_or_else(Error::bmc_not_provided("chassis collection"))?;
+            let mut result = Vec::with_capacity(links.len());
+            for l in links {
+                if filter(l.odata_id()) {
+                    result.push(
+                        l.upgrade()
+                            .await
+                            .map_err(Error::nv_redfish("chassis collection member"))?,
+                    )
+                }
+            }
+            Ok(result)
+        } else {
+            root.chassis()
+                .await
+                .map_err(Error::nv_redfish("chassis collection"))?
+                .ok_or_else(Error::bmc_not_provided("chassis collection"))?
+                .members()
+                .await
+                .map_err(Error::nv_redfish("chassis collection members"))
+        }
     }
 
     pub fn to_model(&self) -> Vec<Chassis> {
