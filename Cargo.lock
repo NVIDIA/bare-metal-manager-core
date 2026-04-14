@@ -1999,6 +1999,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-kms-provider"
+version = "0.0.1"
+dependencies = [
+ "aes-gcm",
+ "async-trait",
+ "base64 0.22.1",
+ "hex",
+ "rand 0.9.2",
+ "serde",
+ "serial_test",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+ "vaultrs",
+ "zeroize",
+]
+
+[[package]]
 name = "carbide-libmlx"
 version = "0.0.1"
 dependencies = [
