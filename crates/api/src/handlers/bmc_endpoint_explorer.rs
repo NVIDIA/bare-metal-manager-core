@@ -566,13 +566,14 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
         .parse()
         .map_err(|_| CarbideError::InvalidArgument(format!("Invalid DPU IP: {ip_str}")))?;
 
-    let host_bmc_ip: Option<std::net::IpAddr> = req
-        .host_bmc_ip
-        .map(|s| {
-            s.parse()
-                .map_err(|_| CarbideError::InvalidArgument(format!("Invalid host BMC IP: {s}")))
-        })
-        .transpose()?;
+    if req.host_bmc_ip.is_empty() {
+        return Err(CarbideError::MissingArgument("host_bmc_ip").into());
+    }
+    let host_bmc_ip: std::net::IpAddr = req.host_bmc_ip.parse().map_err(|_| {
+        CarbideError::InvalidArgument(format!("Invalid host BMC IP: {}", req.host_bmc_ip))
+    })?;
+
+    let pre_copy_powercycle = req.pre_copy_powercycle;
 
     let dpu_in_managed_host =
         crate::site_explorer::is_endpoint_in_managed_host(dpu_ip, &api.database_connection)
@@ -607,20 +608,20 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
         }
     }
 
-    if let Some(host_ip) = host_bmc_ip {
+    {
         let host_endpoints =
-            db::explored_endpoints::find_by_ips(&api.database_connection, vec![host_ip])
+            db::explored_endpoints::find_by_ips(&api.database_connection, vec![host_bmc_ip])
                 .await
                 .map_err(|e| CarbideError::internal(e.to_string()))?;
         let host_ep = host_endpoints.first().ok_or(CarbideError::NotFoundError {
             kind: "explored_endpoint",
-            id: host_ip.to_string(),
+            id: host_bmc_ip.to_string(),
         })?;
         match &host_ep.preingestion_state {
             PreingestionState::Complete | PreingestionState::Failed { .. } => {}
             other => {
                 return Err(CarbideError::InvalidArgument(format!(
-                    "Cannot power-cycle host: host {host_ip} is in state {other:?}. \
+                    "Cannot power-cycle host: host {host_bmc_ip} is in state {other:?}. \
                      Retry after host preingestion completes.",
                 ))
                 .into());
@@ -635,15 +636,14 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
                     dpu_ip,
                     "Triggered via CLI".to_string(),
                     host_bmc_ip,
+                    pre_copy_powercycle,
                     txn,
                 )
                 .await?;
 
                 // Pause site explorer remediation on the host so it doesn't
-                // issue BMC resets during the platform power-cycle.
-                if let Some(host_ip) = host_bmc_ip {
-                    db::explored_endpoints::set_pause_remediation(host_ip, true, txn).await?;
-                }
+                // issue BMC resets during the power-cycle phases.
+                db::explored_endpoints::set_pause_remediation(host_bmc_ip, true, txn).await?;
 
                 Ok::<(), db::DatabaseError>(())
             })

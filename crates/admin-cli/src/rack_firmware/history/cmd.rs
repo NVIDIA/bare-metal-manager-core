@@ -46,6 +46,7 @@ pub async fn history(
         table.set_titles(Row::new(vec![
             Cell::new("Rack ID"),
             Cell::new("Firmware ID"),
+            Cell::new("Hardware Type"),
             Cell::new("Firmware Type"),
             Cell::new("Applied At"),
             Cell::new("Available"),
@@ -53,9 +54,15 @@ pub async fn history(
 
         for (rack_id, records) in &result.histories {
             for record in &records.records {
+                let hw_type = record
+                    .rack_hardware_type
+                    .as_ref()
+                    .map(|t| t.value.as_str())
+                    .unwrap_or("N/A");
                 table.add_row(Row::new(vec![
                     Cell::new(rack_id),
                     Cell::new(&record.firmware_id),
+                    Cell::new(hw_type),
                     Cell::new(&record.firmware_type),
                     Cell::new(&record.applied_at),
                     Cell::new(&record.firmware_available.to_string()),

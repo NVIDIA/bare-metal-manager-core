@@ -1175,6 +1175,7 @@ pub fn get_config() -> CarbideConfig {
         fnn: None,
         bios_profiles: HashMap::default(),
         selected_profile: libredfish::BiosProfileType::Performance,
+        oem_manager_profiles: HashMap::default(),
         bom_validation: BomValidationConfig::default(),
         listen_mode: ListenMode::Tls,
         listen_only: false,

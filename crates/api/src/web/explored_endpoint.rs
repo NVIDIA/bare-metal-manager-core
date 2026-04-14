@@ -704,15 +704,24 @@ pub async fn power_control(
         .map(|response| response.into_inner())
     {
         Ok(response) => {
-            let message = response
+            let raw_msg = response
                 .msg
-                .unwrap_or_else(|| format!("Power action '{}' completed successfully", action));
-            // TODO: API should be more explicit about what is warning what is just info in message.
-            let class = if message.to_lowercase().contains("warning") {
+                .unwrap_or_else(|| "completed successfully".to_string());
+            let class = if raw_msg.to_lowercase().contains("warning") {
                 action_status::Class::Warning
             } else {
                 action_status::Class::Success
             };
+            let friendly_action = match action.as_str() {
+                "On" => "Power On",
+                "GracefulShutdown" => "Graceful Shutdown",
+                "ForceOff" => "Force Off",
+                "GracefulRestart" => "Graceful Restart",
+                "ForceRestart" => "Force Restart",
+                "ACPowercycle" => "AC Powercycle",
+                other => other,
+            };
+            let message = format!("{friendly_action} {raw_msg}");
             let redirect_url = ActionStatus {
                 action: action_status::Type::Power,
                 class,
@@ -767,10 +776,11 @@ pub async fn bmc_reset(
         .map(|response| response.into_inner())
     {
         Ok(_response) => {
+            let method = if use_ipmi { "IPMI" } else { "Redfish" };
             let redirect_url = ActionStatus {
                 action: action_status::Type::ResetBmc,
                 class: action_status::Class::Success,
-                message: "BMC reset initiated successfully".into(),
+                message: format!("BMC Reset ({method}) initiated successfully").into(),
             }
             .update_redirect_url(&view_url);
             Redirect::to(&redirect_url).into_response()
@@ -869,7 +879,7 @@ pub async fn disable_secure_boot(
 ) -> Response {
     let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
 
-    if let Err(err) = state
+    let redirect_url = match state
         .disable_secure_boot(tonic::Request::new(rpc::forge::BmcEndpointRequest {
             ip_address: endpoint_ip.clone(),
             mac_address: None,
@@ -877,11 +887,24 @@ pub async fn disable_secure_boot(
         .await
         .map(|response| response.into_inner())
     {
-        tracing::error!(%err, endpoint_ip = %endpoint_ip, "disable_secure_boot");
-        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
-    }
+        Ok(_) => ActionStatus {
+            action: action_status::Type::DisableSecureBoot,
+            class: action_status::Class::Success,
+            message: "Secure boot disabled successfully".into(),
+        }
+        .update_redirect_url(&view_url),
+        Err(err) => {
+            tracing::error!(%err, endpoint_ip = %endpoint_ip, "disable_secure_boot");
+            ActionStatus {
+                action: action_status::Type::DisableSecureBoot,
+                class: action_status::Class::Error,
+                message: err.message().into(),
+            }
+            .update_redirect_url(&view_url)
+        }
+    };
 
-    Redirect::to(&view_url).into_response()
+    Redirect::to(&redirect_url).into_response()
 }
 
 pub async fn disable_lockdown(
@@ -890,7 +913,7 @@ pub async fn disable_lockdown(
 ) -> Response {
     let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
 
-    if let Err(err) = state
+    let redirect_url = match state
         .lockdown(tonic::Request::new(rpc::forge::LockdownRequest {
             bmc_endpoint_request: Some(BmcEndpointRequest {
                 ip_address: endpoint_ip.clone(),
@@ -902,11 +925,24 @@ pub async fn disable_lockdown(
         .await
         .map(|response| response.into_inner())
     {
-        tracing::error!(%err, endpoint_ip = %endpoint_ip, "disable_lockdown");
-        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
-    }
+        Ok(_) => ActionStatus {
+            action: action_status::Type::DisableLockdown,
+            class: action_status::Class::Success,
+            message: "Lockdown disabled successfully".into(),
+        }
+        .update_redirect_url(&view_url),
+        Err(err) => {
+            tracing::error!(%err, endpoint_ip = %endpoint_ip, "disable_lockdown");
+            ActionStatus {
+                action: action_status::Type::DisableLockdown,
+                class: action_status::Class::Error,
+                message: err.message().into(),
+            }
+            .update_redirect_url(&view_url)
+        }
+    };
 
-    Redirect::to(&view_url).into_response()
+    Redirect::to(&redirect_url).into_response()
 }
 
 pub async fn enable_lockdown(
@@ -915,7 +951,7 @@ pub async fn enable_lockdown(
 ) -> Response {
     let view_url = format!("/admin/explored-endpoint/{endpoint_ip}");
 
-    if let Err(err) = state
+    let redirect_url = match state
         .lockdown(tonic::Request::new(rpc::forge::LockdownRequest {
             bmc_endpoint_request: Some(BmcEndpointRequest {
                 ip_address: endpoint_ip.clone(),
@@ -927,11 +963,24 @@ pub async fn enable_lockdown(
         .await
         .map(|response| response.into_inner())
     {
-        tracing::error!(%err, endpoint_ip = %endpoint_ip, "enable_lockdown");
-        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
-    }
+        Ok(_) => ActionStatus {
+            action: action_status::Type::EnableLockdown,
+            class: action_status::Class::Success,
+            message: "Lockdown enabled successfully".into(),
+        }
+        .update_redirect_url(&view_url),
+        Err(err) => {
+            tracing::error!(%err, endpoint_ip = %endpoint_ip, "enable_lockdown");
+            ActionStatus {
+                action: action_status::Type::EnableLockdown,
+                class: action_status::Class::Error,
+                message: err.message().into(),
+            }
+            .update_redirect_url(&view_url)
+        }
+    };
 
-    Redirect::to(&view_url).into_response()
+    Redirect::to(&redirect_url).into_response()
 }
 
 pub async fn machine_setup(
@@ -1009,14 +1058,16 @@ pub async fn set_dpu_first_boot_order(
         && mac.parse::<mac_address::MacAddress>().is_err()
     {
         tracing::error!(endpoint_ip = %endpoint_ip, mac_address = %mac, "Invalid MAC address format");
-        return (
-            StatusCode::BAD_REQUEST,
-            "Invalid MAC address format. Expected format - 00:11:22:33:44:55",
-        )
-            .into_response();
+        let redirect_url = ActionStatus {
+            action: action_status::Type::SetFirstBootOrder,
+            class: action_status::Class::Error,
+            message: "Invalid MAC address format. Expected format - 00:11:22:33:44:55".into(),
+        }
+        .update_redirect_url(&view_url);
+        return Redirect::to(&redirect_url).into_response();
     }
 
-    if let Err(err) = state
+    let redirect_url = match state
         .set_dpu_first_boot_order(tonic::Request::new(
             rpc::forge::SetDpuFirstBootOrderRequest {
                 machine_id: None,
@@ -1030,11 +1081,24 @@ pub async fn set_dpu_first_boot_order(
         .await
         .map(|response| response.into_inner())
     {
-        tracing::error!(%err, endpoint_ip = %endpoint_ip, "set_dpu_first_boot_order");
-        return (StatusCode::INTERNAL_SERVER_ERROR, err.message().to_owned()).into_response();
-    }
+        Ok(_) => ActionStatus {
+            action: action_status::Type::SetFirstBootOrder,
+            class: action_status::Class::Success,
+            message: "Boot order updated successfully".into(),
+        }
+        .update_redirect_url(&view_url),
+        Err(err) => {
+            tracing::error!(%err, endpoint_ip = %endpoint_ip, "set_dpu_first_boot_order");
+            ActionStatus {
+                action: action_status::Type::SetFirstBootOrder,
+                class: action_status::Class::Error,
+                message: err.message().into(),
+            }
+            .update_redirect_url(&view_url)
+        }
+    };
 
-    Redirect::to(&view_url).into_response()
+    Redirect::to(&redirect_url).into_response()
 }
 
 pub async fn delete_endpoint(

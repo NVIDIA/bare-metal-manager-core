@@ -22,9 +22,11 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 pub struct Args {
-    #[clap(help = "Path to JSON configuration file")]
+    #[clap(help = "Rack hardware type for this firmware configuration.")]
+    pub rack_hardware_type: String,
+    #[clap(help = "Path to JSON configuration file.")]
     pub json_file: PathBuf,
-    #[clap(help = "Artifactory token for downloading firmware files")]
+    #[clap(help = "Artifactory token for downloading firmware files.")]
     pub artifactory_token: String,
 }
 
@@ -40,11 +42,14 @@ impl TryFrom<Args> for rpc::forge::RackFirmwareCreateRequest {
             ))
         })?;
 
-        // Check that the JSON is valid
+        // Check that the JSON is valid.
         serde_json::from_str::<serde_json::Value>(&config_json)
             .map_err(|e| CarbideCliError::GenericError(format!("Invalid JSON in file: {}", e)))?;
 
         Ok(Self {
+            rack_hardware_type: Some(rpc::common::RackHardwareType {
+                value: args.rack_hardware_type,
+            }),
             config_json,
             artifactory_token: args.artifactory_token,
         })

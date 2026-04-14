@@ -51,11 +51,13 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Global transitions for interactions */
-* {
-  transition-property: background-color, border-color, color, transform, box-shadow;
-  transition-duration: 0.2s;
-  transition-timing-function: ease;
+/* Suppress all transitions until the first paint is complete.  Without this,
+   Safari (and sometimes Chrome) animates elements from browser-default styles
+   to the CSS-defined styles on initial page load, producing flashes and layout
+   wobble.  The class is removed by JS after the first animation frame. */
+body.preload,
+body.preload * {
+  transition: none !important;
 }
 
 /* ------------------------------------------------------------------------
@@ -137,12 +139,19 @@ nav {
   left: 0;
   top: 0;
   background-color: rgba(255, 255, 255, 0.95);
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   border-right: 1px solid var(--border-color);
   overflow-y: auto;
   padding: 0;
   z-index: 1000;
   box-shadow: var(--shadow);
+}
+
+nav.nav-disabled {
+  pointer-events: none;
+  opacity: 0.45;
+  transition: opacity 0.2s ease;
 }
 
 /* Auto-hide scrollbar for navigation */
@@ -298,6 +307,7 @@ table {
   width: 100%;
   border-collapse: collapse;
   background-color: rgba(255, 255, 255, 0.9);
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   border-radius: 12px;
   overflow: hidden;
@@ -592,6 +602,7 @@ input[type="submit"] {
   transition: all 0.2s ease;
   margin: 0.5rem 0;
   box-shadow: var(--shadow-sm);
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   box-sizing: border-box;
 }
@@ -729,6 +740,7 @@ div#json a {
   font-weight: 500;
   transition: all 0.2s ease;
   box-shadow: var(--shadow-sm);
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   text-decoration: none;
   display: inline-block;
@@ -922,6 +934,7 @@ div.health_alert_classification {
   font-weight: 500;
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--warning);
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
 }
 
@@ -1010,6 +1023,7 @@ details > *:not(summary) {
 /* Card containers */
 .card {
   background-color: rgba(255, 255, 255, 0.8);
+  -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   border-radius: 12px;
   padding: 1.5rem;
@@ -1035,6 +1049,7 @@ details > *:not(summary) {
   padding: 0.5rem 1rem;
   font-size: 0.9rem;
   min-width: 150px;
+  width: auto;
 }
 
 #powercontrol_action input[type="submit"],
@@ -1313,19 +1328,173 @@ pre:not(div[style*="overflow: auto"] > pre):not(td > div > pre) {
   overflow: auto;
 }
 
-/* Style for spinner in UI */
+
+/* ------------------------------------------------------------------------
+   Inline Action Spinner
+   ------------------------------------------------------------------------ */
 .action-spinner {
-  display: inline-block;
-  visibility: hidden;
+  display: none;
   width: 16px;
   height: 16px;
-  min-height: 16px;
-  min-width: 16px;
-  margin: 5px;
-  border: 2px solid #ccc;
-  border-top-color: #333;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--text-primary);
   border-radius: 50%;
-  animation: spin 1s linear infinite;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: 0.5rem;
+}
+
+.submitting .action-spinner {
+  display: inline-block;
+}
+
+.config-card-action.submitting .action-spinner {
+  display: block;
+  margin: 0.5rem auto;
+}
+
+.config-card-action.submitting input[type="submit"],
+.config-card-action.submitting button[type="submit"] {
+  display: none;
+}
+
+.actions-busy input[type="submit"],
+.actions-busy button[type="submit"] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ------------------------------------------------------------------------
+   Action Toast Notifications
+   ------------------------------------------------------------------------ */
+.action-toast-container {
+  position: fixed;
+  top: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  pointer-events: none;
+}
+
+.action-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  animation: toast-slide-in 0.3s ease;
+  min-width: 280px;
+  max-width: 420px;
+}
+
+.action-toast::before {
+  content: '';
+  flex-shrink: 0;
+  width: 4px;
+  background: var(--accent, #76b900);
+}
+
+.action-toast-text {
+  padding: 0.85rem 1.25rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.action-toast.dismissing {
+  animation: toast-slide-out 0.3s ease forwards;
+}
+
+@keyframes toast-slide-in {
+  from { opacity: 0; transform: translateY(-100%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toast-slide-out {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-100%); }
+}
+
+/* ------------------------------------------------------------------------
+   Error Modal
+   ------------------------------------------------------------------------ */
+@keyframes error-modal-fade-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.error-modal-wrapper {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.45);
+}
+
+.error-modal {
+  background: var(--bg-primary);
+  border-radius: 12px;
+  padding: 1.5rem 2rem;
+  max-width: 620px;
+  width: 90%;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+  text-align: left;
+  border: 1px solid var(--border-color);
+  animation: error-modal-fade-in 0.3s ease both;
+}
+
+.error-modal-title {
+  font-weight: 400;
+  font-size: 1.3rem;
+  color: var(--text-primary);
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--error, #e53e3e);
+  margin-bottom: 0.75rem;
+  line-height: 1.8;
+}
+
+.error-modal-body {
+  max-height: 40vh;
+  overflow-y: auto;
+  margin-bottom: 1.25rem;
+}
+
+.error-modal-body pre {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.error-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.error-modal button {
+  min-width: 100px;
+}
+
+.error-modal-copy-btn {
+  background-color: var(--bg-tertiary) !important;
+  color: var(--text-secondary) !important;
+  border: 1px solid var(--border-color) !important;
+}
+
+.error-modal-copy-btn:hover {
+  background-color: var(--bg-secondary) !important;
 }
 
 a.disabled,

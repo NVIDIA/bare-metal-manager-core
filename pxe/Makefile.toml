@@ -204,7 +204,13 @@ run_task = "internal-bfb-aarch64-sa"
 [tasks.ipxe-aarch64-sa]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) for SA builds"
-dependencies = ["ipxe-build-efi-aarch64", "ipxe-install-efi-aarch64"]
+dependencies = [
+  "ipxe-config",
+  "ipxe-patch-mlnx",
+  "ipxe-patch-grace-grace",
+  "ipxe-patch-efi-rng",
+  "ipxe-install-efi-aarch64",
+]
 
 
 [tasks.build-boot-artifacts-bfb]

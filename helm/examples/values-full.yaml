@@ -55,14 +55,18 @@ carbide-api:
       cpu: 1500m
       memory: 8Gi
 
-  ## Optional init containers for boot artifacts
-  initContainers:
-    - name: boot-artifacts-x86
+  ## Boot-artifact init containers — volume mount at /boot-artifacts/blobs/internal
+  ## is auto-injected by the template.
+  bootArtifactContainers:
+    - name: boot-artifacts-x86-64
       image: "your-registry.example.com/boot-artifacts-x86_64:latest"
-      command: ["cp", "-r", "/artifacts/.", "/opt/carbide/firmware/"]
-      volumeMounts:
-        - name: firmware
-          mountPath: /opt/carbide/firmware
+      command: ["sh", "-c", "cp -r /x86_64 /boot-artifacts/blobs/internal"]
+    - name: boot-artifacts-aarch64
+      image: "your-registry.example.com/boot-artifacts-aarch64:latest"
+      command: ["sh", "-c", "cp -r /aarch64 /apt /firmware /boot-artifacts/blobs/internal"]
+    - name: machine-validation-config
+      image: "your-registry.example.com/machine-validation-config:latest"
+      command: ["sh", "-c", "cp -r /machine-validation /boot-artifacts/blobs/internal"]
 
   env:
     VAULT_PKI_ROLE_NAME: "forge-cluster"
@@ -226,6 +230,20 @@ carbide-hardware-health:
 carbide-pxe:
   enabled: true
   replicas: 1
+
+  bootArtifacts:
+    servePath: /boot-artifacts
+
+  bootArtifactContainers:
+    - name: boot-artifacts-x86-64
+      image: "your-registry.example.com/boot-artifacts-x86_64:latest"
+      command: ["sh", "-c", "cp -r /x86_64 /boot-artifacts/blobs/internal"]
+    - name: boot-artifacts-aarch64
+      image: "your-registry.example.com/boot-artifacts-aarch64:latest"
+      command: ["sh", "-c", "cp -r /aarch64 /apt /firmware /boot-artifacts/blobs/internal"]
+    - name: machine-validation-config
+      image: "your-registry.example.com/machine-validation-config:latest"
+      command: ["sh", "-c", "cp -r /machine-validation /boot-artifacts/blobs/internal"]
 
   externalService:
     enabled: true

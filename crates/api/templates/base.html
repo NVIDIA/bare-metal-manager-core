@@ -6,7 +6,7 @@
 		<link href="/admin/static/sortable.css" rel="stylesheet" />
 		{% block head %}{% endblock %}
 	</head>
-	<body>
+	<body class="preload">
 		<nav>
 			<h3><a href="/admin" id="site-name">carbide-web</a></h3>
 			<form action="/admin/search" class="search-container">
@@ -128,8 +128,117 @@
 			</ul>
 		</nav>
 		<main>{% block content %}{% endblock %}</main>
+
+		<!-- Toast container for action success/warning notifications -->
+		<div id="toast-container" class="action-toast-container"></div>
+
+		<!-- Error modal (with gray backdrop) -->
+		<div id="error-modal-wrapper" class="error-modal-wrapper" style="display:none" onclick="if(event.target===this)hideErrorModal()">
+			<div class="error-modal">
+				<div id="error-modal-title" class="error-modal-title">Action Failed</div>
+				<div class="error-modal-body">
+					<pre id="error-modal-msg"></pre>
+				</div>
+				<div class="error-modal-footer">
+					<button class="error-modal-copy-btn" onclick="copyErrorMsg()">Copy</button>
+					<button onclick="hideErrorModal()">Dismiss</button>
+				</div>
+			</div>
+		</div>
+
+		<script>
+			requestAnimationFrame(function() {
+				requestAnimationFrame(function() {
+					document.body.classList.remove('preload');
+				});
+			});
+		</script>
 		<script src="/admin/static/sortable.js"></script>
 		<script>
+			const toastContainer = document.getElementById('toast-container');
+			const errorWrapper = document.getElementById('error-modal-wrapper');
+			const errorTitleEl = document.getElementById('error-modal-title');
+			const errorMsgEl = document.getElementById('error-modal-msg');
+
+			let pendingScope = null;
+
+			document.addEventListener('submit', function(e) {
+				const form = e.target;
+				if (!form.querySelector('.action-spinner')) return;
+				form.classList.add('submitting');
+				const scope = form.closest('table') || form;
+				scope.classList.add('actions-busy');
+				scope.querySelectorAll('input[type="submit"], button[type="submit"]')
+					.forEach(function(b) { b.disabled = true; });
+				pendingScope = scope;
+				document.querySelector('nav').classList.add('nav-disabled');
+			});
+
+			function hideActionSpinner() {
+				if (!pendingScope) return;
+				pendingScope.querySelector('.submitting')?.classList.remove('submitting');
+				pendingScope.classList.remove('actions-busy');
+				pendingScope.querySelectorAll('input[type="submit"], button[type="submit"]')
+					.forEach(function(b) { b.disabled = false; });
+				pendingScope = null;
+				document.querySelector('nav').classList.remove('nav-disabled');
+			}
+
+			window.addEventListener('pageshow', function(e) {
+				if (e.persisted) hideActionSpinner();
+			});
+
+			function showToast(message) {
+				hideActionSpinner();
+				const toast = document.createElement('div');
+				toast.className = 'action-toast';
+				const text = document.createElement('span');
+				text.className = 'action-toast-text';
+				text.textContent = message;
+				toast.appendChild(text);
+				toastContainer.appendChild(toast);
+				setTimeout(function() {
+					toast.classList.add('dismissing');
+					setTimeout(function() { toast.remove(); }, 300);
+				}, 3000);
+			}
+
+			function prettifyErrorMsg(raw) {
+				const jsonMatch = raw.match(/Some\("(.*)"\)\s*\(response code:/s);
+				if (jsonMatch) {
+					try {
+						const unescaped = jsonMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+						const parsed = JSON.parse(unescaped);
+						const prefix = raw.substring(0, raw.indexOf('Some("'));
+						const suffix = raw.substring(raw.lastIndexOf('(response code:'));
+						return prefix.trim() + '\n\n' + JSON.stringify(parsed, null, 2) + '\n\n' + suffix;
+					} catch(e) {}
+				}
+				try {
+					return JSON.stringify(JSON.parse(raw), null, 2);
+				} catch(e) {}
+				return raw;
+			}
+
+			function showErrorModal(msg, title) {
+				hideActionSpinner();
+				errorTitleEl.textContent = title || 'Action Failed';
+				errorMsgEl.textContent = prettifyErrorMsg(msg);
+				errorWrapper.style.display = '';
+			}
+
+			function hideErrorModal() {
+				errorWrapper.style.display = 'none';
+			}
+
+			function copyErrorMsg() {
+				navigator.clipboard.writeText(errorMsgEl.textContent).then(function() {
+					const btn = document.querySelector('.error-modal-copy-btn');
+					btn.textContent = 'Copied';
+					setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+				});
+			}
+
 
 			// Extract site name from URL (e.g., "dev3" from "api-dev3.frg.nvidia.com")
 			// If URL doesn't match the pattern, returns defaultSiteName (defaults to "dev3")

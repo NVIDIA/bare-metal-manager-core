@@ -377,18 +377,23 @@ pub enum PreingestionState {
     ScriptRunning,
     BfbRecoveryNeeded {
         reason: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        host_bmc_ip: Option<IpAddr>,
+        host_bmc_ip: IpAddr,
+        #[serde(default)]
+        pre_copy_powercycle: bool,
     },
-    BfbWaitingForPlatformPowercycle {
+    BfbPlatformPowercycle {
         host_bmc_ip: IpAddr,
         phase: BfbPlatformPowercyclePhase,
+        #[serde(default)]
+        post_install: bool,
     },
     BfbCopyInProgress {
         started_at: DateTime<Utc>,
+        host_bmc_ip: IpAddr,
     },
     BfbInstallationWait {
         started_at: DateTime<Utc>,
+        host_bmc_ip: IpAddr,
     },
     InitialReset {
         phase: InitialResetPhase,

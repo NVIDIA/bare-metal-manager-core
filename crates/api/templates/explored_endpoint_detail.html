@@ -113,19 +113,15 @@
 					<br>
 					Last Redfish BMC Powercycle: {{ endpoint.last_redfish_powercycle }}
 				</div>
-				{% if let Some(status) = action_status %}
-				{% if status.action == action_status::Type::Power %}
-				<div id="action-cell-status">
-					<span class="bubble {{ status.class.as_str() }}">{{ status.message }}</span>
-				</div>
-				{{ ActionStatus::url_cleanup_script()|safe }}
-				{% endif %}
-				{% endif %}
-				<span class="action-spinner"></span>
 				<div>
 					{% set bmc_ip = endpoint.address.clone() %}
 					{% include "power_control.html" %}
 				</div>
+				{% if let Some(status) = action_status %}
+				{% if status.action == action_status::Type::Power %}
+				{{ status.action_result_script()|safe }}
+				{% endif %}
+				{% endif %}
 			</td>
 		</tr>
 		<tr>
@@ -136,19 +132,15 @@
 					<br>
 					Last IPMI BMC Reset: {{ endpoint.last_ipmitool_bmc_reset }}
 				</div>
-				{% if let Some(status) = action_status %}
-				{% if status.action == action_status::Type::ResetBmc %}
-				<div id="action-cell-status">
-					<span class="bubble {{ status.class.as_str() }}">{{ status.message }}</span>
-				</div>
-				{{ ActionStatus::url_cleanup_script()|safe }}
-				{% endif %}
-				{% endif %}
-				<span class="action-spinner"></span>
 				<div>
 					{% set bmc_ip = endpoint.address.clone() %}
 					{% include "bmc_reset.html" %}
 				</div>
+				{% if let Some(status) = action_status %}
+				{% if status.action == action_status::Type::ResetBmc %}
+				{{ status.action_result_script()|safe }}
+				{% endif %}
+				{% endif %}
 			</td>
 		</tr>
 		<tr>
@@ -157,17 +149,10 @@
 				<div>
 					<span class="bubble {% if machine_setup_status == "OK" %}success{% else %}error{% endif %}">{{ machine_setup_status }}</span>
 				</div>
-				{% if let Some(status) = action_status %}
-				{% if status.action == action_status::Type::MachineSetup %}
-				<div id="action-cell-status">
-					<span class="bubble {{ status.class.as_str() }}">{{ status.message }}</span>
-				</div>
-				{{ ActionStatus::url_cleanup_script()|safe }}
-				{% endif %}
-				{% endif %}
 				<div>
 					<form id="machine_setup" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/machine-setup">
 						<div style="display: flex; gap: 8px; align-items: center;">
+							<span class="action-spinner"></span>
 							{% if is_dell_endpoint %}
 							<input type="text" id="boot_interface_mac" name="boot_interface_mac" 
 								placeholder="Boot Interface MAC"
@@ -177,8 +162,12 @@
 							<input type="submit" value="Machine Setup">
 						</div>
 					</form>
-					{{ action_status::action_spinner_script("machine_setup")|safe }}
 				</div>
+				{% if let Some(status) = action_status %}
+				{% if status.action == action_status::Type::MachineSetup %}
+				{{ status.action_result_script()|safe }}
+				{% endif %}
+				{% endif %}
 			</td>
 		</tr>
 		<tr>
@@ -194,6 +183,7 @@
 						<form id="clear_credentials" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/clear-credentials" class="config-card-action">
 							<div class="config-card-reminder">Deletes credentials from vault.</div>
 							<input type="submit" class="delete-button" value="Clear Credentials">
+							<span class="action-spinner"></span>
 						</form>
 					</div>
 					{% if !has_machine %}
@@ -205,19 +195,21 @@
 								{% if pause_remediation %}Paused{% else %}Active{% endif %}
 							</span>
 						</div>
-						{% if pause_remediation %}
-						<form id="resume_remediation" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/pause-remediation" class="config-card-action">
-							<div class="config-card-reminder">Allows auto BMC resets.</div>
-							<input type="hidden" name="pause" value="false"/>
-							<input type="submit" value="Resume Remediation">
-						</form>
-						{% else %}
-						<form id="pause_remediation" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/pause-remediation" class="config-card-action">
-							<div class="config-card-reminder">Prevents auto BMC resets.</div>
-							<input type="hidden" name="pause" value="true"/>
-							<input type="submit" value="Pause Remediation" class="warning-button">
-						</form>
-						{% endif %}
+					{% if pause_remediation %}
+					<form id="resume_remediation" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/pause-remediation" class="config-card-action">
+						<div class="config-card-reminder">Allows auto BMC resets.</div>
+						<input type="hidden" name="pause" value="false"/>
+						<input type="submit" value="Resume Remediation">
+						<span class="action-spinner"></span>
+					</form>
+					{% else %}
+					<form id="pause_remediation" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/pause-remediation" class="config-card-action">
+						<div class="config-card-reminder">Prevents auto BMC resets.</div>
+						<input type="hidden" name="pause" value="true"/>
+						<input type="submit" value="Pause Remediation" class="warning-button">
+						<span class="action-spinner"></span>
+					</form>
+					{% endif %}
 					</div>
 					{% endif %}
 					<!-- Secure Boot Card -->
@@ -233,10 +225,16 @@
 						{% endif %}
 						">{{ secure_boot_status }}</span>
 						</div>
-						<form id="disable_secure_boot" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/disable-secure-boot" class="config-card-action">
-							<div class="config-card-reminder">Reboot required to take effect.</div>
-							<input type="submit" value="Disable Secure Boot" class="{% if secure_boot_status == "Unknown" %}disabled{% endif %}" {% if secure_boot_status == "Unknown" %}onclick="return false;"{% endif %}>
-						</form>
+					<form id="disable_secure_boot" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/disable-secure-boot" class="config-card-action">
+						<div class="config-card-reminder">Reboot required to take effect.</div>
+						<input type="submit" value="Disable Secure Boot" class="{% if secure_boot_status == "Unknown" %}disabled{% endif %}" {% if secure_boot_status == "Unknown" %}onclick="return false;"{% endif %}>
+						<span class="action-spinner"></span>
+					</form>
+					{% if let Some(status) = action_status %}
+					{% if status.action == action_status::Type::DisableSecureBoot %}
+					{{ status.action_result_script()|safe }}
+					{% endif %}
+					{% endif %}
 					</div>
 					<!-- Lockdown Card -->
 					<div class="config-card">
@@ -253,17 +251,24 @@
 						{% endif %}
 						">{{ lockdown_status }}</span>
 						</div>
-						{% if lockdown_status == "Disabled" %}
-						<form id="enable_lockdown" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/enable-lockdown" class="config-card-action">
-							<div class="config-card-reminder">Reboot required to take effect.</div>
-							<input type="submit" value="Enable Lockdown">
-						</form>
-						{% else %}
-						<form id="disable_lockdown" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/disable-lockdown" class="config-card-action">
-							<div class="config-card-reminder">Reboot required to take effect.</div>
-							<input type="submit" value="Disable Lockdown" class="{% if lockdown_status == "Unknown" %}disabled{% endif %}" {% if lockdown_status == "Unknown" %}onclick="return false;"{% endif %}>
-						</form>
-						{% endif %}
+					{% if lockdown_status == "Disabled" %}
+					<form id="enable_lockdown" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/enable-lockdown" class="config-card-action">
+						<div class="config-card-reminder">Reboot required to take effect.</div>
+						<input type="submit" value="Enable Lockdown">
+						<span class="action-spinner"></span>
+					</form>
+					{% else %}
+					<form id="disable_lockdown" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/disable-lockdown" class="config-card-action">
+						<div class="config-card-reminder">Reboot required to take effect.</div>
+						<input type="submit" value="Disable Lockdown" class="{% if lockdown_status == "Unknown" %}disabled{% endif %}" {% if lockdown_status == "Unknown" %}onclick="return false;"{% endif %}>
+						<span class="action-spinner"></span>
+					</form>
+					{% endif %}
+					{% if let Some(status) = action_status %}
+					{% if status.action == action_status::Type::EnableLockdown || status.action == action_status::Type::DisableLockdown %}
+					{{ status.action_result_script()|safe }}
+					{% endif %}
+					{% endif %}
 					</div>
 				</div>
 			</td>
@@ -287,25 +292,26 @@
 		<tr><th>Power State</th><td>{{ "{:?}"|format(system.power_state()) }}</td></tr>
 		<tr>
 			<th>Boot Order</th>
-			<td class="action-cell" style="display: table-cell">
-				<div></div>
-				<div style="display: flex">
-					<div style="margin-bottom: 12px;">
-						<form id="set_first_boot_order" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/set-dpu-first-boot-order" onsubmit="action_reminder(event)">
-							<div style="display: flex; gap: 8px; align-items: center;">
-								<input type="text" name="boot_interface_mac" 
-								       placeholder="Boot Interface MAC"
-								       title="Enter a valid MAC address (e.g. 00:11:22:33:44:55)"
-								       style="width: 200px;"
-								       required>
-								<input type="submit" value="Set First">
-							</div>
-						</form>
-						{{ action_status::action_spinner_script("set_first_boot_order")|safe }}
-					</div>
-					<span class="action-spinner"></span>
+			<td>
+				<div style="margin-bottom: 12px;">
+					<form id="set_first_boot_order" method="POST" action="/admin/explored-endpoint/{{ endpoint.address }}/set-dpu-first-boot-order" onsubmit="action_reminder(event)">
+						<div style="display: flex; gap: 8px; align-items: center;">
+							<span class="action-spinner"></span>
+							<input type="text" name="boot_interface_mac" 
+							       placeholder="Boot Interface MAC"
+							       title="Enter a valid MAC address (e.g. 00:11:22:33:44:55)"
+							       style="width: 200px;"
+							       required>
+							<input type="submit" value="Set First">
+						</div>
+					</form>
 				</div>
 				{% include "restart_reminder.html" %}
+				{% if let Some(status) = action_status %}
+				{% if status.action == action_status::Type::SetFirstBootOrder %}
+				{{ status.action_result_script()|safe }}
+				{% endif %}
+				{% endif %}
 				<div style="max-height: 300px; overflow: auto;">
 					<pre><code>{{ system.boot_order|boot_order_fmt }}</code></pre>
 				</div>

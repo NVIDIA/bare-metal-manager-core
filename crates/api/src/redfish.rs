@@ -742,6 +742,9 @@ pub mod test_support {
         Power(libredfish::SystemPowerControl),
         BmcReset,
         SetUtcTimezone,
+        MachineSetup {
+            oem_manager_profiles: libredfish::BiosProfileVendor,
+        },
     }
 
     pub struct RedfishSimActions {
@@ -814,7 +817,7 @@ pub mod test_support {
                 >,
             >,
             _profile_type: libredfish::BiosProfileType,
-            _oem_manager_profiles: &HashMap<
+            oem_manager_profiles: &HashMap<
                 libredfish::model::service_root::RedfishVendor,
                 HashMap<
                     String,
@@ -822,6 +825,11 @@ pub mod test_support {
                 >,
             >,
         ) -> Result<(), RedfishError> {
+            let mut state = self.state.lock().unwrap();
+            let host_state = state.hosts.get_mut(&self._host).unwrap();
+            host_state.actions.push(RedfishSimAction::MachineSetup {
+                oem_manager_profiles: oem_manager_profiles.clone(),
+            });
             Ok(())
         }
 

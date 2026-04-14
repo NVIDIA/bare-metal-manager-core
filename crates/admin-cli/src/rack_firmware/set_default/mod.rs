@@ -15,23 +15,18 @@
  * limitations under the License.
  */
 
-use clap::Parser;
+pub mod args;
+pub mod cmd;
 
-#[derive(Parser, Debug)]
-pub struct Args {
-    #[clap(long, help = "Show only available configurations.")]
-    pub only_available: bool,
-    #[clap(help = "Filter by rack hardware type.")]
-    pub rack_hardware_type: Option<String>,
-}
+use ::rpc::admin_cli::CarbideCliResult;
+pub use args::Args;
 
-impl From<Args> for rpc::forge::RackFirmwareSearchFilter {
-    fn from(args: Args) -> Self {
-        Self {
-            only_available: args.only_available,
-            rack_hardware_type: args
-                .rack_hardware_type
-                .map(|v| rpc::common::RackHardwareType { value: v }),
-        }
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
+
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::set_default(self, &ctx.api_client).await?;
+        Ok(())
     }
 }

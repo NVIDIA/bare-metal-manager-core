@@ -26,7 +26,13 @@ pub struct Args {
     pub mac: Option<MacAddress>,
     #[clap(
         long,
-        help = "Host BMC IP address. If provided, the host will be power-cycled before BFB copy to ensure rshim control."
+        help = "Host BMC IP address. Required for the mandatory post-copy host power-cycle \
+                that applies the new BFB image to the DPU."
     )]
-    pub host_bmc_ip: Option<String>,
+    pub host_bmc_ip: String,
+    #[clap(
+        long,
+        help = "Power-cycle the host before the BFB copy to release rshim control to the DPU BMC."
+    )]
+    pub pre_copy_powercycle: bool,
 }

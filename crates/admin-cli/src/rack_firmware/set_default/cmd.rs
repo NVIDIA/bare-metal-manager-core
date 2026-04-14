@@ -15,23 +15,14 @@
  * limitations under the License.
  */
 
-use clap::Parser;
+use ::rpc::admin_cli::CarbideCliError;
 
-#[derive(Parser, Debug)]
-pub struct Args {
-    #[clap(long, help = "Show only available configurations.")]
-    pub only_available: bool,
-    #[clap(help = "Filter by rack hardware type.")]
-    pub rack_hardware_type: Option<String>,
-}
+use super::args::Args;
+use crate::rpc::ApiClient;
 
-impl From<Args> for rpc::forge::RackFirmwareSearchFilter {
-    fn from(args: Args) -> Self {
-        Self {
-            only_available: args.only_available,
-            rack_hardware_type: args
-                .rack_hardware_type
-                .map(|v| rpc::common::RackHardwareType { value: v }),
-        }
-    }
+pub async fn set_default(opts: Args, api_client: &ApiClient) -> Result<(), CarbideCliError> {
+    let firmware_id = opts.firmware_id.clone();
+    api_client.0.rack_firmware_set_default(opts).await?;
+    println!("Set firmware '{}' as default.", firmware_id);
+    Ok(())
 }

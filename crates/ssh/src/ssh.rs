@@ -16,7 +16,6 @@
  */
 
 use std::net::SocketAddr;
-use std::path::Path;
 use std::time::Duration;
 
 use async_ssh2_tokio::{AuthMethod, Client, ServerCheckMethod};
@@ -59,44 +58,6 @@ async fn execute_command(
     Ok((result.stdout, result.exit_status))
 }
 
-async fn scp_write<LOCAL, REMOTE>(
-    local_path: LOCAL,
-    remote_path: REMOTE,
-    ip_address: SocketAddr,
-    username: &str,
-    password: &str,
-    timeout_secs: u64,
-    buffer_size_bytes: usize,
-) -> Result<(), SshError>
-where
-    LOCAL: AsRef<Path> + std::fmt::Display,
-    REMOTE: Into<String>,
-{
-    let auth_method = AuthMethod::with_password(password);
-    let client = Client::connect_with_config(
-        ip_address,
-        username,
-        auth_method,
-        ServerCheckMethod::NoCheck,
-        russh_client_config(),
-    )
-    .await?;
-    let show_progress = true;
-    client
-        .upload_file(
-            local_path,
-            remote_path,
-            Some(timeout_secs),
-            Some(buffer_size_bytes),
-            show_progress,
-        )
-        .await
-        .map_err(|err| {
-            tracing::error!("error during client.upload_file: {err:?}");
-            err.into()
-        })
-}
-
 pub async fn disable_rshim(
     ip_address: SocketAddr,
     username: String,
@@ -130,6 +91,8 @@ pub async fn is_rshim_enabled(
     Ok(stdout.trim() == "active")
 }
 
+/// Copy a BFB file to the BMC rshim device using the system `scp` binary.
+/// The password is passed via `SSH_ASKPASS` with a temp script.
 pub async fn copy_bfb_to_bmc_rshim(
     ip_address: SocketAddr,
     username: String,
@@ -137,28 +100,127 @@ pub async fn copy_bfb_to_bmc_rshim(
     bfb_path: String,
     is_bf2: bool,
 ) -> Result<(), SshError> {
-    // BF2 BMCs cannot handle the default 1 MiB SFTP buffer (transfer fails immediately).
-    // Tested BF2 transfer speeds for a 1.5 GB BFB:
-    //   SFTP 128 KiB buffer: ~325 KB/s  (~70 min)
-    //   regular SCP:         ~480 KB/s  (~50 min)
-    //   SFTP 1 MiB buffer:   fails immediately
-    let (timeout_secs, buffer_size_bytes) = if is_bf2 {
-        (80 * 60, 128 * 1024) // 80 min, 128 KiB buffer
-    } else {
-        (30 * 60, 1024 * 1024) // 30 min, 1 MiB buffer
-    };
+    let timeout_secs: u64 = if is_bf2 { 80 * 60 } else { 30 * 60 };
 
-    scp_write(
-        bfb_path,
+    scp_cmd_write(
+        &bfb_path,
         "/dev/rshim0/boot",
         ip_address,
-        username.as_str(),
-        password.as_str(),
+        &username,
+        &password,
         timeout_secs,
-        buffer_size_bytes,
     )
-    .await?;
-    Ok(())
+    .await
+}
+
+/// Run a file copy using the system `scp` binary.
+/// Password auth is handled via `SSH_ASKPASS` backed by a temp script.
+async fn scp_cmd_write(
+    local_path: &str,
+    remote_path: &str,
+    ip_address: SocketAddr,
+    username: &str,
+    password: &str,
+    timeout_secs: u64,
+) -> Result<(), SshError> {
+    let ip_str = ip_address.ip().to_string();
+    let port_str = ip_address.port().to_string();
+
+    tracing::info!(
+        local_path,
+        remote_path,
+        %ip_address,
+        "starting system scp copy to BMC rshim",
+    );
+
+    let askpass_dir = tempfile::tempdir().map_err(io_ssh_error)?;
+    let askpass_path = askpass_dir.path().join("askpass.sh");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let escaped = password.replace('\'', "'\\''");
+        std::fs::write(
+            &askpass_path,
+            format!("#!/bin/sh\nprintf '%s' '{escaped}'\n"),
+        )
+        .map_err(io_ssh_error)?;
+        std::fs::set_permissions(&askpass_path, std::fs::Permissions::from_mode(0o700))
+            .map_err(io_ssh_error)?;
+    }
+
+    let mut child = tokio::process::Command::new("scp")
+        .args([
+            "-v",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "PubkeyAuthentication=no",
+            "-P",
+            &port_str,
+            local_path,
+            &format!("{username}@{ip_str}:{remote_path}"),
+        ])
+        .env("SSH_ASKPASS", &askpass_path)
+        .env("SSH_ASKPASS_REQUIRE", "force")
+        .env("DISPLAY", "dummy")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(io_ssh_error)?;
+
+    let stderr_pipe = child.stderr.take();
+    let stderr_handle = tokio::spawn(async move {
+        let mut saw_truncate_error = false;
+        let mut saw_bytes_transferred = false;
+        if let Some(stderr) = stderr_pipe {
+            use tokio::io::{AsyncBufReadExt, BufReader};
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if line.contains("truncate: Invalid argument") {
+                    saw_truncate_error = true;
+                }
+                if line.contains("Bytes per second:") || line.starts_with("Transferred: sent") {
+                    saw_bytes_transferred = true;
+                }
+            }
+        }
+        (saw_truncate_error, saw_bytes_transferred)
+    });
+
+    let result = tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait()).await;
+
+    let (saw_truncate_error, saw_bytes_transferred) = stderr_handle.await.unwrap_or((false, false));
+
+    let status = result
+        .map_err(|_| {
+            io_ssh_error(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("scp timed out after {} minutes", timeout_secs / 60),
+            ))
+        })?
+        .map_err(io_ssh_error)?;
+
+    if status.success() {
+        tracing::info!(%ip_address, "scp copy to rshim completed");
+        return Ok(());
+    }
+
+    if saw_truncate_error || saw_bytes_transferred {
+        tracing::info!(
+            %ip_address,
+            saw_truncate_error,
+            saw_bytes_transferred,
+            "scp exited with {status} but transfer succeeded (device file write)",
+        );
+        return Ok(());
+    }
+
+    Err(io_ssh_error(std::io::Error::other(format!(
+        "scp failed with {status} and no signs of successful transfer"
+    ))))
+}
+
+fn io_ssh_error(e: std::io::Error) -> SshError {
+    SshError(async_ssh2_tokio::Error::IoError(e))
 }
 
 pub async fn read_obmc_console_log(
@@ -170,4 +232,23 @@ pub async fn read_obmc_console_log(
     let (stdout, _exit_code) =
         execute_command(command, ip_address, username.as_str(), password.as_str()).await?;
     Ok(stdout)
+}
+
+/// Connect to the DPU serial console via `obmc-console-client` and check
+/// whether any line matches the provided patterns. Returns `true` if at
+/// least one pattern is found in the console output.
+pub async fn check_console_for_markers(
+    ip_address: SocketAddr,
+    username: String,
+    password: String,
+    markers: &[&str],
+) -> Result<bool, SshError> {
+    let command = r#"(printf '\n'; sleep 2) | timeout 5 obmc-console-client 2>/dev/null; true"#;
+    let (stdout, _exit_code) =
+        execute_command(command, ip_address, username.as_str(), password.as_str()).await?;
+
+    let found = stdout
+        .lines()
+        .any(|line| markers.iter().any(|marker| line.contains(marker)));
+    Ok(found)
 }

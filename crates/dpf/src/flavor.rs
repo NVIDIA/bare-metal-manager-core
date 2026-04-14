@@ -54,8 +54,6 @@ fn get_default_ovs_defaults() -> String {
 /// Build the default DPUFlavor CR.
 pub fn default_flavor(namespace: &str, name: &str) -> DPUFlavor {
     let bfcfg_parameters = vec![
-        "ENABLE_BR_HBN=yes".to_string(),
-        "ENABLE_BR_SFC=yes".to_string(),
         "UPDATE_ATF_UEFI=yes".to_string(),
         "UPDATE_DPU_OS=yes".to_string(),
         "WITH_NIC_FW_UPDATE=yes".to_string(),

@@ -1426,7 +1426,7 @@ impl Forge for Api {
 
     async fn list_rack_firmware(
         &self,
-        request: tonic::Request<rpc::RackFirmwareListRequest>,
+        request: tonic::Request<rpc::RackFirmwareSearchFilter>,
     ) -> Result<Response<rpc::RackFirmwareList>, tonic::Status> {
         crate::handlers::rack_firmware::list(self, request).await
     }
@@ -1457,6 +1457,13 @@ impl Forge for Api {
         request: tonic::Request<rpc::RackFirmwareHistoryRequest>,
     ) -> Result<Response<rpc::RackFirmwareHistoryResponse>, tonic::Status> {
         crate::handlers::rack_firmware::get_history(self, request).await
+    }
+
+    async fn rack_firmware_set_default(
+        &self,
+        request: tonic::Request<rpc::RackFirmwareSetDefaultRequest>,
+    ) -> Result<Response<()>, tonic::Status> {
+        crate::handlers::rack_firmware::set_default(self, request).await
     }
 
     async fn get_expected_power_shelf(

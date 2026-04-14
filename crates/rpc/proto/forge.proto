@@ -366,7 +366,7 @@ service Forge {
   // Get a Rack firmware configuration by ID
   rpc GetRackFirmware(RackFirmwareGetRequest) returns (RackFirmware);
   // List all Rack firmware configurations
-  rpc ListRackFirmware(RackFirmwareListRequest) returns (RackFirmwareList);
+  rpc ListRackFirmware(RackFirmwareSearchFilter) returns (RackFirmwareList);
   // Delete a Rack firmware configuration
   rpc DeleteRackFirmware(RackFirmwareDeleteRequest) returns (google.protobuf.Empty);
   // Apply firmware to all devices in a rack
@@ -375,6 +375,7 @@ service Forge {
   rpc GetRackFirmwareJobStatus(RackFirmwareJobStatusRequest) returns (RackFirmwareJobStatusResponse);
   // Get the history of rack firmware apply operations
   rpc GetRackFirmwareHistory(RackFirmwareHistoryRequest) returns (RackFirmwareHistoryResponse);
+  rpc RackFirmwareSetDefault(RackFirmwareSetDefaultRequest) returns (google.protobuf.Empty);
 
   // Replace all expected machines in site
   rpc ReplaceAllExpectedMachines(ExpectedMachineList) returns (google.protobuf.Empty);
@@ -3561,9 +3562,12 @@ message SshRequest {
 message CopyBfbToDpuRshimRequest {
   SshRequest ssh_request = 1;
   reserved 2;
-  // Optional host BMC IP; if provided, the host will be power-cycled
-  // before BFB copy to ensure the DPU has rshim control.
-  optional string host_bmc_ip = 3;
+  // Host BMC IP address. Required for the mandatory post-copy host
+  // power-cycle to apply the new BFB.
+  string host_bmc_ip = 3;
+  // When true, the host is also power-cycled *before* the BFB copy
+  // to release rshim control to the DPU BMC.
+  bool pre_copy_powercycle = 4;
 }
 
 message UpdateMachineHardwareInfoRequest {
@@ -4177,6 +4181,7 @@ message ForgeAgentControlResponse {
     LOGERROR = 6; // Log error.
     MACHINE_VALIDATION = 7; // Machine validation.
     MLX_ACTION = 8; // MlxAction for DPA NICs
+    FIRMWARE_UPGRADE = 9; // Firmware upgrade through scout
   }
   Action action = 1;
 
@@ -6390,12 +6395,6 @@ message DeleteRackRequest {
 
 // Rack Capabilities
 
-enum RackHardwareType {
-  RACK_HARDWARE_TYPE_UNSPECIFIED = 0;
-  RACK_HARDWARE_TYPE_DSX_GB200NVL_36X1 = 1;
-  RACK_HARDWARE_TYPE_DSX_GB200NVL_36X2 = 2;
-  RACK_HARDWARE_TYPE_DSX_GB200NVL_72X1 = 3;
-}
 
 enum RackHardwareTopology {
   RACK_HARDWARE_TOPOLOGY_UNSPECIFIED = 0;
@@ -6435,7 +6434,7 @@ message RackCapabilityPowerShelf {
 }
 
 message RackCapabilitiesSet {
-  RackHardwareType rack_hardware_type = 1;
+  common.RackHardwareType rack_hardware_type = 1;
   RackHardwareTopology rack_hardware_topology = 2;
   RackHardwareClass rack_hardware_class = 3;
   RackCapabilityCompute compute = 4;
@@ -7205,6 +7204,12 @@ message RackFirmware {
   string created = 4;
   string updated = 5;
   string parsed_components = 6; // JSON string of firmware lookup table
+  common.RackHardwareType rack_hardware_type = 7;
+  bool is_default = 8;
+}
+
+message RackFirmwareSetDefaultRequest {
+  string firmware_id = 1;
 }
 
 message FirmwareComponentInfo {
@@ -7219,14 +7224,16 @@ message FirmwareComponentInfo {
 message RackFirmwareCreateRequest {
   string config_json = 1;
   string artifactory_token = 2;
+  common.RackHardwareType rack_hardware_type = 3;
 }
 
 message RackFirmwareGetRequest {
   string id = 1;
 }
 
-message RackFirmwareListRequest {
+message RackFirmwareSearchFilter {
   bool only_available = 1;
+  common.RackHardwareType rack_hardware_type = 2; // Optional: filter by rack hardware type. Unspecified means no filter.
 }
 
 message RackFirmwareList {
@@ -7297,6 +7304,7 @@ message RackFirmwareHistoryRecord {
   string firmware_type = 3;
   string applied_at = 4;
   bool firmware_available = 5; // Whether the firmware ID still exists and is available
+  common.RackHardwareType rack_hardware_type = 6;
 }
 
 message ModifyDPFStateRequest {

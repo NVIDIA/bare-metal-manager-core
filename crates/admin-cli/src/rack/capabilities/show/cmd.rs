@@ -61,12 +61,8 @@ impl From<&GetRackCapabilitiesResponse> for CapabilitiesOutput {
                 .unwrap_or_default(),
             rack_type: r.rack_type.clone(),
             rack_hardware_type: capabilities
-                .map(|c| {
-                    rpc::forge::RackHardwareType::try_from(c.rack_hardware_type)
-                        .unwrap_or_default()
-                        .as_str_name()
-                        .to_string()
-                })
+                .and_then(|c| c.rack_hardware_type.as_ref())
+                .map(|t| t.value.clone())
                 .unwrap_or_else(|| "N/A".to_string()),
             rack_hardware_topology: capabilities
                 .map(|c| {
@@ -158,13 +154,9 @@ fn show_detail(r: &GetRackCapabilitiesResponse) {
     table.add_row(row![
         "Hardware Type",
         capabilities
-            .map(
-                |c| rpc::forge::RackHardwareType::try_from(c.rack_hardware_type)
-                    .unwrap_or_default()
-                    .as_str_name()
-                    .to_string()
-            )
-            .unwrap_or_else(|| "N/A".to_string())
+            .and_then(|c| c.rack_hardware_type.as_ref())
+            .map(|t| t.value.as_str())
+            .unwrap_or("N/A")
     ]);
     table.add_row(row![
         "Hardware Topology",

@@ -673,6 +673,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.RackFirmwareHistoryRecord", "#[derive(serde::Serialize)]")
         .type_attribute("forge.RackFirmwareHistoryRecords", "#[derive(serde::Serialize)]")
         .type_attribute("forge.RackFirmwareHistoryResponse", "#[derive(serde::Serialize)]")
+        .type_attribute("common.RackHardwareType", "#[derive(serde::Serialize)]")
         .type_attribute("forge.RackCapabilitiesSet", "#[derive(serde::Serialize)]")
         .type_attribute("forge.RackCapabilityCompute", "#[derive(serde::Serialize)]")
         .type_attribute("forge.RackCapabilitySwitch", "#[derive(serde::Serialize)]")

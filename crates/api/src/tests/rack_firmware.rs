@@ -18,7 +18,7 @@
 use common::api_fixtures::create_test_env;
 use rpc::forge::{
     RackFirmwareCreateRequest, RackFirmwareDeleteRequest, RackFirmwareGetRequest,
-    RackFirmwareListRequest,
+    RackFirmwareSearchFilter,
 };
 use rpc::protos::forge::forge_server::Forge;
 
@@ -102,6 +102,9 @@ async fn test_create_rack_firmware(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let config_json = create_valid_rack_firmware_json(firmware_id);
 
     let request = tonic::Request::new(RackFirmwareCreateRequest {
+        rack_hardware_type: Some(rpc::common::RackHardwareType {
+            value: "any".to_string(),
+        }),
         config_json: config_json.clone(),
         artifactory_token: "test-token-123".to_string(),
     });
@@ -145,6 +148,9 @@ async fn test_get_rack_firmware(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
 
     // Create firmware first
     let create_request = tonic::Request::new(RackFirmwareCreateRequest {
+        rack_hardware_type: Some(rpc::common::RackHardwareType {
+            value: "any".to_string(),
+        }),
         config_json: config_json.clone(),
         artifactory_token: "test-token".to_string(),
     });
@@ -177,8 +183,9 @@ async fn test_list_rack_firmware_empty(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    let request = tonic::Request::new(RackFirmwareListRequest {
+    let request = tonic::Request::new(RackFirmwareSearchFilter {
         only_available: false,
+        rack_hardware_type: None,
     });
 
     let response = env.api.list_rack_firmware(request).await?;
@@ -201,6 +208,9 @@ async fn test_list_rack_firmware_multiple(
         let config_json = create_valid_rack_firmware_json(&firmware_id);
 
         let request = tonic::Request::new(RackFirmwareCreateRequest {
+            rack_hardware_type: Some(rpc::common::RackHardwareType {
+                value: "any".to_string(),
+            }),
             config_json,
             artifactory_token: format!("test-token-{}", i),
         });
@@ -208,8 +218,9 @@ async fn test_list_rack_firmware_multiple(
     }
 
     // List all
-    let request = tonic::Request::new(RackFirmwareListRequest {
+    let request = tonic::Request::new(RackFirmwareSearchFilter {
         only_available: false,
+        rack_hardware_type: None,
     });
 
     let response = env.api.list_rack_firmware(request).await?;
@@ -238,6 +249,9 @@ async fn test_delete_rack_firmware(pool: sqlx::PgPool) -> Result<(), Box<dyn std
 
     // Create firmware
     let create_request = tonic::Request::new(RackFirmwareCreateRequest {
+        rack_hardware_type: Some(rpc::common::RackHardwareType {
+            value: "any".to_string(),
+        }),
         config_json,
         artifactory_token: "test-token".to_string(),
     });
@@ -275,6 +289,9 @@ async fn test_rack_firmware_full_lifecycle(
 
     // 1. Create
     let create_request = tonic::Request::new(RackFirmwareCreateRequest {
+        rack_hardware_type: Some(rpc::common::RackHardwareType {
+            value: "any".to_string(),
+        }),
         config_json: config_json.clone(),
         artifactory_token: "test-token".to_string(),
     });
@@ -292,8 +309,9 @@ async fn test_rack_firmware_full_lifecycle(
     assert_eq!(retrieved_firmware.id, firmware_id);
 
     // 3. List (should contain our firmware)
-    let list_request = tonic::Request::new(RackFirmwareListRequest {
+    let list_request = tonic::Request::new(RackFirmwareSearchFilter {
         only_available: false,
+        rack_hardware_type: None,
     });
     let list_response = env.api.list_rack_firmware(list_request).await?;
     let list = list_response.into_inner();
@@ -438,6 +456,9 @@ async fn test_rack_firmware_with_multiple_components(
     .to_string();
 
     let request = tonic::Request::new(RackFirmwareCreateRequest {
+        rack_hardware_type: Some(rpc::common::RackHardwareType {
+            value: "any".to_string(),
+        }),
         config_json,
         artifactory_token: "test-token".to_string(),
     });

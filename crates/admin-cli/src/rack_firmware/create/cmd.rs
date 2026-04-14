@@ -16,6 +16,7 @@
  */
 
 use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
+use prettytable::{Table, row};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -31,10 +32,18 @@ pub async fn create(
     if format == OutputFormat::Json {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
-        println!("Created Rack firmware configuration:");
-        println!("  ID: {}", result.id);
-        println!("  Available: {}", result.available);
-        println!("  Created: {}", result.created);
+        let mut table = Table::new();
+        table.add_row(row!["ID", result.id]);
+        let hw_type = result
+            .rack_hardware_type
+            .as_ref()
+            .map(|t| t.value.as_str())
+            .unwrap_or("N/A");
+        table.add_row(row!["Hardware Type", hw_type]);
+        table.add_row(row!["Default", result.is_default]);
+        table.add_row(row!["Available", result.available]);
+        table.add_row(row!["Created", result.created]);
+        table.printstd();
     }
 
     Ok(())

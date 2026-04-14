@@ -473,42 +473,53 @@ pub async fn set_preingestion_script_running(
 pub async fn set_preingestion_bfb_recovery_needed(
     address: IpAddr,
     reason: String,
-    host_bmc_ip: Option<IpAddr>,
+    host_bmc_ip: IpAddr,
+    pre_copy_powercycle: bool,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let state = PreingestionState::BfbRecoveryNeeded {
         reason,
         host_bmc_ip,
+        pre_copy_powercycle,
     };
     set_preingestion(address, state, txn).await
 }
 
-pub async fn set_preingestion_bfb_waiting_for_platform_powercycle(
+pub async fn set_preingestion_bfb_platform_powercycle(
     address: IpAddr,
     host_bmc_ip: IpAddr,
     phase: model::site_explorer::BfbPlatformPowercyclePhase,
+    post_install: bool,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
-    let state = PreingestionState::BfbWaitingForPlatformPowercycle { host_bmc_ip, phase };
+    let state = PreingestionState::BfbPlatformPowercycle {
+        host_bmc_ip,
+        phase,
+        post_install,
+    };
     set_preingestion(address, state, txn).await
 }
 
 pub async fn set_preingestion_bfb_copy_in_progress(
     address: IpAddr,
+    host_bmc_ip: IpAddr,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let state = PreingestionState::BfbCopyInProgress {
         started_at: Utc::now(),
+        host_bmc_ip,
     };
     set_preingestion(address, state, txn).await
 }
 
 pub async fn set_preingestion_bfb_installation_wait(
     address: IpAddr,
+    host_bmc_ip: IpAddr,
     txn: &mut PgConnection,
 ) -> Result<(), DatabaseError> {
     let state = PreingestionState::BfbInstallationWait {
         started_at: Utc::now(),
+        host_bmc_ip,
     };
     set_preingestion(address, state, txn).await
 }

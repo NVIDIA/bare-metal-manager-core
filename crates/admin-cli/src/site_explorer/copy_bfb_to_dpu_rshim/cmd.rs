@@ -32,6 +32,7 @@ pub async fn copy_bfb_to_dpu_rshim(api_client: &ApiClient, args: Args) -> Carbid
                 }),
             }),
             host_bmc_ip: args.host_bmc_ip,
+            pre_copy_powercycle: args.pre_copy_powercycle,
         })
         .await?;
 

@@ -50,6 +50,7 @@ mod cfg;
 mod client;
 mod deprovision;
 mod discovery;
+mod firmware_upgrade;
 mod machine_validation;
 mod mlx_device;
 mod register;
@@ -427,8 +428,68 @@ async fn handle_action(
             handle_mlxreport_action(config, machine_id, controller_response.data).await;
             return Ok(());
         }
+        Action::FirmwareUpgrade => {
+            handle_firmware_upgrade_action(config, machine_id, controller_response.data).await?;
+        }
     }
     Ok(())
+}
+
+// handle_firmware_upgrade_action processes a firmware upgrade task received
+// from carbide-api via ForgeAgentControl. The task data is a JSON-serialized
+// FirmwareUpgradeTask in the "firmware_upgrade_task" key-value pair.
+async fn handle_firmware_upgrade_action(
+    _config: &Options,
+    _machine_id: &MachineId,
+    data: Option<ForgeAgentControlExtraInfo>,
+) -> Result<(), CarbideClientError> {
+    let extra = data.ok_or_else(|| {
+        CarbideClientError::GenericError("firmware upgrade action missing extra data".to_string())
+    })?;
+
+    let task_json = extra
+        .pair
+        .iter()
+        .find(|kv| kv.key == "firmware_upgrade_task")
+        .map(|kv| &kv.value)
+        .ok_or_else(|| {
+            CarbideClientError::GenericError(
+                "firmware upgrade action missing firmware_upgrade_task key".to_string(),
+            )
+        })?;
+
+    let task: firmware_upgrade::FirmwareUpgradeTask =
+        serde_json::from_str(task_json).map_err(|e| {
+            CarbideClientError::GenericError(format!("failed to parse firmware upgrade task: {e}"))
+        })?;
+
+    let http_client = reqwest::Client::builder().no_proxy().build().map_err(|e| {
+        CarbideClientError::GenericError(format!("failed to build HTTP client: {e}"))
+    })?;
+
+    tracing::info!(
+        "[firmware_upgrade] received upgrade task for component={} version={}",
+        task.component_type,
+        task.target_version,
+    );
+
+    let result = firmware_upgrade::handle_firmware_upgrade(&http_client, &task).await;
+
+    // TODO: Report upgrade status back to carbide-api via ReportScoutFirmwareUpgradeStatus RPC when it is ready.
+
+    if result.success {
+        tracing::info!(
+            "[firmware_upgrade] completed successfully for component={} version={}",
+            task.component_type,
+            task.target_version,
+        );
+        Ok(())
+    } else {
+        Err(CarbideClientError::GenericError(format!(
+            "[firmware_upgrade] failed for component={} version={}: {}",
+            task.component_type, task.target_version, result.error,
+        )))
+    }
 }
 
 // carbide sent us an Action::MlxReport command in response to our

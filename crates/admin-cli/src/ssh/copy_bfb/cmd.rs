@@ -46,7 +46,7 @@ pub async fn copy_bfb(api_client: &ApiClient, args: Args) -> CarbideCliResult<()
     };
 
     if is_bf2 {
-        tracing::info!("Detected BlueField-2 DPU; using smaller SFTP buffer and longer timeout");
+        tracing::info!("Detected BlueField-2 DPU; using longer timeout");
     }
 
     copy_bfb_to_bmc_rshim(

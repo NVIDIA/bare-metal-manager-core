@@ -27,8 +27,27 @@ namespaceOverride: ""
 
 replicas: 1
 
-## Optional init containers (e.g. boot-artifacts)
+## Optional init containers (general-purpose pass-through)
 initContainers: []
+
+## Boot-artifact init containers
+## Each entry is rendered as a Kubernetes init container with the boot-artifacts
+## volume automatically mounted at /boot-artifacts/blobs/internal.
+bootArtifactContainers: []
+# bootArtifactContainers:
+#   - name: boot-artifacts-x86-64
+#     image: <your-registry>/boot-artifacts-x86_64:latest
+#     command: ["sh", "-c", "cp -r /x86_64 /boot-artifacts/blobs/internal"]
+#   - name: boot-artifacts-aarch64
+#     image: <your-registry>/boot-artifacts-aarch64:latest
+#     command: ["sh", "-c", "cp -r /aarch64 /apt /firmware /boot-artifacts/blobs/internal"]
+#   - name: machine-validation-config
+#     image: <your-registry>/machine-validation-config:latest
+#     command: ["sh", "-c", "cp -r /machine-validation /boot-artifacts/blobs/internal"]
+
+## Boot artifact serving configuration
+bootArtifacts:
+  servePath: /boot-artifacts
 
 annotations:
   configmap.reloader.stakater.com/reload: "carbide-pxe-env-config"
