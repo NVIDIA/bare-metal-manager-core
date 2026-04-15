@@ -15,20 +15,22 @@
  * limitations under the License.
  */
 
-use clap::Parser;
+use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::forge::ConfigSetting;
 
-#[derive(Parser, Debug, Clone)]
-#[clap(group = clap::ArgGroup::new("toggle").required(true))]
-pub struct Args {
-    #[clap(long, group = "toggle", help = "Enable machine creation")]
-    pub enable: bool,
+use super::args::Args;
+use crate::rpc::ApiClient;
 
-    #[clap(long, group = "toggle", help = "Disable machine creation")]
-    pub disable: bool,
-}
-
-impl Args {
-    pub fn is_enabled(&self) -> bool {
-        self.enable
-    }
+pub async fn site_explorer_enabled(opts: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+    let enabled = opts.is_enabled();
+    api_client
+        .set_dynamic_config(
+            ConfigSetting::SiteExplorerEnabled,
+            enabled.to_string(),
+            None,
+        )
+        .await?;
+    let state = if enabled { "enabled" } else { "disabled" };
+    println!("site-explorer {state}");
+    Ok(())
 }

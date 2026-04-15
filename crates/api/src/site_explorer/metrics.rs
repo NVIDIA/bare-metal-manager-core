@@ -24,6 +24,7 @@ use model::site_explorer::{EndpointExplorationError, MachineExpectation};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
 
+use crate::cfg::file::SiteExplorerConfig;
 use crate::logging::metrics_utils::SharedMetricsHolder;
 
 /// Reasons why a host fails to pair with its DPU(s).
@@ -255,7 +256,11 @@ pub struct SiteExplorerInstruments {
 }
 
 impl SiteExplorerInstruments {
-    pub fn new(meter: Meter, shared_metrics: SharedMetricsHolder<SiteExplorationMetrics>) -> Self {
+    pub fn new(
+        meter: Meter,
+        shared_metrics: SharedMetricsHolder<SiteExplorationMetrics>,
+        config: &SiteExplorerConfig,
+    ) -> Self {
         {
             let metrics = shared_metrics.clone();
             meter
@@ -633,6 +638,32 @@ impl SiteExplorerInstruments {
             .with_unit("s")
             .build();
 
+        {
+            let enabled = config.enabled.clone();
+            meter
+                .u64_observable_gauge("carbide_site_explorer_enabled")
+                .with_description("Whether site-explorer is enabled (1) or paused (0)")
+                .with_callback(move |observer| {
+                    let val = u64::from(enabled.load(std::sync::atomic::Ordering::Relaxed));
+                    observer.observe(val, &[]);
+                })
+                .build();
+        }
+
+        {
+            let create_machines = config.create_machines.clone();
+            meter
+                .u64_observable_gauge("carbide_site_explorer_create_machines")
+                .with_description(
+                    "Whether site-explorer machine creation is enabled (1) or disabled (0)",
+                )
+                .with_callback(move |observer| {
+                    let val = u64::from(create_machines.load(std::sync::atomic::Ordering::Relaxed));
+                    observer.observe(val, &[]);
+                })
+                .build();
+        }
+
         SiteExplorerInstruments {
             endpoint_exploration_duration,
             site_explorer_iteration_latency,
@@ -710,9 +741,14 @@ pub struct MetricHolder {
 }
 
 impl MetricHolder {
-    pub fn new(meter: Meter, hold_period: std::time::Duration) -> Self {
+    pub fn new(
+        meter: Meter,
+        hold_period: std::time::Duration,
+        config: &SiteExplorerConfig,
+    ) -> Self {
         let last_iteration_metrics = SharedMetricsHolder::with_hold_period(hold_period);
-        let instruments = SiteExplorerInstruments::new(meter, last_iteration_metrics.clone());
+        let instruments =
+            SiteExplorerInstruments::new(meter, last_iteration_metrics.clone(), config);
         Self {
             instruments,
             last_iteration_metrics,

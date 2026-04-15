@@ -1088,7 +1088,7 @@ pub fn get_config() -> CarbideConfig {
         max_concurrent_machine_updates: None,
         machine_update_run_interval: Some(1),
         site_explorer: SiteExplorerConfig {
-            enabled: false,
+            enabled: Arc::new(false.into()),
             run_interval: std::time::Duration::from_secs(0),
             concurrent_explorations: 0,
             explorations_per_run: 0,
@@ -1467,6 +1467,7 @@ pub async fn create_test_env_with_overrides(
                 .unwrap(),
             None,
         )),
+        site_explorer_enabled: config.site_explorer.enabled.clone(),
         create_machines: config.site_explorer.create_machines.clone(),
         bmc_proxy: config.site_explorer.bmc_proxy.clone(),
         tracing_enabled: Arc::new(false.into()),
@@ -1655,7 +1656,7 @@ pub async fn create_test_env_with_overrides(
     let site_explorer = SiteExplorer::new(
         db_pool.clone(),
         SiteExplorerConfig {
-            enabled: true,
+            enabled: Arc::new(true.into()),
             // run_interval shouldn't matter, this should not be run(), we only trigger intervals manually.
             run_interval: Duration::seconds(0).to_std().unwrap(),
             concurrent_explorations: 100,
