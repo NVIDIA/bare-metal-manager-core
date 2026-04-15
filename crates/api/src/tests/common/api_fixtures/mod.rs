@@ -1581,11 +1581,7 @@ pub async fn create_test_env_with_overrides(
         .io(Arc::new(MachineStateControllerIO {
             host_health: config.host_health,
             sla_config: model::machine::slas::MachineSlaConfig::new(
-                config
-                    .machine_state_controller
-                    .failure_retry_time
-                    .to_std()
-                    .unwrap_or_default(),
+                config.machine_state_controller.failure_retry_time,
             ),
         }))
         .build_for_manual_iterations(cancel_token.clone())

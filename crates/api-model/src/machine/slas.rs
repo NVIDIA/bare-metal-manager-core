@@ -61,15 +61,18 @@ pub struct MachineSlaConfig {
 impl Default for MachineSlaConfig {
     fn default() -> Self {
         // Default failure_retry_time is 30 minutes.
-        Self::new(Duration::from_secs(30 * 60))
+        Self::new(chrono::Duration::minutes(30))
     }
 }
 
 impl MachineSlaConfig {
-    pub fn new(failure_retry_time: Duration) -> Self {
+    pub fn new(failure_retry_time: chrono::Duration) -> Self {
+        let failure_retry_time = failure_retry_time
+            .to_std()
+            .unwrap_or(Duration::from_secs(30 * 60));
         Self {
-            /// Set to 1.1 * failure_retry_time so the SLA fires
-            /// shortly after the retry would have triggered.
+            // Set to 1.1 * failure_retry_time so the SLA fires
+            // shortly after the retry would have triggered.
             assigned_booting_with_discovery_image: failure_retry_time * 11 / 10,
         }
     }

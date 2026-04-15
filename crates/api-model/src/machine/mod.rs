@@ -429,6 +429,7 @@ impl ManagedHostStateSnapshot {
     pub fn rpc_machine_state(
         &self,
         dpu_machine_id: Option<&MachineId>,
+        sla_config: &slas::MachineSlaConfig,
     ) -> Option<rpc::forge::Machine> {
         match dpu_machine_id {
             None => {
@@ -442,7 +443,7 @@ impl ManagedHostStateSnapshot {
                         state,
                         version,
                         &self.aggregate_health,
-                        &slas::MachineSlaConfig::default(),
+                        sla_config,
                     )
                     .into(),
                 );
@@ -456,6 +457,18 @@ impl ManagedHostStateSnapshot {
                 let mut rpc_machine: rpc::forge::Machine = dpu_snapshot.clone().into();
                 // In case the DPU does not know the associated Host - we can backfill the data here
                 rpc_machine.associated_host_machine_id = Some(self.host_snapshot.id);
+                // Overwrite state_sla with the configured MachineSlaConfig
+                // (the From<Machine> impl uses MachineSlaConfig::default())
+                rpc_machine.state_sla = Some(
+                    state_sla(
+                        &dpu_snapshot.id,
+                        &dpu_snapshot.state.value,
+                        &dpu_snapshot.state.version,
+                        &self.aggregate_health,
+                        sla_config,
+                    )
+                    .into(),
+                );
                 Some(rpc_machine)
             }
         }
@@ -1132,16 +1145,8 @@ impl From<Machine> for rpc::forge::Machine {
             }),
             instance_type_id: machine.instance_type_id.map(|i| i.to_string()),
             state_version: machine.state.version.version_string(),
-            state_sla: Some(
-                state_sla(
-                    &machine.id,
-                    &machine.state.value,
-                    &machine.state.version,
-                    &health,
-                    &slas::MachineSlaConfig::default(),
-                )
-                .into(),
-            ),
+            // calculated at RPC handler, see ManagedHostStateSnapshot::rpc_machine_state
+            state_sla: None,
             machine_type: *RpcMachineTypeWrapper::from(machine.id.machine_type()) as _,
             metadata: Some(machine.metadata.into()),
             version: machine.version.version_string(),

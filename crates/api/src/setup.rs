@@ -886,16 +886,7 @@ pub async fn initialize_and_start_controllers(
                     .suppress_external_alerting_on_scout_heartbeat_timeout,
             },
             sla_config: model::machine::slas::MachineSlaConfig::new(
-                carbide_config
-                    .machine_state_controller
-                    .failure_retry_time
-                    .to_std()
-                    .unwrap_or(
-                        crate::cfg::file::MachineStateControllerConfig::failure_retry_time_default(
-                        )
-                        .to_std()
-                        .expect("default failure_retry_time is valid"),
-                    ),
+                carbide_config.machine_state_controller.failure_retry_time,
             ),
         }))
         .state_change_emitter(state_change_emitter)
