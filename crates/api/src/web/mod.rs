@@ -29,6 +29,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{Router, get, post};
 use axum_extra::extract::Host;
 use axum_extra::extract::cookie::{Cookie, Key, PrivateCookieJar};
+use carbide_authn::middleware::Principal;
 use http::header::CONTENT_TYPE;
 use http::{HeaderMap, Request, StatusCode, Uri};
 use itertools::Itertools;
@@ -47,7 +48,7 @@ use tower_http::normalize_path::NormalizePath;
 
 use crate::CarbideError;
 use crate::api::Api;
-use crate::auth::{AuthContext, Principal};
+use crate::auth::AuthContext;
 use crate::cfg::file::CarbideConfig;
 
 /// Reusable template for rendering metadata (name, description, labels, version)

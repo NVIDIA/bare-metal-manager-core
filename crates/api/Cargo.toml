@@ -54,6 +54,7 @@ carbide-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
 carbide-libmlx = { path = "../libmlx" }
 carbide-api-model = { path = "../api-model", default-features = false }
 carbide-api-db = { path = "../api-db", default-features = false }
+carbide-authn = { path = "../authn" }
 spancounter = { path = "../spancounter" }
 nras = { path = "../nras" }
 carbide-dpf = { path = "../dpf" }
@@ -97,10 +98,10 @@ itertools = { workspace = true }
 jsonwebtoken = { features = ["rust_crypto"], workspace = true }
 k8s-openapi = { features = ["latest"], workspace = true }
 kube = { default-features = false, features = [
-  "runtime",
-  "derive",
-  "client",
-  "rustls-tls",
+    "runtime",
+    "derive",
+    "client",
+    "rustls-tls",
 ], workspace = true }
 lazy_static = { workspace = true }
 libredfish = { workspace = true }
@@ -116,13 +117,13 @@ opentelemetry = { workspace = true, features = ["logs"] }
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
 opentelemetry-prometheus.workspace = true
 opentelemetry-semantic-conventions = { features = [
-  "semconv_experimental",
+    "semconv_experimental",
 ], workspace = true }
 opentelemetry_sdk = { workspace = true, features = [
-  "logs",
-  "rt-tokio",
-  "spec_unstable_metrics_views",
-  "testing",
+    "logs",
+    "rt-tokio",
+    "spec_unstable_metrics_views",
+    "testing",
 ] }
 pkcs1 = { workspace = true }
 p256 = { workspace = true }
@@ -131,8 +132,8 @@ prost-types = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 reqwest = { default-features = false, features = [
-  "rustls-tls",
-  "stream",
+    "rustls-tls",
+    "stream",
 ], workspace = true }
 rsa = { workspace = true }
 rumqttc = { workspace = true }
@@ -144,15 +145,15 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true, features = [
-  "runtime-tokio-rustls",
-  "mac_address",
-  "ipnetwork",
-  "uuid",
-  "migrate",
-  "postgres",
-  "chrono",
-  "macros",
-  "json",
+    "runtime-tokio-rustls",
+    "mac_address",
+    "ipnetwork",
+    "uuid",
+    "migrate",
+    "postgres",
+    "chrono",
+    "macros",
+    "json",
 ] }
 strum = { workspace = true }
 temp-dir = { workspace = true }
@@ -168,16 +169,16 @@ tonic = { workspace = true }
 tonic-reflection = { workspace = true }
 tower = { workspace = true }
 tower-http = { features = [
-  "add-extension",
-  "auth",
-  "normalize-path",
+    "add-extension",
+    "auth",
+    "normalize-path",
 ], workspace = true }
 tracing = { workspace = true }
 tracing-log = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { features = [
-  "env-filter",
-  "local-time",
+    "env-filter",
+    "local-time",
 ], workspace = true }
 tss-esapi = { optional = true, workspace = true }
 url = { features = ["serde"], workspace = true }

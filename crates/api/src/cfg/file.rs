@@ -28,6 +28,7 @@ use std::{fmt, fs};
 
 use arc_swap::ArcSwap;
 use bmc_vendor::BMCVendor;
+use carbide_authn::config::{AllowedCertCriteria, TrustConfig};
 use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
 use ipnetwork::{IpNetwork, Ipv4Network};
@@ -1999,40 +2000,6 @@ pub struct AuthConfig {
     pub trust: Option<TrustConfig>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct TrustConfig {
-    /// The SPIFFE trust domain which client certs must adhere to
-    pub spiffe_trust_domain: String,
-    /// Allowed base paths for valid client cert spiffe:// URIs for services
-    pub spiffe_service_base_paths: Vec<String>,
-    /// Allowed base path for client cert spiffe:// URIs for machines
-    pub spiffe_machine_base_path: String,
-    /// Additional issuer CN's to trust other than the SPIFFE issuer, useful for external user certs.
-    pub additional_issuer_cns: Vec<String>,
-}
-
-#[derive(Eq, PartialEq, Hash, Clone, Debug, Deserialize, Serialize)]
-pub enum CertComponent {
-    IssuerO,
-    IssuerOU,
-    IssuerCN,
-    SubjectO,
-    SubjectOU,
-    SubjectCN,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
-pub struct AllowedCertCriteria {
-    /// These components of the cert must equal the given values to be approved
-    pub required_equals: HashMap<CertComponent, String>,
-    /// Use this cert component to specify the group it should be reported as
-    pub group_from: Option<CertComponent>,
-    /// Use this cert component to pick the username
-    pub username_from: Option<CertComponent>,
-    /// If not using username_from, specify the username used for all certs of this type
-    pub username: Option<String>,
-}
-
 fn default_listen() -> SocketAddr {
     "[::]:1079".parse().unwrap()
 }
@@ -3312,6 +3279,7 @@ pub fn default_host_intercept_bridge_port() -> String {
 
 #[cfg(test)]
 mod tests {
+    use carbide_authn::config::CertComponent;
     use chrono::Datelike;
     use figment::Figment;
     use figment::providers::{Env, Format, Toml};

@@ -48,8 +48,8 @@ pub(crate) async fn discover_machine(
             // we use to_canonical() to convert it to IPv4.
             request
                 .extensions()
-                .get::<Arc<crate::listener::ConnectionAttributes>>()
-                .map(|conn_attrs| conn_attrs.peer_address().ip().to_canonical())
+                .get::<Arc<carbide_authn::middleware::ConnectionAttributes>>()
+                .map(|conn_attrs| conn_attrs.peer_address.ip().to_canonical())
         }
         Some(ip_str) => {
             // Development case, we override the remote IP with HTTP header

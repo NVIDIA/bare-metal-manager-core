@@ -13,6 +13,7 @@ The chart is designed for production environments where Carbide manages the full
 | # | Subchart | Description |
 |---|----------|-------------|
 | 1 | **carbide-api** | Core API server (gRPC + REST). Manages machines, provisioning, networking, and firmware. Requires PostgreSQL and Vault. |
+| 2 | **carbide-bmc-proxy** | Authenticating proxy for connecting to BMC's over HTTPS (redfish) |
 | 2 | **carbide-dhcp** | DHCP server (Kea-based) for bare metal PXE boot and network assignment. |
 | 3 | **carbide-dns** | Authoritative DNS server for managed machines and VPCs. |
 | 4 | **carbide-dsx-exchange-consumer** | Consumes DSX exchange messages for machine telemetry and state updates. |
@@ -164,6 +165,7 @@ carbide-dns:
 | Subchart | Workload Type | Primary Port(s) | TLS Certificate | Metrics |
 |----------|--------------|-----------------|-----------------|---------|
 | carbide-api | Deployment | 1079 (gRPC), 1080 (metrics), 1081 (profiler) | Yes | ServiceMonitor |
+| carbide-bmc-proxy | Deployment | 1079 (gRPC), 1080 (metrics) | Yes | ServiceMonitor |
 | carbide-dhcp | Deployment | 67/UDP, 1089 (metrics) | Yes | ServiceMonitor |
 | carbide-dns | StatefulSet | 53/TCP, 53/UDP | Yes | -- |
 | carbide-dsx-exchange-consumer | Deployment | 9009 | Yes | ServiceMonitor |

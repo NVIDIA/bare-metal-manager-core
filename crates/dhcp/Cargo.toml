@@ -26,6 +26,7 @@ once_cell = { workspace = true }
 opentelemetry = { workspace = true }
 prost = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tonic = { workspace = true }
 
 # [local-dependencies]

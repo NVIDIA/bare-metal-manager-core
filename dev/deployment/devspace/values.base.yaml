@@ -100,6 +100,33 @@ carbide-api:
       run_interval = "10s"
       concurrency_limit = 100
 
+carbide-bmc-proxy:
+  enabled: true
+  replicas: 1 # save on local resources
+  configFiles:
+    enabled: true
+    carbideBmcProxyConfig: |
+      listen = "[::]:1079"
+      metrics_endpoint = "[::]:1080"
+      database_url = "postgres://replaced-by-env-var"
+      allowed_principals = ["trusted-certificate"]
+      bmc_proxy = "machine-a-tron-bmc-mock.forge-system.svc.cluster.local:1266"
+
+      [tls]
+      identity_pemfile_path = "/var/run/secrets/spiffe.io/tls.crt"
+      identity_keyfile_path = "/var/run/secrets/spiffe.io/tls.key"
+      root_cafile_path = "/var/run/secrets/spiffe.io/ca.crt"
+      admin_root_cafile_path = "/etc/forge/carbide-bmc-proxy/site/admin_root_cert_pem"
+
+      [auth.trust]
+      spiffe_trust_domain = "forge.local"
+      spiffe_service_base_paths = [
+        "/forge-system/sa/",
+        "/default/sa/",
+      ]
+      spiffe_machine_base_path = "/forge-system/machine/"
+      additional_issuer_cns = []
+
 carbide-dhcp:
   enabled: false
 carbide-dns:

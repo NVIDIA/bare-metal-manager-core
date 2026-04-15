@@ -184,7 +184,7 @@ impl SpiffeId {
 
 #[test]
 fn test_new() {
-    use crate::auth::spiffe_id::SpiffeId;
+    use crate::spiffe_id::SpiffeId;
 
     let spiffe_id = SpiffeId::new("spiffe://trustdomain/path").unwrap();
     assert_eq!("trustdomain", spiffe_id.trust_domain().to_string());
@@ -193,7 +193,7 @@ fn test_new() {
 
 #[test]
 fn test_from_segments() {
-    use crate::auth::spiffe_id::{SpiffeId, TrustDomain};
+    use crate::spiffe_id::{SpiffeId, TrustDomain};
 
     let trust_domain = TrustDomain::new("trustdomain").unwrap();
     let spiffe_id = SpiffeId::from_segments(trust_domain, &["path1", "path2", "path3"]).unwrap();
@@ -315,7 +315,7 @@ impl TrustDomain {
 
 #[test]
 fn test_new_trust_domain() {
-    use crate::auth::spiffe_id::TrustDomain;
+    use crate::spiffe_id::TrustDomain;
 
     let trust_domain = TrustDomain::new("domain.test").unwrap();
     assert_eq!("domain.test", trust_domain.to_string());
@@ -376,7 +376,7 @@ fn is_valid_trust_domain_char(c: char) -> bool {
 }
 
 #[cfg(test)]
-mod spiffe_id_tests {
+mod tests {
     use super::*;
 
     pub(crate) const TD_CHARS: &[char] = &[
@@ -611,13 +611,6 @@ mod spiffe_id_tests {
             }
         }
     }
-}
-
-#[cfg(test)]
-mod trust_domain_tests {
-
-    use super::spiffe_id_tests::TD_CHARS;
-    use super::*;
 
     macro_rules! trust_domain_success_tests {
         ($($name:ident: $value:expr,)*) => {
@@ -653,55 +646,55 @@ mod trust_domain_tests {
     }
 
     trust_domain_error_tests! {
-        from_empty_str: ("", SpiffeIdError::MissingTrustDomain),
-        from_invalid_scheme:  ("other://domain.test", SpiffeIdError::WrongScheme),
-        from_uri_with_port: ("spiffe://domain.test:80", SpiffeIdError::BadTrustDomainChar),
-        from_uri_with_userinfo: ("spiffe://user:pass@domain.test", SpiffeIdError::BadTrustDomainChar),
-        from_uri_with_invalid_domain: ("spiffe:// domain.test", SpiffeIdError::BadTrustDomainChar),
-        from_uri_with_empty_scheme: ("://domain.test", SpiffeIdError::WrongScheme),
-        from_uri_with_empty_domain: ("spiffe:///path", SpiffeIdError::MissingTrustDomain),
+        trust_domain_from_empty_str: ("", SpiffeIdError::MissingTrustDomain),
+        trust_domain_from_invalid_scheme:  ("other://domain.test", SpiffeIdError::WrongScheme),
+        trust_domain_from_uri_with_port: ("spiffe://domain.test:80", SpiffeIdError::BadTrustDomainChar),
+        trust_domain_from_uri_with_userinfo: ("spiffe://user:pass@domain.test", SpiffeIdError::BadTrustDomainChar),
+        trust_domain_from_uri_with_invalid_domain: ("spiffe:// domain.test", SpiffeIdError::BadTrustDomainChar),
+        trust_domain_from_uri_with_empty_scheme: ("://domain.test", SpiffeIdError::WrongScheme),
+        trust_domain_from_uri_with_empty_domain: ("spiffe:///path", SpiffeIdError::MissingTrustDomain),
     }
 
     #[test]
-    fn test_equals() {
+    fn test_trust_domain_equals() {
         let td_1 = TrustDomain::new("domain.test").unwrap();
         let td_2 = TrustDomain::new("domain.test").unwrap();
         assert_eq!(td_1, td_2);
     }
 
     #[test]
-    fn test_not_equals() {
+    fn test_trust_domain_not_equals() {
         let td_1 = TrustDomain::new("domain.test").unwrap();
         let td_2 = TrustDomain::new("other.test").unwrap();
         assert_ne!(td_1, td_2);
     }
 
     #[test]
-    fn test_to_string() {
+    fn test_trust_domain_to_string() {
         let trust_domain = TrustDomain::from_str("spiffe://example.org").unwrap();
         assert_eq!(trust_domain.to_string(), "example.org");
     }
 
     #[test]
-    fn test_to_id_string() {
+    fn test_trust_domain_to_id_string() {
         let trust_domain = TrustDomain::from_str("example.org").unwrap();
         assert_eq!(trust_domain.id_string(), "spiffe://example.org");
     }
 
     #[test]
-    fn test_try_from_str() {
+    fn test_trust_domain_try_from_str() {
         let trust_domain = TrustDomain::try_from("example.org").unwrap();
         assert_eq!(trust_domain.to_string(), "example.org");
     }
 
     #[test]
-    fn test_try_from_string() {
+    fn test_trust_domain_try_from_string() {
         let trust_domain = TrustDomain::try_from(String::from("example.org")).unwrap();
         assert_eq!(trust_domain.to_string(), "example.org");
     }
 
     #[test]
-    fn test_parse_with_all_chars() {
+    fn test_trust_domain_parse_with_all_chars() {
         // Go all the way through 255, which ensures we reject UTF-8 appropriately
         for i in 0..=255_u8 {
             let c = i as char;

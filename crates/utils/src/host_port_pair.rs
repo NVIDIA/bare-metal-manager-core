@@ -37,6 +37,13 @@ pub enum HostPortPair {
 }
 
 impl HostPortPair {
+    pub fn new(host: String, port: Option<u16>) -> Self {
+        match port {
+            Some(port) => HostPortPair::HostAndPort(host, port),
+            None => HostPortPair::HostOnly(host),
+        }
+    }
+
     pub fn host(&self) -> Option<&str> {
         match self {
             HostPortPair::PortOnly(_) => None,

@@ -31,6 +31,7 @@ use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_semantic_conventions as semconv;
 use prometheus::{Encoder, TextEncoder};
 use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
 
 /// Health and readiness controller
 #[derive(Debug, Clone)]
@@ -157,11 +158,6 @@ fn create_metric_view_for_retry_histograms(
 
 /// Start a HTTP endpoint which exposes metrics using the provided configuration
 pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), std::io::Error> {
-    let handler_state = Arc::new(MetricsHandlerState {
-        registry: config.registry.clone(),
-        health_controller: config.health_controller.clone().unwrap_or_default(),
-    });
-
     let listener = TcpListener::bind(&config.address).await?;
 
     tracing::info!(
@@ -169,9 +165,29 @@ pub async fn run_metrics_endpoint(config: &MetricsEndpointConfig) -> Result<(), 
         "Starting metrics listener"
     );
 
-    loop {
-        let (stream, _) = listener.accept().await?;
+    run_metrics_endpoint_with_listener(config, CancellationToken::new(), listener).await;
+    Ok(())
+}
 
+/// Run the metrics service on an existing listener (which allows this function to not return errors.)
+pub async fn run_metrics_endpoint_with_listener(
+    config: &MetricsEndpointConfig,
+    cancel_token: CancellationToken,
+    listener: TcpListener,
+) {
+    let handler_state = Arc::new(MetricsHandlerState {
+        registry: config.registry.clone(),
+        health_controller: config.health_controller.clone().unwrap_or_default(),
+    });
+
+    while let Some(result) = cancel_token.run_until_cancelled(listener.accept()).await {
+        let stream = match result {
+            Ok((stream, _addr)) => stream,
+            Err(e) => {
+                tracing::error!("error accepting TCP connection: {e}");
+                continue;
+            }
+        };
         let io = TokioIo::new(stream);
 
         let handler_state = handler_state.clone();

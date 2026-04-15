@@ -1,0 +1,10 @@
+apiVersion: v2
+name: carbide-bmc-proxy
+description: Helm chart for the Carbide BMC proxy component
+type: application
+version: 0.1.0
+appVersion: "latest"
+keywords:
+  - carbide
+  - bmc-proxy
+  - forge

@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: carbide-bmc-proxy-config-files
+  namespace: {{ include "carbide-bmc-proxy.namespace" . }}
+  labels:
+    {{- include "carbide-bmc-proxy.labels" . | nindent 4 }}
+data:
+  carbide-bmc-proxy.toml: |
+    {{- if .Values.configFiles.carbideBmcProxyConfig }}
+    {{- .Values.configFiles.carbideBmcProxyConfig | nindent 4 }}
+    {{- else }}
+    {{- .Files.Get "files/carbide-bmc-proxy.toml" | nindent 4 }}
+    {{- end }}
+{{- if .Values.databaseConfig }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.envFrom.databaseConfig.configMapName }}
+  namespace: {{ include "carbide-bmc-proxy.namespace" . }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+  labels:
+    {{- include "carbide-bmc-proxy.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.databaseConfig }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+{{- end }}

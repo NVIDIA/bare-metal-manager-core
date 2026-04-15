@@ -120,10 +120,10 @@ where
             let mut client_certs = 0;
             if let Some(conn_attrs) = request
                 .extensions()
-                .get::<Arc<crate::listener::ConnectionAttributes>>()
+                .get::<Arc<carbide_authn::middleware::ConnectionAttributes>>()
             {
-                client_address = *conn_attrs.peer_address();
-                client_certs = conn_attrs.peer_certificates().len();
+                client_address = conn_attrs.peer_address;
+                client_certs = conn_attrs.peer_certificates.len();
             }
 
             // Start a span which tracks the API request

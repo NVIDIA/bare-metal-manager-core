@@ -26,6 +26,7 @@ use utils::HostPortPair;
 
 use super::logging::level_filter::ActiveLevel;
 
+#[derive(Clone)]
 pub struct DynamicSettings {
     /// RUST_LOG level
     pub log_filter: Arc<ActiveLevel>,

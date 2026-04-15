@@ -383,7 +383,7 @@ async fn handle_request(
     }
 }
 
-async fn create_client(
+pub(crate) async fn create_client(
     uri: http::Uri,
     pool: &PgPool,
     credential_reader: &dyn CredentialReader,

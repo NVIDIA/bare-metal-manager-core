@@ -22,6 +22,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use eyre::{ContextCompat, WrapErr, eyre};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter};
@@ -102,6 +104,29 @@ impl ForgeVaultClientConfig {
     }
 }
 
+/// Get the kubernetes ServiceAccount name from a ServiceAccount token.
+///
+/// The token itself is a JWT, and the ServiceAccount name is in the
+/// `["kubernetes.io"]["serviceaccount"]["name"]` key path within the JWT's payload.
+///
+/// Documentation on the payload is here:
+/// https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#serviceaccount-token-volume-projection
+fn service_account_role_name_from_jwt(jwt: &str) -> Result<String, eyre::Report> {
+    let payload = jwt
+        .split('.')
+        .nth(1)
+        .context("service account jwt missing payload")?;
+    let decoded_payload = URL_SAFE_NO_PAD
+        .decode(payload)
+        .wrap_err("failed to decode service account jwt payload")?;
+    let json_value = serde_json::from_slice::<serde_json::Value>(&decoded_payload)
+        .wrap_err("failed to parse service account jwt payload")?;
+    json_value["kubernetes.io"]["serviceaccount"]["name"]
+        .as_str()
+        .wrap_err("JWT payload does not contain /kubernetes.io/serviceaccount/name")
+        .map(str::to_string)
+}
+
 #[derive(Debug, Clone)]
 pub struct ForgeVaultMetrics {
     pub vault_requests_total_counter: Counter<u64>,
@@ -160,6 +185,12 @@ async fn vault_token_refresh(
                 .trim()
                 .to_string();
 
+            // Multiple services use this crate (carbide-secrets), so figure out what service account
+            // to use to auth to vault. The token JWT contains the service account name in the decoded
+            // JSON, so we can just read that.
+            let role_name =
+                service_account_role_name_from_jwt(&jwt).wrap_err("service_account_role_name")?;
+
             let vault_client_settings = create_vault_client_settings(
                 "silly vaultrs bugs make me sad",
                 vault_client_config,
@@ -172,7 +203,7 @@ async fn vault_token_refresh(
             let vault_response = vaultrs::auth::kubernetes::login(
                 &vault_client,
                 "kubernetes",
-                "carbide-api",
+                role_name.as_str(),
                 jwt.as_str(),
             )
             .await;
@@ -832,4 +863,70 @@ pub fn create_vault_client(
 
     let forge_vault_client = ForgeVaultClient::new(vault_client_config, forge_vault_metrics);
     Ok(Arc::new(forge_vault_client))
+}
+
+#[cfg(test)]
+mod tests {
+    use base64::Engine;
+    use serde_json::json;
+
+    use super::service_account_role_name_from_jwt;
+
+    fn jwt_from_payload(payload_value: serde_json::Value) -> String {
+        let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(r#"{"alg":"none","typ":"JWT"}"#);
+        let payload =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload_value.to_string());
+        format!("{header}.{payload}.")
+    }
+
+    fn jwt_with_account(account: serde_json::Value) -> String {
+        jwt_from_payload(json!({
+          "aud": [
+            "https://kubernetes.default.svc"
+          ],
+          "exp": 1731613413,
+          "iat": 1700077413,
+          "iss": "https://kubernetes.default.svc",
+          "jti": "ea28ed49-2e11-4280-9ec5-bc3d1d84661a",
+          "kubernetes.io": {
+            "namespace": "kube-system",
+            "node": {
+              "name": "127.0.0.1",
+              "uid": "58456cb0-dd00-45ed-b797-5578fdceaced"
+            },
+            "pod": {
+              "name": "coredns-69cbfb9798-jv9gn",
+              "uid": "778a530c-b3f4-47c0-9cd5-ab018fb64f33"
+            },
+            "serviceaccount": {
+              "name": account,
+              "uid": "a087d5a0-e1dd-43ec-93ac-f13d89cd13af"
+            },
+            "warnafter": 1700081020
+          },
+          "nbf": 1700077413,
+          // The service account is also in the `sub` field. We don't read it, but let's mock it faithfully.
+          "sub": format!("system:serviceaccount:kube-system:{account}"),
+        }))
+    }
+
+    #[test]
+    fn extracts_service_account_name_from_kubernetes_jwt_subject() {
+        let jwt = jwt_with_account("carbide-bmc-proxy".into());
+        let role_name = service_account_role_name_from_jwt(&jwt).unwrap();
+        assert_eq!(role_name, "carbide-bmc-proxy");
+    }
+
+    #[test]
+    fn rejects_unexpected_jwt_subject_format() {
+        let jwt = jwt_with_account(serde_json::Value::Null);
+        assert!(service_account_role_name_from_jwt(&jwt).is_err());
+    }
+
+    #[test]
+    fn rejects_random_json() {
+        let jwt = jwt_from_payload(json!({"foo": ["bar"]}));
+        assert!(service_account_role_name_from_jwt(&jwt).is_err());
+    }
 }
