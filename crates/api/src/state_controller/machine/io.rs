@@ -326,6 +326,7 @@ impl StateControllerIO for MachineStateControllerIO {
             &state.value,
             &state.version,
             &object_state.aggregate_health,
+            &self.sla_config,
         )
     }
 }

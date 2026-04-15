@@ -442,6 +442,7 @@ impl ManagedHostStateSnapshot {
                         state,
                         version,
                         &self.aggregate_health,
+                        &slas::MachineSlaConfig::default(),
                     )
                     .into(),
                 );
@@ -1137,6 +1138,7 @@ impl From<Machine> for rpc::forge::Machine {
                     &machine.state.value,
                     &machine.state.version,
                     &health,
+                    &slas::MachineSlaConfig::default(),
                 )
                 .into(),
             ),
@@ -2470,6 +2472,7 @@ pub fn state_sla(
     state: &ManagedHostState,
     state_version: &ConfigVersion,
     aggregate_health: &health_report::HealthReport,
+    sla_config: &slas::MachineSlaConfig,
 ) -> StateSla {
     let exclude = health_report::HealthAlertClassification::exclude_from_state_machine_sla();
     if aggregate_health
@@ -2531,9 +2534,11 @@ pub fn state_sla(
         ManagedHostState::Ready => StateSla::no_sla(),
         ManagedHostState::Assigned { instance_state } => match instance_state {
             InstanceState::Ready => StateSla::no_sla(),
-            InstanceState::BootingWithDiscoveryImage { retry } if retry.count > 0 => {
-                // Since retries happen after 30min, the occurence of any retry means we exhausted the SLA
-                StateSla::with_sla(std::time::Duration::ZERO, time_in_state)
+            InstanceState::BootingWithDiscoveryImage { retry } if retry.count > 1 => {
+                StateSla::with_sla(
+                    sla_config.assigned_booting_with_discovery_image,
+                    time_in_state,
+                )
             }
             InstanceState::HostPlatformConfiguration { .. } => {
                 StateSla::with_sla(slas::ASSIGNED_HOST_PLATFORM_CONFIGURATION, time_in_state)
@@ -2942,7 +2947,13 @@ mod tests {
             health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
         ])]);
 
-        let sla = state_sla(&machine_id, &state, &state_version, &health);
+        let sla = state_sla(
+            &machine_id,
+            &state,
+            &state_version,
+            &health,
+            &slas::MachineSlaConfig::default(),
+        );
 
         assert!(sla.sla.is_none(), "SLA should be absent when excluded");
         assert!(
@@ -2971,7 +2982,13 @@ mod tests {
             ]),
         ]);
 
-        let sla = state_sla(&machine_id, &state, &state_version, &health);
+        let sla = state_sla(
+            &machine_id,
+            &state,
+            &state_version,
+            &health,
+            &slas::MachineSlaConfig::default(),
+        );
 
         assert!(
             sla.sla.is_none(),
@@ -2993,7 +3010,13 @@ mod tests {
             health_report::HealthAlertClassification::prevent_allocations(),
         ])]);
 
-        let sla = state_sla(&machine_id, &state, &state_version, &health);
+        let sla = state_sla(
+            &machine_id,
+            &state,
+            &state_version,
+            &health,
+            &slas::MachineSlaConfig::default(),
+        );
 
         assert!(
             sla.sla.is_some(),
@@ -3012,7 +3035,13 @@ mod tests {
         let state_version = ConfigVersion::initial();
         let health = health_report_with_alerts(vec![]);
 
-        let sla = state_sla(&machine_id, &state, &state_version, &health);
+        let sla = state_sla(
+            &machine_id,
+            &state,
+            &state_version,
+            &health,
+            &slas::MachineSlaConfig::default(),
+        );
 
         assert!(
             sla.sla.is_some(),
@@ -3041,7 +3070,13 @@ mod tests {
             health_report::HealthAlertClassification::exclude_from_state_machine_sla(),
         ])]);
 
-        let sla = state_sla(&machine_id, &state, &state_version, &health);
+        let sla = state_sla(
+            &machine_id,
+            &state,
+            &state_version,
+            &health,
+            &slas::MachineSlaConfig::default(),
+        );
 
         assert!(
             sla.sla.is_none(),
@@ -3069,7 +3104,13 @@ mod tests {
         let state_version = ConfigVersion::initial();
         let health = health_report_with_alerts(vec![]);
 
-        let sla = state_sla(&machine_id, &state, &state_version, &health);
+        let sla = state_sla(
+            &machine_id,
+            &state,
+            &state_version,
+            &health,
+            &slas::MachineSlaConfig::default(),
+        );
 
         assert_eq!(
             sla.sla,
