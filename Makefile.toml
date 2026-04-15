@@ -501,6 +501,24 @@ dependencies = ["install-clippy"]
 command = "cargo"
 args = ["clippy", "--locked", "--all-targets", "--all-features"]
 
+# clippy-release is used by Docker/CI instead of clippy-flow for two reasons:
+#   1. --release: compiled artifacts are shared with the subsequent build-release step, so clippy
+#      does not trigger a second full compilation of all 64 workspace crates.
+#   2. workspace = false: cargo-make runs the task once at the workspace root rather than
+#      iterating per member (see note on --no-workspace in Dockerfile.release-container-sa-x86_64).
+#
+# Coverage trade-off: --all-targets here vs. default targets in build-release means clippy sees
+# test/bench code that build-release does not compile. In practice this is a net benefit (more
+# coverage), but if a test-only dep activates features that conflict at the workspace level you
+# may see different lint results than a per-crate clippy run would produce.
+[tasks.clippy-release]
+workspace = false
+description = "Runs clippy in release mode. Used by Docker/CI builds so clippy shares compiled artifacts with build-release, avoiding a full double-compilation."
+category = "Test"
+dependencies = ["install-clippy"]
+command = "cargo"
+args = ["clippy", "--locked", "--all-targets", "--all-features", "--release"]
+
 [tasks.build-debug-test-prerequisites]
 script = '''
 cargo build -p carbide-agent -p carbide-admin-cli -p carbide-api
