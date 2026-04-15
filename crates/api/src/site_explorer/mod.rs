@@ -96,9 +96,9 @@ pub(crate) async fn ensure_rack_exists(
     txn: &mut sqlx::PgConnection,
     rack_id: &RackId,
 ) -> CarbideResult<Option<Rack>> {
-    match db::rack::get(&mut *txn, rack_id).await {
-        Ok(rack) => Ok(Some(rack)),
-        Err(DatabaseError::NotFoundError { .. }) => {
+    match db::rack::find_by(txn, ObjectColumnFilter::One(db::rack::IdColumn, rack_id)).await {
+        Ok(mut racks) if !racks.is_empty() => Ok(racks.pop()),
+        Ok(_) | Err(DatabaseError::NotFoundError { .. }) => {
             let expected = db::expected_rack::find_by_rack_id(&mut *txn, rack_id)
                 .await
                 .map_err(CarbideError::from)?;

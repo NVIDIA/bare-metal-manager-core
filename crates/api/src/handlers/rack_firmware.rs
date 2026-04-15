@@ -18,7 +18,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use db::{DatabaseError, rack_firmware as rack_firmware_db};
+use db::{DatabaseError, ObjectColumnFilter, rack_firmware as rack_firmware_db};
 use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 use rpc::forge::{
     DeviceUpdateResult, NodeJobInfo, RackFirmware, RackFirmwareApplyRequest,
@@ -1004,11 +1004,17 @@ pub async fn apply(
             serde_json::json!({})
         });
 
-    let rack = db::rack::get(&api.database_connection, &rack_id)
-        .await
-        .map_err(|e| CarbideError::Internal {
-            message: format!("Failed to get rack: {}", e),
-        })?;
+    let rack = db::rack::find_by(
+        api.db_reader().as_mut(),
+        ObjectColumnFilter::One(db::rack::IdColumn, &rack_id),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .pop()
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "rack",
+        id: rack_id.to_string(),
+    })?;
 
     // Validate firmware hardware type and firmware_type against rack capabilities.
     if let Some(rack_type_name) = rack.config.rack_type.as_deref()

@@ -20,9 +20,11 @@
 use carbide_uuid::power_shelf::PowerShelfId;
 use config_version::{ConfigVersion, Versioned};
 use db::{DatabaseError, ObjectColumnFilter, power_shelf as db_power_shelf};
-use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::power_shelf::{PowerShelf, PowerShelfControllerState, state_sla};
+use model::power_shelf::{
+    PowerShelf, PowerShelfControllerState, PowerShelfSearchFilter, state_sla,
+};
+use model::{DeletedFilter, StateSla};
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
@@ -50,7 +52,16 @@ impl StateControllerIO for PowerShelfStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        db_power_shelf::list_segment_ids(txn).await
+        db_power_shelf::find_ids(
+            txn,
+            PowerShelfSearchFilter {
+                rack_id: None,
+                deleted: DeletedFilter::Include,
+                controller_state: None,
+                bmc_mac: None,
+            },
+        )
+        .await
     }
 
     /// Loads a state snapshot from the database

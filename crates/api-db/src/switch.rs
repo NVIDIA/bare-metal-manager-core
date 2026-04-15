@@ -20,7 +20,6 @@ use std::net::IpAddr;
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
-use futures::StreamExt;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
 use model::rack::RackFirmwareUpgradeStatus;
@@ -150,19 +149,6 @@ pub async fn find_by_id(txn: &mut PgConnection, id: &SwitchId) -> DatabaseResult
             ),
         ))
     }
-}
-
-pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<SwitchId>> {
-    let query = sqlx::query_as::<_, SwitchId>("SELECT id FROM switches WHERE deleted IS NULL");
-
-    let mut rows = query.fetch(txn);
-    let mut ids = Vec::new();
-
-    while let Some(row) = rows.next().await {
-        ids.push(row.map_err(|e| DatabaseError::new("find_all switch", e))?);
-    }
-
-    Ok(ids)
 }
 
 pub async fn find_ids(

@@ -16,7 +16,9 @@
  */
 use carbide_uuid::switch::SwitchId;
 use db::switch as db_switch;
-use model::switch::{NewSwitch, SwitchConfig, SwitchControllerState, SwitchStatus};
+use model::switch::{
+    NewSwitch, SwitchConfig, SwitchControllerState, SwitchSearchFilter, SwitchStatus,
+};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{AdminForceDeleteSwitchRequest, SwitchDeletionRequest, SwitchQuery};
 use tonic::Code;
@@ -467,7 +469,7 @@ async fn test_switch_find_all(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
     }
 
     // Test listing all switch IDs
-    let listed_ids = db_switch::find_all(&mut txn).await?;
+    let listed_ids = db_switch::find_ids(txn.as_mut(), SwitchSearchFilter::default()).await?;
 
     // Verify all created IDs are in the list
     for created_id in &created_ids {

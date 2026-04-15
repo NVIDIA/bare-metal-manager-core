@@ -41,24 +41,31 @@ pub async fn get_rack(
     log_request_data(&request);
 
     let req = request.into_inner();
+
+    let mut reader = api.db_reader();
+
     let racks = if let Some(id) = req.id {
         let rack_id = RackId::from_str(&id)
             .map_err(|e| CarbideError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
-        let r = db_rack::get(&api.database_connection, &rack_id)
-            .await
-            .map_err(CarbideError::from)?;
-        vec![r]
+        db_rack::find_by(
+            reader.as_mut(),
+            ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
+        )
+        .await
+        .map_err(CarbideError::from)?
     } else {
-        db_rack::list(&api.database_connection)
-            .await
-            .map_err(CarbideError::from)?
+        db_rack::find_by(
+            reader.as_mut(),
+            ObjectColumnFilter::All::<db_rack::IdColumn>,
+        )
+        .await
+        .map_err(CarbideError::from)?
     };
 
-    let mut txn = api.txn_begin().await?;
     let mut result = Vec::with_capacity(racks.len());
     for r in racks {
         let machine_ids = db_machine::find_machine_ids(
-            &mut txn,
+            reader.as_mut(),
             MachineSearchConfig {
                 rack_id: Some(r.id.clone()),
                 ..Default::default()
@@ -66,7 +73,7 @@ pub async fn get_rack(
         )
         .await?;
         let switch_ids = db_switch::find_ids(
-            &mut txn,
+            reader.as_mut(),
             model::switch::SwitchSearchFilter {
                 rack_id: Some(r.id.clone()),
                 ..Default::default()
@@ -74,7 +81,7 @@ pub async fn get_rack(
         )
         .await?;
         let power_shelf_ids = db_power_shelf::find_ids(
-            &mut txn,
+            reader.as_mut(),
             model::power_shelf::PowerShelfSearchFilter {
                 rack_id: Some(r.id.clone()),
                 ..Default::default()
@@ -88,7 +95,6 @@ pub async fn get_rack(
         rpc_rack.power_shelves = power_shelf_ids;
         result.push(rpc_rack);
     }
-    let _ = txn.rollback().await;
 
     Ok(Response::new(rpc::GetRackResponse { rack: result }))
 }
@@ -244,12 +250,18 @@ pub async fn delete_rack(
         async move {
             let rack_id = RackId::from_str(&req.id)
                 .map_err(|e| CarbideError::InvalidArgument(format!("Invalid rack ID: {}", e)))?;
-            let _rack =
-                db_rack::get(txn.as_mut(), &rack_id)
-                    .await
-                    .map_err(|e| CarbideError::Internal {
-                        message: format!("Getting rack {}", e),
-                    })?;
+            let _rack = db_rack::find_by(
+                txn.as_mut(),
+                ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
+            )
+            .await
+            .map_err(CarbideError::from)?
+            .pop()
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "rack",
+                id: rack_id.to_string(),
+            })?;
+
             db_rack::mark_as_deleted(&rack_id, txn)
                 .await
                 .map_err(|e| CarbideError::Internal {
@@ -274,9 +286,17 @@ pub async fn list_rack_health_report_overrides(
         .rack_id
         .ok_or_else(|| CarbideError::MissingArgument("rack_id"))?;
 
-    let rack = db_rack::get(&api.database_connection, &rack_id)
-        .await
-        .map_err(CarbideError::from)?;
+    let rack = db_rack::find_by(
+        api.db_reader().as_mut(),
+        ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .pop()
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "rack",
+        id: rack_id.to_string(),
+    })?;
 
     Ok(Response::new(rpc::ListHealthReportOverrideResponse {
         overrides: rack
@@ -321,9 +341,17 @@ pub async fn insert_rack_health_report_override(
 
     let mut txn = api.txn_begin().await?;
 
-    let rack = db_rack::get(&mut txn, &rack_id)
-        .await
-        .map_err(CarbideError::from)?;
+    let rack = db_rack::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .pop()
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "rack",
+        id: rack_id.to_string(),
+    })?;
 
     let mut report = health_report::HealthReport::try_from(report.clone())
         .map_err(|e| CarbideError::internal(e.to_string()))?;
@@ -356,9 +384,17 @@ pub async fn remove_rack_health_report_override(
 
     let mut txn = api.txn_begin().await?;
 
-    let rack = db_rack::get(&mut txn, &rack_id)
-        .await
-        .map_err(CarbideError::from)?;
+    let rack = db_rack::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .pop()
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "rack",
+        id: rack_id.to_string(),
+    })?;
 
     remove_rack_override_by_source(&rack, &mut txn, source).await?;
     txn.commit().await?;
@@ -404,9 +440,17 @@ pub async fn get_rack_capabilities(
         .rack_id
         .ok_or_else(|| CarbideError::MissingArgument("rack_id"))?;
 
-    let rack = db_rack::get(&api.database_connection, &rack_id)
-        .await
-        .map_err(CarbideError::from)?;
+    let rack = db_rack::find_by(
+        api.db_reader().as_mut(),
+        ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .pop()
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "rack",
+        id: rack_id.to_string(),
+    })?;
 
     let rack_type_name = rack.config.rack_type.as_deref().unwrap_or_default();
     if rack_type_name.is_empty() {
@@ -457,9 +501,17 @@ pub(crate) async fn update_rack_metadata(
 
     let mut txn = api.txn_begin().await?;
 
-    let rack = db_rack::get(&mut txn, &rack_id)
-        .await
-        .map_err(CarbideError::from)?;
+    let rack = db_rack::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .pop()
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "rack",
+        id: rack_id.to_string(),
+    })?;
 
     let expected_version: config_version::ConfigVersion = match request.if_version_match {
         Some(version) => version.parse().map_err(CarbideError::from)?,

@@ -17,7 +17,10 @@
 
 use carbide_uuid::power_shelf::PowerShelfId;
 use db::power_shelf as db_power_shelf;
-use model::power_shelf::{NewPowerShelf, PowerShelfConfig, PowerShelfStatus};
+use model::DeletedFilter;
+use model::power_shelf::{
+    NewPowerShelf, PowerShelfConfig, PowerShelfSearchFilter, PowerShelfStatus,
+};
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{AdminForceDeletePowerShelfRequest, PowerShelfDeletionRequest, PowerShelfQuery};
 use tonic::Code;
@@ -501,7 +504,16 @@ async fn test_power_shelf_list_segment_ids(
     }
 
     // Test listing all power shelf IDs
-    let listed_ids = db_power_shelf::list_segment_ids(&mut txn).await?;
+    let listed_ids = db_power_shelf::find_ids(
+        txn.as_mut(),
+        PowerShelfSearchFilter {
+            rack_id: None,
+            deleted: DeletedFilter::Include,
+            controller_state: None,
+            bmc_mac: None,
+        },
+    )
+    .await?;
 
     // Verify all created IDs are in the list
     for created_id in &created_ids {

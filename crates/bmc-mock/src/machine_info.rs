@@ -517,7 +517,7 @@ impl MachineInfo {
     pub fn bmc_product(&self) -> Option<&'static str> {
         match self {
             MachineInfo::Host(h) => h.bmc_product(),
-            MachineInfo::Dpu(_) => None,
+            MachineInfo::Dpu(_) => Some("BlueField-3 DPU"),
         }
     }
 

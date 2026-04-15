@@ -18,7 +18,6 @@
 use carbide_uuid::power_shelf::PowerShelfId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
-use futures::StreamExt;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
 use model::power_shelf::{NewPowerShelf, PowerShelf, PowerShelfControllerState};
@@ -157,20 +156,6 @@ pub async fn find_by_id(
             ),
         ))
     }
-}
-
-pub async fn list_segment_ids(txn: &mut PgConnection) -> DatabaseResult<Vec<PowerShelfId>> {
-    let query =
-        sqlx::query_as::<_, PowerShelfId>("SELECT id FROM power_shelves WHERE deleted IS NULL");
-
-    let mut rows = query.fetch(txn);
-    let mut ids = Vec::new();
-
-    while let Some(row) = rows.next().await {
-        ids.push(row.map_err(|e| DatabaseError::new("list_segment_ids power_shelf", e))?);
-    }
-
-    Ok(ids)
 }
 
 pub async fn find_ids(

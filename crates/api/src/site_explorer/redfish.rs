@@ -1064,20 +1064,25 @@ async fn fetch_boot_order(
                 url: system.odata.odata_id.to_string(),
             })?;
 
-    let all_boot_options: Vec<BootOption> = client
+    let all_boot_options: Vec<libredfish::model::BootOption> = client
         .get_collection(boot_options_id)
         .await
         .and_then(|t1| t1.try_get::<libredfish::model::BootOption>())
         .into_iter()
         .flat_map(|x1| x1.members)
-        .map(Into::into)
         .collect();
 
     let boot_order: Vec<BootOption> = system
         .boot
         .boot_order
         .iter()
-        .filter_map(|id| all_boot_options.iter().find(|opt| opt.id == *id).cloned())
+        .filter_map(|ref_id| {
+            all_boot_options
+                .iter()
+                .find(|opt| opt.boot_option_reference == *ref_id)
+                .cloned()
+                .map(Into::into)
+        })
         .collect();
 
     Ok(BootOrder { boot_order })

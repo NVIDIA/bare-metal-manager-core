@@ -15,6 +15,10 @@
  * limitations under the License.
  */
 
+// Needed for nv-redfish that requires deep recursion for Redfish
+// object type tree.
+#![recursion_limit = "256"]
+
 mod chassis;
 mod computer_system;
 mod error;
@@ -94,6 +98,13 @@ pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
             (*id.inner() == "Chassis_0")
                 .then_some(|model| model == Some(AssemblyModel::new("GB200 NVL")))
         },
+        // BlueField-3 DPU (Tested on BF-25.10-9 firmware) has issue
+        // with ERoT chassis. It stucks sometimes until next request
+        // of BlueField_ERoT. Because carbide doesn't need
+        // BlueField_ERoT we just skip it.
+        lazy_fetch: (root.vendor() == Some(Vendor::new("Nvidia"))
+            && root.product() == Some(Product::new("BlueField-3 DPU")))
+        .then_some(|odata_id| odata_id.last_segment() != Some("Bluefield_ERoT")),
     };
     let explored_chassis =
         ExploredChassisCollection::explore(&root, &chassis_explore_config).await?;

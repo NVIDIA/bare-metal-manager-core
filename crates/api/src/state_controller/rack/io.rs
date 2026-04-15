@@ -53,7 +53,7 @@ impl StateControllerIO for RackStateControllerIO {
         &self,
         txn: &mut PgConnection,
     ) -> Result<Vec<Self::ObjectId>, DatabaseError> {
-        db_rack::find_ids(txn, RackSearchFilter::default()).await
+        db_rack::find_ids(txn, RackSearchFilter {}).await
     }
 
     /// Loads a state snapshot from the database

@@ -125,3 +125,78 @@ async fn explore_bluefield3_permanent_404_on_system_eth_interfaces_fails_without
         "permanent 404 should still fail after retries are exhausted"
     );
 }
+
+#[test]
+async fn explore_bluefield3_skips_erot_chassis() {
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default());
+    let report = nv_generate_exploration_report(h.bmc, &common::explorer_config())
+        .await
+        .unwrap();
+
+    let chassis_ids: Vec<&str> = report.chassis.iter().map(|c| c.id.as_str()).collect();
+    assert!(
+        !chassis_ids.contains(&"Bluefield_ERoT"),
+        "Bluefield_ERoT chassis should be skipped, but found chassis: {chassis_ids:?}"
+    );
+    assert_eq!(
+        report.chassis.len(),
+        3,
+        "expected 3 chassis (Bluefield_BMC, CPU_0, Card1), got: {chassis_ids:?}"
+    );
+}
+
+#[test]
+async fn explore_bluefield3_succeeds_when_erot_hangs() {
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default());
+
+    h.state.injected_bugs.update_args(bmc_mock::bug::Args {
+        long_response: Some(bmc_mock::bug::LongResponse {
+            path: Some("/redfish/v1/Chassis/Bluefield_ERoT".to_string()),
+            timeout: Some(std::time::Duration::from_secs(30)),
+        }),
+        ..Default::default()
+    });
+
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        nv_generate_exploration_report(h.bmc, &common::explorer_config()),
+    )
+    .await;
+
+    let report = result
+        .expect("exploration must not hang on ERoT timeout")
+        .expect("exploration must succeed");
+
+    let chassis_ids: Vec<&str> = report.chassis.iter().map(|c| c.id.as_str()).collect();
+    assert!(
+        !chassis_ids.contains(&"Bluefield_ERoT"),
+        "Bluefield_ERoT should be skipped even when it would hang"
+    );
+    assert_eq!(report.chassis.len(), 3);
+}
+
+#[test]
+async fn explore_bluefield3_succeeds_when_erot_returns_error() {
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default());
+
+    h.state.injected_bugs.update_args(bmc_mock::bug::Args {
+        http_error: Some(bmc_mock::bug::HttpErrorRule {
+            method: Some("GET".into()),
+            path: "/redfish/v1/Chassis/Bluefield_ERoT".to_string(),
+            status: 500,
+            remaining: 100,
+        }),
+        ..Default::default()
+    });
+
+    let report = nv_generate_exploration_report(h.bmc, &common::explorer_config())
+        .await
+        .expect("exploration must succeed even when ERoT returns 500");
+
+    let chassis_ids: Vec<&str> = report.chassis.iter().map(|c| c.id.as_str()).collect();
+    assert!(
+        !chassis_ids.contains(&"Bluefield_ERoT"),
+        "Bluefield_ERoT should be skipped even when it returns errors"
+    );
+    assert_eq!(report.chassis.len(), 3);
+}

@@ -39,6 +39,7 @@ use model::site_explorer::{
     Chassis, ComputerSystem, EndpointExplorationError, EndpointExplorationReport, EndpointType,
     ExploredDpu, ExploredEndpoint, ExploredManagedHost, PreingestionState, UefiDevicePath,
 };
+use model::switch::SwitchSearchFilter;
 use rpc::forge::GetSiteExplorationRequest;
 use rpc::forge::forge_server::Forge;
 use rpc::site_explorer::{
@@ -3080,7 +3081,7 @@ async fn test_site_explorer_switch_discovery(
     );
 
     let mut txn = env.pool.begin().await?;
-    let switches = db::switch::find_all(txn.as_mut()).await?;
+    let switches = db::switch::find_ids(txn.as_mut(), SwitchSearchFilter::default()).await?;
     println!("switches: {:?}", switches);
     txn.commit().await?;
     assert_eq!(switches.len(), 1, "Expected one switch to be created");
