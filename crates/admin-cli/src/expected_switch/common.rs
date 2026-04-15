@@ -35,4 +35,6 @@ pub struct ExpectedSwitchJson {
     pub metadata: Option<rpc::forge::Metadata>,
     pub rack_id: Option<RackId>,
     pub bmc_ip_address: Option<IpAddr>,
+    #[serde(default)]
+    pub bmc_retain_credentials: Option<bool>,
 }

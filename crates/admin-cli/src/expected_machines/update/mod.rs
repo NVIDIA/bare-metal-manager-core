@@ -67,6 +67,7 @@ impl Run for Args {
                 expected_machine.default_pause_ingestion_and_poweron,
                 expected_machine.dpf_enabled,
                 expected_machine.bmc_ip_address,
+                expected_machine.bmc_retain_credentials,
             )
             .await?;
         Ok(())

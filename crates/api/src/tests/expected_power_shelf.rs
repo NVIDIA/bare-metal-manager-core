@@ -62,6 +62,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             bmc_ip_address: None,
             metadata: Metadata::default(),
             rack_id: None,
+            bmc_retain_credentials: None,
         },
     )
     .await;
@@ -156,6 +157,7 @@ async fn test_add_expected_power_shelf(pool: sqlx::PgPool) {
             bmc_ip_address: "".into(),
             metadata: None,
             rack_id: None,
+            bmc_retain_credentials: None,
         },
         rpc::forge::ExpectedPowerShelf {
             expected_power_shelf_id: None,
@@ -166,6 +168,7 @@ async fn test_add_expected_power_shelf(pool: sqlx::PgPool) {
             bmc_ip_address: "192.168.1.200".into(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         },
         rpc::forge::ExpectedPowerShelf {
             expected_power_shelf_id: None,
@@ -189,6 +192,7 @@ async fn test_add_expected_power_shelf(pool: sqlx::PgPool) {
                 ],
             }),
             rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
+            bmc_retain_credentials: None,
         },
     ] {
         env.api
@@ -305,6 +309,7 @@ async fn test_update_expected_power_shelf(pool: sqlx::PgPool) {
             bmc_ip_address: "".into(),
             metadata: None,
             rack_id: None,
+            bmc_retain_credentials: None,
         },
         rpc::forge::ExpectedPowerShelf {
             expected_power_shelf_id: None,
@@ -315,6 +320,7 @@ async fn test_update_expected_power_shelf(pool: sqlx::PgPool) {
             bmc_ip_address: "192.168.2.100".into(),
             metadata: Some(Default::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         },
         rpc::forge::ExpectedPowerShelf {
             expected_power_shelf_id: None,
@@ -338,6 +344,7 @@ async fn test_update_expected_power_shelf(pool: sqlx::PgPool) {
                 ],
             }),
             rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
+            bmc_retain_credentials: None,
         },
     ] {
         env.api
@@ -386,6 +393,7 @@ async fn test_update_expected_power_shelf_error(pool: sqlx::PgPool) {
         bmc_ip_address: "".into(),
         metadata: None,
         rack_id: None,
+        bmc_retain_credentials: None,
     };
 
     let err = env
@@ -466,6 +474,7 @@ async fn test_replace_all_expected_power_shelves(pool: sqlx::PgPool) {
         bmc_ip_address: "192.168.100.1".into(),
         metadata: Some(rpc::Metadata::default()),
         rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
+        bmc_retain_credentials: None,
     };
 
     let expected_power_shelf_2 = rpc::forge::ExpectedPowerShelf {
@@ -477,6 +486,7 @@ async fn test_replace_all_expected_power_shelves(pool: sqlx::PgPool) {
         bmc_ip_address: "192.168.100.2".into(),
         metadata: Some(rpc::Metadata::default()),
         rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
+        bmc_retain_credentials: None,
     };
 
     expected_power_shelf_list
@@ -571,6 +581,7 @@ async fn test_add_expected_power_shelf_with_ip(pool: sqlx::PgPool) {
         bmc_ip_address: "10.0.0.100".into(),
         metadata: Some(rpc::Metadata::default()),
         rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
+        bmc_retain_credentials: None,
     };
 
     env.api
@@ -673,6 +684,7 @@ async fn test_get_expected_power_shelf_by_id(pool: sqlx::PgPool) {
         bmc_ip_address: "10.0.0.50".into(),
         metadata: Some(rpc::forge::Metadata::default()),
         rack_id: None,
+        bmc_retain_credentials: None,
     };
 
     env.api
@@ -719,6 +731,7 @@ async fn test_delete_expected_power_shelf_by_id(pool: sqlx::PgPool) {
         bmc_ip_address: "".into(),
         metadata: Some(rpc::forge::Metadata::default()),
         rack_id: None,
+        bmc_retain_credentials: None,
     };
 
     env.api
@@ -773,6 +786,7 @@ async fn test_update_expected_power_shelf_by_id(pool: sqlx::PgPool) {
         bmc_ip_address: "".into(),
         metadata: Some(rpc::forge::Metadata::default()),
         rack_id: None,
+        bmc_retain_credentials: None,
     };
 
     env.api
@@ -828,6 +842,7 @@ async fn test_create_expected_power_shelf_with_explicit_id(pool: sqlx::PgPool) {
         bmc_ip_address: "".into(),
         metadata: Some(rpc::forge::Metadata::default()),
         rack_id: None,
+        bmc_retain_credentials: None,
     };
 
     env.api
@@ -866,6 +881,7 @@ async fn test_create_expected_power_shelf_auto_generates_id(pool: sqlx::PgPool) 
         bmc_ip_address: "".into(),
         metadata: Some(rpc::forge::Metadata::default()),
         rack_id: None,
+        bmc_retain_credentials: None,
     };
 
     env.api
@@ -945,6 +961,7 @@ async fn test_add_with_bmc_ip_creates_static_interface(
             bmc_ip_address: bmc_ip.into(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await?;
 
@@ -998,6 +1015,7 @@ async fn test_add_without_bmc_ip_creates_no_interface(
             bmc_ip_address: "".into(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await?;
 
@@ -1042,6 +1060,7 @@ async fn test_add_with_bmc_ip_rejects_if_interface_exists(
             bmc_ip_address: "192.0.1.190".into(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await;
 
@@ -1074,6 +1093,7 @@ async fn test_add_with_external_bmc_ip_uses_static_assignments(
             bmc_ip_address: external_ip.into(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await?;
 
@@ -1130,6 +1150,7 @@ async fn test_add_with_bmc_ip_rejects_if_ip_already_allocated(
             bmc_ip_address: taken_ip.to_string(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await;
 
@@ -1162,6 +1183,7 @@ async fn test_update_with_matching_bmc_ip_is_noop(
             bmc_ip_address: bmc_ip.into(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await?;
 
@@ -1176,6 +1198,7 @@ async fn test_update_with_matching_bmc_ip_is_noop(
             bmc_ip_address: bmc_ip.into(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await?;
 
@@ -1205,6 +1228,7 @@ async fn test_update_with_different_bmc_ip_leaves_interface_alone(
             bmc_ip_address: original_ip.into(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await?;
 
@@ -1220,6 +1244,7 @@ async fn test_update_with_different_bmc_ip_leaves_interface_alone(
             bmc_ip_address: "192.0.1.193".into(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await?;
 
@@ -1268,6 +1293,7 @@ async fn test_update_with_bmc_ip_assigns_to_empty_interface(
             bmc_ip_address: "".into(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await?;
 
@@ -1282,6 +1308,7 @@ async fn test_update_with_bmc_ip_assigns_to_empty_interface(
             bmc_ip_address: "192.0.1.194".into(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await?;
 
@@ -1322,6 +1349,7 @@ async fn test_update_with_bmc_ip_creates_interface_if_none_exists(
             bmc_ip_address: "".into(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await?;
 
@@ -1342,6 +1370,7 @@ async fn test_update_with_bmc_ip_creates_interface_if_none_exists(
             bmc_ip_address: bmc_ip.into(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await?;
 
@@ -1375,6 +1404,7 @@ async fn test_update_without_bmc_ip_does_not_touch_interface(
             bmc_ip_address: bmc_ip.into(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await?;
 
@@ -1389,6 +1419,7 @@ async fn test_update_without_bmc_ip_does_not_touch_interface(
             bmc_ip_address: "".into(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await?;
 
@@ -1399,6 +1430,104 @@ async fn test_update_without_bmc_ip_does_not_touch_interface(
     assert!(
         interfaces[0].addresses.contains(&bmc_ip.parse().unwrap()),
         "interface should still have the original IP after update without bmc_ip_address"
+    );
+
+    Ok(())
+}
+
+/// When `bmc_retain_credentials` is set to true, the value should persist through
+/// add -> get round-trip via the RPC API.
+#[crate::sqlx_test()]
+async fn test_add_expected_power_shelf_with_bmc_retain_credentials(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "7A:7B:7C:7D:7E:80".parse().unwrap();
+
+    env.api
+        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            shelf_serial_number: "PS-RETAIN-001".into(),
+            bmc_ip_address: String::new(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+            bmc_retain_credentials: Some(true),
+        }))
+        .await?;
+
+    let retrieved = env
+        .api
+        .get_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelfRequest {
+            bmc_mac_address: bmc_mac.to_string(),
+            expected_power_shelf_id: None,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(
+        retrieved.bmc_retain_credentials,
+        Some(true),
+        "bmc_retain_credentials should be true after round-trip"
+    );
+
+    Ok(())
+}
+
+/// Verify that updating an expected power shelf without specifying `bmc_retain_credentials`
+/// preserves the existing value (and that COALESCE works).
+#[crate::sqlx_test()]
+async fn test_update_expected_power_shelf_preserves_bmc_retain_credentials(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "7A:7B:7C:7D:7E:81".parse().unwrap();
+
+    // Create with bmc_retain_credentials = true.
+    env.api
+        .add_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            shelf_serial_number: "PS-RETAIN-UPD-001".into(),
+            bmc_ip_address: String::new(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+            bmc_retain_credentials: Some(true),
+        }))
+        .await?;
+
+    // Update without setting bmc_retain_credentials (None).
+    env.api
+        .update_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelf {
+            expected_power_shelf_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "NEW-ADMIN".into(),
+            bmc_password: "NEW-PASS".into(),
+            shelf_serial_number: "PS-RETAIN-UPD-001".into(),
+            bmc_ip_address: String::new(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+            bmc_retain_credentials: None,
+        }))
+        .await?;
+
+    let retrieved = env
+        .api
+        .get_expected_power_shelf(tonic::Request::new(rpc::forge::ExpectedPowerShelfRequest {
+            bmc_mac_address: bmc_mac.to_string(),
+            expected_power_shelf_id: None,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(
+        retrieved.bmc_retain_credentials,
+        Some(true),
+        "bmc_retain_credentials should be preserved after update with None"
     );
 
     Ok(())
