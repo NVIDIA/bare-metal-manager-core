@@ -18,7 +18,8 @@
 use std::sync::Arc;
 
 use eyre::WrapErr;
-use forge_secrets::{CredentialConfig, create_credential_manager, create_vault_client};
+use forge_secrets::credentials::{CredentialReader, CredentialWriter};
+use forge_secrets::{CredentialConfig, create_credential_manager_from, create_vault_client};
 use tokio::sync::oneshot::Sender;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
@@ -138,8 +139,45 @@ pub async fn run(
 
     let certificate_provider =
         create_vault_client(&credential_config.vault, metrics.meter.clone())?;
-    let credential_manager =
-        create_credential_manager(&credential_config, metrics.meter.clone()).await?;
+
+    // Build credential reader chain. The idea is this chain
+    // can be flexible, to allow us to introduce an ordered
+    // list of readers, which we build on-demand based on
+    // configuration.
+    let mut readers: Vec<Box<dyn CredentialReader>> = Vec::new();
+
+    // If EnvCredentials are enabled, then add that
+    // to our chained credentials reader. It's expected
+    // that this comes first if configured.
+    if credential_config.env.enabled() {
+        readers.push(Box::new(
+            forge_secrets::local_credentials::EnvCredentials::new(credential_config.env.clone())?,
+        ));
+    }
+
+    // Next, if FileCredentials are enabled, then
+    // add those in as well. We expect these *after*
+    // EnvCredentials.
+    if credential_config.file.enabled() {
+        readers.push(Box::new(
+            forge_secrets::local_credentials::FileCredentialsWatcher::new(
+                credential_config.file.clone(),
+            )
+            .await?,
+        ));
+    }
+
+    // Last, we tack on the VaultClient to the end.
+    let vault_client = create_vault_client(&credential_config.vault, metrics.meter.clone())?;
+    readers.push(Box::new(vault_client.clone()));
+
+    // And our vault_client is also implemented as the writer.
+    let writer: Arc<dyn CredentialWriter> = vault_client;
+
+    // And now we create our new composite credential manager
+    // from the list of readers we just built, plus the Vault
+    // client.
+    let credential_manager = create_credential_manager_from(writer, readers);
 
     let redfish_pool = {
         let rf_pool = libredfish::RedfishClientPool::builder()
