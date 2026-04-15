@@ -85,6 +85,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
                 rack_id: None,
                 dpf_enabled: Some(true),
                 bmc_ip_address: None,
+                bmc_retain_credentials: None,
             },
         },
     )
@@ -730,6 +731,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         rack_id: None,
         is_dpf_enabled: Some(true),
         bmc_ip_address: None,
+        bmc_retain_credentials: None,
         #[allow(deprecated)]
         dpf_enabled: true,
     };
@@ -2170,6 +2172,104 @@ async fn test_dhcp_discover_uses_fixed_ip_from_host_nics(
     assert_eq!(
         response.address, fixed_ip,
         "DHCP should return the fixed IP from host_nics"
+    );
+
+    Ok(())
+}
+
+/// When `bmc_retain_credentials` is set to true, the value should persist through
+/// add -> get round-trip via the RPC API.
+#[crate::sqlx_test()]
+async fn test_add_expected_machine_with_bmc_retain_credentials(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "5A:5B:5C:5D:5E:70".parse().unwrap();
+
+    let expected_machine = rpc::forge::ExpectedMachine {
+        bmc_mac_address: bmc_mac.to_string(),
+        bmc_username: "ADMIN".into(),
+        bmc_password: "PASS".into(),
+        chassis_serial_number: "RETAIN-CREDS-001".into(),
+        metadata: Some(rpc::forge::Metadata::default()),
+        id: Some(::rpc::common::Uuid {
+            value: Uuid::new_v4().to_string(),
+        }),
+        bmc_retain_credentials: Some(true),
+        ..Default::default()
+    };
+
+    env.api
+        .add_expected_machine(tonic::Request::new(expected_machine.clone()))
+        .await
+        .expect("unable to add expected machine");
+
+    let retrieved = env
+        .api
+        .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
+            bmc_mac_address: bmc_mac.to_string(),
+            id: None,
+        }))
+        .await
+        .expect("unable to retrieve expected machine")
+        .into_inner();
+
+    assert_eq!(
+        retrieved.bmc_retain_credentials,
+        Some(true),
+        "bmc_retain_credentials should be true after round-trip"
+    );
+}
+
+/// Verify that updating an expected machine without specifying `bmc_retain_credentials`
+/// preserves the existing value (and making sure COALESCE works).
+#[crate::sqlx_test()]
+async fn test_update_preserves_bmc_retain_credentials(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "5A:5B:5C:5D:5E:71".parse().unwrap();
+
+    // Create with bmc_retain_credentials = true.
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "RETAIN-UPDATE-001".into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            id: Some(::rpc::common::Uuid {
+                value: Uuid::new_v4().to_string(),
+            }),
+            bmc_retain_credentials: Some(true),
+            ..Default::default()
+        }))
+        .await?;
+
+    // Update without setting bmc_retain_credentials (None).
+    env.api
+        .update_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "NEW-ADMIN".into(),
+            bmc_password: "NEW-PASS".into(),
+            chassis_serial_number: "RETAIN-UPDATE-001".into(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            bmc_retain_credentials: None,
+            ..Default::default()
+        }))
+        .await?;
+
+    let retrieved = env
+        .api
+        .get_expected_machine(tonic::Request::new(ExpectedMachineRequest {
+            bmc_mac_address: bmc_mac.to_string(),
+            id: None,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(
+        retrieved.bmc_retain_credentials,
+        Some(true),
+        "bmc_retain_credentials should be preserved after update with None"
     );
 
     Ok(())

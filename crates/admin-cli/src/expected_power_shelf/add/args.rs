@@ -84,6 +84,13 @@ pub struct Args {
         action = clap::ArgAction::Append
     )]
     pub bmc_ip_address: Option<IpAddr>,
+
+    #[clap(
+        long = "bmc-retain-credentials",
+        value_name = "BMC_RETAIN_CREDENTIALS",
+        help = "When true, site-explorer skips BMC password rotation and stores factory-default credentials in Vault as-is"
+    )]
+    pub bmc_retain_credentials: Option<bool>,
 }
 
 impl From<Args> for rpc::forge::ExpectedPowerShelf {
@@ -106,6 +113,7 @@ impl From<Args> for rpc::forge::ExpectedPowerShelf {
                 .unwrap_or_default(),
             rack_id: value.rack_id,
             metadata: Some(metadata),
+            bmc_retain_credentials: value.bmc_retain_credentials,
         }
     }
 }

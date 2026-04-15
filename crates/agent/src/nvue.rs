@@ -741,11 +741,14 @@ pub async fn hack_platform_config_for_nvue() -> eyre::Result<()> {
 }
 
 // Apply the config at `config_path`.
-pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<()> {
+//
+// Returns true if we performed `nv config apply`, false when pending config matched
+// applied config and was detached without applying.
+pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<bool> {
     match run_apply(hbn_root, &config_path.0).await {
-        Ok(_) => {
+        Ok(applied) => {
             config_path.del("BAK");
-            Ok(())
+            Ok(applied)
         }
         Err(err) => {
             tracing::error!("update_nvue post command failed: {err:#}");
@@ -787,7 +790,7 @@ pub async fn apply(hbn_root: &Path, config_path: &super::FPath) -> eyre::Result<
 }
 
 // Ask NVUE to use the config at `path`
-async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
+async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<bool> {
     let mut in_container_path = path
         .strip_prefix(hbn_root)
         .wrap_err("Stripping hbn_root prefix from path to make in-container path")?
@@ -813,6 +816,20 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
     .await?;
     if !stdout.is_empty() {
         tracing::info!("nv config replace: {stdout}");
+    }
+
+    // Compare pending to applied config at NVUE layer.
+    // This avoids no-op apply cycles when textual YAML ordering changes but
+    // semantic config does not.
+    let stdout =
+        super::hbn::run_in_container(&container_id, &["nv", "config", "diff"], true).await?;
+    if stdout.is_empty() {
+        let stdout =
+            super::hbn::run_in_container(&container_id, &["nv", "config", "detach"], true).await?;
+        if !stdout.is_empty() {
+            tracing::info!("nv config detach: {stdout}");
+        }
+        return Ok(false);
     }
 
     // Apply the pending config.
@@ -845,7 +862,7 @@ async fn run_apply(hbn_root: &Path, path: &Path) -> eyre::Result<()> {
         tracing::info!("nl2doca restart: {stdout}");
     }
 
-    Ok(())
+    Ok(true)
 }
 
 /// vni_to_svimac takes an VNI (which is a 24 bit integer whose range

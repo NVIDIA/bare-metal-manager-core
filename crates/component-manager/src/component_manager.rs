@@ -3,6 +3,9 @@
 
 use std::sync::Arc;
 
+use librms::RmsApi;
+use sqlx::PgPool;
+
 use crate::config::ComponentManagerConfig;
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::NvSwitchManager;
@@ -34,6 +37,8 @@ impl ComponentManager {
 /// return an error.
 pub async fn build_component_manager(
     config: &ComponentManagerConfig,
+    rms_client: Option<Arc<dyn RmsApi>>,
+    db: Option<PgPool>,
 ) -> Result<ComponentManager, ComponentManagerError> {
     let nv_switch: Arc<dyn NvSwitchManager> = match config.nv_switch_backend.as_str() {
         "nsm" => {
@@ -68,6 +73,19 @@ pub async fn build_component_manager(
                     .await?,
             )
         }
+        "rms" => {
+            let client = rms_client.clone().ok_or_else(|| {
+                ComponentManagerError::InvalidArgument(
+                    "power_shelf_backend is 'rms' but RMS client is not configured".into(),
+                )
+            })?;
+            let db = db.clone().ok_or_else(|| {
+                ComponentManagerError::InvalidArgument(
+                    "power_shelf_backend is 'rms' but database pool is not configured".into(),
+                )
+            })?;
+            Arc::new(crate::rms::RmsBackend::new(client, db))
+        }
         "mock" => Arc::new(crate::mock::MockPowerShelfManager),
         other => {
             return Err(ComponentManagerError::InvalidArgument(format!(
@@ -92,7 +110,7 @@ mod tests {
             nsm: None,
             psm: None,
         };
-        let cm = build_component_manager(&config).await.unwrap();
+        let cm = build_component_manager(&config, None, None).await.unwrap();
         assert_eq!(cm.nv_switch.name(), "mock-nsm");
         assert_eq!(cm.power_shelf.name(), "mock-psm");
     }
@@ -105,7 +123,9 @@ mod tests {
             nsm: None,
             psm: None,
         };
-        let err = build_component_manager(&config).await.unwrap_err();
+        let err = build_component_manager(&config, None, None)
+            .await
+            .unwrap_err();
         assert!(
             matches!(err, ComponentManagerError::InvalidArgument(msg) if msg.contains("bogus"))
         );
@@ -119,7 +139,9 @@ mod tests {
             nsm: None,
             psm: None,
         };
-        let err = build_component_manager(&config).await.unwrap_err();
+        let err = build_component_manager(&config, None, None)
+            .await
+            .unwrap_err();
         assert!(
             matches!(err, ComponentManagerError::InvalidArgument(msg) if msg.contains("bogus"))
         );
@@ -133,7 +155,9 @@ mod tests {
             nsm: None,
             psm: None,
         };
-        let err = build_component_manager(&config).await.unwrap_err();
+        let err = build_component_manager(&config, None, None)
+            .await
+            .unwrap_err();
         assert!(matches!(err, ComponentManagerError::InvalidArgument(_)));
     }
 
@@ -145,7 +169,9 @@ mod tests {
             nsm: None,
             psm: None,
         };
-        let err = build_component_manager(&config).await.unwrap_err();
+        let err = build_component_manager(&config, None, None)
+            .await
+            .unwrap_err();
         assert!(matches!(err, ComponentManagerError::InvalidArgument(_)));
     }
 }

@@ -1794,6 +1794,7 @@ pub async fn create_expected_switches(
                 labels: HashMap::new(),
             },
             rack_id: None,
+            bmc_retain_credentials: None,
         };
         let result = db::expected_switch::create(txn, switch)
             .await
@@ -1863,6 +1864,7 @@ pub async fn create_expected_power_shelves(
             },
             metadata: Metadata::default(),
             rack_id: None,
+            bmc_retain_credentials: None,
         };
         let result = db::expected_power_shelf::create(txn, power_shelf)
             .await

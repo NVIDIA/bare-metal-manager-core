@@ -22,6 +22,7 @@ pub mod instance;
 pub mod machine;
 pub mod machine_a_tron;
 pub mod metrics;
+pub mod mock_rms;
 pub mod subnet;
 pub mod tenant;
 pub mod utils;

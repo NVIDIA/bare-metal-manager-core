@@ -28,6 +28,7 @@ name = "api_test_helper"
 [dependencies]
 
 # [local-dependencies]
+async-trait = { workspace = true }
 bmc-mock = { path = "../bmc-mock" }
 carbide-api = { path = "../api", default-features = false }
 carbide-version = { path = "../version" }
@@ -57,6 +58,7 @@ sqlx = { workspace = true, features = [
 ] }
 tempfile = { workspace = true }
 tokio.workspace = true
+tonic = { workspace = true }
 tokio-util.workspace = true
 tracing = { workspace = true }
 tracing-subscriber = { features = [
@@ -64,6 +66,7 @@ tracing-subscriber = { features = [
   "local-time",
 ], workspace = true }
 futures = { workspace = true }
+librms = { workspace = true }
 itertools = { workspace = true }
 ctor = { workspace = true }
 temp-dir = { workspace = true }

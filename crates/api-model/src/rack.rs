@@ -52,6 +52,8 @@ pub struct FirmwareUpgradeJob {
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
     #[serde(default)]
+    pub batch_job_ids: Vec<String>,
+    #[serde(default)]
     pub machines: Vec<FirmwareUpgradeDeviceStatus>,
     #[serde(default)]
     pub switches: Vec<FirmwareUpgradeDeviceStatus>,
@@ -79,10 +81,12 @@ impl FirmwareUpgradeJob {
 /// TODO to be replaced with RMS protobuf message
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FirmwareUpgradeDeviceInfo {
+    pub node_id: String,
     pub mac: String,
     pub bmc_ip: String,
     pub bmc_username: String,
     pub bmc_password: String,
+    pub os_mac: Option<String>,
     pub os_ip: Option<String>,
     pub os_username: Option<String>,
     pub os_password: Option<String>,
@@ -91,9 +95,17 @@ pub struct FirmwareUpgradeDeviceInfo {
 /// Per-device status tracked inside `FirmwareUpgradeJob`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FirmwareUpgradeDeviceStatus {
+    #[serde(default)]
+    pub node_id: String,
     pub mac: String,
     pub bmc_ip: String,
     pub status: String,
+    #[serde(default)]
+    pub job_id: Option<String>,
+    #[serde(default)]
+    pub parent_job_id: Option<String>,
+    #[serde(default)]
+    pub error_message: Option<String>,
 }
 
 /// Per-device firmware upgrade status set by the rack state machine during a
@@ -111,6 +123,20 @@ impl RackFirmwareUpgradeStatus {
     /// (i.e. `ended_at` has not been set yet).
     pub fn is_in_progress(&self) -> bool {
         self.ended_at.is_none()
+    }
+
+    /// Returns true if the firmware upgrade finished successfully or failed.
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self.status,
+            RackFirmwareUpgradeState::Completed | RackFirmwareUpgradeState::Failed { .. }
+        )
+    }
+
+    /// Returns true when this status belongs to the active rack-upgrade cycle.
+    pub fn is_current_for(&self, requested_at: DateTime<Utc>) -> bool {
+        self.ended_at.is_some_and(|ts| ts >= requested_at)
+            || self.started_at.is_some_and(|ts| ts >= requested_at)
     }
 }
 

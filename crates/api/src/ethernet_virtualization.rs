@@ -350,6 +350,10 @@ pub async fn tenant_network(
             VpcPeeringPolicy::None => {}
         }
     }
+    // Keep API responses deterministic so downstream config rendering
+    // does not flap due to ordering jitter in peering query results.
+    vpc_peer_vnis.sort_unstable();
+    vpc_peer_prefixes.sort_unstable();
 
     let vpc = match segment.vpc_id {
         Some(vpc_id) => {

@@ -568,6 +568,7 @@ impl ApiClient {
         default_pause_ingestion_and_poweron: Option<bool>,
         dpf_enabled: Option<bool>,
         bmc_ip_address: Option<String>,
+        bmc_retain_credentials: Option<bool>,
     ) -> Result<(), CarbideCliError> {
         let get_req = match (bmc_mac_address, id) {
             (Some(_), Some(_)) => {
@@ -647,6 +648,8 @@ impl ApiClient {
             dpf_enabled: dpf_enabled.unwrap_or_default(),
             is_dpf_enabled: dpf_enabled,
             bmc_ip_address: bmc_ip_address.or(expected_machine.bmc_ip_address),
+            bmc_retain_credentials: bmc_retain_credentials
+                .or(expected_machine.bmc_retain_credentials),
         };
 
         Ok(self.0.update_expected_machine(request).await?)
@@ -680,6 +683,7 @@ impl ApiClient {
                     dpf_enabled: machine.dpf_enabled.unwrap_or_default(),
                     is_dpf_enabled: machine.dpf_enabled,
                     bmc_ip_address: machine.bmc_ip_address,
+                    bmc_retain_credentials: machine.bmc_retain_credentials,
                 })
                 .collect(),
         };
@@ -706,6 +710,7 @@ impl ApiClient {
                         .unwrap_or_default(),
                     metadata: power_shelf.metadata,
                     rack_id: power_shelf.rack_id,
+                    bmc_retain_credentials: power_shelf.bmc_retain_credentials,
                 })
                 .collect(),
         };
@@ -741,6 +746,7 @@ impl ApiClient {
                         .unwrap_or_default(),
                     metadata: switch.metadata,
                     rack_id: switch.rack_id,
+                    bmc_retain_credentials: switch.bmc_retain_credentials,
                 })
                 .collect(),
         };

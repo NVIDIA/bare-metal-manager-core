@@ -41,6 +41,10 @@ pub struct ExpectedPowerShelf {
     #[serde(default = "default_metadata_for_deserializer")]
     pub metadata: Metadata,
     pub rack_id: Option<RackId>,
+    /// When true, site-explorer skips BMC password rotation and stores the
+    /// factory-default credentials in Vault as-is.
+    #[serde(default)]
+    pub bmc_retain_credentials: Option<bool>,
 }
 
 impl<'r> FromRow<'r, PgRow> for ExpectedPowerShelf {
@@ -61,6 +65,7 @@ impl<'r> FromRow<'r, PgRow> for ExpectedPowerShelf {
             bmc_ip_address: row.try_get("bmc_ip_address").ok(),
             metadata,
             rack_id: row.try_get("rack_id").ok(),
+            bmc_retain_credentials: row.try_get("bmc_retain_credentials")?,
         })
     }
 }
@@ -83,6 +88,7 @@ impl From<ExpectedPowerShelf> for rpc::forge::ExpectedPowerShelf {
                 .unwrap_or_default(),
             metadata: Some(expected_power_shelf.metadata.into()),
             rack_id: expected_power_shelf.rack_id,
+            bmc_retain_credentials: expected_power_shelf.bmc_retain_credentials.filter(|&v| v),
         }
     }
 }
@@ -116,6 +122,7 @@ impl TryFrom<rpc::forge::ExpectedPowerShelf> for ExpectedPowerShelf {
             bmc_ip_address,
             metadata,
             rack_id: rpc.rack_id,
+            bmc_retain_credentials: rpc.bmc_retain_credentials,
         })
     }
 }

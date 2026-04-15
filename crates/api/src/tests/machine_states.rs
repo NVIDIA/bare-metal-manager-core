@@ -176,6 +176,207 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
 }
 
 #[crate::sqlx_test]
+async fn test_waiting_for_rack_firmware_upgrade_waits_for_terminal_status(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let host = create_managed_host(&env).await;
+
+    let mut txn = env.db_txn().await;
+    db::host_machine_update::trigger_host_reprovisioning_request(
+        txn.as_mut(),
+        "rack-test",
+        &host.id,
+    )
+    .await?;
+    db::machine::update_state(
+        txn.as_mut(),
+        &host.id,
+        &ManagedHostState::HostReprovision {
+            reprovision_state: model::machine::HostReprovisionState::WaitingForRackFirmwareUpgrade,
+            retry_count: 0,
+        },
+    )
+    .await?;
+    let requested_at = db::machine::find_one(
+        txn.as_mut(),
+        &host.id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("machine should exist")
+    .host_reprovision_requested
+    .expect("rack reprovision request should exist")
+    .requested_at;
+    db::machine::update_rack_fw_details(
+        txn.as_mut(),
+        &host.id,
+        Some(&model::rack::RackFirmwareUpgradeStatus {
+            task_id: "rack-job".to_string(),
+            status: model::rack::RackFirmwareUpgradeState::InProgress,
+            started_at: Some(requested_at),
+            ended_at: None,
+        }),
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let machine = db::machine::find_one(
+        &pool,
+        &host.id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("machine should exist");
+    assert!(matches!(
+        machine.current_state(),
+        ManagedHostState::HostReprovision {
+            reprovision_state: model::machine::HostReprovisionState::WaitingForRackFirmwareUpgrade,
+            ..
+        }
+    ));
+    assert!(machine.host_reprovision_requested.is_some());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_waiting_for_rack_firmware_upgrade_advances_on_completion(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let host = create_managed_host(&env).await;
+
+    let mut txn = env.db_txn().await;
+    db::host_machine_update::trigger_host_reprovisioning_request(
+        txn.as_mut(),
+        "rack-test",
+        &host.id,
+    )
+    .await?;
+    db::machine::update_state(
+        txn.as_mut(),
+        &host.id,
+        &ManagedHostState::HostReprovision {
+            reprovision_state: model::machine::HostReprovisionState::WaitingForRackFirmwareUpgrade,
+            retry_count: 0,
+        },
+    )
+    .await?;
+    let requested_at = db::machine::find_one(
+        txn.as_mut(),
+        &host.id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("machine should exist")
+    .host_reprovision_requested
+    .expect("rack reprovision request should exist")
+    .requested_at;
+    db::machine::update_rack_fw_details(
+        txn.as_mut(),
+        &host.id,
+        Some(&model::rack::RackFirmwareUpgradeStatus {
+            task_id: "rack-job".to_string(),
+            status: model::rack::RackFirmwareUpgradeState::Completed,
+            started_at: Some(requested_at),
+            ended_at: Some(chrono::Utc::now()),
+        }),
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let machine = db::machine::find_one(
+        &pool,
+        &host.id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("machine should exist");
+    assert!(matches!(
+        machine.current_state(),
+        ManagedHostState::HostReprovision {
+            reprovision_state: model::machine::HostReprovisionState::CheckingFirmwareRepeatV2 { .. },
+            ..
+        }
+    ));
+    assert!(machine.host_reprovision_requested.is_none());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_waiting_for_rack_firmware_upgrade_accepts_completion_when_only_ended_at_is_current(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let host = create_managed_host(&env).await;
+
+    let mut txn = env.db_txn().await;
+    db::host_machine_update::trigger_host_reprovisioning_request(
+        txn.as_mut(),
+        "rack-test",
+        &host.id,
+    )
+    .await?;
+    db::machine::update_state(
+        txn.as_mut(),
+        &host.id,
+        &ManagedHostState::HostReprovision {
+            reprovision_state: model::machine::HostReprovisionState::WaitingForRackFirmwareUpgrade,
+            retry_count: 0,
+        },
+    )
+    .await?;
+    let requested_at = db::machine::find_one(
+        txn.as_mut(),
+        &host.id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("machine should exist")
+    .host_reprovision_requested
+    .expect("rack reprovision request should exist")
+    .requested_at;
+    db::machine::update_rack_fw_details(
+        txn.as_mut(),
+        &host.id,
+        Some(&model::rack::RackFirmwareUpgradeStatus {
+            task_id: "rack-job".to_string(),
+            status: model::rack::RackFirmwareUpgradeState::Completed,
+            started_at: Some(requested_at - chrono::Duration::seconds(1)),
+            ended_at: Some(requested_at + chrono::Duration::seconds(1)),
+        }),
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let machine = db::machine::find_one(
+        &pool,
+        &host.id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("machine should exist");
+    assert!(matches!(
+        machine.current_state(),
+        ManagedHostState::HostReprovision {
+            reprovision_state: model::machine::HostReprovisionState::CheckingFirmwareRepeatV2 { .. },
+            ..
+        }
+    ));
+    assert!(machine.host_reprovision_requested.is_none());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_failed_state_host(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
     let mh = common::api_fixtures::create_managed_host(&env).await;

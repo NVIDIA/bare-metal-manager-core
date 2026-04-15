@@ -82,6 +82,13 @@ pub struct Args {
         help = "BMC IP address of the expected switch"
     )]
     pub bmc_ip_address: Option<IpAddr>,
+
+    #[clap(
+        long = "bmc-retain-credentials",
+        value_name = "BMC_RETAIN_CREDENTIALS",
+        help = "When true, site-explorer skips BMC password rotation and stores factory-default credentials in Vault as-is"
+    )]
+    pub bmc_retain_credentials: Option<bool>,
 }
 
 impl From<Args> for rpc::forge::ExpectedSwitch {
@@ -111,6 +118,7 @@ impl From<Args> for rpc::forge::ExpectedSwitch {
                 .bmc_ip_address
                 .map(|ip| ip.to_string())
                 .unwrap_or_default(),
+            bmc_retain_credentials: value.bmc_retain_credentials,
         }
     }
 }

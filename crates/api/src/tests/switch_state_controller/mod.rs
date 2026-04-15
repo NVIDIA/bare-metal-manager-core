@@ -242,3 +242,170 @@ async fn test_switch_entire_state_transition_flow(
 
     Ok(())
 }
+
+#[crate::sqlx_test]
+async fn test_switch_waiting_for_rack_firmware_upgrade_waits_for_terminal_status(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+
+    let mut txn = pool.begin().await?;
+    db_switch::set_switch_reprovisioning_requested(txn.as_mut(), switch_id, "rack-test").await?;
+    let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
+        .await?
+        .expect("switch should exist");
+    let requested_at = switch
+        .switch_reprovisioning_requested
+        .as_ref()
+        .expect("switch reprovision request should exist")
+        .requested_at;
+    db_switch::try_update_controller_state(
+        txn.as_mut(),
+        switch_id,
+        switch.controller_state.version,
+        switch.controller_state.version.increment(),
+        &SwitchControllerState::ReProvisioning {
+            reprovisioning_state: model::switch::ReProvisioningState::WaitingForRackFirmwareUpgrade,
+        },
+    )
+    .await?;
+    db_switch::update_firmware_upgrade_status(
+        txn.as_mut(),
+        switch_id,
+        Some(&model::rack::RackFirmwareUpgradeStatus {
+            task_id: "rack-job".to_string(),
+            status: model::rack::RackFirmwareUpgradeState::InProgress,
+            started_at: Some(requested_at),
+            ended_at: None,
+        }),
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.run_switch_controller_iteration().await;
+
+    let mut txn = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::ReProvisioning {
+            reprovisioning_state: model::switch::ReProvisioningState::WaitingForRackFirmwareUpgrade,
+        }
+    ));
+    assert!(switch.switch_reprovisioning_requested.is_some());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_switch_waiting_for_rack_firmware_upgrade_returns_ready_on_completion(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+
+    let mut txn = pool.begin().await?;
+    db_switch::set_switch_reprovisioning_requested(txn.as_mut(), switch_id, "rack-test").await?;
+    let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
+        .await?
+        .expect("switch should exist");
+    let requested_at = switch
+        .switch_reprovisioning_requested
+        .as_ref()
+        .expect("switch reprovision request should exist")
+        .requested_at;
+    db_switch::try_update_controller_state(
+        txn.as_mut(),
+        switch_id,
+        switch.controller_state.version,
+        switch.controller_state.version.increment(),
+        &SwitchControllerState::ReProvisioning {
+            reprovisioning_state: model::switch::ReProvisioningState::WaitingForRackFirmwareUpgrade,
+        },
+    )
+    .await?;
+    db_switch::update_firmware_upgrade_status(
+        txn.as_mut(),
+        switch_id,
+        Some(&model::rack::RackFirmwareUpgradeStatus {
+            task_id: "rack-job".to_string(),
+            status: model::rack::RackFirmwareUpgradeState::Completed,
+            started_at: Some(requested_at),
+            ended_at: Some(chrono::Utc::now()),
+        }),
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.run_switch_controller_iteration().await;
+
+    let mut txn = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Ready
+    ));
+    assert!(switch.switch_reprovisioning_requested.is_none());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_switch_waiting_for_rack_firmware_upgrade_accepts_completion_when_only_ended_at_is_current(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+
+    let mut txn = pool.begin().await?;
+    db_switch::set_switch_reprovisioning_requested(txn.as_mut(), switch_id, "rack-test").await?;
+    let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
+        .await?
+        .expect("switch should exist");
+    let requested_at = switch
+        .switch_reprovisioning_requested
+        .as_ref()
+        .expect("switch reprovision request should exist")
+        .requested_at;
+    db_switch::try_update_controller_state(
+        txn.as_mut(),
+        switch_id,
+        switch.controller_state.version,
+        switch.controller_state.version.increment(),
+        &SwitchControllerState::ReProvisioning {
+            reprovisioning_state: model::switch::ReProvisioningState::WaitingForRackFirmwareUpgrade,
+        },
+    )
+    .await?;
+    db_switch::update_firmware_upgrade_status(
+        txn.as_mut(),
+        switch_id,
+        Some(&model::rack::RackFirmwareUpgradeStatus {
+            task_id: "rack-job".to_string(),
+            status: model::rack::RackFirmwareUpgradeState::Completed,
+            started_at: Some(requested_at - chrono::Duration::seconds(1)),
+            ended_at: Some(requested_at + chrono::Duration::seconds(1)),
+        }),
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.run_switch_controller_iteration().await;
+
+    let mut txn = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Ready
+    ));
+    assert!(switch.switch_reprovisioning_requested.is_none());
+
+    Ok(())
+}

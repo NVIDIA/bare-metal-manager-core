@@ -146,6 +146,13 @@ pub struct Args {
         help = "Static BMC IP (updates pre-allocated machine_interface when safe, same as expected switches)"
     )]
     pub bmc_ip_address: Option<String>,
+
+    #[clap(
+        long = "bmc-retain-credentials",
+        value_name = "BMC_RETAIN_CREDENTIALS",
+        help = "When true, site-explorer skips BMC password rotation and stores factory-default credentials in Vault as-is"
+    )]
+    pub bmc_retain_credentials: Option<bool>,
 }
 
 impl Args {

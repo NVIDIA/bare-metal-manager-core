@@ -116,6 +116,7 @@ async fn test_create_rack_firmware(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     assert_eq!(firmware.id, firmware_id);
     assert!(!firmware.config_json.is_empty());
     assert!(!firmware.available); // Should default to false
+    assert!(firmware.is_default); // First firmware for a hardware type becomes default
     assert!(!firmware.created.is_empty());
     assert!(!firmware.updated.is_empty());
 
@@ -123,6 +124,7 @@ async fn test_create_rack_firmware(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let db_firmware = db::rack_firmware::find_by_id(&env.pool, firmware_id).await?;
     assert_eq!(db_firmware.id, firmware_id);
     assert!(!db_firmware.available);
+    assert!(db_firmware.is_default);
     assert!(db_firmware.parsed_components.is_some());
 
     // Verify parsed components contain expected data

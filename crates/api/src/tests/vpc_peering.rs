@@ -29,29 +29,89 @@ use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use super::common::api_fixtures::{self, TestEnv};
+use crate::tests::common::api_fixtures::network_segment::{
+    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, create_tenant_network_segment,
+};
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 
-async fn create_test_vpcs(env: &TestEnv, count: i32) -> Result<(), Box<dyn std::error::Error>> {
+async fn create_test_vpcs(
+    env: &TestEnv,
+    count: i32,
+    vtype: Option<VpcVirtualizationType>,
+) -> Result<MachineId, Box<dyn std::error::Error>> {
+    let mut first_segment_id = None;
     for i in 0..count {
         let name = format!("test vpc {}", i + 1); // start from 1 for readability
 
-        let _ = env
-            .api
-            .create_vpc(
-                VpcCreationRequest::builder(&name, "")
-                    .metadata(Metadata {
-                        name,
-                        ..Default::default()
-                    })
-                    .tonic_request(),
-            )
-            .await
-            .unwrap()
-            .into_inner();
+        let vpc = match vtype {
+            Some(vtype) => env
+                .api
+                .create_vpc(
+                    VpcCreationRequest::builder(&name, "")
+                        .metadata(Metadata {
+                            name,
+                            ..Default::default()
+                        })
+                        .network_virtualization_type(vtype)
+                        .tonic_request(),
+                )
+                .await
+                .unwrap()
+                .into_inner(),
+            None => env
+                .api
+                .create_vpc(
+                    VpcCreationRequest::builder(&name, "")
+                        .metadata(Metadata {
+                            name,
+                            ..Default::default()
+                        })
+                        .tonic_request(),
+                )
+                .await
+                .unwrap()
+                .into_inner(),
+        };
+
+        let vpc_id = vpc.id.expect("Expected vpc_id to be present");
+        let segment_id = create_tenant_network_segment(
+            &env.api,
+            Some(vpc_id),
+            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[i as usize],
+            &format!("TENANT{}", i + 1),
+            true,
+        )
+        .await;
+
+        if i == 0 {
+            first_segment_id = Some(segment_id);
+        }
+
+        env.run_network_segment_controller_iteration().await;
     }
 
-    Ok(())
+    // Create an instance on the first VPC
+    let mh = create_managed_host(env).await;
+    let instance_network = rpc::InstanceNetworkConfig {
+        interfaces: vec![rpc::InstanceInterfaceConfig {
+            function_type: rpc::InterfaceFunctionType::Physical as i32,
+            network_segment_id: Some(
+                first_segment_id.expect("Expected first segment id to be present"),
+            ),
+            network_details: None,
+            device: None,
+            device_instance: 0,
+            virtual_function_id: None,
+            ip_address: None,
+        }],
+    };
+    mh.instance_builer(env)
+        .network(instance_network)
+        .build()
+        .await;
+
+    Ok(mh.dpu().id)
 }
 
 async fn find_vpc_id_by_name(
@@ -92,7 +152,7 @@ async fn get_vpc_peerings(
 async fn test_create_vpc_peering(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
 
-    create_test_vpcs(&env, 2).await?;
+    create_test_vpcs(&env, 2, None).await?;
 
     let vpc_id_1 = find_vpc_id_by_name(&env, "test vpc 1").await?;
     let vpc_id_2 = find_vpc_id_by_name(&env, "test vpc 2").await?;
@@ -114,7 +174,7 @@ async fn test_create_vpc_peering(pool: PgPool) -> Result<(), Box<dyn std::error:
 // Test creation, get, and deletion of vpc_peer
 async fn test_vpc_peering_full(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    create_test_vpcs(&env, 3).await?;
+    create_test_vpcs(&env, 3, None).await?;
 
     let vpc_id_1 = find_vpc_id_by_name(&env, "test vpc 1").await?;
     let vpc_id_2 = find_vpc_id_by_name(&env, "test vpc 2").await?;
@@ -228,7 +288,7 @@ async fn test_vpc_peering_full(pool: PgPool) -> Result<(), Box<dyn std::error::E
 // Test creation, get, and deletion of vpc_peering
 async fn test_vpc_peering_constraint(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    create_test_vpcs(&env, 3).await?;
+    create_test_vpcs(&env, 3, None).await?;
 
     let vpc_id_1 = find_vpc_id_by_name(&env, "test vpc 1").await?;
     let vpc_id_2 = find_vpc_id_by_name(&env, "test vpc 2").await?;
@@ -470,6 +530,89 @@ async fn test_vpc_peering_deletion_upon_vpc_deletion(
     assert_eq!(response.tenant_interfaces.len(), 1);
     assert_eq!(response.tenant_interfaces[0].vpc_peer_prefixes.len(), 0);
     assert_eq!(response.tenant_interfaces[0].vpc_peer_vnis.len(), 0);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_vpc_peering_network_config_ordered_peerings(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = api_fixtures::create_test_env(pool).await;
+
+    let dpu_machine_id = create_test_vpcs(&env, 4, Some(VpcVirtualizationType::Fnn)).await?;
+    let vpc_id_1 = find_vpc_id_by_name(&env, "test vpc 1").await?;
+    let vpc_id_2 = find_vpc_id_by_name(&env, "test vpc 2").await?;
+    let vpc_id_3 = find_vpc_id_by_name(&env, "test vpc 3").await?;
+    let vpc_id_4 = find_vpc_id_by_name(&env, "test vpc 4").await?;
+
+    let peer_vpc_vni_2 = db::vpc::find_by_name(&env.pool, "test vpc 2")
+        .await?
+        .into_iter()
+        .next()
+        .and_then(|vpc| vpc.status.and_then(|status| status.vni))
+        .expect("Expected peer vpc 2 vni to be present") as u32;
+    let peer_vpc_vni_3 = db::vpc::find_by_name(&env.pool, "test vpc 3")
+        .await?
+        .into_iter()
+        .next()
+        .and_then(|vpc| vpc.status.and_then(|status| status.vni))
+        .expect("Expected peer vpc 3 vni to be present") as u32;
+    let peer_vpc_vni_4 = db::vpc::find_by_name(&env.pool, "test vpc 4")
+        .await?
+        .into_iter()
+        .next()
+        .and_then(|vpc| vpc.status.and_then(|status| status.vni))
+        .expect("Expected peer vpc 4 vni to be present") as u32;
+
+    // Create VPC Peering between VPC 1 and VPC 2
+    let vpc_peering_request_12 = Request::new(VpcPeeringCreationRequest {
+        vpc_id: Some(vpc_id_1),
+        peer_vpc_id: Some(vpc_id_2),
+        id: None,
+    });
+    let _ = env.api.create_vpc_peering(vpc_peering_request_12).await?;
+
+    // Create VPC Peering between VPC 1 and VPC 3
+    let vpc_peering_request_13 = Request::new(VpcPeeringCreationRequest {
+        vpc_id: Some(vpc_id_1),
+        peer_vpc_id: Some(vpc_id_3),
+        id: None,
+    });
+    let _ = env.api.create_vpc_peering(vpc_peering_request_13).await?;
+
+    // Create VPC Peering between VPC 1 and VPC 4
+    let vpc_peering_request_14 = Request::new(VpcPeeringCreationRequest {
+        vpc_id: Some(vpc_id_1),
+        peer_vpc_id: Some(vpc_id_4),
+        id: None,
+    });
+    let _ = env.api.create_vpc_peering(vpc_peering_request_14).await?;
+
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(dpu_machine_id),
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(response.tenant_interfaces.len(), 1);
+    let peer_vnis = &response.tenant_interfaces[0].vpc_peer_vnis;
+    assert_eq!(peer_vnis.len(), 3);
+    assert!(peer_vnis.contains(&peer_vpc_vni_2));
+    assert!(peer_vnis.contains(&peer_vpc_vni_3));
+    assert!(peer_vnis.contains(&peer_vpc_vni_4));
+
+    let mut expected_peer_vnis = peer_vnis.clone();
+    expected_peer_vnis.sort_unstable();
+    assert_eq!(*peer_vnis, expected_peer_vnis);
+
+    let peer_prefixes = &response.tenant_interfaces[0].vpc_peer_prefixes;
+    assert_eq!(peer_prefixes.len(), 3);
+    let mut expected_peer_prefixes = peer_prefixes.clone();
+    expected_peer_prefixes.sort_unstable();
+    assert_eq!(*peer_prefixes, expected_peer_prefixes);
 
     Ok(())
 }

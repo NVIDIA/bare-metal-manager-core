@@ -1887,6 +1887,9 @@ message ExpectedPowerShelf {
   optional common.RackId rack_id = 7;
   // Unique identifier for the expected power shelf. When omitted, server generates one.
   optional common.UUID expected_power_shelf_id = 8;
+  // When true, site-explorer skips BMC password rotation and stores the
+  // factory-default credentials in Vault as-is.
+  optional bool bmc_retain_credentials = 9;
 }
 
 message ExpectedPowerShelfRequest {
@@ -2050,6 +2053,9 @@ message ExpectedSwitch {
   optional common.UUID expected_switch_id = 9;
   repeated string nvos_mac_addresses = 10;
   string bmc_ip_address = 11;
+  // When true, site-explorer skips BMC password rotation and stores the
+  // factory-default credentials in Vault as-is.
+  optional bool bmc_retain_credentials = 12;
 }
 
 message ExpectedSwitchRequest {
@@ -5107,6 +5113,9 @@ message ExpectedMachine {
   // Static BMC IP (optional). Pre-allocates a machine_interface like expected
   // switches and power shelves; external IPs use the static-assignments segment.
   optional string bmc_ip_address = 14;
+  // When true, site-explorer skips BMC password rotation and stores the
+  // factory-default credentials in Vault as-is.
+  optional bool bmc_retain_credentials = 15;
 }
 
 message ExpectedMachineRequest {
