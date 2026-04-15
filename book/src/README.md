@@ -46,8 +46,7 @@ description so clients can auto-generate code and RPC functions in the client.
 
 The NICo deployment includes a number of services:
 
-- **NICo API service**: Allows users to
-  query the state of all objects and to request creation, configuration, and deletion of entities.
+- **NICo API service**: Allows users to query the state of all objects and to request creation, configuration, and deletion of entities using a REST API.
 - **DHCP**: Provides IPs to all
   devices on underlay networks, including Host BMCs, DPU BMCs, and DPU OOB addresses. It also
   provides IPs to Hosts on the overlay network.
@@ -77,6 +76,8 @@ controller nodes.
 - The entry point for the managed site is through the Elektra site agent.
   The site agent maintains a northbound Temporal connection to the cloud control plane for command and control.
 - The admin CLI provides a command line interface into NICo.
+
+> **Note**: The REST API is the primary way to interact with NICo and should be used for all state-modifying operations (creating/modifying tenants, VPCs, instances, etc). The admin CLI is a convenience tool for administrative tasks and should not be relied upon for production workflows.
 
 #### Kubernetes
 
