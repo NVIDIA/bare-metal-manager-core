@@ -101,6 +101,7 @@ pub struct AuthConfig {
     #[serde(default = "Defaults::trust_config")]
     pub trust: TrustConfig,
 
+    #[serde(default)]
     pub acls: AclConfig,
 }
 
