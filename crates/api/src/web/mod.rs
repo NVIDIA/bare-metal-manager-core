@@ -719,6 +719,7 @@ struct Index {
     version: &'static str,
     agent_upgrade_policy: &'static str,
     log_filter: String,
+    site_explorer_enabled: String,
     create_machines: String,
     carbide_config: CarbideConfig,
     bmc_proxy: String,
@@ -743,6 +744,11 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         }
     };
 
+    let site_explorer_enabled = state
+        .dynamic_settings
+        .site_explorer_enabled
+        .load(Ordering::Relaxed)
+        .to_string();
     let create_machines = state
         .dynamic_settings
         .create_machines
@@ -761,6 +767,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         version: carbide_version::v!(build_version),
         log_filter: state.log_filter_string(),
         agent_upgrade_policy,
+        site_explorer_enabled,
         create_machines,
         carbide_config: state.runtime_config.redacted(),
         bmc_proxy,

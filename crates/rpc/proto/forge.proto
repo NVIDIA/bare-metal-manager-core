@@ -4741,6 +4741,7 @@ enum ConfigSetting {
   CREATE_MACHINES = 1;
   BMC_PROXY = 2;
   TRACING_ENABLED = 3;
+  SITE_EXPLORER_ENABLED = 4;
 }
 
 message FindIpAddressRequest {

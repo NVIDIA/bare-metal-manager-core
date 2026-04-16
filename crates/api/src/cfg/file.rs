@@ -1611,9 +1611,13 @@ impl NvLinkConfig {
 /// SiteExplorer related configuration for hardware discovery and ingestion.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SiteExplorerConfig {
-    /// Whether SiteExplorer is enabled.
-    #[serde(default = "default_to_true")]
-    pub enabled: bool,
+    /// Whether SiteExplorer is enabled. Dynamically toggleable at runtime via SetDynamicConfig.
+    #[serde(
+        default = "SiteExplorerConfig::default_enabled",
+        deserialize_with = "deserialize_arc_atomic_bool",
+        serialize_with = "serialize_arc_atomic_bool"
+    )]
+    pub enabled: Arc<AtomicBool>,
     /// The interval at which site explorer runs.
     /// Defaults to 5 Minutes if not specified.
     #[serde(
@@ -1767,7 +1771,7 @@ pub struct SiteExplorerConfig {
 impl Default for SiteExplorerConfig {
     fn default() -> Self {
         SiteExplorerConfig {
-            enabled: true,
+            enabled: Arc::new(true.into()),
             run_interval: Self::default_run_interval(),
             concurrent_explorations: Self::default_concurrent_explorations(),
             explorations_per_run: Self::default_explorations_per_run(),
@@ -1795,7 +1799,7 @@ impl Default for SiteExplorerConfig {
 
 impl PartialEq for SiteExplorerConfig {
     fn eq(&self, other: &SiteExplorerConfig) -> bool {
-        self.enabled == other.enabled
+        self.enabled.load(AtomicOrdering::Relaxed) == other.enabled.load(AtomicOrdering::Relaxed)
             && self.run_interval == other.run_interval
             && self.concurrent_explorations == other.concurrent_explorations
             && self.explorations_per_run == other.explorations_per_run
@@ -1809,6 +1813,10 @@ impl PartialEq for SiteExplorerConfig {
 impl SiteExplorerConfig {
     pub const fn default_run_interval() -> std::time::Duration {
         std::time::Duration::from_secs(120)
+    }
+
+    pub fn default_enabled() -> Arc<AtomicBool> {
+        Arc::new(true.into())
     }
 
     pub fn default_create_machines() -> Arc<AtomicBool> {
@@ -3479,7 +3487,7 @@ mod tests {
         assert!(config.ib_config.is_none());
         assert!(config.ib_fabrics.is_empty());
         assert!(config.vpc_peering_policy.is_none());
-        assert!(config.site_explorer.enabled);
+        assert!(config.site_explorer.enabled.load(AtomicOrdering::Relaxed));
         assert!(
             config
                 .site_explorer
@@ -3573,7 +3581,7 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
-                enabled: false,
+                enabled: Arc::new(false.into()),
                 run_interval: std::time::Duration::from_secs(120),
                 concurrent_explorations: 10,
                 explorations_per_run: 12,
@@ -3746,7 +3754,7 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
-                enabled: true,
+                enabled: Arc::new(true.into()),
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 30,
                 explorations_per_run: 11,
@@ -4055,7 +4063,7 @@ mod tests {
         assert_eq!(
             config.site_explorer,
             SiteExplorerConfig {
-                enabled: false,
+                enabled: Arc::new(false.into()),
                 run_interval: std::time::Duration::from_secs(100),
                 concurrent_explorations: 10,
                 explorations_per_run: 12,

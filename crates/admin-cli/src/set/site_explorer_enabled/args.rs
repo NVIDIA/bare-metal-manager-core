@@ -20,10 +20,10 @@ use clap::Parser;
 #[derive(Parser, Debug, Clone)]
 #[clap(group = clap::ArgGroup::new("toggle").required(true))]
 pub struct Args {
-    #[clap(long, group = "toggle", help = "Enable machine creation")]
+    #[clap(long, group = "toggle", help = "Enable site-explorer")]
     pub enable: bool,
 
-    #[clap(long, group = "toggle", help = "Disable machine creation")]
+    #[clap(long, group = "toggle", help = "Disable site-explorer")]
     pub disable: bool,
 }
 

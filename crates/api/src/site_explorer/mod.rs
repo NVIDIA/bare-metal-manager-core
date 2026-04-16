@@ -188,7 +188,6 @@ pub type SiteIdentifiedHosts = Vec<(ExploredManagedHost, EndpointExplorationRepo
 /// * `machine_update_run_interval` how often the manager calls the modules to start updates
 pub struct SiteExplorer {
     database_connection: PgPool,
-    enabled: bool,
     config: SiteExplorerConfig,
     metric_holder: Arc<metrics::MetricHolder>,
     endpoint_explorer: Arc<dyn EndpointExplorer>,
@@ -222,7 +221,11 @@ impl SiteExplorer {
             .run_interval
             .saturating_add(std::time::Duration::from_secs(60));
 
-        let metric_holder = Arc::new(metrics::MetricHolder::new(meter, hold_period));
+        let metric_holder = Arc::new(metrics::MetricHolder::new(
+            meter,
+            hold_period,
+            &explorer_config,
+        ));
 
         SiteExplorer {
             machine_creator: MachineCreator::new(
@@ -237,7 +240,6 @@ impl SiteExplorer {
                 explorer_config.clone(),
             ),
             database_connection,
-            enabled: explorer_config.enabled,
             config: explorer_config,
             metric_holder,
             endpoint_explorer,
@@ -247,18 +249,17 @@ impl SiteExplorer {
         }
     }
 
-    /// Start the SiteExplorer and return a [sending channel](tokio::sync::oneshot::Sender) that will stop the SiteExplorer when dropped.
+    /// Start the SiteExplorer background task. The task always runs and checks
+    /// `config.enabled` each iteration, allowing runtime pause/unpause via the API.
     pub fn start(
         mut self,
         join_set: &mut JoinSet<()>,
         cancel_token: CancellationToken,
     ) -> io::Result<()> {
-        if self.enabled {
-            join_set
-                .build_task()
-                .name("site_explorer")
-                .spawn(async move { self.run(cancel_token).await })?;
-        }
+        join_set
+            .build_task()
+            .name("site_explorer")
+            .spawn(async move { self.run(cancel_token).await })?;
 
         Ok(())
     }
@@ -267,13 +268,18 @@ impl SiteExplorer {
         let timer = PeriodicTimer::new(self.config.run_interval);
         loop {
             let tick = timer.tick();
-            match self.run_single_iteration().await {
-                Ok(identified_hosts) => self
-                    .boot_order_tracker
-                    .track_hosts(Instant::now(), &identified_hosts),
-                Err(e) => {
-                    tracing::warn!("SiteExplorer error: {}", e);
+
+            if self.config.enabled.load(Ordering::Relaxed) {
+                match self.run_single_iteration().await {
+                    Ok(identified_hosts) => self
+                        .boot_order_tracker
+                        .track_hosts(Instant::now(), &identified_hosts),
+                    Err(e) => {
+                        tracing::warn!("SiteExplorer error: {}", e);
+                    }
                 }
+            } else {
+                tracing::warn!("SiteExplorer is disabled, skipping iteration");
             }
 
             tokio::select! {

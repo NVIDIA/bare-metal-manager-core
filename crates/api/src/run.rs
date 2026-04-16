@@ -119,6 +119,7 @@ pub async fn run(
 
     let dynamic_settings = crate::dynamic_settings::DynamicSettings {
         log_filter: tconf.filter.clone(),
+        site_explorer_enabled: carbide_config.site_explorer.enabled.clone(),
         create_machines: carbide_config.site_explorer.create_machines.clone(),
         bmc_proxy: carbide_config.site_explorer.bmc_proxy.clone(),
         tracing_enabled: tconf.tracing_enabled,

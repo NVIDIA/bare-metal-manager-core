@@ -15,20 +15,17 @@
  * limitations under the License.
  */
 
-use clap::Parser;
+pub mod args;
+pub mod cmd;
 
-#[derive(Parser, Debug, Clone)]
-#[clap(group = clap::ArgGroup::new("toggle").required(true))]
-pub struct Args {
-    #[clap(long, group = "toggle", help = "Enable machine creation")]
-    pub enable: bool,
+use ::rpc::admin_cli::CarbideCliResult;
+pub use args::Args;
 
-    #[clap(long, group = "toggle", help = "Disable machine creation")]
-    pub disable: bool,
-}
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
 
-impl Args {
-    pub fn is_enabled(&self) -> bool {
-        self.enable
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::site_explorer_enabled(self, &ctx.api_client).await
     }
 }
