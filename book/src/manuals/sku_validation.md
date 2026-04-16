@@ -5,8 +5,9 @@ NCX Infra Controller (NICo) supports checking and validating the hardware in a m
 ## Summary
 
 A SKU is a collection of definitions managed by NICo that define a specific configuration of machine.
-Each host managed by NICo must have a SKU associated with it before it can be made available for use by a tenant
-(TODO: did we actually implement this?).
+Each host managed by NICo must have a SKU associated with it before it can be made available for use by a tenant.
+
+<!-- TODO: did we actually implement this? -->
 
 Hardware configurations or SKUs are generated from existing machines by an admin and uploaded to forge via the CLI.
 SKU's can be downloaded for modification or use with other sites.

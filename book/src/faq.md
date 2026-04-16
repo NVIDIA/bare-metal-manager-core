@@ -18,7 +18,7 @@ No, NICo does not manage Infiniband switches in standalone mode. It requires UFM
 
 NICo stores the owner of each instance in the form of a `tenant_organization_id` that is passed during instance creation.
 
-![NICo Tenancy Mapping](faq_tenency_mappings.png)
+![NICo Tenancy Mapping](static/faq_tenency_mappings.png)
 
 **Does NICo speak to NetQ to learn about the network?**
 

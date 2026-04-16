@@ -125,7 +125,7 @@ If SSH fails, the DPU might not be up and running.
 If directly SSHing to the DPU does not work, it can be accessed via its BMC
 and rshim to investigate its state.
 
-**TODO:** Document the BMC path
+<!-- TODO: Document the BMC path -->
 
 ### Checking DPU agent logs
 
@@ -210,7 +210,7 @@ The BGP details can be checked on the DPU using
 sudo crictl exec -ti $(sudo crictl ps |grep doca-hbn |awk '{print $1}') vtysh -c 'show bgp summary'
 ```
 
-**TODO: Provide more details on the next steps here**
+<!-- TODO: Provide more details on the next steps here -->
 
 ### `ServiceRunning`
 

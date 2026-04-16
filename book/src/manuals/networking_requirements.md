@@ -13,7 +13,7 @@ Here is an overview of the requirements, which will be detailed in the following
   * Configuring a new set of devices to act as tenant gateways with an isolated tenant VRF, peering the new gateways with the core routers, and applying necessary route-leaking to inject a
     default route into the tenant VRF.
 
-![Simplified diagram of the network topology](../images/ncp_requirements_diagram.png)
+![Simplified diagram of the network topology](../static/ncp_overview.png)
 
 ## Underlay and BGP Configuration
 
