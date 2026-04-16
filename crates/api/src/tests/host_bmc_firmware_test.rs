@@ -2643,3 +2643,211 @@ async fn test_manual_firmware_upgrade_workflow(pool: sqlx::PgPool) -> CarbideRes
 
     Ok(())
 }
+
+#[crate::sqlx_test]
+async fn test_report_scout_firmware_upgrade_status(pool: sqlx::PgPool) -> CarbideResult<()> {
+    let env = create_test_env(pool).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+
+    // Manually put the machine into WaitingForScoutUpgrade state
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let waiting_state = ManagedHostState::HostReprovision {
+        reprovision_state: HostReprovisionState::WaitingForScoutUpgrade {
+            component_type: FirmwareComponentType::Bmc,
+            target_version: "1.2.3".to_string(),
+            started_at: chrono::Utc::now(),
+            result: None,
+        },
+        retry_count: 0,
+    };
+    db::machine::advance(&host, &mut txn, &waiting_state, None)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    // Call the RPC endpoint with a successful result
+    env.api
+        .report_scout_firmware_upgrade_status(Request::new(
+            rpc::forge::ScoutFirmwareUpgradeStatusRequest {
+                machine_id: Some(mh.host().id),
+                success: true,
+                exit_code: 0,
+                stdout: "upgrade complete".to_string(),
+                stderr: String::new(),
+                error: String::new(),
+            },
+        ))
+        .await
+        .unwrap();
+
+    // Verify the result was stored
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
+        panic!("Not in HostReprovision");
+    };
+    let HostReprovisionState::WaitingForScoutUpgrade { result, .. } = reprovision_state else {
+        panic!("Not in WaitingForScoutUpgrade");
+    };
+    let result = result.as_ref().expect("result should be set");
+    assert!(result.success);
+    assert_eq!(result.exit_code, 0);
+    assert_eq!(result.stdout, "upgrade complete");
+    txn.commit().await.unwrap();
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_report_scout_firmware_upgrade_status_failure(
+    pool: sqlx::PgPool,
+) -> CarbideResult<()> {
+    let env = create_test_env(pool).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+
+    // Manually put the machine into WaitingForScoutUpgrade state
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let waiting_state = ManagedHostState::HostReprovision {
+        reprovision_state: HostReprovisionState::WaitingForScoutUpgrade {
+            component_type: FirmwareComponentType::Bmc,
+            target_version: "1.2.3".to_string(),
+            started_at: chrono::Utc::now(),
+            result: None,
+        },
+        retry_count: 0,
+    };
+    db::machine::advance(&host, &mut txn, &waiting_state, None)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    // Call the RPC endpoint with a failure result
+    env.api
+        .report_scout_firmware_upgrade_status(Request::new(
+            rpc::forge::ScoutFirmwareUpgradeStatusRequest {
+                machine_id: Some(mh.host().id),
+                success: false,
+                exit_code: 1,
+                stdout: "starting upgrade".to_string(),
+                stderr: "permission denied".to_string(),
+                error: "script failed".to_string(),
+            },
+        ))
+        .await
+        .unwrap();
+
+    // Verify the failure result was stored
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
+        panic!("Not in HostReprovision");
+    };
+    let HostReprovisionState::WaitingForScoutUpgrade { result, .. } = reprovision_state else {
+        panic!("Not in WaitingForScoutUpgrade");
+    };
+    let result = result.as_ref().expect("result should be set");
+    assert!(!result.success);
+    assert_eq!(result.exit_code, 1);
+    assert_eq!(result.stderr, "permission denied");
+    assert_eq!(result.error, "script failed");
+    txn.commit().await.unwrap();
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_report_scout_firmware_upgrade_status_wrong_state(
+    pool: sqlx::PgPool,
+) -> CarbideResult<()> {
+    let env = create_test_env(pool).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+
+    // Machine is in its default state (not WaitingForScoutUpgrade), so the RPC should fail
+    let err = env
+        .api
+        .report_scout_firmware_upgrade_status(Request::new(
+            rpc::forge::ScoutFirmwareUpgradeStatusRequest {
+                machine_id: Some(mh.host().id),
+                success: true,
+                exit_code: 0,
+                stdout: String::new(),
+                stderr: String::new(),
+                error: String::new(),
+            },
+        ))
+        .await
+        .unwrap_err();
+
+    assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_report_scout_firmware_upgrade_status_truncates_output(
+    pool: sqlx::PgPool,
+) -> CarbideResult<()> {
+    let env = create_test_env(pool).await;
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+
+    // Manually put the machine into WaitingForScoutUpgrade state
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let waiting_state = ManagedHostState::HostReprovision {
+        reprovision_state: HostReprovisionState::WaitingForScoutUpgrade {
+            component_type: FirmwareComponentType::Bmc,
+            target_version: "1.2.3".to_string(),
+            started_at: chrono::Utc::now(),
+            result: None,
+        },
+        retry_count: 0,
+    };
+    db::machine::advance(&host, &mut txn, &waiting_state, None)
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+
+    // Send a response with very large stdout/stderr
+    let large_output = "x".repeat(10_000);
+    env.api
+        .report_scout_firmware_upgrade_status(Request::new(
+            rpc::forge::ScoutFirmwareUpgradeStatusRequest {
+                machine_id: Some(mh.host().id),
+                success: true,
+                exit_code: 0,
+                stdout: large_output.clone(),
+                stderr: large_output.clone(),
+                error: large_output.clone(),
+            },
+        ))
+        .await
+        .unwrap();
+
+    // Verify the output was truncated
+    let mut txn = env.pool.begin().await.unwrap();
+    let host = mh.host().db_machine(&mut txn).await;
+    let ManagedHostState::HostReprovision {
+        reprovision_state, ..
+    } = host.current_state()
+    else {
+        panic!("Not in HostReprovision");
+    };
+    let HostReprovisionState::WaitingForScoutUpgrade { result, .. } = reprovision_state else {
+        panic!("Not in WaitingForScoutUpgrade");
+    };
+    let result = result.as_ref().expect("result should be set");
+    assert!(result.stdout.len() <= 1500);
+    assert!(result.stderr.len() <= 1500);
+    assert!(result.error.len() <= 1500);
+    txn.commit().await.unwrap();
+
+    Ok(())
+}
