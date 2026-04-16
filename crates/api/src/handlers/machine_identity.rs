@@ -427,18 +427,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn jwt_sub_claim_trims_prefix_slash_and_joins_machine() {
+    fn jwt_sub_claim_trims_trailing_slash_on_prefix() {
         let mid =
             MachineId::from_str("fm100htjsaledfasinabqqer70e2ua5ksqj4kfjii0v0a90vulps48c1h7g")
                 .unwrap();
-        assert_eq!(
-            jwt_sub_claim("spiffe://td.example/myorg", &mid),
-            format!("spiffe://td.example/myorg/machine/{mid}")
-        );
-        assert_eq!(
-            jwt_sub_claim("spiffe://td.example/myorg/", &mid),
-            format!("spiffe://td.example/myorg/machine/{mid}")
-        );
+        let expected = format!("spiffe://td.example/myorg/{mid}");
+        assert_eq!(jwt_sub_claim("spiffe://td.example/myorg", &mid), expected);
+        assert_eq!(jwt_sub_claim("spiffe://td.example/myorg/", &mid), expected);
     }
 
     #[test]
