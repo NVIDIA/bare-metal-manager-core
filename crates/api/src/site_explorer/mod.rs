@@ -276,7 +276,7 @@ impl SiteExplorer {
                     }
                 }
             } else {
-                tracing::debug!("SiteExplorer is disabled, skipping iteration");
+                tracing::warn!("SiteExplorer is disabled, skipping iteration");
             }
 
             tokio::select! {
