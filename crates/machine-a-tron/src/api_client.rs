@@ -502,6 +502,7 @@ impl ApiClient {
                 dpf_enabled: true,
                 is_dpf_enabled: Some(true),
                 bmc_ip_address: None,
+                bmc_retain_credentials: None,
             })
             .await
             .map_err(ClientApiError::InvocationError)

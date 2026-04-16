@@ -1,4 +1,4 @@
-# VPC Peering Management
+# VPC Peering
 
 VPC peering allows you to connect two VPCs together, enabling bi-directional network communication between instances in different VPCs. This page explains how to manage VPC peering connections using `carbide-admin-cli`.
 

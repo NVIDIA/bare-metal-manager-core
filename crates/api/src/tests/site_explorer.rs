@@ -186,6 +186,7 @@ impl FakePowerShelf {
                 labels: HashMap::new(),
             },
             rack_id: None,
+            bmc_retain_credentials: None,
         }
     }
 }
@@ -1437,6 +1438,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
                 rack_id: None,
                 dpf_enabled: Some(true),
                 bmc_ip_address: None,
+                bmc_retain_credentials: None,
             },
         },
     )
@@ -1486,6 +1488,7 @@ async fn test_fallback_dpu_serial(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         rack_id: None,
         dpf_enabled: Some(true),
         bmc_ip_address: None,
+        bmc_retain_credentials: None,
     };
     db::expected_machine::update(&mut txn, &host1_expected_machine).await?;
     txn.commit().await?;
@@ -2449,6 +2452,7 @@ async fn test_machine_creation_with_sku(
                 rack_id: None,
                 dpf_enabled: Some(true),
                 bmc_ip_address: None,
+                bmc_retain_credentials: None,
             },
         },
     )
@@ -2583,6 +2587,7 @@ async fn test_expected_machine_device_type_metrics(
                 rack_id: None,
                 dpf_enabled: Some(true),
                 bmc_ip_address: None,
+                bmc_retain_credentials: None,
             },
         },
     )
@@ -2605,6 +2610,7 @@ async fn test_expected_machine_device_type_metrics(
                 rack_id: None,
                 dpf_enabled: Some(true),
                 bmc_ip_address: None,
+                bmc_retain_credentials: None,
             },
         },
     )
@@ -2627,6 +2633,7 @@ async fn test_expected_machine_device_type_metrics(
                 rack_id: None,
                 dpf_enabled: Some(true),
                 bmc_ip_address: None,
+                bmc_retain_credentials: None,
             },
         },
     )
@@ -2981,6 +2988,7 @@ async fn test_site_explorer_switch_discovery(
             labels: HashMap::new(),
         },
         rack_id: None,
+        bmc_retain_credentials: None,
     };
     db::expected_switch::create(&mut txn, expected_switch).await?;
     txn.commit().await?;

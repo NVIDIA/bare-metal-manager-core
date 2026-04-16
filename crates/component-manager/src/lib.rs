@@ -9,6 +9,7 @@ pub mod nsm;
 pub mod nv_switch_manager;
 pub mod power_shelf_manager;
 pub mod psm;
+pub mod rms;
 pub mod tls;
 pub mod types;
 

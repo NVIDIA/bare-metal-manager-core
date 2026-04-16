@@ -41,9 +41,44 @@ pub async fn handle_reprovisioning(
 
     match reprovisioning_state {
         ReProvisioningState::WaitingForRackFirmwareUpgrade => {
+            let requested_at = state
+                .switch_reprovisioning_requested
+                .as_ref()
+                .map(|request| request.requested_at)
+                .expect("WaitingForRackFirmwareUpgrade requires a rack reprovision request");
+            let Some(firmware_upgrade_status) = state.firmware_upgrade_status.as_ref() else {
+                return Ok(StateHandlerOutcome::wait(
+                    "waiting for switch firmware upgrade status".into(),
+                ));
+            };
+            if !firmware_upgrade_status.is_current_for(requested_at) {
+                return Ok(StateHandlerOutcome::wait(
+                    "waiting for current rack firmware cycle".into(),
+                ));
+            }
+            if !firmware_upgrade_status.is_terminal() {
+                return Ok(StateHandlerOutcome::wait(
+                    "waiting for switch firmware completion".into(),
+                ));
+            }
+
             let mut txn = ctx.services.db_pool.begin().await?;
             db_switch::clear_switch_reprovisioning_requested(txn.as_mut(), *switch_id).await?;
-            Ok(StateHandlerOutcome::transition(SwitchControllerState::Ready).with_txn(txn))
+            match &firmware_upgrade_status.status {
+                model::rack::RackFirmwareUpgradeState::Completed => {
+                    Ok(StateHandlerOutcome::transition(SwitchControllerState::Ready).with_txn(txn))
+                }
+                model::rack::RackFirmwareUpgradeState::Failed { cause } => Ok(
+                    StateHandlerOutcome::transition(SwitchControllerState::Error {
+                        cause: cause.clone(),
+                    })
+                    .with_txn(txn),
+                ),
+                model::rack::RackFirmwareUpgradeState::Started
+                | model::rack::RackFirmwareUpgradeState::InProgress => Ok(
+                    StateHandlerOutcome::wait("waiting for switch firmware completion".into()),
+                ),
+            }
         }
     }
 }

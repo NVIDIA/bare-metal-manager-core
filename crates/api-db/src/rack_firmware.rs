@@ -229,6 +229,23 @@ pub async fn has_default(
     Ok(exists)
 }
 
+/// Finds the default firmware row for the given rack_hardware_type.
+pub async fn find_default_by_rack_hardware_type(
+    txn: impl DbReader<'_>,
+    rack_hardware_type: &RackHardwareType,
+) -> DatabaseResult<RackFirmware> {
+    let query = "SELECT * FROM rack_firmware WHERE rack_hardware_type = $1 AND is_default = true ORDER BY created DESC LIMIT 1";
+    let ret = sqlx::query_as(query)
+        .bind(rack_hardware_type)
+        .fetch_optional(txn)
+        .await;
+    ret.map_err(|e| DatabaseError::query(query, e))?
+        .ok_or_else(|| DatabaseError::NotFoundError {
+            kind: "default rack firmware",
+            id: rack_hardware_type.to_string(),
+        })
+}
+
 /// Sets the given firmware as the default for its rack_hardware_type.
 /// Clears any previous default for the same rack_hardware_type.
 pub async fn set_default(txn: &mut PgConnection, id: &str) -> DatabaseResult<RackFirmware> {
@@ -464,6 +481,12 @@ mod tests {
                 .await
                 .unwrap()
         );
+
+        let default_fw = find_default_by_rack_hardware_type(&mut *txn, &RackHardwareType::any())
+            .await
+            .unwrap();
+        assert_eq!(default_fw.id, "fw-012");
+        assert!(default_fw.is_default);
     }
 
     #[crate::sqlx_test]
@@ -539,5 +562,25 @@ mod tests {
         let y = find_by_id(&mut *txn, "fw-y").await.unwrap();
         assert!(x.is_default);
         assert!(y.is_default);
+    }
+
+    #[crate::sqlx_test]
+    async fn test_find_default_by_rack_hardware_type_not_found(pool: sqlx::PgPool) {
+        let mut txn = pool.begin().await.unwrap();
+
+        create(
+            &mut txn,
+            "fw-z",
+            RackHardwareType::from("type-z"),
+            json!({"Id": "fw-z"}),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let err = find_default_by_rack_hardware_type(&mut *txn, &RackHardwareType::from("type-z"))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, DatabaseError::NotFoundError { .. }));
     }
 }

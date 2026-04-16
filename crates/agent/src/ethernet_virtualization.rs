@@ -489,8 +489,8 @@ pub async fn update_nvue(
             };
 
             if !skip_post {
-                // Make it so
-                nvue::apply(hbn_root, &path).await?;
+                // Apply only when NVUE reports semantic diff.
+                return nvue::apply(hbn_root, &path).await;
             }
             Ok(true)
         }

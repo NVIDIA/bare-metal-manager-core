@@ -796,6 +796,7 @@ pub mod tests {
                     rack_id: None,
                     dpf_enabled: Some(true),
                     bmc_ip_address: None,
+                    bmc_retain_credentials: None,
                 },
             },
         )
@@ -888,6 +889,7 @@ pub mod tests {
                     rack_id: None,
                     dpf_enabled: Some(true),
                     bmc_ip_address: None,
+                    bmc_retain_credentials: None,
                 },
             },
         )
@@ -955,6 +957,7 @@ pub mod tests {
                     rack_id: None,
                     dpf_enabled: Some(true),
                     bmc_ip_address: None,
+                    bmc_retain_credentials: None,
                 },
             },
         )
@@ -1039,6 +1042,7 @@ pub mod tests {
                     rack_id: None,
                     dpf_enabled: Some(true),
                     bmc_ip_address: None,
+                    bmc_retain_credentials: None,
                 },
             },
         )
@@ -1474,6 +1478,7 @@ pub mod tests {
                     rack_id: None,
                     dpf_enabled: Some(true),
                     bmc_ip_address: None,
+                    bmc_retain_credentials: None,
                 },
             },
         )

@@ -231,6 +231,7 @@ impl BmcEndpointExplorer {
         expected_switch: Option<&ExpectedSwitch>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
         let current_bmc_credentials;
+        let retain_credentials;
 
         tracing::info!(%bmc_ip_address, %bmc_mac_address, %vendor, "attempting to set the administrative credentials to the site password");
 
@@ -240,18 +241,28 @@ impl BmcEndpointExplorer {
                 username: expected_machine_credentials.data.bmc_username.clone(),
                 password: expected_machine_credentials.data.bmc_password.clone(),
             };
+            retain_credentials = expected_machine_credentials
+                .data
+                .bmc_retain_credentials
+                .unwrap_or(false);
         } else if let Some(expected_power_shelf_credentials) = expected_power_shelf {
             tracing::info!(%bmc_ip_address, %bmc_mac_address, "Found an expected power shelf for this BMC mac address");
             current_bmc_credentials = Credentials::UsernamePassword {
                 username: expected_power_shelf_credentials.bmc_username.clone(),
                 password: expected_power_shelf_credentials.bmc_password.clone(),
             };
+            retain_credentials = expected_power_shelf_credentials
+                .bmc_retain_credentials
+                .unwrap_or(false);
         } else if let Some(expected_switch_credentials) = expected_switch {
             tracing::info!(%bmc_ip_address, %bmc_mac_address, "Found an expected switch for this BMC mac address");
             current_bmc_credentials = Credentials::UsernamePassword {
                 username: expected_switch_credentials.bmc_username.clone(),
                 password: expected_switch_credentials.bmc_password.clone(),
             };
+            retain_credentials = expected_switch_credentials
+                .bmc_retain_credentials
+                .unwrap_or(false);
         } else {
             tracing::info!(%bmc_ip_address, %bmc_mac_address, %vendor, "No expected machine found, could be a BlueField");
             // We dont know if this machine is a DPU at this point
@@ -262,6 +273,7 @@ impl BmcEndpointExplorer {
                     // Try the DPU hardware default password to handle the DPU case
                     // This password will not work for a Viking host and we will return an error
                     current_bmc_credentials = self.get_default_hardware_dpu_bmc_root_credentials();
+                    retain_credentials = false;
                 }
                 _ => {
                     return Err(EndpointExplorationError::MissingCredentials {
@@ -274,23 +286,32 @@ impl BmcEndpointExplorer {
             }
         }
 
-        // use redfish to set the machine's BMC root password to
-        // match Forge's sitewide BMC root password (from the factory default).
-        // return an error if we cannot log into the machine's BMC using current credentials
-        let sitewide_bmc_password = self.get_sitewide_bmc_password().await?;
-        let bmc_credentials = self
-            .set_bmc_root_password(
-                bmc_ip_address,
-                vendor,
-                current_bmc_credentials,
-                sitewide_bmc_password,
-            )
-            .await?;
+        let bmc_credentials = if retain_credentials {
+            tracing::info!(
+                %bmc_ip_address, %bmc_mac_address, %vendor,
+                "bmc_retain_credentials is set; skipping BMC password rotation + storing existing credentials"
+            );
+            current_bmc_credentials
+        } else {
+            // use redfish to set the machine's BMC root password to
+            // match Forge's sitewide BMC root password (from the factory default).
+            // return an error if we cannot log into the machine's BMC using current credentials
+            let sitewide_bmc_password = self.get_sitewide_bmc_password().await?;
+            let rotated = self
+                .set_bmc_root_password(
+                    bmc_ip_address,
+                    vendor,
+                    current_bmc_credentials,
+                    sitewide_bmc_password,
+                )
+                .await?;
 
-        tracing::info!(
-            %bmc_ip_address, %bmc_mac_address, %vendor,
-            "Site explorer successfully updated the root password for {bmc_mac_address} to the Forge sitewide BMC root password"
-        );
+            tracing::info!(
+                %bmc_ip_address, %bmc_mac_address, %vendor,
+                "Site explorer successfully updated the root password for {bmc_mac_address} to the sitewide BMC root password"
+            );
+            rotated
+        };
 
         // set the BMC root credentials in vault for this machine
         self.set_bmc_root_credentials(bmc_mac_address, &bmc_credentials)

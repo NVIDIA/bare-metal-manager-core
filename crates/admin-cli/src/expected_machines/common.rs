@@ -43,6 +43,8 @@ pub struct ExpectedMachineJson {
     /// [`bmc_mac_address`](Self::bmc_mac_address) (same as `--bmc-ip-address` on add/patch).
     #[serde(default)]
     pub bmc_ip_address: Option<String>,
+    #[serde(default)]
+    pub bmc_retain_credentials: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

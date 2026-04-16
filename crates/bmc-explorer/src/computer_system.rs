@@ -209,6 +209,23 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             .filter_map(|dev| pcie_device_to_model(hw_type, dev))
             .collect();
 
+        let power_state = chassis
+            .liteon_power_state()
+            .map(|v| v.to_model())
+            .unwrap_or_else(|| {
+                self.system
+                    .power_state()
+                    .and_then(|v| match v {
+                        PowerState::On => Some(ModelPowerState::On),
+                        PowerState::Off => Some(ModelPowerState::Off),
+                        PowerState::PoweringOn => Some(ModelPowerState::PoweringOn),
+                        PowerState::PoweringOff => Some(ModelPowerState::PoweringOff),
+                        PowerState::Paused => Some(ModelPowerState::Paused),
+                        PowerState::UnsupportedValue => None,
+                    })
+                    .unwrap_or_default()
+            });
+
         Ok(ModelComputerSystem {
             ethernet_interfaces,
             id: self.system.id().to_string(),
@@ -221,18 +238,7 @@ impl<B: Bmc> ExploredComputerSystem<B> {
             },
             pcie_devices,
             base_mac,
-            power_state: self
-                .system
-                .power_state()
-                .and_then(|v| match v {
-                    PowerState::On => Some(ModelPowerState::On),
-                    PowerState::Off => Some(ModelPowerState::Off),
-                    PowerState::PoweringOn => Some(ModelPowerState::PoweringOn),
-                    PowerState::PoweringOff => Some(ModelPowerState::PoweringOff),
-                    PowerState::Paused => Some(ModelPowerState::Paused),
-                    PowerState::UnsupportedValue => None,
-                })
-                .unwrap_or_default(),
+            power_state,
             sku: self.system.sku().map(|v| v.to_string()),
             boot_order,
         })

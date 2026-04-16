@@ -60,6 +60,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
             bmc_ip_address: None,
             metadata: Metadata::default(),
             rack_id: None,
+            bmc_retain_credentials: None,
             nvos_username: None,
             nvos_password: None,
         },
@@ -161,6 +162,7 @@ async fn test_add_expected_switch(pool: sqlx::PgPool) {
             metadata: None,
             rack_id: None,
             bmc_ip_address: String::new(),
+            bmc_retain_credentials: None,
         },
         rpc::forge::ExpectedSwitch {
             expected_switch_id: None,
@@ -174,6 +176,7 @@ async fn test_add_expected_switch(pool: sqlx::PgPool) {
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
             bmc_ip_address: String::new(),
+            bmc_retain_credentials: None,
         },
         rpc::forge::ExpectedSwitch {
             expected_switch_id: None,
@@ -200,6 +203,7 @@ async fn test_add_expected_switch(pool: sqlx::PgPool) {
             }),
             rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
             bmc_ip_address: String::new(),
+            bmc_retain_credentials: None,
         },
     ] {
         env.api
@@ -299,6 +303,7 @@ async fn test_update_expected_switch(pool: sqlx::PgPool) {
             metadata: None,
             rack_id: None,
             bmc_ip_address: String::new(),
+            bmc_retain_credentials: None,
         },
         rpc::forge::ExpectedSwitch {
             expected_switch_id: None,
@@ -312,6 +317,7 @@ async fn test_update_expected_switch(pool: sqlx::PgPool) {
             metadata: Some(Default::default()),
             rack_id: None,
             bmc_ip_address: String::new(),
+            bmc_retain_credentials: None,
         },
         rpc::forge::ExpectedSwitch {
             expected_switch_id: None,
@@ -338,6 +344,7 @@ async fn test_update_expected_switch(pool: sqlx::PgPool) {
             }),
             rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
             bmc_ip_address: String::new(),
+            bmc_retain_credentials: None,
         },
     ] {
         env.api
@@ -390,6 +397,7 @@ async fn test_get_expected_switch_by_id(pool: sqlx::PgPool) {
         metadata: Some(rpc::forge::Metadata::default()),
         rack_id: None,
         bmc_ip_address: String::new(),
+        bmc_retain_credentials: None,
     };
 
     env.api
@@ -431,6 +439,7 @@ async fn test_delete_expected_switch_by_id(pool: sqlx::PgPool) {
         metadata: Some(rpc::forge::Metadata::default()),
         rack_id: None,
         bmc_ip_address: String::new(),
+        bmc_retain_credentials: None,
     };
 
     env.api
@@ -484,6 +493,7 @@ async fn test_update_expected_switch_by_id(pool: sqlx::PgPool) {
         metadata: Some(rpc::forge::Metadata::default()),
         rack_id: None,
         bmc_ip_address: String::new(),
+        bmc_retain_credentials: None,
     };
 
     env.api
@@ -512,6 +522,7 @@ async fn test_update_expected_switch_by_id(pool: sqlx::PgPool) {
         }),
         rack_id: None,
         bmc_ip_address: String::new(),
+        bmc_retain_credentials: None,
     };
 
     env.api
@@ -553,6 +564,7 @@ async fn test_create_expected_switch_with_explicit_id(pool: sqlx::PgPool) {
         metadata: Some(rpc::forge::Metadata::default()),
         rack_id: None,
         bmc_ip_address: String::new(),
+        bmc_retain_credentials: None,
     };
 
     env.api
@@ -595,6 +607,7 @@ async fn test_create_expected_switch_auto_generates_id(pool: sqlx::PgPool) {
         metadata: Some(rpc::forge::Metadata::default()),
         rack_id: None,
         bmc_ip_address: String::new(),
+        bmc_retain_credentials: None,
     };
 
     env.api
@@ -705,6 +718,7 @@ async fn test_update_expected_switch_error(pool: sqlx::PgPool) {
         metadata: None,
         rack_id: None,
         bmc_ip_address: String::new(),
+        bmc_retain_credentials: None,
     };
 
     let err = env
@@ -814,6 +828,7 @@ async fn test_replace_all_expected_switches(pool: sqlx::PgPool) {
         metadata: Some(rpc::Metadata::default()),
         rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
         bmc_ip_address: String::new(),
+        bmc_retain_credentials: None,
     };
 
     let expected_switch_2 = rpc::forge::ExpectedSwitch {
@@ -828,6 +843,7 @@ async fn test_replace_all_expected_switches(pool: sqlx::PgPool) {
         metadata: Some(rpc::Metadata::default()),
         rack_id: Some(RackId::new(uuid::Uuid::new_v4().to_string())),
         bmc_ip_address: String::new(),
+        bmc_retain_credentials: None,
     };
 
     expected_switch_list
@@ -950,6 +966,7 @@ async fn test_add_with_bmc_ip_creates_static_interface(
             bmc_ip_address: bmc_ip.into(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await?;
 
@@ -1003,6 +1020,7 @@ async fn test_add_without_bmc_ip_creates_no_interface(
             bmc_ip_address: String::new(),
             metadata: Some(rpc::forge::Metadata::default()),
             rack_id: None,
+            bmc_retain_credentials: None,
         }))
         .await?;
 
@@ -1011,6 +1029,113 @@ async fn test_add_without_bmc_ip_creates_no_interface(
     assert!(
         interfaces.is_empty(),
         "should not create interface without bmc_ip_address"
+    );
+
+    Ok(())
+}
+
+/// When `bmc_retain_credentials` is set to true, the value should persist through
+/// add -> get round-trip via the RPC API.
+#[crate::sqlx_test()]
+async fn test_add_expected_switch_with_bmc_retain_credentials(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "6A:6B:6C:6D:6E:80".parse().unwrap();
+
+    env.api
+        .add_expected_switch(tonic::Request::new(rpc::forge::ExpectedSwitch {
+            expected_switch_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            switch_serial_number: "SW-RETAIN-001".into(),
+            nvos_mac_addresses: vec![],
+            nvos_username: None,
+            nvos_password: None,
+            bmc_ip_address: String::new(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+            bmc_retain_credentials: Some(true),
+        }))
+        .await?;
+
+    let retrieved = env
+        .api
+        .get_expected_switch(tonic::Request::new(rpc::forge::ExpectedSwitchRequest {
+            bmc_mac_address: bmc_mac.to_string(),
+            expected_switch_id: None,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(
+        retrieved.bmc_retain_credentials,
+        Some(true),
+        "bmc_retain_credentials should be true after round-trip"
+    );
+
+    Ok(())
+}
+
+/// Verify that updating an expected switch without specifying `bmc_retain_credentials`
+/// preserves the existing value (and that COALESCE works).
+#[crate::sqlx_test()]
+async fn test_update_expected_switch_preserves_bmc_retain_credentials(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "6A:6B:6C:6D:6E:81".parse().unwrap();
+
+    // Create with bmc_retain_credentials = true.
+    env.api
+        .add_expected_switch(tonic::Request::new(rpc::forge::ExpectedSwitch {
+            expected_switch_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            switch_serial_number: "SW-RETAIN-UPD-001".into(),
+            nvos_mac_addresses: vec![],
+            nvos_username: None,
+            nvos_password: None,
+            bmc_ip_address: String::new(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+            bmc_retain_credentials: Some(true),
+        }))
+        .await?;
+
+    // Update without setting bmc_retain_credentials (None).
+    env.api
+        .update_expected_switch(tonic::Request::new(rpc::forge::ExpectedSwitch {
+            expected_switch_id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "NEW-ADMIN".into(),
+            bmc_password: "NEW-PASS".into(),
+            switch_serial_number: "SW-RETAIN-UPD-001".into(),
+            nvos_mac_addresses: vec![],
+            nvos_username: None,
+            nvos_password: None,
+            bmc_ip_address: String::new(),
+            metadata: Some(rpc::forge::Metadata::default()),
+            rack_id: None,
+            bmc_retain_credentials: None,
+        }))
+        .await?;
+
+    let retrieved = env
+        .api
+        .get_expected_switch(tonic::Request::new(rpc::forge::ExpectedSwitchRequest {
+            bmc_mac_address: bmc_mac.to_string(),
+            expected_switch_id: None,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(
+        retrieved.bmc_retain_credentials,
+        Some(true),
+        "bmc_retain_credentials should be preserved after update with None"
     );
 
     Ok(())

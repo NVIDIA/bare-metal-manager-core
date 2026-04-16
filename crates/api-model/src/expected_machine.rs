@@ -105,6 +105,10 @@ pub struct ExpectedMachineData {
     /// without DHCP. IPs outside Carbide-managed prefixes land on the `static-assignments` segment.
     #[serde(default)]
     pub bmc_ip_address: Option<IpAddr>,
+    /// When true, site-explorer skips BMC password rotation and stores the
+    /// factory-default credentials in Vault as-is.
+    #[serde(default)]
+    pub bmc_retain_credentials: Option<bool>,
 }
 // Important : new fields for expected machine (and data) should be optional _and_ serde(default),
 // unless you want to go update all the files in each production deployment that autoload
@@ -138,6 +142,7 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
                     .try_get("default_pause_ingestion_and_poweron")?,
                 dpf_enabled: row.try_get("dpf_enabled")?,
                 bmc_ip_address: row.try_get("bmc_ip_address")?,
+                bmc_retain_credentials: row.try_get("bmc_retain_credentials")?,
             },
         })
     }
@@ -200,6 +205,7 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
                 .data
                 .bmc_ip_address
                 .map(|ip| ip.to_string()),
+            bmc_retain_credentials: expected_machine.data.bmc_retain_credentials.filter(|&v| v),
         }
     }
 }
@@ -252,6 +258,7 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
                     RpcDataConversionError::InvalidArgument(format!("Invalid BMC IP address: {s}"))
                 })?),
             },
+            bmc_retain_credentials: em.bmc_retain_credentials,
         })
     }
 }

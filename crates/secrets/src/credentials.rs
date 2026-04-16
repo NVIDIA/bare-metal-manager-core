@@ -401,7 +401,99 @@ pub enum CredentialKey {
     },
 }
 
+/// CredentialPrefix identifies a category of
+/// credentials by their shared path prefix.
+/// Useful for listing or querying all secrets
+/// within a category.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CredentialPrefix {
+    DpuSsh,
+    DpuHbn,
+    DpuRedfish,
+    Bgp,
+    HostRedfish,
+    UfmAuth,
+    DpuUefi,
+    HostUefi,
+    BmcCredentials,
+    ExtensionService,
+    NmxM,
+    RackFirmware,
+    SwitchNvosAdmin,
+    MqttAuth,
+    MachineIdentityEncryptionKey,
+}
+
+impl CredentialPrefix {
+    /// as_str returns the Vault-style path prefix
+    /// for this credential category.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::DpuSsh => "machines/",
+            Self::DpuHbn => "machines/",
+            Self::DpuRedfish => "machines/all_dpus/",
+            Self::Bgp => "bgp/",
+            Self::HostRedfish => "machines/all_hosts/",
+            Self::UfmAuth => "ufm/",
+            Self::DpuUefi => "machines/all_dpus/",
+            Self::HostUefi => "machines/all_hosts/",
+            Self::BmcCredentials => "machines/bmc/",
+            Self::ExtensionService => "machines/extension-services/",
+            Self::NmxM => "nmxm/",
+            Self::RackFirmware => "rack_firmware/",
+            Self::SwitchNvosAdmin => "switch_nvos/",
+            Self::MqttAuth => "mqtt/",
+            Self::MachineIdentityEncryptionKey => "machine_identity/",
+        }
+    }
+
+    /// all returns every credential prefix variant.
+    pub fn all() -> &'static [CredentialPrefix] {
+        &[
+            Self::DpuSsh,
+            Self::DpuHbn,
+            Self::DpuRedfish,
+            Self::Bgp,
+            Self::HostRedfish,
+            Self::UfmAuth,
+            Self::DpuUefi,
+            Self::HostUefi,
+            Self::BmcCredentials,
+            Self::ExtensionService,
+            Self::NmxM,
+            Self::RackFirmware,
+            Self::SwitchNvosAdmin,
+            Self::MqttAuth,
+            Self::MachineIdentityEncryptionKey,
+        ]
+    }
+}
+
 impl CredentialKey {
+    /// prefix returns the CredentialPrefix category
+    /// this key belongs to.
+    pub fn prefix(&self) -> CredentialPrefix {
+        match self {
+            Self::DpuSsh { .. } => CredentialPrefix::DpuSsh,
+            Self::DpuHbn { .. } => CredentialPrefix::DpuHbn,
+            Self::DpuRedfish { .. } => CredentialPrefix::DpuRedfish,
+            Self::Bgp { .. } => CredentialPrefix::Bgp,
+            Self::HostRedfish { .. } => CredentialPrefix::HostRedfish,
+            Self::UfmAuth { .. } => CredentialPrefix::UfmAuth,
+            Self::DpuUefi { .. } => CredentialPrefix::DpuUefi,
+            Self::HostUefi { .. } => CredentialPrefix::HostUefi,
+            Self::BmcCredentials { .. } => CredentialPrefix::BmcCredentials,
+            Self::ExtensionService { .. } => CredentialPrefix::ExtensionService,
+            Self::NmxM { .. } => CredentialPrefix::NmxM,
+            Self::RackFirmware { .. } => CredentialPrefix::RackFirmware,
+            Self::SwitchNvosAdmin { .. } => CredentialPrefix::SwitchNvosAdmin,
+            Self::MqttAuth { .. } => CredentialPrefix::MqttAuth,
+            Self::MachineIdentityEncryptionKey { .. } => {
+                CredentialPrefix::MachineIdentityEncryptionKey
+            }
+        }
+    }
+
     pub fn to_key_str(&self) -> Cow<'_, str> {
         match self {
             CredentialKey::DpuSsh { machine_id } => {
@@ -589,5 +681,224 @@ mod tests {
             .expect("first create");
         let result = mgr.create_credentials(&key, &cred).await;
         assert!(result.is_err());
+    }
+
+    // Verifies that every CredentialKey variant produces a non-empty path that starts
+    // with a known prefix and contains no leading or trailing slashes. These paths are
+    // stored as-is in the Postgres secrets table and must match what Vault uses.
+    #[test]
+    fn to_key_str_produces_valid_paths() {
+        #[allow(deprecated)]
+        let machine_id = MachineId::default();
+        let mac: MacAddress = MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+
+        let cases: Vec<(CredentialKey, &str)> = vec![
+            (CredentialKey::DpuHbn { machine_id }, "machines/"),
+            (
+                CredentialKey::DpuRedfish {
+                    credential_type: CredentialType::DpuHardwareDefault,
+                },
+                "machines/all_dpus/",
+            ),
+            (
+                CredentialKey::DpuRedfish {
+                    credential_type: CredentialType::SiteDefault,
+                },
+                "machines/all_dpus/",
+            ),
+            (
+                CredentialKey::HostRedfish {
+                    credential_type: CredentialType::HostHardwareDefault {
+                        vendor: bmc_vendor::BMCVendor::Nvidia,
+                    },
+                },
+                "machines/all_hosts/",
+            ),
+            (
+                CredentialKey::HostRedfish {
+                    credential_type: CredentialType::SiteDefault,
+                },
+                "machines/all_hosts/",
+            ),
+            (
+                CredentialKey::UfmAuth {
+                    fabric: "test-fabric".to_string(),
+                },
+                "ufm/",
+            ),
+            (
+                CredentialKey::DpuUefi {
+                    credential_type: CredentialType::DpuHardwareDefault,
+                },
+                "machines/all_dpus/",
+            ),
+            (
+                CredentialKey::DpuUefi {
+                    credential_type: CredentialType::SiteDefault,
+                },
+                "machines/all_dpus/",
+            ),
+            (
+                CredentialKey::HostUefi {
+                    credential_type: CredentialType::SiteDefault,
+                },
+                "machines/all_hosts/",
+            ),
+            (
+                CredentialKey::BmcCredentials {
+                    credential_type: BmcCredentialType::SiteWideRoot,
+                },
+                "machines/bmc/",
+            ),
+            (
+                CredentialKey::BmcCredentials {
+                    credential_type: BmcCredentialType::BmcRoot {
+                        bmc_mac_address: mac,
+                    },
+                },
+                "machines/bmc/",
+            ),
+            (
+                CredentialKey::BmcCredentials {
+                    credential_type: BmcCredentialType::BmcForgeAdmin {
+                        bmc_mac_address: mac,
+                    },
+                },
+                "machines/bmc/",
+            ),
+            (
+                CredentialKey::ExtensionService {
+                    service_id: "svc1".to_string(),
+                    version: "v1".to_string(),
+                },
+                "machines/extension-services/",
+            ),
+            (
+                CredentialKey::NmxM {
+                    nmxm_id: "nmxm1".to_string(),
+                },
+                "nmxm/",
+            ),
+            (
+                CredentialKey::RackFirmware {
+                    firmware_id: "fw1".to_string(),
+                },
+                "rack_firmware/",
+            ),
+            (
+                CredentialKey::SwitchNvosAdmin {
+                    bmc_mac_address: mac,
+                },
+                "switch_nvos/",
+            ),
+            (
+                CredentialKey::MqttAuth {
+                    credential_type: MqttCredentialType::Dpa,
+                },
+                "mqtt/",
+            ),
+            (
+                CredentialKey::MqttAuth {
+                    credential_type: MqttCredentialType::DsxExchangeEventBus,
+                },
+                "mqtt/",
+            ),
+            (
+                CredentialKey::MqttAuth {
+                    credential_type: MqttCredentialType::DsxExchangeConsumer,
+                },
+                "mqtt/",
+            ),
+        ];
+
+        for (key, expected_prefix) in &cases {
+            let path = key.to_key_str();
+            assert!(!path.is_empty(), "{key:?} produced an empty path");
+            assert!(
+                !path.starts_with('/'),
+                "{key:?} path {path:?} should not start with /"
+            );
+            assert!(
+                !path.ends_with('/'),
+                "{key:?} path {path:?} should not end with /"
+            );
+            assert!(
+                path.starts_with(expected_prefix),
+                "{key:?} path {path:?} should start with {expected_prefix:?}"
+            );
+        }
+    }
+
+    // Verifies that every CredentialKey's to_key_str()
+    // starts with its prefix().as_str().
+    #[test]
+    fn to_key_str_matches_prefix() {
+        #[allow(deprecated)]
+        let machine_id = MachineId::default();
+        let mac = MacAddress::new([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+
+        let keys: Vec<CredentialKey> = vec![
+            CredentialKey::DpuSsh { machine_id },
+            CredentialKey::DpuHbn { machine_id },
+            CredentialKey::DpuRedfish {
+                credential_type: CredentialType::SiteDefault,
+            },
+            CredentialKey::Bgp {
+                credential_type: BgpCredentialType::SiteWideLeafPassword,
+            },
+            CredentialKey::HostRedfish {
+                credential_type: CredentialType::SiteDefault,
+            },
+            CredentialKey::UfmAuth {
+                fabric: "f".to_string(),
+            },
+            CredentialKey::DpuUefi {
+                credential_type: CredentialType::SiteDefault,
+            },
+            CredentialKey::HostUefi {
+                credential_type: CredentialType::SiteDefault,
+            },
+            CredentialKey::BmcCredentials {
+                credential_type: BmcCredentialType::SiteWideRoot,
+            },
+            CredentialKey::ExtensionService {
+                service_id: "s".to_string(),
+                version: "v".to_string(),
+            },
+            CredentialKey::NmxM {
+                nmxm_id: "n".to_string(),
+            },
+            CredentialKey::RackFirmware {
+                firmware_id: "f".to_string(),
+            },
+            CredentialKey::SwitchNvosAdmin {
+                bmc_mac_address: mac,
+            },
+            CredentialKey::MqttAuth {
+                credential_type: MqttCredentialType::Dpa,
+            },
+            CredentialKey::MachineIdentityEncryptionKey {
+                key_id: "k".to_string(),
+            },
+        ];
+
+        for key in &keys {
+            let path = key.to_key_str();
+            let prefix = key.prefix();
+            assert!(
+                path.starts_with(prefix.as_str()),
+                "{key:?}: path {path:?} should start \
+                 with prefix {:?}",
+                prefix.as_str()
+            );
+        }
+    }
+
+    // Verifies that CredentialPrefix::all() contains
+    // every variant.
+    #[test]
+    fn prefix_all_is_complete() {
+        let all = CredentialPrefix::all();
+        assert_eq!(all.len(), 15);
     }
 }

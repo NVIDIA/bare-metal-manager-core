@@ -747,6 +747,140 @@ impl CertificateProvider for ForgeVaultClient {
     }
 }
 
+impl ForgeVaultClient {
+    /// list_secrets returns all secret paths in the
+    /// KV mount.
+    pub async fn list_secrets(&self) -> Result<Vec<String>, SecretsError> {
+        let paths = self.list_secrets_for_path("").await?;
+        tracing::info!(count = paths.len(), "listed all vault secret paths");
+        Ok(paths)
+    }
+
+    /// list_secrets_for_prefix returns all secret
+    /// paths under the given CredentialPrefix.
+    pub async fn list_secrets_for_prefix(
+        &self,
+        prefix: &crate::credentials::CredentialPrefix,
+    ) -> Result<Vec<String>, SecretsError> {
+        let paths = self.list_secrets_for_path(prefix.as_str()).await?;
+        tracing::info!(
+            prefix = prefix.as_str(),
+            count = paths.len(),
+            "listed vault secret paths for prefix"
+        );
+        Ok(paths)
+    }
+
+    /// list_secrets_for_path recursively lists all
+    /// secret paths under the given path prefix in
+    /// the KV mount.
+    pub async fn list_secrets_for_path(
+        &self,
+        path_prefix: &str,
+    ) -> Result<Vec<String>, SecretsError> {
+        let vault_client = self.vault_client().await?;
+        let mount = &self.vault_client_config.kv_mount_location;
+
+        let mut paths = Vec::new();
+        let mut stack = vec![path_prefix.to_string()];
+
+        while let Some(dir) = stack.pop() {
+            let entries = match kv2::list(vault_client.deref(), mount, &dir).await {
+                Ok(e) => e,
+                Err(ClientError::APIError { code: 404, .. }) => continue,
+                Err(e) => {
+                    tracing::warn!(
+                        prefix = %dir,
+                        "failed to list vault path: {e}"
+                    );
+                    continue;
+                }
+            };
+
+            for entry in entries {
+                if entry.ends_with('/') {
+                    let subdir = if dir.is_empty() {
+                        entry
+                    } else {
+                        format!("{dir}{entry}")
+                    };
+                    stack.push(subdir);
+                } else {
+                    let full = if dir.is_empty() {
+                        entry
+                    } else {
+                        format!("{dir}{entry}")
+                    };
+                    paths.push(full);
+                }
+            }
+        }
+
+        Ok(paths)
+    }
+
+    /// get_secrets returns all secrets in the KV
+    /// mount (paths + credentials).
+    pub async fn get_secrets(&self) -> Result<Vec<(String, Credentials)>, SecretsError> {
+        let paths = self.list_secrets().await?;
+        self.read_secrets(&paths).await
+    }
+
+    /// get_secrets_for_prefix returns all secrets
+    /// under the given CredentialPrefix.
+    pub async fn get_secrets_for_prefix(
+        &self,
+        prefix: &crate::credentials::CredentialPrefix,
+    ) -> Result<Vec<(String, Credentials)>, SecretsError> {
+        let paths = self.list_secrets_for_prefix(prefix).await?;
+        self.read_secrets(&paths).await
+    }
+
+    /// get_secrets_for_path returns all secrets under
+    /// the given path prefix.
+    pub async fn get_secrets_for_path(
+        &self,
+        path_prefix: &str,
+    ) -> Result<Vec<(String, Credentials)>, SecretsError> {
+        let paths = self.list_secrets_for_path(path_prefix).await?;
+        self.read_secrets(&paths).await
+    }
+
+    /// read_secrets reads credentials from vault for
+    /// each path. Skips 404s and logs warnings on
+    /// other errors.
+    async fn read_secrets(
+        &self,
+        paths: &[String],
+    ) -> Result<Vec<(String, Credentials)>, SecretsError> {
+        let vault_client = self.vault_client().await?;
+        let mount = &self.vault_client_config.kv_mount_location;
+
+        let mut secrets = Vec::with_capacity(paths.len());
+        for path in paths {
+            match kv2::read::<Credentials>(vault_client.deref(), mount, path).await {
+                Ok(creds) => {
+                    secrets.push((path.clone(), creds));
+                }
+                Err(ClientError::APIError { code: 404, .. }) => {
+                    tracing::debug!(
+                        path = %path,
+                        "vault secret not found"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        path = %path,
+                        "failed to read: {e}"
+                    );
+                }
+            }
+        }
+
+        Ok(secrets)
+    }
+}
+
 #[derive(Default, Debug, Clone)]
 pub struct VaultConfig {
     pub address: Option<String>,

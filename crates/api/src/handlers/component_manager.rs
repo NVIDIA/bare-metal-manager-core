@@ -48,6 +48,7 @@ fn component_manager_error_to_status(err: ComponentManagerError) -> Status {
         ComponentManagerError::Internal(msg) => Status::internal(msg),
         ComponentManagerError::Transport(e) => Status::unavailable(format!("transport error: {e}")),
         ComponentManagerError::Status(s) => s,
+        ComponentManagerError::Rms(msg) => Status::internal(format!("RMS error: {msg}")),
     }
 }
 
