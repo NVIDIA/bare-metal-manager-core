@@ -158,12 +158,9 @@ impl WiwynnGB200Nvl<'_> {
                 manufacturer: nic.manufacturer,
                 part_number: nic.part_number,
                 model: Some("GB200 NVL".into()),
-                serial_number: None,
                 network_adapters,
                 pcie_devices: Some(vec![]),
-                sensors: None,
-                assembly: None,
-                oem: None,
+                ..redfish::chassis::SingleChassisConfig::defaults()
             }
         };
         redfish::chassis::ChassisConfig {
@@ -173,12 +170,8 @@ impl WiwynnGB200Nvl<'_> {
                 manufacturer: Some("WIWYNN".into()),
                 part_number: Some("B81.11810.0005".into()),
                 model: Some("GB200 NVL".into()),
-                serial_number: None,
-                network_adapters: None,
                 pcie_devices: Some(vec![]),
-                sensors: None,
-                assembly: None,
-                oem: None,
+                ..redfish::chassis::SingleChassisConfig::defaults()
             })
             .chain(std::iter::once(redfish::chassis::SingleChassisConfig {
                 id: "Chassis_0".into(),
@@ -186,9 +179,6 @@ impl WiwynnGB200Nvl<'_> {
                 manufacturer: Some("NVIDIA".into()),
                 part_number: Some("B81.11810.000D".into()),
                 model: Some("GB200 NVL".into()),
-                serial_number: None,
-                network_adapters: None,
-                pcie_devices: None,
                 sensors: Some(redfish::sensor::generate_chassis_sensors(
                     "Chassis_0",
                     Self::sensor_layout(),
@@ -202,7 +192,7 @@ impl WiwynnGB200Nvl<'_> {
                         )
                         .build(),
                 ),
-                oem: None,
+                ..redfish::chassis::SingleChassisConfig::defaults()
             }))
             .chain((0..4).map(|index| {
                 hw::nvidia_gbx00::cbc_chassis(format!("CBC_{index}").into(), &self.topology)

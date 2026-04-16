@@ -247,8 +247,7 @@ impl DellPowerEdgeR750<'_> {
                     chassis_id,
                     Self::sensor_layout(),
                 )),
-                assembly: None,
-                oem: None,
+                ..redfish::chassis::SingleChassisConfig::defaults()
             }],
         }
     }
