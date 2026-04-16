@@ -301,13 +301,17 @@ pub async fn discover_dhcp(
         .await?;
     }
 
-    if let Some(machine_id) = machine_interface.machine_id {
-        // Can't block host's DHCP handling completely to support Zero-DPU.
-        if machine_id.machine_type().is_host()
-            && let Some(instance_id) =
-                db::instance::find_id_by_machine_id(&mut txn, &machine_id).await?
-        {
-            // An instance is associated with machine id. DPU must process it.
+    if let Some(machine_id) = machine_interface.machine_id
+        && machine_id.machine_type().is_host()
+        && let Some(instance_id) =
+            db::instance::find_id_by_machine_id(&mut txn, &machine_id).await?
+    {
+        // An instance is associated with this host. If the host has DPUs,
+        // the DPUs proxy DHCP on its behalf, so we reject the host's direct
+        // DHCP request. Zero-DPU hosts have no such intermediary, so let
+        // their DHCP proceed.
+        let dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
+        if !dpus.is_empty() {
             return Err(CarbideError::internal(format!(
                 "DHCP request received for instance: {instance_id}. Ignoring."
             )));
