@@ -52,6 +52,19 @@ pub async fn build_component_manager(
                 crate::nsm::NsmSwitchBackend::connect(&endpoint.url, endpoint.tls.as_ref()).await?,
             )
         }
+        "rms" => {
+            let client = rms_client.clone().ok_or_else(|| {
+                ComponentManagerError::InvalidArgument(
+                    "nv_switch_backend is 'rms' but RMS client is not configured".into(),
+                )
+            })?;
+            let db = db.clone().ok_or_else(|| {
+                ComponentManagerError::InvalidArgument(
+                    "nv_switch_backend is 'rms' but database pool is not configured".into(),
+                )
+            })?;
+            Arc::new(crate::rms::RmsBackend::new(client, db))
+        }
         "mock" => Arc::new(crate::mock::MockNvSwitchManager),
         other => {
             return Err(ComponentManagerError::InvalidArgument(format!(

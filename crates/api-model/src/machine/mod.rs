@@ -1576,6 +1576,22 @@ pub enum HostReprovisionState {
         reason: Option<String>,
     },
     WaitingForRackFirmwareUpgrade,
+    WaitingForScoutUpgrade {
+        component_type: FirmwareComponentType,
+        target_version: String,
+        started_at: DateTime<Utc>,
+        #[serde(default)]
+        result: Option<ScoutUpgradeResult>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct ScoutUpgradeResult {
+    pub success: bool,
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub error: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

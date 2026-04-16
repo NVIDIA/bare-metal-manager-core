@@ -1145,6 +1145,14 @@ impl Forge for Api {
             .await
     }
 
+    async fn report_scout_firmware_upgrade_status(
+        &self,
+        request: Request<rpc::ScoutFirmwareUpgradeStatusRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::host_reprovisioning::report_scout_firmware_upgrade_status(self, request)
+            .await
+    }
+
     async fn list_hosts_waiting_for_reprovisioning(
         &self,
         request: Request<rpc::HostReprovisioningListRequest>,
@@ -3253,7 +3261,7 @@ pub(crate) fn log_tenant_organization_id(organization_id: &str) {
     tracing::Span::current().record("tenant.organization_id", organization_id);
 }
 
-fn truncate(mut s: String, len: usize) -> String {
+pub(crate) fn truncate(mut s: String, len: usize) -> String {
     if s.len() < len || len < 3 {
         return s;
     }

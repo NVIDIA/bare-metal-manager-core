@@ -6653,6 +6653,10 @@ impl HostUpgradeState {
                 self.host_new_firmware_reported_wait(state, ctx, details, machine_id, scenario)
                     .await
             }
+            HostReprovisionState::WaitingForScoutUpgrade { .. } => {
+                // TODO: will be implemented in a follow-up (@jrakhmonov)
+                Ok(StateHandlerOutcome::do_nothing())
+            }
             HostReprovisionState::FailedFirmwareUpgrade { report_time, .. } => {
                 let can_retry = retry_count < MAX_FIRMWARE_UPGRADE_RETRIES;
                 let waited_enough = Utc::now()

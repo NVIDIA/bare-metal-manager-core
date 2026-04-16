@@ -294,6 +294,7 @@ pub async fn update(
 
 use std::net::IpAddr;
 
+use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
 
 /// Resolve PowerShelfIds to BMC/PMC IPs via the machine_interfaces path.
@@ -413,4 +414,32 @@ pub async fn find_bmc_info_by_power_shelf_ids(
         .fetch_all(db)
         .await
         .map_err(|err| DatabaseError::new("power_shelf::find_bmc_info_by_power_shelf_ids", err))
+}
+
+/// RMS identity for a power shelf: the power shelf ID (used as the RMS
+/// node_id), the BMC MAC address, and the rack_id.
+#[derive(Debug, sqlx::FromRow)]
+pub struct PowerShelfRmsIdentity {
+    pub id: String,
+    pub bmc_mac_address: MacAddress,
+    pub rack_id: Option<RackId>,
+}
+
+/// Look up RMS identities (node_id, rack_id) for power shelves by their
+/// BMC MAC addresses.
+pub async fn find_rms_identities_by_macs(
+    db: impl crate::db_read::DbReader<'_>,
+    macs: &[MacAddress],
+) -> DatabaseResult<Vec<PowerShelfRmsIdentity>> {
+    let sql = r#"
+        SELECT ps.id::text, ps.bmc_mac_address, ps.rack_id
+        FROM power_shelves ps
+        WHERE ps.bmc_mac_address = ANY($1)
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(macs)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("power_shelf::find_rms_identities_by_macs", err))
 }

@@ -168,6 +168,7 @@ impl InternalRBACRules {
         x.perm("DiscoveryCompleted", vec![Machineatron, Scout]);
         x.perm("CleanupMachineCompleted", vec![Machineatron, Scout]);
         x.perm("ReportForgeScoutError", vec![Scout]);
+        x.perm("ReportScoutFirmwareUpgradeStatus", vec![Scout]);
         x.perm("DiscoverDhcp", vec![Dhcp, Machineatron]);
         x.perm("ExpireDhcpLease", vec![Dhcp, Machineatron]);
         x.perm("AssignStaticAddress", vec![ForgeAdminCLI]);

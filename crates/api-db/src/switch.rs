@@ -17,6 +17,7 @@
 
 use std::net::IpAddr;
 
+use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
@@ -533,4 +534,32 @@ pub async fn find_bmc_info_by_switch_ids(
         .fetch_all(db)
         .await
         .map_err(|err| DatabaseError::new("switch::find_bmc_info_by_switch_ids", err))
+}
+
+/// RMS identity for a switch: the switch ID (used as the RMS node_id),
+/// the BMC MAC address, and the rack_id.
+#[derive(Debug, sqlx::FromRow)]
+pub struct SwitchRmsIdentity {
+    pub id: String,
+    pub bmc_mac_address: MacAddress,
+    pub rack_id: Option<RackId>,
+}
+
+/// Look up RMS identities (node_id, rack_id) for switches by their
+/// BMC MAC addresses.
+pub async fn find_rms_identities_by_macs(
+    db: impl crate::db_read::DbReader<'_>,
+    macs: &[MacAddress],
+) -> DatabaseResult<Vec<SwitchRmsIdentity>> {
+    let sql = r#"
+        SELECT s.id::text, s.bmc_mac_address, s.rack_id
+        FROM switches s
+        WHERE s.bmc_mac_address = ANY($1)
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(macs)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("switch::find_rms_identities_by_macs", err))
 }
