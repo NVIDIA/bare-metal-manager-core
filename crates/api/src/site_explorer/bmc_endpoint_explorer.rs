@@ -725,22 +725,20 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 // service root, so we fall back to probing the Chassis endpoint.
                 // Only attempt this for power shelf endpoints — machines and
                 // switches should never need this workaround.
-                // 
+                //
                 // In the future, if we want to expand this to other kinds of trays we can
                 // expand the pattern matching logic below.
                 let Some(eps) = expected_power_shelf else {
                     return Err(e);
                 };
 
-                let (username, password) = match self
-                    .get_bmc_root_credentials(bmc_mac_address)
-                    .await
-                {
-                    Ok(Credentials::UsernamePassword { username, password }) => {
-                        (username, password)
-                    }
-                    Err(_) => (eps.bmc_username.clone(), eps.bmc_password.clone()),
-                };
+                let (username, password) =
+                    match self.get_bmc_root_credentials(bmc_mac_address).await {
+                        Ok(Credentials::UsernamePassword { username, password }) => {
+                            (username, password)
+                        }
+                        Err(_) => (eps.bmc_username.clone(), eps.bmc_password.clone()),
+                    };
 
                 // Lite-On power shelf BMCs don't expose vendor details in the
                 // service root, so we fall back to checking the Manufacturer
