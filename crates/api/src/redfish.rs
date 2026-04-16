@@ -738,10 +738,20 @@ pub mod test_support {
     }
 
     #[derive(Debug, Clone, PartialEq)]
+    #[allow(clippy::type_complexity)]
     pub enum RedfishSimAction {
         Power(libredfish::SystemPowerControl),
         BmcReset,
         SetUtcTimezone,
+        MachineSetup {
+            oem_manager_profiles: HashMap<
+                libredfish::model::service_root::RedfishVendor,
+                HashMap<
+                    String,
+                    HashMap<libredfish::BiosProfileType, HashMap<String, serde_json::Value>>,
+                >,
+            >,
+        },
     }
 
     pub struct RedfishSimActions {
@@ -814,7 +824,7 @@ pub mod test_support {
                 >,
             >,
             _profile_type: libredfish::BiosProfileType,
-            _oem_manager_profiles: &HashMap<
+            oem_manager_profiles: &HashMap<
                 libredfish::model::service_root::RedfishVendor,
                 HashMap<
                     String,
