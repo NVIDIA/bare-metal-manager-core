@@ -184,8 +184,18 @@
 				document.querySelector('nav').classList.remove('nav-disabled');
 			}
 
-			window.addEventListener('pageshow', function(e) {
-				if (e.persisted) hideActionSpinner();
+			window.addEventListener('pageshow', function() {
+				document.querySelectorAll('.submitting').forEach(function(el) {
+					el.classList.remove('submitting');
+				});
+				document.querySelectorAll('.actions-busy').forEach(function(el) {
+					el.classList.remove('actions-busy');
+					el.querySelectorAll('input[type="submit"], button[type="submit"]')
+						.forEach(function(b) { b.disabled = false; });
+				});
+				var nav = document.querySelector('nav');
+				if (nav) nav.classList.remove('nav-disabled');
+				pendingScope = null;
 			});
 
 			function showToast(message) {
