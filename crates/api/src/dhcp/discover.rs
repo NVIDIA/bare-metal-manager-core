@@ -184,6 +184,11 @@ pub async fn discover_dhcp(
     let relay_ip = IpAddr::from_str(&relay_address)?;
     let address_family = relay_ip.address_family();
     let mut host_nic: Option<ExpectedHostNic> = None;
+    // `is_primary_nic` reflects the matched ExpectedHostNic's `primary` flag.
+    // - `Some(true)` -- the operator flagged this NIC as the host's boot interface.
+    // - `Some(false)` -- another NIC on this host is the declared primary.
+    // - `None` -- no declaration, use the default at interface creation time.
+    let mut is_primary_nic: Option<bool> = None;
 
     let parsed_mac: MacAddress = mac_address.parse()?;
 
@@ -236,10 +241,20 @@ pub async fn discover_dhcp(
                                     .map_err(CarbideError::from)?;
                             if let Some(m) = expected_machine {
                                 // select ip segment from Underlay for BMC, Admin for BF3/Onboard
-                                for nic in m.data.host_nics {
+                                for nic in &m.data.host_nics {
                                     if nic.mac_address == parsed_mac {
-                                        host_nic = Some(nic);
+                                        host_nic = Some(nic.clone());
                                     }
+                                }
+                                // If any NIC on this host declares primary=true,
+                                // then this NIC is primary iff it's that one.
+                                // Handler-side validation keeps at most one
+                                // primary=true per ExpectedMachine.
+                                if let Some(declared_primary) =
+                                    m.data.host_nics.iter().find(|n| n.primary == Some(true))
+                                {
+                                    is_primary_nic =
+                                        Some(declared_primary.mac_address == parsed_mac);
                                 }
                             }
                         }
@@ -255,6 +270,7 @@ pub async fn discover_dhcp(
         parsed_mac,
         parsed_relay,
         host_nic,
+        is_primary_nic,
     )
     .await?;
 

@@ -70,6 +70,15 @@ pub struct ExpectedHostNic {
     pub fixed_ip: Option<String>,
     pub fixed_mask: Option<String>,
     pub fixed_gateway: Option<String>,
+    /// When true, `primary` flags this NIC as the host's boot (primary)
+    /// interface. At most one NIC per ExpectedMachine may be marked primary
+    /// (which is enforced in the API). This ultimately propagates into the
+    /// machine_interfaces table, but, in today's world, only really applies
+    /// to zero-DPU. A machine *with* a DPU will end up taking over when
+    /// site-explorer finds a DPU for the machine (and update the primary
+    /// interface accordingly).
+    #[serde(default)]
+    pub primary: Option<bool>,
 }
 
 // Important : new fields for expected machine should be Optional _and_ #[serde(default)],
@@ -156,6 +165,7 @@ impl From<ExpectedHostNic> for rpc::forge::ExpectedHostNic {
             fixed_ip: expected_host_nic.fixed_ip,
             fixed_mask: expected_host_nic.fixed_mask,
             fixed_gateway: expected_host_nic.fixed_gateway,
+            primary: expected_host_nic.primary,
         }
     }
 }
@@ -168,6 +178,7 @@ impl From<rpc::forge::ExpectedHostNic> for ExpectedHostNic {
             fixed_ip: expected_host_nic.fixed_ip,
             fixed_mask: expected_host_nic.fixed_mask,
             fixed_gateway: expected_host_nic.fixed_gateway,
+            primary: expected_host_nic.primary,
         }
     }
 }

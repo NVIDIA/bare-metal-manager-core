@@ -148,6 +148,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
             description: value.meta_description.unwrap_or_default(),
             labels,
         };
+
         let host_nics = value
             .host_nics
             .map(|s| serde_json::from_str::<Vec<MacAddress>>(&s))
@@ -160,6 +161,7 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
                 fixed_ip: None,
                 fixed_mask: None,
                 fixed_gateway: None,
+                primary: None,
             })
             .collect();
 

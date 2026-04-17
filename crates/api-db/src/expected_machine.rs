@@ -90,12 +90,13 @@ pub async fn find_by_host_mac_address(
     txn: &mut PgConnection,
     host_mac_address: MacAddress,
 ) -> DatabaseResult<Option<ExpectedMachine>> {
-    let sql = "SELECT * FROM expected_machines WHERE host_nics->>'mac_address'=$1";
-    sqlx::query_as(sql)
-        .bind(host_mac_address.to_string().to_ascii_lowercase())
+    let query = "SELECT * FROM expected_machines WHERE host_nics @> $1::jsonb";
+    let mac_address = serde_json::json!([{ "mac_address": host_mac_address.to_string() }]);
+    sqlx::query_as(query)
+        .bind(sqlx::types::Json(mac_address))
         .fetch_optional(txn)
         .await
-        .map_err(|err| DatabaseError::query(sql, err))
+        .map_err(|err| DatabaseError::query(query, err))
 }
 
 pub async fn find_one_linked(

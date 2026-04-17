@@ -17,7 +17,9 @@
 use ::rpc::forge as rpc;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
-use model::expected_machine::{ExpectedMachine, ExpectedMachineData, ExpectedMachineRequest};
+use model::expected_machine::{
+    ExpectedHostNic, ExpectedMachine, ExpectedMachineData, ExpectedMachineRequest,
+};
 use regex::Regex;
 use uuid::Uuid;
 
@@ -108,6 +110,8 @@ pub(crate) async fn add(
         data: db_data,
     };
 
+    validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
+
     let mut txn = api.txn_begin().await?;
 
     // Pre-allocate BMC interface if bmc_ip_address is set.
@@ -191,6 +195,8 @@ pub(crate) async fn update(
         bmc_mac_address: parsed_mac,
         data,
     };
+
+    validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
 
     let mut txn = api.txn_begin().await?;
 
@@ -282,6 +288,26 @@ pub(crate) async fn delete_all(
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))
+}
+
+/// Rejects an ExpectedMachine payload that declares more than one host NIC
+/// with `primary: true`, returning an InvalidArgument if found.
+fn validate_at_most_one_primary_host_nic(
+    host_nics: &[ExpectedHostNic],
+) -> Result<(), CarbideError> {
+    let primaries: Vec<_> = host_nics
+        .iter()
+        .filter(|n| n.primary == Some(true))
+        .map(|n| n.mac_address.to_string())
+        .collect();
+    if primaries.len() > 1 {
+        return Err(CarbideError::InvalidArgument(format!(
+            "at most one host_nic may be flagged primary=true, got {}: {}",
+            primaries.len(),
+            primaries.join(", ")
+        )));
+    }
+    Ok(())
 }
 
 /// Helper function to sanitize expected machine and return parsed IDs (ID+MAC)

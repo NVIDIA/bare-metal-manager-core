@@ -16,7 +16,9 @@
  */
 use std::default::Default;
 
-use common::api_fixtures::create_test_env;
+use common::api_fixtures::{
+    TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_config,
+};
 use db::{self};
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
@@ -2096,6 +2098,7 @@ async fn test_add_with_host_nic_fixed_ip_creates_interface(
                 fixed_ip: Some(fixed_ip.into()),
                 fixed_mask: None,
                 fixed_gateway: None,
+                primary: None,
             }],
             ..Default::default()
         }))
@@ -2150,6 +2153,7 @@ async fn test_dhcp_discover_uses_fixed_ip_from_host_nics(
                 fixed_ip: Some(fixed_ip.into()),
                 fixed_mask: None,
                 fixed_gateway: None,
+                primary: None,
             }],
             ..Default::default()
         }))
@@ -2271,6 +2275,186 @@ async fn test_update_preserves_bmc_retain_credentials(
         Some(true),
         "bmc_retain_credentials should be preserved after update with None"
     );
+
+    Ok(())
+}
+
+/// When an ExpectedMachine's host_nics entry is flagged `primary: true`,
+/// the matching NIC's DHCP should land as `machine_interfaces.primary_interface=true`.
+#[crate::sqlx_test]
+async fn test_dhcp_honors_primary_host_nic(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // rack_management_enabled is required for discover_dhcp to consult
+    // ExpectedMachine records for unknown MACs -- that's the path that
+    // reads the matched host_nic's `primary` flag.
+    let env = {
+        let mut config = get_config();
+        config.rack_management_enabled = true;
+        create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await
+    };
+    let bmc_mac: MacAddress = "9A:9B:9C:9D:9E:01".parse().unwrap();
+    let primary_mac: MacAddress = "9A:9B:9C:9D:9E:02".parse().unwrap();
+
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-PRIMARY-001".into(),
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: primary_mac.to_string(),
+                nic_type: Some("onboard".into()),
+                fixed_ip: None,
+                fixed_mask: None,
+                fixed_gateway: None,
+                primary: Some(true),
+            }],
+            ..Default::default()
+        }))
+        .await?;
+
+    // DHCP discover with the declared primary MAC.
+    let primary_mac_str = primary_mac.to_string();
+    env.api
+        .discover_dhcp(
+            common::rpc_builder::DhcpDiscovery::builder(
+                &primary_mac_str,
+                common::api_fixtures::FIXTURE_DHCP_RELAY_ADDRESS,
+            )
+            .tonic_request(),
+        )
+        .await?;
+
+    // Verify the created machine_interface is flagged primary=true.
+    let mut txn = env.pool.begin().await?;
+    let ifaces = db::machine_interface::find_by_mac_address(&mut *txn, primary_mac).await?;
+    assert_eq!(ifaces.len(), 1);
+    assert!(
+        ifaces[0].primary_interface,
+        "host_nic primary=true should flow to machine_interfaces.primary_interface"
+    );
+
+    Ok(())
+}
+
+/// When one host_nics entry is flagged `primary: true`, a DHCP from a
+/// *different* MAC on the same host should land as `primary_interface: false`.
+/// Verifies the "operator declared some other NIC primary, so this one
+/// must not inherit the default primary=true" branch, protecting the DB's
+/// one_primary_interface_per_machine unique constraint once the primary
+/// MAC's interface eventually lands.
+#[crate::sqlx_test]
+async fn test_dhcp_marks_non_primary_mac_as_non_primary(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = {
+        let mut config = get_config();
+        config.rack_management_enabled = true;
+        create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await
+    };
+    let bmc_mac: MacAddress = "9A:9B:9C:9D:9E:10".parse().unwrap();
+    let primary_mac: MacAddress = "9A:9B:9C:9D:9E:11".parse().unwrap();
+    let other_mac: MacAddress = "9A:9B:9C:9D:9E:12".parse().unwrap();
+
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-PRIMARY-002".into(),
+            host_nics: vec![
+                rpc::forge::ExpectedHostNic {
+                    mac_address: primary_mac.to_string(),
+                    nic_type: Some("onboard".into()),
+                    fixed_ip: None,
+                    fixed_mask: None,
+                    fixed_gateway: None,
+                    primary: Some(true),
+                },
+                rpc::forge::ExpectedHostNic {
+                    mac_address: other_mac.to_string(),
+                    nic_type: Some("onboard".into()),
+                    fixed_ip: None,
+                    fixed_mask: None,
+                    fixed_gateway: None,
+                    primary: None,
+                },
+            ],
+            ..Default::default()
+        }))
+        .await?;
+
+    // DHCP for the non-primary MAC on this machine.
+    let other_mac_str = other_mac.to_string();
+    env.api
+        .discover_dhcp(
+            common::rpc_builder::DhcpDiscovery::builder(
+                &other_mac_str,
+                common::api_fixtures::FIXTURE_DHCP_RELAY_ADDRESS,
+            )
+            .tonic_request(),
+        )
+        .await?;
+
+    let mut txn = env.pool.begin().await?;
+    let ifaces = db::machine_interface::find_by_mac_address(&mut *txn, other_mac).await?;
+    assert_eq!(ifaces.len(), 1);
+    assert!(
+        !ifaces[0].primary_interface,
+        "a MAC that isn't the declared primary should not land as primary_interface=true"
+    );
+
+    Ok(())
+}
+
+/// An ExpectedMachine with two host_nics entries both flagged `primary: true`
+/// must be rejected at the API boundary -- the handler enforces at most one
+/// primary NIC per machine (anchoring the DB's `one_primary_interface_per_machine`
+/// unique constraint to a single declaration).
+#[crate::sqlx_test]
+async fn test_add_rejects_multiple_primary_host_nics(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "9A:9B:9C:9D:9E:20".parse().unwrap();
+    let mac_a: MacAddress = "9A:9B:9C:9D:9E:21".parse().unwrap();
+    let mac_b: MacAddress = "9A:9B:9C:9D:9E:22".parse().unwrap();
+
+    let result = env
+        .api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-DUPLICATE-PRIMARY-001".into(),
+            host_nics: vec![
+                rpc::forge::ExpectedHostNic {
+                    mac_address: mac_a.to_string(),
+                    nic_type: Some("onboard".into()),
+                    fixed_ip: None,
+                    fixed_mask: None,
+                    fixed_gateway: None,
+                    primary: Some(true),
+                },
+                rpc::forge::ExpectedHostNic {
+                    mac_address: mac_b.to_string(),
+                    nic_type: Some("onboard".into()),
+                    fixed_ip: None,
+                    fixed_mask: None,
+                    fixed_gateway: None,
+                    primary: Some(true),
+                },
+            ],
+            ..Default::default()
+        }))
+        .await;
+
+    let err = result.expect_err("multi-primary ExpectedMachine should be rejected");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
 
     Ok(())
 }

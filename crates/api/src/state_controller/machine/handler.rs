@@ -1450,6 +1450,19 @@ impl MachineStateHandler {
                 }
             }
             ManagedHostState::DPUReprovision { .. } => {
+                // Reaching host-level DPUReprovision with no DPUs is an
+                // invariant violation -- the caller (Ready handler) only
+                // enters this state when `dpu_reprovisioning_needed()` is
+                // true, which requires non-empty DPUs. Without this guard
+                // the empty loop below falls through to `do_nothing()` and
+                // the host would sit in DPUReprovision forever.
+                if mh_snapshot.is_zero_dpu() {
+                    return Err(StateHandlerError::GenericError(eyre!(
+                        "DPUReprovision state entered on zero-DPU host {host_machine_id}; \
+                         reprovision requires DPUs"
+                    )));
+                }
+
                 for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                     // TODO: Optimization Possible: We can have another outcome something like
                     // TransitionNotPossible. This will be valid for the sync states (States where
@@ -4749,22 +4762,8 @@ impl StateHandler for HostMachineStateHandler {
                         .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
                         .await?;
 
-                    let boot_interface_mac = if !mh_snapshot.is_zero_dpu() {
-                        let primary_interface = mh_snapshot
-                            .host_snapshot
-                            .interfaces
-                            .iter()
-                            .find(|x| x.primary_interface)
-                            .ok_or_else(|| {
-                                StateHandlerError::GenericError(eyre::eyre!(
-                                    "Missing primary interface from host: {}",
-                                    mh_snapshot.host_snapshot.id
-                                ))
-                            })?;
-                        Some(primary_interface.mac_address.to_string())
-                    } else {
-                        None
-                    };
+                    let boot_interface_mac =
+                        mh_snapshot.boot_interface_mac().map(|m| m.to_string());
 
                     match redfish_client
                         .is_bios_setup(boot_interface_mac.as_deref())
@@ -8967,12 +8966,15 @@ fn can_restart_reprovision(dpu_snapshots: &[Machine], version: ConfigVersion) ->
     dpu_reprovision_restart_requested_after_state_transition(version, *latest_requested_at)
 }
 
-/// Call [`Redfish::machine_setup`], but ignore any [`RedfishError::NoDpu`] if we expect there to be no DPUs.
+/// Call machine_setup, but ignore any RedfishError::NoDpu if we expect there
+/// to be no DPUs.
 ///
-/// TODO(ken): This is a temporary workaround for work-in-progress on zero-DPU support (August 2024)
-/// The way we should do this going forward is to plumb the actual non-DPU MAC address we want to
-/// boot from, but that information is not in scope at this time. Once it is, and we pass it to
-/// machine_setup, we should no longer expect a NoDpu error and can thus call vanilla machine_setup again.
+/// So, callers can *now* plumb a "dumb" host-NIC MAC for zero-DPU hosts via
+/// boot_interface_mac(), meaning the ::NoDpu handling below is expected to
+/// fire only when `machine_setup` has DPU-specific assumptions beyond the MAC
+/// (e.g. Attribute-path checks that still require a DPU to be present). When
+/// that dependency is fully removed, this wrapper can collapse into a plain
+/// `machine_setup` call.
 async fn call_machine_setup_and_handle_no_dpu_error(
     redfish_client: &dyn Redfish,
     boot_interface_mac: Option<&str>,
@@ -9458,22 +9460,7 @@ async fn handle_instance_host_platform_config(
                 },
             };
 
-            let boot_interface_mac = if !mh_snapshot.is_zero_dpu() {
-                let primary_interface = mh_snapshot
-                    .host_snapshot
-                    .interfaces
-                    .iter()
-                    .find(|x| x.primary_interface)
-                    .ok_or_else(|| {
-                        StateHandlerError::GenericError(eyre::eyre!(
-                            "Missing primary interface from host: {}",
-                            mh_snapshot.host_snapshot.id
-                        ))
-                    })?;
-                Some(primary_interface.mac_address.to_string())
-            } else {
-                None
-            };
+            let boot_interface_mac = mh_snapshot.boot_interface_mac().map(|m| m.to_string());
 
             match redfish_client
                 .is_bios_setup(boot_interface_mac.as_deref())
@@ -9555,23 +9542,7 @@ async fn configure_host_bios(
     redfish_client: &dyn Redfish,
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<BiosConfigOutcome, StateHandlerError> {
-    let boot_interface_mac = if !mh_snapshot.is_zero_dpu() {
-        let primary_interface = mh_snapshot
-            .host_snapshot
-            .interfaces
-            .iter()
-            .find(|x| x.primary_interface)
-            .ok_or_else(|| {
-                StateHandlerError::GenericError(eyre::eyre!(
-                    "Missing primary interface from host: {}",
-                    mh_snapshot.host_snapshot.id
-                ))
-            })?;
-        Some(primary_interface.mac_address.to_string())
-    } else {
-        // This is the Zero-DPU case
-        None
-    };
+    let boot_interface_mac = mh_snapshot.boot_interface_mac().map(|m| m.to_string());
 
     if let Err(e) = call_machine_setup_and_handle_no_dpu_error(
         redfish_client,

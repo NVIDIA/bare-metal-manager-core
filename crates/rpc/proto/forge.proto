@@ -5171,6 +5171,16 @@ message ExpectedHostNic {
   optional string fixed_ip = 3;
   optional string fixed_mask = 4;
   optional string fixed_gateway = 5;
+  // When true, this flags the given NIC as the host's primary (boot)
+  // interface (used in cases of zero DPU).
+  //
+  // Up to one NIC per ExpectedMachine may be marked primary, if set at
+  // all. Propagates to `machine_interfaces.primary_interface` during DHCP
+  // when this NIC is first discovered.
+  //
+  // Some day this could be even possibly used to say "this dumb NIC
+  // *is* the primary interface, even though I know I have a DPU."
+  optional bool primary = 6;
 }
 
 message ExpectedMachine {

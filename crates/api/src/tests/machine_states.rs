@@ -2044,3 +2044,42 @@ async fn test_dpu_reprovision_errors_for_zero_dpu(
     ));
     Ok(())
 }
+
+/// Host-level `ManagedHostState::DPUReprovision` (different from the
+/// instance-scoped `InstanceState::DPUReprovision` covered above) is only
+/// entered from `Ready` when `dpu_reprovisioning_needed()` returns true;
+/// this requires non-empty DPUs. Reaching it with a zero-DPU host is a
+/// bug: without the explicit guard the empty loop would fall through
+/// to `do_nothing()` and the host would sit in the state forever.
+/// Verify the guard surfaces a loud error instead.
+#[crate::sqlx_test]
+async fn test_host_level_dpu_reprovision_errors_for_zero_dpu(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (env, mh) = zero_dpu_host_with_instance(pool).await;
+
+    let mut txn = env.db_txn().await;
+    db::machine::update_state(
+        txn.as_mut(),
+        &mh.host().id,
+        &ManagedHostState::DPUReprovision {
+            dpu_states: DpuReprovisionStates {
+                states: HashMap::new(),
+            },
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+
+    // The guard returns an error, which the state controller surfaces as
+    // a handler failure rather than silently advancing. The host stays in
+    // DPUReprovision.
+    assert!(matches!(
+        load_host_state(&env, &mh.host().id).await,
+        ManagedHostState::DPUReprovision { .. }
+    ));
+    Ok(())
+}

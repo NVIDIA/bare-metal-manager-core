@@ -238,6 +238,40 @@ impl From<ManagedHostStateSnapshotError> for sqlx::Error {
     }
 }
 
+/// Pick the MAC address the host should boot from, given its interfaces.
+///
+/// See `ManagedHostStateSnapshot::boot_interface_mac` for the caller-facing
+/// details. I split this out as a function so it can be unit-tested directly
+/// without constructing a full `ManagedHostStateSnapshot`.
+///
+/// Ordering:
+/// 1. Any interface with `primary_interface == true` wins. This is the
+///    path operators can drive explicitly via `ExpectedHostNic.primary`,
+///    in the case of zero DPU hosts, and is also how hosts with DPU(s)
+///    end up with a boot MAC automatically during site-explorer ingestion.
+/// 2. If there's no primary interface, the interface outside the management
+///    segment with the "smallest" MAC address wins -- mainly so we can
+///    have some sense of a stable MAC for zero-DPU hosts where no operator
+///    explicitly declared a primary NIC (and ingestion didn't assign one either).
+/// 3. `None` -- This is the "I don't have any candidate interfaces yet" case,
+///    so it's on the caller to figure out. What this usually means is the
+///    caller passes `boot_interface_mac: None` to machine_setup, and then
+///    subsequent logic flows from there (e.g. ::NoDpu handling).
+fn pick_boot_interface_mac(
+    interfaces: &[MachineInterfaceSnapshot],
+) -> Option<mac_address::MacAddress> {
+    // The primary wins!
+    if let Some(primary) = interfaces.iter().find(|x| x.primary_interface) {
+        return Some(primary.mac_address);
+    }
+    // ..no primary, so lets try to find *some* interface.
+    interfaces
+        .iter()
+        .filter(|x| x.network_segment_type != Some(NetworkSegmentType::Underlay))
+        .min_by_key(|x| x.mac_address)
+        .map(|x| x.mac_address)
+}
+
 impl ManagedHostStateSnapshot {
     /// Returns `true` if this managed host has no DPU snapshots attached.
     ///
@@ -271,7 +305,28 @@ impl ManagedHostStateSnapshot {
         self.dpu_snapshots.is_empty()
     }
 
-    /// Returns `true` if override report is hw_health, `false` otherwise
+    /// Returns the MAC address the host should boot from, if one can be
+    /// determined from this snapshot.
+    ///
+    /// For hosts with DPUs, this is the DPU-facing "primary" `machine_interface`,
+    /// flagged as `primary_interface: true` during site-explorer ingestion.
+    ///
+    /// For zero-DPU hosts, the `primary_interface` flag is not (yet) set at
+    /// ingestion time, so this method "falls back" to the first non-underlay
+    /// `machine_interface` (i.e. not the BMC) sorted deterministically by MAC.
+    ///
+    /// Returns `None` if the host has no non-underlay interfaces yet -- e.g.
+    /// only the BMC has been discovered, or the host's primary NIC hasn't
+    /// DHCP'd yet.
+    ///
+    /// This helper exists to centralize the boot MAC selection logic that used
+    /// to be duplicated at every state controller callsite needing to pass a MAC
+    /// into things like machine_setup, is_bios_setup, etc.
+    pub fn boot_interface_mac(&self) -> Option<mac_address::MacAddress> {
+        pick_boot_interface_mac(&self.host_snapshot.interfaces)
+    }
+
+    /// Returns `true` if override report is hw_health, `false` otherwise.
     fn merge_override_report_with_hw_health(
         output: &mut HealthReport,
         source: &str,
@@ -3139,6 +3194,77 @@ mod tests {
         let rpc_info: rpc::forge::DpuInfo = info.into();
         assert_eq!(rpc_info.id, "dpu-123");
         assert_eq!(rpc_info.loopback_ip, "10.0.0.1");
+    }
+
+    /// Build a mock `MachineInterfaceSnapshot` with the fields
+    /// `pick_boot_interface_mac` actually inspects (MAC, primary flag,
+    /// segment type) set, and everything else left at the mock default.
+    fn build_mock_interface(
+        mac: &str,
+        primary: bool,
+        segment_type: Option<NetworkSegmentType>,
+    ) -> MachineInterfaceSnapshot {
+        MachineInterfaceSnapshot {
+            primary_interface: primary,
+            network_segment_type: segment_type,
+            ..MachineInterfaceSnapshot::mock_with_mac(mac.parse().unwrap())
+        }
+    }
+
+    // Whichever interface is flagged `primary_interface` wins, regardless
+    // of MAC ordering or segment type of the other interfaces. This covers
+    // both paths that can set the flag, whether it be site-explorer w/ DPU
+    // ingestion, or operator-driven `ExpectedHostNic.primary` for zero-DPU
+    // hosts.
+    #[test]
+    fn pick_boot_interface_mac_returns_primary_interface_when_set() {
+        let primary_mac = "10:00:00:00:00:01";
+        let other_mac = "05:00:00:00:00:01"; // numerically lower but not primary
+        let interfaces = vec![
+            build_mock_interface(other_mac, false, Some(NetworkSegmentType::HostInband)),
+            build_mock_interface(primary_mac, true, Some(NetworkSegmentType::Admin)),
+        ];
+
+        assert_eq!(
+            pick_boot_interface_mac(&interfaces),
+            Some(primary_mac.parse().unwrap())
+        );
+    }
+
+    // This is our zero DPU fallback case -- no interface is flagged primary,
+    // so pick the lowest-MAC non-underlay interface. Verifies (a) the underlay
+    // BMC interface is excluded, and (b) ordering is deterministic across
+    // multiple non-underlay candidates.
+    #[test]
+    fn pick_boot_interface_mac_falls_back_to_lowest_non_underlay_mac_when_no_primary() {
+        let bmc_mac = "01:00:00:00:00:01"; // numerically lowest, but BMC!
+        let onboard_mac_lo = "10:00:00:00:00:01";
+        let onboard_mac_hi = "20:00:00:00:00:01";
+        let interfaces = vec![
+            build_mock_interface(bmc_mac, false, Some(NetworkSegmentType::Underlay)),
+            build_mock_interface(onboard_mac_hi, false, Some(NetworkSegmentType::HostInband)),
+            build_mock_interface(onboard_mac_lo, false, Some(NetworkSegmentType::HostInband)),
+        ];
+
+        assert_eq!(
+            pick_boot_interface_mac(&interfaces),
+            Some(onboard_mac_lo.parse().unwrap())
+        );
+    }
+
+    // Check the case  where only the BMC has been discovered so far (which
+    // is common during early ingestion). In this case, there's no valid boot MAC
+    // yet; callers fall back to the `::NoDpu` handling downstream.
+    #[test]
+    fn pick_boot_interface_mac_returns_none_when_only_underlay_interfaces() {
+        let bmc_mac = "01:00:00:00:00:01";
+        let interfaces = vec![build_mock_interface(
+            bmc_mac,
+            false,
+            Some(NetworkSegmentType::Underlay),
+        )];
+
+        assert_eq!(pick_boot_interface_mac(&interfaces), None);
     }
 }
 
