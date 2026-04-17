@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use carbide_redfish::libredfish::test_support::RedfishSimAction;
 use chrono::Utc;
 use common::api_fixtures::{create_managed_host_multi_dpu, create_test_env, reboot_completed};
 use libredfish::SystemPowerControl;
@@ -29,7 +30,6 @@ use rpc::forge::MachineArchitecture;
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
 
-use crate::redfish::test_support::RedfishSimAction;
 use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;

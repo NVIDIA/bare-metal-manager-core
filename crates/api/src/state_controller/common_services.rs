@@ -18,6 +18,7 @@
 use std::sync::Arc;
 
 use carbide_ipmi::IPMITool;
+use carbide_redfish::libredfish::RedfishClientPool;
 use db::db_read::PgPoolReader;
 use forge_secrets::credentials::CredentialManager;
 use libredfish::Redfish;
@@ -29,7 +30,6 @@ use sqlx::PgPool;
 use crate::cfg::file::CarbideConfig;
 use crate::dpa::handler::DpaInfo;
 use crate::ib::IBFabricManager;
-use crate::redfish::RedfishClientPool;
 use crate::state_controller::state_handler::StateHandlerError;
 
 /// Services that are accessible to all statehandlers within carbide-core

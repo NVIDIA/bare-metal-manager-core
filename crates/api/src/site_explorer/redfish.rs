@@ -22,6 +22,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_network::deserialize_input_mac_to_address;
+use carbide_redfish::libredfish::{
+    RedfishAuth, RedfishClientCreationError, RedfishClientPool, redact_password,
+};
+use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use forge_secrets::credentials::Credentials;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
@@ -35,9 +39,6 @@ use model::site_explorer::{
 };
 use nv_redfish::oem::hpe::ilo_service_ext::ManagerType as HpeManagerType;
 use regex::Regex;
-
-use crate::nv_redfish::NvRedfishClientPool;
-use crate::redfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool, redact_password};
 
 const NOT_FOUND: u16 = 404;
 
@@ -1299,7 +1300,7 @@ pub(crate) fn map_redfish_error(error: RedfishError) -> EndpointExplorationError
 }
 
 fn nv_error_classifier(
-    err: &<crate::nv_redfish::NvRedfishBmc as nv_redfish::Bmc>::Error,
+    err: &<carbide_redfish::nv_redfish::NvRedfishBmc as nv_redfish::Bmc>::Error,
 ) -> Option<bmc_explorer::ErrorClass> {
     type BmcError = nv_redfish::bmc_http::reqwest::BmcError;
     match err {
@@ -1313,7 +1314,7 @@ fn nv_error_classifier(
 
 fn nv_bmc_explore_config(
     boot_interface_mac: Option<MacAddress>,
-) -> bmc_explorer::Config<'static, crate::nv_redfish::NvRedfishBmc> {
+) -> bmc_explorer::Config<'static, carbide_redfish::nv_redfish::NvRedfishBmc> {
     bmc_explorer::Config {
         boot_interface_mac,
         error_classifier: &nv_error_classifier,
@@ -1325,7 +1326,7 @@ fn nv_bmc_explore_config(
 }
 
 fn map_nv_redfish_explore_error(
-    err: bmc_explorer::Error<crate::nv_redfish::NvRedfishBmc>,
+    err: bmc_explorer::Error<carbide_redfish::nv_redfish::NvRedfishBmc>,
 ) -> EndpointExplorationError {
     type BmcError = nv_redfish::bmc_http::reqwest::BmcError;
     match err {

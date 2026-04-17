@@ -91,7 +91,6 @@ mod machine_validation;
 mod measured_boot;
 mod mqtt_state_change_hook;
 mod network_segment;
-mod nv_redfish;
 mod nvl_partition_monitor;
 mod nvlink;
 mod preingestion_manager;
@@ -115,8 +114,6 @@ pub use cfg::file::SiteExplorerExploreMode;
 pub use db::{DatabaseError, DatabaseResult};
 // Save typing
 pub(crate) use errors::{CarbideError, CarbideResult};
-pub use nv_redfish::NvRedfishClientPool;
-pub use redfish::RedfishClientPoolImpl;
 pub use site_explorer::BmcEndpointExplorer;
 
 // Stuff needed by main.rs and api-test

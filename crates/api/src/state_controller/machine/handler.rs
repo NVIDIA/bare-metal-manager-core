@@ -10015,11 +10015,10 @@ mod tests {
     /// This test catches regressions where the argument gets dropped or replaced with an empty map.
     #[tokio::test]
     async fn test_oem_manager_profiles_passed_to_machine_setup() {
+        use carbide_redfish::libredfish::RedfishClientPool;
+        use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimAction};
         use libredfish::BiosProfileType;
         use libredfish::model::service_root::RedfishVendor;
-
-        use crate::redfish::RedfishClientPool;
-        use crate::redfish::test_support::{RedfishSim, RedfishSimAction};
 
         let mut config = crate::tests::common::api_fixtures::get_config();
         // Build an oem_manager_profiles map with a Dell R760 PSU Hot Spare setting.
@@ -10038,9 +10037,8 @@ mod tests {
             )]),
         )]);
 
+        use carbide_redfish::libredfish::RedfishAuth;
         use forge_secrets::credentials::{CredentialKey, CredentialType};
-
-        use crate::redfish::RedfishAuth;
 
         let sim = RedfishSim::default();
         let timepoint = sim.timepoint();

@@ -17,6 +17,7 @@
 
 use std::sync::Arc;
 
+use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use eyre::WrapErr;
 use forge_secrets::credentials::{CredentialReader, CredentialWriter};
 use forge_secrets::{CredentialConfig, create_credential_manager_from, create_vault_client};
@@ -30,8 +31,6 @@ use crate::logging::metrics_endpoint::{MetricsEndpointConfig, run_metrics_endpoi
 use crate::logging::setup::{
     Logging, create_metric_for_spancount_reader, create_metrics, setup_logging,
 };
-use crate::nv_redfish::NvRedfishClientPool;
-use crate::redfish::RedfishClientPoolImpl;
 use crate::{CarbideError, dynamic_settings, setup};
 
 pub async fn run(
@@ -228,12 +227,11 @@ pub async fn run(
             (None, None, _) => {} // leave bmc_proxy untouched
         }
 
-        let redfish_pool = RedfishClientPoolImpl::new(
+        carbide_redfish::libredfish::new_pool(
             credential_manager.clone(),
             rf_pool,
             carbide_config.site_explorer.bmc_proxy.clone(),
-        );
-        Arc::new(redfish_pool)
+        )
     };
 
     let nv_redfish_pool = Arc::new(NvRedfishClientPool::new(

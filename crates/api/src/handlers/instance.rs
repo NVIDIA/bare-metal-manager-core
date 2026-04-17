@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
+use carbide_redfish::libredfish::RedfishAuth;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
@@ -52,7 +53,6 @@ use crate::instance::{
     InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
     validate_ib_partition_ownership, validate_os_definition_usable,
 };
-use crate::redfish::RedfishAuth;
 use crate::{CarbideError, CarbideResult};
 
 /// Represents the repair status label value set by RepairSystem

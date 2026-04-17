@@ -42,6 +42,7 @@ carbide-version = { path = "../version" }
 carbide-health-report = { path = "../health-report" }
 carbide-ipxe-renderer = { path = "../ipxe-renderer" }
 carbide-ipmi = { path = "../ipmi" }
+carbide-redfish = { path = "../redfish" }
 dns-record = { path = "../dns-record" }
 libnmxm = { path = "../libnmxm" }
 logfmt = { path = "../logfmt" }
@@ -206,6 +207,7 @@ rcgen = { workspace = true }
 carbide-macros = { path = "../macros" }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
 carbide-prost-builder = { path = "../prost-builder" }
+carbide-redfish = { path = "../redfish", features = [ "test-support" ] }
 prometheus-text-parser = { path = "../prometheus-text-parser" }
 prost = { workspace = true }
 tower-test = { workspace = true }
