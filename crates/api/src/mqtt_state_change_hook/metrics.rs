@@ -26,6 +26,7 @@ use tokio::sync::mpsc::WeakSender;
 pub struct MqttHookMetrics {
     /// Counter for publish attempts, with status label for success/error.
     publish_count: Counter<u64>,
+    component: &'static str,
 }
 
 impl MqttHookMetrics {
@@ -33,7 +34,11 @@ impl MqttHookMetrics {
     ///
     /// Uses a weak reference to the sender to observe queue depth without
     /// preventing shutdown (when the sender is dropped, queue depth reports 0).
-    pub fn new<T: Send + 'static>(meter: &Meter, sender: WeakSender<T>) -> Self {
+    pub fn new<T: Send + 'static>(
+        meter: &Meter,
+        sender: WeakSender<T>,
+        component: &'static str,
+    ) -> Self {
         // Get max_capacity once at construction (upgrade will succeed since sender still exists)
         let max_capacity = sender.upgrade().map(|s| s.max_capacity()).unwrap_or(0);
 
@@ -48,7 +53,7 @@ impl MqttHookMetrics {
                     .upgrade()
                     .map(|s| max_capacity - s.capacity())
                     .unwrap_or(0);
-                observer.observe(depth as u64, &[]);
+                observer.observe(depth as u64, &[KeyValue::new("component", component)]);
             })
             .build();
 
@@ -57,35 +62,42 @@ impl MqttHookMetrics {
             .with_description("Total number of MQTT publish attempts")
             .build();
 
-        Self { publish_count }
+        Self {
+            publish_count,
+            component,
+        }
+    }
+
+    fn attrs(&self, status: &'static str) -> [KeyValue; 2] {
+        [
+            KeyValue::new("component", self.component),
+            KeyValue::new("status", status),
+        ]
     }
 
     /// Record a successful publish.
     pub fn record_success(&self) {
-        self.publish_count.add(1, &[KeyValue::new("status", "ok")]);
+        self.publish_count.add(1, &self.attrs("ok"));
     }
 
     /// Record that an event was dropped due to queue overflow.
     pub fn record_overflow(&self) {
-        self.publish_count
-            .add(1, &[KeyValue::new("status", "overflow")]);
+        self.publish_count.add(1, &self.attrs("overflow"));
     }
 
     /// Record a publish timeout.
     pub fn record_timeout(&self) {
-        self.publish_count
-            .add(1, &[KeyValue::new("status", "timeout")]);
+        self.publish_count.add(1, &self.attrs("timeout"));
     }
 
     /// Record an MQTT publish error.
     pub fn record_publish_error(&self) {
-        self.publish_count
-            .add(1, &[KeyValue::new("status", "publish_error")]);
+        self.publish_count.add(1, &self.attrs("publish_error"));
     }
 
     /// Record a serialization failure.
     pub fn record_serialization_error(&self) {
         self.publish_count
-            .add(1, &[KeyValue::new("status", "serialization_error")]);
+            .add(1, &self.attrs("serialization_error"));
     }
 }

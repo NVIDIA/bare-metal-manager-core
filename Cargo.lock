@@ -1059,6 +1059,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bms-dsx-exchange"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "borsh"
 version = "1.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1347,6 +1357,7 @@ dependencies = [
  "base64 0.22.1",
  "bmc-explorer",
  "bmc-vendor",
+ "bms-dsx-exchange",
  "byteorder",
  "bytes",
  "carbide-api-db",

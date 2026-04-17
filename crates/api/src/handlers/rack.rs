@@ -370,6 +370,10 @@ pub async fn insert_rack_health_report_override(
 
     txn.commit().await?;
 
+    if let Some(handle) = api.bms_client.get() {
+        handle.update_rack_leak_state(&rack.id, &report).await;
+    }
+
     Ok(Response::new(()))
 }
 

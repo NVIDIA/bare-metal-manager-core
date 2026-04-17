@@ -421,8 +421,9 @@ pub struct CarbideConfig {
     pub dpa_config: Option<DpaConfig>,
 
     /// DSX Exchange Event Bus configuration. Publishes
-    /// `ManagedHostState` transitions to MQTT topics for
-    /// external consumers.
+    /// `ManagedHostState` transitions, BMS rack leak/isolation
+    /// values, and heartbeat timestamps over MQTT, and subscribes
+    /// to BMS metadata topics used to route those values.
     #[serde(default)]
     pub dsx_exchange_event_bus: Option<DsxExchangeEventBusConfig>,
 
@@ -3087,8 +3088,10 @@ pub struct DpaConfig {
 
 /// DSX Exchange Event Bus configuration for publishing state change events via MQTT 3.1.1.
 ///
-/// When configured, Carbide will publish `ManagedHostState` transitions to the
-/// topic `nico/v1/machine/{machineId}/state` as defined in `carbide.yaml`.
+/// When configured, Carbide will publish `ManagedHostState` transitions to
+/// `nico/v1/machine/{machineId}/state`, publish BMS rack leak/isolation values
+/// and heartbeat timestamps to metadata-defined DSX topics, and subscribe to
+/// `BMS/v1/PUB/Metadata/#` to learn those routing targets.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct DsxExchangeEventBusConfig {
     /// Enable/disable the DSX Exchange Event Bus.
@@ -3111,7 +3114,7 @@ pub struct DsxExchangeEventBusConfig {
     )]
     pub publish_timeout: std::time::Duration,
 
-    /// Queue capacity for buffering state change events while publishing.
+    /// Queue capacity for buffering DSX publish events while publishing.
     /// Events are dropped if the queue is full. Defaults to 1024.
     #[serde(default = "DsxExchangeEventBusConfig::default_queue_capacity")]
     pub queue_capacity: usize,

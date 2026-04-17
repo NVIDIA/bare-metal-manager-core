@@ -1517,6 +1517,7 @@ pub async fn create_test_env_with_overrides(
         machine_state_handler_enqueuer: Enqueuer::new(db_pool.clone()),
         metric_emitter: ApiMetricsEmitter::new(&test_meter.meter()),
         component_manager: None,
+        bms_client: std::sync::OnceLock::new(),
     });
 
     let attestation_enabled = config.attestation_enabled;

@@ -34,6 +34,7 @@ path = "src/main.rs"
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 bmc-vendor = { path = "../bmc-vendor" }
 bmc-explorer = { path = "../bmc-explorer" }
+bms-dsx-exchange = { path = "../bms-dsx-exchange" }
 config-version = { path = "../config-version", features = ["sqlx"] }
 carbide-host-support = { path = "../host-support", default-features = false }
 carbide-network = { path = "../network", features = ["sqlx"] }

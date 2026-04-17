@@ -72,7 +72,7 @@ applicable.
 | `bios_profiles` | `BiosProfileVendor` | *(default)* | BIOS profiles by vendor/model for Redfish BIOS management. |
 | `selected_profile` | `BiosProfileType` | *(default)* | Default BIOS profile type applied to machines. |
 | `dpa_config` | `Option<DpaConfig>` | — | Cluster Interconnect (east-west Ethernet) config (see [DpaConfig](#dpaconfig)). |
-| `dsx_exchange_event_bus` | `Option<DsxExchangeEventBusConfig>` | — | MQTT event bus for publishing state transitions (see [DsxExchangeEventBusConfig](#dsxexchangeeventbusconfig)). |
+| `dsx_exchange_event_bus` | `Option<DsxExchangeEventBusConfig>` | — | MQTT event bus for managed-host state publishing plus BMS metadata subscription and rack/isolation/heartbeat publishing (see [DsxExchangeEventBusConfig](#dsxexchangeeventbusconfig)). |
 | `datacenter_asn` | `u32` | `11414` | Datacenter ASN used by FNN for DC-specific route targets. |
 | `nvlink_config` | `Option<NvLinkConfig>` | — | NvLink partitioning via NMX-M (see [NvLinkConfig](#nvlinkconfig)). |
 | `power_manager_options` | `PowerManagerOptions` | *(see below)* | Power management timing (see [PowerManagerOptions](#powermanageroptions)). |
@@ -278,11 +278,11 @@ Extends `StateControllerConfig` with:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | `bool` | `false` | Enable the DSX Exchange Event Bus. |
+| `enabled` | `bool` | `false` | Enable the DSX Exchange Event Bus for managed-host state publishing, BMS metadata subscription, and BMS rack/isolation/heartbeat publishing. |
 | `mqtt_endpoint` | `String` | `"mqtt.nico"` | MQTT broker host. |
 | `mqtt_broker_port` | `u16` | `1884` | MQTT broker port. |
 | `publish_timeout` | `Duration` | `1s` | Timeout for MQTT publish operations. |
-| `queue_capacity` | `usize` | `1024` | Event buffer size (events dropped when full). |
+| `queue_capacity` | `usize` | `1024` | Event buffer size for DSX publish work (events dropped when full). |
 | `auth` | `MqttAuthConfig` | *(none)* | MQTT authentication settings. |
 
 ### `DpfConfig`

@@ -19,7 +19,7 @@ pub mod metrics;
 
 use std::panic::Location;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 pub use ::rpc::forge as rpc;
 use ::rpc::forge::{RemoveSkuRequest, SkuIdList};
@@ -53,6 +53,7 @@ use crate::ethernet_virtualization::EthVirtData;
 use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
 use crate::nvlink::NmxmClientPool;
+use crate::rack::bms_client::BmsDsxExchangeHandle;
 use crate::redfish::RedfishClientPool;
 use crate::scout_stream::ConnectionRegistry;
 use crate::site_explorer::EndpointExplorer;
@@ -81,6 +82,7 @@ pub struct Api {
     pub(crate) machine_state_handler_enqueuer: Enqueuer<MachineStateControllerIO>,
     pub(crate) metric_emitter: ApiMetricsEmitter,
     pub(crate) component_manager: Option<component_manager::component_manager::ComponentManager>,
+    pub(crate) bms_client: OnceLock<Arc<BmsDsxExchangeHandle>>,
 }
 
 pub(crate) type ScoutStreamType =

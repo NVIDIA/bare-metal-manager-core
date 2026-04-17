@@ -95,7 +95,7 @@ impl MqttStateChangeHook {
         cancel_token: CancellationToken,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(queue_capacity);
-        let metrics = MqttHookMetrics::new(meter, sender.downgrade());
+        let metrics = MqttHookMetrics::new(meter, sender.downgrade(), "managed_host");
         join_set.spawn(process_events(
             receiver,
             client,
