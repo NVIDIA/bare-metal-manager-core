@@ -60,7 +60,7 @@ docker build --build-arg "CONTAINER_RUNTIME_X86_64=alpine:latest" -t boot-artifa
 ```sh
 docker build --build-arg CONTAINER_RUNTIME_X86_64=nico-runtime-container-x86_64 -t machine-validation-runner -f dev/docker/Dockerfile.machine-validation-runner .
 
-docker save --output crates/machine-validation/images/machine-validation-runner.tar machine-validation-runner:latest
+docker save --output crates/machine-validation/images/machine-validation-runner.tar machine-validation-runner:latest 
 
 // This copies `machine-validation-runner.tar` into the `/images` directory on the `machine-validation-config` container.  When using a kubernetes deployment model
 // this is the only `machine-validation` container you need to configure on the `carbide-pxe` pod.
@@ -95,14 +95,14 @@ BUILD_CONTAINER_X86_URL="nico-buildcontainer-x86_64" cargo make build-cli
 ### Building the DPU BFB
 ## Download and Extracting the HBN container
 ```
-docker pull --platform=linux/arm64 nvcr.io/nvidia/doca/doca_hbn:3.2.2-doca3.2.2
-docker save --output=/tmp/doca_hbn.tar nvcr.io/nvidia/doca/doca_hbn:3.2.2-doca3.2.2
+docker pull --platform=linux/arm64 nvcr.io/nvidia/doca/doca_hbn:3.2.0-doca3.2.0
+docker save --output=/tmp/doca_hbn.tar nvcr.io/nvidia/doca/doca_hbn:3.2.0-doca3.2.0
 ```
 
 ## Downloading HBN configuration files and scripts
 ```sh
 #!/usr/bin/env bash
-HBN_VERSION="3.2.2"
+HBN_VERSION="3.2.0"
 set -e
 mkdir -p temp
 cd temp || exit 1
