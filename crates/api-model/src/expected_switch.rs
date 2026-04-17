@@ -29,7 +29,7 @@ use uuid::Uuid;
 
 use crate::metadata::{Metadata, default_metadata_for_deserializer};
 
-#[derive(Default, Debug, Clone, Deserialize)]
+#[derive(Default, Clone, Deserialize)] // Do not add debug here, it contains passwords.
 #[serde(default)]
 pub struct ExpectedSwitch {
     #[serde(default)]

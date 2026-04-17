@@ -24,8 +24,7 @@ use forge_secrets::credentials::{CredentialManager, Credentials};
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use libredfish::model::service_root::RedfishVendor;
 use mac_address::MacAddress;
-use model::expected_machine::ExpectedMachine;
-use model::expected_power_shelf::ExpectedPowerShelf;
+use model::expected_entity::{BmcCredentialsData, ExpectedEntity};
 use model::expected_switch::ExpectedSwitch;
 use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, LockdownStatus};
@@ -89,7 +88,7 @@ impl BmcEndpointExplorer {
         Ok(password)
     }
 
-    pub fn get_default_hardware_dpu_bmc_root_credentials(&self) -> Credentials {
+    fn get_default_hardware_dpu_bmc_root_credentials(&self) -> BmcCredentialsData<'static> {
         self.credential_client
             .get_default_hardware_dpu_bmc_root_credentials()
     }
@@ -221,71 +220,19 @@ impl BmcEndpointExplorer {
     // If we can log in using the factory credentials:
     // (1) use Redfish to set the machine's bmc root password to be the sitewide bmc root password.
     // (2) update the BMC specific root password path in vault
-    pub async fn set_sitewide_bmc_root_password(
+    async fn set_sitewide_bmc_root_password(
         &self,
         bmc_ip_address: SocketAddr,
         bmc_mac_address: MacAddress,
         vendor: RedfishVendor,
-        expected_machine: Option<&ExpectedMachine>,
-        expected_power_shelf: Option<&ExpectedPowerShelf>,
-        expected_switch: Option<&ExpectedSwitch>,
-    ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
-        let current_bmc_credentials;
-        let retain_credentials;
-
+        cred_data: BmcCredentialsData<'_>,
+    ) -> Result<Credentials, EndpointExplorationError> {
+        let current_bmc_credentials = Credentials::UsernamePassword {
+            username: cred_data.username.to_string(),
+            password: cred_data.password.to_string(),
+        };
+        let retain_credentials = cred_data.retain_credentials;
         tracing::info!(%bmc_ip_address, %bmc_mac_address, %vendor, "attempting to set the administrative credentials to the site password");
-
-        if let Some(expected_machine_credentials) = expected_machine {
-            tracing::info!(%bmc_ip_address, %bmc_mac_address, "Found an expected machine for this BMC mac address");
-            current_bmc_credentials = Credentials::UsernamePassword {
-                username: expected_machine_credentials.data.bmc_username.clone(),
-                password: expected_machine_credentials.data.bmc_password.clone(),
-            };
-            retain_credentials = expected_machine_credentials
-                .data
-                .bmc_retain_credentials
-                .unwrap_or(false);
-        } else if let Some(expected_power_shelf_credentials) = expected_power_shelf {
-            tracing::info!(%bmc_ip_address, %bmc_mac_address, "Found an expected power shelf for this BMC mac address");
-            current_bmc_credentials = Credentials::UsernamePassword {
-                username: expected_power_shelf_credentials.bmc_username.clone(),
-                password: expected_power_shelf_credentials.bmc_password.clone(),
-            };
-            retain_credentials = expected_power_shelf_credentials
-                .bmc_retain_credentials
-                .unwrap_or(false);
-        } else if let Some(expected_switch_credentials) = expected_switch {
-            tracing::info!(%bmc_ip_address, %bmc_mac_address, "Found an expected switch for this BMC mac address");
-            current_bmc_credentials = Credentials::UsernamePassword {
-                username: expected_switch_credentials.bmc_username.clone(),
-                password: expected_switch_credentials.bmc_password.clone(),
-            };
-            retain_credentials = expected_switch_credentials
-                .bmc_retain_credentials
-                .unwrap_or(false);
-        } else {
-            tracing::info!(%bmc_ip_address, %bmc_mac_address, %vendor, "No expected machine found, could be a BlueField");
-            // We dont know if this machine is a DPU at this point
-            // Check the vendor to see if it could be a DPU (the DPU's vendor is NVIDIA)
-            match vendor {
-                RedfishVendor::NvidiaDpu => {
-                    // This machine is a DPU.
-                    // Try the DPU hardware default password to handle the DPU case
-                    // This password will not work for a Viking host and we will return an error
-                    current_bmc_credentials = self.get_default_hardware_dpu_bmc_root_credentials();
-                    retain_credentials = false;
-                }
-                _ => {
-                    return Err(EndpointExplorationError::MissingCredentials {
-                        key: "expected_machine".to_owned(),
-                        cause: format!(
-                            "The expected machine credentials do not exist for {vendor} machine {bmc_ip_address}/{bmc_mac_address} "
-                        ),
-                    });
-                }
-            }
-        }
-
         let bmc_credentials = if retain_credentials {
             tracing::info!(
                 %bmc_ip_address, %bmc_mac_address, %vendor,
@@ -317,9 +264,7 @@ impl BmcEndpointExplorer {
         self.set_bmc_root_credentials(bmc_mac_address, &bmc_credentials)
             .await?;
 
-        self.redfish_client
-            .generate_exploration_report(bmc_ip_address, bmc_credentials, None, Some(vendor))
-            .await
+        Ok(bmc_credentials)
     }
 
     // Handle switch NVOS admin credentials setup
@@ -700,9 +645,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-        expected_machine: Option<&ExpectedMachine>,
-        expected_power_shelf: Option<&ExpectedPowerShelf>,
-        expected_switch: Option<&ExpectedSwitch>,
+        expected: Option<&ExpectedEntity>,
         last_report: Option<&EndpointExplorationReport>,
         boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
@@ -728,7 +671,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 //
                 // In the future, if we want to expand this to other kinds of trays we can
                 // expand the pattern matching logic below.
-                let Some(eps) = expected_power_shelf else {
+                let Some(ExpectedEntity::PowerShelf(eps)) = expected else {
                     return Err(e);
                 };
 
@@ -823,23 +766,58 @@ impl EndpointExplorer for BmcEndpointExplorer {
             }
 
             Err(EndpointExplorationError::MissingCredentials { .. }) => {
-                tracing::info!(
-                    %bmc_ip_address,
-                    "Site explorer could not find an entry in vault at 'bmc/{bmc_mac_address}/root' - this is expected if the BMC has never been seen before.",
-                );
-
                 // The machine's BMC root password has not been set to the Forge Sitewide BMC root password
                 // 1) Try to login to the machine's BMC root account
                 // 2) Set the machine's BMC root password to the Forge Sitewide BMC root password
                 // 3) Set the password policy for the machine's BMC
                 // 4) Generate the report
-                self.set_sitewide_bmc_root_password(
+
+                tracing::info!(
+                    %bmc_ip_address,
+                    "Site explorer could not find an entry in vault at 'bmc/{bmc_mac_address}/root' - this is expected if the BMC has never been seen before.",
+                );
+
+                let bmc_cred_data = match expected {
+                    Some(v) => {
+                        tracing::info!(%bmc_ip_address, %bmc_mac_address, "Found an expected {} for this BMC mac address", v.name());
+                        v.bmc_credentials_data()
+                    }
+                    None => {
+                        tracing::info!(%bmc_ip_address, %bmc_mac_address, %vendor, "No expected machine found, could be a BlueField");
+                        // We dont know if this machine is a DPU at this point
+                        // Check the vendor to see if it could be a DPU (the DPU's vendor is NVIDIA)
+                        match vendor {
+                            RedfishVendor::NvidiaDpu => {
+                                // This machine is a DPU.
+                                // Try the DPU hardware default password to handle the DPU case
+                                // This password will not work for a Viking host and we will return an error
+                                self.get_default_hardware_dpu_bmc_root_credentials()
+                            }
+                            _ => {
+                                return Err(EndpointExplorationError::MissingCredentials {
+                                    key: "expected_machine".to_owned(),
+                                    cause: format!(
+                                        "The expected machine credentials do not exist for {vendor} machine {bmc_ip_address}/{bmc_mac_address} "
+                                    ),
+                                });
+                            }
+                        }
+                    }
+                };
+                let bmc_credentials = self
+                    .set_sitewide_bmc_root_password(
+                        bmc_ip_address,
+                        bmc_mac_address,
+                        vendor,
+                        bmc_cred_data,
+                    )
+                    .await?;
+
+                self.generate_exploration_report(
                     bmc_ip_address,
-                    bmc_mac_address,
-                    vendor,
-                    expected_machine,
-                    expected_power_shelf,
-                    expected_switch,
+                    bmc_credentials,
+                    None,
+                    Some(vendor),
                 )
                 .await?
             }
@@ -849,7 +827,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         };
 
         // Check for switch NVOS admin credentials if this is a switch
-        if let Some(expected_switch) = expected_switch
+        if let Some(ExpectedEntity::Switch(expected_switch)) = expected
             && expected_switch.nvos_username.is_some()
             && expected_switch.nvos_password.is_some()
         {
@@ -1127,7 +1105,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support set_nic_mode for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    "BMC endpoint explorer does not support is_viking for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
                     bmc_mac_address,
                 );
                 Err(e)
@@ -1147,7 +1125,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support set_nic_mode for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    "BMC endpoint explorer does not support clear_nvram for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
                     bmc_mac_address,
                 );
                 Err(e)
@@ -1171,7 +1149,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support set_nic_mode for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    "BMC endpoint explorer does not support copy_bfb_to_dpu_rshim for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
                     bmc_mac_address,
                 );
                 Err(e)
@@ -1197,7 +1175,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support set_nic_mode for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    "BMC endpoint explorer does not support create_bmc_user for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
                     bmc_mac_address,
                 );
                 Err(e)
@@ -1221,7 +1199,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
             Err(e) => {
                 tracing::info!(
                     %bmc_ip_address,
-                    "BMC endpoint explorer does not support set_nic_mode for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
+                    "BMC endpoint explorer does not support delete_bmc_user for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
                     bmc_mac_address,
                 );
                 Err(e)

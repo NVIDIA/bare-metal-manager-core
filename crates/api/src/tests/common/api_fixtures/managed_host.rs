@@ -45,7 +45,7 @@ pub enum HardwareInfoTemplate {
 }
 
 /// Describes a Managed Host
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ManagedHostConfig {
     pub serial: String,
     pub bmc_mac_address: MacAddress,

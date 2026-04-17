@@ -75,7 +75,7 @@ pub struct ExpectedHostNic {
 // Important : new fields for expected machine should be Optional _and_ #[serde(default)],
 // unless you want to go update all the files in each production deployment that autoload
 // the expected machines on api startup
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct ExpectedMachine {
     #[serde(default)]
     pub id: Option<Uuid>,
@@ -84,7 +84,7 @@ pub struct ExpectedMachine {
     pub data: ExpectedMachineData,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Clone, Default, Deserialize)] // Do not add Debug here, it contains password
 pub struct ExpectedMachineData {
     pub bmc_username: String,
     pub bmc_password: String,

@@ -21,9 +21,7 @@ use std::sync::{Arc, Mutex};
 use libredfish::RoleId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
-use model::expected_machine::ExpectedMachine;
-use model::expected_power_shelf::ExpectedPowerShelf;
-use model::expected_switch::ExpectedSwitch;
+use model::expected_entity::ExpectedEntity;
 use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, InternalLockdownStatus, LockdownStatus,
@@ -82,9 +80,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
-        _expected: Option<&ExpectedMachine>,
-        _expected_power_shelf: Option<&ExpectedPowerShelf>,
-        _expected_switch: Option<&ExpectedSwitch>,
+        _expected: Option<&ExpectedEntity>,
         _last_report: Option<&EndpointExplorationReport>,
         _boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {

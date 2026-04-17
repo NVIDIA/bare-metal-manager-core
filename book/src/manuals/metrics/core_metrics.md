@@ -40,6 +40,8 @@ This file contains a list of metrics exported by NCX Infra Controller (NICo). Th
 <tr><td>carbide_hosts_health_overrides_count</td><td>gauge</td><td>The amount of health overrides that are configured in the site</td></tr>
 <tr><td>carbide_hosts_health_status_count</td><td>gauge</td><td>The total number of Managed Hosts in the system that have reported any a healthy nor not healthy status - based on the presence of health probe alerts</td></tr>
 <tr><td>carbide_hosts_in_use_count</td><td>gauge</td><td>The total number of hosts that are actively used by tenants as instances in the Forge site</td></tr>
+<tr><td>carbide_hosts_unhealthy_by_classification_count</td><td>gauge</td><td>The amount of ManagedHosts which are marked with a certain classification due to being unhealthy</td></tr>
+<tr><td>carbide_hosts_unhealthy_by_probe_id_count</td><td>gauge</td><td>The amount of ManagedHosts which reported a certain Health Probe Alert</td></tr>
 <tr><td>carbide_hosts_usable_count</td><td>gauge</td><td>The remaining number of hosts in the Forge site which are available for immediate instance creation</td></tr>
 <tr><td>carbide_hosts_with_bios_password_set</td><td>gauge</td><td>The total number of Hosts in the system that have their BIOS password set.</td></tr>
 <tr><td>carbide_ib_partitions_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_ib_partitions in the system</td></tr>
@@ -108,9 +110,11 @@ This file contains a list of metrics exported by NCX Infra Controller (NICo). Th
 <tr><td>carbide_site_exploration_expected_machines_sku_count</td><td>gauge</td><td>The total count of expected machines by SKU ID and device type</td></tr>
 <tr><td>carbide_site_exploration_identified_managed_hosts_count</td><td>gauge</td><td>The amount of Host+DPU pairs that has been identified in the last SiteExplorer run</td></tr>
 <tr><td>carbide_site_explorer_bmc_reset_count</td><td>gauge</td><td>The amount of BMC resets initiated in the last SiteExplorer run</td></tr>
+<tr><td>carbide_site_explorer_create_machines</td><td>gauge</td><td>Whether site-explorer machine creation is enabled (1) or disabled (0)</td></tr>
 <tr><td>carbide_site_explorer_create_machines_latency_milliseconds</td><td>histogram</td><td>The time it to perform create_machines inside site-explorer</td></tr>
 <tr><td>carbide_site_explorer_created_machines_count</td><td>gauge</td><td>The amount of Machine pairs that had been created by Site Explorer after being identified</td></tr>
 <tr><td>carbide_site_explorer_created_power_shelves_count</td><td>gauge</td><td>The amount of Power Shelves that had been created by Site Explorer after being identified</td></tr>
+<tr><td>carbide_site_explorer_enabled</td><td>gauge</td><td>Whether site-explorer is enabled (1) or paused (0)</td></tr>
 <tr><td>carbide_site_explorer_iteration_latency_milliseconds</td><td>histogram</td><td>The time it took to perform one site explorer iteration</td></tr>
 <tr><td>carbide_switches_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_switches in the system</td></tr>
 <tr><td>carbide_switches_iteration_latency_milliseconds</td><td>histogram</td><td>The elapsed time in the last state processor iteration to handle objects of type carbide_switches</td></tr>

@@ -15,20 +15,68 @@
  * limitations under the License.
  */
 
-use ::rpc::admin_cli::CarbideCliResult;
+use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::forge::IpType;
+use serde::Serialize;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn find(args: Args, api_client: &ApiClient) -> CarbideCliResult<()> {
+#[derive(Serialize)]
+struct IpFindResult {
+    ip_type: String,
+    owner_id: Option<String>,
+    message: String,
+}
+
+#[derive(Serialize)]
+struct IpFindOutput {
+    results: Vec<IpFindResult>,
+    errors: Vec<String>,
+}
+
+pub async fn find(
+    args: Args,
+    format: OutputFormat,
+    api_client: &ApiClient,
+) -> CarbideCliResult<()> {
     let resp = api_client.0.find_ip_address(args).await?;
-    for r in resp.matches {
-        tracing::info!("{}", r.message);
-    }
-    if !resp.errors.is_empty() {
-        tracing::warn!("These matchers failed:");
-        for err in resp.errors {
-            tracing::warn!("\t{err}");
+
+    let output = IpFindOutput {
+        results: resp
+            .matches
+            .into_iter()
+            .map(|m| {
+                let ip_type = IpType::try_from(m.ip_type)
+                    .map(|t| t.as_str_name().to_string())
+                    .unwrap_or_else(|_| format!("Unknown({})", m.ip_type));
+                IpFindResult {
+                    ip_type,
+                    owner_id: m.owner_id,
+                    message: m.message,
+                }
+            })
+            .collect(),
+        errors: resp.errors,
+    };
+
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        OutputFormat::Yaml => {
+            println!("{}", serde_yaml::to_string(&output)?);
+        }
+        OutputFormat::AsciiTable | OutputFormat::Csv => {
+            for r in &output.results {
+                println!("{}", r.message);
+            }
+            if !output.errors.is_empty() {
+                eprintln!("These matchers failed:");
+                for err in &output.errors {
+                    eprintln!("\t{err}");
+                }
+            }
         }
     }
     Ok(())

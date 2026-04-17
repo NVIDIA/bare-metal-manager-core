@@ -38,8 +38,8 @@ use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use librms::RmsApi;
 use mac_address::MacAddress;
+use model::expected_entity::ExpectedEntity;
 use model::expected_power_shelf::ExpectedPowerShelf;
-use model::expected_switch::ExpectedSwitch;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
@@ -75,7 +75,6 @@ mod managed_host;
 use db::ObjectColumnFilter;
 use db::work_lock_manager::WorkLockManagerHandle;
 pub use managed_host::is_endpoint_in_managed_host;
-use model::expected_machine::ExpectedMachine;
 use model::firmware::FirmwareComponentType;
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::NetworkSegmentType;
@@ -154,7 +153,6 @@ pub(crate) async fn fetch_slot_and_tray(
     }
 }
 
-#[derive(Debug)]
 pub struct Endpoint<'a> {
     address: IpAddr,
     iface: &'a MachineInterfaceSnapshot,
@@ -162,9 +160,7 @@ pub struct Endpoint<'a> {
     last_ipmitool_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
     last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
     old_report: Option<(ConfigVersion, &'a EndpointExplorationReport)>,
-    pub(crate) expected: Option<&'a ExpectedMachine>,
-    pub(crate) expected_power_shelf: Option<&'a ExpectedPowerShelf>,
-    pub(crate) expected_switch: Option<&'a ExpectedSwitch>,
+    pub(crate) expected: Option<&'a ExpectedEntity>,
     pause_remediation: bool,
     boot_interface_mac: Option<MacAddress>,
 }
@@ -1392,9 +1388,7 @@ impl SiteExplorer {
                 old_report: Some((endpoint.report_version, &endpoint.report)),
                 pause_remediation: endpoint.pause_remediation,
                 boot_interface_mac: endpoint.boot_interface_mac,
-                expected_switch: index.matched_expected_switch(&address),
-                expected_power_shelf: index.matched_expected_power_shelf(&address),
-                expected: index.matched_expected_machine(&address),
+                expected: index.matched_expected(&address),
             });
         }
 
@@ -1411,11 +1405,9 @@ impl SiteExplorer {
                 last_ipmitool_bmc_reset: None,
                 last_redfish_reboot: None,
                 old_report: None,
-                expected_switch: index.matched_expected_switch(address),
-                expected_power_shelf: index.matched_expected_power_shelf(address),
-                expected: index.matched_expected_machine(address),
                 pause_remediation: false, // New endpoints haven't been explored yet, so pause_remediation defaults to false
                 boot_interface_mac: None, // boot_interface_mac not yet discovered for new endpoints
+                expected: index.matched_expected(address),
             });
         }
 
@@ -1437,11 +1429,9 @@ impl SiteExplorer {
                     last_ipmitool_bmc_reset: endpoint.last_ipmitool_bmc_reset,
                     last_redfish_reboot: endpoint.last_redfish_reboot,
                     old_report: Some((endpoint.report_version, &endpoint.report)),
-                    expected: index.matched_expected_machine(&address),
-                    expected_power_shelf: index.matched_expected_power_shelf(&address),
-                    expected_switch: index.matched_expected_switch(&address),
                     pause_remediation: endpoint.pause_remediation,
                     boot_interface_mac: endpoint.boot_interface_mac,
+                    expected: index.matched_expected(&address),
                 });
             }
         }
@@ -1484,8 +1474,6 @@ impl SiteExplorer {
                             bmc_target_addr,
                             endpoint.iface,
                             endpoint.expected,
-                            endpoint.expected_power_shelf,
-                            endpoint.expected_switch,
                             endpoint.old_report.map(|report| report.1),
                             endpoint.boot_interface_mac,
                         )
@@ -1630,10 +1618,8 @@ impl SiteExplorer {
                     }
                 }
                 None => {
-                    let should_pause_ingestion_and_poweron = pause_ingestion_and_poweron(
-                        index.expected_machines(),
-                        &endpoint.iface.mac_address,
-                    );
+                    let should_pause_ingestion_and_poweron =
+                        pause_ingestion_and_poweron(index.expected(), &endpoint.iface.mac_address);
                     match result {
                         Ok(mut report) => {
                             report.last_exploration_latency = Some(exploration_duration);
@@ -1665,7 +1651,9 @@ impl SiteExplorer {
                         }
                     }
 
-                    let power_shelf_manual_ingestion = endpoint.expected_power_shelf.is_some()
+                    let power_shelf_manual_ingestion = endpoint
+                        .expected
+                        .is_some_and(|v| matches!(v, ExpectedEntity::PowerShelf(_)))
                         && explore_power_shelves_from_static_ip;
 
                     if !self.config.create_machines.load(Ordering::Relaxed)
@@ -2491,10 +2479,12 @@ pub async fn get_machine_state_by_bmc_ip(
 }
 
 fn pause_ingestion_and_poweron(
-    expected_machines_by_mac: &HashMap<MacAddress, ExpectedMachine>,
+    expected_machines_by_mac: &HashMap<MacAddress, ExpectedEntity>,
     mac_address: &mac_address::MacAddress,
 ) -> bool {
-    if let Some(expected_machine) = expected_machines_by_mac.get(mac_address) {
+    if let Some(ExpectedEntity::Machine(expected_machine)) =
+        expected_machines_by_mac.get(mac_address)
+    {
         return expected_machine
             .data
             .default_pause_ingestion_and_poweron
