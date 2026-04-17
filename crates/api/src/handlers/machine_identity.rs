@@ -122,9 +122,9 @@ fn validate_audiences_in_allowlist(
 /// `auth_method`), Carbide first signs a subject JWT (`aud` = exchange service,
 /// `request_meta_data.aud` = caller-requested workload audiences) with the same `exp` / `iat` delta
 /// as `token_ttl_sec`, then performs an RFC 8693 token exchange `POST` to the tenant
-/// `token_endpoint` and returns that response (**`expires_in` in the response is from the tenant
-/// STS, not from `token_ttl_sec`**). Otherwise the handler returns a directly signed JWT using the
-/// org `token_ttl_sec`.
+/// `token_endpoint` and returns that response (**`expires_in_sec` is taken from the tenant STS JSON
+/// `expires_in` field, not from `token_ttl_sec`**). Otherwise the handler returns a directly signed
+/// JWT using the org `token_ttl_sec` as `expires_in_sec`.
 pub(crate) async fn sign_machine_identity(
     api: &Api,
     request: Request<rpc::MachineIdentityRequest>,
@@ -293,7 +293,7 @@ pub(crate) async fn sign_machine_identity(
         access_token: token,
         issued_token_type: "urn:ietf:params:oauth:token-type:jwt".to_string(),
         token_type: "Bearer".to_string(),
-        expires_in: identity_row.token_ttl_sec.to_string(),
+        expires_in_sec: u32::try_from(identity_row.token_ttl_sec).unwrap_or(0),
     };
 
     Ok(Response::new(response))

@@ -29,23 +29,6 @@ use crate::CarbideError;
 const OAUTH_GRANT_TYPE_TOKEN_EXCHANGE: &str = "urn:ietf:params:oauth:grant-type:token-exchange";
 const OAUTH_TOKEN_TYPE_JWT: &str = "urn:ietf:params:oauth:token-type:jwt";
 
-/// `expires_in` from a token response: integer (RFC-shaped) or string (lenient).
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum ExpiresInField {
-    Seconds(i64),
-    SecondsStr(String),
-}
-
-impl ExpiresInField {
-    fn into_proto_field(self) -> String {
-        match self {
-            Self::Seconds(n) => n.to_string(),
-            Self::SecondsStr(s) => s,
-        }
-    }
-}
-
 #[derive(Debug, Deserialize)]
 struct TokenExchangeHttpResponseBody {
     access_token: String,
@@ -53,8 +36,9 @@ struct TokenExchangeHttpResponseBody {
     issued_token_type: Option<String>,
     #[serde(default)]
     token_type: Option<String>,
+    /// RFC 6749 `expires_in` (seconds). JSON must be a non-negative integer in `u32` range.
     #[serde(default)]
-    expires_in: Option<ExpiresInField>,
+    expires_in: Option<u32>,
 }
 
 /// Builds the HTTP client used only for RFC 8693 calls to per-org `token_endpoint`.
@@ -155,16 +139,13 @@ pub(crate) async fn token_exchange_request(
         .issued_token_type
         .unwrap_or_else(|| "urn:ietf:params:oauth:token-type:jwt".to_string());
     let token_type = parsed.token_type.unwrap_or_else(|| "Bearer".to_string());
-    let expires_in = parsed
-        .expires_in
-        .map(ExpiresInField::into_proto_field)
-        .unwrap_or_default();
+    let expires_in_sec = parsed.expires_in.unwrap_or(0);
 
     Ok(MachineIdentityResponse {
         access_token: parsed.access_token,
         issued_token_type: issued,
         token_type,
-        expires_in,
+        expires_in_sec,
     })
 }
 
@@ -173,18 +154,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn token_exchange_body_deserializes_expires_in_as_int_or_string() {
+    fn token_exchange_body_deserializes_expires_in_as_json_number() {
         let n: TokenExchangeHttpResponseBody =
             serde_json::from_str(r#"{"access_token":"t","expires_in":3600}"#).unwrap();
-        assert_eq!(
-            n.expires_in.map(ExpiresInField::into_proto_field),
-            Some("3600".to_string())
+        assert_eq!(n.expires_in, Some(3600_u32));
+        let omitted: TokenExchangeHttpResponseBody =
+            serde_json::from_str(r#"{"access_token":"t"}"#).unwrap();
+        assert_eq!(omitted.expires_in, None);
+    }
+
+    #[test]
+    fn token_exchange_body_rejects_expires_in_as_string() {
+        let err = serde_json::from_str::<TokenExchangeHttpResponseBody>(
+            r#"{"access_token":"t","expires_in":"7200"}"#,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("expires_in") || err.to_string().contains("invalid type"),
+            "{err}"
         );
-        let s: TokenExchangeHttpResponseBody =
-            serde_json::from_str(r#"{"access_token":"t","expires_in":"7200"}"#).unwrap();
-        assert_eq!(
-            s.expires_in.map(ExpiresInField::into_proto_field),
-            Some("7200".to_string())
+    }
+
+    #[test]
+    fn token_exchange_body_rejects_negative_expires_in() {
+        assert!(
+            serde_json::from_str::<TokenExchangeHttpResponseBody>(
+                r#"{"access_token":"t","expires_in":-1}"#,
+            )
+            .is_err()
         );
     }
 
@@ -235,7 +232,7 @@ mod tests {
             "urn:ietf:params:oauth:token-type:jwt"
         );
         assert_eq!(out.token_type, "Bearer");
-        assert_eq!(out.expires_in, "42");
+        assert_eq!(out.expires_in_sec, 42);
     }
 
     #[tokio::test]

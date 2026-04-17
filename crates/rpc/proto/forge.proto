@@ -938,7 +938,8 @@ message MachineIdentityResponse {
   string access_token = 1;
   string issued_token_type = 2;
   string token_type = 3;
-  string expires_in = 4;
+  // Same unit as `IdentityConfig.token_ttl_sec`. Zero if omitted or not representable as uint32.
+  uint32 expires_in_sec = 4;
 }
 
 // Identity configuration (per-org)
