@@ -239,6 +239,22 @@ impl From<ManagedHostStateSnapshotError> for sqlx::Error {
 }
 
 impl ManagedHostStateSnapshot {
+    /// Returns `true` if this managed host has no DPU snapshots attached.
+    ///
+    /// Most call sites in the state controller use this to follow a "zero-DPU"
+    /// branch -- skip DPU-specific work, use the host's primary interface MAC
+    /// directly, reject DPU-only operations, etc.
+    ///
+    /// Note: Currently, a handful of call sites combine this with
+    /// `host_snapshot.associated_dpu_machine_ids().is_empty()` to distinguish
+    /// "truly zero-DPU" from "DPU expected per topology but the snapshot
+    /// failed to load". Those sites intentionally inspect both fields and
+    /// should NOT be rewritten to use this helper alone. Maybe we can enhance
+    /// that later, but for now this keeps it simple.
+    pub fn is_zero_dpu(&self) -> bool {
+        self.dpu_snapshots.is_empty()
+    }
+
     /// Returns `true` if override report is hw_health, `false` otherwise
     fn merge_override_report_with_hw_health(
         output: &mut HealthReport,
@@ -549,7 +565,7 @@ impl ManagedHostStateSnapshot {
                 let snapshot = self.dpu_snapshots.remove(index);
                 self.dpu_snapshots.insert(0, snapshot);
             }
-        } else if !self.dpu_snapshots.is_empty() {
+        } else if !self.is_zero_dpu() {
             // If it is not Zero-DPU case, return failure.
             return Err(ManagedHostStateSnapshotError::AttachedDpuIdMissing(
                 self.host_snapshot.id,

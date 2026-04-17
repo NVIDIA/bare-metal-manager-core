@@ -4750,7 +4750,7 @@ impl StateHandler for HostMachineStateHandler {
                         .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
                         .await?;
 
-                    let boot_interface_mac = if !mh_snapshot.dpu_snapshots.is_empty() {
+                    let boot_interface_mac = if !mh_snapshot.is_zero_dpu() {
                         let primary_interface = mh_snapshot
                             .host_snapshot
                             .interfaces
@@ -9327,7 +9327,7 @@ async fn handle_instance_host_platform_config(
             }
         }
         HostPlatformConfigurationState::CheckHostConfig => {
-            let configure_host_boot_order = if !mh_snapshot.dpu_snapshots.is_empty() {
+            let configure_host_boot_order = if !mh_snapshot.is_zero_dpu() {
                 // Given that we are checking the boot order of a server immediately after a power cycle, we
                 // should do some waiting to ensure that the host is not reporting stale redfish information from
                 // before Carbide powered it off.
@@ -9434,7 +9434,7 @@ async fn handle_instance_host_platform_config(
                 },
             };
 
-            let boot_interface_mac = if !mh_snapshot.dpu_snapshots.is_empty() {
+            let boot_interface_mac = if !mh_snapshot.is_zero_dpu() {
                 let primary_interface = mh_snapshot
                     .host_snapshot
                     .interfaces
@@ -9531,7 +9531,7 @@ async fn configure_host_bios(
     redfish_client: &dyn Redfish,
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<BiosConfigOutcome, StateHandlerError> {
-    let boot_interface_mac = if !mh_snapshot.dpu_snapshots.is_empty() {
+    let boot_interface_mac = if !mh_snapshot.is_zero_dpu() {
         let primary_interface = mh_snapshot
             .host_snapshot
             .interfaces
@@ -9610,7 +9610,7 @@ async fn set_host_boot_order(
 ) -> Result<SetBootOrderOutcome, StateHandlerError> {
     match set_boot_order_info.set_boot_order_state {
         SetBootOrderState::SetBootOrder => {
-            if mh_snapshot.dpu_snapshots.is_empty() {
+            if mh_snapshot.is_zero_dpu() {
                 // MachineState::SetBootOrder is a NO-OP for the Zero-DPU case
                 Ok(SetBootOrderOutcome::Done)
             } else {
