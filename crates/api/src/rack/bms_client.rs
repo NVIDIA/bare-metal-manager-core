@@ -396,7 +396,7 @@ mod tests {
         }
     }
 
-    async fn spawn_test_handle(
+    fn spawn_test_handle(
         publisher: Arc<RecordingPublisher>,
     ) -> (Arc<BmsDsxExchangeHandle>, JoinSet<()>, CancellationToken) {
         let publisher_config = PublisherConfig::default();
