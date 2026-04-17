@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::{RackId, RackProfileId};
+use carbide_uuid::rack::RackId;
 use db::{DatabaseError, ObjectColumnFilter, rack as db_rack};
 use model::metadata::Metadata;
 use model::rack::RackConfig;
@@ -28,8 +28,10 @@ async fn test_rack_metadata_defaults(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     let rack = db_rack::create(
         &mut txn,
         &rack_id,
-        Some(&RackProfileId::new("NVL72")),
-        &RackConfig::default(),
+        &RackConfig {
+            rack_type: Some("NVL72".to_string()),
+            ..Default::default()
+        },
         None,
     )
     .await?;
@@ -62,8 +64,10 @@ async fn test_rack_metadata_from_expected(
     let rack = db_rack::create(
         &mut txn,
         &rack_id,
-        Some(&RackProfileId::new("NVL72")),
-        &RackConfig::default(),
+        &RackConfig {
+            rack_type: Some("NVL72".to_string()),
+            ..Default::default()
+        },
         Some(&expected_metadata),
     )
     .await?;
@@ -87,8 +91,10 @@ async fn test_rack_metadata_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     let rack = db_rack::create(
         &mut txn,
         &rack_id,
-        Some(&RackProfileId::new("NVL72")),
-        &RackConfig::default(),
+        &RackConfig {
+            rack_type: Some("NVL72".to_string()),
+            ..Default::default()
+        },
         None,
     )
     .await?;
@@ -134,8 +140,10 @@ async fn test_rack_metadata_version_conflict(
     let rack = db_rack::create(
         &mut txn,
         &rack_id,
-        Some(&RackProfileId::new("NVL72")),
-        &RackConfig::default(),
+        &RackConfig {
+            rack_type: Some("NVL72".to_string()),
+            ..Default::default()
+        },
         None,
     )
     .await?;

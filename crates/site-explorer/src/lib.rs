@@ -117,11 +117,13 @@ pub(crate) async fn ensure_rack_exists(
             };
 
             tracing::info!(%rack_id, "Rack does not exist, creating from expected rack");
-            let config = model::rack::RackConfig::default();
+            let config = model::rack::RackConfig {
+                rack_type: Some(expected.rack_profile_id.as_str().to_string()),
+                ..Default::default()
+            };
             let rack = db::rack::create(
                 &mut *txn,
                 rack_id,
-                Some(&expected.rack_profile_id),
                 &config,
                 Some(&expected.metadata),
             )

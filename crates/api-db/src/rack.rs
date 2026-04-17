@@ -215,8 +215,8 @@ pub async fn insert_health_report_override(
 ) -> Result<(), DatabaseError> {
     let column_name = "health_report_overrides";
     let path = match mode {
-        OverrideMode::Merge => format!("merges,\"{}\"", health_report.source),
-        OverrideMode::Replace => "replace".to_string(),
+        HealthReportApplyMode::Merge => format!("merges,\"{}\"", health_report.source),
+        HealthReportApplyMode::Replace => "replace".to_string(),
     };
 
     let query = format!(
@@ -246,8 +246,8 @@ pub async fn remove_health_report_override(
 ) -> Result<(), DatabaseError> {
     let column_name = "health_report_overrides";
     let path = match mode {
-        OverrideMode::Merge => format!("merges,{source}"),
-        OverrideMode::Replace => "replace".to_string(),
+        HealthReportApplyMode::Merge => format!("merges,{source}"),
+        HealthReportApplyMode::Replace => "replace".to_string(),
     };
     let query = format!(
         "UPDATE racks SET {column_name} = ({column_name} #- '{{{path}}}') WHERE id = $1

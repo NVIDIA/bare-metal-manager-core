@@ -180,7 +180,7 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
     let machine_id_2 = handler::new_machine_id(2);
     let mut txn = pool.acquire().await?;
     let rack_id = TestRackDbBuilder::new()
-        .with_rack_type("Simple")
+        .with_rack_profile_id("Simple")
         .persist(&mut txn)
         .await?;
 

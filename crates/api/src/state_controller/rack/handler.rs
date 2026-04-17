@@ -17,7 +17,7 @@
 
 //! State Handler implementation for Racks.
 
-use carbide_uuid::rack::RackId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use model::rack::{Rack, RackState};
 
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
@@ -47,7 +47,7 @@ impl RackStateHandler {
         controller_state: &RackState,
         ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
-        let rack_profile_id = state.rack_profile_id.clone();
+        let rack_profile_id = state.config.rack_type.as_deref().map(RackProfileId::new);
         let config = state.config.clone();
 
         match controller_state {

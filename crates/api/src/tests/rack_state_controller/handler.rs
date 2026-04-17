@@ -16,7 +16,7 @@
  */
 
 use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
-use carbide_uuid::rack::RackId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use db::db_read::DbReader;
 use db::{ObjectColumnFilter, expected_rack as db_expected_rack, rack as db_rack};
 use librms::protos::rack_manager as rms;
@@ -29,7 +29,7 @@ use model::rack::{
 };
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
-    RackHardwareClass, RackHardwareType, RackTypeConfig,
+    RackHardwareClass, RackHardwareType, RackProfile, RackProfileConfig,
 };
 use serde_json::json;
 
@@ -66,14 +66,11 @@ fn test_capabilities() -> RackCapabilitiesSet {
             vendor: None,
             slot_ids: None,
         },
-        ..Default::default()
     }
 }
 
 fn simple_capabilities() -> RackCapabilitiesSet {
     RackCapabilitiesSet {
-        rack_hardware_type: Some(RackHardwareType::any()),
-        rack_hardware_class: Some(RackHardwareClass::Prod),
         compute: RackCapabilityCompute {
             name: None,
             count: 2,
@@ -92,14 +89,11 @@ fn simple_capabilities() -> RackCapabilitiesSet {
             vendor: None,
             slot_ids: None,
         },
-        ..Default::default()
     }
 }
 
 fn single_capabilities() -> RackCapabilitiesSet {
     RackCapabilitiesSet {
-        rack_hardware_type: Some(RackHardwareType::any()),
-        rack_hardware_class: Some(RackHardwareClass::Prod),
         compute: RackCapabilityCompute {
             name: None,
             count: 1,
@@ -118,18 +112,39 @@ fn single_capabilities() -> RackCapabilitiesSet {
             vendor: None,
             slot_ids: None,
         },
-        ..Default::default()
     }
 }
 
 pub(crate) fn config_with_rack_types() -> crate::cfg::file::CarbideConfig {
     let mut config = get_config();
-    config.rack_types = RackTypeConfig {
-        rack_types: [
-            ("NVL72".to_string(), test_capabilities()),
-            ("Simple".to_string(), simple_capabilities()),
-            ("Single".to_string(), single_capabilities()),
-            ("Empty".to_string(), RackCapabilitiesSet::default()),
+    config.rack_profiles = RackProfileConfig {
+        rack_profiles: [
+            (
+                "NVL72".to_string(),
+                RackProfile {
+                    rack_capabilities: test_capabilities(),
+                    ..Default::default()
+                },
+            ),
+            (
+                "Simple".to_string(),
+                RackProfile {
+                    rack_hardware_type: Some(RackHardwareType::any()),
+                    rack_hardware_class: Some(RackHardwareClass::Prod),
+                    rack_capabilities: simple_capabilities(),
+                    ..Default::default()
+                },
+            ),
+            (
+                "Single".to_string(),
+                RackProfile {
+                    rack_hardware_type: Some(RackHardwareType::any()),
+                    rack_hardware_class: Some(RackHardwareClass::Prod),
+                    rack_capabilities: single_capabilities(),
+                    ..Default::default()
+                },
+            ),
+            ("Empty".to_string(), RackProfile::default()),
         ]
         .into_iter()
         .collect(),
@@ -272,7 +287,7 @@ async fn create_expected_rack(pool: &sqlx::PgPool, rack_id: &RackId, rack_type: 
     let mut txn = pool.acquire().await.unwrap();
     let er = ExpectedRack {
         rack_id: rack_id.clone(),
-        rack_type: rack_type.to_string(),
+        rack_profile_id: RackProfileId::new(rack_type),
         ..Default::default()
     };
     db_expected_rack::create(&mut txn, &er).await.unwrap();
