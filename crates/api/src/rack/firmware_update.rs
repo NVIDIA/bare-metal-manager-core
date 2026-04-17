@@ -340,7 +340,7 @@ fn build_firmware_targets(
         .collect())
 }
 
-fn build_new_node_info(
+pub(crate) fn build_new_node_info(
     rack_id: &RackId,
     device: &FirmwareUpgradeDeviceInfo,
     node_type: rms::NodeType,

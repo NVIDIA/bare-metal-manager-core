@@ -17,6 +17,7 @@
 
 //! Handler for RackState::Maintenance.
 
+use std::collections::{HashMap, HashSet};
 use carbide_uuid::rack::{RackId, RackProfileId};
 use db::{
     host_machine_update as db_host_machine_update, machine as db_machine,
@@ -24,14 +25,15 @@ use db::{
     switch as db_switch,
 };
 use model::rack::{
-    FirmwareUpgradeDeviceStatus, FirmwareUpgradeState, Rack, RackFirmwareUpgradeState,
-    RackFirmwareUpgradeStatus, RackMaintenanceState, RackPowerState, RackState,
-    RackValidationState,
+    FirmwareUpgradeDeviceInfo, FirmwareUpgradeDeviceStatus, FirmwareUpgradeState, Rack,
+    RackFirmwareUpgradeState, RackFirmwareUpgradeStatus, RackMaintenanceState, RackPowerState,
+    RackState, RackValidationState,
 };
+use librms::protos::rack_manager as rms;
 
 use crate::rack::firmware_update::{
     build_firmware_update_batches, firmware_type_for_profile, load_rack_firmware_inventory,
-    submit_firmware_update_batches,
+    submit_firmware_update_batches, build_new_node_info,
 };
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
 use crate::state_controller::rack::validating::strip_rv_labels;
@@ -124,8 +126,147 @@ fn transition_to_rack_error(
     cause: impl Into<String>,
 ) -> StateHandlerOutcome<RackState> {
     let cause = cause.into();
-    tracing::warn!(rack_id = %rack_id, %cause, "Rack firmware upgrade failed before polling started");
+    tracing::warn!(rack_id = %rack_id, %cause, "Rack maintenance operation failed");
     StateHandlerOutcome::transition(RackState::Error { cause })
+}
+
+fn transition_to_power_sequence() -> StateHandlerOutcome<RackState> {
+    StateHandlerOutcome::transition(RackState::Maintenance {
+        maintenance_state: RackMaintenanceState::PowerSequence {
+            rack_power: RackPowerState::PoweringOn,
+        },
+    })
+}
+
+fn skip_configure_nmx_cluster_outcome(
+    rack_id: &RackId,
+    reason: impl AsRef<str>,
+) -> StateHandlerOutcome<RackState> {
+    tracing::info!(
+        rack_id = %rack_id,
+        reason = %reason.as_ref(),
+        "Skipping ConfigureNmxCluster and advancing to PowerSequence"
+    );
+    transition_to_power_sequence()
+}
+
+fn validate_switch_inventory_for_nmx_cluster(
+    switches: &[FirmwareUpgradeDeviceInfo],
+) -> Result<(), String> {
+    for switch in switches {
+        if switch.os_ip.as_deref().unwrap_or_default().is_empty() {
+            return Err(format!(
+                "switch {} is missing an NVOS IP address for ConfigureNmxCluster",
+                switch.node_id
+            ));
+        }
+        if switch.os_username.as_deref().unwrap_or_default().is_empty()
+            || switch.os_password.as_deref().unwrap_or_default().is_empty()
+        {
+            return Err(format!(
+                "switch {} is missing NVOS credentials for ConfigureNmxCluster",
+                switch.node_id
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn build_switch_device_info_request(
+    rack_id: &RackId,
+    switches: &[FirmwareUpgradeDeviceInfo],
+) -> rms::GetDeviceInfoByDeviceListRequest {
+    rms::GetDeviceInfoByDeviceListRequest {
+        nodes: Some(rms::NodeSet {
+            devices: switches
+                .iter()
+                .map(|switch| build_new_node_info(rack_id, switch, rms::NodeType::Switch))
+                .collect(),
+        }),
+        ..Default::default()
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SwitchPlacement {
+    device: FirmwareUpgradeDeviceInfo,
+    tray_index: i32,
+    slot_number: Option<i32>,
+}
+
+fn select_primary_switch(
+    switches: &[FirmwareUpgradeDeviceInfo],
+    response: &rms::GetDeviceInfoByDeviceListResponse,
+) -> Result<SwitchPlacement, String> {
+    if response.status != rms::ReturnCode::Success as i32 {
+        let details = if response.message.trim().is_empty() {
+            "no error details provided".to_string()
+        } else {
+            response.message.clone()
+        };
+        return Err(format!("RMS GetDeviceInfoByDeviceList failed: {}", details));
+    }
+
+    let switches_by_node_id: HashMap<&str, &FirmwareUpgradeDeviceInfo> = switches
+        .iter()
+        .map(|switch| (switch.node_id.as_str(), switch))
+        .collect();
+    let mut placements = Vec::with_capacity(response.node_device_info.len());
+    let mut seen_node_ids = HashSet::with_capacity(response.node_device_info.len());
+
+    for node_info in &response.node_device_info {
+        let Some(device) = switches_by_node_id.get(node_info.node_id.as_str()) else {
+            return Err(format!(
+                "RMS returned device info for unexpected switch {}",
+                node_info.node_id
+            ));
+        };
+        let Some(tray_index) = node_info.tray_index else {
+            return Err(format!(
+                "RMS did not return tray_index for switch {}",
+                node_info.node_id
+            ));
+        };
+        placements.push(SwitchPlacement {
+            device: (*device).clone(),
+            tray_index,
+            slot_number: node_info.slot_number,
+        });
+        seen_node_ids.insert(node_info.node_id.as_str());
+    }
+
+    if placements.is_empty() {
+        return Err("RMS returned no switch device info for ConfigureNmxCluster".to_string());
+    }
+
+    if placements.len() != switches.len() {
+        let missing = switches
+            .iter()
+            .filter(|switch| !seen_node_ids.contains(switch.node_id.as_str()))
+            .map(|switch| switch.node_id.clone())
+            .collect::<Vec<_>>();
+        return Err(format!(
+            "RMS did not return device info for switches: {}",
+            missing.join(", ")
+        ));
+    }
+
+    placements.sort_by(|left, right| {
+        left.tray_index
+            .cmp(&right.tray_index)
+            .then_with(|| {
+                left.slot_number
+                    .unwrap_or(i32::MAX)
+                    .cmp(&right.slot_number.unwrap_or(i32::MAX))
+            })
+            .then_with(|| left.device.node_id.cmp(&right.device.node_id))
+    });
+
+    Ok(placements
+        .into_iter()
+        .next()
+        .expect("placements cannot be empty after explicit guard"))
 }
 
 /// Submit compute and switch firmware-update batches to RMS and persist the
@@ -645,15 +786,138 @@ pub async fn handle_maintenance(
             }
         },
         RackMaintenanceState::ConfigureNmxCluster => {
+            let Some(rms_client) = ctx.services.rms_client.as_ref() else {
+                return Ok(transition_to_rack_error(id, "RMS client not configured"));
+            };
+            let inventory = load_rack_firmware_inventory(
+                &ctx.services.db_pool,
+                ctx.services.credential_manager.as_ref(),
+                id,
+            )
+            .await
+            .map_err(|error| {
+                StateHandlerError::GenericError(eyre::eyre!(
+                    "failed to load rack firmware inventory for ConfigureNmxCluster: {}",
+                    error
+                ))
+            })?;
+
+            if inventory.switches.is_empty() {
+                return Ok(skip_configure_nmx_cluster_outcome(
+                    id,
+                    "rack has no switches in inventory",
+                ));
+            }
+
+            if let Err(cause) = validate_switch_inventory_for_nmx_cluster(&inventory.switches) {
+                return Ok(transition_to_rack_error(id, cause));
+            }
+
+            let Some(capabilities) = super::resolve_capabilities(id, config, ctx) else {
+                return Ok(transition_to_rack_error(
+                    id,
+                    format!(
+                        "rack_type {:?} is missing or unknown; cannot resolve rack_hardware_topology",
+                        config.rack_type
+                    ),
+                ));
+            };
+            let Some(rack_hardware_topology) = capabilities.rack_hardware_topology else {
+                return Ok(transition_to_rack_error(
+                    id,
+                    format!(
+                        "rack_type {:?} does not define rack_hardware_topology",
+                        config.rack_type
+                    ),
+                ));
+            };
+
+            let response = match rms_client
+                .get_device_info_by_device_list(build_switch_device_info_request(
+                    id,
+                    &inventory.switches,
+                ))
+                .await
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    return Ok(transition_to_rack_error(
+                        id,
+                        format!("RMS GetDeviceInfoByDeviceList failed: {}", error),
+                    ));
+                }
+            };
+            let primary_switch = match select_primary_switch(&inventory.switches, &response) {
+                Ok(primary_switch) => primary_switch,
+                Err(cause) => return Ok(transition_to_rack_error(id, cause)),
+            };
+
+            let topology_type = rack_hardware_topology.to_string();
             tracing::info!(
-                "Rack {} ConfigureNmxCluster - stubbed, advancing to Completed",
-                id
+                rack_id = %id,
+                primary_switch = %primary_switch.device.node_id,
+                tray_index = primary_switch.tray_index,
+                slot_number = primary_switch.slot_number,
+                topology_type = %topology_type,
+                switch_count = inventory.switches.len(),
+                "Configuring NMX cluster on primary switch"
             );
-            Ok(StateHandlerOutcome::transition(RackState::Maintenance {
-                maintenance_state: RackMaintenanceState::PowerSequence {
-                    rack_power: RackPowerState::PoweringOn,
+            let response = match rms_client
+                .configure_scale_up_fabric_manager(rms::ConfigureScaleUpFabricManagerRequest {
+                    device: Some(build_new_node_info(
+                        id,
+                        &primary_switch.device,
+                        rms::NodeType::Switch,
+                    )),
+                    topology_type: topology_type.clone(),
+                    verify_ssl: false,
+                    ..Default::default()
+                })
+                .await
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    return Ok(transition_to_rack_error(
+                        id,
+                        format!(
+                            "RMS ConfigureScaleUpFabricManager failed for switch {}: {}",
+                            primary_switch.device.node_id, error
+                        ),
+                    ));
+                }
+            };
+
+            if response.status != rms::ReturnCode::Success as i32 {
+                let message = if response.message.trim().is_empty() {
+                    "no error details provided".to_string()
+                } else {
+                    response.message
+                };
+                return Ok(transition_to_rack_error(
+                    id,
+                    format!(
+                        "RMS ConfigureScaleUpFabricManager failed for switch {}: {}",
+                        primary_switch.device.node_id, message
+                    ),
+                ));
+            }
+
+            tracing::info!(
+                rack_id = %id,
+                primary_switch = %primary_switch.device.node_id,
+                tray_index = primary_switch.tray_index,
+                slot_number = primary_switch.slot_number,
+                topology_type = %topology_type,
+                topology_used = %if response.topology_used.is_empty() {
+                    topology_type.clone()
+                } else {
+                    response.topology_used.clone()
                 },
-            }))
+                scale_up_fabric_state_enabled = response.scale_up_fabric_state_enabled,
+                grpc_enabled = response.grpc_enabled,
+                "Rack ConfigureNmxCluster complete, advancing to PowerSequence"
+            );
+            Ok(transition_to_power_sequence())
         }
         RackMaintenanceState::PowerSequence { rack_power } => match rack_power {
             RackPowerState::PoweringOn => {
