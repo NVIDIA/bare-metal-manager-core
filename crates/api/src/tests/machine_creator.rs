@@ -35,8 +35,9 @@ use tonic::Request;
 use utils::models::arch::CpuArchitecture;
 
 use crate::CarbideError;
-use crate::cfg::file::{DpuConfig as InitialDpuConfig, SiteExplorerConfig};
+use crate::cfg::file::DpuConfig as InitialDpuConfig;
 use crate::site_explorer::MachineCreator;
+use crate::site_explorer::config::SiteExplorerConfig;
 use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;

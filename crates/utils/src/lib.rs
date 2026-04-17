@@ -20,6 +20,7 @@ use std::hash::Hash;
 use serde::{Serialize, Serializer};
 
 pub mod cmd;
+pub mod config;
 mod host_port_pair;
 pub mod managed_host_display;
 pub mod metrics;

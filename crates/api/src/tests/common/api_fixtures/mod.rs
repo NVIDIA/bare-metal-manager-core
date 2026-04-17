@@ -94,9 +94,9 @@ use crate::cfg::file::{
     MachineStateControllerConfig, MachineUpdater, MachineValidationConfig,
     MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
     NetworkSegmentStateControllerConfig, NvLinkConfig, PowerManagerOptions,
-    PowerShelfStateControllerConfig, RackStateControllerConfig, SiteExplorerConfig,
-    SiteExplorerExploreMode, SpdmConfig, SpdmStateControllerConfig, StateControllerConfig,
-    SwitchStateControllerConfig, VmaasConfig, VpcPeeringPolicy, default_max_find_by_ids,
+    PowerShelfStateControllerConfig, RackStateControllerConfig, SpdmConfig,
+    SpdmStateControllerConfig, StateControllerConfig, SwitchStateControllerConfig, VmaasConfig,
+    VpcPeeringPolicy, default_max_find_by_ids,
 };
 use crate::dpf::DpfOperations;
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
@@ -109,6 +109,7 @@ use crate::nvlink::NmxmClientPool;
 use crate::nvlink::test_support::NmxmSimClient;
 use crate::rack::rms_client::test_support::RmsSim;
 use crate::scout_stream;
+use crate::site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::controller::{Enqueuer, StateController};

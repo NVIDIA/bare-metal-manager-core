@@ -48,8 +48,8 @@ use rpc::site_explorer::{
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use tonic::Request;
 
-use crate::cfg::file::{SiteExplorerConfig, SiteExplorerExploreMode};
 use crate::site_explorer::SiteExplorer;
+use crate::site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use crate::tests::common;
 use crate::tests::common::api_fixtures;
 use crate::tests::common::api_fixtures::TestEnvOverrides;

@@ -29,6 +29,7 @@ use carbide_network::sanitized_mac;
 use carbide_uuid::machine::MachineType;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
 use chrono::Utc;
+use config::SiteExplorerConfig;
 use config_version::ConfigVersion;
 use db::{self, DatabaseError, ObjectFilter, Transaction, machine, power_shelf as db_power_shelf};
 use forge_secrets::credentials::CredentialManager;
@@ -56,7 +57,7 @@ use tracing::Instrument;
 use utils::periodic_timer::PeriodicTimer;
 use version_compare::Cmp;
 
-use crate::cfg::file::{FirmwareConfig, SiteExplorerConfig};
+use crate::cfg::file::FirmwareConfig;
 use crate::{CarbideError, CarbideResult};
 mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;
@@ -82,6 +83,7 @@ mod switch_creator;
 use carbide_uuid::rack::RackId;
 use model::rack::Rack;
 pub use switch_creator::SwitchCreator;
+pub mod config;
 
 use self::metrics::{PairingBlockerReason, exploration_error_to_metric_label};
 use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
