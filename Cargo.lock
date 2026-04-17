@@ -2622,6 +2622,7 @@ dependencies = [
  "humantime",
  "ipnetwork",
  "itertools 0.14.0",
+ "opentelemetry",
  "prettytable-rs",
  "serde",
  "serde_json",

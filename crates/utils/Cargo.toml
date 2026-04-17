@@ -59,6 +59,7 @@ sqlx = { workspace = true, features = [
 ], optional = true }
 tonic = { workspace = true }
 humantime = { workspace = true }
+opentelemetry = { workspace = true }
 
 # [local-dependencies]
 config-version = { path = "../config-version" }

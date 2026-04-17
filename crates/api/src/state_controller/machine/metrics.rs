@@ -19,12 +19,12 @@
 
 use std::collections::{HashMap, HashSet};
 
+use ::utils::metrics::SharedMetricsHolder;
 use model::hardware_info::MachineInventorySoftwareComponent;
 use model::tenant::TenantOrganizationId;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
 
-use crate::logging::metrics_utils::SharedMetricsHolder;
 use crate::state_controller::metrics::MetricsEmitter;
 
 #[derive(Debug, Default)]

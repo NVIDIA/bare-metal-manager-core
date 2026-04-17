@@ -20,10 +20,10 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 
+use ::utils::metrics::SharedMetricsHolder;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 
-use crate::logging::metrics_utils::SharedMetricsHolder;
 use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::state_handler::StateHandlerError;
 

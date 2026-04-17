@@ -19,13 +19,13 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
 
+use ::utils::metrics::SharedMetricsHolder;
 use carbide_uuid::machine::MachineType;
 use model::site_explorer::{EndpointExplorationError, MachineExpectation};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
 
 use crate::cfg::file::SiteExplorerConfig;
-use crate::logging::metrics_utils::SharedMetricsHolder;
 
 /// Reasons why a host fails to pair with its DPU(s).
 /// These are issues that require manual intervention.
