@@ -454,7 +454,7 @@ mod tests {
     #[tokio::test]
     async fn set_rack_leak_state_publishes_isolation_values_without_sleeping() {
         let publisher = Arc::new(RecordingPublisher::default());
-        let (handle, join_set, cancel_token) = spawn_test_handle(publisher.clone()).await;
+        let (handle, join_set, cancel_token) = spawn_test_handle(publisher.clone());
 
         handle
             .handle_metadata(
@@ -487,7 +487,7 @@ mod tests {
     #[tokio::test]
     async fn update_rack_leak_state_uses_explicit_override_source_without_sleeping() {
         let publisher = Arc::new(RecordingPublisher::default());
-        let (handle, join_set, cancel_token) = spawn_test_handle(publisher.clone()).await;
+        let (handle, join_set, cancel_token) = spawn_test_handle(publisher.clone());
 
         handle
             .handle_metadata(
@@ -518,7 +518,7 @@ mod tests {
     #[tokio::test]
     async fn rack_leak_metadata_does_not_publish_without_rack_leak_source_update() {
         let publisher = Arc::new(RecordingPublisher::default());
-        let (handle, join_set, cancel_token) = spawn_test_handle(publisher.clone()).await;
+        let (handle, join_set, cancel_token) = spawn_test_handle(publisher.clone());
 
         handle
             .handle_metadata(
