@@ -1,0 +1,160 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+tabs:
+  documentation:
+    display-name: Documentation
+  api:
+    display-name: REST API Reference
+
+navigation:
+  - tab: documentation
+
+    layout:
+
+    - page: Introduction
+      path: README.md
+
+    - page: Hardware Compatibility List
+      path: hcl.md
+
+    - page: Release Notes
+      path: release-notes.md
+
+    - page: FAQs
+      path: faq.md
+
+    - section: Architecture
+      contents:
+        - page: Overview and Components
+          path: architecture/overview.md
+        - page: Redfish Workflow
+          path: architecture/redfish_workflow.md
+        - page: Redfish Endpoints Reference
+          path: architecture/redfish/endpoints_reference.md
+        - page: Reliable State Handling
+          path: architecture/state_handling.md
+        - page: Networking Integrations
+          path: architecture/networking_integrations.md
+        - page: DPU Configuration
+          path: architecture/dpu_configuration.md
+        - page: Health Checks and Health Aggregation
+          path: architecture/health_aggregation.md
+        - page: Health Probe IDs
+          path: architecture/health/health_probe_ids.md
+        - page: Health Alert Classifications
+          path: architecture/health/health_alert_classifications.md
+        - page: Key Group Synchronization
+          path: architecture/key_group_sync.md
+        - section: Infiniband Support
+          contents:
+            - page: NIC and Port Selection
+              path: architecture/infiniband/nic_selection.md
+        - section: State Machines
+          contents:
+            - page: Managed Host
+              path: architecture/state_machines/managedhost.md
+            - page: Switch
+              path: architecture/state_machines/switch.md
+
+    - section: Manuals
+      contents:
+        - page: Site Setup
+          path: manuals/site-setup.md
+        - page: Site Reference Architecture
+          path: manuals/site-reference-arch.md
+        - page: Networking Requirements
+          path: manuals/networking_requirements.md
+        - page: Building NICo Containers
+          path: manuals/building_nico_containers.md
+        - page: Ingesting Hosts
+          path: manuals/ingesting_machines.md
+        - page: Updating Expected Hosts Manifest
+          path: manuals/expected_machine_update.md
+        - page: Host Validation
+          path: manuals/machine_validation.md
+        - page: SKU Validation
+          path: manuals/sku_validation.md
+        - page: NVLink Partitioning
+          path: manuals/nvlink_partitioning.md
+        - page: Release Instance API Enhancements
+          path: manuals/breakfix_integration.md
+        - section: Managing VPCs
+          contents:
+            - page: VPC Routing Profiles
+              path: manuals/vpc/vpc_routing_profiles.md
+            - page: VPC Peering
+              path: manuals/vpc/vpc_peering_management.md
+        - section: Metrics
+          contents:
+            - page: Core Metrics
+              path: manuals/metrics/core_metrics.md
+
+    - section: Design
+      contents:
+        - page: SPIFFE SVID Design
+          path: design/machine-identity/spiffe-svid-sdd.md
+
+    - section: Development
+      contents:
+        - page: Codebase Overview
+          path: codebase_overview.md
+        - page: Bootable Artifacts
+          path: bootable_artifacts.md
+        - page: Local Development
+          path: development.md
+        - page: Running a PXE Client in a VM
+          path: development/vm_pxe_client.md
+        - page: Re-creating Issuer/CA in Local Dev
+          path: development/issuer_ca_recreate.md
+        - page: Visual Studio Code Remote Development
+          path: development/vscode_remote.md
+        - section: Database
+          contents:
+            - page: Data Model / DB Schema
+              path: development/schema.md
+        - page: Adding Support for New Hardware
+          path: development/new_hardware_support.md
+        - page: DPU/Bluefield Operations
+          path: dpu-operations.md
+
+    - section: Kubernetes
+      contents:
+        - page: Bootstrap New Cluster
+          path: kubernetes/bootstrap.md
+        - page: TLS
+          path: kubernetes/tls.md
+
+    - section: Playbooks
+      contents:
+        - page: Azure OIDC for NCX Infra Controller Web UI
+          path: playbooks/carbide_web_oauth2.md
+        - page: Force Deleting and Rebuilding Forge Hosts
+          path: playbooks/force_delete.md
+        - page: Rebooting a Machine
+          path: playbooks/machine_reboot.md
+        - section: Instance/Subnet/etc is Stuck in a State
+          contents:
+            - page: Overview and General Troubleshooting
+              path: playbooks/stuck_objects/stuck_objects.md
+            - page: Common Mitigations
+              path: playbooks/stuck_objects/common_mitigations.md
+            - page: Stuck in WaitingForNetworkConfig and DPU Health
+              path: playbooks/stuck_objects/waiting_for_network_config.md
+            - page: Adding New Machines to an Existing Site
+              path: playbooks/stuck_objects/adding_new_machines.md
+            - page: Troubleshooting noDpuLogsWarning Alerts
+              path: playbooks/troubleshooting_noDpuLogsWarning_alerts.md
+        - section: Debugging Machine
+          contents:
+            - page: Collecting Debug Bundles
+              path: playbooks/debugging_machine/debug_bundle.md
+        - page: InfiniBand Setup
+          path: playbooks/ib_runbook.md
+
+    - page: Glossary
+      path: glossary.md
+
+  - tab: api
+    layout:
+    - api: API Reference

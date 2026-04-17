@@ -1,0 +1,7 @@
+api:
+  specs:
+    - openapi:
+        github:
+          repository: NVIDIA/ncx-infra-controller-rest
+          path: openapi/spec.yaml
+          branch: main
