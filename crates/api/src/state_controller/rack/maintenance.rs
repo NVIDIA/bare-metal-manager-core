@@ -1043,6 +1043,17 @@ pub async fn handle_maintenance(
                 let current_job = state.firmware_upgrade_job.as_ref().unwrap();
                 let job = rms_get_firmware_upgrade_status(rms_client.as_ref(), current_job).await?;
 
+                let all: Vec<_> = job.all_devices().collect();
+                let total = all.len();
+                let completed = all.iter().filter(|d| d.status == "completed").count();
+                let failed = all.iter().filter(|d| d.status == "failed").count();
+                let terminal = completed + failed;
+                let default_nvos_artifact = if terminal == total && failed == 0 {
+                    resolve_default_nvos_artifact(id, rack_profile_id, ctx).await?
+                } else {
+                    None
+                };
+
                 let mut txn = ctx.services.db_pool.begin().await?;
 
                 let build_status =
@@ -1130,12 +1141,6 @@ pub async fn handle_maintenance(
                     }
                 }
 
-                let all: Vec<_> = job.all_devices().collect();
-                let total = all.len();
-                let completed = all.iter().filter(|d| d.status == "completed").count();
-                let failed = all.iter().filter(|d| d.status == "failed").count();
-                let terminal = completed + failed;
-
                 if terminal < total {
                     db_rack::update_firmware_upgrade_job(txn.as_mut(), id, Some(&job)).await?;
                     state.firmware_upgrade_job = Some(job);
@@ -1165,9 +1170,7 @@ pub async fn handle_maintenance(
                 db_rack::update_firmware_upgrade_job(txn.as_mut(), id, None).await?;
                 state.firmware_upgrade_job = None;
 
-                let next_maintenance_state = if let Some(artifact) =
-                    resolve_default_nvos_artifact(id, rack_profile_id, ctx).await?
-                {
+                let next_maintenance_state = if let Some(artifact) = default_nvos_artifact {
                     tracing::info!(
                         "Rack {} has a default NVOS artifact available; advancing to NVOSUpdate(Start) with firmware {} ({})",
                         id,
