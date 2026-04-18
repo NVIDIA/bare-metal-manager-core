@@ -55,21 +55,7 @@ impl NiccClient {
         // SAFETY: len is already checked above, index access is safe here
         let machine = &mut response.machines[0];
         let metadata = machine.metadata.take().unwrap_or_default();
-        let labels = metadata.labels;
-
-        let existing = labels
-            .into_iter()
-            .map(|label| (label.key, label.value.unwrap_or_default()))
-            .collect();
-
-        let merged = merge_rv_labels(&existing, updates);
-        let label_protos = merged
-            .into_iter()
-            .map(|(k, v)| Label {
-                key: k,
-                value: Some(v),
-            })
-            .collect();
+        let label_protos = merge_rv_labels(metadata.labels, updates);
 
         self.inner
             .update_machine_metadata(MachineMetadataUpdateRequest {
@@ -173,21 +159,23 @@ impl NiccClient {
     }
 }
 
-/// Merge `rv.*` label updates into an existing full label map.
+/// Merge `rv.*` label updates into an existing label list.
 ///
-/// Keeps all non-`rv.*` keys from `existing` unchanged.
+/// Keeps every non-`rv.*` label from `existing` as-is, preserving the
+/// original `Option<String>` value (so `None` stays `None` rather than
+/// becoming `Some("")`).
 /// Replaces or adds every key from `updates` (all of which are `rv.*`).
 /// Drops `rv.*` keys present in `existing` but absent from `updates`.
-fn merge_rv_labels(
-    existing: &HashMap<String, String>,
-    updates: &HashMap<String, String>,
-) -> HashMap<String, String> {
-    existing
-        .iter()
-        .filter(|(k, _)| !k.starts_with("rv."))
-        .chain(updates.iter())
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect()
+fn merge_rv_labels(existing: Vec<Label>, updates: &HashMap<String, String>) -> Vec<Label> {
+    let mut merged: Vec<Label> = existing
+        .into_iter()
+        .filter(|label| !label.key.starts_with("rv."))
+        .collect();
+    merged.extend(updates.iter().map(|(k, v)| Label {
+        key: k.clone(),
+        value: Some(v.clone()),
+    }));
+    merged
 }
 
 #[cfg(test)]
@@ -201,48 +189,76 @@ mod tests {
             .collect()
     }
 
+    fn labels(pairs: &[(&str, Option<&str>)]) -> Vec<Label> {
+        pairs
+            .iter()
+            .map(|(k, v)| Label {
+                key: k.to_string(),
+                value: v.map(String::from),
+            })
+            .collect()
+    }
+
+    fn find<'a>(labels: &'a [Label], key: &str) -> Option<&'a Label> {
+        labels.iter().find(|l| l.key == key)
+    }
+
     #[test]
     fn test_merge_preserves_non_rv_labels() {
-        let existing = map(&[("owner", "ops"), ("rv.run-id", "old")]);
+        let existing = labels(&[("owner", Some("ops")), ("rv.run-id", Some("old"))]);
         let updates = map(&[("rv.run-id", "new")]);
-        let result = merge_rv_labels(&existing, &updates);
+        let result = merge_rv_labels(existing, &updates);
         assert_eq!(result.len(), 2);
-        assert_eq!(result["owner"], "ops");
-        assert_eq!(result["rv.run-id"], "new");
+        assert_eq!(find(&result, "owner").unwrap().value.as_deref(), Some("ops"));
+        assert_eq!(find(&result, "rv.run-id").unwrap().value.as_deref(), Some("new"));
     }
 
     #[test]
     fn test_merge_drops_stale_rv_keys() {
-        let existing = map(&[("rv.run-id", "old"), ("rv.st", "pass")]);
+        let existing = labels(&[("rv.run-id", Some("old")), ("rv.st", Some("pass"))]);
         let updates = map(&[("rv.run-id", "new")]);
-        let result = merge_rv_labels(&existing, &updates);
+        let result = merge_rv_labels(existing, &updates);
         assert_eq!(result.len(), 1);
-        assert_eq!(result["rv.run-id"], "new");
-        assert!(!result.contains_key("rv.st"));
+        assert_eq!(result[0].key, "rv.run-id");
+        assert_eq!(result[0].value.as_deref(), Some("new"));
     }
 
     #[test]
     fn test_merge_adds_new_rv_keys() {
-        let existing = map(&[("owner", "ops")]);
+        let existing = labels(&[("owner", Some("ops"))]);
         let updates = map(&[("rv.run-id", "abc")]);
-        let result = merge_rv_labels(&existing, &updates);
+        let result = merge_rv_labels(existing, &updates);
         assert_eq!(result.len(), 2);
-        assert_eq!(result["rv.run-id"], "abc");
-        assert_eq!(result["owner"], "ops");
+        assert_eq!(find(&result, "owner").unwrap().value.as_deref(), Some("ops"));
+        assert_eq!(find(&result, "rv.run-id").unwrap().value.as_deref(), Some("abc"));
     }
 
     #[test]
     fn test_merge_empty_existing() {
-        let existing = map(&[]);
         let updates = map(&[("rv.run-id", "abc")]);
-        let result = merge_rv_labels(&existing, &updates);
-        assert_eq!(result, updates);
+        let result = merge_rv_labels(vec![], &updates);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].key, "rv.run-id");
+        assert_eq!(result[0].value.as_deref(), Some("abc"));
     }
 
     #[test]
     fn test_merge_empty_updates() {
-        let existing = map(&[("owner", "ops"), ("rv.run-id", "old")]);
-        let result = merge_rv_labels(&existing, &map(&[]));
-        assert_eq!(result, map(&[("owner", "ops")]));
+        let existing = labels(&[("owner", Some("ops")), ("rv.run-id", Some("old"))]);
+        let result = merge_rv_labels(existing, &map(&[]));
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].key, "owner");
+        assert_eq!(result[0].value.as_deref(), Some("ops"));
+    }
+
+    #[test]
+    fn test_merge_preserves_none_value_on_non_rv_labels() {
+        // A non-`rv.*` label with `value: None` must stay `None` -- the
+        // previous implementation went through `unwrap_or_default()` and
+        // silently turned it into `Some("")`.
+        let existing = labels(&[("owner", None)]);
+        let updates = map(&[("rv.run-id", "new")]);
+        let result = merge_rv_labels(existing, &updates);
+        assert_eq!(find(&result, "owner").unwrap().value, None);
     }
 }

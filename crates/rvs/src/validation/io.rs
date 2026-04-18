@@ -42,14 +42,32 @@ fn prepare_run_id(trays: &HashMap<String, Tray>) -> RunIdPlan {
 
 /// Return the shared run ID if every tray already carries the same `rv.run-id`.
 fn existing_run_id(trays: &HashMap<String, Tray>) -> Option<String> {
-    // Iter over all run-ids from a set of trays belonging to a partition
-    let mut run_ids = trays.values().filter_map(|t| t.rv_labels.get("rv.run-id"));
-    let first = run_ids.next()?;
-    if run_ids.all(|id| id == first) {
+    // Every tray must carry `rv.run-id` -- a partial match would leave the
+    // label-less trays drifting while the rest reuse the shared ID.
+    let mut run_ids = trays.values().map(|t| t.rv_labels.get("rv.run-id"));
+    let first = run_ids.next().flatten()?;
+    if run_ids.all(|id| id == Some(first)) {
         Some(first.clone())
     } else {
         None
     }
+}
+
+/// Keep only trays still referenced by at least one retained partition.
+///
+/// `Partitions::exclude_completed` prunes all-passed partitions from
+/// `nvl`/`ib` but leaves the underlying trays in `all`. Re-queuing those
+/// completed trays is what we want to avoid.
+fn retained_trays(partitions: Partitions) -> HashMap<String, Tray> {
+    let Partitions { nvl, ib, all } = partitions;
+    let retained_ids: std::collections::HashSet<String> = nvl
+        .into_values()
+        .chain(ib.into_values())
+        .flatten()
+        .collect();
+    all.into_iter()
+        .filter(|(id, _)| retained_ids.contains(id))
+        .collect()
 }
 
 /// Convert filtered partitions into validation jobs.
@@ -58,14 +76,15 @@ pub async fn plan(
     nicc: &NiccClient,
     os_uri: &str,
 ) -> Result<Vec<ValidationJob>, RvsError> {
-    if partitions.all.is_empty() {
+    let trays = retained_trays(partitions);
+    if trays.is_empty() {
         return Ok(vec![]);
     }
-    assign_run_id(&partitions.all, nicc).await?;
-    allocate_instances(&partitions.all, os_uri, nicc).await?;
-    wait_for_boot(&partitions.all, nicc).await?;
+    assign_run_id(&trays, nicc).await?;
+    allocate_instances(&trays, os_uri, nicc).await?;
+    wait_for_boot(&trays, nicc).await?;
     Ok(vec![ValidationJob {
-        trays: partitions.all.into_values().collect(),
+        trays: trays.into_values().collect(),
     }])
 }
 
@@ -177,6 +196,21 @@ mod tests {
     }
 
     #[test]
+    fn test_prepare_run_id_assigns_new_when_partially_missing() {
+        // One tray carries run-id, another doesn't -- must not be treated as
+        // shared, otherwise the label-less tray never gets written.
+        let t = trays(&[
+            ("m1", &[("rv.run-id", "run-abc")]),
+            ("m2", &[]),
+        ]);
+        let plan = prepare_run_id(&t);
+        assert_eq!(plan.updates.len(), 2);
+        for (_, labels) in &plan.updates {
+            assert!(!labels["rv.run-id"].is_empty());
+        }
+    }
+
+    #[test]
     fn test_prepare_run_id_preserves_other_labels() {
         let t = trays(&[("m1", &[("rv.st", "pass")])]);
         let plan = prepare_run_id(&t);
@@ -190,5 +224,47 @@ mod tests {
         let t = trays(&[]);
         let plan = prepare_run_id(&t);
         assert!(plan.updates.is_empty());
+    }
+
+    fn partitions(
+        nvl: &[(&str, &[&str])],
+        ib: &[(&str, &[&str])],
+        all: &[&str],
+    ) -> Partitions {
+        Partitions::new(
+            nvl.iter()
+                .map(|(k, ids)| (k.to_string(), ids.iter().map(|s| s.to_string()).collect()))
+                .collect(),
+            ib.iter()
+                .map(|(k, ids)| (k.to_string(), ids.iter().map(|s| s.to_string()).collect()))
+                .collect(),
+            all.iter().map(|id| (id.to_string(), tray(&[]))).collect(),
+        )
+    }
+
+    #[test]
+    fn test_retained_trays_drops_trays_from_excluded_partitions() {
+        // m1/m2 are in no retained partition (their partition was all-passed
+        // and dropped); m3/m4 are still referenced.
+        let p = partitions(&[("nvl-b", &["m3", "m4"])], &[], &["m1", "m2", "m3", "m4"]);
+        let kept = retained_trays(p);
+        let mut ids: Vec<_> = kept.keys().cloned().collect();
+        ids.sort();
+        assert_eq!(ids, vec!["m3", "m4"]);
+    }
+
+    #[test]
+    fn test_retained_trays_drops_orphans() {
+        // m1 is in `all` but no partition references it.
+        let p = partitions(&[], &[], &["m1"]);
+        assert!(retained_trays(p).is_empty());
+    }
+
+    #[test]
+    fn test_retained_trays_keeps_trays_in_any_partition() {
+        // m1 is only in ib, m2 only in nvl -- both should survive.
+        let p = partitions(&[("nvl-a", &["m2"])], &[("ib-a", &["m1"])], &["m1", "m2"]);
+        let kept = retained_trays(p);
+        assert_eq!(kept.len(), 2);
     }
 }
