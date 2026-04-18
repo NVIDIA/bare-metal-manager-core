@@ -69,7 +69,11 @@ pub async fn create_initial_networks(
         ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await?;
-    if all_domains.len() != 1 {
+    if all_domains.is_empty() {
+        tracing::warn!("No domain configured, skipping initial network creation");
+        return Ok(());
+    }
+    if all_domains.len() > 1 {
         // We only create initial networks if we only have a single domain - usually created
         // as initial_domain_name in config file.
         // Having multiple domains is fine, it means we probably created the network much
