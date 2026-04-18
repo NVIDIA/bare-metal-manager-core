@@ -199,10 +199,7 @@ mod tests {
     fn test_prepare_run_id_assigns_new_when_partially_missing() {
         // One tray carries run-id, another doesn't -- must not be treated as
         // shared, otherwise the label-less tray never gets written.
-        let t = trays(&[
-            ("m1", &[("rv.run-id", "run-abc")]),
-            ("m2", &[]),
-        ]);
+        let t = trays(&[("m1", &[("rv.run-id", "run-abc")]), ("m2", &[])]);
         let plan = prepare_run_id(&t);
         assert_eq!(plan.updates.len(), 2);
         for (_, labels) in &plan.updates {
@@ -226,11 +223,7 @@ mod tests {
         assert!(plan.updates.is_empty());
     }
 
-    fn partitions(
-        nvl: &[(&str, &[&str])],
-        ib: &[(&str, &[&str])],
-        all: &[&str],
-    ) -> Partitions {
+    fn partitions(nvl: &[(&str, &[&str])], ib: &[(&str, &[&str])], all: &[&str]) -> Partitions {
         Partitions::new(
             nvl.iter()
                 .map(|(k, ids)| (k.to_string(), ids.iter().map(|s| s.to_string()).collect()))

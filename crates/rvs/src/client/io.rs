@@ -209,8 +209,14 @@ mod tests {
         let updates = map(&[("rv.run-id", "new")]);
         let result = merge_rv_labels(existing, &updates);
         assert_eq!(result.len(), 2);
-        assert_eq!(find(&result, "owner").unwrap().value.as_deref(), Some("ops"));
-        assert_eq!(find(&result, "rv.run-id").unwrap().value.as_deref(), Some("new"));
+        assert_eq!(
+            find(&result, "owner").unwrap().value.as_deref(),
+            Some("ops")
+        );
+        assert_eq!(
+            find(&result, "rv.run-id").unwrap().value.as_deref(),
+            Some("new")
+        );
     }
 
     #[test]
@@ -229,8 +235,14 @@ mod tests {
         let updates = map(&[("rv.run-id", "abc")]);
         let result = merge_rv_labels(existing, &updates);
         assert_eq!(result.len(), 2);
-        assert_eq!(find(&result, "owner").unwrap().value.as_deref(), Some("ops"));
-        assert_eq!(find(&result, "rv.run-id").unwrap().value.as_deref(), Some("abc"));
+        assert_eq!(
+            find(&result, "owner").unwrap().value.as_deref(),
+            Some("ops")
+        );
+        assert_eq!(
+            find(&result, "rv.run-id").unwrap().value.as_deref(),
+            Some("abc")
+        );
     }
 
     #[test]
