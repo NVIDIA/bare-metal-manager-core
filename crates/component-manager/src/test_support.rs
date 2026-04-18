@@ -46,7 +46,7 @@ pub(crate) async fn seed_test_data(
     let mut txn = pool.begin().await.unwrap();
 
     let rack_id = RackId::new(uuid::Uuid::new_v4().to_string());
-    let rack = db::rack::create(&mut txn, &rack_id, None, &RackConfig::default(), None)
+    let rack = db::rack::create(&mut txn, &rack_id, &RackConfig::default(), None)
         .await
         .expect("failed to create rack");
 
