@@ -33,16 +33,16 @@ carbide-api-model = { path = "../api-model", default-features = false }
 itertools = { workspace = true }
 mac_address = { workspace = true }
 nv-redfish = { workspace = true, features = [
-  "std-redfish",
-  "oem-nvidia-bluefield",
-  "oem-nvidia-baseboard",
-  "oem-dell-attributes",
-  "oem-lenovo",
-  "oem-supermicro",
-  "oem-hpe",
-  "oem-ami",
-  "oem-liteon",
-  "bmc-http",
+    "std-redfish",
+    "oem-nvidia-bluefield",
+    "oem-nvidia-baseboard",
+    "oem-dell-attributes",
+    "oem-lenovo",
+    "oem-supermicro",
+    "oem-hpe",
+    "oem-ami",
+    "oem-liteon",
+    "bmc-http"
 ] }
 regex = { workspace = true }
 lazy_static = { workspace = true }
