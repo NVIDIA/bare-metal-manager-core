@@ -125,6 +125,20 @@ pub enum RedfishSimAction {
     MachineSetup {
         oem_manager_profiles: libredfish::BiosProfileVendor,
     },
+    /// Records a call to `Redfish::is_boot_order_setup`, letting
+    /// tests assert that the managed-host state controller actually
+    /// asked the BMC about boot order for a given MAC. Mainly used
+    /// a regression check for zero-DPU hosts to make sure we're still
+    /// giving them the love they deserve.
+    IsBootOrderSetup {
+        boot_interface_mac: String,
+    },
+    /// Records a call to `Redfish::set_boot_order_dpu_first`, which is
+    /// used to make the given MAC the first boot device (which zero DPU
+    /// hosts flow through as well using the host NIC MAC).
+    SetBootOrderDpuFirst {
+        boot_interface_mac: String,
+    },
 }
 
 pub struct RedfishSimActions {
@@ -871,8 +885,15 @@ impl Redfish for RedfishSimClient {
 
     async fn set_boot_order_dpu_first(
         &self,
-        _mac_address: &str,
+        mac_address: &str,
     ) -> Result<Option<String>, RedfishError> {
+        let mut state = self.state.lock().unwrap();
+        let host_state = state.hosts.get_mut(&self._host).unwrap();
+        host_state
+            .actions
+            .push(RedfishSimAction::SetBootOrderDpuFirst {
+                boot_interface_mac: mac_address.to_string(),
+            });
         Ok(None)
     }
 
@@ -993,7 +1014,12 @@ impl Redfish for RedfishSimClient {
         Ok(None)
     }
 
-    async fn is_boot_order_setup(&self, _boot_interface_mac: &str) -> Result<bool, RedfishError> {
+    async fn is_boot_order_setup(&self, boot_interface_mac: &str) -> Result<bool, RedfishError> {
+        let mut state = self.state.lock().unwrap();
+        let host_state = state.hosts.get_mut(&self._host).unwrap();
+        host_state.actions.push(RedfishSimAction::IsBootOrderSetup {
+            boot_interface_mac: boot_interface_mac.to_string(),
+        });
         Ok(true)
     }
 

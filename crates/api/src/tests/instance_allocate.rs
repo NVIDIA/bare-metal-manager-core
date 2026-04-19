@@ -17,10 +17,11 @@
 use std::ops::DerefMut;
 
 use ::rpc::forge::ManagedHostNetworkConfigRequest;
+use carbide_redfish::libredfish::test_support::RedfishSimAction;
 use forge::forge_server::Forge;
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
-use model::machine::ManagedHostStateSnapshot;
+use model::machine::{ManagedHostState, ManagedHostStateSnapshot};
 use rpc::forge;
 
 use crate::tests::common;
@@ -854,6 +855,52 @@ async fn test_single_dpu_instance_allocation(
 
     assert_eq!(inst.machine_id, Some(mid));
     assert_eq!(inst.id, Some(instid));
+
+    Ok(())
+}
+
+/// Make sure we take care of setting the boot order for zero DPU hosts.
+/// This test ingests a zero-DPU host and drives things forward. We record
+/// each Redfish `is_boot_order_setup` call, and then then assert at least
+/// one such call was made. If something happens, we'll dump all recorded
+/// Redfish actions to provide some feedback about where the state machine
+/// left off/got stuck.
+#[crate::sqlx_test]
+async fn test_zero_dpu_host_verifies_boot_order_during_platform_configuration(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_for_instance_allocation(pool.clone(), None).await;
+
+    let timepoint = env.redfish_sim.timepoint();
+
+    // Ingest zero-DPU host. site-explorer runs it through the machine state
+    // controller, which hits HostInit -> HostPlatformConfiguration, where
+    // `CheckHostConfig` lives.
+    let config = ManagedHostConfig::with_dpus(vec![]);
+    let zero_dpu_host = api_fixtures::site_explorer::new_host(&env, config).await?;
+
+    // Advance the state controller until the host converges on Ready.
+    // `new_host` itself drives most of the transitions through HostInit
+    // (including SetBootOrder to CheckBootOrder, where `is_boot_order_setup`
+    // is called).
+    env.run_machine_state_controller_iteration_until_state_matches(
+        &zero_dpu_host.host_snapshot.id,
+        10,
+        ManagedHostState::Ready,
+    )
+    .await;
+
+    let actions = env.redfish_sim.actions_since(&timepoint);
+    let all_actions = actions.all_hosts();
+
+    assert!(
+        all_actions
+            .iter()
+            .any(|a| matches!(a, RedfishSimAction::IsBootOrderSetup { .. })),
+        "Expected at least one Redfish is_boot_order_setup call during the zero DPU host HostPlatformConfiguration flow. host id: {}. Recorded actions: {:?}",
+        zero_dpu_host.host_snapshot.id,
+        all_actions,
+    );
 
     Ok(())
 }
