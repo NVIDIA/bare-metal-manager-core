@@ -143,10 +143,10 @@ docker build --build-arg "CONTAINER_RUNTIME_AARCH64=alpine:latest" -t boot-artif
 
 The REST components (cloud-api, cloud-workflow, site-manager, site-agent,
 db migrations, cert-manager) are built from the
-[bare-metal-manager-rest](https://github.com/NVIDIA/bare-metal-manager-rest) repository.
+[ncx-infra-controller-rest](https://github.com/NVIDIA/ncx-infra-controller-rest) repository.
 
 ```sh
-cd bare-metal-manager-rest
+cd ncx-infra-controller-rest
 make docker-build IMAGE_REGISTRY=<your-registry.example.com/carbide> IMAGE_TAG=<your-version-tag>
 ```
 

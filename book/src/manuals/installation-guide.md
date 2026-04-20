@@ -11,14 +11,14 @@ and SA teams during production deployments.
 
 | Step | What | Where to find details |
 |------|------|----------------------|
-| 1 | [Build and push all container images](#1-build-and-push-containers) | [Building NICo Containers](building_nico_containers.md), [REST README](https://github.com/NVIDIA/bare-metal-manager-rest#building-docker-images) |
+| 1 | [Build and push all container images](#1-build-and-push-containers) | [Building NICo Containers](building_nico_containers.md), [REST repo](https://github.com/NVIDIA/ncx-infra-controller-rest) |
 | 2 | [Provision site controller OS and Kubernetes](#2-site-controller-and-kubernetes) | [Site Reference Architecture](site-reference-arch.md) |
 | 3 | [Deploy foundation services](#3-foundation-services) | [Site Setup](site-setup.md), [helm/PREREQUISITES.md](../../helm/PREREQUISITES.md) |
-| 4 | [Deploy site CA, credsmgr, and Temporal](#4-site-ca-credsmgr-and-temporal) | This guide |
-| 5 | [Deploy Carbide REST / cloud components](#5-deploy-carbide-rest-components) | This guide, [REST repo](https://github.com/NVIDIA/bare-metal-manager-rest) |
+| 4 | [Deploy site CA, credsmgr, and Temporal](#4-site-ca-credsmgr-and-temporal) | This guide, [REST repo](https://github.com/NVIDIA/ncx-infra-controller-rest) |
+| 5 | [Deploy Carbide REST / cloud components](#5-deploy-carbide-rest-components) | This guide, [REST repo](https://github.com/NVIDIA/ncx-infra-controller-rest) |
 | 6 | [Deploy Carbide core](#6-deploy-carbide-core) | [Helm README](../../helm/README.md), [deploy/README.md](../../deploy/README.md) |
 | 7 | [Install admin-cli](#7-install-admin-cli) | This guide |
-| 8 | [Deploy Elektra site agent](#8-deploy-elektra-site-agent) | This guide |
+| 8 | [Deploy Elektra site agent](#8-deploy-elektra-site-agent) | This guide, [REST repo](https://github.com/NVIDIA/ncx-infra-controller-rest) |
 | 9 | [Ingest managed hosts](#9-ingest-hosts) | [Ingesting Hosts](ingesting_machines.md) |
 | 10 | [Verify end-to-end](#10-verification) | This guide |
 
@@ -45,7 +45,7 @@ registry, and a summary table of all images produced.
 
 ### NICo REST
 
-Clone [bare-metal-manager-rest](https://github.com/NVIDIA/bare-metal-manager-rest)
+Clone [ncx-infra-controller-rest](https://github.com/NVIDIA/ncx-infra-controller-rest)
 and build with:
 
 ```bash
@@ -61,7 +61,7 @@ for image in carbide-rest-api carbide-rest-workflow carbide-rest-site-manager \
 done
 ```
 
-See the [bare-metal-manager-rest README](https://github.com/NVIDIA/bare-metal-manager-rest#building-docker-images)
+See the [ncx-infra-controller-rest README](https://github.com/NVIDIA/ncx-infra-controller-rest#building-docker-images)
 for the full list of images and build options.
 
 ---
@@ -127,56 +127,50 @@ These Vault configuration steps are documented in detail in
 This step sets up the certificate infrastructure that both the REST / cloud components
 and Temporal depend on.
 
-### 4.1 Create Site CA Secrets
+### 4.1 Create Site CA Secret
 
-Create root CA secrets in the `cert-manager` namespace:
+Generate a root CA and create the `ca-signing-secret` used by the
+`carbide-rest-ca-issuer` ClusterIssuer and credsmgr. From the
+`ncx-infra-controller-rest` repository:
 
 ```bash
-kubectl -n cert-manager create secret generic vault-root-ca-certificate \
-  --from-file=certificate=./cacert.pem
-kubectl -n cert-manager create secret generic vault-root-ca-private-key \
-  --from-file=privatekey=./ca.key
+./scripts/gen-site-ca.sh
 ```
 
-If you need to generate a self-signed root CA for testing:
+This creates a `kubernetes.io/tls` secret named `ca-signing-secret` in both the
+`carbide-rest` and `cert-manager` namespaces. Run `./scripts/gen-site-ca.sh --help`
+for options (custom CN, output to disk, dry-run).
+
+### 4.2 Create carbide-rest-ca-issuer and deploy credsmgr
+
+Create the `carbide-rest-ca-issuer` ClusterIssuer (backed by `ca-signing-secret`
+from Step 4.1) and deploy credsmgr. From the `ncx-infra-controller-rest` repository:
 
 ```bash
-openssl req -x509 -newkey rsa:4096 -keyout ca.key -out cacert.pem \
-  -sha256 -days 3650 -nodes -subj "/CN=Carbide Root CA"
-```
-
-### 4.2 Deploy cloud-cert-manager (credsmgr)
-
-credsmgr runs an embedded Vault process and creates the `vault-issuer` ClusterIssuer
-used for Temporal TLS certificates and cloud component mTLS.
-
-From the `bare-metal-manager-rest` repository, update images in
-`deploy/kustomize/base/cert-manager/kustomization.yaml` to point at your registry,
-then:
-
-```bash
+kubectl apply -k deploy/kustomize/base/cert-manager-io
 kubectl apply -k deploy/kustomize/base/cert-manager
-kubectl get clusterissuer vault-issuer
+kubectl get clusterissuer carbide-rest-ca-issuer
 ```
 
-Verify the `vault-issuer` shows `Ready=True` before proceeding.
+Verify `carbide-rest-ca-issuer` shows `Ready=True` before proceeding.
 
 ### 4.3 Provision Temporal TLS Certificates
 
-Apply Temporal certificate manifests (client certs for `cloud-api` and `cloud-workflow`,
-server certs for the `temporal` namespace). These manifests are in the
-`bare-metal-manager-rest` repository under `deploy/kustomize/base/temporal-certs`:
+Apply the Temporal namespace, database credentials, and mTLS certificate manifests.
+From the `ncx-infra-controller-rest` repository:
 
 ```bash
-kubectl apply -k deploy/kustomize/base/temporal-certs
+kubectl apply -f deploy/kustomize/base/temporal-helm/namespace.yaml
+kubectl apply -f deploy/kustomize/base/temporal-helm/db-creds.yaml
+kubectl apply -k deploy/kustomize/base/common
 ```
 
-Verify:
+Verify the mTLS certificates are issued:
 
 ```bash
-kubectl -n cloud-api      get certificate temporal-client-cloud-certs
-kubectl -n cloud-workflow  get certificate temporal-client-cloud-certs
-kubectl -n temporal        get secret server-cloud-certs server-interservice-certs server-site-certs
+kubectl wait --for=condition=Ready certificate/server-interservice-cert -n temporal --timeout=120s
+kubectl wait --for=condition=Ready certificate/server-cloud-cert -n temporal --timeout=120s
+kubectl wait --for=condition=Ready certificate/server-site-cert -n temporal --timeout=120s
 ```
 
 ### 4.4 Deploy Temporal
@@ -184,11 +178,25 @@ kubectl -n temporal        get secret server-cloud-certs server-interservice-cer
 Deploy Temporal server v1.22.6 with Elasticsearch 7.17.3 for visibility.
 Use the TLS certificates provisioned above for mTLS.
 
-After all Temporal pods are `Running`, register the required namespaces:
+After all Temporal pods are `Running`, register the required namespaces via
+`temporal-admintools`:
 
 ```bash
-tctl --ns cloud namespace register
-tctl --ns site namespace register
+kubectl exec -n temporal deploy/temporal-admintools -- \
+  temporal operator namespace create --namespace cloud \
+    --address temporal-frontend.temporal:7233 \
+    --tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
+    --tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
+    --tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
+    --tls-server-name interservice.server.temporal.local
+
+kubectl exec -n temporal deploy/temporal-admintools -- \
+  temporal operator namespace create --namespace site \
+    --address temporal-frontend.temporal:7233 \
+    --tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
+    --tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
+    --tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
+    --tls-server-name interservice.server.temporal.local
 ```
 
 ```{note}
@@ -203,55 +211,32 @@ healthy, or create the index manually.
 
 The REST / cloud layer provides the customer-facing API, workflow orchestration, and
 site management. Deploy from the
-[bare-metal-manager-rest](https://github.com/NVIDIA/bare-metal-manager-rest) repository.
+[ncx-infra-controller-rest](https://github.com/NVIDIA/ncx-infra-controller-rest) repository.
 
-For each component below, update the image reference in `kustomization.yaml` to
-your registry and adjust ConfigMaps for your Postgres, Temporal, and Vault endpoints.
-
-### 5.1 Database Migrations (cloud-db)
-
-Initializes the cloud database schema. This is a one-time job:
+All REST components deploy into the `carbide-rest` namespace via a single Helm
+umbrella chart:
 
 ```bash
-kubectl apply -k deploy/kustomize/base/db
-kubectl -n cloud-db get jobs -w
+helm upgrade --install carbide-rest helm/charts/carbide-rest \
+  --namespace carbide-rest --create-namespace \
+  -f <your-ncx-rest-values.yaml> \
+  --set global.image.repository=<your-registry> \
+  --set global.image.tag=<your-rest-tag> \
+  --timeout 600s --wait
 ```
 
-Wait for the job to complete before proceeding.
+This deploys: `carbide-rest-api`, `carbide-rest-workflow` (cloud-worker and
+site-worker), `carbide-rest-site-manager`, `carbide-rest-db` (migration job),
+`carbide-rest-cert-manager` (credsmgr), and Keycloak (dev IdP).
 
-### 5.2 cloud-workflow
-
-Deploys `cloud-worker` and `site-worker` Temporal workers:
+Verify:
 
 ```bash
-kubectl apply -k deploy/kustomize/base/cloud-workflow
-kubectl -n cloud-workflow get pods
+kubectl get pods -n carbide-rest
 ```
 
-Both deployments should reach `Running`.
-
-### 5.3 cloud-api
-
-The customer-facing REST API:
-
-```bash
-kubectl apply -k deploy/kustomize/base/cloud-api
-kubectl -n cloud-api get pods
-```
-
-### 5.4 cloud-site-manager
-
-The site registry service:
-
-```bash
-kubectl apply -k deploy/kustomize/base/site-manager
-```
-
-```{note}
-If `carbide-rest-site-manager` fails with `unable to start container process`, the
-entrypoint in `deployment.yaml` does not match the production Dockerfile. Update
-`deployment.yaml` to use the correct binary path.
-```
+All deployments should reach `Running` and the db-migration job should show
+`Completed`.
 
 ---
 
@@ -344,41 +329,55 @@ admin-cli -c https://localhost:1079 site info
 ## 8. Deploy Elektra Site Agent
 
 Elektra bridges the on-site Carbide core to the cloud REST layer via Temporal.
+It deploys as a StatefulSet in the `carbide-rest` namespace.
 
-1. Register a site through cloud-api or cloud-site-manager to get a `<SITE_UUID>`.
-
-2. Register the per-site Temporal namespace:
+1. Pre-apply the gRPC client certificate so it exists before the pod starts:
 
 ```bash
-tctl --ns <SITE_UUID> namespace register
+helm template carbide-rest-site-agent helm/charts/carbide-rest-site-agent \
+  --namespace carbide-rest \
+  -f <your-site-agent-values.yaml> \
+  --set global.image.repository=<your-registry> \
+  --set global.image.tag=<your-rest-tag> \
+  --show-only templates/certificate.yaml | kubectl apply -f -
+
+kubectl wait --for=condition=Ready certificate/core-grpc-client-site-agent-certs \
+  -n carbide-rest --timeout=120s
 ```
 
-3. Generate an OTP for the site agent and create the bootstrap secret. The OTP is
-   issued by `cloud-site-manager` and stored as a Kubernetes secret in the
-   `elektra-site-agent` namespace:
+2. Create the per-site Temporal namespace (the site-agent panics without it):
 
 ```bash
-# Issue a one-time password for the site
-OTP=$(curl -s -X POST https://<CLOUD_API_HOST>/api/v1/sites/<SITE_UUID>/otp \
-  -H "Authorization: Bearer <TOKEN>" | jq -r '.otp')
+SITE_UUID=<your-site-uuid>
 
-kubectl -n elektra-site-agent create secret generic site-agent-bootstrap \
-  --from-literal=SITE_UUID=<SITE_UUID> \
-  --from-literal=OTP="$OTP" \
-  --from-literal=CLOUD_API_ENDPOINT=https://<CLOUD_API_HOST>
+kubectl exec -n temporal deploy/temporal-admintools -- \
+  temporal operator namespace create --namespace "$SITE_UUID" \
+    --address temporal-frontend.temporal:7233 \
+    --tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
+    --tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
+    --tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
+    --tls-server-name interservice.server.temporal.local
 ```
 
-4. Update the image and site config in the site-agent manifests, then apply:
+3. Install the site-agent Helm chart (the pre-install hook registers the site
+   and creates the `site-registration` secret):
 
 ```bash
-kubectl apply -k deploy/kustomize/base/site-agent
+helm upgrade --install carbide-rest-site-agent helm/charts/carbide-rest-site-agent \
+  --namespace carbide-rest \
+  -f <your-site-agent-values.yaml> \
+  --set global.image.repository=<your-registry> \
+  --set global.image.tag=<your-rest-tag> \
+  --set "envConfig.CLUSTER_ID=$SITE_UUID" \
+  --set "envConfig.TEMPORAL_SUBSCRIBE_NAMESPACE=$SITE_UUID" \
+  --timeout 300s --wait
 ```
 
-5. Verify:
+4. Verify:
 
 ```bash
-kubectl -n elektra-site-agent get pods
-kubectl -n elektra-site-agent logs -l app=elektra --tail=50
+kubectl get pods -n carbide-rest -l app.kubernetes.io/name=carbide-rest-site-agent
+kubectl logs -n carbide-rest -l app.kubernetes.io/name=carbide-rest-site-agent --tail=20
 ```
 
 ---
@@ -459,8 +458,9 @@ Use port-forwarding: `kubectl port-forward svc/carbide-api 1079:1079 -n forge-sy
 
 ### carbide-rest-site-manager Fails to Start
 
-`unable to start container process` -- entrypoint mismatch between `deployment.yaml`
-and the Dockerfile. Update to the correct binary path.
+`unable to start container process` -- verify the image was built with the production
+Dockerfile (`docker/production/Dockerfile.carbide-rest-site-manager`), not the local
+dev Dockerfile.
 
 ### Pods Stuck in ImagePullBackOff
 

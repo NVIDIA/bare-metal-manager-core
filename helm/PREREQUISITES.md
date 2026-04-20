@@ -111,17 +111,17 @@ For additional PostgreSQL configuration details (TLS, ESO integration, per-names
 
 ---
 
-## 2a. Temporal (Required for bare-metal-manager-rest only)
+## 2a. Temporal (Required for ncx-infra-controller-rest only)
 
 Temporal is **not required** by the Carbide core Helm chart. You can operate Carbide core
 standalone using `admin-cli` with direct gRPC commands.
 
 Temporal **is required** if you deploy the
-[bare-metal-manager-rest](https://github.com/NVIDIA/bare-metal-manager-rest) layer
+[ncx-infra-controller-rest](https://github.com/NVIDIA/ncx-infra-controller-rest) layer
 (cloud-api, cloud-workflow, site-manager, elektra-site-agent). The REST components use
 Temporal for workflow orchestration between the cloud control plane and site agents.
 
-If you plan to deploy bare-metal-manager-rest:
+If you plan to deploy ncx-infra-controller-rest:
 
 - **Reference version:** Temporal server v1.22.6, admin tools v1.22.4, UI v2.16.2
 - **Visibility store:** Elasticsearch 7.17.3
@@ -137,7 +137,7 @@ tctl --ns site namespace register
 
 - **mTLS:** The REST components expect Temporal client TLS certificates. These are
   issued by the `vault-issuer` ClusterIssuer created by cloud-cert-manager (credsmgr),
-  which is part of bare-metal-manager-rest. See the
+  which is part of ncx-infra-controller-rest. See the
   [End-to-End Installation Guide](book/src/manuals/installation-guide.md) for the
   full deployment order.
 
