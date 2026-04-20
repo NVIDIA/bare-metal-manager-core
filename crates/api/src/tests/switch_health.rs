@@ -281,17 +281,21 @@ async fn test_switch_health_visible_in_find_switches(
     assert_eq!(switch_resp.switches.len(), 1);
     let switch = &switch_resp.switches[0];
 
-    assert!(switch.health.is_some(), "Switch should have health field");
-    let health: HealthReport = switch.health.clone().unwrap().try_into().unwrap();
+    let switch_status = switch.status.as_ref().unwrap();
+    assert!(
+        switch_status.health.is_some(),
+        "Switch should have health field"
+    );
+    let health: HealthReport = switch_status.health.clone().unwrap().try_into().unwrap();
     assert!(
         !health.alerts.is_empty(),
         "Switch health should contain alerts"
     );
 
-    assert_eq!(switch.health_sources.len(), 1);
-    assert_eq!(switch.health_sources[0].source, "external-monitor");
+    assert_eq!(switch_status.health_sources.len(), 1);
+    assert_eq!(switch_status.health_sources[0].source, "external-monitor");
     assert_eq!(
-        switch.health_sources[0].mode,
+        switch_status.health_sources[0].mode,
         rpc_forge::HealthReportApplyMode::Merge as i32
     );
 

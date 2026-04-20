@@ -1809,6 +1809,9 @@ message PowerShelfStatus {
   optional string health_status = 5;
   // The controller state machine state (e.g. "initializing", "ready", "error")
   optional string controller_state = 6;
+
+  health.HealthReport health = 7;
+  repeated HealthSourceOrigin health_sources = 8;
 }
 
 // Describe a PowerShelf configuration and status
@@ -1835,8 +1838,8 @@ message PowerShelf {
 
   // The rack that this powershelf is associated with
   optional common.RackId rack_id = 10;
-  health.HealthReport health = 11;
-  repeated HealthSourceOrigin health_sources = 12;
+
+  reserved 11, 12;
 }
 
 message PowerShelfList {
@@ -1960,6 +1963,9 @@ message SwitchStatus {
   optional string health_status = 5;
   // The controller state machine state (e.g. "initializing", "ready", "error")
   optional string controller_state = 6;
+
+  health.HealthReport health = 7;
+  repeated HealthSourceOrigin health_sources = 8;
 }
 
 message PlacementInRack {
@@ -1992,8 +1998,8 @@ message Switch {
   // The rack that this switch is associated with
   optional common.RackId rack_id = 10;
   optional PlacementInRack placement_in_rack = 11;
-  health.HealthReport health = 12;
-  repeated HealthSourceOrigin health_sources = 13;
+
+  reserved 12, 13;
 }
 
 message SwitchList {
@@ -6510,10 +6516,20 @@ message Rack {
   google.protobuf.Timestamp created = 9;
   google.protobuf.Timestamp updated = 10;
   google.protobuf.Timestamp deleted = 11;
-  health.HealthReport health = 12;
-  repeated HealthSourceOrigin health_sources = 13;
+  reserved 12, 13;
   Metadata metadata = 14;
   string version = 15;
+  RackConfig config = 16;
+  RackStatus status = 17;
+}
+
+message RackConfig {
+
+}
+
+message RackStatus {
+  health.HealthReport health = 7;
+  repeated HealthSourceOrigin health_sources = 8;
 }
 
 message RackStateHistoriesRequest {

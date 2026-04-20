@@ -179,10 +179,13 @@ impl From<Rack> for rpc::forge::Rack {
             created: Some(Timestamp::from(value.created)),
             updated: Some(Timestamp::from(value.updated)),
             deleted: value.deleted.map(Timestamp::from),
-            health: Some(health.into()),
-            health_sources,
             metadata: Some(value.metadata.into()),
             version: value.version.version_string(),
+            config: Some(rpc::forge::RackConfig {}),
+            status: Some(rpc::forge::RackStatus {
+                health: Some(health.into()),
+                health_sources,
+            }),
         }
     }
 }
