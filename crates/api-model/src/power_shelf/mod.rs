@@ -177,6 +177,17 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
 
     fn try_from(src: PowerShelf) -> Result<Self, Self::Error> {
         let controller_state = serde_json::to_string(&src.controller_state.value).unwrap();
+        let health = derive_power_shelf_aggregate_health(&src.health_reports);
+        let health_sources = src
+            .health_reports
+            .clone()
+            .into_iter()
+            .map(|(hr, m)| rpc::HealthSourceOrigin {
+                mode: m as i32,
+                source: hr.source,
+            })
+            .collect();
+
         let status = Some(match src.status {
             Some(s) => rpc::PowerShelfStatus {
                 state_reason: None, // TODO: implement state_reason
@@ -188,6 +199,8 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
                 power_state: Some(s.power_state),
                 health_status: Some(s.health_status),
                 controller_state: Some(controller_state.clone()),
+                health: Some(health.into()),
+                health_sources,
             },
             None => rpc::PowerShelfStatus {
                 state_reason: None,
@@ -199,6 +212,8 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
                 power_state: None,
                 health_status: None,
                 controller_state: Some(controller_state.clone()),
+                health: Some(health.into()),
+                health_sources,
             },
         });
 
@@ -208,16 +223,6 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
             voltage: src.config.voltage.map(|v| v as i32),
         };
 
-        let health = derive_power_shelf_aggregate_health(&src.health_reports);
-        let health_sources = src
-            .health_reports
-            .clone()
-            .into_iter()
-            .map(|(hr, m)| rpc::HealthSourceOrigin {
-                mode: m as i32,
-                source: hr.source,
-            })
-            .collect();
         let deleted = if src.deleted.is_some() {
             Some(src.deleted.unwrap().into())
         } else {
@@ -235,8 +240,6 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
             bmc_info: None,
             state_version,
             rack_id: src.rack_id,
-            health: Some(health.into()),
-            health_sources,
         })
     }
 }

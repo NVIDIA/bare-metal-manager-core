@@ -752,7 +752,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )
         .type_attribute(
+            "forge.RackConfig",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.RackList",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.RackStatus",
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )
         .type_attribute("forge.PowerShelf", "#[derive(serde::Serialize)]")
