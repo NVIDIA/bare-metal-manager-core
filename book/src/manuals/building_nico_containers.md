@@ -28,7 +28,7 @@ accessible by your Kubernetes cluster.
 Before you begin, ensure you have the following prerequisites:
 
 * An Ubuntu 24.04 Host or VM with 150GB+ of disk space (MacOS is not supported)
-* For REST containers: Go 1.25.4 or later, Docker 20.10+ with BuildKit enabled
+* For REST containers: Go (see `go.mod` in the REST repo for the required version), Docker 20.10+ with BuildKit enabled
 * An [NVIDIA NGC](https://www.nvidia.com/en-us/gpu-cloud/) account (free). Required for pulling base images such as the DOCA HBN container used in the aarch64 / DPU BFB build. Sign up at [ngc.nvidia.com](https://ngc.nvidia.com) and generate an API key under **API Keys** > **Generate Personal Key**.
 
 Use the following steps to install the prerequisite software on the Ubuntu Host or VM. These instructions

@@ -75,7 +75,7 @@ EOF
 
 - The `VAULT_SERVICE` URL must be provided to the cluster via a ConfigMap (see Section 4).
 
-For additional Vault configuration details, see the [Site Setup guide](book/src/manuals/site-setup.md#vault-pki-and-secrets).
+For additional Vault configuration details, see the [Site Setup guide](../book/src/manuals/site-setup.md#vault-pki-and-secrets).
 
 ### External Secrets Operator (Optional)
 
@@ -107,7 +107,7 @@ psql "postgres://<POSTGRES_USER>:<POSTGRES_PASSWORD>@<POSTGRES_HOST>:<POSTGRES_P
 - **Schema creation:** The migration job included in the `carbide-api` subchart handles schema creation and migrations automatically after extensions are in place. You do not need to run migrations manually.
 - **Connection details:** Provided to the chart via a ConfigMap and a Secret (see Sections 3 and 4 below).
 
-For additional PostgreSQL configuration details (TLS, ESO integration, per-namespace credentials), see the [Site Setup guide](book/src/manuals/site-setup.md#postgresql-db).
+For additional PostgreSQL configuration details (TLS, ESO integration, per-namespace credentials), see the [Site Setup guide](../book/src/manuals/site-setup.md#postgresql-db).
 
 ---
 
@@ -131,14 +131,14 @@ If you plan to deploy ncx-infra-controller-rest:
 - **Required namespaces:** Register `cloud` and `site` after Temporal is running:
 
 ```bash
-tctl --ns cloud namespace register
-tctl --ns site namespace register
+temporal operator namespace create --namespace cloud --address temporal-frontend.temporal:7233
+temporal operator namespace create --namespace site --address temporal-frontend.temporal:7233
 ```
 
 - **mTLS:** The REST components expect Temporal client TLS certificates. These are
-  issued by the `vault-issuer` ClusterIssuer created by cloud-cert-manager (credsmgr),
+  issued by the `carbide-rest-ca-issuer` ClusterIssuer backed by `ca-signing-secret`,
   which is part of ncx-infra-controller-rest. See the
-  [End-to-End Installation Guide](book/src/manuals/installation-guide.md) for the
+  [End-to-End Installation Guide](../book/src/manuals/installation-guide.md) for the
   full deployment order.
 
 ---

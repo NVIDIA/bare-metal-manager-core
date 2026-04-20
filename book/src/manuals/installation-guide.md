@@ -191,21 +191,15 @@ After all Temporal pods are `Running`, register the required namespaces via
 
 ```bash
 kubectl exec -n temporal deploy/temporal-admintools -- \
-  temporal operator namespace create --namespace cloud \
-    --address temporal-frontend.temporal:7233 \
-    --tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
-    --tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
-    --tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
-    --tls-server-name interservice.server.temporal.local
+  temporal operator namespace create cloud --address temporal-frontend.temporal:7233
 
 kubectl exec -n temporal deploy/temporal-admintools -- \
-  temporal operator namespace create --namespace site \
-    --address temporal-frontend.temporal:7233 \
-    --tls-cert-path /var/secrets/temporal/certs/server-interservice/tls.crt \
-    --tls-key-path /var/secrets/temporal/certs/server-interservice/tls.key \
-    --tls-ca-path /var/secrets/temporal/certs/server-interservice/ca.crt \
-    --tls-server-name interservice.server.temporal.local
+  temporal operator namespace create site --address temporal-frontend.temporal:7233
 ```
+
+If your Temporal deployment uses mTLS, add the TLS flags to each command:
+`--tls-cert-path`, `--tls-key-path`, `--tls-ca-path`, `--tls-server-name`.
+See `helm-prereqs/SETUP_PHASES.md` for the full mTLS example.
 
 ```{note}
 If Temporal pods are stuck in `Init:0/1`, the Elasticsearch index may not be ready.
@@ -240,7 +234,7 @@ and `carbide-rest-cert-manager` (credsmgr).
 If you need a dev IdP, deploy Keycloak separately before the umbrella chart:
 
 ```bash
-kubectl apply -k deploy/kustomize/base/keycloak -n carbide-rest
+(cd <ncx-infra-controller-rest> && kubectl apply -k deploy/kustomize/base/keycloak)
 kubectl rollout status deployment/keycloak -n carbide-rest --timeout=300s
 ```
 
@@ -326,17 +320,17 @@ Build from source in the `ncx-infra-controller-core` repository:
 cargo make build-cli
 ```
 
-The binary is at `target/release/admin-cli`. Point it at your API:
+The binary is at `target/release/carbide-admin-cli`. Point it at your API:
 
 ```bash
-admin-cli -c https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> site info
+carbide-admin-cli -c https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> site info
 ```
 
 If the API is not externally reachable:
 
 ```bash
 kubectl port-forward svc/carbide-api 1079:1079 -n forge-system &
-admin-cli -c https://localhost:1079 site info
+carbide-admin-cli -c https://localhost:1079 site info
 ```
 
 ---
@@ -406,14 +400,14 @@ For each managed host, you need the **BMC MAC address**, **chassis serial number
 
 ```bash
 # Set desired credentials NICo will apply to all hosts
-admin-cli -c <api-url> credential add-bmc --kind=site-wide-root --password='<PASSWORD>'
-admin-cli -c <api-url> credential add-uefi --kind=host --password='<PASSWORD>'
+carbide-admin-cli -c <api-url> credential add-bmc --kind=site-wide-root --password='<PASSWORD>'
+carbide-admin-cli -c <api-url> credential add-uefi --kind=host --password='<PASSWORD>'
 
 # Upload expected machines manifest
-admin-cli -c <api-url> credential em replace-all --filename expected_machines.json
+carbide-admin-cli -c <api-url> expected-machine replace-all --filename expected_machines.json
 
 # Approve for measured boot ingestion
-admin-cli -c <api-url> mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
+carbide-admin-cli -c <api-url> mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
 ```
 
 NICo then automatically: assigns IPs via DHCP, discovers BMCs via Redfish, rotates
@@ -423,7 +417,7 @@ moves machines to the `Available` pool.
 Monitor progress:
 
 ```bash
-admin-cli -c <api-url> machine list
+carbide-admin-cli -c <api-url> machine list
 ```
 
 ---
@@ -440,7 +434,7 @@ kubectl -n forge-system get pods
 curl -k https://<CARBIDE_API_EXTERNAL_IP>:1079/healthz
 
 # Machines discovered and available
-admin-cli -c <api-url> machine list
+carbide-admin-cli -c <api-url> machine list
 
 # Admin UI accessible
 # https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>/admin
