@@ -53,9 +53,7 @@ pub async fn update(
             organization_id: id.clone(),
             metadata: Some(metadata),
             if_version_match: args.version,
-            routing_profile_type: args
-                .routing_profile_type
-                .map(|p| rpc::forge::RoutingProfileType::from(p).into()),
+            routing_profile_type: args.routing_profile_type,
         })
         .await?
         .tenant

@@ -32,7 +32,6 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
 
 use crate::metadata::{LabelFilter, Metadata};
-use crate::tenant::RoutingProfileType;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct VpcStatus {
@@ -50,7 +49,7 @@ pub struct Vpc {
     pub deleted: Option<DateTime<Utc>>,
     pub tenant_keyset_id: Option<String>,
     pub network_virtualization_type: VpcVirtualizationType,
-    pub routing_profile_type: Option<RoutingProfileType>,
+    pub routing_profile_type: Option<String>,
     // Option because we can't allocate it until DB generates an id for us
     // TODO: Update - Seems this isn't true since we generate a UUID if not found
     // in the original creation request.
@@ -83,7 +82,7 @@ pub struct NewVpc {
     pub network_virtualization_type: VpcVirtualizationType,
     pub metadata: Metadata,
     pub network_security_group_id: Option<NetworkSecurityGroupId>,
-    pub routing_profile_type: Option<RoutingProfileType>,
+    pub routing_profile_type: Option<String>,
     pub vni: Option<i32>,
 }
 
@@ -133,10 +132,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Vpc {
             tenant_keyset_id: None, //TODO: fix this once DB gets updated
             status: status.map(|s| s.0),
             network_virtualization_type: row.try_get("network_virtualization_type")?,
-            routing_profile_type: routing_profile_type
-                .map(|p| p.parse::<RoutingProfileType>())
-                .transpose()
-                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+            routing_profile_type,
             vni: row.try_get("vni")?,
             metadata,
         })
@@ -163,6 +159,7 @@ impl From<Vpc> for rpc::forge::Vpc {
                 rpc::forge::VpcVirtualizationType::from(src.network_virtualization_type).into(),
             ),
             status: src.status.map(rpc::forge::VpcStatus::from),
+            routing_profile_type: src.routing_profile_type,
             metadata: {
                 Some(rpc::Metadata {
                     name: src.metadata.name,
@@ -246,7 +243,7 @@ impl TryFrom<rpc::forge::VpcCreationRequest> for NewVpc {
                 .map_err(|e: NetworkSecurityGroupIdParseError| {
                     RpcDataConversionError::InvalidNetworkSecurityGroupId(e.value())
                 })?,
-            routing_profile_type: Some(RoutingProfileType::External),
+            routing_profile_type: None,
             network_virtualization_type: virt_type,
             metadata,
         })

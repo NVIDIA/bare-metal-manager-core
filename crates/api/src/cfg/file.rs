@@ -614,6 +614,10 @@ pub struct CarbideConfig {
     /// requires session passwords.
     #[serde(default)]
     pub bgp_leaf_session_password: Option<BgpLeafSessionPassword>,
+
+    /// The default routing-profile to use when a tenant is created.
+    #[serde(default = "default_tenant_routing_profile")]
+    pub default_tenant_routing_profile_type: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -910,6 +914,18 @@ pub struct FnnRoutingProfileConfig {
     /// routes advertised by the host OS to be leaked into the underlay?
     #[serde(default)]
     pub tenant_leak_communities_accepted: bool,
+
+    /// Currently controls which profiles a tenant can use
+    /// when creating VPCs.  Lower value means broader access.
+    /// A tenant can create a VPC with a routing profile of the same or broader access.
+    ///
+    /// Example:
+    /// - ADMIN is access tier 0.
+    /// - INTERNAL is access tier 1.
+    /// - A tenant with ADMIN could create ADMIN VPCs and INTERNAL VPCs.
+    /// - A tenant with INTERNAL could only create INTERNAL VPCs.
+    #[serde(default)]
+    pub access_tier: u32,
 }
 
 /// FNN configuration specific to the admin network.
@@ -2667,6 +2683,10 @@ pub fn default_power_options() -> PowerManagerOptions {
 
 pub fn default_to_true() -> bool {
     true
+}
+
+fn default_tenant_routing_profile() -> String {
+    "EXTERNAL".to_string()
 }
 
 /// Configuration for the measured boot metrics collector,

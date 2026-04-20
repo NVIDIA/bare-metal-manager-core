@@ -74,16 +74,12 @@ async fn test_tenant(pool: sqlx::PgPool) {
     assert!(tenant_create.message().contains("description"));
 
     // Test the case of creating a tenant by using a known bad
-    // routing-profile.  As long as we are using a static set
-    // of profiles, this would be testing that the enum isn't allowed.
-    // If we were to switch to just allowing user-created profiles,
-    // this would pass and we would need a separate test for FNN
-    // that actually checks the requested profile in the DB.
-    let _tenant_create = env
+    // routing-profile name.
+    let tenant_create = env
         .api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
             organization_id: "Organic".to_string(),
-            routing_profile_type: Some(rpc::forge::RoutingProfileType::Admin.into()),
+            routing_profile_type: Some("ADMIN".to_string()),
             metadata: Some(rpc::forge::Metadata {
                 name: "Name".to_string(),
                 description: "".to_string(),
@@ -91,9 +87,14 @@ async fn test_tenant(pool: sqlx::PgPool) {
             }),
         }))
         .await
-        .unwrap_err()
-        .message()
-        .contains("Invalid value ROUTING_PROFILE_TYPE_ADMIN");
+        .unwrap_err();
+
+    assert_eq!(tenant_create.code(), Code::NotFound);
+    assert!(
+        tenant_create
+            .message()
+            .contains("RoutingProfile not found: ADMIN")
+    );
 
     // Now perform a good create
     let tenant_create = env
@@ -136,15 +137,9 @@ async fn test_tenant(pool: sqlx::PgPool) {
 
     let tenant = find_tenant.tenant.unwrap();
 
-    // We should only see a default profile type if FNN is configured.
-    // Otherwise, we should not.
-    assert_eq!(
-        env.api.runtime_config.fnn.is_some(),
-        matches!(
-            tenant.routing_profile_type,
-            Some(t) if t == rpc::forge::RoutingProfileType::External as i32,
-        )
-    );
+    // This fixture enables the default FNN config, so the tenant should
+    // receive the default routing profile.
+    assert_eq!(tenant.routing_profile_type.as_deref(), Some("EXTERNAL"));
 
     assert_eq!(tenant.organization_id, "Org");
     assert_eq!(
@@ -201,6 +196,29 @@ async fn test_tenant(pool: sqlx::PgPool) {
     assert_eq!(update_tenant.code(), Code::InvalidArgument);
     assert!(update_tenant.message().contains("description"));
 
+    // Reject an unknown routing profile name on update.
+    let update_tenant = env
+        .api
+        .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
+            organization_id: "Org".to_string(),
+            routing_profile_type: Some("ADMIN".to_string()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "AnotherName".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+            if_version_match: Some(version.clone()),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(update_tenant.code(), Code::NotFound);
+    assert!(
+        update_tenant
+            .message()
+            .contains("RoutingProfile not found: ADMIN")
+    );
+
     // Create a VPC for the tenant
     // No network_virtualization_type, should default.
     let new_vpc = env
@@ -223,7 +241,7 @@ async fn test_tenant(pool: sqlx::PgPool) {
         env.api
             .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
                 organization_id: "Org".to_string(),
-                routing_profile_type: Some(rpc::forge::RoutingProfileType::Maintenance.into()),
+                routing_profile_type: Some("INTERNAL".to_string()),
                 metadata: Some(rpc::forge::Metadata {
                     name: "AnotherName".to_string(),
                     description: "".to_string(),
@@ -300,11 +318,11 @@ async fn test_tenant(pool: sqlx::PgPool) {
         .unwrap()
         .into_inner();
 
-    let _ = env
+    let tenant = env
         .api
         .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
             organization_id: "Org".to_string(),
-            routing_profile_type: Some(rpc::forge::RoutingProfileType::Maintenance.into()),
+            routing_profile_type: Some("INTERNAL".to_string()),
             metadata: Some(rpc::forge::Metadata {
                 name: "AnotherName".to_string(),
                 description: "".to_string(),
@@ -313,7 +331,12 @@ async fn test_tenant(pool: sqlx::PgPool) {
             if_version_match: Some(tenant.version),
         }))
         .await
+        .unwrap()
+        .into_inner()
+        .tenant
         .unwrap();
+
+    assert_eq!(tenant.routing_profile_type.as_deref(), Some("INTERNAL"));
 
     // Now perform one more good create just to confirm that we can set
     // the routing profile to something other than default
@@ -321,7 +344,7 @@ async fn test_tenant(pool: sqlx::PgPool) {
         .api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
             organization_id: "Org2".to_string(),
-            routing_profile_type: Some(rpc::forge::RoutingProfileType::Internal.into()),
+            routing_profile_type: Some("INTERNAL".to_string()),
             metadata: Some(rpc::forge::Metadata {
                 name: "Name".to_string(),
                 description: "".to_string(),
@@ -334,10 +357,7 @@ async fn test_tenant(pool: sqlx::PgPool) {
 
     let tenant = tenant_create.tenant.unwrap();
 
-    assert_eq!(
-        tenant.routing_profile_type,
-        Some(rpc::forge::RoutingProfileType::Internal.into())
-    );
+    assert_eq!(tenant.routing_profile_type.as_deref(), Some("INTERNAL"));
     assert_eq!(tenant.organization_id, "Org2");
 }
 
@@ -405,6 +425,99 @@ async fn test_find_tenant_ids(pool: sqlx::PgPool) {
         .into_inner();
 
     assert_eq!(find_all_tenants.tenant_organization_ids.len(), 10);
+}
+
+#[crate::sqlx_test]
+async fn test_tenant_create_without_fnn(pool: sqlx::PgPool) {
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            ..Default::default()
+        },
+    )
+    .await;
+
+    // Make sure this test is actually exercising the pre-FNN path.
+    assert!(env.api.runtime_config.fnn.is_none());
+
+    // Create a tenant without a routing profile.
+    let tenant_create = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "PreFnnOrg".to_string(),
+            routing_profile_type: None,
+            metadata: Some(rpc::forge::Metadata {
+                name: "PreFnnOrg".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let tenant = tenant_create.tenant.unwrap();
+    assert_eq!(tenant.organization_id, "PreFnnOrg");
+    assert_eq!(tenant.routing_profile_type, None);
+
+    // Look up the tenant to verify the pre-FNN create path does not persist a profile.
+    let find_tenant = env
+        .api
+        .find_tenant(tonic::Request::new(rpc::forge::FindTenantRequest {
+            tenant_organization_id: "PreFnnOrg".to_string(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let tenant = find_tenant.tenant.unwrap();
+    assert_eq!(tenant.organization_id, "PreFnnOrg");
+    assert_eq!(tenant.routing_profile_type, None);
+
+    // Updating a tenant with a routing profile while FNN is disabled should fail.
+    let update_tenant = env
+        .api
+        .update_tenant(tonic::Request::new(rpc::forge::UpdateTenantRequest {
+            organization_id: "PreFnnOrg".to_string(),
+            routing_profile_type: Some("INTERNAL".to_string()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "PreFnnOrg".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+            if_version_match: Some(tenant.version.clone()),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(update_tenant.code(), Code::NotFound);
+    assert!(
+        update_tenant
+            .message()
+            .contains("RoutingProfile not found: INTERNAL")
+    );
+
+    // Creating a tenant with a routing profile while FNN is disabled should fail.
+    let tenant_create = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "PreFnnOrgWithProfile".to_string(),
+            routing_profile_type: Some("INTERNAL".to_string()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "PreFnnOrgWithProfile".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(tenant_create.code(), Code::NotFound);
+    assert!(
+        tenant_create
+            .message()
+            .contains("RoutingProfile not found: INTERNAL")
+    );
 }
 
 async fn create_keyset(

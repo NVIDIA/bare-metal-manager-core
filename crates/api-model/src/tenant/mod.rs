@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 use std::collections::HashMap;
-use std::fmt::{self, Display, Formatter};
+use std::fmt::Display;
 use std::str::FromStr;
 
 use carbide_uuid::UuidConversionError;
@@ -74,7 +74,7 @@ pub enum TenantError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tenant {
     pub organization_id: TenantOrganizationId,
-    pub routing_profile_type: Option<RoutingProfileType>,
+    pub routing_profile_type: Option<String>,
     pub metadata: Metadata,
     pub version: ConfigVersion,
 }
@@ -87,10 +87,7 @@ impl TryFrom<Tenant> for rpc::forge::Tenant {
             organization_id: src.organization_id.to_string(),
             metadata: Some(src.metadata.into()),
             version: src.version.version_string(),
-            routing_profile_type: src
-                .routing_profile_type
-                .map(rpc_forge::RoutingProfileType::from)
-                .map(|t| t.into()),
+            routing_profile_type: src.routing_profile_type,
         })
     }
 }
@@ -99,7 +96,6 @@ impl TryFrom<rpc::forge::Tenant> for Tenant {
     type Error = RpcDataConversionError;
 
     fn try_from(src: rpc::forge::Tenant) -> Result<Self, Self::Error> {
-        let routing_profile_type = Some(src.routing_profile_type().try_into()?);
         let metadata = src
             .metadata
             .ok_or(RpcDataConversionError::MissingArgument("metadata"))?;
@@ -116,7 +112,7 @@ impl TryFrom<rpc::forge::Tenant> for Tenant {
         Ok(Self {
             organization_id,
             metadata: metadata.try_into()?,
-            routing_profile_type,
+            routing_profile_type: src.routing_profile_type,
             version,
         })
     }
@@ -1527,10 +1523,7 @@ impl<'r> sqlx::FromRow<'r, PgRow> for Tenant {
         let name: String = row.try_get("organization_name")?;
         let routing_profile_type: Option<String> = row.try_get("routing_profile_type")?;
         Ok(Self {
-            routing_profile_type: routing_profile_type
-                .map(|p| p.parse::<RoutingProfileType>())
-                .transpose()
-                .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
+            routing_profile_type,
             organization_id: organization_id
                 .try_into()
                 .map_err(|e| sqlx::Error::Decode(Box::new(e)))?,
@@ -1560,86 +1553,5 @@ impl<'r> sqlx::FromRow<'r, PgRow> for TenantKeyset {
                 keyset_id: row.try_get("keyset_id")?,
             },
         })
-    }
-}
-
-/* ********************************** */
-/*                                    */
-/*     Tenant Routing Profile Type    */
-/*                                    */
-/* ********************************** */
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd)]
-pub enum RoutingProfileType {
-    #[default]
-    External,
-    Internal,
-    Maintenance,
-    PrivilegedInternal,
-    Admin,
-}
-
-/// A string is not a valid profile type
-#[derive(thiserror::Error, Debug)]
-#[error("{0} is not a valid RoutingProfileType")]
-pub struct InvalidRoutingProfileType(String);
-
-impl FromStr for RoutingProfileType {
-    type Err = InvalidRoutingProfileType;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s {
-            "ADMIN" => RoutingProfileType::Admin,
-            "INTERNAL" => RoutingProfileType::Internal,
-            "PRIVILEGED_INTERNAL" => RoutingProfileType::PrivilegedInternal,
-            "MAINTENANCE" => RoutingProfileType::Maintenance,
-            "EXTERNAL" => RoutingProfileType::External,
-            _ => return Err(InvalidRoutingProfileType(s.to_string())),
-        })
-    }
-}
-
-impl Display for RoutingProfileType {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            RoutingProfileType::Admin => write!(f, "ADMIN"),
-            RoutingProfileType::Internal => write!(f, "INTERNAL"),
-            RoutingProfileType::PrivilegedInternal => write!(f, "PRIVILEGED_INTERNAL"),
-            RoutingProfileType::Maintenance => write!(f, "MAINTENANCE"),
-            RoutingProfileType::External => write!(f, "EXTERNAL"),
-        }
-    }
-}
-
-impl From<RoutingProfileType> for rpc_forge::RoutingProfileType {
-    fn from(t: RoutingProfileType) -> Self {
-        match t {
-            RoutingProfileType::Admin => rpc_forge::RoutingProfileType::Admin,
-            RoutingProfileType::Internal => rpc_forge::RoutingProfileType::Internal,
-            RoutingProfileType::PrivilegedInternal => {
-                rpc_forge::RoutingProfileType::PrivilegedInternal
-            }
-            RoutingProfileType::Maintenance => rpc_forge::RoutingProfileType::Maintenance,
-            RoutingProfileType::External => rpc_forge::RoutingProfileType::External,
-        }
-    }
-}
-
-impl TryFrom<rpc_forge::RoutingProfileType> for RoutingProfileType {
-    type Error = RpcDataConversionError;
-
-    fn try_from(t: rpc_forge::RoutingProfileType) -> Result<Self, Self::Error> {
-        match t {
-            rpc_forge::RoutingProfileType::Admin => Err(RpcDataConversionError::InvalidValue(
-                "RoutingProfileType".to_string(),
-                t.as_str_name().to_string(),
-            )),
-            rpc_forge::RoutingProfileType::Internal => Ok(RoutingProfileType::Internal),
-            rpc_forge::RoutingProfileType::PrivilegedInternal => {
-                Ok(RoutingProfileType::PrivilegedInternal)
-            }
-            rpc_forge::RoutingProfileType::Maintenance => Ok(RoutingProfileType::Maintenance),
-            rpc_forge::RoutingProfileType::External => Ok(RoutingProfileType::External),
-        }
     }
 }

@@ -17,7 +17,7 @@
 
 use config_version::ConfigVersion;
 use model::metadata::Metadata;
-use model::tenant::{RoutingProfileType, Tenant, TenantPublicKeyValidationRequest};
+use model::tenant::{Tenant, TenantPublicKeyValidationRequest};
 use sqlx::PgConnection;
 
 use super::ObjectFilter;
@@ -29,7 +29,7 @@ type OrganizationID = String;
 pub async fn create_and_persist(
     organization_id: String,
     metadata: Metadata,
-    routing_profile_type: Option<RoutingProfileType>,
+    routing_profile_type: Option<String>,
     txn: &mut PgConnection,
 ) -> Result<Tenant, DatabaseError> {
     let version = ConfigVersion::initial();
@@ -39,7 +39,7 @@ pub async fn create_and_persist(
         .bind(organization_id)
         .bind(metadata.name)
         .bind(version)
-        .bind(routing_profile_type.map(|p| p.to_string()))
+        .bind(routing_profile_type)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))
@@ -71,7 +71,7 @@ pub async fn update(
     organization_id: String,
     metadata: Metadata,
     expected_version: ConfigVersion,
-    routing_profile_type: Option<RoutingProfileType>,
+    routing_profile_type: Option<String>,
     txn: &mut PgConnection,
 ) -> DatabaseResult<Tenant> {
     let next_version = expected_version.increment();
@@ -90,7 +90,7 @@ pub async fn update(
     sqlx::query_as(query)
         .bind(next_version)
         .bind(metadata.name)
-        .bind(routing_profile_type.map(|p| p.to_string()))
+        .bind(routing_profile_type)
         .bind(organization_id)
         .bind(expected_version)
         .fetch_one(txn)

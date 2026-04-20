@@ -60,11 +60,7 @@ pub(crate) fn convert_tenants_to_table(
             metadata.name,
             metadata.description,
             tenant.version,
-            if tenant.routing_profile_type.is_none() {
-                "None"
-            } else {
-                tenant.routing_profile_type().as_str_name()
-            },
+            tenant.routing_profile_type.as_deref().unwrap_or("None"),
             labels.join(", "),
         ]);
     }

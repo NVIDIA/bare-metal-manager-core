@@ -1410,6 +1410,9 @@ message Vpc {
   // This will only be populated if the VNI was explicitly
   // requested during creation of the VPC.
   optional uint32 vni = 15;
+
+  // The resolved routing profile type applied to this VPC.
+  optional string routing_profile_type = 16;
 }
 
 message VpcCreationRequest {
@@ -1440,12 +1443,14 @@ message VpcCreationRequest {
   // marked for auto-assignment; otherwise, the request will be rejected.
   optional uint32 vni = 15;
 
+  reserved 16;
+
   // Desired routing profile type for this VPC.
-  // The requested type must be equal to or less than
+  // The access tier for the requested type must be as broad or broader than
   // type of the tenant.
   // For example, an internal tenant can request internal or external VPCs,
   // but an external tenant can only request external VPCs.
-  optional RoutingProfileType routing_profile_type = 16;  
+  optional string routing_profile_type = 17;  
 }
 
 enum VpcVirtualizationType {
@@ -4598,14 +4603,16 @@ message Tenant {
   Metadata metadata = 2;
   // this string is used to verify that the client has the most updated "view" of a keyset when attempting to modify it
   string version = 3;
-  optional RoutingProfileType routing_profile_type = 4;
+  reserved 4;
+  optional string routing_profile_type = 5;
 }
 
 message CreateTenantRequest {
   // this organization ID must be globally unique
   string organization_id = 1;
   Metadata metadata = 2;
-  optional RoutingProfileType routing_profile_type = 3;
+  reserved 3;
+  optional string routing_profile_type = 4;
 }
 message CreateTenantResponse {
   Tenant tenant = 1;
@@ -4619,8 +4626,10 @@ message UpdateTenantRequest {
   // otherwise it will return a concurrency related error.
   optional string if_version_match = 3;
 
+  reserved 4;
+  
   // Updating will only be allowed if the tenant has no active VPCs
-  optional RoutingProfileType routing_profile_type = 4;
+  optional string routing_profile_type = 5;
 }
 message UpdateTenantResponse {
   // the updated tenant after modification
@@ -7220,15 +7229,6 @@ message ScoutStreamError {
 // with troubleshooting and debugging.
 enum ScoutStreamErrorStatus {
   SCOUT_STREAM_ERROR_STATUS_INTERNAL = 0;
-}
-
-
-enum RoutingProfileType {
-  ROUTING_PROFILE_TYPE_EXTERNAL            = 0; // Default to least privileged
-  ROUTING_PROFILE_TYPE_ADMIN               = 1;
-  ROUTING_PROFILE_TYPE_INTERNAL            = 2;
-  ROUTING_PROFILE_TYPE_PRIVILEGED_INTERNAL = 3;
-  ROUTING_PROFILE_TYPE_MAINTENANCE         = 4;
 }
 
 message RoutingProfile {

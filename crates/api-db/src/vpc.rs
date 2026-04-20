@@ -77,7 +77,7 @@ pub async fn persist(
         .bind(value.network_virtualization_type)
         .bind(&value.metadata.description)
         .bind(sqlx::types::Json(&value.metadata.labels))
-        .bind(value.routing_profile_type.map(|p| p.to_string()))
+        .bind(value.routing_profile_type)
         .bind(value.vni)
         .bind(sqlx::types::Json(&status))
         .fetch_one(txn)

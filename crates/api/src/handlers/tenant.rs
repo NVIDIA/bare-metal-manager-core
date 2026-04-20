@@ -14,11 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
 use model::ConfigValidationError;
 use model::metadata::Metadata;
-use model::tenant::RoutingProfileType;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
@@ -70,38 +68,46 @@ pub(crate) async fn create(
 
     metadata.validate(true).map_err(CarbideError::from)?;
 
-    // We won't use it if FNN isn't enabled, but we can still map so a caller integrating
-    // with us before FNN is enabled on a site will be told if they're sending invalid values.
-    let routing_profile_type = routing_profile_type
-        .map(rpc::RoutingProfileType::try_from)
-        .transpose()
-        .map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidValue(
-                e.to_string(),
-                "RoutingProfileType".to_string(),
-            ))
-        })?
-        .map(RoutingProfileType::try_from)
-        .transpose()
-        .map_err(CarbideError::from)?
-        .or(Some(RoutingProfileType::External));
+    let routing_profile_type = match (api.runtime_config.fnn.is_some(), routing_profile_type) {
+        (fnn_enabled, Some(profile)) => {
+            // If a profile name was sent in, verify that it matches
+            // a defined profile.
+            //  If FNN isn't enabled, the caller shouldn't be sending the value.
+            if !fnn_enabled
+                || !api
+                    .runtime_config
+                    .fnn
+                    .as_ref()
+                    .map(|c| c.routing_profiles.contains_key(&profile))
+                    .unwrap_or_default()
+            {
+                return Err(CarbideError::NotFoundError {
+                    kind: "RoutingProfile",
+                    id: profile,
+                }
+                .into());
+            }
+
+            Some(profile)
+        }
+        // If FNN is enabled, and the caller did not send the value, we'll default.
+        (true, None) => Some(
+            api.runtime_config
+                .default_tenant_routing_profile_type
+                .clone(),
+        ),
+        // If FNN isn't enabled, and nothing was sent, nothing to do.
+        (false, None) => None,
+    };
 
     let mut txn = api.txn_begin().await?;
 
-    let response = db::tenant::create_and_persist(
-        organization_id,
-        metadata,
-        if api.runtime_config.fnn.is_none() {
-            None
-        } else {
-            routing_profile_type
-        },
-        &mut txn,
-    )
-    .await?
-    .try_into()
-    .map(Response::new)
-    .map_err(CarbideError::from)?;
+    let response =
+        db::tenant::create_and_persist(organization_id, metadata, routing_profile_type, &mut txn)
+            .await?
+            .try_into()
+            .map(Response::new)
+            .map_err(CarbideError::from)?;
 
     txn.commit().await?;
 
@@ -155,19 +161,6 @@ pub(crate) async fn update(
 
     metadata.validate(true).map_err(CarbideError::from)?;
 
-    let routing_profile_type = routing_profile_type
-        .map(rpc::RoutingProfileType::try_from)
-        .transpose()
-        .map_err(|e| {
-            CarbideError::from(RpcDataConversionError::InvalidValue(
-                e.to_string(),
-                "RoutingProfileType".to_string(),
-            ))
-        })?
-        .map(RoutingProfileType::try_from)
-        .transpose()
-        .map_err(CarbideError::from)?;
-
     let mut txn = api.txn_begin().await?;
 
     // Grab the tenant details and a row-lock
@@ -177,6 +170,26 @@ pub(crate) async fn update(
             id: organization_id.clone(),
         }
         .into());
+    };
+
+    // We won't use it if FNN isn't enabled, but we can still map so a caller integrating
+    // with us before FNN is enabled on a site will be told if they're sending invalid values.
+    if let Some(profile) = routing_profile_type.as_ref() {
+        // If a profile name was sent in, verify that it matches
+        // a defined profile.
+        if !api
+            .runtime_config
+            .fnn
+            .as_ref()
+            .map(|c| c.routing_profiles.contains_key(profile))
+            .unwrap_or_default()
+        {
+            return Err(CarbideError::NotFoundError {
+                kind: "RoutingProfile",
+                id: profile.to_owned(),
+            }
+            .into());
+        }
     };
 
     // If a tenant routing profile is being updated,

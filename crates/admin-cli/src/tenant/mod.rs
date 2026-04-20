@@ -15,7 +15,6 @@
  * limitations under the License.
  */
 
-pub(crate) mod common;
 mod show;
 mod update;
 

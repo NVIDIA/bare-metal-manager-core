@@ -247,7 +247,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                     .fnn
                     .as_ref()
                     .map(|f| {
-                        let Some(profile_type) = vpc.routing_profile_type.map(|t| t.to_string()) else {
+                        let Some(profile_type) = vpc.routing_profile_type else {
                             return Err(CarbideError::Internal{ message: "tenant routing profile type not found in tenant record".to_string()});
                         };
 
