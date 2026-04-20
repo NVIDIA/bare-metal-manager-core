@@ -15,6 +15,10 @@
  * limitations under the License.
  */
 
+// Needed for nv-redfish that requires deep recursion for Redfish
+// object type tree.
+#![recursion_limit = "256"]
+
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt::Display;
@@ -25,6 +29,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
+use carbide_firmware::FirmwareConfig;
 use carbide_network::sanitized_mac;
 use carbide_uuid::machine::MachineType;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
@@ -56,8 +61,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use utils::periodic_timer::PeriodicTimer;
 use version_compare::Cmp;
-
-use crate::cfg::file::FirmwareConfig;
 mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;
 mod credentials;
@@ -89,7 +92,7 @@ pub mod errors;
 use errors::{SiteExplorerError, SiteExplorerResult};
 
 use self::metrics::{PairingBlockerReason, exploration_error_to_metric_label};
-use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
+use crate::explored_endpoint_index::ExploredEndpointIndex;
 
 /// Ensures a rack row exists for the given `rack_id`.
 ///
@@ -132,7 +135,7 @@ pub(crate) async fn ensure_rack_exists(
 
 /// Fetches slot_number and tray_index from the RMS for a given rack/node pair.
 /// Returns `(None, None)` on any failure, logging a warning with `entity_label`.
-pub(crate) async fn fetch_slot_and_tray(
+pub async fn fetch_slot_and_tray(
     rms_client: &dyn librms::RmsApi,
     request: librms::protos::rack_manager::GetDeviceInfoByDeviceListRequest,
 ) -> (Option<i32>, Option<i32>) {
@@ -767,7 +770,7 @@ impl SiteExplorer {
         }
 
         if let Some(ref rack_id) = expected_shelf.rack_id {
-            let _ = crate::site_explorer::ensure_rack_exists(txn.as_mut(), rack_id).await?;
+            let _ = crate::ensure_rack_exists(txn.as_mut(), rack_id).await?;
         }
         // No need to update the power shelf name again; it was already set in config above.
         txn.commit()
@@ -2553,10 +2556,7 @@ mod tests {
     use super::*;
 
     fn load_bf2_ep_report() -> EndpointExplorationReport {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/src/site_explorer/test_data/bf2_report.json"
-        );
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/test_data/bf2_report.json");
         let report: EndpointExplorationReport =
             serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         assert!(!report.systems.is_empty());
@@ -2569,7 +2569,7 @@ mod tests {
     fn load_dell_ep_report() -> EndpointExplorationReport {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/site_explorer/test_data/dell_report.json"
+            "/src/test_data/dell_report.json"
         );
         let report: EndpointExplorationReport =
             serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();

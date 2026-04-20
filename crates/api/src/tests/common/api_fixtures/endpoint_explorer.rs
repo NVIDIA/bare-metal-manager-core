@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 
+use carbide_site_explorer::{EndpointExplorer, SiteExplorationMetrics};
 use libredfish::RoleId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
@@ -26,8 +27,6 @@ use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, InternalLockdownStatus, LockdownStatus,
 };
-
-use crate::site_explorer::{EndpointExplorer, SiteExplorationMetrics};
 
 /// EndpointExplorer which returns predefined data
 #[derive(Clone, Default, Debug)]

@@ -21,10 +21,10 @@ use model::expected_switch::ExpectedSwitch;
 use model::site_explorer::ExploredManagedSwitch;
 use sqlx::{PgConnection, PgPool};
 
-use crate::site_explorer::SiteExplorerConfig;
-use crate::site_explorer::errors::SiteExplorerResult;
-use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
-use crate::site_explorer::metrics::SiteExplorationMetrics;
+use crate::SiteExplorerConfig;
+use crate::errors::SiteExplorerResult;
+use crate::explored_endpoint_index::ExploredEndpointIndex;
+use crate::metrics::SiteExplorationMetrics;
 
 pub struct SwitchCreator {
     database_connection: PgPool,
@@ -175,7 +175,7 @@ impl SwitchCreator {
         _ = db::switch::create(txn, &new_switch).await?;
 
         if let Some(ref rack_id) = expected_switch.rack_id {
-            let _ = crate::site_explorer::ensure_rack_exists(&mut *txn, rack_id).await?;
+            let _ = crate::ensure_rack_exists(&mut *txn, rack_id).await?;
         }
 
         Ok(())

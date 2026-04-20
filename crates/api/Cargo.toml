@@ -39,10 +39,12 @@ carbide-host-support = { path = "../host-support", default-features = false }
 carbide-network = { path = "../network", features = ["sqlx"] }
 carbide-secrets = { path = "../secrets" }
 carbide-version = { path = "../version" }
+carbide-firmware = { path = "../firmware" }
 carbide-health-report = { path = "../health-report" }
 carbide-ipxe-renderer = { path = "../ipxe-renderer" }
 carbide-ipmi = { path = "../ipmi" }
 carbide-redfish = { path = "../redfish" }
+carbide-site-explorer = { path = "../site-explorer" }
 dns-record = { path = "../dns-record" }
 libnmxm = { path = "../libnmxm" }
 logfmt = { path = "../logfmt" }
@@ -112,7 +114,6 @@ mac_address = { workspace = true }
 md5 = { workspace = true }
 num-bigint-dig = { workspace = true }
 num_cpus = { workspace = true }
-nv-redfish = { workspace = true, features = ["bmc-http", "oem-hpe"] }
 oauth2 = { default-features = false, workspace = true }
 oid-registry = { workspace = true }
 opentelemetry = { workspace = true, features = ["logs"] }

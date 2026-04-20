@@ -39,11 +39,11 @@ use model::resource_pool::common::CommonPools;
 use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManagedHost};
 use sqlx::{PgConnection, PgPool};
 
-use crate::site_explorer::SiteExplorerConfig;
-use crate::site_explorer::errors::{SiteExplorerError, SiteExplorerResult};
-use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
-use crate::site_explorer::managed_host::ManagedHost;
-use crate::site_explorer::metrics::SiteExplorationMetrics;
+use crate::SiteExplorerConfig;
+use crate::errors::{SiteExplorerError, SiteExplorerResult};
+use crate::explored_endpoint_index::ExploredEndpointIndex;
+use crate::managed_host::ManagedHost;
+use crate::metrics::SiteExplorationMetrics;
 
 pub struct MachineCreator {
     database_connection: PgPool,
@@ -207,7 +207,7 @@ impl MachineCreator {
 
         if let Some(rack_id) = machine_data.and_then(|d| d.rack_id.as_ref()) {
             tracing::info!(%rack_id, %host_machine_id, "Ensuring rack exists for host machine");
-            if let Some(rack) = crate::site_explorer::ensure_rack_exists(&mut txn, rack_id).await? {
+            if let Some(rack) = crate::ensure_rack_exists(&mut txn, rack_id).await? {
                 tracing::info!(%rack_id, "Rack exists for host machine {host_machine_id}: {rack:#?}");
             }
         }
@@ -248,7 +248,7 @@ impl MachineCreator {
                 ..Default::default()
             };
             let (slot_number, tray_index) =
-                crate::site_explorer::fetch_slot_and_tray(rms_client.as_ref(), request).await;
+                crate::fetch_slot_and_tray(rms_client.as_ref(), request).await;
             let mut update_txn = Transaction::begin(pool).await?;
             if let Err(e) = db::machine::update_slot_and_tray(
                 &mut update_txn,

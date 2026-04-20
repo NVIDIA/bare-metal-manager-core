@@ -24,6 +24,7 @@ use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
+use carbide_firmware::FirmwareConfig;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -84,8 +85,7 @@ use version_compare::Cmp;
 
 use crate::CarbideError;
 use crate::cfg::file::{
-    BomValidationConfig, CarbideConfig, FirmwareConfig, MachineValidationConfig,
-    PowerManagerOptions, TimePeriod,
+    BomValidationConfig, CarbideConfig, MachineValidationConfig, PowerManagerOptions, TimePeriod,
 };
 use crate::dpf::DpfOperations;
 use crate::firmware_downloader::FirmwareDownloader;

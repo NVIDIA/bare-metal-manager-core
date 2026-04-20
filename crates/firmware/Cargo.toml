@@ -1,0 +1,33 @@
+[package]
+name = "carbide-firmware"
+version = "0.0.1"
+edition.workspace = true
+description = "Carbide Firmware"
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "carbide_firmware"
+
+[features]
+default = []
+
+[dependencies]
+bmc-vendor = { path = "../bmc-vendor" }
+carbide-api-model = { path = "../api-model", default-features = false }
+
+# these are alphabetized
+eyre = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+
+
+[dev-dependencies]
+carbide-macros = { path = "../macros" }
+carbide-api-db = { path = "../api-db", default-features = false }
+sqlx = { workspace = true }
+carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
+
+[lints]
+workspace = true

@@ -242,7 +242,7 @@ pub(crate) async fn pause_explored_endpoint_remediation(
 
     // Check if a machine exists for this endpoint
     let in_managed_host =
-        crate::site_explorer::is_endpoint_in_managed_host(bmc_ip, txn.as_pgconn())
+        carbide_site_explorer::is_endpoint_in_managed_host(bmc_ip, txn.as_pgconn())
             .await
             .map_err(|e| CarbideError::internal(e.to_string()))?;
 
@@ -282,7 +282,7 @@ pub(crate) async fn is_bmc_in_managed_host(
     };
 
     let in_managed_host =
-        crate::site_explorer::is_endpoint_in_managed_host(bmc_addr.ip(), &api.database_connection)
+        carbide_site_explorer::is_endpoint_in_managed_host(bmc_addr.ip(), &api.database_connection)
             .await
             .map_err(|e| CarbideError::internal(e.to_string()))?;
 
@@ -314,7 +314,7 @@ pub(crate) async fn delete_explored_endpoint(
 
     // Check if a machine exists for this endpoint
     let in_managed_host =
-        crate::site_explorer::is_endpoint_in_managed_host(bmc_ip, txn.as_pgconn())
+        carbide_site_explorer::is_endpoint_in_managed_host(bmc_ip, txn.as_pgconn())
             .await
             .map_err(|e| CarbideError::internal(e.to_string()))?;
 

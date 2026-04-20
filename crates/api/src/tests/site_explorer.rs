@@ -20,6 +20,8 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_site_explorer::SiteExplorer;
+use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::TestEnv;
 use common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
@@ -48,8 +50,6 @@ use rpc::site_explorer::{
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use tonic::Request;
 
-use crate::site_explorer::SiteExplorer;
-use crate::site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use crate::tests::common;
 use crate::tests::common::api_fixtures;
 use crate::tests::common::api_fixtures::TestEnvOverrides;

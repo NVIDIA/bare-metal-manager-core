@@ -585,7 +585,7 @@ pub(crate) async fn copy_bfb_to_dpu_rshim(
     let pre_copy_powercycle = req.pre_copy_powercycle;
 
     let dpu_in_managed_host =
-        crate::site_explorer::is_endpoint_in_managed_host(dpu_ip, &api.database_connection)
+        carbide_site_explorer::is_endpoint_in_managed_host(dpu_ip, &api.database_connection)
             .await
             .map_err(|e| CarbideError::internal(e.to_string()))?;
     if dpu_in_managed_host {
