@@ -126,6 +126,7 @@ hooks:
           echo "Loading images into kind cluster..."
           kind load docker-image \
             "${runtime.images.carbide-api.image}:${runtime.images.carbide-api.tag}" \
+            "${runtime.images.carbide-bmc-proxy.image}:${runtime.images.carbide-bmc-proxy.tag}" \
             "${runtime.images.machine-a-tron.image}:${runtime.images.machine-a-tron.tag}"
           ;;
         # Add new local K8s tools here
