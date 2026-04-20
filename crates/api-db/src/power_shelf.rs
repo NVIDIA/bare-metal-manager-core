@@ -18,6 +18,7 @@
 use carbide_uuid::power_shelf::PowerShelfId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
+use health_report::{HealthReport, HealthReportApplyMode};
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
 use model::power_shelf::{NewPowerShelf, PowerShelf, PowerShelfControllerState};
@@ -110,6 +111,7 @@ pub async fn create(
         metadata,
         version,
         rack_id: new_power_shelf.rack_id.clone(),
+        health_reports: Default::default(),
     })
 }
 
@@ -294,6 +296,7 @@ pub async fn update(
 
 use std::net::IpAddr;
 
+use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
 
 /// Resolve PowerShelfIds to BMC/PMC IPs via the machine_interfaces path.
@@ -413,4 +416,87 @@ pub async fn find_bmc_info_by_power_shelf_ids(
         .fetch_all(db)
         .await
         .map_err(|err| DatabaseError::new("power_shelf::find_bmc_info_by_power_shelf_ids", err))
+}
+
+/// A power shelf resolved by its BMC MAC address, along with the rack it
+/// belongs to. Used by the Component Manager state controller wrapper to
+/// build a rack-level `MaintenanceScope` for the power shelves it's been
+/// asked to act on.
+#[derive(Debug, sqlx::FromRow)]
+pub struct PowerShelfIdByBmcMac {
+    pub bmc_mac_address: MacAddress,
+    pub id: PowerShelfId,
+    pub rack_id: Option<RackId>,
+}
+
+/// Resolve BMC MAC addresses to `PowerShelfId`s + `rack_id`s.
+pub async fn find_ids_by_bmc_macs(
+    db: impl crate::db_read::DbReader<'_>,
+    macs: &[MacAddress],
+) -> DatabaseResult<Vec<PowerShelfIdByBmcMac>> {
+    let sql = r#"
+        SELECT ps.bmc_mac_address, ps.id, ps.rack_id
+        FROM power_shelves ps
+        WHERE ps.bmc_mac_address = ANY($1)
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(macs)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("power_shelf::find_ids_by_bmc_macs", err))
+}
+
+/// RMS identity for a power shelf: the power shelf ID (used as the RMS
+/// node_id), the BMC MAC address, and the rack_id.
+#[derive(Debug, sqlx::FromRow)]
+pub struct PowerShelfRmsIdentity {
+    pub id: String,
+    pub bmc_mac_address: MacAddress,
+    pub rack_id: Option<RackId>,
+}
+
+/// Look up RMS identities (node_id, rack_id) for power shelves by their
+/// BMC MAC addresses.
+pub async fn find_rms_identities_by_macs(
+    db: impl crate::db_read::DbReader<'_>,
+    macs: &[MacAddress],
+) -> DatabaseResult<Vec<PowerShelfRmsIdentity>> {
+    let sql = r#"
+        SELECT ps.id::text, ps.bmc_mac_address, ps.rack_id
+        FROM power_shelves ps
+        WHERE ps.bmc_mac_address = ANY($1)
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(macs)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("power_shelf::find_rms_identities_by_macs", err))
+}
+
+pub async fn insert_health_report(
+    txn: &mut PgConnection,
+    power_shelf_id: &PowerShelfId,
+    mode: HealthReportApplyMode,
+    health_report: &HealthReport,
+) -> Result<(), DatabaseError> {
+    crate::health_report::insert_health_report(
+        txn,
+        "power_shelves",
+        power_shelf_id,
+        mode,
+        health_report,
+    )
+    .await
+}
+
+pub async fn remove_health_report(
+    txn: &mut PgConnection,
+    power_shelf_id: &PowerShelfId,
+    mode: HealthReportApplyMode,
+    source: &str,
+) -> Result<(), DatabaseError> {
+    crate::health_report::remove_health_report(txn, "power_shelves", power_shelf_id, mode, source)
+        .await
 }

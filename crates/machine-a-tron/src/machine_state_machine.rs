@@ -27,6 +27,7 @@ use bmc_mock::{
     MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
     SystemPowerControl,
 };
+use carbide_network::virtualization::build_dual_stack_list;
 use carbide_uuid::machine::MachineId;
 use rpc::forge::{MachineArchitecture, MachineDiscoveryResult, ManagedHostNetworkConfigResponse};
 use rpc::forge_agent_control_response::Action;
@@ -822,12 +823,23 @@ impl MachineStateMachine {
                 .admin_interface
                 .as_ref()
                 .expect("use_admin_network true so admin_interface should be Some");
+            let addresses = build_dual_stack_list(
+                iface.ip.clone(),
+                iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
+            );
+            let prefixes = build_dual_stack_list(
+                iface.interface_prefix.clone(),
+                iface
+                    .ipv6_interface_config
+                    .as_ref()
+                    .map(|v6| v6.interface_prefix.clone()),
+            );
             interfaces = vec![rpc::forge::InstanceInterfaceStatusObservation {
                 function_type: iface.function_type,
                 virtual_function_id: None,
                 mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
-                addresses: vec![iface.ip.clone()],
-                prefixes: vec![iface.interface_prefix.clone()],
+                addresses,
+                prefixes,
                 gateways: vec![iface.gateway.clone()],
                 network_security_group: None,
                 internal_uuid: None,
@@ -837,12 +849,23 @@ impl MachineStateMachine {
                 Some(network_config.instance_network_config_version.clone());
 
             for iface in network_config.tenant_interfaces.iter() {
+                let addresses = build_dual_stack_list(
+                    iface.ip.clone(),
+                    iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
+                );
+                let prefixes = build_dual_stack_list(
+                    iface.interface_prefix.clone(),
+                    iface
+                        .ipv6_interface_config
+                        .as_ref()
+                        .map(|v6| v6.interface_prefix.clone()),
+                );
                 interfaces.push(rpc::forge::InstanceInterfaceStatusObservation {
                     function_type: iface.function_type,
                     virtual_function_id: iface.virtual_function_id,
                     mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
-                    addresses: vec![iface.ip.clone()],
-                    prefixes: vec![iface.interface_prefix.clone()],
+                    addresses,
+                    prefixes,
                     gateways: vec![iface.gateway.clone()],
                     network_security_group: iface.network_security_group.as_ref().map(|s| {
                         rpc::forge::NetworkSecurityGroupStatus {

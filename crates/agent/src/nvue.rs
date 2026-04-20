@@ -112,6 +112,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         .map(|vl| TmplHostInterfaces {
             ID: vl.vlan_id,
             HostIP: vl.ip,
+            HostIPv6: vl.ipv6_vlan_config.as_ref().map(|v6| v6.ip.clone()),
             HostRoute: vl.network,
         })
         .collect();
@@ -246,8 +247,25 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             VlanID: network.vlan,
             IsPhy: network.is_phy,
             L2VNI: network.vni.map(|x| x.to_string()).unwrap_or("".to_string()),
-            IPs: vec![network.gateway_cidr.clone()],
-            SviIP: network.svi_ip.unwrap_or("".to_string()), // FNN only
+            IPs: {
+                std::iter::once(network.gateway_cidr.clone())
+                    .chain(
+                        network
+                            .ipv6_port_config
+                            .as_ref()
+                            .map(|v6| v6.gateway_cidr.clone()),
+                    )
+                    .collect()
+            },
+            SviIPs: std::iter::once(network.svi_ip)
+                .chain(std::iter::once(
+                    network
+                        .ipv6_port_config
+                        .as_ref()
+                        .and_then(|v6| v6.svi_ip.clone()),
+                ))
+                .flatten()
+                .collect(),
             SviMAC: svi_mac,
             VrfName: format!("vpc_{}", network.l3_vni.unwrap_or_default()),
             HasVpcPeerPrefixes: !network.vpc_peer_prefixes.is_empty(),
@@ -1026,12 +1044,29 @@ pub struct VlanConfig {
     pub vlan_id: u32,
     pub network: String,
     pub ip: String,
+    pub ipv6_vlan_config: Option<Ipv6VlanConfig>,
+}
+
+#[derive(Clone, Deserialize, Debug)]
+pub struct Ipv6VlanConfig {
+    pub network: String,
+    pub ip: String,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct L3Domain {
     pub l3_domain_name: String,
     pub services: Vec<String>,
+}
+
+/// IPv6 configuration for a port.
+#[derive(Clone, Deserialize, Debug)]
+pub struct Ipv6PortConfig {
+    /// DPU-side IPv6 address in CIDR notation (e.g. "2001:db8::0/127").
+    /// For FNN L3 linknets, this is the ::0 end of the /127 (RFC 6164).
+    pub gateway_cidr: String,
+    /// SVI IP for L2 segments -- the DPU's gateway address on the VLAN.
+    pub svi_ip: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -1041,9 +1076,12 @@ pub struct PortConfig {
     pub vni: Option<u32>, // In FNN, admin network has both an l2vni and an l3vni
     pub l3_vni: Option<u32>,
     pub gateway_cidr: String,
+    /// Optional IPv6 configuration for dual-stack interfaces.
+    pub ipv6_port_config: Option<Ipv6PortConfig>,
     pub vpc_prefixes: Vec<String>,
     pub vpc_peer_prefixes: Vec<String>,
     pub vpc_peer_vnis: Vec<u32>,
+    /// SVI IP for L2 segments -- the DPU's gateway address on the VLAN (IPv4).
     pub svi_ip: Option<String>,
     pub tenant_vrf_loopback_ip: Option<String>,
     pub is_l2_segment: bool,
@@ -1319,6 +1357,8 @@ struct TmplVpc {
 struct TmplHostInterfaces {
     ID: u32,
     HostIP: String,
+    /// IPv6 host address (if dual-stack).
+    HostIPv6: Option<String>,
 
     // HostRoute in the context of FNN-L3 is the /30 prefix allocation.
     // This used to be populated as the HostIP + "/32", but then with
@@ -1344,7 +1384,7 @@ struct TmplConfigPort {
     /// is not the gateway address. Typically the 2nd usable ip in the prefix is being used,
     /// e.g 10.1.1.2 in the 10.1.1.0/24 prefix.
     /// Format: Standard IPv4 notation
-    SviIP: String,
+    SviIPs: Vec<String>,
 
     /// VRR, the distributed gateway, needs a manually defined MAC address. This can be overlapping
     /// on the different VTEPs, but it is very convenient to be unique on the same VTEP.
@@ -1584,11 +1624,13 @@ mod tests {
             is_l2_segment: true,
             is_phy: false,
             network_security_group_id: None,
+            ipv6_port_config: None,
         }];
         conf.ct_access_vlans = vec![VlanConfig {
             vlan_id: 100,
             network: "10.0.1.0/24".into(),
             ip: "10.0.1.2".into(),
+            ipv6_vlan_config: None,
         }];
         assert_build_matches_golden(
             conf,
@@ -1625,11 +1667,13 @@ mod tests {
             is_l2_segment: false,
             is_phy: false,
             network_security_group_id: None,
+            ipv6_port_config: None,
         }];
         conf.ct_access_vlans = vec![VlanConfig {
             vlan_id: 100,
             network: "10.0.1.0/24".into(),
             ip: "10.0.1.2".into(),
+            ipv6_vlan_config: None,
         }];
         assert_build_matches_golden(
             conf,
@@ -1657,11 +1701,13 @@ mod tests {
             is_l2_segment: true,
             is_phy: false,
             network_security_group_id: None,
+            ipv6_port_config: None,
         }];
         conf.ct_access_vlans = vec![VlanConfig {
             vlan_id: 100,
             network: "10.0.1.0/24".into(),
             ip: "10.0.1.2".into(),
+            ipv6_vlan_config: None,
         }];
         assert_build_matches_golden(
             conf,
@@ -1701,11 +1747,13 @@ mod tests {
             is_l2_segment: false,
             is_phy: false,
             network_security_group_id: None,
+            ipv6_port_config: None,
         }];
         conf.ct_access_vlans = vec![VlanConfig {
             vlan_id: 100,
             network: "10.0.1.0/24".into(),
             ip: "10.0.1.2".into(),
+            ipv6_vlan_config: None,
         }];
         assert_build_matches_golden(
             conf,
@@ -1738,11 +1786,13 @@ mod tests {
             is_l2_segment: true,
             is_phy: false,
             network_security_group_id: None,
+            ipv6_port_config: None,
         }];
         conf.ct_access_vlans = vec![VlanConfig {
             vlan_id: 100,
             network: "10.0.1.0/24".into(),
             ip: "10.0.1.2".into(),
+            ipv6_vlan_config: None,
         }];
         assert_build_matches_golden(
             conf,
@@ -1781,6 +1831,7 @@ mod tests {
                 is_l2_segment: false,
                 is_phy: false,
                 network_security_group_id: None,
+                ipv6_port_config: None,
             },
             PortConfig {
                 interface_name: "pf0hpf_if".into(),
@@ -1796,6 +1847,7 @@ mod tests {
                 is_l2_segment: false,
                 is_phy: false,
                 network_security_group_id: None,
+                ipv6_port_config: None,
             },
         ];
         conf.ct_access_vlans = vec![
@@ -1803,16 +1855,106 @@ mod tests {
                 vlan_id: 100,
                 network: "10.0.1.0/24".into(),
                 ip: "10.0.1.2".into(),
+                ipv6_vlan_config: None,
             },
             VlanConfig {
                 vlan_id: 101,
                 network: "10.0.2.0/24".into(),
                 ip: "10.0.2.2".into(),
+                ipv6_vlan_config: None,
             },
         ];
         assert_build_matches_golden(
             conf,
             include_str!("../templates/tests/nvue_build_fnn_multi_port_ipv6.yaml.expected"),
+        );
+    }
+
+    #[test]
+    fn test_build_fnn_dual_stack_interface() {
+        // When ipv6.gateway_cidr is set, the NVUE template should configure
+        // both IPv4 and IPv6 addresses on the interface.
+        let mut conf = minimal_nvue_config();
+        conf.is_fnn = true;
+        conf.vpc_virtualization_type = VpcVirtualizationType::Fnn;
+        conf.use_vpc_isolation = true;
+        conf.site_fabric_prefixes = vec!["10.0.0.0/16".into(), "fd00::/32".into()];
+        conf.ct_routing_profile = Some(RoutingProfile {
+            leak_default_route_from_underlay: false,
+            leak_tenant_host_routes_to_underlay: false,
+            tenant_leak_communities_accepted: false,
+            route_target_imports: vec![],
+            route_targets_on_exports: vec![],
+        });
+        conf.ct_port_configs = vec![PortConfig {
+            interface_name: "pf0vf0_if".into(),
+            vlan: 100,
+            vni: Some(1000),
+            l3_vni: Some(100),
+            gateway_cidr: "10.0.1.0/31".into(),
+            ipv6_port_config: Some(Ipv6PortConfig {
+                gateway_cidr: "2001:db8::0/127".into(),
+                svi_ip: None,
+            }),
+            vpc_prefixes: vec!["10.0.1.0/24".into(), "2001:db8::/48".into()],
+            vpc_peer_prefixes: vec![],
+            vpc_peer_vnis: vec![],
+            svi_ip: Some("10.0.1.254".into()),
+            tenant_vrf_loopback_ip: Some("10.0.0.2".into()),
+            is_l2_segment: false,
+            is_phy: false,
+            network_security_group_id: None,
+        }];
+        conf.ct_access_vlans = vec![VlanConfig {
+            vlan_id: 100,
+            network: "10.0.1.0/31".into(),
+            ip: "10.0.1.1".into(),
+            ipv6_vlan_config: Some(Ipv6VlanConfig {
+                network: "2001:db8::0/127".into(),
+                ip: "2001:db8::1".into(),
+            }),
+        }];
+        assert_build_matches_golden(
+            conf,
+            include_str!("../templates/tests/nvue_build_fnn_dual_stack.yaml.expected"),
+        );
+    }
+
+    /// `serde_yaml::Value::Null` indicates a YAML key with no value (i.e. a
+    /// bare `key:` followed by nothing). In cases like this, YAML parsing fails,
+    /// and NVUE subsequently rejects with something like `Error: 'set' operation
+    /// values must not be 'null'`.
+    /// This helper exists so we can check for empty leaf renderings in general for
+    /// any tests that would like to check for such a situation.
+    fn has_null_leaf(v: &serde_yaml::Value) -> bool {
+        match v {
+            serde_yaml::Value::Null => true,
+            serde_yaml::Value::Mapping(m) => m.values().any(has_null_leaf),
+            serde_yaml::Value::Sequence(s) => s.iter().any(has_null_leaf),
+            _ => false,
+        }
+    }
+
+    /// When a DPU has no tenant VPCs assigned, the rendered FNN YAML must contain
+    /// no null config leaves (like a `list:` with no entries, or `from-vrf:` with
+    /// no subsequent config, etc).
+    #[test]
+    fn test_build_fnn_with_no_vpcs_emits_no_yaml_nulls() {
+        let mut conf = minimal_nvue_config();
+        conf.is_fnn = true;
+        conf.vpc_virtualization_type = VpcVirtualizationType::Fnn;
+        // For this one, we'll intentionally leave ct_port_configs / ct_access_vlans empty
+        // to ensure $tenant.Vpcs is empty in the template, and that route-import
+        // blocks that would otherwise have an empty VPC VRF list are excluded.
+        assert!(conf.ct_port_configs.is_empty());
+
+        let output = build(conf).expect("build should succeed with empty ct_port_configs");
+        let parsed: serde_yaml::Value =
+            serde_yaml::from_str(&output).expect("rendered YAML must parse");
+
+        assert!(
+            !has_null_leaf(&parsed),
+            "rendered YAML contains a null leaf:\n\n{output}"
         );
     }
 }

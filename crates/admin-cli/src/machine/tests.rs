@@ -25,10 +25,10 @@
 // ValueEnum Parsing - Test string parsing for types deriving claps ValueEnum.
 
 use clap::{CommandFactory, Parser};
-use health_override::args::{Args as OverrideCommand, HealthOverrideTemplates};
 use metadata::args::Args as MachineMetadataCommand;
 use network::args::Args as NetworkCommand;
 
+use self::health_report::args::{Args as HealthReportCommand, HealthReportTemplates};
 use super::*;
 
 // Define a basic/working MachineId for testing.
@@ -138,10 +138,10 @@ fn parse_health_override_show() {
         .expect("should parse health-override show");
 
     match cmd {
-        Cmd::HealthOverride(OverrideCommand::Show { machine_id }) => {
+        Cmd::HealthReport(HealthReportCommand::Show { machine_id }) => {
             assert_eq!(machine_id.to_string(), TEST_MACHINE_ID);
         }
-        _ => panic!("expected HealthOverride Show variant"),
+        _ => panic!("expected HealthReport Show variant"),
     }
 }
 
@@ -160,11 +160,26 @@ fn parse_health_override_add_with_template() {
     .expect("should parse health-override add with template");
 
     match cmd {
-        Cmd::HealthOverride(OverrideCommand::Add(args)) => {
+        Cmd::HealthReport(HealthReportCommand::Add(args)) => {
             assert!(args.template.is_some());
             assert!(args.health_report.is_none());
         }
-        _ => panic!("expected HealthOverride Add variant"),
+        _ => panic!("expected HealthReport Add variant"),
+    }
+}
+
+// parse_health_report_show ensures health-report
+// show parses (new primary command name).
+#[test]
+fn parse_health_report_show() {
+    let cmd = Cmd::try_parse_from(["machine", "health-report", "show", TEST_MACHINE_ID])
+        .expect("should parse health-report show");
+
+    match cmd {
+        Cmd::HealthReport(HealthReportCommand::Show { machine_id }) => {
+            assert_eq!(machine_id.to_string(), TEST_MACHINE_ID);
+        }
+        _ => panic!("expected HealthReport Show variant"),
     }
 }
 
@@ -282,31 +297,31 @@ fn parse_positions() {
 // values correctly convert back into their expected variant,
 // or fail otherwise.
 
-// health_override_templates_value_enum ensures HealthOverrideTemplates
+// health_override_templates_value_enum ensures HealthReportTemplates
 // parses from strings.
 #[test]
 fn health_override_templates_value_enum() {
     use clap::ValueEnum;
 
     assert!(matches!(
-        HealthOverrideTemplates::from_str("host-update", false),
-        Ok(HealthOverrideTemplates::HostUpdate)
+        HealthReportTemplates::from_str("host-update", false),
+        Ok(HealthReportTemplates::HostUpdate)
     ));
     assert!(matches!(
-        HealthOverrideTemplates::from_str("internal-maintenance", false),
-        Ok(HealthOverrideTemplates::InternalMaintenance)
+        HealthReportTemplates::from_str("internal-maintenance", false),
+        Ok(HealthReportTemplates::InternalMaintenance)
     ));
     assert!(matches!(
-        HealthOverrideTemplates::from_str("out-for-repair", false),
-        Ok(HealthOverrideTemplates::OutForRepair)
+        HealthReportTemplates::from_str("out-for-repair", false),
+        Ok(HealthReportTemplates::OutForRepair)
     ));
     assert!(matches!(
-        HealthOverrideTemplates::from_str("degraded", false),
-        Ok(HealthOverrideTemplates::Degraded)
+        HealthReportTemplates::from_str("degraded", false),
+        Ok(HealthReportTemplates::Degraded)
     ));
     assert!(matches!(
-        HealthOverrideTemplates::from_str("validation", false),
-        Ok(HealthOverrideTemplates::Validation)
+        HealthReportTemplates::from_str("validation", false),
+        Ok(HealthReportTemplates::Validation)
     ));
-    assert!(HealthOverrideTemplates::from_str("invalid", false).is_err());
+    assert!(HealthReportTemplates::from_str("invalid", false).is_err());
 }

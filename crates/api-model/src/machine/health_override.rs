@@ -14,20 +14,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::collections::BTreeMap;
 
-use health_report::{HealthReport, OverrideMode};
-use serde::{Deserialize, Serialize};
-
-/// All health report overrides stored as JSON in postgres.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct HealthReportOverrides {
-    /// Stores the "replace" override
-    /// The "replace" mode was called "override" in the past
-    pub replace: Option<HealthReport>,
-    /// A map from the health report source to the health report
-    pub merges: BTreeMap<String, HealthReport>,
-}
+pub use crate::health::HealthReportSources;
 
 pub const HARDWARE_HEALTH_OVERRIDE_PREFIX: &str = "hardware-health.";
 
@@ -36,18 +24,11 @@ pub struct MaintenanceOverride {
     pub maintenance_start_time: Option<rpc::Timestamp>,
 }
 
-impl HealthReportOverrides {
-    #[allow(clippy::should_implement_trait)]
-    pub fn into_iter(self) -> impl Iterator<Item = (HealthReport, OverrideMode)> {
-        self.merges
-            .into_values()
-            .map(|r| (r, OverrideMode::Merge))
-            .chain(self.replace.map(|r| (r, OverrideMode::Replace)))
-    }
-
-    /// Derive legacy Maintenance mode fields
-    /// They are determine by the value of a well-known health override, that is also set
-    /// via SetMaintenance API
+/// Machine-specific methods for HealthReportSources.
+impl HealthReportSources {
+    /// Derive legacy Maintenance mode fields.
+    /// Determined by the value of a well-known health source, that is also set
+    /// via SetMaintenance API.
     pub fn maintenance_override(&self) -> Option<MaintenanceOverride> {
         let ovr = self.merges.get("maintenance")?;
         let maintenance_alert_id = "Maintenance".parse().unwrap();

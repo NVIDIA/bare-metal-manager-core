@@ -102,6 +102,7 @@ pub fn add_inband_interfaces_to_config(
                 device_locator: None,
                 internal_uuid: uuid::Uuid::new_v4(),
                 requested_ip_addr: None,
+                ipv6_interface_config: None,
             })
         }
     }

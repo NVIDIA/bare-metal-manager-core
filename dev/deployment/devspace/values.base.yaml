@@ -127,6 +127,9 @@ carbide-bmc-proxy:
       spiffe_machine_base_path = "/forge-system/machine/"
       additional_issuer_cns = []
 
+      [auth.acls]
+      "trusted-certificate" = ["/**"]
+
 carbide-dhcp:
   enabled: false
 carbide-dns:

@@ -1,0 +1,9 @@
+{% if state.to_lowercase().contains("failed") %}
+	<span class="bubble error">{{ state }}{% if time_in_state_above_sla %} ⏱️{% endif %}</span>
+{% else if time_in_state_above_sla %}
+	<span class="bubble warning">{{ state }} ⏱️</span>
+{% else if state == "Ready" || state == "Assigned/Ready" %}
+	<span class="bubble success">{{ state }}</span>
+{% else %}
+	<span class="bubble">{{ state }}</span>
+{% endif %}

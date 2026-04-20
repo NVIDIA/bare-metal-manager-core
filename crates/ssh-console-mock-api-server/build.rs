@@ -42,6 +42,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_client(false) // we're using ForgeApiClient from rpc crate
         .extern_path(".common.MachineId", "::carbide_uuid::machine::MachineId")
         .extern_path(".common.RackId", "::carbide_uuid::rack::RackId")
+        .extern_path(
+            ".common.RackProfileId",
+            "::carbide_uuid::rack::RackProfileId",
+        )
         .protoc_arg("--experimental_allow_proto3_optional")
         .out_dir("src/generated")
         .compile_protos(

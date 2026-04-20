@@ -90,6 +90,7 @@ impl LiteOnPowerShelf<'_> {
 
     pub fn chassis_config(&self) -> redfish::chassis::ChassisConfig {
         let chassis_id = "powershelf";
+
         redfish::chassis::ChassisConfig {
             chassis: vec![redfish::chassis::SingleChassisConfig {
                 id: chassis_id.into(),
@@ -98,14 +99,26 @@ impl LiteOnPowerShelf<'_> {
                 part_number: Some("PF-1333-7R".into()),
                 model: Some("PF-1333-7R".into()),
                 serial_number: Some(self.product_serial_number.to_string().into()),
-                network_adapters: None,
-                pcie_devices: None,
                 sensors: Some(redfish::sensor::generate_chassis_sensors(
                     chassis_id,
                     Self::sensor_layout(),
                 )),
-                assembly: None,
-                oem: None,
+                power_supplies: Some(
+                    (0..=5)
+                        .map(|idx| {
+                            redfish::power_supply::builder(&redfish::power_supply::resource(
+                                chassis_id,
+                                &idx.to_string(),
+                            ))
+                            .oem_liteon_power_state(true)
+                            // libredfish requires status to be
+                            // here...
+                            .status(redfish::resource::Status::Ok)
+                            .build()
+                        })
+                        .collect(),
+                ),
+                ..redfish::chassis::SingleChassisConfig::defaults()
             }],
         }
     }

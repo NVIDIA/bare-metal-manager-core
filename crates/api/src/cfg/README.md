@@ -83,7 +83,7 @@ applicable.
 | `rack_management_enabled` | `bool` | `false` | Standalone infrastructure manager mode for GB200/GB300/VR144. See doc comment for full behavioral changes. |
 | `force_dpu_nic_mode` | `bool` | `false` | Treat DPUs as regular NICs (skip managed DPU config). For dev labs with BF DPUs. |
 | `rms` | `RmsConfig` | *(see below)* | Rack Manager Service configuration for API connectivity and mTLS (see [RmsConfig](#rmsconfig)). |
-| `rack_types` | `RackTypeConfig` | *(default)* | Rack type definitions referenced by expected racks. |
+| `rack_profiles` | `RackProfileConfig` | *(default)* | Rack profile definitions referenced by expected racks. |
 | `spdm` | `SpdmConfig` | *(see below)* | SPDM hardware attestation (see [SpdmConfig](#spdmconfig)). |
 | `bgp_leaf_session_password` | `Option<BgpLeafSessionPassword>` | — | Selects the credential source for leaf-facing BGP session passwords returned to agents in managed host network config. Supported value: `site_wide`. |
 | `site_global_vpc_vni` | `Option<u32>` | — | Forces all VRFs to share a single VNI (Cumulus Linux route-leaking workaround). Limits DPU to one VRF. |

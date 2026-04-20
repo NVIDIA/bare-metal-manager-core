@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
 use config_version::ConfigVersion;
-use health_report::{HealthReport, OverrideMode};
+use health_report::{HealthReport, HealthReportApplyMode};
 use model::machine::{MachineLastRebootRequested, MachineLastRebootRequestedMode};
 use sqlx::PgTransaction;
 
@@ -80,7 +80,7 @@ pub enum MachineWriteOp {
     },
     InsertHealthReportOverride {
         machine_id: MachineId,
-        mode: OverrideMode,
+        mode: HealthReportApplyMode,
         health_report: HealthReport,
     },
     ReExploreIfVersionMatches {

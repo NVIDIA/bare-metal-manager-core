@@ -29,7 +29,8 @@ use model::hardware_info::HardwareInfo;
 use model::machine::machine_id::host_id_from_dpu_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    DpuDiscoveringState, DpuDiscoveringStates, Machine, MachineInterfaceSnapshot, ManagedHostState,
+    CURRENT_STATE_MODEL_VERSION, DpuDiscoveringState, DpuDiscoveringStates, Machine,
+    MachineInterfaceSnapshot, ManagedHostState,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::NetworkSegmentType;
@@ -42,7 +43,6 @@ use crate::site_explorer::SiteExplorerConfig;
 use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
 use crate::site_explorer::managed_host::ManagedHost;
 use crate::site_explorer::metrics::SiteExplorationMetrics;
-use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
 use crate::{CarbideError, CarbideResult};
 
 pub struct MachineCreator {

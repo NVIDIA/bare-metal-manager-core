@@ -30,6 +30,7 @@ use ::rpc::protos::dns::{
     UpdateDomainRequest,
 };
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
+use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use db::db_read::PgPoolReader;
 use db::work_lock_manager::WorkLockManagerHandle;
@@ -53,7 +54,6 @@ use crate::ethernet_virtualization::EthVirtData;
 use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
 use crate::nvlink::NmxmClientPool;
-use crate::redfish::RedfishClientPool;
 use crate::scout_stream::ConnectionRegistry;
 use crate::site_explorer::EndpointExplorer;
 use crate::state_controller::controller::Enqueuer;
@@ -500,7 +500,7 @@ impl Forge for Api {
     async fn list_health_report_overrides(
         &self,
         request: Request<MachineId>,
-    ) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
+    ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
         crate::handlers::health::list_health_report_overrides(self, request).await
     }
 
@@ -521,7 +521,7 @@ impl Forge for Api {
     async fn list_rack_health_report_overrides(
         &self,
         request: Request<rpc::ListRackHealthReportOverridesRequest>,
-    ) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
+    ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
         crate::handlers::rack::list_rack_health_report_overrides(self, request).await
     }
 
@@ -537,6 +537,48 @@ impl Forge for Api {
         request: Request<rpc::RemoveRackHealthReportOverrideRequest>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::rack::remove_rack_health_report_override(self, request).await
+    }
+
+    async fn list_switch_health_reports(
+        &self,
+        request: Request<rpc::ListSwitchHealthReportsRequest>,
+    ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
+        crate::handlers::switch::list_switch_health_reports(self, request).await
+    }
+
+    async fn insert_switch_health_report(
+        &self,
+        request: Request<rpc::InsertSwitchHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::switch::insert_switch_health_report(self, request).await
+    }
+
+    async fn remove_switch_health_report(
+        &self,
+        request: Request<rpc::RemoveSwitchHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::switch::remove_switch_health_report(self, request).await
+    }
+
+    async fn list_power_shelf_health_reports(
+        &self,
+        request: Request<rpc::ListPowerShelfHealthReportsRequest>,
+    ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
+        crate::handlers::power_shelf::list_power_shelf_health_reports(self, request).await
+    }
+
+    async fn insert_power_shelf_health_report(
+        &self,
+        request: Request<rpc::InsertPowerShelfHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::power_shelf::insert_power_shelf_health_report(self, request).await
+    }
+
+    async fn remove_power_shelf_health_report(
+        &self,
+        request: Request<rpc::RemovePowerShelfHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::power_shelf::remove_power_shelf_health_report(self, request).await
     }
 
     async fn get_all_domain_metadata(
@@ -1108,11 +1150,11 @@ impl Forge for Api {
         crate::handlers::rack::delete_rack(self, request).await
     }
 
-    async fn get_rack_capabilities(
+    async fn get_rack_profile(
         &self,
-        request: Request<rpc::GetRackCapabilitiesRequest>,
-    ) -> Result<Response<rpc::GetRackCapabilitiesResponse>, Status> {
-        crate::handlers::rack::get_rack_capabilities(self, request).await
+        request: Request<rpc::GetRackProfileRequest>,
+    ) -> Result<Response<rpc::GetRackProfileResponse>, Status> {
+        crate::handlers::rack::get_rack_profile(self, request).await
     }
 
     /// Trigger DPU reprovisioning
@@ -1142,6 +1184,14 @@ impl Forge for Api {
         request: Request<MachineId>,
     ) -> Result<Response<()>, Status> {
         crate::handlers::host_reprovisioning::mark_manual_firmware_upgrade_complete(self, request)
+            .await
+    }
+
+    async fn report_scout_firmware_upgrade_status(
+        &self,
+        request: Request<rpc::ScoutFirmwareUpgradeStatusRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::host_reprovisioning::report_scout_firmware_upgrade_status(self, request)
             .await
     }
 
@@ -2858,55 +2908,51 @@ impl Forge for Api {
 
     async fn sign_machine_identity(
         &self,
-        _request: tonic::Request<rpc::MachineIdentityRequest>,
+        request: tonic::Request<rpc::MachineIdentityRequest>,
     ) -> Result<Response<rpc::MachineIdentityResponse>, Status> {
-        // TODO: enable after implementing this function fully
-        //return crate::handlers::machine_identity::sign_machine_identity(self, request).await;
-        Err(tonic::Status::unimplemented(
-            "machine identity API is temporarily disabled",
-        ))
+        crate::handlers::machine_identity::sign_machine_identity(self, request).await
     }
 
-    async fn get_identity_configuration(
+    async fn get_tenant_identity_configuration(
         &self,
-        request: Request<rpc::GetIdentityConfigRequest>,
-    ) -> Result<Response<rpc::IdentityConfigResponse>, Status> {
-        crate::handlers::identity_config::get_identity_configuration(self, request).await
+        request: Request<rpc::GetTenantIdentityConfigRequest>,
+    ) -> Result<Response<rpc::TenantIdentityConfigResponse>, Status> {
+        crate::handlers::tenant_identity_config::get_configuration(self, request).await
     }
 
-    async fn set_identity_configuration(
+    async fn set_tenant_identity_configuration(
         &self,
-        request: tonic::Request<rpc::IdentityConfigRequest>,
-    ) -> Result<Response<rpc::IdentityConfigResponse>, Status> {
-        crate::handlers::identity_config::set_identity_configuration(self, request).await
+        request: tonic::Request<rpc::SetTenantIdentityConfigRequest>,
+    ) -> Result<Response<rpc::TenantIdentityConfigResponse>, Status> {
+        crate::handlers::tenant_identity_config::set_configuration(self, request).await
     }
 
-    async fn delete_identity_configuration(
+    async fn delete_tenant_identity_configuration(
         &self,
-        request: Request<rpc::GetIdentityConfigRequest>,
+        request: Request<rpc::GetTenantIdentityConfigRequest>,
     ) -> Result<Response<()>, Status> {
-        crate::handlers::identity_config::delete_identity_configuration(self, request).await
+        crate::handlers::tenant_identity_config::delete_configuration(self, request).await
     }
 
     async fn get_token_delegation(
         &self,
         request: Request<rpc::GetTokenDelegationRequest>,
     ) -> Result<Response<rpc::TokenDelegationResponse>, Status> {
-        crate::handlers::identity_config::get_token_delegation(self, request).await
+        crate::handlers::tenant_identity_config::get_token_delegation(self, request).await
     }
 
     async fn set_token_delegation(
         &self,
         request: Request<rpc::TokenDelegationRequest>,
     ) -> Result<Response<rpc::TokenDelegationResponse>, Status> {
-        crate::handlers::identity_config::set_token_delegation(self, request).await
+        crate::handlers::tenant_identity_config::set_token_delegation(self, request).await
     }
 
     async fn delete_token_delegation(
         &self,
         request: Request<rpc::GetTokenDelegationRequest>,
     ) -> Result<Response<()>, Status> {
-        crate::handlers::identity_config::delete_token_delegation(self, request).await
+        crate::handlers::tenant_identity_config::delete_token_delegation(self, request).await
     }
 
     async fn get_jwks(
@@ -3253,7 +3299,7 @@ pub(crate) fn log_tenant_organization_id(organization_id: &str) {
     tracing::Span::current().record("tenant.organization_id", organization_id);
 }
 
-fn truncate(mut s: String, len: usize) -> String {
+pub(crate) fn truncate(mut s: String, len: usize) -> String {
     if s.len() < len || len < 3 {
         return s;
     }

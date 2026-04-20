@@ -1,0 +1,49 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Large ER diagrams: constrain scroll to a viewport-sized region so horizontal
+ * scrollbars sit at the bottom of this region (always reachable while panning
+ * the diagram vertically), instead of only at the bottom of the entire page.
+ *
+ * mdBook caps prose at .content main { max-width: 750px }. The diagram viewer
+ * breaks out to the full content column width so the visible scroll area is not
+ * limited to that narrow band.
+ */
+#mdbook-content.content {
+    container-type: inline-size;
+    container-name: mdbook-content;
+}
+
+.schema-er-scroll {
+    max-height: min(85vh, calc(100vh - 8rem));
+    overflow: auto;
+    min-width: 0;
+    box-sizing: border-box;
+    /* Full width of #mdbook-content, not the 750px main column */
+    width: 100cqw;
+    margin-left: calc(50% - 50cqw);
+}
+
+/* Older browsers: approximate full-bleed to viewport minus page padding */
+@supports not (width: 1cqw) {
+    .schema-er-scroll {
+        width: calc(100vw - 2 * var(--page-padding, 15px));
+        margin-left: calc(50% - 50vw);
+    }
+}
+
+/*
+ * Without this, the scroll box becomes the percentage-width containing block and
+ * themes / Mermaid still apply max-width:100% on the SVG — the diagram shrinks
+ * to the column again (same as useMaxWidth:true). Size the block to content so
+ * er.useMaxWidth:false + direction LR stay effective; scrolling handles overflow.
+ */
+.schema-er-scroll .mermaid {
+    width: max-content;
+    max-width: none;
+}
+
+.schema-er-scroll .mermaid svg {
+    max-width: none !important;
+}

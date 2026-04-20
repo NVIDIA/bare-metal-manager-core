@@ -578,7 +578,7 @@ SRE can also check the InfiniBand fabric monitor metrics emitted by NICo to dete
 * First NICo could not connect to UFM to invalid credentials
 * Fixing the credentials provided access and lead UFM metrics (version number) to be emitted
 
-![alt text](../images/ib_ufm_ver.png)
+![alt text](../static/playbooks/ib_ufm_ver.png)
 
 ### How to check the log of UFM?
 

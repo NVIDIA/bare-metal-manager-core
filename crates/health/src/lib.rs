@@ -30,6 +30,7 @@ pub mod discovery;
 pub mod endpoint;
 pub mod limiter;
 pub mod metrics;
+pub mod otlp;
 pub mod processor;
 pub mod sharding;
 pub mod sink;
@@ -47,9 +48,10 @@ use crate::processor::{
     RackLeakProcessor,
 };
 use crate::sharding::ShardManager;
+use crate::sink::event_mapper::{OpenBmcEventMapper, RedfishEventMapper};
 use crate::sink::{
-    CompositeDataSink, DataSink, HealthOverrideSink, PrometheusSink, RackHealthOverrideSink,
-    TracingSink,
+    CompositeDataSink, DataSink, HealthOverrideSink, LogFileSink, OtlpSink, PrometheusSink,
+    RackHealthOverrideSink, TracingSink,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -80,6 +82,9 @@ pub enum HealthError {
 
     #[error("HTTP(S) error: {0}")]
     HttpError(String),
+
+    #[error("Redfish SSE not available: {0}")]
+    SseNotAvailable(String),
 }
 
 impl From<String> for HealthError {
@@ -155,7 +160,6 @@ fn build_data_sink(
         )?));
     }
 
-    // Enable HealthReport processor only if it has consumers
     if config.sinks.tracing.is_enabled()
         || config.sinks.health_override.is_enabled()
         || config.processors.leak_detection.is_enabled()
@@ -175,6 +179,12 @@ fn build_data_sink(
         )));
     }
 
+    if let Configurable::Enabled(ref sink_cfg) = config.sinks.log_file {
+        sinks.push(Arc::new(
+            LogFileSink::new(sink_cfg).map_err(HealthError::GenericError)?,
+        ));
+    }
+
     if let Configurable::Enabled(ref sink_cfg) = config.sinks.health_override {
         sinks.push(Arc::new(HealthOverrideSink::new(sink_cfg)?));
     }
@@ -183,24 +193,32 @@ fn build_data_sink(
         sinks.push(Arc::new(RackHealthOverrideSink::new(sink_cfg)?));
     }
 
-    let data_sink = if sinks.is_empty() {
-        None
-    } else {
-        let composite_sink: Arc<dyn DataSink> =
-            Arc::new(CompositeDataSink::new(sinks, metrics_manager.clone()));
+    if let Configurable::Enabled(ref otlp_cfg) = config.sinks.otlp {
+        let mapper: Arc<dyn RedfishEventMapper> = Arc::new(OpenBmcEventMapper);
+        sinks.push(Arc::new(OtlpSink::new(
+            otlp_cfg,
+            mapper,
+            &metrics_manager,
+            &config.metrics.prefix,
+        )?));
+    }
 
-        if processors.is_empty() {
-            Some(composite_sink)
-        } else {
-            Some(Arc::new(EventProcessingPipeline::new(
-                processors,
-                composite_sink,
-                metrics_manager,
-            )) as Arc<dyn DataSink>)
-        }
-    };
+    if sinks.is_empty() {
+        return Ok(None);
+    }
 
-    Ok(data_sink)
+    let composite_sink: Arc<dyn DataSink> =
+        Arc::new(CompositeDataSink::new(sinks, metrics_manager.clone()));
+
+    if processors.is_empty() {
+        return Ok(Some(composite_sink));
+    }
+
+    Ok(Some(Arc::new(EventProcessingPipeline::new(
+        processors,
+        composite_sink,
+        metrics_manager,
+    ))))
 }
 
 pub async fn run_service(config: Config) -> Result<(), HealthError> {

@@ -10,6 +10,8 @@ authors.workspace = true
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 carbide-api = { path = "../api", default-features = false }
 carbide-secrets = { path = "../secrets" }
+carbide-ipmi = { path = "../ipmi" }
+carbide-redfish = { path = "../redfish" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM
 
 #these are alphabetized

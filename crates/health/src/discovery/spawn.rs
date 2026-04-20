@@ -15,18 +15,18 @@
  * limitations under the License.
  */
 
-use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::context::{BmcClient, CollectorKind, DiscoveryLoopContext};
 use crate::HealthError;
 use crate::collectors::{
-    Collector, CollectorStartContext, FirmwareCollector, FirmwareCollectorConfig, LogsCollector,
-    LogsCollectorConfig, NmxtCollector, NmxtCollectorConfig, NvueRestCollector,
-    NvueRestCollectorConfig, SensorCollector, SensorCollectorConfig, create_log_file_writer,
+    BackoffConfig, Collector, CollectorStartContext, FirmwareCollector, FirmwareCollectorConfig,
+    LogsCollector, LogsCollectorConfig, NmxtCollector, NmxtCollectorConfig, NvueRestCollector,
+    NvueRestCollectorConfig, SensorCollector, SensorCollectorConfig, SseLogCollector,
+    SseLogCollectorConfig, StreamingCollectorStartContext,
 };
-use crate::config::Configurable;
+use crate::config::{Configurable, LogCollectionMode};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata};
 use crate::sink::DataSink;
 
@@ -40,8 +40,8 @@ pub(super) async fn spawn_collectors_for_endpoint(
     data_sink: Option<Arc<dyn DataSink>>,
     metrics_prefix: &str,
 ) -> Result<(), HealthError> {
-    let key: Cow<'static, str> = Cow::Owned(endpoint.identity().into_owned());
-    let endpoint_arc = Arc::clone(endpoint);
+    let key = endpoint.hash_key();
+    let endpoint_arc = endpoint.clone();
     if let Configurable::Enabled(sensor_cfg) = &ctx.sensors_config
         && !ctx.collectors.contains(CollectorKind::Sensor, &key)
     {
@@ -88,68 +88,81 @@ pub(super) async fn spawn_collectors_for_endpoint(
     if let Configurable::Enabled(logs_cfg) = &ctx.logs_config
         && !ctx.collectors.contains(CollectorKind::Logs, &key)
     {
-        let endpoint_id = key.clone().into_owned();
-        let state_file_path = logs_state_file_path(&logs_cfg.logs_state_file, &endpoint_id);
+        let collector_registry = Arc::new(ctx.metrics_manager.create_collector_registry(
+            format!("log_collector_{}", endpoint.hash_key()),
+            metrics_prefix,
+        )?);
 
-        let log_writer = match create_log_file_writer(
-            PathBuf::from(&logs_cfg.logs_output_dir),
-            endpoint_id.clone(),
-            logs_cfg.logs_max_file_size,
-            logs_cfg.logs_max_backups,
-        )
-        .await
-        {
-            Ok(writer) => Some(Arc::new(tokio::sync::Mutex::new(writer))),
-            Err(error) => {
-                tracing::error!(
-                    ?error,
-                    endpoint_id = %endpoint_id,
-                    "Failed to create log file writer, skipping logs collector"
-                );
-                None
+        let result = match logs_cfg.mode {
+            LogCollectionMode::Sse => {
+                if let Some(data_sink) = data_sink.clone() {
+                    Some(Collector::start_streaming::<SseLogCollector<BmcClient>>(
+                        endpoint_arc.clone(),
+                        SseLogCollectorConfig,
+                        data_sink,
+                        StreamingCollectorStartContext {
+                            backoff_config: BackoffConfig::default(),
+                            collector_registry,
+                            client: ctx.client.clone(),
+                            health_options: ctx.config.clone(),
+                        },
+                    ))
+                } else {
+                    tracing::warn!("SSE log collector requires a data sink, skipping");
+                    None
+                }
+            }
+            LogCollectionMode::Periodic => {
+                if let Some(pcfg) = &logs_cfg.periodic {
+                    let endpoint_id = endpoint.log_identity().into_owned();
+                    let state_file_path = logs_state_file_path(&pcfg.logs_state_file, &endpoint_id);
+
+                    Some(Collector::start::<LogsCollector<BmcClient>>(
+                        endpoint_arc.clone(),
+                        LogsCollectorConfig {
+                            state_file_path,
+                            service_refresh_interval: pcfg.state_refresh_interval,
+                            data_sink: data_sink.clone(),
+                        },
+                        CollectorStartContext {
+                            limiter: ctx.limiter.clone(),
+                            iteration_interval: pcfg.logs_collection_interval,
+                            collector_registry,
+                            metrics_manager: ctx.metrics_manager.clone(),
+                            client: ctx.client.clone(),
+                            health_options: ctx.config.clone(),
+                        },
+                    ))
+                } else {
+                    tracing::error!(
+                        endpoint = ?endpoint.addr,
+                        "periodic log config missing but mode is periodic, skipping"
+                    );
+                    None
+                }
             }
         };
 
-        if let Some(log_writer) = log_writer {
-            let collector_registry = Arc::new(
-                ctx.metrics_manager
-                    .create_collector_registry(format!("log_collector_{key}"), metrics_prefix)?,
-            );
-
-            match Collector::start::<LogsCollector<BmcClient>>(
-                endpoint_arc.clone(),
-                LogsCollectorConfig {
-                    state_file_path,
-                    service_refresh_interval: logs_cfg.state_refresh_interval,
-                    log_writer,
-                    data_sink: data_sink.clone(),
-                },
-                CollectorStartContext {
-                    limiter: ctx.limiter.clone(),
-                    iteration_interval: logs_cfg.logs_collection_interval,
-                    collector_registry,
-                    metrics_manager: ctx.metrics_manager.clone(),
-                    client: ctx.client.clone(),
-                    health_options: ctx.config.clone(),
-                },
-            ) {
-                Ok(collector) => {
-                    ctx.collectors
-                        .insert(CollectorKind::Logs, key.clone(), collector);
-                    tracing::info!(
-                        endpoint_key = %key,
-                        total_collectors = ctx.collectors.len(CollectorKind::Logs),
-                        "Started logs collection for BMC endpoint"
-                    );
-                }
-                Err(error) => {
-                    tracing::error!(
-                        ?error,
-                        "Could not start logs collector for: {:?}",
-                        endpoint.addr
-                    )
-                }
+        match result {
+            Some(Ok(collector)) => {
+                ctx.collectors
+                    .insert(CollectorKind::Logs, key.clone(), collector);
+                tracing::info!(
+                    endpoint_key = %key,
+                    mode = ?logs_cfg.mode,
+                    total_collectors = ctx.collectors.len(CollectorKind::Logs),
+                    "Started logs collection for BMC endpoint"
+                );
             }
+            Some(Err(error)) => {
+                tracing::error!(
+                    ?error,
+                    mode = ?logs_cfg.mode,
+                    "Could not start logs collector for: {:?}",
+                    endpoint.addr
+                );
+            }
+            None => {}
         }
     }
 
@@ -316,7 +329,7 @@ mod tests {
             None,
         );
 
-        assert_eq!(endpoint.identity().as_ref(), "AA:BB:CC:DD:EE:FF");
+        assert_eq!(endpoint.log_identity().as_ref(), "AA:BB:CC:DD:EE:FF");
     }
 
     #[test]
@@ -337,7 +350,7 @@ mod tests {
             None,
         );
 
-        assert_eq!(endpoint.identity().as_ref(), "switch-serial-1");
+        assert_eq!(endpoint.log_identity().as_ref(), "switch-serial-1");
     }
 
     #[tokio::test]

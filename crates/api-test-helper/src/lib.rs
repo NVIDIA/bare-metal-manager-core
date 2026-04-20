@@ -28,6 +28,7 @@ pub mod tenant;
 pub mod utils;
 pub mod vault;
 pub mod vpc;
+pub mod vpc_prefix;
 
 pub use utils::IntegrationTestEnvironment;
 

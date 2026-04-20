@@ -597,7 +597,7 @@ dependencies = [
  "rustversion",
  "serde",
  "sync_wrapper",
- "tower 0.5.3",
+ "tower 0.5.2",
  "tower-layer",
  "tower-service",
 ]
@@ -630,7 +630,7 @@ dependencies = [
  "serde_urlencoded",
  "sync_wrapper",
  "tokio",
- "tower 0.5.3",
+ "tower 0.5.2",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -729,16 +729,16 @@ dependencies = [
  "axum 0.8.6",
  "cached",
  "http",
- "tower 0.5.3",
+ "tower 0.5.2",
  "tracing",
  "tracing-futures",
 ]
 
 [[package]]
 name = "axum-server"
-version = "0.7.3"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1ab4a3ec9ea8a657c72d99a03a824af695bd0fb5ec639ccbd9cd3543b41a5f9"
+checksum = "495c05f60d6df0093e8fb6e74aa5846a0ad06abaf96d76166283720bf740f8ab"
 dependencies = [
  "arc-swap",
  "bytes",
@@ -998,6 +998,8 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "carbide-api",
+ "carbide-ipmi",
+ "carbide-redfish",
  "carbide-secrets",
  "clap",
  "libredfish",
@@ -1042,7 +1044,7 @@ dependencies = [
  "tar",
  "thiserror 2.0.17",
  "tokio",
- "tower 0.5.3",
+ "tower 0.5.2",
  "tower-http",
  "tracing",
  "tracing-subscriber",
@@ -1236,7 +1238,7 @@ dependencies = [
  "serde_yaml",
  "tokio",
  "toml 0.8.23",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tracing",
  "tracing-subscriber",
  "urlencoding",
@@ -1321,10 +1323,10 @@ dependencies = [
  "surge-ping",
  "tempfile",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tonic-prost",
  "tonic-prost-build",
- "tower 0.5.3",
+ "tower 0.5.2",
  "tower-http",
  "tracing",
  "uuid",
@@ -1355,12 +1357,14 @@ dependencies = [
  "carbide-dpf",
  "carbide-health-report",
  "carbide-host-support",
+ "carbide-ipmi",
  "carbide-ipxe-renderer",
  "carbide-libmlx",
  "carbide-macros",
  "carbide-measured-boot",
  "carbide-network",
  "carbide-prost-builder",
+ "carbide-redfish",
  "carbide-rpc",
  "carbide-secrets",
  "carbide-sqlx-testing",
@@ -1451,9 +1455,9 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "toml 0.8.23",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tonic-reflection",
- "tower 0.5.3",
+ "tower 0.5.2",
  "tower-http",
  "tower-test",
  "tracing",
@@ -1513,7 +1517,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "toml 0.8.23",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -1528,12 +1532,16 @@ dependencies = [
  "bmc-mock",
  "carbide-api-test-helper",
  "carbide-machine-a-tron",
+ "carbide-secrets",
  "carbide-utils",
  "ctor",
  "eyre",
  "futures",
  "itertools 0.14.0",
+ "mac_address",
+ "opentelemetry",
  "serde_json",
+ "serial_test",
  "sqlx",
  "temp-dir",
  "tokio",
@@ -1626,7 +1634,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tokio-util",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -1639,8 +1647,8 @@ dependencies = [
  "hyper",
  "serde",
  "thiserror 2.0.17",
- "tonic 0.14.5",
- "tower 0.5.3",
+ "tonic 0.14.2",
+ "tower 0.5.2",
  "tracing",
  "x509-parser",
 ]
@@ -1688,7 +1696,7 @@ dependencies = [
  "tokio-rustls 0.26.4",
  "tokio-stream",
  "tokio-util",
- "tower 0.5.3",
+ "tower 0.5.2",
  "tower-http",
  "tracing",
  "tracing-log",
@@ -1712,7 +1720,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.17",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tracing",
 ]
 
@@ -1747,7 +1755,7 @@ dependencies = [
  "test-cdylib",
  "tokio",
  "tokio-util",
- "tonic 0.14.5",
+ "tonic 0.14.2",
 ]
 
 [[package]]
@@ -1773,7 +1781,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tokio-util",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tonic-prost",
  "tonic-prost-build",
  "tracing",
@@ -1801,7 +1809,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "toml 0.8.23",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -1856,7 +1864,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.17",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tracing",
 ]
 
@@ -1881,7 +1889,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.17",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tracing",
  "tracing-subscriber",
  "typed-builder 0.20.1",
@@ -1901,7 +1909,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tracing",
  "uuid",
 ]
@@ -1929,7 +1937,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -1957,7 +1965,7 @@ dependencies = [
  "nonzero_ext",
  "prost 0.14.1",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tonic-prost",
  "tracing",
  "uuid",
@@ -1967,6 +1975,7 @@ dependencies = [
 name = "carbide-health"
 version = "0.0.1"
 dependencies = [
+ "async-trait",
  "base64 0.22.1",
  "carbide-health-report",
  "carbide-rpc",
@@ -1988,15 +1997,20 @@ dependencies = [
  "mac_address",
  "nv-redfish",
  "prometheus",
+ "prost 0.14.1",
+ "prost-types 0.14.1",
  "rand 0.9.2",
  "reqwest",
  "serde",
  "serde_json",
  "serde_with",
+ "tempfile",
  "thiserror 2.0.17",
  "tokio",
  "tokio-util",
- "tonic 0.14.5",
+ "tonic 0.14.2",
+ "tonic-prost",
+ "tonic-prost-build",
  "tracing",
  "tracing-subscriber",
  "url",
@@ -2037,7 +2051,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "toml 0.8.23",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tracing",
  "tracing-subscriber",
  "tryhard",
@@ -2059,6 +2073,22 @@ dependencies = [
  "tower-service",
  "tracing",
  "tryhard",
+]
+
+[[package]]
+name = "carbide-ipmi"
+version = "0.0.1"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "carbide-secrets",
+ "carbide-utils",
+ "carbide-uuid",
+ "eyre",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tracing",
 ]
 
 [[package]]
@@ -2144,7 +2174,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.2",
 ]
 
 [[package]]
@@ -2154,6 +2184,7 @@ dependencies = [
  "axum 0.8.6",
  "base64 0.22.1",
  "bmc-mock",
+ "carbide-network",
  "carbide-rpc",
  "carbide-tls",
  "carbide-uuid",
@@ -2178,7 +2209,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "toml 0.8.23",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -2200,7 +2231,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.17",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tracing",
 ]
 
@@ -2229,7 +2260,7 @@ dependencies = [
  "serde",
  "sqlx",
  "thiserror 2.0.17",
- "tonic 0.14.5",
+ "tonic 0.14.2",
 ]
 
 [[package]]
@@ -2302,12 +2333,36 @@ dependencies = [
  "tera",
  "tokio",
  "toml 0.8.23",
- "tonic 0.14.5",
- "tower 0.5.3",
+ "tonic 0.14.2",
+ "tower 0.5.2",
  "tower-http",
  "tower-layer",
  "tower-service",
  "uuid",
+]
+
+[[package]]
+name = "carbide-redfish"
+version = "0.0.1"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-secrets",
+ "carbide-utils",
+ "chrono",
+ "http",
+ "libredfish",
+ "mac_address",
+ "nv-redfish",
+ "reqwest",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -2347,11 +2402,11 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tokio-stream",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tonic-client-wrapper 0.1.0",
  "tonic-prost",
  "tonic-prost-build",
- "tower 0.5.3",
+ "tower 0.5.2",
  "tracing",
  "tryhard",
  "uuid",
@@ -2391,7 +2446,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tokio-stream",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tracing",
  "tryhard",
  "tss-esapi",
@@ -2497,7 +2552,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "toml 0.8.23",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -2525,7 +2580,7 @@ dependencies = [
  "rustls 0.23.34",
  "rustls-pemfile",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tonic-prost",
  "tonic-prost-build",
  "tracing",
@@ -2548,7 +2603,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.17",
- "tonic 0.14.5",
+ "tonic 0.14.2",
 ]
 
 [[package]]
@@ -2567,6 +2622,7 @@ dependencies = [
  "humantime",
  "ipnetwork",
  "itertools 0.14.0",
+ "opentelemetry",
  "prettytable-rs",
  "serde",
  "serde_json",
@@ -2574,7 +2630,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.17",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tracing",
 ]
 
@@ -2590,7 +2646,7 @@ dependencies = [
  "sha2 0.10.9",
  "sqlx",
  "thiserror 2.0.17",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "uuid",
 ]
 
@@ -2926,7 +2982,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2954,6 +3010,7 @@ dependencies = [
  "carbide-macros",
  "carbide-sqlx-testing",
  "carbide-uuid",
+ "chrono",
  "librms",
  "mac_address",
  "prost 0.14.1",
@@ -2962,7 +3019,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.17",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tonic-prost",
  "tonic-prost-build",
  "tracing",
@@ -4292,9 +4349,9 @@ dependencies = [
 
 [[package]]
 name = "futures-channel"
-version = "0.3.32"
+version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07bbe89c50d7a535e539b8c17bc0b49bdb77747034daa8087407d655f3f7cc1d"
+checksum = "2dff15bf788c671c1934e366d07e30c1814a8ef514e1af724a602e8a2fbe1b10"
 dependencies = [
  "futures-core",
  "futures-sink",
@@ -4302,9 +4359,9 @@ dependencies = [
 
 [[package]]
 name = "futures-core"
-version = "0.3.32"
+version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e3450815272ef58cec6d564423f6e755e25379b217b0bc688e295ba24df6b1d"
+checksum = "05f29059c0c2090612e8d742178b0580d2dc940c837851ad723096f87af6663e"
 
 [[package]]
 name = "futures-executor"
@@ -4330,9 +4387,9 @@ dependencies = [
 
 [[package]]
 name = "futures-io"
-version = "0.3.32"
+version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cecba35d7ad927e23624b22ad55235f2239cfa44fd10428eecbeba6d6a717718"
+checksum = "9e5c1b78ca4aae1ac06c48a526a655760685149f0d465d21f37abfe57ce075c6"
 
 [[package]]
 name = "futures-lite"
@@ -4349,9 +4406,9 @@ dependencies = [
 
 [[package]]
 name = "futures-macro"
-version = "0.3.32"
+version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e835b70203e41293343137df5c0664546da5745f82ec9b84d40be8336958447b"
+checksum = "162ee34ebcb7c64a8abebc059ce0fee27c2262618d7b60ed8faf72fef13c3650"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4360,15 +4417,15 @@ dependencies = [
 
 [[package]]
 name = "futures-sink"
-version = "0.3.32"
+version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c39754e157331b013978ec91992bde1ac089843443c49cbc7f46150b0fad0893"
+checksum = "e575fab7d1e0dcb8d0c7bcf9a63ee213816ab51902e6d244a95819acacf1d4f7"
 
 [[package]]
 name = "futures-task"
-version = "0.3.32"
+version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "037711b3d59c33004d3856fbdc83b99d4ff37a24768fa1be9ce3538a1cde4393"
+checksum = "f90f7dce0722e95104fcb095585910c0977252f286e354b5e3bd38902cd99988"
 
 [[package]]
 name = "futures-timer"
@@ -4378,9 +4435,9 @@ checksum = "f288b0a4f20f9a56b5d1da57e2227c661b7b16168e2f72365f57b63326e29b24"
 
 [[package]]
 name = "futures-util"
-version = "0.3.32"
+version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "389ca41296e6190b48053de0321d02a77f32f8a5d2461dd38762c0593805c6d6"
+checksum = "9fa08315bb612088cc391249efdc3bc77536f16c91f6cf495e6fbe85b20a4a81"
 dependencies = [
  "futures-channel",
  "futures-core",
@@ -4390,6 +4447,7 @@ dependencies = [
  "futures-task",
  "memchr",
  "pin-project-lite",
+ "pin-utils",
  "slab",
 ]
 
@@ -4923,9 +4981,9 @@ dependencies = [
 
 [[package]]
 name = "hyper"
-version = "1.9.0"
+version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6299f016b246a94207e63da54dbe807655bf9e00044f73ded42c3ac5305fbcca"
+checksum = "eb3aa54a13a0dfe7fbe3a59e0c76093041720fdc77b110cc0fc260fafb4dc51e"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -4938,6 +4996,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
+ "pin-utils",
  "smallvec",
  "tokio",
  "want",
@@ -5583,7 +5642,7 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tokio-util",
- "tower 0.5.3",
+ "tower 0.5.2",
  "tower-http",
  "tracing",
 ]
@@ -5821,11 +5880,11 @@ dependencies = [
  "serde",
  "thiserror 2.0.17",
  "tokio",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tonic-client-wrapper 1.0.0",
  "tonic-prost",
  "tonic-prost-build",
- "tower 0.5.3",
+ "tower 0.5.2",
  "tracing",
  "tryhard",
 ]
@@ -6638,9 +6697,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bbabc6ec4282913f6aed55ae46cf9b381ec185de12839b714005eda7ef59b7a"
+checksum = "89af886c6d5fe2a3296b2c3a20b93fd5cedcf6d20f421550c1b42b4cdf439f0a"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -6654,9 +6713,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-bmc-http"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0417d9aab9f91c3cc38713ea839a7a1e1a7eea83e01693b2c4d2006e99e989f"
+checksum = "00fcb3fea4212eac654f9c64f39145938bc36ce9f9b41083abcfdd2db4521c83"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -6674,9 +6733,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-core"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36c747366715084fc42415623d78109a3db13afdfe02eb11e595d05b5474caac"
+checksum = "7464778f7f5174af13481491d8ac2e60c1541158d7b7848f34e9d7df7eea8d45"
 dependencies = [
  "futures-core",
  "rust_decimal",
@@ -6688,9 +6747,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-csdl-compiler"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a526c4b2f23ef1766572a24bd9c88a85ab45e8610114b811d7e6a6669f0139b"
+checksum = "b05fb324cb8daa29ced5b019fa2ebd8a0374417a141331b0629df9438e31eb2c"
 dependencies = [
  "clap",
  "clap_derive",
@@ -6722,7 +6781,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "chrono",
  "getrandom 0.2.16",
  "http",
@@ -7691,7 +7750,7 @@ version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -7711,7 +7770,7 @@ version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac6c3320f9abac597dcbc668774ef006702672474aad53c6d596b62e487b40b1"
 dependencies = [
- "heck 0.4.1",
+ "heck 0.5.0",
  "itertools 0.14.0",
  "log",
  "multimap",
@@ -8202,7 +8261,7 @@ dependencies = [
  "tokio",
  "tokio-rustls 0.26.4",
  "tokio-util",
- "tower 0.5.3",
+ "tower 0.5.2",
  "tower-http",
  "tower-service",
  "url",
@@ -10283,9 +10342,9 @@ dependencies = [
 
 [[package]]
 name = "tonic"
-version = "0.14.5"
+version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fec7c61a0695dc1887c1b53952990f3ad2e3a31453e1f49f10e75424943a93ec"
+checksum = "eb7613188ce9f7df5bfe185db26c5814347d110db17920415cf2fbcad85e7203"
 dependencies = [
  "async-trait",
  "axum 0.8.6",
@@ -10305,7 +10364,7 @@ dependencies = [
  "tokio",
  "tokio-rustls 0.26.4",
  "tokio-stream",
- "tower 0.5.3",
+ "tower 0.5.2",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -10351,7 +10410,7 @@ dependencies = [
  "syn 2.0.117",
  "temp-dir",
  "thiserror 2.0.17",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tonic-prost-build",
 ]
 
@@ -10369,7 +10428,7 @@ dependencies = [
  "quote",
  "syn 2.0.117",
  "thiserror 2.0.17",
- "tonic 0.14.5",
+ "tonic 0.14.2",
  "tonic-prost-build",
 ]
 
@@ -10381,7 +10440,7 @@ checksum = "66bd50ad6ce1252d87ef024b3d64fe4c3cf54a86fb9ef4c631fdd0ded7aeaa67"
 dependencies = [
  "bytes",
  "prost 0.14.1",
- "tonic 0.14.5",
+ "tonic 0.14.2",
 ]
 
 [[package]]
@@ -10435,9 +10494,9 @@ dependencies = [
 
 [[package]]
 name = "tower"
-version = "0.5.3"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebe5ef63511595f1344e2d5cfa636d973292adc0eec1f0ad45fae9f0851ab1d4"
+checksum = "d039ad9159c98b70ecfd540b2573b97f7f52c3e8d9f8ad57a24b916a536975f9"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -10454,9 +10513,9 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
-version = "0.6.8"
+version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4e6559d53cc268e5031cd8429d05415bc4cb4aefc4aa5d6cc35fbf5b924a1f8"
+checksum = "adc82fd73de2a9722ac5da747f12383d2bfdb93591ee6c58486e0097890f05f2"
 dependencies = [
  "base64 0.22.1",
  "bitflags 2.10.0",
@@ -10475,7 +10534,7 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tokio-util",
- "tower 0.5.3",
+ "tower 0.5.2",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -10509,9 +10568,9 @@ dependencies = [
 
 [[package]]
 name = "tracing"
-version = "0.1.44"
+version = "0.1.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
+checksum = "2d15d90a0b5c19378952d479dc858407149d7bb45a14de0142f6c534b16fc647"
 dependencies = [
  "log",
  "pin-project-lite",
@@ -10544,9 +10603,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-core"
-version = "0.1.36"
+version = "0.1.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
+checksum = "7a04e24fab5c89c6a36eb8558c9656f30d81de51dfa4d3b45f26b21d61fa0a6c"
 dependencies = [
  "once_cell",
  "valuable",
@@ -11283,7 +11342,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

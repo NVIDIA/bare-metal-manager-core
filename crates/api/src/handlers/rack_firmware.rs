@@ -1011,12 +1011,15 @@ pub async fn apply(
     })?;
 
     // Validate firmware hardware type and firmware_type against rack capabilities.
-    if let Some(rack_type_name) = rack.config.rack_type.as_deref()
-        && let Some(capabilities) = api.runtime_config.rack_types.get(rack_type_name)
+    if let Some(rack_profile_id) = rack.rack_profile_id.as_ref()
+        && let Some(profile) = api
+            .runtime_config
+            .rack_profiles
+            .get(rack_profile_id.as_str())
     {
         // Validate firmware hardware type matches rack's hardware type.
         if !fw_config.rack_hardware_type.is_any()
-            && let Some(rack_hw_type) = &capabilities.rack_hardware_type
+            && let Some(rack_hw_type) = &profile.rack_hardware_type
             && *rack_hw_type != fw_config.rack_hardware_type
         {
             return Err(CarbideError::FailedPrecondition(format!(
@@ -1027,7 +1030,7 @@ pub async fn apply(
         }
 
         // Validate firmware_type matches rack's hardware class.
-        if let Some(rack_hw_class) = capabilities.rack_hardware_class {
+        if let Some(rack_hw_class) = profile.rack_hardware_class {
             let expected_fw_type = match rack_hw_class {
                 model::rack_type::RackHardwareClass::Dev => "dev",
                 model::rack_type::RackHardwareClass::Prod => "prod",

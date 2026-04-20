@@ -47,6 +47,14 @@ pub(super) enum CollectorKind {
 }
 
 impl CollectorKind {
+    pub(super) const ALL: [CollectorKind; 5] = [
+        CollectorKind::Sensor,
+        CollectorKind::Logs,
+        CollectorKind::Firmware,
+        CollectorKind::Nmxt,
+        CollectorKind::NvueRest,
+    ];
+
     pub(super) fn stop_message(self) -> &'static str {
         match self {
             CollectorKind::Sensor => "Stopping sensor collector for removed BMC endpoint",
@@ -87,7 +95,10 @@ impl CollectorState {
         }
     }
 
-    fn map_mut(&mut self, kind: CollectorKind) -> &mut HashMap<Cow<'static, str>, Collector> {
+    pub(super) fn map_mut(
+        &mut self,
+        kind: CollectorKind,
+    ) -> &mut HashMap<Cow<'static, str>, Collector> {
         match kind {
             CollectorKind::Sensor => &mut self.sensors,
             CollectorKind::Logs => &mut self.logs,
@@ -114,24 +125,19 @@ impl CollectorState {
         self.map(kind).len()
     }
 
-    pub(super) fn remove_inactive_collectors(
-        &mut self,
-        active_keys: &HashSet<&str>,
-    ) -> Vec<(CollectorKind, Cow<'static, str>, Collector)> {
-        [
-            (&mut self.sensors, CollectorKind::Sensor),
-            (&mut self.logs, CollectorKind::Logs),
-            (&mut self.firmware, CollectorKind::Firmware),
-            (&mut self.nmxt, CollectorKind::Nmxt),
-            (&mut self.nvue_rest, CollectorKind::NvueRest),
-        ]
-        .into_iter()
-        .flat_map(|(collectors, kind)| {
-            collectors
-                .extract_if(|key, _| !active_keys.contains(key.as_ref()))
-                .map(move |(k, v)| (kind, k, v))
-        })
-        .collect()
+    pub(super) fn removed_keys(
+        &self,
+        active_keys: &HashSet<Cow<'static, str>>,
+    ) -> HashSet<Cow<'static, str>> {
+        self.sensors
+            .keys()
+            .chain(self.logs.keys())
+            .chain(self.firmware.keys())
+            .chain(self.nmxt.keys())
+            .chain(self.nvue_rest.keys())
+            .filter(|key| !active_keys.contains(*key))
+            .cloned()
+            .collect()
     }
 }
 

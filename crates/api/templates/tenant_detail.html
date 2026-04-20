@@ -9,14 +9,9 @@
 <table class="detailsview">
 	<tr><th>Organization ID</th><td>{{ tenant.organization_id }}</td></tr>
 	<tr><th>Routing Profile Type</th><td>{{ tenant.routing_profile_type }}</td></tr>
-	<tr><th>Version</th><td>{{ tenant.version }}</td></tr>
 </table>
 
 <h2>Metadata</h2>
-<table class="detailsview">
-	<tr><th>Name</th><td>{{ tenant.metadata.name }}</td></tr>
-	<tr><th>Description</th><td>{{ tenant.metadata.description }}</td></tr>
-	<tr><th>Labels</th><td>{{ tenant.metadata.labels|label_list_fmt(false)|safe }}</td></tr>
-</table>
+{{ metadata_detail|safe }}
 
 {% endblock %}

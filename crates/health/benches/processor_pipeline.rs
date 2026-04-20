@@ -207,7 +207,7 @@ fn bench_pipeline_health_processors(c: &mut Criterion) {
         Arc::new(MetricsManager::new("bench").expect("metrics manager should initialize"));
 
     let processors: Vec<Arc<dyn EventProcessor>> = vec![
-        Arc::new(HealthReportProcessor::new()),
+        Arc::new(HealthReportProcessor::default()),
         Arc::new(LeakEventProcessor::new(1)),
     ];
     let pipeline = EventProcessingPipeline::new(
@@ -320,6 +320,6 @@ criterion_group!(
     bench_pipeline_baseline,
     bench_pipeline_health_processors,
     bench_pipeline_loop_guard,
-    bench_pipeline_rack_leak
+    bench_pipeline_rack_leak,
 );
 criterion_main!(benches);

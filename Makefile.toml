@@ -28,9 +28,13 @@ CARBIDE_ENVIRONMENT = { value = "local", condition = { env_not_set = [
 FORGE_CA = { value = "nonprod", condition = { env_not_set = ["FORGE_CA"] } }
 FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_${FORGE_CA}root.pem" }
 
-BUILD_CONTAINER_X86_URL = { value = "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest", condition = { env_not_set = ["BUILD_CONTAINER_X86_URL"] } }
+BUILD_CONTAINER_X86_URL = { value = "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/x86-64/build-container:latest", condition = { env_not_set = [
+  "BUILD_CONTAINER_X86_URL",
+] } }
 
-BUILD_CONTAINER_AARCH64_URL = { value = "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:latest", condition = { env_not_set = ["BUILD_CONTAINER_AARCH64_URL"] } }
+BUILD_CONTAINER_AARCH64_URL = { value = "urm.nvidia.com/swngc-ngcc-docker-local/forge/carbide/arm64v8/build-container:latest", condition = { env_not_set = [
+  "BUILD_CONTAINER_AARCH64_URL",
+] } }
 
 # Nightly is *ONLY* used for check-format-nightly, which enables a
 # more-opinionated rustfmt that sorts imports for us. rust-toolchain.toml is
@@ -607,18 +611,14 @@ workspace = false
 description = "Format with nightly rustfmt options for grouping and sorting import statements"
 category = "Formatting"
 dependencies = ["setup-nightly-rust"]
-script = [
-  "cargo +${RUST_NIGHTLY} fmt --all",
-]
+script = ["cargo +${RUST_NIGHTLY} fmt --all"]
 
 [tasks.check-format-nightly]
 workspace = false
 description = "Check format with nightly rustfmt options for grouping and sorting import statements"
 category = "Formatting"
 dependencies = ["setup-nightly-rust"]
-script = [
-  "cargo +${RUST_NIGHTLY} fmt --all -- --check",
-]
+script = ["cargo +${RUST_NIGHTLY} fmt --all -- --check"]
 
 [tasks.setup-carbide-lints]
 workspace = false

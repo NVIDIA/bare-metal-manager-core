@@ -17,6 +17,7 @@
 use std::io;
 use std::sync::Arc;
 
+mod acl;
 mod bmc_proxy;
 mod config;
 mod metrics;

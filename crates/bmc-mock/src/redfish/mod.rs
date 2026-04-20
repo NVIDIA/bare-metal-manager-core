@@ -31,6 +31,8 @@ pub mod network_adapter;
 pub mod network_device_function;
 pub mod oem;
 pub mod pcie_device;
+pub mod power_subsystem;
+pub mod power_supply;
 pub mod resource;
 pub mod secure_boot;
 pub mod sensor;

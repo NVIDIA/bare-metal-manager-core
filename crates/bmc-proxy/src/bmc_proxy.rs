@@ -72,6 +72,23 @@ struct BmcProxyState {
     credential_manager: Arc<dyn CredentialManager>,
 }
 
+impl BmcProxyState {
+    fn allows(&self, request: &Request<Body>) -> bool {
+        let Some(auth_context) = request.extensions().get::<AuthContext<()>>() else {
+            tracing::error!("BUG: No AuthContext middleware found, all requests will be denied");
+            return false;
+        };
+
+        auth_context.principals.iter().any(|princ| {
+            self.config.auth.acls.allows(
+                &princ.as_identifier(),
+                request.method(),
+                request.uri().path(),
+            )
+        })
+    }
+}
+
 pub async fn start(
     params: BmcProxyParams,
     cancel_token: CancellationToken,
@@ -417,6 +434,9 @@ async fn proxy_request(
     State(state): State<BmcProxyState>,
     request: Request<Body>,
 ) -> Result<Response<Body>, Response<Body>> {
+    if !state.allows(&request) {
+        return Ok(error_response((StatusCode::FORBIDDEN, "Forbidden").into()));
+    }
     let (parts, body) = request.into_parts();
     let target_ip = forwarded_host_ip(&parts.headers)
         .ok_or_else(|| {

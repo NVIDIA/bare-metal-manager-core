@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use ::rpc::forge::{self as rpc, AdminForceDeleteMachineResponse};
+use carbide_redfish::libredfish::RedfishAuth;
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::MachineId;
@@ -25,7 +26,7 @@ use db::{DatabaseError, WithTransaction, extension_service, network_security_gro
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use futures_util::FutureExt;
 use health_report::{
-    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, OverrideMode,
+    HealthAlertClassification, HealthProbeAlert, HealthProbeId, HealthReport, HealthReportApplyMode,
 };
 use itertools::Itertools as _;
 use model::ConfigValidationError;
@@ -52,7 +53,6 @@ use crate::instance::{
     InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
     validate_ib_partition_ownership, validate_os_definition_usable,
 };
-use crate::redfish::RedfishAuth;
 use crate::{CarbideError, CarbideResult};
 
 /// Represents the repair status label value set by RepairSystem
@@ -333,7 +333,7 @@ async fn apply_health_override(
     db::machine::insert_health_report_override(
         txn,
         machine_id,
-        OverrideMode::Merge,
+        HealthReportApplyMode::Merge,
         override_report,
         false,
     )
@@ -363,17 +363,22 @@ async fn remove_health_override(
     source: &str,
     operation_desc: &str,
 ) -> Result<(), CarbideError> {
-    db::machine::remove_health_report_override(txn, machine_id, OverrideMode::Merge, source)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                machine_id = %machine_id,
-                error = ?e,
-                operation = %operation_desc,
-                "Failed to remove health override"
-            );
-            CarbideError::from(e)
-        })?;
+    db::machine::remove_health_report_override(
+        txn,
+        machine_id,
+        HealthReportApplyMode::Merge,
+        source,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(
+            machine_id = %machine_id,
+            error = ?e,
+            operation = %operation_desc,
+            "Failed to remove health override"
+        );
+        CarbideError::from(e)
+    })?;
 
     tracing::info!(
         machine_id = %machine_id,
@@ -411,10 +416,7 @@ async fn handle_instance_release_from_repair_tenant(
     machine: &model::machine::Machine,
     tenant_organization_id: &str,
 ) -> Result<(), CarbideError> {
-    let has_request_repair = machine
-        .health_report_overrides
-        .merges
-        .contains_key("repair-request");
+    let has_request_repair = machine.health_reports.merges.contains_key("repair-request");
 
     if !has_request_repair {
         // No existing RequestRepair override
@@ -1503,7 +1505,7 @@ pub async fn force_delete_instance(
             .new_config
             .interfaces
             .iter()
-            .filter_map(|x| match x.network_details {
+            .filter_map(|x| match &x.network_details {
                 Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
                 _ => None,
             })
@@ -1513,7 +1515,7 @@ pub async fn force_delete_instance(
                 .old_config
                 .interfaces
                 .iter()
-                .filter_map(|x| match x.network_details {
+                .filter_map(|x| match &x.network_details {
                     Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
                     _ => None,
                 }),
@@ -1521,7 +1523,7 @@ pub async fn force_delete_instance(
     }
 
     network_segment_ids_with_vpc.extend(instance.config.network.interfaces.iter().filter_map(
-        |x| match x.network_details {
+        |x| match &x.network_details {
             Some(NetworkDetails::VpcPrefixId(_)) => x.network_segment_id,
             _ => None,
         },

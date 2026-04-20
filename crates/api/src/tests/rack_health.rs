@@ -16,7 +16,9 @@
  */
 
 use carbide_uuid::rack::RackId;
-use health_report::{HealthAlertClassification, HealthProbeAlert, HealthReport, OverrideMode};
+use health_report::{
+    HealthAlertClassification, HealthProbeAlert, HealthReport, HealthReportApplyMode,
+};
 use model::expected_machine::ExpectedMachineData;
 use model::machine::LoadSnapshotOptions;
 use model::rack::RackConfig;
@@ -80,9 +82,9 @@ async fn test_insert_list_remove_rack_override(
         .insert_rack_health_report_override(Request::new(
             rpc_forge::InsertRackHealthReportOverrideRequest {
                 rack_id: Some(rack_id.clone()),
-                r#override: Some(rpc_forge::HealthReportOverride {
+                health_report_entry: Some(rpc_forge::HealthReportEntry {
                     report: Some(report.clone().into()),
-                    mode: rpc_forge::OverrideMode::Merge as i32,
+                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
                 }),
             },
         ))
@@ -97,8 +99,8 @@ async fn test_insert_list_remove_rack_override(
         ))
         .await?
         .into_inner();
-    assert_eq!(list_resp.overrides.len(), 1);
-    let listed_report: HealthReport = list_resp.overrides[0]
+    assert_eq!(list_resp.health_report_entries.len(), 1);
+    let listed_report: HealthReport = list_resp.health_report_entries[0]
         .report
         .clone()
         .unwrap()
@@ -125,7 +127,7 @@ async fn test_insert_list_remove_rack_override(
         ))
         .await?
         .into_inner();
-    assert_eq!(list_resp.overrides.len(), 0);
+    assert_eq!(list_resp.health_report_entries.len(), 0);
 
     Ok(())
 }
@@ -147,9 +149,9 @@ async fn test_idempotent_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
             .insert_rack_health_report_override(Request::new(
                 rpc_forge::InsertRackHealthReportOverrideRequest {
                     rack_id: Some(rack_id.clone()),
-                    r#override: Some(rpc_forge::HealthReportOverride {
+                    health_report_entry: Some(rpc_forge::HealthReportEntry {
                         report: Some(report.clone().into()),
-                        mode: rpc_forge::OverrideMode::Merge as i32,
+                        mode: rpc_forge::HealthReportApplyMode::Merge as i32,
                     }),
                 },
             ))
@@ -165,7 +167,7 @@ async fn test_idempotent_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::e
         ))
         .await?
         .into_inner();
-    assert_eq!(list_resp.overrides.len(), 1);
+    assert_eq!(list_resp.health_report_entries.len(), 1);
 
     Ok(())
 }
@@ -213,9 +215,9 @@ async fn test_missing_rack_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::err
         .insert_rack_health_report_override(Request::new(
             rpc_forge::InsertRackHealthReportOverrideRequest {
                 rack_id: Some(nonexistent_rack_id),
-                r#override: Some(rpc_forge::HealthReportOverride {
+                health_report_entry: Some(rpc_forge::HealthReportEntry {
                     report: Some(report.into()),
-                    mode: rpc_forge::OverrideMode::Merge as i32,
+                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
                 }),
             },
         ))
@@ -254,9 +256,9 @@ async fn test_propagation_to_host_aggregate_health(
         .insert_rack_health_report_override(Request::new(
             rpc_forge::InsertRackHealthReportOverrideRequest {
                 rack_id: Some(rack_id.clone()),
-                r#override: Some(rpc_forge::HealthReportOverride {
+                health_report_entry: Some(rpc_forge::HealthReportEntry {
                     report: Some(report.into()),
-                    mode: rpc_forge::OverrideMode::Merge as i32,
+                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
                 }),
             },
         ))
@@ -316,9 +318,9 @@ async fn test_host_allocatability_blocked_by_rack_override(
         .insert_rack_health_report_override(Request::new(
             rpc_forge::InsertRackHealthReportOverrideRequest {
                 rack_id: Some(rack_id.clone()),
-                r#override: Some(rpc_forge::HealthReportOverride {
+                health_report_entry: Some(rpc_forge::HealthReportEntry {
                     report: Some(report.into()),
-                    mode: rpc_forge::OverrideMode::Merge as i32,
+                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
                 }),
             },
         ))
@@ -356,7 +358,7 @@ async fn test_host_replace_overrides_rack_alerts(
     send_health_report_override(
         &env,
         &host_machine_id,
-        (host_replace, OverrideMode::Replace),
+        (host_replace, HealthReportApplyMode::Replace),
     )
     .await;
 
@@ -366,10 +368,7 @@ async fn test_host_replace_overrides_rack_alerts(
         .with_rack_id(rack_id.clone())
         .persist(&mut txn)
         .await?;
-    let config = RackConfig {
-        rack_type: None,
-        ..Default::default()
-    };
+    let config = RackConfig::default();
     db::rack::update(&mut txn, &rack_id, &config).await?;
     drop(txn);
 
@@ -378,9 +377,9 @@ async fn test_host_replace_overrides_rack_alerts(
         .insert_rack_health_report_override(Request::new(
             rpc_forge::InsertRackHealthReportOverrideRequest {
                 rack_id: Some(rack_id.clone()),
-                r#override: Some(rpc_forge::HealthReportOverride {
+                health_report_entry: Some(rpc_forge::HealthReportEntry {
                     report: Some(rack_report.into()),
-                    mode: rpc_forge::OverrideMode::Merge as i32,
+                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
                 }),
             },
         ))
@@ -428,7 +427,7 @@ async fn test_host_replace_takes_full_precedence_over_rack_replace(
     send_health_report_override(
         &env,
         &host_machine_id,
-        (host_replace, OverrideMode::Replace),
+        (host_replace, HealthReportApplyMode::Replace),
     )
     .await;
 
@@ -438,10 +437,7 @@ async fn test_host_replace_takes_full_precedence_over_rack_replace(
         .with_rack_id(rack_id.clone())
         .persist(&mut txn)
         .await?;
-    let config = RackConfig {
-        rack_type: None,
-        ..Default::default()
-    };
+    let config = RackConfig::default();
     db::rack::update(&mut txn, &rack_id, &config).await?;
     drop(txn);
 
@@ -450,9 +446,9 @@ async fn test_host_replace_takes_full_precedence_over_rack_replace(
         .insert_rack_health_report_override(Request::new(
             rpc_forge::InsertRackHealthReportOverrideRequest {
                 rack_id: Some(rack_id.clone()),
-                r#override: Some(rpc_forge::HealthReportOverride {
+                health_report_entry: Some(rpc_forge::HealthReportEntry {
                     report: Some(rack_report.into()),
-                    mode: rpc_forge::OverrideMode::Replace as i32,
+                    mode: rpc_forge::HealthReportApplyMode::Replace as i32,
                 }),
             },
         ))
@@ -467,11 +463,7 @@ async fn test_host_replace_takes_full_precedence_over_rack_replace(
     .unwrap();
 
     assert!(
-        snapshot
-            .host_snapshot
-            .health_report_overrides
-            .replace
-            .is_some(),
+        snapshot.host_snapshot.health_reports.replace.is_some(),
         "Host-level Replace override should still be present"
     );
 
@@ -521,9 +513,9 @@ async fn test_dsx_consumer_contract(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .insert_rack_health_report_override(Request::new(
             rpc_forge::InsertRackHealthReportOverrideRequest {
                 rack_id: Some(rack_id.clone()),
-                r#override: Some(rpc_forge::HealthReportOverride {
+                health_report_entry: Some(rpc_forge::HealthReportEntry {
                     report: Some(report.into()),
-                    mode: rpc_forge::OverrideMode::Merge as i32,
+                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
                 }),
             },
         ))
@@ -548,7 +540,7 @@ async fn test_dsx_consumer_contract(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         .await?
         .into_inner();
     assert_eq!(
-        list_resp.overrides.len(),
+        list_resp.health_report_entries.len(),
         0,
         "All overrides should be removed after DSX consumer clear"
     );
@@ -573,9 +565,9 @@ async fn test_rack_health_visible_in_find_racks_by_ids(
         .insert_rack_health_report_override(Request::new(
             rpc_forge::InsertRackHealthReportOverrideRequest {
                 rack_id: Some(rack_id.clone()),
-                r#override: Some(rpc_forge::HealthReportOverride {
+                health_report_entry: Some(rpc_forge::HealthReportEntry {
                     report: Some(report.into()),
-                    mode: rpc_forge::OverrideMode::Merge as i32,
+                    mode: rpc_forge::HealthReportApplyMode::Merge as i32,
                 }),
             },
         ))
@@ -599,11 +591,11 @@ async fn test_rack_health_visible_in_find_racks_by_ids(
         "Rack health should contain alerts"
     );
 
-    assert_eq!(rack.health_overrides.len(), 1);
-    assert_eq!(rack.health_overrides[0].source, "dsx-exchange-consumer");
+    assert_eq!(rack.health_sources.len(), 1);
+    assert_eq!(rack.health_sources[0].source, "dsx-exchange-consumer");
     assert_eq!(
-        rack.health_overrides[0].mode,
-        rpc_forge::OverrideMode::Merge as i32
+        rack.health_sources[0].mode,
+        rpc_forge::HealthReportApplyMode::Merge as i32
     );
 
     Ok(())

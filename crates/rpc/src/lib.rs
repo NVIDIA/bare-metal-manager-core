@@ -491,11 +491,11 @@ impl TryFrom<health::HealthReport> for health_report::HealthReport {
     }
 }
 
-impl From<forge::OverrideMode> for health_report::OverrideMode {
-    fn from(value: forge::OverrideMode) -> Self {
+impl From<forge::HealthReportApplyMode> for health_report::HealthReportApplyMode {
+    fn from(value: forge::HealthReportApplyMode) -> Self {
         match value {
-            forge::OverrideMode::Merge => health_report::OverrideMode::Merge,
-            forge::OverrideMode::Replace => health_report::OverrideMode::Replace,
+            forge::HealthReportApplyMode::Merge => health_report::HealthReportApplyMode::Merge,
+            forge::HealthReportApplyMode::Replace => health_report::HealthReportApplyMode::Replace,
         }
     }
 }

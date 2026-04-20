@@ -349,6 +349,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                             vlan_id,
                             network: ip.clone() + "/32",
                             ip,
+                            ipv6_vlan_config: None,
                         }
                     })
                     .collect();

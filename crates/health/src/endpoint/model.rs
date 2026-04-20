@@ -90,7 +90,7 @@ impl BmcEndpoint {
         }
     }
 
-    pub fn identity(&self) -> Cow<'_, str> {
+    pub fn log_identity(&self) -> Cow<'_, str> {
         match &self.metadata {
             Some(EndpointMetadata::Machine(machine)) => Cow::Owned(machine.machine_id.to_string()),
             Some(EndpointMetadata::Switch(switch)) => Cow::Borrowed(&switch.serial),

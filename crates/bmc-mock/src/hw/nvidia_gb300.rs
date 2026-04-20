@@ -43,11 +43,8 @@ impl NvidiaGB300Gpu<'_> {
             part_number: Some("SC57C26750".into()),
             model: Some("NVIDIA GB300".into()),
             serial_number: Some(self.serial_number.to_string().into()),
-            network_adapters: None,
-            pcie_devices: None,
             sensors: Some(sensors),
-            assembly: None,
-            oem: None,
+            ..redfish::chassis::SingleChassisConfig::defaults()
         }
     }
 }
@@ -78,11 +75,8 @@ impl NvidiaGB300Cpu<'_> {
             part_number: Some("900-2G548-0081-000".into()),
             model: Some("Grace A02P".into()),
             serial_number: Some(self.serial_number.to_string().into()),
-            network_adapters: None,
-            pcie_devices: None,
             sensors: Some(sensors),
-            assembly: None,
-            oem: None,
+            ..redfish::chassis::SingleChassisConfig::defaults()
         }
     }
 }
@@ -107,11 +101,8 @@ impl NvidiaGB300IoBoard<'_> {
             part_number: Some("900-9X86E-00CX-ST0           ".into()),
             model: Some("P4768-B01".into()),
             serial_number: Some(self.serial_number.to_string().into()),
-            network_adapters: None,
-            pcie_devices: None,
             sensors: Some(sensors),
-            assembly: None,
-            oem: None,
+            ..redfish::chassis::SingleChassisConfig::defaults()
         }
     }
 }

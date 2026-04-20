@@ -1,6 +1,10 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
+use model::component_manager::{
+    FirmwareState, NvSwitchComponent, PowerAction, PowerShelfComponent,
+};
+
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
@@ -9,7 +13,6 @@ use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
     PowerShelfFirmwareVersions, PowerShelfManager,
 };
-use crate::types::{FirmwareState, NvSwitchComponent, PowerAction, PowerShelfComponent};
 
 #[derive(Debug, Default)]
 pub struct MockNvSwitchManager;

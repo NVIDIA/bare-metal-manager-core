@@ -29,6 +29,7 @@ use carbide_network::sanitized_mac;
 use carbide_uuid::machine::MachineType;
 use carbide_uuid::power_shelf::{PowerShelfIdSource, PowerShelfType};
 use chrono::Utc;
+use config::SiteExplorerConfig;
 use config_version::ConfigVersion;
 use db::{self, DatabaseError, ObjectFilter, Transaction, machine, power_shelf as db_power_shelf};
 use forge_secrets::credentials::CredentialManager;
@@ -38,8 +39,8 @@ use itertools::Itertools;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use librms::RmsApi;
 use mac_address::MacAddress;
+use model::expected_entity::ExpectedEntity;
 use model::expected_power_shelf::ExpectedPowerShelf;
-use model::expected_switch::ExpectedSwitch;
 use model::machine::MachineInterfaceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::power_shelf::{NewPowerShelf, PowerShelfConfig};
@@ -53,10 +54,10 @@ use sqlx::PgPool;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
+use utils::periodic_timer::PeriodicTimer;
 use version_compare::Cmp;
 
-use crate::cfg::file::{FirmwareConfig, SiteExplorerConfig};
-use crate::periodic_timer::PeriodicTimer;
+use crate::cfg::file::FirmwareConfig;
 use crate::{CarbideError, CarbideResult};
 mod endpoint_explorer;
 pub use endpoint_explorer::EndpointExplorer;
@@ -75,7 +76,7 @@ mod managed_host;
 use db::ObjectColumnFilter;
 use db::work_lock_manager::WorkLockManagerHandle;
 pub use managed_host::is_endpoint_in_managed_host;
-use model::expected_machine::ExpectedMachine;
+use model::expected_machine::DpuMode;
 use model::firmware::FirmwareComponentType;
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::NetworkSegmentType;
@@ -83,6 +84,7 @@ mod switch_creator;
 use carbide_uuid::rack::RackId;
 use model::rack::Rack;
 pub use switch_creator::SwitchCreator;
+pub mod config;
 
 use self::metrics::{PairingBlockerReason, exploration_error_to_metric_label};
 use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
@@ -112,13 +114,16 @@ pub(crate) async fn ensure_rack_exists(
             };
 
             tracing::info!(%rack_id, "Rack does not exist, creating from expected rack");
-            let config = model::rack::RackConfig {
-                rack_type: Some(expected.rack_type.clone()),
-                ..Default::default()
-            };
-            let rack = db::rack::create(&mut *txn, rack_id, &config, Some(&expected.metadata))
-                .await
-                .map_err(CarbideError::from)?;
+            let config = model::rack::RackConfig::default();
+            let rack = db::rack::create(
+                &mut *txn,
+                rack_id,
+                Some(&expected.rack_profile_id),
+                &config,
+                Some(&expected.metadata),
+            )
+            .await
+            .map_err(CarbideError::from)?;
 
             Ok(Some(rack))
         }
@@ -151,7 +156,6 @@ pub(crate) async fn fetch_slot_and_tray(
     }
 }
 
-#[derive(Debug)]
 pub struct Endpoint<'a> {
     address: IpAddr,
     iface: &'a MachineInterfaceSnapshot,
@@ -159,9 +163,7 @@ pub struct Endpoint<'a> {
     last_ipmitool_bmc_reset: Option<chrono::DateTime<chrono::Utc>>,
     last_redfish_reboot: Option<chrono::DateTime<chrono::Utc>>,
     old_report: Option<(ConfigVersion, &'a EndpointExplorationReport)>,
-    pub(crate) expected: Option<&'a ExpectedMachine>,
-    pub(crate) expected_power_shelf: Option<&'a ExpectedPowerShelf>,
-    pub(crate) expected_switch: Option<&'a ExpectedSwitch>,
+    pub(crate) expected: Option<&'a ExpectedEntity>,
     pause_remediation: bool,
     boot_interface_mac: Option<MacAddress>,
 }
@@ -185,7 +187,6 @@ pub type SiteIdentifiedHosts = Vec<(ExploredManagedHost, EndpointExplorationRepo
 /// * `machine_update_run_interval` how often the manager calls the modules to start updates
 pub struct SiteExplorer {
     database_connection: PgPool,
-    enabled: bool,
     config: SiteExplorerConfig,
     metric_holder: Arc<metrics::MetricHolder>,
     endpoint_explorer: Arc<dyn EndpointExplorer>,
@@ -219,7 +220,11 @@ impl SiteExplorer {
             .run_interval
             .saturating_add(std::time::Duration::from_secs(60));
 
-        let metric_holder = Arc::new(metrics::MetricHolder::new(meter, hold_period));
+        let metric_holder = Arc::new(metrics::MetricHolder::new(
+            meter,
+            hold_period,
+            &explorer_config,
+        ));
 
         SiteExplorer {
             machine_creator: MachineCreator::new(
@@ -234,7 +239,6 @@ impl SiteExplorer {
                 explorer_config.clone(),
             ),
             database_connection,
-            enabled: explorer_config.enabled,
             config: explorer_config,
             metric_holder,
             endpoint_explorer,
@@ -244,18 +248,17 @@ impl SiteExplorer {
         }
     }
 
-    /// Start the SiteExplorer and return a [sending channel](tokio::sync::oneshot::Sender) that will stop the SiteExplorer when dropped.
+    /// Start the SiteExplorer background task. The task always runs and checks
+    /// `config.enabled` each iteration, allowing runtime pause/unpause via the API.
     pub fn start(
         mut self,
         join_set: &mut JoinSet<()>,
         cancel_token: CancellationToken,
     ) -> io::Result<()> {
-        if self.enabled {
-            join_set
-                .build_task()
-                .name("site_explorer")
-                .spawn(async move { self.run(cancel_token).await })?;
-        }
+        join_set
+            .build_task()
+            .name("site_explorer")
+            .spawn(async move { self.run(cancel_token).await })?;
 
         Ok(())
     }
@@ -264,13 +267,18 @@ impl SiteExplorer {
         let timer = PeriodicTimer::new(self.config.run_interval);
         loop {
             let tick = timer.tick();
-            match self.run_single_iteration().await {
-                Ok(identified_hosts) => self
-                    .boot_order_tracker
-                    .track_hosts(Instant::now(), &identified_hosts),
-                Err(e) => {
-                    tracing::warn!("SiteExplorer error: {}", e);
+
+            if self.config.enabled.load(Ordering::Relaxed) {
+                match self.run_single_iteration().await {
+                    Ok(identified_hosts) => self
+                        .boot_order_tracker
+                        .track_hosts(Instant::now(), &identified_hosts),
+                    Err(e) => {
+                        tracing::warn!("SiteExplorer error: {}", e);
+                    }
                 }
+            } else {
+                tracing::warn!("SiteExplorer is disabled, skipping iteration");
             }
 
             tokio::select! {
@@ -835,21 +843,17 @@ impl SiteExplorer {
         explored_dpus: HashMap<IpAddr, ExploredEndpoint>,
         explored_hosts: HashMap<IpAddr, ExploredEndpoint>,
     ) -> CarbideResult<Vec<(ExploredManagedHost, EndpointExplorationReport)>> {
-        if self.config.force_dpu_nic_mode.load(Ordering::Relaxed) {
-            // Ignore the DPU and ingest the machine as a managed host
-            return Ok(explored_hosts
-                .values()
-                .map(|ep| {
-                    (
-                        ExploredManagedHost {
-                            host_bmc_ip: ep.address,
-                            dpus: vec![],
-                        },
-                        ep.report.clone(),
-                    )
-                })
-                .collect());
-        }
+        // Per-host DPU-mode resolution. The old/deprecated/fallback site-wide
+        // `force_dpu_nic_mode` flag is preserved as a fallback when no
+        // per-host override is declared; a per-host `NicMode` or `NoDpu`
+        // always wins.
+        let site_force_nic_mode = self.config.force_dpu_nic_mode.load(Ordering::Relaxed);
+        let effective_mode = |host_bmc_ip: &IpAddr| -> DpuMode {
+            let declared = expected_explored_endpoint_index
+                .matched_expected_machine(host_bmc_ip)
+                .map(|em| em.data.dpu_mode);
+            DpuMode::resolve(declared, site_force_nic_mode)
+        };
         // Match HOST and DPU using SerialNumber.
         // Compare DPU system.serial_number with HOST chassis.network_adapters[].serial_number
         let mut dpu_sn_to_endpoint = HashMap::new();
@@ -891,6 +895,13 @@ impl SiteExplorer {
         };
 
         for (_, ep) in explored_hosts {
+            // Resolve the operator-declared DPU mode for this host once;
+            // it drives both auto-correction (`check_and_configure_dpu_mode`
+            // below -- operator override wins over BF3 model heuristics)
+            // and the post-match attach decision (NicMode/NoDpu hosts emit
+            // a bare managed host regardless of what matched).
+            let host_dpu_mode = effective_mode(&ep.address);
+
             // the list of DPUs that the site-explorer has explored for this host
             let mut dpus_explored_for_host: Vec<ExploredDpu> = Vec::new();
             // the number of DPUs that the host reports are attached to it
@@ -910,7 +921,11 @@ impl SiteExplorer {
                         let dpu_ep = dpu_ep_entry.get();
                         if let Some(model) = pcie_device.part_number.as_ref() {
                             match self
-                                .check_and_configure_dpu_mode(dpu_ep, model.to_string())
+                                .check_and_configure_dpu_mode(
+                                    dpu_ep,
+                                    model.to_string(),
+                                    host_dpu_mode,
+                                )
                                 .await
                             {
                                 Ok(is_dpu_mode_configured_correctly) => {
@@ -964,7 +979,11 @@ impl SiteExplorer {
                             let dpu_ep = dpu_ep_entry.get();
                             if let Some(model) = network_adapter.part_number.as_ref() {
                                 match self
-                                    .check_and_configure_dpu_mode(dpu_ep, model.to_string())
+                                    .check_and_configure_dpu_mode(
+                                        dpu_ep,
+                                        model.to_string(),
+                                        host_dpu_mode,
+                                    )
                                     .await
                                 {
                                     Ok(is_dpu_mode_configured_correctly) => {
@@ -1150,10 +1169,20 @@ impl SiteExplorer {
                 });
             }
 
+            // For NicMode / NoDpu hosts, don't attach DPUs even if matching
+            // discovered some: the operator has declared "treat this host
+            // as zero-DPU". Any DPU hardware has already had `set_nic_mode`
+            // issued by the check-and-configure step above if it was in
+            // DPU mode; this cycle we just emit a bare host.
+            let dpus = match host_dpu_mode {
+                DpuMode::NicMode | DpuMode::NoDpu => Vec::new(),
+                DpuMode::DpuMode => dpus_explored_for_host,
+            };
+
             managed_hosts.push((
                 ExploredManagedHost {
                     host_bmc_ip: ep.address,
-                    dpus: dpus_explored_for_host,
+                    dpus,
                 },
                 ep.report,
             ));
@@ -1383,9 +1412,7 @@ impl SiteExplorer {
                 old_report: Some((endpoint.report_version, &endpoint.report)),
                 pause_remediation: endpoint.pause_remediation,
                 boot_interface_mac: endpoint.boot_interface_mac,
-                expected_switch: index.matched_expected_switch(&address),
-                expected_power_shelf: index.matched_expected_power_shelf(&address),
-                expected: index.matched_expected_machine(&address),
+                expected: index.matched_expected(&address),
             });
         }
 
@@ -1402,11 +1429,9 @@ impl SiteExplorer {
                 last_ipmitool_bmc_reset: None,
                 last_redfish_reboot: None,
                 old_report: None,
-                expected_switch: index.matched_expected_switch(address),
-                expected_power_shelf: index.matched_expected_power_shelf(address),
-                expected: index.matched_expected_machine(address),
                 pause_remediation: false, // New endpoints haven't been explored yet, so pause_remediation defaults to false
                 boot_interface_mac: None, // boot_interface_mac not yet discovered for new endpoints
+                expected: index.matched_expected(address),
             });
         }
 
@@ -1428,11 +1453,9 @@ impl SiteExplorer {
                     last_ipmitool_bmc_reset: endpoint.last_ipmitool_bmc_reset,
                     last_redfish_reboot: endpoint.last_redfish_reboot,
                     old_report: Some((endpoint.report_version, &endpoint.report)),
-                    expected: index.matched_expected_machine(&address),
-                    expected_power_shelf: index.matched_expected_power_shelf(&address),
-                    expected_switch: index.matched_expected_switch(&address),
                     pause_remediation: endpoint.pause_remediation,
                     boot_interface_mac: endpoint.boot_interface_mac,
+                    expected: index.matched_expected(&address),
                 });
             }
         }
@@ -1475,8 +1498,6 @@ impl SiteExplorer {
                             bmc_target_addr,
                             endpoint.iface,
                             endpoint.expected,
-                            endpoint.expected_power_shelf,
-                            endpoint.expected_switch,
                             endpoint.old_report.map(|report| report.1),
                             endpoint.boot_interface_mac,
                         )
@@ -1621,10 +1642,8 @@ impl SiteExplorer {
                     }
                 }
                 None => {
-                    let should_pause_ingestion_and_poweron = pause_ingestion_and_poweron(
-                        index.expected_machines(),
-                        &endpoint.iface.mac_address,
-                    );
+                    let should_pause_ingestion_and_poweron =
+                        pause_ingestion_and_poweron(index.expected(), &endpoint.iface.mac_address);
                     match result {
                         Ok(mut report) => {
                             report.last_exploration_latency = Some(exploration_duration);
@@ -1656,7 +1675,9 @@ impl SiteExplorer {
                         }
                     }
 
-                    let power_shelf_manual_ingestion = endpoint.expected_power_shelf.is_some()
+                    let power_shelf_manual_ingestion = endpoint
+                        .expected
+                        .is_some_and(|v| matches!(v, ExpectedEntity::PowerShelf(_)))
                         && explore_power_shelves_from_static_ip;
 
                     if !self.config.create_machines.load(Ordering::Relaxed)
@@ -2289,39 +2310,65 @@ impl SiteExplorer {
         Ok(ingest_host)
     }
 
-    // check_and_configure_dpu_mode returns a boolean indicating whether a DPU is configured correctly.
-    // check_and_configure_dpu_mode will always return true for BF2s
-    // check_and_configure_dpu_mode will return false if a BF3 SuperNIC is configured in DPU mode or if a BF3 DPU is configured in NIC mode. Otherwise, it will return true.
-    // if check_and_configure_dpu_mode returns false, it will try to configure the DPU appropriately (put a BF3 SuperNIC in NIC mode or put a BF3 DPU in DPU mode)
+    /// Returns `true` when the DPU's hardware NIC mode already matches the
+    /// desired target; `false` when the function has issued a `set_nic_mode`
+    /// to fix a mismatch (in which case the caller should skip this host
+    /// for the current site-explorer cycle -- the next cycle will pick up
+    /// the corrected mode).
+    ///
+    /// The target is resolved in priority order:
+    /// 1. If the operator explicitly declared `DpuMode::NicMode` on the
+    ///    `ExpectedMachine`, target NIC mode (per-host override).
+    /// 2. If the operator declared `DpuMode::NoDpu`, bail out -- the
+    ///    `MachineValidation` state handler is where "hardware reports a
+    ///    DPU but operator said no DPU" gets surfaced as a health alert;
+    ///    we don't try to reconfigure in that case.
+    /// 3. Otherwise (operator default `DpuMode::DpuMode`), fall back to
+    ///    the existing BF3 SuperNIC / BF3 DPU model-based heuristic for
+    ///    backward compat: BF3 SuperNIC → NIC mode, BF3 DPU → DPU mode,
+    ///    BF2 / unknown → no-op.
     async fn check_and_configure_dpu_mode(
         &self,
         dpu_ep: &ExploredEndpoint,
         dpu_model: String,
+        host_dpu_mode: DpuMode,
     ) -> CarbideResult<bool> {
-        match dpu_ep.report.nic_mode() {
-            Some(NicMode::Dpu) => {
+        // Compute the target NIC mode. `None` means "no opinion -- don't
+        // attempt to reconfigure" (e.g., BF2 where the heuristic doesn't
+        // apply, or NoDpu where we defer to the health-check path).
+        let target_nic_mode: Option<NicMode> = match host_dpu_mode {
+            DpuMode::NicMode => Some(NicMode::Nic),
+            DpuMode::NoDpu => None,
+            DpuMode::DpuMode => {
+                // Preserve existing BF3-model heuristics when the operator
+                // hasn't explicitly chosen a mode.
                 if is_bf3_supernic(&dpu_model) {
-                    tracing::warn!(
-                        "site explorer found a BF3 SuperNIC ({}) that is in DPU mode; will try setting it into NIC mode",
-                        dpu_ep.address
-                    );
-                    self.set_nic_mode(dpu_ep, NicMode::Nic).await?;
-                    Ok(false)
+                    Some(NicMode::Nic)
+                } else if is_bf3_dpu(&dpu_model) {
+                    Some(NicMode::Dpu)
                 } else {
-                    Ok(true)
+                    None
                 }
             }
-            Some(NicMode::Nic) => {
-                if is_bf3_dpu(&dpu_model) {
-                    tracing::warn!(
-                        "site explorer found a BF3 DPU ({}) that is in NIC mode; will try setting it into DPU mode",
-                        dpu_ep.address
-                    );
-                    self.set_nic_mode(dpu_ep, NicMode::Dpu).await?;
-                    Ok(false)
-                } else {
-                    Ok(true)
-                }
+        };
+
+        let Some(target_nic_mode) = target_nic_mode else {
+            return Ok(true);
+        };
+
+        match dpu_ep.report.nic_mode() {
+            Some(observed) if observed == target_nic_mode => Ok(true),
+            Some(observed) => {
+                tracing::warn!(
+                    address = %dpu_ep.address,
+                    model = %dpu_model,
+                    %observed,
+                    ?target_nic_mode,
+                    ?host_dpu_mode,
+                    "site explorer found a DPU with a mode that does not match the target; will try to reconfigure"
+                );
+                self.set_nic_mode(dpu_ep, target_nic_mode).await?;
+                Ok(false)
             }
             None => {
                 tracing::warn!(
@@ -2482,10 +2529,12 @@ pub async fn get_machine_state_by_bmc_ip(
 }
 
 fn pause_ingestion_and_poweron(
-    expected_machines_by_mac: &HashMap<MacAddress, ExpectedMachine>,
+    expected_machines_by_mac: &HashMap<MacAddress, ExpectedEntity>,
     mac_address: &mac_address::MacAddress,
 ) -> bool {
-    if let Some(expected_machine) = expected_machines_by_mac.get(mac_address) {
+    if let Some(ExpectedEntity::Machine(expected_machine)) =
+        expected_machines_by_mac.get(mac_address)
+    {
         return expected_machine
             .data
             .default_pause_ingestion_and_poweron

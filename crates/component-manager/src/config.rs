@@ -13,6 +13,25 @@ pub struct ComponentManagerConfig {
     pub nsm: Option<BackendEndpointConfig>,
     #[serde(default)]
     pub psm: Option<BackendEndpointConfig>,
+
+    /// When `true`, Switch power control and firmware update calls go
+    /// through the switch state controller, instead of being dispatched
+    /// directly to the device.
+    ///
+    /// Status reads and firmware-catalog reads still pass through to
+    /// the "direct" backend.
+    ///
+    /// Defaults to `false` (existing direct-dispatch behaviour).
+    #[serde(default)]
+    pub nv_switch_use_state_controller: bool,
+
+    /// When `true`, power shelf power control and firmware update calls
+    /// go through the power shelf state controller instead of being dispatched
+    /// directly.
+    ///
+    /// Defaults to `false`.
+    #[serde(default)]
+    pub power_shelf_use_state_controller: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -87,6 +106,8 @@ impl Default for ComponentManagerConfig {
             power_shelf_backend: default_psm_backend(),
             nsm: None,
             psm: None,
+            nv_switch_use_state_controller: false,
+            power_shelf_use_state_controller: false,
         }
     }
 }

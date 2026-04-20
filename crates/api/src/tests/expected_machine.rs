@@ -16,7 +16,9 @@
  */
 use std::default::Default;
 
-use common::api_fixtures::create_test_env;
+use common::api_fixtures::{
+    TestEnvOverrides, create_test_env, create_test_env_with_overrides, get_config,
+};
 use db::{self};
 use mac_address::MacAddress;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
@@ -86,6 +88,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
                 dpf_enabled: Some(true),
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
+                dpu_mode: Default::default(),
             },
         },
     )
@@ -732,6 +735,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         is_dpf_enabled: Some(true),
         bmc_ip_address: None,
         bmc_retain_credentials: None,
+        dpu_mode: None,
         #[allow(deprecated)]
         dpf_enabled: true,
     };
@@ -2096,6 +2100,7 @@ async fn test_add_with_host_nic_fixed_ip_creates_interface(
                 fixed_ip: Some(fixed_ip.into()),
                 fixed_mask: None,
                 fixed_gateway: None,
+                primary: None,
             }],
             ..Default::default()
         }))
@@ -2150,6 +2155,7 @@ async fn test_dhcp_discover_uses_fixed_ip_from_host_nics(
                 fixed_ip: Some(fixed_ip.into()),
                 fixed_mask: None,
                 fixed_gateway: None,
+                primary: None,
             }],
             ..Default::default()
         }))
@@ -2270,6 +2276,274 @@ async fn test_update_preserves_bmc_retain_credentials(
         retrieved.bmc_retain_credentials,
         Some(true),
         "bmc_retain_credentials should be preserved after update with None"
+    );
+
+    Ok(())
+}
+
+/// When an ExpectedMachine's host_nics entry is flagged `primary: true`,
+/// the matching NIC's DHCP should land as `machine_interfaces.primary_interface=true`.
+#[crate::sqlx_test]
+async fn test_dhcp_honors_primary_host_nic(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // rack_management_enabled is required for discover_dhcp to consult
+    // ExpectedMachine records for unknown MACs -- that's the path that
+    // reads the matched host_nic's `primary` flag.
+    let env = {
+        let mut config = get_config();
+        config.rack_management_enabled = true;
+        create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await
+    };
+    let bmc_mac: MacAddress = "9A:9B:9C:9D:9E:01".parse().unwrap();
+    let primary_mac: MacAddress = "9A:9B:9C:9D:9E:02".parse().unwrap();
+
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-PRIMARY-001".into(),
+            host_nics: vec![rpc::forge::ExpectedHostNic {
+                mac_address: primary_mac.to_string(),
+                nic_type: Some("onboard".into()),
+                fixed_ip: None,
+                fixed_mask: None,
+                fixed_gateway: None,
+                primary: Some(true),
+            }],
+            ..Default::default()
+        }))
+        .await?;
+
+    // DHCP discover with the declared primary MAC.
+    let primary_mac_str = primary_mac.to_string();
+    env.api
+        .discover_dhcp(
+            common::rpc_builder::DhcpDiscovery::builder(
+                &primary_mac_str,
+                common::api_fixtures::FIXTURE_DHCP_RELAY_ADDRESS,
+            )
+            .tonic_request(),
+        )
+        .await?;
+
+    // Verify the created machine_interface is flagged primary=true.
+    let mut txn = env.pool.begin().await?;
+    let ifaces = db::machine_interface::find_by_mac_address(&mut *txn, primary_mac).await?;
+    assert_eq!(ifaces.len(), 1);
+    assert!(
+        ifaces[0].primary_interface,
+        "host_nic primary=true should flow to machine_interfaces.primary_interface"
+    );
+
+    Ok(())
+}
+
+/// When one host_nics entry is flagged `primary: true`, a DHCP from a
+/// *different* MAC on the same host should land as `primary_interface: false`.
+/// Verifies the "operator declared some other NIC primary, so this one
+/// must not inherit the default primary=true" branch, protecting the DB's
+/// one_primary_interface_per_machine unique constraint once the primary
+/// MAC's interface eventually lands.
+#[crate::sqlx_test]
+async fn test_dhcp_marks_non_primary_mac_as_non_primary(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = {
+        let mut config = get_config();
+        config.rack_management_enabled = true;
+        create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await
+    };
+    let bmc_mac: MacAddress = "9A:9B:9C:9D:9E:10".parse().unwrap();
+    let primary_mac: MacAddress = "9A:9B:9C:9D:9E:11".parse().unwrap();
+    let other_mac: MacAddress = "9A:9B:9C:9D:9E:12".parse().unwrap();
+
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-PRIMARY-002".into(),
+            host_nics: vec![
+                rpc::forge::ExpectedHostNic {
+                    mac_address: primary_mac.to_string(),
+                    nic_type: Some("onboard".into()),
+                    fixed_ip: None,
+                    fixed_mask: None,
+                    fixed_gateway: None,
+                    primary: Some(true),
+                },
+                rpc::forge::ExpectedHostNic {
+                    mac_address: other_mac.to_string(),
+                    nic_type: Some("onboard".into()),
+                    fixed_ip: None,
+                    fixed_mask: None,
+                    fixed_gateway: None,
+                    primary: None,
+                },
+            ],
+            ..Default::default()
+        }))
+        .await?;
+
+    // DHCP for the non-primary MAC on this machine.
+    let other_mac_str = other_mac.to_string();
+    env.api
+        .discover_dhcp(
+            common::rpc_builder::DhcpDiscovery::builder(
+                &other_mac_str,
+                common::api_fixtures::FIXTURE_DHCP_RELAY_ADDRESS,
+            )
+            .tonic_request(),
+        )
+        .await?;
+
+    let mut txn = env.pool.begin().await?;
+    let ifaces = db::machine_interface::find_by_mac_address(&mut *txn, other_mac).await?;
+    assert_eq!(ifaces.len(), 1);
+    assert!(
+        !ifaces[0].primary_interface,
+        "a MAC that isn't the declared primary should not land as primary_interface=true"
+    );
+
+    Ok(())
+}
+
+/// An ExpectedMachine with two host_nics entries both flagged `primary: true`
+/// must be rejected at the API boundary -- the handler enforces at most one
+/// primary NIC per machine (anchoring the DB's `one_primary_interface_per_machine`
+/// unique constraint to a single declaration).
+#[crate::sqlx_test]
+async fn test_add_rejects_multiple_primary_host_nics(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let bmc_mac: MacAddress = "9A:9B:9C:9D:9E:20".parse().unwrap();
+    let mac_a: MacAddress = "9A:9B:9C:9D:9E:21".parse().unwrap();
+    let mac_b: MacAddress = "9A:9B:9C:9D:9E:22".parse().unwrap();
+
+    let result = env
+        .api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            id: None,
+            bmc_mac_address: bmc_mac.to_string(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-DUPLICATE-PRIMARY-001".into(),
+            host_nics: vec![
+                rpc::forge::ExpectedHostNic {
+                    mac_address: mac_a.to_string(),
+                    nic_type: Some("onboard".into()),
+                    fixed_ip: None,
+                    fixed_mask: None,
+                    fixed_gateway: None,
+                    primary: Some(true),
+                },
+                rpc::forge::ExpectedHostNic {
+                    mac_address: mac_b.to_string(),
+                    nic_type: Some("onboard".into()),
+                    fixed_ip: None,
+                    fixed_mask: None,
+                    fixed_gateway: None,
+                    primary: Some(true),
+                },
+            ],
+            ..Default::default()
+        }))
+        .await;
+
+    let err = result.expect_err("multi-primary ExpectedMachine should be rejected");
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+
+    Ok(())
+}
+
+/// Simple test to have some round-trip coverage for `ExpectedMachine.dpu_mode`
+/// to make sure a `NicMode` setting makes it from the API to the DB and back
+/// correctly. Verifies:
+/// - The RPC carrying `Some(DpuMode::NicMode)` persists.
+/// - The re-read RPC response replies `dpu_mode = Some(NicMode)` back
+/// - Other `dpu_mode` values do the same.
+#[crate::sqlx_test]
+async fn test_dpu_mode_round_trip_for_non_default_values(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    for (idx, mode) in [rpc::forge::DpuMode::NicMode, rpc::forge::DpuMode::NoDpu]
+        .iter()
+        .enumerate()
+    {
+        let mac = format!("5A:5B:5C:5D:5E:{idx:02X}");
+        let request = rpc::forge::ExpectedMachine {
+            bmc_mac_address: mac.clone(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: format!("EM-DPU-MODE-{idx}"),
+            dpu_mode: Some(*mode as i32),
+            ..Default::default()
+        };
+
+        env.api
+            .add_expected_machine(tonic::Request::new(request))
+            .await?;
+
+        let retrieved = env
+            .api
+            .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+                bmc_mac_address: mac.clone(),
+                id: None,
+            }))
+            .await?
+            .into_inner();
+
+        assert_eq!(
+            retrieved.dpu_mode,
+            Some(*mode as i32),
+            "DPU mode {mode:?} should survive DB round-trip unchanged"
+        );
+    }
+
+    Ok(())
+}
+
+/// Also have some "round trip" coverage for the dpu_mode default case,
+/// when the operator didn't set `dpu_mode` on the wire. In this case,
+/// we should persist the Postgrs default (`DpuMode::DpuMode`) and return
+/// `None` on the wire (so old clients see the same thing they sent).
+#[crate::sqlx_test]
+async fn test_dpu_mode_default_value_omitted_on_wire(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let mac = "5A:5B:5C:5D:5E:FF";
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            bmc_mac_address: mac.into(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-DPU-DEFAULT".into(),
+            dpu_mode: None,
+            ..Default::default()
+        }))
+        .await?;
+
+    let retrieved = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: mac.into(),
+            id: None,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(
+        retrieved.dpu_mode, None,
+        "default DpuMode should not be emitted on the wire for stable round-trips"
     );
 
     Ok(())

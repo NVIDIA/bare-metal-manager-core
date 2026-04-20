@@ -17,7 +17,7 @@
 use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge::{self as rpc, HealthReportOverride};
+use ::rpc::forge::{self as rpc, HealthReportEntry};
 use carbide_uuid::rack::RackId;
 use db::{
     ObjectColumnFilter, WithTransaction, expected_machine as db_expected_machine,
@@ -25,7 +25,7 @@ use db::{
     machine as db_machine, power_shelf as db_power_shelf, rack as db_rack, switch as db_switch,
 };
 use futures_util::FutureExt;
-use health_report::OverrideMode;
+use health_report::HealthReportApplyMode;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
@@ -278,7 +278,7 @@ pub async fn delete_rack(
 pub async fn list_rack_health_report_overrides(
     api: &Api,
     request: Request<rpc::ListRackHealthReportOverridesRequest>,
-) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
+) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -298,11 +298,11 @@ pub async fn list_rack_health_report_overrides(
         id: rack_id.to_string(),
     })?;
 
-    Ok(Response::new(rpc::ListHealthReportOverrideResponse {
-        overrides: rack
-            .health_report_overrides
+    Ok(Response::new(rpc::ListHealthReportResponse {
+        health_report_entries: rack
+            .health_reports
             .into_iter()
-            .map(|o| HealthReportOverride {
+            .map(|o| HealthReportEntry {
                 report: Some(o.0.into()),
                 mode: o.1 as i32,
             })
@@ -324,7 +324,7 @@ pub async fn insert_rack_health_report_override(
 
     let rpc::InsertRackHealthReportOverrideRequest {
         rack_id,
-        r#override: Some(rpc::HealthReportOverride { report, mode }),
+        health_report_entry: Some(rpc::HealthReportEntry { report, mode }),
     } = request.into_inner()
     else {
         return Err(CarbideError::MissingArgument("override").into());
@@ -334,10 +334,10 @@ pub async fn insert_rack_health_report_override(
     let Some(report) = report else {
         return Err(CarbideError::MissingArgument("report").into());
     };
-    let Ok(mode) = rpc::OverrideMode::try_from(mode) else {
+    let Ok(mode) = rpc::HealthReportApplyMode::try_from(mode) else {
         return Err(CarbideError::InvalidArgument("mode".to_string()).into());
     };
-    let mode: OverrideMode = mode.into();
+    let mode: HealthReportApplyMode = mode.into();
 
     let mut txn = api.txn_begin().await?;
 
@@ -407,16 +407,10 @@ async fn remove_rack_override_by_source(
     txn: &mut db::Transaction<'_>,
     source: String,
 ) -> Result<(), CarbideError> {
-    let mode = if rack
-        .health_report_overrides
-        .replace
-        .as_ref()
-        .map(|o| &o.source)
-        == Some(&source)
-    {
-        OverrideMode::Replace
-    } else if rack.health_report_overrides.merges.contains_key(&source) {
-        OverrideMode::Merge
+    let mode = if rack.health_reports.replace.as_ref().map(|o| &o.source) == Some(&source) {
+        HealthReportApplyMode::Replace
+    } else if rack.health_reports.merges.contains_key(&source) {
+        HealthReportApplyMode::Merge
     } else {
         return Err(CarbideError::NotFoundError {
             kind: "rack override with source",
@@ -429,10 +423,10 @@ async fn remove_rack_override_by_source(
     Ok(())
 }
 
-pub async fn get_rack_capabilities(
+pub async fn get_rack_profile(
     api: &Api,
-    request: Request<rpc::GetRackCapabilitiesRequest>,
-) -> Result<Response<rpc::GetRackCapabilitiesResponse>, Status> {
+    request: Request<rpc::GetRackProfileRequest>,
+) -> Result<Response<rpc::GetRackProfileResponse>, Status> {
     log_request_data(&request);
 
     let req = request.into_inner();
@@ -452,30 +446,29 @@ pub async fn get_rack_capabilities(
         id: rack_id.to_string(),
     })?;
 
-    let rack_type_name = rack.config.rack_type.as_deref().unwrap_or_default();
-    if rack_type_name.is_empty() {
-        return Err(CarbideError::NotFoundError {
-            kind: "rack_type for rack",
-            id: rack_id.to_string(),
-        }
-        .into());
-    }
+    let rack_profile_id =
+        rack.rack_profile_id
+            .as_ref()
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "rack_profile_id for rack",
+                id: rack_id.to_string(),
+            })?;
 
-    let capabilities = api
+    let profile = api
         .runtime_config
-        .rack_types
-        .get(rack_type_name)
+        .rack_profiles
+        .get(rack_profile_id.as_str())
         .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "rack capabilities for rack_type",
-            id: rack_type_name.to_string(),
+            kind: "rack profile for rack_profile_id",
+            id: rack_profile_id.to_string(),
         })?;
 
-    let rpc_capabilities: rpc::RackCapabilitiesSet = capabilities.into();
+    let rpc_profile: rpc::RackProfile = profile.into();
 
-    Ok(Response::new(rpc::GetRackCapabilitiesResponse {
+    Ok(Response::new(rpc::GetRackProfileResponse {
         rack_id: Some(rack_id),
-        rack_type: rack_type_name.to_string(),
-        capabilities: Some(rpc_capabilities),
+        rack_profile_id: Some(rack_profile_id.clone()),
+        profile: Some(rpc_profile),
     }))
 }
 

@@ -22,8 +22,8 @@ use ::db::work_lock_manager::WorkLockManagerHandle;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
+use utils::periodic_timer::PeriodicTimer;
 
-use crate::periodic_timer::PeriodicTimer;
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::{
     ControllerIteration, ControllerIterationId, IterationError, db,

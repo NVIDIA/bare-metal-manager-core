@@ -19,14 +19,20 @@ use std::sync::Arc;
 
 use carbide_uuid::rack::RackId;
 
-use super::override_queue::{OverrideJob, OverrideQueue};
-use super::{CollectorEvent, DataSink, EventContext, ReportSource};
+use super::override_queue::OverrideQueue;
+use super::{CollectorEvent, DataSink, EventContext, HealthReport, ReportSource};
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
 use crate::config::RackHealthOverrideSinkConfig;
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct RackOverrideKey {
+    id: RackId,
+    source: ReportSource,
+}
+
 pub struct RackHealthOverrideSink {
-    queue: Arc<OverrideQueue<RackId>>,
+    queue: Arc<OverrideQueue<RackOverrideKey, Arc<HealthReport>>>,
 }
 
 impl RackHealthOverrideSink {
@@ -44,25 +50,26 @@ impl RackHealthOverrideSink {
             &config.connection.api_url,
         ));
 
-        let queue = Arc::new(OverrideQueue::new());
+        let queue: Arc<OverrideQueue<RackOverrideKey, Arc<HealthReport>>> =
+            Arc::new(OverrideQueue::new());
 
         for worker_id in 0..config.workers {
             let worker_client = Arc::clone(&client);
             let worker_queue = Arc::clone(&queue);
             handle.spawn(async move {
                 loop {
-                    let job = worker_queue.next().await;
+                    let (key, report) = worker_queue.next().await;
 
-                    match job.report.as_ref().try_into() {
-                        Ok(report) => {
+                    match report.as_ref().try_into() {
+                        Ok(converted) => {
                             if let Err(error) = worker_client
-                                .submit_rack_health_report(&job.id, report)
+                                .submit_rack_health_report(&key.id, converted)
                                 .await
                             {
                                 tracing::warn!(
                                     ?error,
                                     worker_id,
-                                    rack_id = %job.id,
+                                    rack_id = %key.id,
                                     "Failed to submit rack health override report"
                                 );
                             }
@@ -71,7 +78,7 @@ impl RackHealthOverrideSink {
                             tracing::warn!(
                                 ?error,
                                 worker_id,
-                                rack_id = %job.id,
+                                rack_id = %key.id,
                                 "Failed to convert rack health override report"
                             );
                         }
@@ -106,9 +113,10 @@ impl DataSink for RackHealthOverrideSink {
             return;
         };
 
-        self.queue.save_latest(OverrideJob {
+        let key = RackOverrideKey {
             id: rack_id.clone(),
-            report: Arc::clone(report),
-        });
+            source: report.source,
+        };
+        self.queue.save_latest(key, Arc::clone(report));
     }
 }

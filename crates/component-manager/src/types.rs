@@ -5,45 +5,6 @@ use mac_address::MacAddress;
 
 use crate::error::ComponentManagerError;
 
-/// Power action shared across NV-Switch and PowerShelf backends.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PowerAction {
-    On,
-    GracefulShutdown,
-    ForceOff,
-    GracefulRestart,
-    ForceRestart,
-    AcPowercycle,
-}
-
-/// Firmware update lifecycle state shared across NV-Switch and PowerShelf backends.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FirmwareState {
-    Unknown,
-    Queued,
-    InProgress,
-    Verifying,
-    Completed,
-    Failed,
-    Cancelled,
-}
-
-/// Updatable components of an NV-Switch tray.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NvSwitchComponent {
-    Bmc,
-    Cpld,
-    Bios,
-    Nvos,
-}
-
-/// Updatable components of a power shelf.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PowerShelfComponent {
-    Pmc,
-    Psu,
-}
-
 pub fn parse_mac(s: &str) -> Result<MacAddress, ComponentManagerError> {
     s.parse::<MacAddress>()
         .map_err(|e| ComponentManagerError::Internal(format!("invalid MAC from backend: {e}")))

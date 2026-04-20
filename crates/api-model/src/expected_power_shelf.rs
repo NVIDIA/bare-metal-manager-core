@@ -29,7 +29,7 @@ use uuid::Uuid;
 
 use crate::metadata::{Metadata, default_metadata_for_deserializer};
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Clone, Default, Deserialize)] // Do not add Debug here. It contains password.
 pub struct ExpectedPowerShelf {
     #[serde(default)]
     pub expected_power_shelf_id: Option<Uuid>,

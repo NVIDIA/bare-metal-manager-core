@@ -30,6 +30,7 @@ use sqlx::{FromRow, Row};
 
 use crate::StateSla;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
+use crate::health::HealthReportSources;
 use crate::metadata::Metadata;
 
 pub mod slas;
@@ -147,6 +148,7 @@ pub struct Switch {
     pub version: ConfigVersion,
     pub slot_number: Option<i32>,
     pub tray_index: Option<i32>,
+    pub health_reports: HealthReportSources,
 }
 
 impl<'r> FromRow<'r, PgRow> for Switch {
@@ -162,6 +164,11 @@ impl<'r> FromRow<'r, PgRow> for Switch {
         let firmware_upgrade_status: Option<sqlx::types::Json<RackFirmwareUpgradeStatus>> =
             row.try_get("firmware_upgrade_status").ok();
 
+        // DB column is still named "health_report_overrides" for backward compatibility.
+        let health_reports: HealthReportSources = row
+            .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_report_overrides")
+            .map(|j| j.0)
+            .unwrap_or_default();
         let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
         let metadata = Metadata {
             name: row.try_get("name")?,
@@ -186,6 +193,7 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             rack_id: row.try_get("rack_id").ok().flatten(),
             slot_number: row.try_get("slot_number").ok().flatten(),
             tray_index: row.try_get("tray_index").ok().flatten(),
+            health_reports,
         })
     }
 }
@@ -202,6 +210,18 @@ impl TryFrom<rpc::SwitchConfig> for SwitchConfig {
             }),
         })
     }
+}
+
+fn derive_switch_aggregate_health(sources: &HealthReportSources) -> health_report::HealthReport {
+    if let Some(replace) = &sources.replace {
+        return replace.clone();
+    }
+    let mut output = health_report::HealthReport::empty("switch-aggregate-health".to_string());
+    for report in sources.merges.values() {
+        output.merge(report);
+    }
+    output.observed_at = Some(chrono::Utc::now());
+    output
 }
 
 impl TryFrom<Switch> for rpc::Switch {
@@ -246,6 +266,16 @@ impl TryFrom<Switch> for rpc::Switch {
             enable_nmxc: src.config.enable_nmxc,
         };
 
+        let health = derive_switch_aggregate_health(&src.health_reports);
+        let health_sources = src
+            .health_reports
+            .clone()
+            .into_iter()
+            .map(|(hr, m)| rpc::HealthSourceOrigin {
+                mode: m as i32,
+                source: hr.source,
+            })
+            .collect();
         let deleted = if src.deleted.is_some() {
             Some(src.deleted.unwrap().into())
         } else {
@@ -264,6 +294,8 @@ impl TryFrom<Switch> for rpc::Switch {
             version: src.version.version_string(),
             rack_id: src.rack_id,
             placement_in_rack,
+            health: Some(health.into()),
+            health_sources,
         })
     }
 }
@@ -432,6 +464,7 @@ mod tests {
             rack_id: None,
             slot_number: Some(1),
             tray_index: Some(2),
+            health_reports: Default::default(),
         };
 
         let rpc_switch: rpc::Switch = switch.try_into().unwrap();
@@ -472,6 +505,7 @@ mod tests {
             rack_id: None,
             slot_number: None,
             tray_index: None,
+            health_reports: Default::default(),
         };
 
         let rpc_switch: rpc::Switch = switch.try_into().unwrap();

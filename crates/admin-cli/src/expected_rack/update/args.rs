@@ -24,8 +24,8 @@ use serde::{Deserialize, Serialize};
 pub struct Args {
     #[clap(help = "Rack ID of the expected rack")]
     pub rack_id: RackId,
-    #[clap(long, help = "Rack type of the expected rack")]
-    pub rack_type: Option<String>,
+    #[clap(long, help = "Rack profile ID of the expected rack")]
+    pub rack_profile_id: Option<String>,
 
     #[clap(
         long = "meta-name",
@@ -54,13 +54,13 @@ impl TryFrom<Args> for rpc::forge::ExpectedRack {
     type Error = CarbideCliError;
 
     fn try_from(args: Args) -> Result<Self, Self::Error> {
-        // rack_type is required for update.
-        let rack_type = args
-            .rack_type
-            .ok_or_else(|| CarbideCliError::GenericError("rack_type is required".to_string()))?;
+        // rack_profile_id is required for update.
+        let rack_profile_id = args.rack_profile_id.ok_or_else(|| {
+            CarbideCliError::GenericError("rack_profile_id is required".to_string())
+        })?;
         Ok(rpc::forge::ExpectedRack {
             rack_id: Some(args.rack_id),
-            rack_type,
+            rack_profile_id: Some(rack_profile_id.into()),
             metadata: Some(rpc::forge::Metadata {
                 name: args.meta_name.unwrap_or_default(),
                 description: args.meta_description.unwrap_or_default(),

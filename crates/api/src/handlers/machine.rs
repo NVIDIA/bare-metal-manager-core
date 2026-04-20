@@ -21,6 +21,7 @@ use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use carbide_redfish::libredfish::RedfishAuth;
 use carbide_uuid::machine::MachineId;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use itertools::Itertools;
@@ -35,7 +36,6 @@ use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
 use crate::auth::AuthContext;
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::redfish::RedfishAuth;
 
 pub(crate) async fn find_machine_ids(
     api: &Api,

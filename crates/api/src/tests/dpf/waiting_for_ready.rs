@@ -23,14 +23,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use carbide_dpf::DpuPhase;
+use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::libredfish::test_support::RedfishSimAction;
 use carbide_uuid::machine::MachineId;
 use libredfish::SystemPowerControl;
 use model::machine::{DpfState, DpuInitState, ManagedHostState};
 use tokio::time::timeout;
 
 use crate::dpf::MockDpfOperations;
-use crate::redfish::RedfishClientPool;
-use crate::redfish::test_support::RedfishSimAction;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, TestManagedHost, create_managed_host_with_dpf,
     create_managed_host_with_dpf_multi, create_test_env_with_overrides, discovery_completed,

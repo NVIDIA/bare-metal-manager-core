@@ -29,6 +29,10 @@ message RackId {
   string id = 1;
 }
 
+message RackProfileId {
+  string id = 1;
+}
+
 message SwitchId {
   string id = 1;
 }

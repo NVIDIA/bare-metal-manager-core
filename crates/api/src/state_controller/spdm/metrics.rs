@@ -17,9 +17,9 @@
 
 //! Defines custom metrics that are collected and emitted by the Machine State Controller
 
+use ::utils::metrics::SharedMetricsHolder;
 use opentelemetry::metrics::Meter;
 
-use crate::logging::metrics_utils::SharedMetricsHolder;
 use crate::state_controller::metrics::MetricsEmitter;
 
 #[derive(Debug, Default, Clone)]

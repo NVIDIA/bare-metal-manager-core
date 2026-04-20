@@ -41,6 +41,7 @@ pub mod explored_endpoints;
 pub mod explored_managed_host;
 pub mod extension_service;
 pub mod health_history;
+pub mod health_report;
 pub mod host_machine_update;
 pub mod ib_partition;
 pub mod instance;

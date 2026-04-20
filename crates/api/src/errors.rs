@@ -18,6 +18,7 @@ use std::backtrace::{Backtrace, BacktraceStatus};
 use std::net::IpAddr;
 
 use ::rpc::errors::RpcDataConversionError;
+use carbide_redfish::libredfish::RedfishClientCreationError;
 use carbide_uuid::machine::MachineId;
 use config_version::ConfigVersionParseError;
 use db::ip_allocator::DhcpError;
@@ -32,8 +33,6 @@ use model::site_explorer::EndpointExplorationError;
 use model::tenant::TenantError;
 use model::{ConfigValidationError, resource_pool};
 use tonic::Status;
-
-use crate::redfish::RedfishClientCreationError;
 
 /// Represents various Errors that can occur throughout the system.
 ///

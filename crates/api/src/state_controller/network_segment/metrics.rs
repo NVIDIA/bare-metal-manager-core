@@ -19,10 +19,10 @@
 
 use std::collections::HashMap;
 
+use ::utils::metrics::SharedMetricsHolder;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
 
-use crate::logging::metrics_utils::SharedMetricsHolder;
 use crate::state_controller::metrics::MetricsEmitter;
 
 #[derive(Debug, Default, Clone)]

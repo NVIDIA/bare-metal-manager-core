@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use config_version::ConfigVersion;
-use health_report::{HealthReport, OverrideMode};
+use health_report::{HealthReport, HealthReportApplyMode};
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
 use model::rack::{FirmwareUpgradeJob, Rack, RackConfig, RackState};
@@ -71,6 +71,7 @@ pub async fn find_ids(
 pub async fn create(
     txn: &mut PgConnection,
     rack_id: &RackId,
+    rack_profile_id: Option<&RackProfileId>,
     config: &RackConfig,
     expected_metadata: Option<&Metadata>,
 ) -> DatabaseResult<Rack> {
@@ -83,10 +84,11 @@ pub async fn create(
         name => name.to_string(),
     };
     let version = ConfigVersion::initial();
-    let query = "INSERT INTO racks(id, config, controller_state, controller_state_outcome, name, description, labels, version)
-            VALUES($1, $2::json, $3::json, $4::json, $5, $6, $7::jsonb, $8) RETURNING *";
+    let query = "INSERT INTO racks(id, rack_profile_id, config, controller_state, controller_state_outcome, name, description, labels, version)
+            VALUES($1, $2, $3::json, $4::json, $5::json, $6, $7, $8::jsonb, $9) RETURNING *";
     let rack: Rack = sqlx::query_as(query)
         .bind(rack_id)
+        .bind(rack_profile_id)
         .bind(sqlx::types::Json(config))
         .bind(controller_state)
         .bind(controller_state_outcome)
@@ -195,57 +197,19 @@ pub async fn final_delete(txn: &mut PgConnection, rack_id: &RackId) -> DatabaseR
 pub async fn insert_health_report_override(
     txn: &mut PgConnection,
     rack_id: &RackId,
-    mode: OverrideMode,
+    mode: HealthReportApplyMode,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
-    let column_name = "health_report_overrides";
-    let path = match mode {
-        OverrideMode::Merge => format!("merges,\"{}\"", health_report.source),
-        OverrideMode::Replace => "replace".to_string(),
-    };
-
-    let query = format!(
-        "UPDATE racks SET {column_name} = jsonb_set(
-            coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb),
-            '{{{path}}}',
-            $1::jsonb
-        ) WHERE id = $2
-        RETURNING id"
-    );
-
-    let _id: (RackId,) = sqlx::query_as(&query)
-        .bind(sqlx::types::Json(health_report))
-        .bind(rack_id)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::new("insert rack health report override", e))?;
-
-    Ok(())
+    crate::health_report::insert_health_report(txn, "racks", rack_id, mode, health_report).await
 }
 
 pub async fn remove_health_report_override(
     txn: &mut PgConnection,
     rack_id: &RackId,
-    mode: OverrideMode,
+    mode: HealthReportApplyMode,
     source: &str,
 ) -> Result<(), DatabaseError> {
-    let column_name = "health_report_overrides";
-    let path = match mode {
-        OverrideMode::Merge => format!("merges,{source}"),
-        OverrideMode::Replace => "replace".to_string(),
-    };
-    let query = format!(
-        "UPDATE racks SET {column_name} = ({column_name} #- '{{{path}}}') WHERE id = $1
-            RETURNING id"
-    );
-
-    let _id: (RackId,) = sqlx::query_as(&query)
-        .bind(rack_id)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::new("remove rack health report override", e))?;
-
-    Ok(())
+    crate::health_report::remove_health_report(txn, "racks", rack_id, mode, source).await
 }
 
 pub async fn update_metadata(

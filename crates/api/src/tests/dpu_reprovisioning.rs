@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use carbide_redfish::libredfish::test_support::RedfishSimAction;
 use chrono::Utc;
 use common::api_fixtures::{create_managed_host_multi_dpu, create_test_env, reboot_completed};
 use libredfish::SystemPowerControl;
@@ -29,7 +30,6 @@ use rpc::forge::MachineArchitecture;
 use rpc::forge::dpu_reprovisioning_request::Mode;
 use rpc::forge::forge_server::Forge;
 
-use crate::redfish::test_support::RedfishSimAction;
 use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::create_dpu_machine_in_waiting_for_network_install;
@@ -1890,7 +1890,7 @@ impl TestManagedHost {
             .insert_health_report_override(tonic::Request::new(
                 rpc::forge::InsertHealthReportOverrideRequest {
                     machine_id: self.id.into(),
-                    r#override: Some(rpc::forge::HealthReportOverride {
+                    health_report_entry: Some(rpc::forge::HealthReportEntry {
                         report: Some(
                             health_report::HealthReport {
                                 source: "host-update".to_string(),
@@ -1910,7 +1910,7 @@ impl TestManagedHost {
                             }
                             .into(),
                         ),
-                        mode: rpc::forge::OverrideMode::Merge.into(),
+                        mode: rpc::forge::HealthReportApplyMode::Merge.into(),
                     }),
                 },
             ))

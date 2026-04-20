@@ -46,13 +46,13 @@ pub async fn find_all(txn: &mut PgConnection) -> DatabaseResult<Vec<ExpectedRack
 /// create creates a new expected rack.
 pub async fn create(txn: &mut PgConnection, rack: &ExpectedRack) -> DatabaseResult<ExpectedRack> {
     let query = "INSERT INTO expected_racks
-             (rack_id, rack_type, metadata_name, metadata_description, metadata_labels)
+             (rack_id, rack_profile_id, metadata_name, metadata_description, metadata_labels)
              VALUES
              ($1::varchar, $2::varchar, $3::varchar, $4::varchar, $5::jsonb) RETURNING *";
 
     sqlx::query_as(query)
         .bind(&rack.rack_id)
-        .bind(&rack.rack_type)
+        .bind(&rack.rack_profile_id)
         .bind(&rack.metadata.name)
         .bind(&rack.metadata.description)
         .bind(sqlx::types::Json(&rack.metadata.labels))
@@ -100,12 +100,12 @@ pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
         .map_err(|err| DatabaseError::query(query, err))
 }
 
-/// update updates an existing expected rack's rack_type and metadata.
+/// update updates an existing expected rack's rack_profile_id and metadata.
 pub async fn update(txn: &mut PgConnection, rack: &ExpectedRack) -> DatabaseResult<()> {
-    let query = "UPDATE expected_racks SET rack_type=$1, metadata_name=$2, metadata_description=$3, metadata_labels=$4 WHERE rack_id=$5";
+    let query = "UPDATE expected_racks SET rack_profile_id=$1, metadata_name=$2, metadata_description=$3, metadata_labels=$4 WHERE rack_id=$5";
 
     let result = sqlx::query(query)
-        .bind(&rack.rack_type)
+        .bind(&rack.rack_profile_id)
         .bind(&rack.metadata.name)
         .bind(&rack.metadata.description)
         .bind(sqlx::types::Json(&rack.metadata.labels))

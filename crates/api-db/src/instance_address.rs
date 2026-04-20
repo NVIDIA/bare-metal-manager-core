@@ -180,22 +180,23 @@ fn validate(
     Ok(())
 }
 
-/// Counts the amount of addresses that have been allocated for a given segment
+/// Counts the amount of addresses that have been allocated for a given segment.
 pub async fn count_by_segment_id(
     txn: &mut PgConnection,
     segment_id: &NetworkSegmentId,
 ) -> Result<usize, DatabaseError> {
-    let query = "
-SELECT count(*)
-FROM instance_addresses
-INNER JOIN network_prefixes ON network_prefixes.segment_id = instance_addresses.segment_id
-WHERE network_prefixes.segment_id = $1::uuid";
+    // NOTE(chet): Previously this query used an INNER JOIN with
+    // network_prefixes to count addresses per-prefix. For dual-stack
+    // segments with multiple prefixes, the JOIN would double-count
+    // addresses (once per prefix). The simplified query counts all
+    // addresses for the segment directly, which works for both
+    // single-prefix and multi-prefix segments.
+    let query = "SELECT count(*) FROM instance_addresses WHERE segment_id = $1::uuid";
     let (address_count,): (i64,) = query_as(query)
         .bind(segment_id)
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
-
     Ok(address_count.max(0) as usize)
 }
 
@@ -271,15 +272,7 @@ pub async fn allocate(
             }
         };
 
-        let valid_prefixes = segment.prefixes.clone();
-
-        if valid_prefixes.len() > 1 {
-            return Err(DatabaseError::FindOneReturnedManyResultsError(
-                segment.id.into(),
-            ));
-        }
-
-        let Some(network_prefix) = valid_prefixes.into_iter().next() else {
+        if segment.prefixes.is_empty() {
             tracing::error!(
                 segment_id = %segment.id,
                 "No prefix is attached to segment.",
@@ -287,23 +280,48 @@ pub async fn allocate(
             return Err(DatabaseError::FindOneReturnedNoResultsError(
                 segment.id.into(),
             ));
-        };
+        }
 
-        // Hydrate iface with network addresses, returning the assigned addresses
+        // Hydrate iface with network addresses, returning the assigned addresses.
+        // A segment may have multiple prefixes (e.g. dual-stack with both IPv4 and IPv6).
         let addresses = if segment.segment_type == NetworkSegmentType::HostInband {
-            // For host-inband network segments, the instance interface *is* the host interface,
-            // and we simply use the hosts's address.
-            iface.assign_ips_from((machine, &network_prefix))?
+            // For host-inband network segments, the instance interface *is* the host
+            // interface. Iterate all prefixes so dual-stack segments get both v4 and v6
+            // addresses assigned. Prefixes where the host has no matching address are
+            // skipped (e.g. a v6 prefix on a v4-only host).
+            let mut all_addresses = Vec::new();
+            for prefix in &segment.prefixes {
+                match iface.assign_ips_from((machine, prefix)) {
+                    Ok(mut assigned) => all_addresses.append(&mut assigned),
+                    Err(DatabaseError::InvalidConfiguration(
+                        ConfigValidationError::NetworkSegmentUnavailableOnHost,
+                    )) => {
+                        tracing::debug!(
+                            segment_id = %segment.id,
+                            prefix = %prefix.prefix,
+                            "Host has no address in this prefix, skipping.",
+                        );
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            if all_addresses.is_empty() {
+                return Err(DatabaseError::InvalidConfiguration(
+                    ConfigValidationError::NetworkSegmentUnavailableOnHost,
+                ));
+            }
+            all_addresses
         } else {
             // Use the UsedOverlayNetworkIpResolver, which specifically looks at
             // the instance addresses table in the database for finding
             // the next available IP prefix allocation (with [assumed] support for
             // allocations of varying-sized networks).
-            let busy_ips = network_prefix
-                .svi_ip
+            // Collect SVI IPs from all prefixes as reserved addresses.
+            let busy_ips: Vec<IpAddr> = segment
+                .prefixes
                 .iter()
-                .copied()
-                .collect::<Vec<IpAddr>>();
+                .flat_map(|p| p.svi_ip.iter().copied())
+                .collect();
 
             let dhcp_handler: Box<dyn UsedIpResolver<PgConnection> + Send> =
                 Box::new(UsedOverlayNetworkIpResolver {
@@ -653,12 +671,13 @@ mod tests {
                         ),
                     ),
                     ip_addrs: HashMap::default(),
+                    requested_ip_addr: None,
+                    ipv6_interface_config: None,
                     interface_prefixes: HashMap::default(),
                     network_segment_gateways: HashMap::default(),
                     host_inband_mac_address: None,
                     device_locator: None,
                     internal_uuid: uuid::Uuid::new_v4(),
-                    requested_ip_addr: None,
                 }
             })
             .collect();

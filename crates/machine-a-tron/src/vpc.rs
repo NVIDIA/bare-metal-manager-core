@@ -18,6 +18,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use ::rpc::Timestamp;
+use ::rpc::forge::VpcVirtualizationType;
 use carbide_uuid::vpc::VpcId;
 
 use crate::config::MachineATronContext;
@@ -29,6 +30,7 @@ pub struct Vpc {
     pub app_context: Arc<MachineATronContext>,
 
     pub vpc_name: String,
+    pub network_virtualization_type: Option<VpcVirtualizationType>,
 
     pub logs: Vec<String>,
 
@@ -39,14 +41,20 @@ impl Vpc {
     pub async fn new(
         app_context: Arc<MachineATronContext>,
         ui_event_tx: Option<tokio::sync::mpsc::Sender<UiUpdate>>,
+        network_virtualization_type: Option<VpcVirtualizationType>,
     ) -> Self {
         // TODO: Add error handling when vpc creation fails.
-        let vpc = app_context.api_client().create_vpc().await.unwrap();
+        let vpc = app_context
+            .api_client()
+            .create_vpc(network_virtualization_type)
+            .await
+            .unwrap();
 
         let new_vpc = Vpc {
             vpc_id: vpc.id.expect("VPC must have an ID."),
             app_context,
             vpc_name: vpc.name,
+            network_virtualization_type,
             logs: Vec::default(),
             _created: vpc.created,
         };

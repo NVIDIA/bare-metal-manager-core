@@ -129,7 +129,7 @@ pub async fn get_updated_machines(
             // Skip looking at any machines that are not marked for updates
             if !managed_host
                 .host_snapshot
-                .health_report_overrides
+                .health_reports
                 .merges
                 .get(HOST_UPDATE_HEALTH_REPORT_SOURCE)
                 .is_some_and(|updater_report| {

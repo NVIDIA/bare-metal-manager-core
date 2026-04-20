@@ -15,11 +15,10 @@
  * limitations under the License.
  */
 
+use ::utils::metrics::SharedMetricsHolder;
 use model::machine_validation::MachineValidationTest;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
-
-use crate::logging::metrics_utils::SharedMetricsHolder;
 
 #[derive(Clone, Debug)]
 pub struct MachineValidationMetrics {

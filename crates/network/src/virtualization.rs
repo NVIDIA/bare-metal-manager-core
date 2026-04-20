@@ -188,6 +188,14 @@ impl From<VpcVirtualizationType> for rpc::VpcVirtualizationType {
     }
 }
 
+/// Concatenate a required IPv4 value with an optional IPv6 value into a vector.
+/// Empty IPv6 strings are filtered out.
+pub fn build_dual_stack_list(v4: String, v6: Option<String>) -> Vec<String> {
+    std::iter::once(v4)
+        .chain(v6.filter(|s| !s.is_empty()))
+        .collect()
+}
+
 impl FromStr for VpcVirtualizationType {
     type Err = eyre::Report;
 
@@ -209,18 +217,29 @@ impl FromStr for VpcVirtualizationType {
 /// a wider refactor + intro of Carbide IP Prefix Management.
 pub fn get_host_ip(network: &IpNetwork) -> eyre::Result<std::net::IpAddr> {
     match network.prefix() {
-        32 => Ok(network.ip()),
+        // Single-host allocation: IPv4 /32 or IPv6 /128
+        32 | 128 => Ok(network.ip()),
+        // Point-to-point linknet: IPv4 /31 (RFC 3021) or IPv6 /127 (RFC 6164)
+        // The second address is the host IP.
+        31 | 127 => match network.iter().nth(1) {
+            Some(ip_addr) => Ok(ip_addr),
+            None => Err(eyre::eyre!(
+                "no viable host IP found in point-to-point network: {}",
+                network
+            )),
+        },
+        // Legacy /30 allocation: host IP is the 4th address
         30 => match network.iter().nth(3) {
             Some(ip_addr) => Ok(ip_addr),
-            None => Err(eyre::eyre!(format!(
+            None => Err(eyre::eyre!(
                 "no viable host IP found in network: {}",
                 network
-            ))),
+            )),
         },
-        _ => Err(eyre::eyre!(format!(
+        _ => Err(eyre::eyre!(
             "tenant instance network size unsupported: {}",
             network.prefix()
-        ))),
+        )),
     }
 }
 
@@ -245,6 +264,8 @@ pub fn get_svi_ip(
 
 #[cfg(test)]
 mod tests {
+    use std::net::IpAddr;
+
     use super::*;
 
     #[test]
@@ -297,5 +318,48 @@ mod tests {
             VpcVirtualizationType::EthernetVirtualizerWithNvue.to_string(),
             "etv"
         );
+    }
+
+    #[test]
+    fn test_get_host_ip_ipv4_slash32() {
+        let network = IpNetwork::new("10.0.0.5".parse().unwrap(), 32).unwrap();
+        let result = get_host_ip(&network).unwrap();
+        assert_eq!(result, "10.0.0.5".parse::<IpAddr>().unwrap());
+    }
+
+    #[test]
+    fn test_get_host_ip_ipv6_slash128() {
+        let network = IpNetwork::new("2001:db8::1".parse().unwrap(), 128).unwrap();
+        let result = get_host_ip(&network).unwrap();
+        assert_eq!(result, "2001:db8::1".parse::<IpAddr>().unwrap());
+    }
+
+    #[test]
+    fn test_get_host_ip_ipv4_slash31_point_to_point() {
+        let network = IpNetwork::new("10.0.0.0".parse().unwrap(), 31).unwrap();
+        let result = get_host_ip(&network).unwrap();
+        assert_eq!(result, "10.0.0.1".parse::<IpAddr>().unwrap());
+    }
+
+    #[test]
+    fn test_get_host_ip_ipv6_slash127_point_to_point() {
+        let network = IpNetwork::new("2001:db8::0".parse().unwrap(), 127).unwrap();
+        let result = get_host_ip(&network).unwrap();
+        assert_eq!(result, "2001:db8::1".parse::<IpAddr>().unwrap());
+    }
+
+    #[test]
+    fn test_get_host_ip_ipv4_slash30_legacy() {
+        let network = IpNetwork::new("10.0.0.0".parse().unwrap(), 30).unwrap();
+        let result = get_host_ip(&network).unwrap();
+        assert_eq!(result, "10.0.0.3".parse::<IpAddr>().unwrap());
+    }
+
+    #[test]
+    fn test_get_host_ip_unsupported_prefix() {
+        let network = IpNetwork::new("10.0.0.0".parse().unwrap(), 29).unwrap();
+        let result = get_host_ip(&network);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("unsupported"));
     }
 }

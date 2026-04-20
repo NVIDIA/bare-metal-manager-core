@@ -224,6 +224,165 @@ mod legacy_rpc {
     }
 }
 
+/// The `RackProfileId` identifies which rack profile (hardware identity
+/// and expected device capabilities) applies to a rack.
+///
+/// `RackProfileId` is a newtype over `String`. Values are defined as keys
+/// in the `[rack_profiles.<id>]` configuration section (e.g. "NVL72",
+/// "NVL36").
+#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RackProfileId(String);
+
+impl RackProfileId {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Debug for RackProfileId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+impl Display for RackProfileId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl FromStr for RackProfileId {
+    type Err = RackIdParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.is_empty() {
+            return Err(RackIdParseError::Empty);
+        }
+        Ok(Self(s.to_string()))
+    }
+}
+
+impl From<&str> for RackProfileId {
+    fn from(s: &str) -> Self {
+        Self(s.to_string())
+    }
+}
+
+impl From<String> for RackProfileId {
+    fn from(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl AsRef<str> for RackProfileId {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+#[cfg(feature = "sqlx")]
+impl sqlx::Encode<'_, sqlx::Postgres> for RackProfileId {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Postgres as Database>::ArgumentBuffer<'_>,
+    ) -> Result<IsNull, BoxDynError> {
+        buf.extend(self.0.as_bytes());
+        Ok(sqlx::encode::IsNull::No)
+    }
+}
+
+#[cfg(feature = "sqlx")]
+impl<'r, DB> sqlx::Decode<'r, DB> for RackProfileId
+where
+    DB: sqlx::database::Database,
+    String: sqlx::Decode<'r, DB>,
+{
+    fn decode(
+        value: <DB as sqlx::database::Database>::ValueRef<'r>,
+    ) -> Result<Self, sqlx::error::BoxDynError> {
+        let str_id: String = String::decode(value)?;
+        Ok(RackProfileId(str_id))
+    }
+}
+
+#[cfg(feature = "sqlx")]
+impl<DB> sqlx::Type<DB> for RackProfileId
+where
+    DB: sqlx::Database,
+    String: sqlx::Type<DB>,
+{
+    fn type_info() -> <DB as sqlx::Database>::TypeInfo {
+        String::type_info()
+    }
+
+    fn compatible(ty: &DB::TypeInfo) -> bool {
+        String::compatible(ty)
+    }
+}
+
+#[cfg(feature = "sqlx")]
+impl PgHasArrayType for RackProfileId {
+    fn array_type_info() -> PgTypeInfo {
+        <&str as PgHasArrayType>::array_type_info()
+    }
+
+    fn array_compatible(ty: &PgTypeInfo) -> bool {
+        <&str as PgHasArrayType>::array_compatible(ty)
+    }
+}
+
+impl prost::Message for RackProfileId {
+    fn encode_raw(&self, buf: &mut impl BufMut)
+    where
+        Self: Sized,
+    {
+        rack_profile_id_rpc::RackProfileId::from(self.clone()).encode_raw(buf);
+    }
+
+    fn merge_field(
+        &mut self,
+        tag: u32,
+        wire_type: WireType,
+        buf: &mut impl Buf,
+        ctx: DecodeContext,
+    ) -> Result<(), DecodeError>
+    where
+        Self: Sized,
+    {
+        let mut msg = rack_profile_id_rpc::RackProfileId::from(self.clone());
+        msg.merge_field(tag, wire_type, buf, ctx)?;
+        self.0 = msg.id;
+        Ok(())
+    }
+
+    fn encoded_len(&self) -> usize {
+        rack_profile_id_rpc::RackProfileId::from(self.clone()).encoded_len()
+    }
+
+    fn clear(&mut self) {
+        self.0.clear();
+    }
+}
+
+mod rack_profile_id_rpc {
+    #[derive(prost::Message)]
+    pub struct RackProfileId {
+        #[prost(string, tag = "1")]
+        pub id: String,
+    }
+
+    impl From<super::RackProfileId> for RackProfileId {
+        fn from(value: super::RackProfileId) -> Self {
+            Self { id: value.0 }
+        }
+    }
+}
+
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum RackIdParseError {
     #[error("RackId cannot be empty")]

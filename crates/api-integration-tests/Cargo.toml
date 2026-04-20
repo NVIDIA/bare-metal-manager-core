@@ -28,6 +28,7 @@ authors.workspace = true
 carbide-machine-a-tron = { path = "../machine-a-tron" }
 carbide-utils = { path = "../utils", features = ["sqlx"] }
 carbide-api-test-helper = { path = "../api-test-helper" }
+carbide-secrets = { path = "../secrets" }
 bmc-mock = { path = "../bmc-mock" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
@@ -37,7 +38,10 @@ ctor = { workspace = true }
 eyre = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
+mac_address = { workspace = true }
+opentelemetry = { workspace = true }
 serde_json = { workspace = true }
+serial_test = { workspace = true }
 sqlx = { workspace = true, features = ["postgres"] }
 temp-dir = { workspace = true }
 tokio = { workspace = true }

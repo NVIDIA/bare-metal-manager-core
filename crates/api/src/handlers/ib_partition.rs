@@ -248,6 +248,18 @@ pub(crate) async fn delete(
         }
     };
 
+    // Best-effort guard: reject deletion when instances are still bound.
+    // It is still possible for a new reference to be made after this check is made.
+    // In that case partition will remain in terminating state until the reference is removed.
+    let instance_count =
+        db::ib_partition::count_instances_referencing_partition(&mut txn, segment.id).await?;
+    if instance_count > 0 {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "IB partition cannot be deleted while {instance_count} instance(s) are still using it"
+        ))
+        .into());
+    }
+
     let resp = db::ib_partition::mark_as_deleted(&segment, &mut txn)
         .await
         .map(|_| rpc::IbPartitionDeletionResult {})

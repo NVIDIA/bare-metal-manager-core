@@ -16,6 +16,7 @@
  */
 use std::panic::Location;
 
+use carbide_redfish::libredfish::RedfishClientCreationError;
 use carbide_uuid::machine::MachineId;
 use db::DatabaseError;
 use libredfish::RedfishError;
@@ -25,7 +26,6 @@ use model::machine::ManagedHostState;
 use model::resource_pool::ResourcePoolError;
 use sqlx::{PgPool, PgTransaction};
 
-use crate::redfish::RedfishClientCreationError;
 use crate::state_controller::db_write_batch::DbWriteBatch;
 
 /// The collection of generic objects which are referenced in StateHandlerContext

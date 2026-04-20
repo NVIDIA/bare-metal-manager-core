@@ -104,6 +104,7 @@ async fn create_test_vpcs(
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
     mh.instance_builer(env)
@@ -366,6 +367,7 @@ async fn create_vpc_peering(
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
 

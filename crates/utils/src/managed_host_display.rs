@@ -186,7 +186,7 @@ impl From<Machine> for ManagedHostOutput {
             })
             .unwrap_or_else(health_report::HealthReport::missing_report);
         let health_overrides = machine
-            .health_overrides
+            .health_sources
             .into_iter()
             .map(|o| o.source)
             .collect();

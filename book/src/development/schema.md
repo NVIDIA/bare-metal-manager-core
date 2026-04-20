@@ -1,6 +1,7 @@
 [View SVG](schema.svg)
 ```mermaid
 erDiagram
+    direction LR
     sqlx_migrations {
         bigint version PK
         text description

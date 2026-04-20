@@ -69,6 +69,7 @@ bmc-mock = { path = "../bmc-mock" }
 carbide-tls = { path = "../tls" }
 carbide-version = { path = "../version" }
 carbide-uuid = { path = "../uuid" }
+carbide-network = { path = "../network" }
 
 [dev-dependencies]
 toml = { workspace = true }

@@ -53,7 +53,7 @@ fn convert_and_print_into_nice_table(
 
     table.set_titles(row![
         "Rack ID",
-        "Rack Type",
+        "Rack Profile",
         "Name",
         "Description",
         "Labels"
@@ -81,7 +81,11 @@ fn convert_and_print_into_nice_table(
                 .clone()
                 .map(|r| r.to_string())
                 .unwrap_or_default(),
-            expected_rack.rack_type,
+            expected_rack
+                .rack_profile_id
+                .as_ref()
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
             expected_rack
                 .metadata
                 .as_ref()

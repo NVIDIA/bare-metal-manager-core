@@ -16,8 +16,14 @@
  */
 
 mod composite;
+#[cfg(not(feature = "bench-hooks"))]
+pub(crate) mod event_mapper;
+#[cfg(feature = "bench-hooks")]
+pub mod event_mapper;
 mod events;
 mod health_override;
+mod log_file;
+pub(crate) mod otlp;
 mod override_queue;
 mod prometheus;
 mod rack_health_override;
@@ -29,9 +35,15 @@ pub use events::{
     HealthReportSuccess, LogRecord, Probe, ReportSource, SensorHealthContext, SensorHealthData,
 };
 pub use health_override::HealthOverrideSink;
+pub use log_file::LogFileSink;
 pub use prometheus::PrometheusSink;
 pub use rack_health_override::RackHealthOverrideSink;
 pub use tracing::TracingSink;
+
+#[cfg(not(feature = "bench-hooks"))]
+pub(crate) use self::otlp::OtlpSink;
+#[cfg(feature = "bench-hooks")]
+pub use self::otlp::OtlpSink;
 
 pub trait DataSink: Send + Sync {
     fn sink_type(&self) -> &'static str;

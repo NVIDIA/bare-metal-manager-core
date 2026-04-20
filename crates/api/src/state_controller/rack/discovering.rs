@@ -22,10 +22,10 @@
 //! state. Once all devices are ready, reprovisioning is triggered and the
 //! rack transitions to Maintenance.
 
-use carbide_uuid::rack::RackId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use db::{machine as db_machine, power_shelf as db_power_shelf, switch as db_switch};
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::rack::{FirmwareUpgradeState, RackConfig, RackMaintenanceState, RackState};
+use model::rack::{FirmwareUpgradeState, RackMaintenanceState, RackState};
 
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
@@ -33,13 +33,15 @@ use crate::state_controller::state_handler::{
 };
 pub async fn handle_discovering(
     id: &RackId,
-    config: &RackConfig,
+    rack_profile_id: Option<&RackProfileId>,
     ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
-    let capabilities = match super::resolve_capabilities(id, config, ctx) {
+    let capabilities = match super::resolve_capabilities(id, rack_profile_id, ctx) {
         Some(caps) => caps,
         None => {
-            return Ok(StateHandlerOutcome::wait("no or unknown rack_type".into()));
+            return Ok(StateHandlerOutcome::wait(
+                "no or unknown rack_profile_id".into(),
+            ));
         }
     };
 

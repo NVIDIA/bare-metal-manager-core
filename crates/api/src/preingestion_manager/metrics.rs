@@ -15,9 +15,8 @@
  * limitations under the License.
  */
 
+use ::utils::metrics::SharedMetricsHolder;
 use opentelemetry::metrics::Meter;
-
-use crate::logging::metrics_utils::SharedMetricsHolder;
 
 #[derive(Clone, Debug)]
 pub struct PreingestionMetrics {

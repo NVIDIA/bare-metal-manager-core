@@ -275,7 +275,6 @@ impl NvidiaDgxH100<'_> {
                     model: Some("DGXH100".into()),
                     serial_number: Some(self.dgx_system_serial_number.to_string().into()),
                     network_adapters: Some(vec![]),
-                    pcie_devices: None,
                     sensors: Some(redfish::sensor::generate_chassis_sensors(
                         "CPUBaseboard",
                         redfish::sensor::Layout {
@@ -283,8 +282,7 @@ impl NvidiaDgxH100<'_> {
                             ..Default::default()
                         },
                     )),
-                    assembly: None,
-                    oem: None,
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: dgx_chassis_id.into(),
@@ -326,8 +324,7 @@ impl NvidiaDgxH100<'_> {
                                                   //     WATCHDOG2
                         },
                     )),
-                    assembly: None,
-                    oem: None,
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 },
             ]
             .into_iter()
@@ -554,7 +551,6 @@ fn hgx_gpu_sxm_chassis(index: usize, serial: &str) -> redfish::chassis::SingleCh
         part_number: Some("2330-885-A1".into()),
         model: Some("H100 80GB HBM3".into()),
         serial_number: Some(serial.to_string().into()),
-        network_adapters: None,
         pcie_devices: Some(vec![
             redfish::pcie_device::builder(&redfish::pcie_device::chassis_resource(
                 &id,
@@ -576,7 +572,6 @@ fn hgx_gpu_sxm_chassis(index: usize, serial: &str) -> redfish::chassis::SingleCh
             },
         )),
         id: id.into(),
-        assembly: None,
-        oem: None,
+        ..redfish::chassis::SingleChassisConfig::defaults()
     }
 }

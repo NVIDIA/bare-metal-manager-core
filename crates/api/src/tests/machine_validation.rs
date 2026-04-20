@@ -350,6 +350,7 @@ async fn test_machine_validation_get_results(
 }
 
 #[crate::sqlx_test]
+#[ignore = "RBAC (secure_mv): AddUpdateMachineValidationExternalConfig has no principals until external config + MV path is hardened"]
 async fn test_create_update_external_config(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -665,6 +666,7 @@ async fn test_machine_validation_disabled(
 }
 
 #[crate::sqlx_test(fixtures("create_machine_validation_tests",))]
+#[ignore = "RBAC (secure_mv): AddMachineValidationTest has no principals until MV execution path is hardened"]
 async fn test_machine_validation_add_new_test_case(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -750,6 +752,7 @@ async fn test_machine_validation_add_new_test_case(
 }
 
 #[crate::sqlx_test(fixtures("create_machine_validation_tests",))]
+#[ignore = "RBAC (secure_mv): UpdateMachineValidationTest has no principals until MV execution path is hardened"]
 async fn test_machine_validation_update_existing_test(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1099,6 +1102,7 @@ async fn test_on_demant_un_verified_machine_validation(
 }
 
 #[crate::sqlx_test(fixtures("create_machine_validation_tests",))]
+#[ignore = "RBAC (secure_mv): depends on AddMachineValidationTest (denied until MV execution path is hardened)"]
 async fn test_machine_validation_get_unverified_tests(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

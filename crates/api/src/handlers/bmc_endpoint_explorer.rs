@@ -23,6 +23,7 @@ use db::WithTransaction;
 use db::machine_interface::find_by_ip;
 use libredfish::RoleId;
 use mac_address::MacAddress;
+use model::expected_entity::ExpectedEntity;
 use model::machine::machine_id::try_parse_machine_id;
 use model::machine::{LoadSnapshotOptions, MachineInterfaceSnapshot};
 use model::site_explorer::PreingestionState;
@@ -450,12 +451,22 @@ pub(crate) async fn explore(
     let (bmc_addr, bmc_mac_address) = resolve_bmc_interface(api, &req).await?;
 
     let machine_interface = MachineInterfaceSnapshot::mock_with_mac(bmc_mac_address);
-    let expected_machine = crate::handlers::expected_machine::query(api, bmc_mac_address).await?;
+
     // TODO(chet): Track down Vinod's Jira to optimize code for
     // existing sites where there is no nvswitch or power shelf.
-    let expected_switch = crate::handlers::expected_switch::query(api, bmc_mac_address).await?;
-    let expected_power_shelf =
-        crate::handlers::expected_power_shelf::query(api, bmc_mac_address).await?;
+    let expected = if let Some(expected_machine) =
+        crate::handlers::expected_machine::query(api, bmc_mac_address).await?
+    {
+        Some(ExpectedEntity::Machine(expected_machine))
+    } else if let Some(expected_switch) =
+        crate::handlers::expected_switch::query(api, bmc_mac_address).await?
+    {
+        Some(ExpectedEntity::Switch(expected_switch))
+    } else {
+        crate::handlers::expected_power_shelf::query(api, bmc_mac_address)
+            .await?
+            .map(ExpectedEntity::PowerShelf)
+    };
 
     // Look up boot_interface_mac from existing explored endpoint if available
     let mut txn = api.txn_begin().await?;
@@ -470,9 +481,7 @@ pub(crate) async fn explore(
         .explore_endpoint(
             bmc_addr,
             &machine_interface,
-            expected_machine.as_ref(),
-            expected_power_shelf.as_ref(),
-            expected_switch.as_ref(),
+            expected.as_ref(),
             None,
             boot_interface_mac,
         )

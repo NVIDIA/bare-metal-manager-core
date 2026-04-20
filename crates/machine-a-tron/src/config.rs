@@ -105,6 +105,14 @@ pub struct MachineConfig {
         serialize_with = "as_std_duration"
     )]
     pub network_status_run_interval: Duration,
+    /// Network virtualization type for VPCs created by this config section. Accepted values:
+    /// "etv" (EthernetVirtualizer, default), "etv_nvue" (EthernetVirtualizer with NVUE), or
+    /// "fnn" (Forge Native Networking). When set to "fnn", network segments will include both
+    /// an IPv4 and an IPv6 prefix, enabling dual-stack IP allocation for machine interfaces.
+    /// TODO(chet): Technically etv_nvue is RIP, but I'm leaving it in here for now.. but will
+    /// clean it up soon in its own PR.
+    #[serde(default)]
+    pub network_virtualization_type: Option<String>,
     /// If true, DPUs will run in "nic mode" and will not PXE boot, and their BMC JSON will reflect as such
     #[serde(default)]
     pub dpus_in_nic_mode: bool,

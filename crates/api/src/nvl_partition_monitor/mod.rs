@@ -42,11 +42,11 @@ use sqlx::PgPool;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
+use utils::periodic_timer::PeriodicTimer;
 
 use crate::api::TransactionVending;
 use crate::cfg::file::NvLinkConfig;
 use crate::nvlink::NmxmClientPool;
-use crate::periodic_timer::PeriodicTimer;
 use crate::{CarbideError, CarbideResult};
 
 mod metrics;
@@ -1335,14 +1335,12 @@ impl NvlPartitionMonitor {
         mh: &ManagedHostStateSnapshot,
         partition_ctx: &mut PartitionProcessingContext,
     ) -> CarbideResult<()> {
-        // Check if machine is in admin network
-        let use_admin_network = mh
-            .dpu_snapshots
-            .iter()
-            .any(|dpu| dpu.network_config.use_admin_network.unwrap_or(true));
-
-        // If not on admin network, skip processing
-        if !use_admin_network {
+        // If not in admin-network mode, skip processing. GPUs should stay
+        // attached to tenant partitions, but zero-DPU hosts are always
+        // considered admin network (since they don't have a DPU to put them
+        // in an overlay network). In other words, zero-DPU hosts get GPU
+        // removals, but hosts with DPUs in tenant networks don't.
+        if !mh.use_admin_network() {
             return Ok(());
         }
 
