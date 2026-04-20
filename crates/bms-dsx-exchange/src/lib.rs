@@ -31,7 +31,7 @@ const OBJECT_TYPE_SYSTEM: &str = "System";
 const POINT_TYPE_RACK_TRAY_LEAK: &str = "RackLeakDetectTray";
 const POINT_TYPE_RACK_LIQUID_ISOLATION_REQUEST: &str = "RackLiquidIsolationRequest";
 const POINT_TYPE_RACK_ELECTRICAL_ISOLATION_REQUEST: &str = "RackElectricalIsolationRequest";
-const POINT_TYPE_HEARTBEAT_TIMESTAMP_INTEGRATION: &str = "HearbeatTimestampIntegration";
+const POINT_TYPE_HEARTBEAT_TIMESTAMP_INTEGRATION: &str = "HeartbeatTimestampIntegration";
 
 #[derive(Debug, thiserror::Error)]
 pub enum BmsDsxExchangeError {
@@ -343,10 +343,10 @@ mod tests {
     fn parses_heartbeat_metadata() {
         let metadata = parse_supported_metadata(
             r#"{
-                "pointType": "HearbeatTimestampIntegration",
+                "pointType": "HeartbeatTimestampIntegration",
                 "objectType": "System",
                 "integration": "CM",
-                "valueTopic": "BMS/v1/CM/Value/System/HearbeatTimestampIntegration/site"
+                "valueTopic": "BMS/v1/CM/Value/System/HeartbeatTimestampIntegration/site"
             }"#,
         )
         .unwrap()
@@ -359,7 +359,7 @@ mod tests {
         assert_eq!(metadata.integration(), "CM");
         assert_eq!(
             metadata.value_topic(),
-            "BMS/v1/CM/Value/System/HearbeatTimestampIntegration/site"
+            "BMS/v1/CM/Value/System/HeartbeatTimestampIntegration/site"
         );
     }
 
