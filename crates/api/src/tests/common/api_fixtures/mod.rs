@@ -94,9 +94,9 @@ use crate::cfg::file::{
     MachineStateControllerConfig, MachineUpdater, MachineValidationConfig,
     MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
     NetworkSegmentStateControllerConfig, NvLinkConfig, PowerManagerOptions,
-    PowerShelfStateControllerConfig, RackStateControllerConfig, SiteExplorerConfig,
-    SiteExplorerExploreMode, SpdmConfig, SpdmStateControllerConfig, StateControllerConfig,
-    SwitchStateControllerConfig, VmaasConfig, VpcPeeringPolicy, default_max_find_by_ids,
+    PowerShelfStateControllerConfig, RackStateControllerConfig, SpdmConfig,
+    SpdmStateControllerConfig, StateControllerConfig, SwitchStateControllerConfig, VmaasConfig,
+    VpcPeeringPolicy, default_max_find_by_ids,
 };
 use crate::dpf::DpfOperations;
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
@@ -109,6 +109,7 @@ use crate::nvlink::NmxmClientPool;
 use crate::nvlink::test_support::NmxmSimClient;
 use crate::rack::rms_client::test_support::RmsSim;
 use crate::scout_stream;
+use crate::site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
 use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::controller::{Enqueuer, StateController};
@@ -1646,6 +1647,7 @@ pub async fn create_test_env_with_overrides(
 
     let fake_endpoint_explorer = MockEndpointExplorer {
         reports: Arc::new(std::sync::Mutex::new(Default::default())),
+        set_nic_mode_calls: Arc::new(std::sync::Mutex::new(Default::default())),
     };
 
     // The API server is launched with a disabled site-explorer config so that it doesn't launch one
@@ -1928,6 +1930,7 @@ fn test_static_credential_snapshot() -> CredentialSnapshot {
     use std::collections::HashMap;
 
     use base64::Engine;
+
     let test_key_b64 = base64::engine::general_purpose::STANDARD.encode([0u8; 32]);
     let mut encryption_keys = HashMap::new();
     encryption_keys.insert("test".to_string(), test_key_b64);

@@ -1411,6 +1411,7 @@ dependencies = [
  "mac_address",
  "md5",
  "mockall",
+ "mockito",
  "mqttea",
  "nras",
  "num-bigint-dig",

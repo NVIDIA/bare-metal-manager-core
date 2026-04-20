@@ -208,9 +208,9 @@ pub async fn create(
 ) -> DatabaseResult<ExpectedMachine> {
     let id = machine.id.unwrap_or_else(Uuid::new_v4);
     let query = "INSERT INTO expected_machines
-            (id, bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id, host_nics, rack_id, default_pause_ingestion_and_poweron, dpf_enabled, bmc_ip_address, bmc_retain_credentials)
+            (id, bmc_mac_address, bmc_username, bmc_password, serial_number, fallback_dpu_serial_numbers, metadata_name, metadata_description, metadata_labels, sku_id, host_nics, rack_id, default_pause_ingestion_and_poweron, dpf_enabled, bmc_ip_address, bmc_retain_credentials, dpu_mode)
             VALUES
-            ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::text[], $7, $8, $9::jsonb, $10::varchar, $11::jsonb, $12, $13, $14, $15::inet, $16) RETURNING *";
+            ($1::uuid, $2::macaddr, $3::varchar, $4::varchar, $5::varchar, $6::text[], $7, $8, $9::jsonb, $10::varchar, $11::jsonb, $12, $13, $14, $15::inet, $16, $17) RETURNING *";
 
     sqlx::query_as(query)
         .bind(id)
@@ -234,6 +234,7 @@ pub async fn create(
         .bind(machine.data.dpf_enabled.unwrap_or_default())
         .bind(machine.data.bmc_ip_address)
         .bind(machine.data.bmc_retain_credentials.unwrap_or(false))
+        .bind(machine.data.dpu_mode)
         .fetch_one(txn)
         .await
         .map_err(|err: sqlx::Error| match err {
@@ -329,9 +330,9 @@ pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
 /// `bmc_mac_address`. Includes `bmc_ip_address` when the operator configures a static BMC IP.
 pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> DatabaseResult<()> {
     let (where_clause, target_id) = match machine.id {
-        Some(id) => ("id=$15::uuid", id.to_string()),
+        Some(id) => ("id=$16::uuid", id.to_string()),
         None => (
-            "bmc_mac_address=$15::macaddr",
+            "bmc_mac_address=$16::macaddr",
             machine.bmc_mac_address.to_string(),
         ),
     };
@@ -344,7 +345,8 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
              default_pause_ingestion_and_poweron=COALESCE($11, default_pause_ingestion_and_poweron), \
              dpf_enabled=COALESCE($12, dpf_enabled), \
              bmc_ip_address=$13, \
-             bmc_retain_credentials=COALESCE($14, bmc_retain_credentials) \
+             bmc_retain_credentials=COALESCE($14, bmc_retain_credentials), \
+             dpu_mode=$15 \
          WHERE {where_clause}"
     );
 
@@ -363,6 +365,7 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
         .bind(machine.data.dpf_enabled)
         .bind(machine.data.bmc_ip_address)
         .bind(machine.data.bmc_retain_credentials)
+        .bind(machine.data.dpu_mode)
         .bind(&target_id)
         .execute(&mut *txn)
         .await

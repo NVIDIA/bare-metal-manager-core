@@ -650,6 +650,9 @@ impl ApiClient {
             bmc_ip_address: bmc_ip_address.or(expected_machine.bmc_ip_address),
             bmc_retain_credentials: bmc_retain_credentials
                 .or(expected_machine.bmc_retain_credentials),
+            // Patch doesn't expose `--dpu-mode` yet; preserve the existing
+            // server-side value.
+            dpu_mode: expected_machine.dpu_mode,
         };
 
         Ok(self.0.update_expected_machine(request).await?)
@@ -684,6 +687,7 @@ impl ApiClient {
                     is_dpf_enabled: machine.dpf_enabled,
                     bmc_ip_address: machine.bmc_ip_address,
                     bmc_retain_credentials: machine.bmc_retain_credentials,
+                    dpu_mode: machine.dpu_mode.map(|m| m as i32),
                 })
                 .collect(),
         };

@@ -36,11 +36,11 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep};
 
+use super::EndpointExplorer;
+use super::config::SiteExplorerExploreMode;
 use super::credentials::{CredentialClient, get_bmc_root_credential_key};
 use super::metrics::SiteExplorationMetrics;
 use super::redfish::RedfishClient;
-use crate::cfg::file::SiteExplorerExploreMode;
-use crate::site_explorer::EndpointExplorer;
 
 const UNIFIED_PREINGESTION_BFB_PATH: &str =
     "/forge-boot-artifacts/blobs/internal/aarch64/preingestion_unified_update.bfb";

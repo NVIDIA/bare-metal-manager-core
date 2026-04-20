@@ -102,10 +102,10 @@ Each of these flows are discussed below.
 
 ## **3.1 Per-tenant Identity Configuration and Signing Key Provisioning**
 
-Per-org signing keys are created when an admin first configures machine identity for an org via `PUT identity/config` (SetIdentityConfiguration).
+Per-org signing keys are created when an admin first configures machine identity for an org via `PUT identity/config` (SetTenantIdentityConfiguration).
 
 ```
-SetIdentityConfiguration (PUT identity/config)
+SetTenantIdentityConfiguration (PUT identity/config)
               │
               ▼
 ┌───────────────────────────────┐
@@ -381,10 +381,10 @@ The subject format complies with the SPIFFE ID specification. The `iss` claim co
 }
 ```
 
-The Carbide issues two types of JWT-SVIDs. Though they both are similar in structure and signed by the same key, the purpose and some fields are different. 
+The Carbide issues two types of JWT-SVIDs. Though they both are similar in structure and signed by the same key, the purpose and some fields are different.
 
-1. If the token delegation callback is registered, Carbide issues a JWT-SVID node identity with `aud` set to `subject_token_audience`, validity/ttl limited to 120 seconds and passes additional request parameters using `request_meta_data`. This token (see example above) is then sent to the registered `token_endpoint` URI.
-2. If no callback is registered, Carbide issues a JWT-SVID directly to the tenant process in the Carbide managed node. Here the `aud` is set to what is passed as parameters in the IMDS call and ttl is set to 10 minutes (configurable).
+1. If token delegation is registered, Carbide issues a JWT-SVID **subject token** with `aud` set to `subject_token_audience`, with **`exp`, `iat`, and `nbf` derived from the org identity config `tokenTtlSec`** (the same per-org field as direct issuance; constrained by site `token_ttl_min_sec` / `token_ttl_max_sec`). Workload audiences from the caller are carried in `request_meta_data.aud` (see example above). That subject token is sent to the org’s registered `token_endpoint` in an RFC 8693 token exchange. **The JSON token response eventually returned to the workload (`access_token`, `expires_in`, etc.) is whatever the tenant token endpoint returns**—`expires_in` there is not required to match `tokenTtlSec`.
+2. If no delegation is registered, Carbide issues a JWT-SVID directly to the workload (IMDS / `SignMachineIdentity`). Here `aud` is set from the caller’s requested audiences (validated against `allowedAudiences` / `defaultAudience`), and **token lifetime is `tokenTtlSec`** (`exp` / `iat` / `nbf`).
 
 **SPIFFE JWT-SVID Issued by Token Exchange Server:**
 
@@ -455,7 +455,7 @@ eyJhbGciOiJSUzI1NiIs...
 
 These APIs manage per-org identity configuration that controls how Carbide issues JWT-SVIDs for machines in that org. Admins use them to enable or disable the feature per org, and to set the issuer URI, allowed audiences, token TTL, and SPIFFE subject prefix. The configuration applies to all JWT-SVID tokens issued for the org's machines (via IMDS or token exchange). GET retrieves the current config, PUT creates or replaces it, and DELETE removes it (org no longer has machine identity).
 
-**Carbide-rest config defaults:** Carbide-rest may still supply per-site defaults for `issuer`, `tokenTtlSec`, and related fields when a REST client omits them before calling the downstream gRPC `SetIdentityConfiguration`. **`subjectPrefix` is optional in both REST and gRPC:** the Carbide API (site controller) derives a default SPIFFE prefix when it is unset or empty — `spiffe://<trust-domain-from-issuer>` — where the trust domain is taken from `issuer` (HTTPS URL host, `spiffe://…` URI trust domain segment, or bare DNS hostname per implementation). When the client **does** send `subjectPrefix`, it must be a `spiffe://` URI whose trust domain matches the trust domain derived from `issuer`, with path segments and encoding rules enforced by the API (see validation below). If Carbide-rest cannot satisfy required fields (e.g. `issuer`) and the client omits them, PUT may return **400 Bad Request** so the caller can supply values explicitly.
+**Carbide-rest config defaults:** Carbide-rest may still supply per-site defaults for `issuer`, `tokenTtlSec`, and related fields when a REST client omits them before calling the downstream gRPC `SetTenantIdentityConfiguration`. **`subjectPrefix` is optional in both REST and gRPC:** the Carbide API (site controller) derives a default SPIFFE prefix when it is unset or empty — `spiffe://<trust-domain-from-issuer>` — where the trust domain is taken from `issuer` (HTTPS URL host, `spiffe://…` URI trust domain segment, or bare DNS hostname per implementation). When the client **does** send `subjectPrefix`, it must be a `spiffe://` URI whose trust domain matches the trust domain derived from `issuer`, with path segments and encoding rules enforced by the API (see validation below). If Carbide-rest cannot satisfy required fields (e.g. `issuer`) and the client omits them, PUT may return **400 Bad Request** so the caller can supply values explicitly.
 
 **Per-org key generation on PUT:** When PUT creates identity config for an org for the first time, Carbide generates a new per-org signing key pair using the global `algorithm`, encrypts the private key with the Vault master key, and stores it in `tenant_identity_config` DB table. On subsequent PUTs (updates), the key is not regenerated unless `rotateKey` is `true`. On DELETE, the identity config and the org's signing key are removed.
 
@@ -488,10 +488,10 @@ PUT https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/identity/confi
 | :---- | :--- | :------- | :---------- |
 | `orgId` | string | Yes | Org identifier |
 | `enabled` | boolean | No | Enable JWT-SVID for this org. Default `true` when unset. |
-| `issuer` | string | No | Issuer URI that appears in Carbide JWT-SVID. Optional in REST/JSON; required in gRPC `SetIdentityConfiguration`. |
+| `issuer` | string | No | Issuer URI that appears in Carbide JWT-SVID. Optional in REST/JSON; required in gRPC `SetTenantIdentityConfiguration`. |
 | `defaultAudience` | string | Yes | Default audience. Must be in `allowedAudiences` when provided. |
 | `allowedAudiences` | string[] | No | Permitted audiences. Optional; when empty or omitted, all audiences are allowed (permissive mode). When non-empty, only audiences in the list are allowed. |
-| `tokenTtlSec` | number | No | Token TTL in seconds (300–86400). Optional in REST/JSON; required in gRPC `SetIdentityConfiguration`. |
+| `tokenTtlSec` | number | No | Token TTL in seconds (300–86400). Optional in REST/JSON; required in gRPC `SetTenantIdentityConfiguration`. |
 | `subjectPrefix` | string | No | SPIFFE URI prefix for JWT-SVID `sub` (must use `spiffe://`; trust domain must match trust domain derived from `issuer`). Optional in REST and in gRPC (`optional` proto3 field). When omitted or empty, the API stores the default `spiffe://<trust-domain-from-issuer>`. |
 | `rotateKey` | boolean | No | If `true`, regenerate the per-org signing key. Default `false`. |
 
@@ -529,7 +529,7 @@ These APIs let Carbide tenants register a token exchange callback endpoint (RFC 
 | :------ | :---- | :------------------------- |
 | `enabled` | Global | Master switch. If false, PUT token-delegation is rejected (same as identity/config). |
 | `token_endpoint_http_proxy` | Global | Outbound calls from Carbide to the tenant's token endpoint use this proxy (SSRF mitigation). |
-| Identity config (issuer, audiences, TTL) | Per-org (with global defaults) | The JWT-SVID sent to the exchange server is signed using the org's effective identity config. |
+| Identity config (issuer, audiences, **`tokenTtlSec`**) | Per-org (with global defaults) | The subject JWT sent to the exchange server is signed using the org's effective identity config. Its **`exp` − `iat` equals `tokenTtlSec`** (same knob as directly issued tokens). The **outbound** token response `expires_in` comes from the tenant STS, not from Carbide. |
 | Token delegation config | Per-org | Each org registers its own `tokenEndpoint`, `subjectTokenAudience`, and auth method via oneof (`clientSecretBasic`, etc.). |
 
 **PUT token-delegation prerequisites:** Same as PUT identity/config, global `enabled` must be `true` and global config must be complete. If not, PUT returns `503 Service Unavailable`. Token delegation also requires org identity config to exist (the JWT sent to the exchange is built from it); if the org has no identity config, PUT token-delegation returns `404` or `503`.
@@ -609,6 +609,8 @@ Content-Length: ...
   "expires_in": ...
  }
 ```
+
+`expires_in` (and the lifetime of `access_token`) is defined by the tenant token endpoint; it is **not** necessarily equal to Carbide’s **`tokenTtlSec`** (which applies to the Carbide-signed **subject** JWT only).
 
 The exchange service serves an [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693) token exchange endpoint for swapping Carbide-issued JWT-SVIDs with a tenant-specific issuer SVID or access token.
 
@@ -813,13 +815,13 @@ message OpenIDConfigRequest {
   string org_id = 1;    // org-id
 }
 
-// Request for Get/Delete identity configuration (identifiers only)
-message GetIdentityConfigRequest {
+// Request for Get/Delete tenant identity configuration (identifiers only)
+message GetTenantIdentityConfigRequest {
   string organization_id = 1;
 }
 
-// Identity config payload (reusable)
-message IdentityConfig {
+// Tenant identity config payload (reusable)
+message TenantIdentityConfig {
   bool enabled = 1;
   string issuer = 2;
   string default_audience = 3;
@@ -831,15 +833,15 @@ message IdentityConfig {
 }
 
 // Request to configure identity token settings (per org)
-message IdentityConfigRequest {
+message SetTenantIdentityConfigRequest {
   string organization_id = 1;
-  IdentityConfig config = 2;
+  TenantIdentityConfig config = 2;
 }
 
-// Response for Get/Put identity configuration (persisted config per org)
-message IdentityConfigResponse {
+// Response for Get/Put tenant identity configuration (persisted config per org)
+message TenantIdentityConfigResponse {
   string organization_id = 1;
-  IdentityConfig config = 2;  // Nested message; subject_prefix is populated (optional field set) with effective stored value
+  TenantIdentityConfig config = 2;  // Nested message; subject_prefix is populated (optional field set) with effective stored value
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
   string key_id = 10;  // Matches JWKS kid for JWT verification
@@ -847,9 +849,9 @@ message IdentityConfigResponse {
 
 // gRPC service
 service Forge {
-  rpc GetIdentityConfiguration(GetIdentityConfigRequest) returns (IdentityConfigResponse);
-  rpc SetIdentityConfiguration(IdentityConfigRequest) returns (IdentityConfigResponse);
-  rpc DeleteIdentityConfiguration(GetIdentityConfigRequest) returns (google.protobuf.Empty);
+  rpc GetTenantIdentityConfiguration(GetTenantIdentityConfigRequest) returns (TenantIdentityConfigResponse);
+  rpc SetTenantIdentityConfiguration(SetTenantIdentityConfigRequest) returns (TenantIdentityConfigResponse);
+  rpc DeleteTenantIdentityConfiguration(GetTenantIdentityConfigRequest) returns (google.protobuf.Empty);
   rpc GetJWKS(JWKSRequest) returns (JWKS);
   rpc GetOpenIDConfiguration(OpenIDConfigRequest) returns (OpenIDConfiguration);
 }
@@ -862,9 +864,9 @@ service Forge {
 | `GET /v2/org/{org-id}/carbide/site/{site-id}/.well-known/jwks.json` | `Forge.GetJWKS` | Fetch JSON Web Key Set (public, unauthenticated) |
 | `GET /v2/org/{org-id}/carbide/site/{site-id}/.well-known/spiffe/jwks.json` | `Forge.GetJWKS` (`kind=Spiffe`) | Fetch SPIFFE-style JWKS (public, unauthenticated) |
 | `GET /v2/org/{org-id}/carbide/site/{site-id}/.well-known/openid-configuration` | `Forge.GetOpenIDConfiguration` | Fetch OpenID Connect config (public, unauthenticated) |
-| `GET /v2/org/{org-id}/carbide/site/{site-id}/identity/config` | `Forge.GetIdentityConfiguration` | Retrieve identity configuration |
-| `PUT /v2/org/{org-id}/carbide/site/{site-id}/identity/config` | `Forge.SetIdentityConfiguration` | Create or replace identity configuration |
-| `DELETE /v2/org/{org-id}/carbide/site/{site-id}/identity/config` | `Forge.DeleteIdentityConfiguration` | Delete identity configuration |
+| `GET /v2/org/{org-id}/carbide/site/{site-id}/identity/config` | `Forge.GetTenantIdentityConfiguration` | Retrieve identity configuration |
+| `PUT /v2/org/{org-id}/carbide/site/{site-id}/identity/config` | `Forge.SetTenantIdentityConfiguration` | Create or replace identity configuration |
+| `DELETE /v2/org/{org-id}/carbide/site/{site-id}/identity/config` | `Forge.DeleteTenantIdentityConfiguration` | Delete identity configuration |
 | `GET /v2/org/{org-id}/carbide/site/{site-id}/identity/token-delegation` | `Forge.GetTokenDelegation` | Retrieve token delegation config |
 | `PUT /v2/org/{org-id}/carbide/site/{site-id}/identity/token-delegation` | `Forge.SetTokenDelegation` | Create or replace token delegation |
 | `DELETE /v2/org/{org-id}/carbide/site/{site-id}/identity/token-delegation` | `Forge.DeleteTokenDelegation` | Delete token delegation |

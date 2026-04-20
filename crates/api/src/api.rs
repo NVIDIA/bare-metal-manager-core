@@ -2908,55 +2908,51 @@ impl Forge for Api {
 
     async fn sign_machine_identity(
         &self,
-        _request: tonic::Request<rpc::MachineIdentityRequest>,
+        request: tonic::Request<rpc::MachineIdentityRequest>,
     ) -> Result<Response<rpc::MachineIdentityResponse>, Status> {
-        // TODO: enable after implementing this function fully
-        //return crate::handlers::machine_identity::sign_machine_identity(self, request).await;
-        Err(tonic::Status::unimplemented(
-            "machine identity API is temporarily disabled",
-        ))
+        crate::handlers::machine_identity::sign_machine_identity(self, request).await
     }
 
-    async fn get_identity_configuration(
+    async fn get_tenant_identity_configuration(
         &self,
-        request: Request<rpc::GetIdentityConfigRequest>,
-    ) -> Result<Response<rpc::IdentityConfigResponse>, Status> {
-        crate::handlers::identity_config::get_identity_configuration(self, request).await
+        request: Request<rpc::GetTenantIdentityConfigRequest>,
+    ) -> Result<Response<rpc::TenantIdentityConfigResponse>, Status> {
+        crate::handlers::tenant_identity_config::get_configuration(self, request).await
     }
 
-    async fn set_identity_configuration(
+    async fn set_tenant_identity_configuration(
         &self,
-        request: tonic::Request<rpc::IdentityConfigRequest>,
-    ) -> Result<Response<rpc::IdentityConfigResponse>, Status> {
-        crate::handlers::identity_config::set_identity_configuration(self, request).await
+        request: tonic::Request<rpc::SetTenantIdentityConfigRequest>,
+    ) -> Result<Response<rpc::TenantIdentityConfigResponse>, Status> {
+        crate::handlers::tenant_identity_config::set_configuration(self, request).await
     }
 
-    async fn delete_identity_configuration(
+    async fn delete_tenant_identity_configuration(
         &self,
-        request: Request<rpc::GetIdentityConfigRequest>,
+        request: Request<rpc::GetTenantIdentityConfigRequest>,
     ) -> Result<Response<()>, Status> {
-        crate::handlers::identity_config::delete_identity_configuration(self, request).await
+        crate::handlers::tenant_identity_config::delete_configuration(self, request).await
     }
 
     async fn get_token_delegation(
         &self,
         request: Request<rpc::GetTokenDelegationRequest>,
     ) -> Result<Response<rpc::TokenDelegationResponse>, Status> {
-        crate::handlers::identity_config::get_token_delegation(self, request).await
+        crate::handlers::tenant_identity_config::get_token_delegation(self, request).await
     }
 
     async fn set_token_delegation(
         &self,
         request: Request<rpc::TokenDelegationRequest>,
     ) -> Result<Response<rpc::TokenDelegationResponse>, Status> {
-        crate::handlers::identity_config::set_token_delegation(self, request).await
+        crate::handlers::tenant_identity_config::set_token_delegation(self, request).await
     }
 
     async fn delete_token_delegation(
         &self,
         request: Request<rpc::GetTokenDelegationRequest>,
     ) -> Result<Response<()>, Status> {
-        crate::handlers::identity_config::delete_token_delegation(self, request).await
+        crate::handlers::tenant_identity_config::delete_token_delegation(self, request).await
     }
 
     async fn get_jwks(

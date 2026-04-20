@@ -3,14 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-//! Tenant identity policy (driven by site `[machine_identity]` config): JWT issuer normalization,
+//! Identity configuration policy (driven by site `[machine_identity]` config): JWT issuer normalization,
 //! SPIFFE `subject_prefix` resolution, OAuth token-endpoint host extraction, and hostname allowlists.
 //!
 //! Issuers must be `http://`, `https://`, or `spiffe://` URLs parsed with [`Url::parse`], with no
 //! userinfo, query, or fragment. The trust domain is the registered (non-IP) host, lowercased for a
 //! stable `iss` and SPIFFE comparisons. Ports do not affect the trust-domain string;
 //! [`normalize_issuer_and_trust_domain`] builds the normalized `iss`, keeps explicit port and non-empty
-//! paths, and omits a lone default `/` path.
+//! paths, and omits a lone default `/` path. Application code should prefer
+//! [`super::identity_config::Issuer::parse`], which wraps this helper.
 
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -155,7 +156,7 @@ fn serialize_issuer_url(u: &Url, host_lc: &str) -> String {
 /// Parses JWT issuer once. Returns `(normalized_iss, trust_domain)` — canonical `iss` string
 /// (lowercased host for trust domain; scheme per [`Url`]; explicit port and non-root path preserved;
 /// default lone `/` path omitted) and lowercase registered host for SPIFFE trust domain.
-pub(super) fn normalize_issuer_and_trust_domain(issuer: &str) -> Result<(String, String), String> {
+pub(crate) fn normalize_issuer_and_trust_domain(issuer: &str) -> Result<(String, String), String> {
     let u = parse_issuer_url(issuer)?;
     let td = validated_trust_domain_token(&u, "issuer", "issuer: URL must have a host")?;
     let normalized = serialize_issuer_url(&u, &td);

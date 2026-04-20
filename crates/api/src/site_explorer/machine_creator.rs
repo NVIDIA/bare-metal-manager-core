@@ -29,7 +29,8 @@ use model::hardware_info::HardwareInfo;
 use model::machine::machine_id::host_id_from_dpu_hardware_info;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    DpuDiscoveringState, DpuDiscoveringStates, Machine, MachineInterfaceSnapshot, ManagedHostState,
+    CURRENT_STATE_MODEL_VERSION, DpuDiscoveringState, DpuDiscoveringStates, Machine,
+    MachineInterfaceSnapshot, ManagedHostState,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::network_segment::NetworkSegmentType;
@@ -39,11 +40,10 @@ use model::site_explorer::{EndpointExplorationReport, ExploredDpu, ExploredManag
 use sqlx::{PgConnection, PgPool};
 
 use crate::site_explorer::SiteExplorerConfig;
+use crate::site_explorer::errors::{SiteExplorerError, SiteExplorerResult};
 use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
 use crate::site_explorer::managed_host::ManagedHost;
 use crate::site_explorer::metrics::SiteExplorationMetrics;
-use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
-use crate::{CarbideError, CarbideResult};
 
 pub struct MachineCreator {
     database_connection: PgPool,
@@ -77,7 +77,7 @@ impl MachineCreator {
         metrics: &mut SiteExplorationMetrics,
         explored_managed_hosts: &mut [(ExploredManagedHost, EndpointExplorationReport)],
         expected_explored_endpoint_index: &ExploredEndpointIndex,
-    ) -> CarbideResult<()> {
+    ) -> SiteExplorerResult<()> {
         // TODO: Improve the efficiency of this method. Right now we perform 3 database transactions
         // for every identified ManagedHost even if we don't create any objects.
         // We can perform a single query upfront to identify which ManagedHosts don't yet have Machines
@@ -112,7 +112,7 @@ impl MachineCreator {
         report: &mut EndpointExplorationReport,
         expected_machine: Option<&ExpectedMachine>,
         pool: &PgPool,
-    ) -> CarbideResult<bool> {
+    ) -> SiteExplorerResult<bool> {
         let machine_data = expected_machine.map(|em| &em.data);
         let mut managed_host = ManagedHost::init(explored_host);
 
@@ -140,7 +140,8 @@ impl MachineCreator {
         // Zero-dpu case: If the explored host had no DPUs, we can create the machine now
         if managed_host.explored_host.dpus.is_empty() {
             if !self.config.allow_zero_dpu_hosts {
-                let error = CarbideError::NoDpusInMachine(managed_host.explored_host.host_bmc_ip);
+                let error =
+                    SiteExplorerError::NoDpusInMachine(managed_host.explored_host.host_bmc_ip);
                 tracing::error!(%error, "Cannot create managed host for explored endpoint with no DPUs: Zero-dpu hosts are disallowed by config");
                 return Err(error);
             }
@@ -182,11 +183,12 @@ impl MachineCreator {
         }
 
         // Now since all DPUs are created, update host and DPUs state correctly.
-        let host_machine_id = managed_host
-            .machine_id
-            .ok_or(CarbideError::internal(format!(
-                "Failed to get machine ID for host: {managed_host:#?}"
-            )))?;
+        let host_machine_id =
+            managed_host
+                .machine_id
+                .ok_or(SiteExplorerError::internal(format!(
+                    "Failed to get machine ID for host: {managed_host:#?}"
+                )))?;
 
         db::machine::update_state(
             &mut txn,
@@ -275,7 +277,7 @@ impl MachineCreator {
         managed_host: &ManagedHost<'_>,
         report: &mut EndpointExplorationReport,
         machine_data: Option<&ExpectedMachineData>,
-    ) -> CarbideResult<Option<MachineId>> {
+    ) -> SiteExplorerResult<Option<MachineId>> {
         // If there's already a machine with the same MAC address as this endpoint, return false. We
         // can't rely on matching the machine_id, as it may have migrated to a stable MachineID
         // already.
@@ -365,7 +367,7 @@ impl MachineCreator {
                         %existing_machine_id,
                         "BUG! Found existing machine_interface with this MAC address, we should not have gotten here!"
                     );
-                    return Err(CarbideError::AlreadyFoundError {
+                    return Err(SiteExplorerError::AlreadyFoundError {
                         kind: "MachineInterface",
                         id: mac_address.to_string(),
                     });
@@ -402,7 +404,7 @@ impl MachineCreator {
         &self,
         txn: &mut PgConnection,
         explored_dpu: &ExploredDpu,
-    ) -> CarbideResult<bool> {
+    ) -> SiteExplorerResult<bool> {
         if let Some(dpu_machine) = self.create_dpu_machine(txn, explored_dpu).await? {
             self.configure_dpu_interface(txn, explored_dpu).await?;
             self.update_dpu_network_config(txn, &dpu_machine).await?;
@@ -424,7 +426,7 @@ impl MachineCreator {
         managed_host: &ManagedHost<'_>,
         predicted_machine_id: &MachineId,
         machine_data: Option<&ExpectedMachineData>,
-    ) -> CarbideResult<()> {
+    ) -> SiteExplorerResult<()> {
         _ = db::machine::create(
             txn,
             Some(&self.common_pools),
@@ -451,7 +453,7 @@ impl MachineCreator {
         &self,
         txn: &mut PgConnection,
         explored_dpu: &ExploredDpu,
-    ) -> CarbideResult<bool> {
+    ) -> SiteExplorerResult<bool> {
         let dpu_machine_id: &MachineId = explored_dpu.report.machine_id.as_ref().unwrap();
         let oob_net0_mac = explored_dpu.report.systems.iter().find_map(|x| {
             x.ethernet_interfaces.iter().find_map(|x| {
@@ -503,7 +505,7 @@ impl MachineCreator {
         &self,
         txn: &mut PgConnection,
         explored_dpu: &ExploredDpu,
-    ) -> CarbideResult<Option<Machine>> {
+    ) -> SiteExplorerResult<Option<Machine>> {
         let dpu_machine_id = explored_dpu.report.machine_id.as_ref().unwrap();
         match db::machine::find_one(&mut *txn, dpu_machine_id, MachineSearchConfig::default())
             .await?
@@ -538,7 +540,7 @@ impl MachineCreator {
         explored_host: &ManagedHost<'_>,
         explored_dpu: &ExploredDpu,
         machine_data: Option<&ExpectedMachineData>,
-    ) -> CarbideResult<MachineId> {
+    ) -> SiteExplorerResult<MachineId> {
         let dpu_hw_info = explored_dpu.hardware_info()?;
         // Create Host proactively.
         // In case host interface is created, this method will return existing one, instead
@@ -552,7 +554,7 @@ impl MachineCreator {
             .await?;
 
         if host_machine_interface.machine_id.is_some() {
-            return Err(CarbideError::internal(format!(
+            return Err(SiteExplorerError::internal(format!(
                 "The host's machine interface for DPU {} already has the machine ID set--something is wrong: {:#?}",
                 explored_dpu.report.machine_id.as_ref().unwrap(),
                 host_machine_interface
@@ -585,7 +587,7 @@ impl MachineCreator {
         machine_id: &MachineId,
         mut bmc_info: BmcInfo,
         hardware_info: HardwareInfo,
-    ) -> CarbideResult<()> {
+    ) -> SiteExplorerResult<()> {
         let _topology =
             db::machine_topology::create_or_update(txn, machine_id, &hardware_info).await?;
 
@@ -611,7 +613,7 @@ impl MachineCreator {
         &self,
         txn: &mut PgConnection,
         dpu_machine: &Machine,
-    ) -> CarbideResult<()> {
+    ) -> SiteExplorerResult<()> {
         let (mut network_config, version) = dpu_machine.network_config.clone().take();
         if network_config.loopback_ip.is_none() {
             let loopback_ip = db::machine::allocate_loopback_ip(
@@ -663,7 +665,7 @@ impl MachineCreator {
         host_machine_interface: &MachineInterfaceSnapshot,
         explored_dpu: &ExploredDpu,
         machine_data: Option<&ExpectedMachineData>,
-    ) -> CarbideResult<MachineId> {
+    ) -> SiteExplorerResult<MachineId> {
         match &explored_host.machine_id {
             Some(host_machine_id) => {
                 // This is not the primary interface for this host
@@ -711,10 +713,11 @@ impl MachineCreator {
         explored_host: &ExploredManagedHost,
         explored_dpu: &ExploredDpu,
         machine_data: Option<&ExpectedMachineData>,
-    ) -> CarbideResult<MachineId> {
+    ) -> SiteExplorerResult<MachineId> {
         let dpu_hw_info = explored_dpu.hardware_info()?;
-        let predicted_machine_id = host_id_from_dpu_hardware_info(&dpu_hw_info)
-            .map_err(|e| CarbideError::InvalidArgument(format!("hardware info missing: {e}")))?;
+        let predicted_machine_id = host_id_from_dpu_hardware_info(&dpu_hw_info).map_err(|e| {
+            SiteExplorerError::InvalidArgument(format!("hardware info missing: {e}"))
+        })?;
 
         let _host_machine = db::machine::create(
             txn,

@@ -67,9 +67,11 @@ pub async fn create(
             },
             "os": os,
         }),
-        // omit network from config if we're not specifying a segment
+        // omit network from config if we're not specifying a segment (in
+        // the zero-DPU case, the allocator auto-picks a HostInband segment).
         None => serde_json::json!({
             "tenant": tenant,
+            "os": os,
         }),
     };
 

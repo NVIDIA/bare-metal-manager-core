@@ -213,6 +213,7 @@ prost = { workspace = true }
 tower-test = { workspace = true }
 hyper = { features = ["client", "http1"], workspace = true }
 http = { workspace = true }
+mockito = { workspace = true }
 once_cell = { workspace = true }
 
 [lints]

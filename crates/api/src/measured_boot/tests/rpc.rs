@@ -27,12 +27,11 @@ mod tests {
     use carbide_uuid::measured_boot::TrustedMachineId;
     use measured_boot::pcr::PcrRegisterValue;
     use measured_boot::records::MeasurementApprovedMachineRecord;
-    use model::machine::ManagedHostState;
+    use model::machine::{CURRENT_STATE_MODEL_VERSION, ManagedHostState};
     use rpc::protos::measured_boot as mbrpc;
 
     use crate::measured_boot::rpc::{bundle, journal, machine, profile, report, site};
     use crate::measured_boot::tests::common::{create_test_machine, load_topology_json};
-    use crate::state_controller::machine::io::CURRENT_STATE_MODEL_VERSION;
     use crate::tests::common::api_fixtures::create_test_env;
 
     // test_measurement_system_profiles is used to test all of the different

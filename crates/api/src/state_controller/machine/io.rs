@@ -33,9 +33,6 @@ use crate::state_controller::io::StateControllerIO;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::metrics::MachineMetricsEmitter;
 
-// This should be updated on each new model introduction
-pub const CURRENT_STATE_MODEL_VERSION: i16 = 2;
-
 /// State Controller IO implementation for Machines
 #[derive(Default, Debug)]
 pub struct MachineStateControllerIO {

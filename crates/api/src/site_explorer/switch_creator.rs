@@ -21,8 +21,8 @@ use model::expected_switch::ExpectedSwitch;
 use model::site_explorer::ExploredManagedSwitch;
 use sqlx::{PgConnection, PgPool};
 
-use crate::CarbideResult;
 use crate::site_explorer::SiteExplorerConfig;
+use crate::site_explorer::errors::SiteExplorerResult;
 use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
 use crate::site_explorer::metrics::SiteExplorationMetrics;
 
@@ -44,7 +44,7 @@ impl SwitchCreator {
         metrics: &mut SiteExplorationMetrics,
         explored_managed_switches: &[ExploredManagedSwitch],
         expected_explored_endpoint_index: &ExploredEndpointIndex,
-    ) -> CarbideResult<()> {
+    ) -> SiteExplorerResult<()> {
         for explored_managed_switch in explored_managed_switches {
             let expected_switch = match expected_explored_endpoint_index
                 .matched_expected_switch(&explored_managed_switch.bmc_ip)
@@ -87,7 +87,7 @@ impl SwitchCreator {
         explored_managed_switch: &ExploredManagedSwitch,
         expected_switch: &ExpectedSwitch,
         pool: &PgPool,
-    ) -> CarbideResult<bool> {
+    ) -> SiteExplorerResult<bool> {
         let mut txn = pool
             .begin()
             .await
@@ -110,7 +110,7 @@ impl SwitchCreator {
         txn: &mut PgConnection,
         explored_managed_switch: &ExploredManagedSwitch,
         expected_switch: &ExpectedSwitch,
-    ) -> CarbideResult<Option<SwitchId>> {
+    ) -> SiteExplorerResult<Option<SwitchId>> {
         if !explored_managed_switch.nv_os_mac_addresses.is_empty() {
             let explored_macs = explored_managed_switch.nv_os_mac_addresses.clone();
             if *explored_macs != expected_switch.nvos_mac_addresses {
@@ -150,7 +150,7 @@ impl SwitchCreator {
         txn: &mut PgConnection,
         expected_switch: &ExpectedSwitch,
         switch_id: SwitchId,
-    ) -> CarbideResult<()> {
+    ) -> SiteExplorerResult<()> {
         let name = match expected_switch.metadata.name.is_empty() {
             true => expected_switch.serial_number.to_string(),
             false => expected_switch.metadata.name.to_string(),

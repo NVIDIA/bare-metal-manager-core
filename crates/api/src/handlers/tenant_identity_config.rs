@@ -19,49 +19,32 @@
 //! Identity config: issuer, audiences, TTL, signing key (Get/Set/Delete).
 //! Token delegation: token exchange config for external IdP (Get/Set/Delete).
 //! JWKS and OpenID discovery RPCs live in [`machine_identity`](super::machine_identity).
+//! (Proto message `forge.TenantIdentityConfig` is aliased as `ProtoTenantIdentityConfig` to avoid
+//! clashing with the database row type [`TenantIdentityConfig`](TenantIdentityConfig).)
 
 use ::rpc::Timestamp;
 use ::rpc::forge::{
-    GetIdentityConfigRequest, GetTokenDelegationRequest, IdentityConfig as ProtoIdentityConfig,
-    IdentityConfigRequest, IdentityConfigResponse, TokenDelegationRequest, TokenDelegationResponse,
-    token_delegation,
+    GetTenantIdentityConfigRequest, GetTokenDelegationRequest, SetTenantIdentityConfigRequest,
+    TenantIdentityConfig as ProtoTenantIdentityConfig, TenantIdentityConfigResponse,
+    TokenDelegationRequest, TokenDelegationResponse, token_delegation,
 };
 use db::{WithTransaction, tenant, tenant_identity_config};
-use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
+use forge_secrets::credentials::CredentialReader;
 use forge_secrets::key_encryption;
 use model::tenant::{
-    IdentityConfig, IdentityConfigValidationError, InvalidTenantOrg, SigningKeyMaterial,
-    TenantIdentityConfig, TenantIdentityConfigDecrypted, TenantOrganizationId, TokenDelegation,
-    TokenDelegationValidationBounds, TokenDelegationValidationError,
+    EncryptedSigningPrivateKey, EncryptedTokenDelegationAuthConfig, IdentityConfig,
+    IdentityConfigValidationError, InvalidNonEmptyStr, InvalidTenantOrg, KeyId, SigningKeyMaterial,
+    SigningPublicKeyPem, TenantIdentityConfig, TenantIdentityConfigDecrypted, TenantOrganizationId,
+    TokenDelegation, TokenDelegationValidationBounds, TokenDelegationValidationError,
 };
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data, log_request_data_redacted};
 use crate::handlers::machine_identity::require_machine_identity_site_enabled;
-
-async fn machine_identity_encryption_secret(
-    credentials: &dyn CredentialReader,
-    encryption_key_id: &str,
-) -> Result<key_encryption::Aes256Key, Status> {
-    let cred_key = CredentialKey::MachineIdentityEncryptionKey {
-        key_id: encryption_key_id.to_string(),
-    };
-    let creds = credentials
-        .get_credentials(&cred_key)
-        .await
-        .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?
-        .ok_or_else(|| {
-            CarbideError::InvalidArgument(format!(
-                "encryption key '{encryption_key_id}' not found in secrets (machine_identity.encryption_keys)"
-            ))
-        })?;
-    let stored = match &creds {
-        Credentials::UsernamePassword { password, .. } => password.as_str(),
-    };
-    key_encryption::aes256_key_from_stored_secret(stored)
-        .map_err(|e| CarbideError::InvalidArgument(e.to_string()).into())
-}
+use crate::machine_identity::{
+    decrypt_token_delegation_encrypted_blob, machine_identity_encryption_secret,
+};
 
 /// Decrypts DB ciphertext into [`TenantIdentityConfigDecrypted`]: `row` keeps envelope in
 /// `encrypted_auth_method_config`; plaintext JSON is only in `auth_method_config`.
@@ -69,32 +52,19 @@ async fn tenant_identity_with_decrypted_token_delegation(
     credentials: &dyn CredentialReader,
     cfg: TenantIdentityConfig,
 ) -> Result<TenantIdentityConfigDecrypted, Status> {
-    let auth_method_config = if let Some(ref enc) = cfg.encrypted_auth_method_config {
-        let secret =
-            machine_identity_encryption_secret(credentials, &cfg.encryption_key_id).await?;
-        let plain = key_encryption::decrypt(enc, &secret).map_err(|e| {
-            tracing::error!(
-                error = %e,
-                org_id = %cfg.organization_id.as_str(),
-                "token delegation auth config decrypt failed"
-            );
-            CarbideError::internal(
-                "stored token delegation configuration could not be decrypted".to_string(),
-            )
-        })?;
-        Some(String::from_utf8(plain).map_err(|e| {
-            tracing::error!(
-                error = %e,
-                org_id = %cfg.organization_id.as_str(),
-                "token delegation auth config plaintext was not UTF-8"
-            );
-            CarbideError::internal(
-                "stored token delegation configuration could not be decrypted".to_string(),
-            )
-        })?)
-    } else {
-        None
-    };
+    let auth_method_config = decrypt_token_delegation_encrypted_blob(
+        credentials,
+        &cfg.encryption_key_id,
+        cfg.encrypted_auth_method_config.as_ref(),
+    )
+    .await
+    .inspect_err(|e| {
+        tracing::error!(
+            org_id = %cfg.organization_id.as_str(),
+            message = %e.message(),
+            "token delegation auth config decrypt failed"
+        );
+    })?;
     Ok(TenantIdentityConfigDecrypted {
         row: cfg,
         auth_method_config,
@@ -125,13 +95,13 @@ fn format_token_delegation_request_redacted(req: &TokenDelegationRequest) -> Str
     )
 }
 
-// --- Identity configuration handlers ---
+// --- Tenant identity configuration handlers ---
 
-/// Handles GetIdentityConfiguration: fetches per-org identity config.
-pub(crate) async fn get_identity_configuration(
+/// `Forge::get_tenant_identity_configuration`: fetches per-org identity config.
+pub(crate) async fn get_configuration(
     api: &Api,
-    request: Request<GetIdentityConfigRequest>,
-) -> Result<Response<IdentityConfigResponse>, Status> {
+    request: Request<GetTenantIdentityConfigRequest>,
+) -> Result<Response<TenantIdentityConfigResponse>, Status> {
     log_request_data(&request);
 
     require_machine_identity_site_enabled(api)?;
@@ -164,11 +134,11 @@ pub(crate) async fn get_identity_configuration(
         }
     };
 
-    Ok(Response::new(IdentityConfigResponse {
+    Ok(Response::new(TenantIdentityConfigResponse {
         organization_id: org_id_str,
-        config: Some(ProtoIdentityConfig {
+        config: Some(ProtoTenantIdentityConfig {
             enabled: cfg.enabled,
-            issuer: cfg.issuer.clone(),
+            issuer: cfg.issuer.as_str().to_string(),
             default_audience: cfg.default_audience.clone(),
             allowed_audiences: cfg.allowed_audiences.0.clone(),
             token_ttl_sec: cfg.token_ttl_sec as u32,
@@ -177,14 +147,14 @@ pub(crate) async fn get_identity_configuration(
         }),
         created_at: Some(Timestamp::from(cfg.created_at)),
         updated_at: Some(Timestamp::from(cfg.updated_at)),
-        key_id: cfg.key_id,
+        key_id: cfg.key_id.as_str().to_string(),
     }))
 }
 
-/// Handles DeleteIdentityConfiguration: removes per-org identity config.
-pub(crate) async fn delete_identity_configuration(
+/// `Forge::delete_tenant_identity_configuration`: removes per-org identity config.
+pub(crate) async fn delete_configuration(
     api: &Api,
-    request: Request<GetIdentityConfigRequest>,
+    request: Request<GetTenantIdentityConfigRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
@@ -226,12 +196,12 @@ pub(crate) async fn delete_identity_configuration(
     Ok(Response::new(()))
 }
 
-/// Handles SetIdentityConfiguration: upserts per-org identity config into tenant_identity_config.
+/// `Forge::set_tenant_identity_configuration`: upserts per-org identity config into tenant_identity_config.
 /// Requires auth. Tenant must exist. Key generation is placeholder until credential-backed key provisioning.
-pub(crate) async fn set_identity_configuration(
+pub(crate) async fn set_configuration(
     api: &Api,
-    request: Request<IdentityConfigRequest>,
-) -> Result<Response<IdentityConfigResponse>, Status> {
+    request: Request<SetTenantIdentityConfigRequest>,
+) -> Result<Response<TenantIdentityConfigResponse>, Status> {
     log_request_data(&request);
 
     if !api.runtime_config.machine_identity.enabled {
@@ -243,9 +213,9 @@ pub(crate) async fn set_identity_configuration(
     }
 
     let req = request.into_inner();
-    let proto = req
-        .config
-        .ok_or_else(|| CarbideError::InvalidArgument("IdentityConfig is required".to_string()))?;
+    let proto = req.config.ok_or_else(|| {
+        CarbideError::InvalidArgument("TenantIdentityConfig is required".to_string())
+    })?;
     let config = IdentityConfig::try_from_proto(
         proto,
         &model::tenant::IdentityConfigValidationBounds::from(
@@ -281,14 +251,24 @@ pub(crate) async fn set_identity_configuration(
             .await?;
             let (private_pem, public_pem) = key_encryption::generate_es256_key_pair()
                 .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
-            let key_id = key_encryption::key_id_from_public_key(&public_pem);
-            let encrypted_signing_key =
-                key_encryption::encrypt(&private_pem, &encryption_key, &config.encryption_key_id)
-                    .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+            let key_id: KeyId = key_encryption::key_id_from_public_key(&public_pem)
+                .try_into()
+                .map_err(|e: InvalidNonEmptyStr| CarbideError::InvalidArgument(e.to_string()))?;
+            let encrypted_signing_key: EncryptedSigningPrivateKey = key_encryption::encrypt(
+                &private_pem,
+                &encryption_key,
+                config.encryption_key_id.as_str(),
+            )
+            .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?
+            .try_into()
+            .map_err(|e: InvalidNonEmptyStr| CarbideError::InvalidArgument(e.to_string()))?;
+            let signing_key_public: SigningPublicKeyPem = public_pem
+                .try_into()
+                .map_err(|e: InvalidNonEmptyStr| CarbideError::InvalidArgument(e.to_string()))?;
             Some(SigningKeyMaterial {
                 key_id,
                 encrypted_signing_key,
-                signing_key_public: public_pem,
+                signing_key_public,
             })
         }
         (Some(_), false) => None,
@@ -312,11 +292,11 @@ pub(crate) async fn set_identity_configuration(
         })
         .await??;
 
-    Ok(Response::new(IdentityConfigResponse {
+    Ok(Response::new(TenantIdentityConfigResponse {
         organization_id: org_id_str,
-        config: Some(ProtoIdentityConfig {
+        config: Some(ProtoTenantIdentityConfig {
             enabled: cfg.enabled,
-            issuer: cfg.issuer.clone(),
+            issuer: cfg.issuer.as_str().to_string(),
             default_audience: cfg.default_audience.clone(),
             allowed_audiences: cfg.allowed_audiences.0.clone(),
             token_ttl_sec: cfg.token_ttl_sec as u32,
@@ -325,7 +305,7 @@ pub(crate) async fn set_identity_configuration(
         }),
         created_at: Some(Timestamp::from(cfg.created_at)),
         updated_at: Some(Timestamp::from(cfg.updated_at)),
-        key_id: cfg.key_id,
+        key_id: cfg.key_id.as_str().to_string(),
     }))
 }
 
@@ -436,12 +416,14 @@ pub(crate) async fn set_token_delegation(
     let secret =
         machine_identity_encryption_secret(&api.credential_manager, &id_row.encryption_key_id)
             .await?;
-    let encrypted_blob = key_encryption::encrypt(
+    let encrypted_blob: EncryptedTokenDelegationAuthConfig = key_encryption::encrypt(
         plaintext_json.as_bytes(),
         &secret,
-        &id_row.encryption_key_id,
+        id_row.encryption_key_id.as_str(),
     )
-    .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
+    .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?
+    .try_into()
+    .map_err(|e: InvalidNonEmptyStr| CarbideError::InvalidArgument(e.to_string()))?;
 
     let cfg = api
         .database_connection

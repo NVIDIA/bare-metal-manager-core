@@ -752,10 +752,10 @@ service Forge {
   // SPIFFE Machine Identity APIs
   // Signs a JWT-SVID token for machine identity
   rpc SignMachineIdentity(MachineIdentityRequest) returns (MachineIdentityResponse);
-  // Get, set, or delete per-org identity configuration (issuer, audiences, TTL, signing key)
-  rpc GetIdentityConfiguration(GetIdentityConfigRequest) returns (IdentityConfigResponse);
-  rpc SetIdentityConfiguration(IdentityConfigRequest) returns (IdentityConfigResponse);
-  rpc DeleteIdentityConfiguration(GetIdentityConfigRequest) returns (google.protobuf.Empty);
+  // Get, set, or delete per-org tenant identity configuration (issuer, audiences, TTL, signing key)
+  rpc GetTenantIdentityConfiguration(GetTenantIdentityConfigRequest) returns (TenantIdentityConfigResponse);
+  rpc SetTenantIdentityConfiguration(SetTenantIdentityConfigRequest) returns (TenantIdentityConfigResponse);
+  rpc DeleteTenantIdentityConfiguration(GetTenantIdentityConfigRequest) returns (google.protobuf.Empty);
   // Token delegation: get, set, or delete per-org token exchange config
   rpc GetTokenDelegation(GetTokenDelegationRequest) returns (TokenDelegationResponse);
   rpc SetTokenDelegation(TokenDelegationRequest) returns (TokenDelegationResponse);
@@ -938,15 +938,15 @@ message MachineIdentityResponse {
   string access_token = 1;
   string issued_token_type = 2;
   string token_type = 3;
-  string expires_in = 4;
+  uint32 expires_in_sec = 4;
 }
 
-// Identity configuration (per-org)
-message GetIdentityConfigRequest {
+// Tenant identity configuration (per-org machine identity signing)
+message GetTenantIdentityConfigRequest {
   string organization_id = 1;
 }
 
-message IdentityConfig {
+message TenantIdentityConfig {
   bool enabled = 1;
   // JWT `iss` / OIDC issuer string: `https://` or `http://` URL (trust domain = host),
   // `spiffe://<trust-domain>/...` (scheme ASCII case-insensitive), or bare DNS hostname / IP.
@@ -959,14 +959,14 @@ message IdentityConfig {
   bool rotate_key = 7;
 }
 
-message IdentityConfigRequest {
+message SetTenantIdentityConfigRequest {
   string organization_id = 1;
-  IdentityConfig config = 2;
+  TenantIdentityConfig config = 2;
 }
 
-message IdentityConfigResponse {
+message TenantIdentityConfigResponse {
   string organization_id = 1;
-  IdentityConfig config = 2;
+  TenantIdentityConfig config = 2;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
   string key_id = 10;
@@ -1029,8 +1029,7 @@ message OpenIdConfiguration {
   // OAuth-style access token (JWT bearer) only; no OIDC `id_token` is issued.
   repeated string response_types_supported = 3;
   repeated string subject_types_supported = 4;
-  // Always empty: OIDC ID tokens are not supported. Verifiers use `jwks_uri` / `spiffe_jwks_uri`
-  // and GetJWKS `jwks` (`keys[].alg`) for machine-identity JWT bearer signature verification.
+  // Verifiers use `jwks_uri` / `spiffe_jwks_uri` and the GetJWKS `jwks` JSON (`keys[].alg`) for JWT verification.
   repeated string id_token_signing_alg_values_supported = 5;
   // SPIFFE trust-domain style JWKS URL: `{issuer}/.well-known/spiffe/jwks.json` (GetJWKS with Spiffe kind).
   string spiffe_jwks_uri = 7;
@@ -5183,6 +5182,25 @@ message ExpectedHostNic {
   optional bool primary = 6;
 }
 
+// Per-host DPU operating mode. Ultimately replaces the site-wide
+// `force_dpu_nic_mode` config flag, so site operators can mix DPU-mode,
+// NIC-mode, and no-DPU hosts within a single site.
+//
+// - DPU_MODE: The default. Attached DPUs are managed by NICo (DPU upgrades,
+//   overlay networking, etc).
+// - NIC_MODE: DPUs are present physically but operate as plain NICs. Site
+//   explorer skips DPU ingest; the host is tracked as if it had no DPUs.
+// - NO_DPU: no DPU hardware at all -- a plain host NIC on the underlay.
+//
+// Unset and `DPU_MODE_UNSPECIFIED` both mean "use the site default," which
+// is DPU_MODE unless the site-wide `force_dpu_nic_mode` config flag is on.
+enum DpuMode {
+  DPU_MODE_UNSPECIFIED = 0;
+  DPU_MODE = 1;
+  NIC_MODE = 2;
+  NO_DPU = 3;
+}
+
 message ExpectedMachine {
   string bmc_mac_address = 1;
   string bmc_username = 2;
@@ -5206,6 +5224,10 @@ message ExpectedMachine {
   // When true, site-explorer skips BMC password rotation and stores the
   // factory-default credentials in Vault as-is.
   optional bool bmc_retain_credentials = 15;
+  // Per-host DPU operating mode. See `DpuMode` above. Unset means "site
+  // default" -- the site-wide `force_dpu_nic_mode` config flag still applies
+  // when no per-host override is set, so existing deployments keep working.
+  optional DpuMode dpu_mode = 16;
 }
 
 message ExpectedMachineRequest {

@@ -34,6 +34,10 @@ use crate::site_explorer::{EndpointExplorer, SiteExplorationMetrics};
 pub struct MockEndpointExplorer {
     pub reports:
         Arc<Mutex<HashMap<IpAddr, Result<EndpointExplorationReport, EndpointExplorationError>>>>,
+    /// Records every call to `set_nic_mode` (BMC address + requested target
+    /// mode) so tests can assert the auto-correct path fired with the
+    /// right arguments. Cleared on each `insert_endpoints` reset.
+    pub set_nic_mode_calls: Arc<Mutex<Vec<(SocketAddr, NicMode)>>>,
 }
 
 impl MockEndpointExplorer {
@@ -167,10 +171,14 @@ impl EndpointExplorer for MockEndpointExplorer {
 
     async fn set_nic_mode(
         &self,
-        _address: SocketAddr,
+        address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
-        _mode: NicMode,
+        mode: NicMode,
     ) -> Result<(), EndpointExplorationError> {
+        self.set_nic_mode_calls
+            .lock()
+            .unwrap()
+            .push((address, mode));
         Ok(())
     }
 

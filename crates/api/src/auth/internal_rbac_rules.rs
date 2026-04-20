@@ -297,10 +297,16 @@ impl InternalRBACRules {
         );
         x.perm("AttestQuote", vec![Anonymous]);
         x.perm("SignMachineIdentity", vec![Agent]);
-        x.perm("GetIdentityConfiguration", vec![ForgeAdminCLI, SiteAgent]);
-        x.perm("SetIdentityConfiguration", vec![ForgeAdminCLI, SiteAgent]);
         x.perm(
-            "DeleteIdentityConfiguration",
+            "GetTenantIdentityConfiguration",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "SetTenantIdentityConfiguration",
+            vec![ForgeAdminCLI, SiteAgent],
+        );
+        x.perm(
+            "DeleteTenantIdentityConfiguration",
             vec![ForgeAdminCLI, SiteAgent],
         );
         x.perm("GetTokenDelegation", vec![ForgeAdminCLI, SiteAgent]);
