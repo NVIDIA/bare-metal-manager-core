@@ -120,6 +120,87 @@ cargo make format-nightly      # Also sort imports
 > `carbide-lints`. The stable toolchain pinned in `rust-toolchain.toml` is used
 > for everything else.
 
+### Docker Image Builds
+
+All `docker build` commands use `.` (repo root) as the build context.
+
+**SA vs non-SA:** Two x86_64 release Dockerfiles exist:
+- `Dockerfile.release-container-sa-x86_64` ("SA" = standalone) — runs clippy,
+  lints, format checks, and `build-release`. No tests. Used for local development.
+- `Dockerfile.release-container-x86_64` — runs the full build + test suite. The CI path.
+
+Cold builds take ~20–25 minutes on a high-end server. Run in a tmux session to
+survive VPN drops or terminal disconnects:
+
+```bash
+tmux new-session -d -s nico-build 'docker build ... 2>&1 | tee /tmp/nico-build.log'
+tmux attach -t nico-build
+```
+
+#### x86_64
+
+```bash
+# Prerequisites (build in parallel — each takes ~5–10 min)
+docker build -f dev/docker/Dockerfile.build-container-x86_64 -t nico-buildcontainer-x86_64 .
+docker build -f dev/docker/Dockerfile.runtime-container-x86_64 -t nico-runtime-container-x86_64 .
+
+# NICo core (SA — lint+build, no tests; ~20–25 min cold)
+tmux new-session -d -s nico-build 'docker build \
+  --build-arg CONTAINER_BUILD_X86_64=nico-buildcontainer-x86_64 \
+  --build-arg CONTAINER_RUNTIME_X86_64=nico-runtime-container-x86_64 \
+  -f dev/docker/Dockerfile.release-container-sa-x86_64 -t nico . 2>&1 | tee /tmp/nico-build.log'
+
+# Standalone admin CLI image
+docker build --build-arg CONTAINER_BUILD=nico-buildcontainer-x86_64 -t forge-cli \
+  -f dev/docker/Dockerfile.release-forge-cli .
+
+# Machine validation images (depend on runtime container)
+docker build --build-arg CONTAINER_RUNTIME_X86_64=nico-runtime-container-x86_64 \
+  -t machine-validation-runner -f dev/docker/Dockerfile.machine-validation-runner .
+docker save --output crates/machine-validation/images/machine-validation-runner.tar \
+  machine-validation-runner:latest
+```
+
+#### aarch64
+
+```bash
+docker build -f dev/docker/Dockerfile.build-container-aarch64 -t nico-buildcontainer-aarch64 .
+docker build -f dev/docker/Dockerfile.runtime-container-aarch64 -t nico-runtime-container-aarch64 .
+
+tmux new-session -d -s nico-build-aarch64 'docker build \
+  --build-arg CONTAINER_BUILD_AARCH64=nico-buildcontainer-aarch64 \
+  --build-arg CONTAINER_RUNTIME_AARCH64=nico-runtime-container-aarch64 \
+  -f dev/docker/Dockerfile.release-container-aarch64 -t nico-aarch64 . 2>&1 | tee /tmp/nico-build-aarch64.log'
+```
+
+### PXE Boot Artifacts
+
+```bash
+# One-time: build the PXE build container
+cargo make build-pxe-build-container
+
+# Build PXE artifacts inside a privileged container
+cargo make pxe-docker-x86
+
+# CI / native path (deps must be pre-installed)
+cargo make pxe-native-x86
+```
+
+See `book/src/bootable_artifacts.md` for full documentation.
+
+### Basic Testing
+
+After building `nico`, verify all binaries start correctly:
+
+```bash
+for bin in carbide carbide-admin-cli carbide-api carbide-dns carbide-dsx-exchange-consumer \
+           forge-dhcp-server forge-dpu-agent forge-hw-health forge-log-parser ssh-console; do
+  echo "$bin: $(docker run --rm nico /opt/carbide/$bin --help 2>&1 | head -1)"
+done
+```
+
+Any `exec format error` or missing binary is a red flag.
+
 ## Coding Conventions
 
 See [`STYLE_GUIDE.md`](STYLE_GUIDE.md) for detailed Rust coding conventions.

@@ -20,7 +20,7 @@ REPO_ROOT = { script = [
   "dirname $(cargo locate-project --message-format plain --workspace)",
 ] }
 PKG_VERSION = { script = [
-  "echo $(git describe --tags --first-parent --always --long | sed 's/^v//')",
+  "V=$(git describe --tags --first-parent --always --long | sed 's/^v//'); case $V in [0-9]*) echo $V;; *) echo 0.0.0-$V;; esac",
 ] }
 
 [tasks.package-component-local]
