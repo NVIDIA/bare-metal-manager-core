@@ -1230,8 +1230,11 @@ pub async fn apply(
     })?;
 
     // Validate firmware hardware type and firmware_type against rack capabilities.
-    if let Some(rack_profile_id) = rack.config.rack_type.as_deref()
-        && let Some(profile) = api.runtime_config.rack_profiles.get(rack_profile_id)
+    if let Some(rack_profile_id) = rack.rack_profile_id.as_ref()
+        && let Some(profile) = api
+            .runtime_config
+            .rack_profiles
+            .get(rack_profile_id.as_str())
     {
         // Validate firmware hardware type matches rack's hardware type.
         if !fw_config.rack_hardware_type.is_any()

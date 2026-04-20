@@ -19,7 +19,7 @@ use std::fmt::Display;
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
-use carbide_uuid::rack::RackId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -38,6 +38,7 @@ use crate::metadata::Metadata;
 #[derive(Debug, Clone)]
 pub struct Rack {
     pub id: RackId,
+    pub rack_profile_id: Option<RackProfileId>,
     pub config: RackConfig,
     pub controller_state: Versioned<RackState>,
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
@@ -333,6 +334,7 @@ impl<'r> FromRow<'r, PgRow> for Rack {
             .map(|j| j.0);
         Ok(Rack {
             id: row.try_get("id")?,
+            rack_profile_id: row.try_get("rack_profile_id")?,
             config: config.0,
             controller_state: Versioned {
                 value: controller_state.0,
@@ -705,12 +707,6 @@ impl MaintenanceScope {
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RackConfig {
-    /// rack_type is the name of the rack type (e.g. "NVL72") that maps to
-    /// a RackCapabilitiesSet in the config file. The capabilities are looked
-    /// up at runtime so config changes apply retroactively to all racks.
-    #[serde(default)]
-    pub rack_type: Option<String>,
-
     /// When set, the Ready state handler will transition back to Maintenance
     /// to re-provision the rack to a new version.
     #[serde(default)]

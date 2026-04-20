@@ -455,15 +455,13 @@ pub async fn get_rack_profile(
         id: rack_id.to_string(),
     })?;
 
-    let rack_profile_id = rack
-        .config
-        .rack_type
-        .as_deref()
-        .map(RackProfileId::new)
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "rack_profile_id for rack",
-            id: rack_id.to_string(),
-        })?;
+    let rack_profile_id =
+        rack.rack_profile_id
+            .as_ref()
+            .ok_or_else(|| CarbideError::NotFoundError {
+                kind: "rack_profile_id for rack",
+                id: rack_id.to_string(),
+            })?;
 
     let profile = api
         .runtime_config

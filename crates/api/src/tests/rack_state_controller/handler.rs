@@ -115,7 +115,7 @@ fn single_capabilities() -> RackCapabilitiesSet {
     }
 }
 
-pub(crate) fn config_with_rack_types() -> crate::cfg::file::CarbideConfig {
+pub(crate) fn config_with_rack_profiles() -> crate::cfg::file::CarbideConfig {
     let mut config = get_config();
     config.rack_profiles = RackProfileConfig {
         rack_profiles: [
@@ -213,10 +213,8 @@ async fn create_single_compute_rack(
     db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("Single".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("Single")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -250,10 +248,8 @@ async fn create_two_compute_rack(
     db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("Simple".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("Simple")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -283,11 +279,11 @@ pub(crate) fn new_rack_id() -> RackId {
     RackId::new(uuid::Uuid::new_v4().to_string())
 }
 
-async fn create_expected_rack(pool: &sqlx::PgPool, rack_id: &RackId, rack_type: &str) {
+async fn create_expected_rack(pool: &sqlx::PgPool, rack_id: &RackId, rack_profile_id: &str) {
     let mut txn = pool.acquire().await.unwrap();
     let er = ExpectedRack {
         rack_id: rack_id.clone(),
-        rack_profile_id: RackProfileId::new(rack_type),
+        rack_profile_id: RackProfileId::new(rack_profile_id),
         ..Default::default()
     };
     db_expected_rack::create(&mut txn, &er).await.unwrap();
@@ -339,7 +335,7 @@ pub(crate) fn new_machine_id(seed: u8) -> MachineId {
 async fn test_expected_no_definition_stays_parked(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
@@ -355,10 +351,8 @@ async fn test_expected_no_definition_stays_parked(
     db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("NVL72".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("NVL72")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -481,7 +475,7 @@ fn test_nvos_polling_unknown_state_preserves_status_and_sets_error() {
 async fn test_expected_incomplete_device_counts_stays(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
@@ -499,10 +493,8 @@ async fn test_expected_incomplete_device_counts_stays(
     let mut rack = db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("NVL72".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("NVL72")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -536,7 +528,7 @@ async fn test_expected_incomplete_device_counts_stays(
 async fn test_expected_counts_match_but_not_linked_stays(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
@@ -554,10 +546,8 @@ async fn test_expected_counts_match_but_not_linked_stays(
     let _rack = db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("NVL72".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("NVL72")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -596,7 +586,7 @@ async fn test_expected_counts_match_but_not_linked_stays(
 async fn test_expected_zero_topology_transitions_to_discovering(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
@@ -609,14 +599,12 @@ async fn test_expected_zero_topology_transitions_to_discovering(
     let rack_id = new_rack_id();
     let mut txn = pool.acquire().await?;
 
-    // Create rack with a rack_type expecting 2 compute, 0 switches, 0 PS.
+    // Create rack with a profile expecting 2 compute, 0 switches, 0 PS.
     db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("Empty".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("Empty")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -626,10 +614,8 @@ async fn test_expected_zero_topology_transitions_to_discovering(
     db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("Empty".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("Empty")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -678,7 +664,7 @@ async fn test_expected_zero_topology_transitions_to_discovering(
 async fn test_expected_more_discovered_than_expected_transitions(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
@@ -697,25 +683,15 @@ async fn test_expected_more_discovered_than_expected_transitions(
     db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("Single".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("Single")),
+        &RackConfig::default(),
         None,
     )
     .await?;
 
     // Simulate more compute_trays discovered than expected_compute_trays.
 
-    db_rack::update(
-        &mut txn,
-        &rack_id,
-        &RackConfig {
-            rack_type: Some("Single".to_string()),
-            ..Default::default()
-        },
-    )
-    .await?;
+    db_rack::update(&mut txn, &rack_id, &RackConfig::default()).await?;
 
     let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
 
@@ -758,7 +734,7 @@ async fn test_expected_more_discovered_than_expected_transitions(
 async fn test_discovering_waits_for_compute_ready(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
@@ -777,10 +753,8 @@ async fn test_discovering_waits_for_compute_ready(
     let mut rack = db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("NVL72".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("NVL72")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -813,7 +787,7 @@ async fn test_discovering_waits_for_compute_ready(
 async fn test_discovering_empty_rack_transitions_to_maintenance(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
@@ -829,18 +803,13 @@ async fn test_discovering_empty_rack_transitions_to_maintenance(
     db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("Empty".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("Empty")),
+        &RackConfig::default(),
         None,
     )
     .await?;
 
-    let cfg = RackConfig {
-        rack_type: Some("Empty".to_string()),
-        ..Default::default()
-    };
+    let cfg = RackConfig::default();
     db_rack::update(&mut txn, &rack_id, &cfg).await?;
 
     let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
@@ -888,10 +857,8 @@ async fn test_error_state_does_nothing(
     db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("Empty".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("Empty")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -936,10 +903,8 @@ async fn test_maintenance_completed_transitions_to_validation(
     db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("Empty".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("Empty")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -998,10 +963,8 @@ async fn test_ready_with_no_labels_stays_ready(
     db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("Empty".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("Empty")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -1045,7 +1008,7 @@ async fn test_firmware_upgrade_start_without_default_skips_to_configure_nmx_clus
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
-            config: Some(config_with_rack_types()),
+            config: Some(config_with_rack_profiles()),
             ..Default::default()
         },
     )
@@ -1117,7 +1080,7 @@ async fn test_firmware_upgrade_start_with_unavailable_default_skips_to_configure
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
-            config: Some(config_with_rack_types()),
+            config: Some(config_with_rack_profiles()),
             ..Default::default()
         },
     )
@@ -1195,7 +1158,7 @@ async fn test_firmware_upgrade_start_transitions_to_wait_for_complete(
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
-            config: Some(config_with_rack_types()),
+            config: Some(config_with_rack_profiles()),
             ..Default::default()
         },
     )
@@ -1334,7 +1297,7 @@ async fn test_firmware_upgrade_wait_for_complete_waits_while_jobs_running(
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
-            config: Some(config_with_rack_types()),
+            config: Some(config_with_rack_profiles()),
             ..Default::default()
         },
     )
@@ -1422,7 +1385,7 @@ async fn test_firmware_upgrade_wait_for_complete_transitions_to_error_on_job_fai
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
-            config: Some(config_with_rack_types()),
+            config: Some(config_with_rack_profiles()),
             ..Default::default()
         },
     )
@@ -1524,7 +1487,7 @@ async fn test_firmware_upgrade_wait_for_complete_waits_for_all_nodes_to_be_termi
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
-            config: Some(config_with_rack_types()),
+            config: Some(config_with_rack_profiles()),
             ..Default::default()
         },
     )
@@ -1702,7 +1665,7 @@ async fn test_firmware_upgrade_wait_for_complete_retries_when_job_lookup_fails(
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
-            config: Some(config_with_rack_types()),
+            config: Some(config_with_rack_profiles()),
             ..Default::default()
         },
     )
@@ -1787,7 +1750,7 @@ async fn test_firmware_upgrade_wait_for_complete_retries_on_transient_poll_error
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
-            config: Some(config_with_rack_types()),
+            config: Some(config_with_rack_profiles()),
             ..Default::default()
         },
     )
@@ -1872,10 +1835,8 @@ async fn test_nvos_update_start_transitions_to_wait_for_complete(
     db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("Empty".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("Empty")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -1969,10 +1930,8 @@ async fn test_configure_nmx_cluster_transitions_to_completed(
     db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("Empty".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("Empty")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -2033,10 +1992,8 @@ async fn test_ready_topology_changed_transitions_to_discovering(
     db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("Empty".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("Empty")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -2093,10 +2050,8 @@ async fn test_ready_reprovision_requested_transitions_to_maintenance(
     db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("Empty".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("Empty")),
+        &RackConfig::default(),
         None,
     )
     .await?;
@@ -2153,10 +2108,8 @@ async fn test_validation_failed_transitions_to_error(
     db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("Empty".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("Empty")),
+        &RackConfig::default(),
         None,
     )
     .await?;
