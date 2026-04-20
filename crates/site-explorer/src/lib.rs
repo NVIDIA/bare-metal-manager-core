@@ -1474,6 +1474,7 @@ impl SiteExplorer {
         // the number of expected machines we've actually "seen."
         metrics.endpoint_explorations_expected_machines_missing_overall_count =
             expected_count - index.all_matched_expected_machines().len();
+        let fw_config_snapshot = Arc::new(self.firmware_config.create_snapshot());
 
         for endpoint in explore_endpoint_data.into_iter() {
             let endpoint_explorer = self.endpoint_explorer.clone();
@@ -1481,7 +1482,7 @@ impl SiteExplorer {
 
             let bmc_target_port = self.config.override_target_port.unwrap_or(443);
             let bmc_target_addr = SocketAddr::new(endpoint.address, bmc_target_port);
-            let firmware_config = self.firmware_config.clone();
+            let fw_config_snapshot = fw_config_snapshot.clone();
             let database_connection = self.database_connection.clone();
 
             task_set.push(
@@ -1529,7 +1530,7 @@ impl SiteExplorer {
                                 tracing::error!(%error, "Can not generate MachineId for explored endpoint");
                             }
                             report.model = report.model();
-                            if let Some(fw_info) = firmware_config.find_fw_info_for_host_report(report)
+                            if let Some(fw_info) = fw_config_snapshot.find_fw_info_for_host_report(report)
                             {
                                 let components_without_version = report.parse_versions(&fw_info);
                                 if !components_without_version.is_empty() {

@@ -67,8 +67,9 @@ impl MachineUpdateModule for HostFirmwareUpdate {
                     < firmware_dir_mod_time // Using an auto firmware directory, and a new file has been created or this is the first run
             })) {
                 // Save the firmware config in an SQL table so that we can filter for hosts with non-matching firmware there.
-                tracing::info!("Firmware config now: {:?}", self.firmware_config.map());
-                let models = self.firmware_config.map().into_values().collect::<Vec<_>>();
+                let fw_config_snapshot = self.firmware_config.create_snapshot();
+                tracing::info!("Firmware config now: {:?}", fw_config_snapshot);
+                let models = fw_config_snapshot.into_values().collect::<Vec<_>>();
                 desired_firmware::snapshot_desired_firmware(txn, &models).await?;
                 *firmware_dir_last_read =
                     Some(firmware_dir_mod_time.unwrap_or(std::time::SystemTime::now()));
