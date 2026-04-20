@@ -1,6 +1,5 @@
 # Codebase overview
 
-
 bluefield/ - `dpu-agent` and other tools running on the DPU
 
 book/ - architecture of forge book.  aka "the book"
@@ -27,5 +26,4 @@ machines
 rpc/ - protobuf definitions and a rust library which handles marshalling
 data from/to GRPC to native rust types
 
-crates/
-
+crates/ - contains the source code for the various crates that make up the NICo project
