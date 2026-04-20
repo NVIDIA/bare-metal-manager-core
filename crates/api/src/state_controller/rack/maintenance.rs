@@ -1533,6 +1533,15 @@ pub async fn handle_maintenance(
                 Ok(primary_switch) => primary_switch,
                 Err(cause) => return transition_to_rack_error(id, state, cause, ctx).await,
             };
+            {
+                let mut txn = ctx.services.db_pool.begin().await?;
+                if let Err(cause) =
+                    persist_primary_switch(txn.as_mut(), id, &primary_switch.device.node_id).await
+                {
+                    return transition_to_rack_error(id, state, cause, ctx).await;
+                }
+                txn.commit().await?;
+            }
 
             let topology_type = rack_hardware_topology.to_string();
             tracing::info!(
@@ -1601,11 +1610,6 @@ pub async fn handle_maintenance(
                 Err(cause) => return transition_to_rack_error(id, state, cause, ctx).await,
             };
             let mut txn = ctx.services.db_pool.begin().await?;
-            if let Err(cause) =
-                persist_primary_switch(txn.as_mut(), id, &primary_switch.device.node_id).await
-            {
-                return transition_to_rack_error(id, state, cause, ctx).await;
-            }
             if let Err(cause) = persist_fabric_manager_statuses(
                 txn.as_mut(),
                 id,
