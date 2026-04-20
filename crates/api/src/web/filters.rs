@@ -271,7 +271,7 @@ pub fn controller_state_reason_fmt(
     }
 
     if let Some(source_ref) = reason.source_ref.as_ref() {
-        const GITLAB_REPO: &str = "https://gitlab-master.nvidia.com/nvmetal/carbide";
+        const GITHUB_REPO: &str = "https://github.com/NVIDIA/ncx-infra-controller-core";
 
         // TODO: carbide_version::v!(git_sha) should work here - however it returns an
         // outdated commit ID.
@@ -283,8 +283,8 @@ pub fn controller_state_reason_fmt(
 
         write!(
             &mut result,
-            "<br><b>Source:</b> <a href=\"{}/-/blob/{}/{}#L{}\">{}:{}</a>",
-            GITLAB_REPO,
+            "<br><b>Source:</b> <a href=\"{}/blob/{}/{}#L{}\">{}:{}</a>",
+            GITHUB_REPO,
             commit_hash,
             source_ref.file,
             source_ref.line,
