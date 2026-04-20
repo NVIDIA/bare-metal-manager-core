@@ -1,7 +1,7 @@
 # NCX Infra Controller
 
 - [Introduction](README.md)
-- [Hardware Compatbility List](hcl.md)
+- [Hardware Compatibility List](hcl.md)
 - [Release Notes](release-notes.md)
 - [FAQs](faq.md)
 
