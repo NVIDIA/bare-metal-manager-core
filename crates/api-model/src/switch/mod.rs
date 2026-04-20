@@ -234,11 +234,10 @@ impl TryFrom<Switch> for rpc::Switch {
         let health = derive_switch_aggregate_health(&src.health_reports);
         let health_sources = src
             .health_reports
-            .clone()
-            .into_iter()
+            .iter()
             .map(|(hr, m)| rpc::HealthSourceOrigin {
                 mode: m as i32,
-                source: hr.source,
+                source: hr.source.clone(),
             })
             .collect();
         let status = Some(match src.status {

@@ -159,11 +159,10 @@ impl From<Rack> for rpc::forge::Rack {
         let health = derive_rack_aggregate_health(&value.health_reports);
         let health_sources = value
             .health_reports
-            .clone()
-            .into_iter()
+            .iter()
             .map(|(hr, m)| rpc::forge::HealthSourceOrigin {
                 mode: m as i32,
-                source: hr.source,
+                source: hr.source.clone(),
             })
             .collect();
 
