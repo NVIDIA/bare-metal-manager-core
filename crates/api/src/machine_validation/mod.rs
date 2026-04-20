@@ -24,11 +24,11 @@ use std::sync::Arc;
 use db::ObjectFilter;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
+use utils::periodic_timer::PeriodicTimer;
 
 use self::metrics::MachineValidationMetrics;
 use crate::CarbideResult;
 use crate::cfg::file::MachineValidationConfig;
-use crate::periodic_timer::PeriodicTimer;
 
 pub struct MachineValidationManager {
     database_connection: sqlx::PgPool,

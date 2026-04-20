@@ -22,6 +22,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use eyre::{ContextCompat, WrapErr, eyre};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Gauge, Histogram, Meter};
@@ -41,6 +43,9 @@ use crate::certificates::{Certificate, CertificateProvider};
 use crate::credentials::{
     CredentialKey, CredentialManager, CredentialReader, CredentialWriter, Credentials,
 };
+
+const DEFAULT_VAULT_CA_PATH: &str = "/var/run/secrets/forge-roots/ca.crt";
+const VAULT_CACERT_ENV_VAR: &str = "VAULT_CACERT";
 
 #[derive(Clone, Debug)]
 enum ForgeVaultAuthenticationType {
@@ -65,7 +70,61 @@ struct ForgeVaultClientConfig {
     pub kv_mount_location: String,
     pub pki_mount_location: String,
     pub pki_role_name: String,
-    pub vault_root_ca_path: String,
+    vault_root_ca_path: String,
+}
+
+// Resolve Vault CA path from a specified path first, then
+// from `VAULT_CACERT` for local dev flows such as `vault server -dev-tls`.
+fn resolve_vault_root_ca_path(configured_path: &str) -> Result<String, eyre::Report> {
+    if Path::new(configured_path).exists() {
+        return Ok(configured_path.to_string());
+    }
+
+    match env::var(VAULT_CACERT_ENV_VAR) {
+        Ok(env_path) if Path::new(&env_path).exists() => Ok(env_path),
+        Ok(env_path) => {
+            tracing::error!(
+                "VAULT_CACERT={env_path} does not exist. Refusing to connect without TLS verification."
+            );
+            Err(eyre!("Vault root CA not found"))
+        }
+        Err(_) => {
+            tracing::error!(
+                "Vault root CA not found at {}. Refusing to connect without TLS verification.",
+                configured_path
+            );
+            Err(eyre!("Vault root CA not found"))
+        }
+    }
+}
+
+impl ForgeVaultClientConfig {
+    pub fn vault_root_ca_path(&self) -> Result<String, eyre::Report> {
+        resolve_vault_root_ca_path(&self.vault_root_ca_path)
+    }
+}
+
+/// Get the kubernetes ServiceAccount name from a ServiceAccount token.
+///
+/// The token itself is a JWT, and the ServiceAccount name is in the
+/// `["kubernetes.io"]["serviceaccount"]["name"]` key path within the JWT's payload.
+///
+/// Documentation on the payload is here:
+/// https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#serviceaccount-token-volume-projection
+fn service_account_role_name_from_jwt(jwt: &str) -> Result<String, eyre::Report> {
+    let payload = jwt
+        .split('.')
+        .nth(1)
+        .context("service account jwt missing payload")?;
+    let decoded_payload = URL_SAFE_NO_PAD
+        .decode(payload)
+        .wrap_err("failed to decode service account jwt payload")?;
+    let json_value = serde_json::from_slice::<serde_json::Value>(&decoded_payload)
+        .wrap_err("failed to parse service account jwt payload")?;
+    json_value["kubernetes.io"]["serviceaccount"]["name"]
+        .as_str()
+        .wrap_err("JWT payload does not contain /kubernetes.io/serviceaccount/name")
+        .map(str::to_string)
 }
 
 #[derive(Debug, Clone)]
@@ -100,14 +159,11 @@ where
         .address(vault_client_config.vault_address.clone())
         .timeout(Some(Duration::from_secs(60)));
 
-    let vault_client_settings_builder =
-        if Path::new(&vault_client_config.vault_root_ca_path).exists() {
-            vault_client_settings_builder
-                .ca_certs(vec![vault_client_config.vault_root_ca_path.clone()])
-                .verify(true)
-        } else {
-            vault_client_settings_builder.verify(false)
-        };
+    let ca_path = vault_client_config.vault_root_ca_path()?;
+
+    let vault_client_settings_builder = vault_client_settings_builder
+        .ca_certs(vec![ca_path])
+        .verify(true);
 
     Ok(vault_client_settings_builder.build()?)
 }
@@ -129,6 +185,12 @@ async fn vault_token_refresh(
                 .trim()
                 .to_string();
 
+            // Multiple services use this crate (carbide-secrets), so figure out what service account
+            // to use to auth to vault. The token JWT contains the service account name in the decoded
+            // JSON, so we can just read that.
+            let role_name =
+                service_account_role_name_from_jwt(&jwt).wrap_err("service_account_role_name")?;
+
             let vault_client_settings = create_vault_client_settings(
                 "silly vaultrs bugs make me sad",
                 vault_client_config,
@@ -141,7 +203,7 @@ async fn vault_token_refresh(
             let vault_response = vaultrs::auth::kubernetes::login(
                 &vault_client,
                 "kubernetes",
-                "carbide-api",
+                role_name.as_str(),
                 jwt.as_str(),
             )
             .await;
@@ -685,6 +747,140 @@ impl CertificateProvider for ForgeVaultClient {
     }
 }
 
+impl ForgeVaultClient {
+    /// list_secrets returns all secret paths in the
+    /// KV mount.
+    pub async fn list_secrets(&self) -> Result<Vec<String>, SecretsError> {
+        let paths = self.list_secrets_for_path("").await?;
+        tracing::info!(count = paths.len(), "listed all vault secret paths");
+        Ok(paths)
+    }
+
+    /// list_secrets_for_prefix returns all secret
+    /// paths under the given CredentialPrefix.
+    pub async fn list_secrets_for_prefix(
+        &self,
+        prefix: &crate::credentials::CredentialPrefix,
+    ) -> Result<Vec<String>, SecretsError> {
+        let paths = self.list_secrets_for_path(prefix.as_str()).await?;
+        tracing::info!(
+            prefix = prefix.as_str(),
+            count = paths.len(),
+            "listed vault secret paths for prefix"
+        );
+        Ok(paths)
+    }
+
+    /// list_secrets_for_path recursively lists all
+    /// secret paths under the given path prefix in
+    /// the KV mount.
+    pub async fn list_secrets_for_path(
+        &self,
+        path_prefix: &str,
+    ) -> Result<Vec<String>, SecretsError> {
+        let vault_client = self.vault_client().await?;
+        let mount = &self.vault_client_config.kv_mount_location;
+
+        let mut paths = Vec::new();
+        let mut stack = vec![path_prefix.to_string()];
+
+        while let Some(dir) = stack.pop() {
+            let entries = match kv2::list(vault_client.deref(), mount, &dir).await {
+                Ok(e) => e,
+                Err(ClientError::APIError { code: 404, .. }) => continue,
+                Err(e) => {
+                    tracing::warn!(
+                        prefix = %dir,
+                        "failed to list vault path: {e}"
+                    );
+                    continue;
+                }
+            };
+
+            for entry in entries {
+                if entry.ends_with('/') {
+                    let subdir = if dir.is_empty() {
+                        entry
+                    } else {
+                        format!("{dir}{entry}")
+                    };
+                    stack.push(subdir);
+                } else {
+                    let full = if dir.is_empty() {
+                        entry
+                    } else {
+                        format!("{dir}{entry}")
+                    };
+                    paths.push(full);
+                }
+            }
+        }
+
+        Ok(paths)
+    }
+
+    /// get_secrets returns all secrets in the KV
+    /// mount (paths + credentials).
+    pub async fn get_secrets(&self) -> Result<Vec<(String, Credentials)>, SecretsError> {
+        let paths = self.list_secrets().await?;
+        self.read_secrets(&paths).await
+    }
+
+    /// get_secrets_for_prefix returns all secrets
+    /// under the given CredentialPrefix.
+    pub async fn get_secrets_for_prefix(
+        &self,
+        prefix: &crate::credentials::CredentialPrefix,
+    ) -> Result<Vec<(String, Credentials)>, SecretsError> {
+        let paths = self.list_secrets_for_prefix(prefix).await?;
+        self.read_secrets(&paths).await
+    }
+
+    /// get_secrets_for_path returns all secrets under
+    /// the given path prefix.
+    pub async fn get_secrets_for_path(
+        &self,
+        path_prefix: &str,
+    ) -> Result<Vec<(String, Credentials)>, SecretsError> {
+        let paths = self.list_secrets_for_path(path_prefix).await?;
+        self.read_secrets(&paths).await
+    }
+
+    /// read_secrets reads credentials from vault for
+    /// each path. Skips 404s and logs warnings on
+    /// other errors.
+    async fn read_secrets(
+        &self,
+        paths: &[String],
+    ) -> Result<Vec<(String, Credentials)>, SecretsError> {
+        let vault_client = self.vault_client().await?;
+        let mount = &self.vault_client_config.kv_mount_location;
+
+        let mut secrets = Vec::with_capacity(paths.len());
+        for path in paths {
+            match kv2::read::<Credentials>(vault_client.deref(), mount, path).await {
+                Ok(creds) => {
+                    secrets.push((path.clone(), creds));
+                }
+                Err(ClientError::APIError { code: 404, .. }) => {
+                    tracing::debug!(
+                        path = %path,
+                        "vault secret not found"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        path = %path,
+                        "failed to read: {e}"
+                    );
+                }
+            }
+        }
+
+        Ok(secrets)
+    }
+}
+
 #[derive(Default, Debug, Clone)]
 pub struct VaultConfig {
     pub address: Option<String>,
@@ -692,6 +888,7 @@ pub struct VaultConfig {
     pub pki_mount_location: Option<String>,
     pub pki_role_name: Option<String>,
     pub token: Option<String>,
+    pub vault_cacert: Option<String>,
 }
 
 impl VaultConfig {
@@ -729,13 +926,25 @@ impl VaultConfig {
             .or(env::var("VAULT_TOKEN").ok())
             .context("VAULT_TOKEN")
     }
+
+    pub fn vault_cacert(&self) -> eyre::Result<String> {
+        self.vault_cacert
+            .clone()
+            .or(env::var(VAULT_CACERT_ENV_VAR).ok())
+            .context("VAULT_CACERT")
+    }
 }
 
 pub fn create_vault_client(
     vault_config: &VaultConfig,
     meter: Meter,
 ) -> eyre::Result<Arc<ForgeVaultClient>> {
-    let vault_root_ca_path = "/var/run/secrets/forge-roots/ca.crt".to_string();
+    let configured_ca_path = vault_config
+        .vault_cacert()
+        .unwrap_or_else(|_| DEFAULT_VAULT_CA_PATH.to_string());
+
+    let vault_root_ca_path = resolve_vault_root_ca_path(configured_ca_path.as_str())?;
+
     let service_account_token_path =
         Path::new("/var/run/secrets/kubernetes.io/serviceaccount/token");
     let auth_type = if service_account_token_path.exists() {
@@ -788,4 +997,70 @@ pub fn create_vault_client(
 
     let forge_vault_client = ForgeVaultClient::new(vault_client_config, forge_vault_metrics);
     Ok(Arc::new(forge_vault_client))
+}
+
+#[cfg(test)]
+mod tests {
+    use base64::Engine;
+    use serde_json::json;
+
+    use super::service_account_role_name_from_jwt;
+
+    fn jwt_from_payload(payload_value: serde_json::Value) -> String {
+        let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(r#"{"alg":"none","typ":"JWT"}"#);
+        let payload =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload_value.to_string());
+        format!("{header}.{payload}.")
+    }
+
+    fn jwt_with_account(account: serde_json::Value) -> String {
+        jwt_from_payload(json!({
+          "aud": [
+            "https://kubernetes.default.svc"
+          ],
+          "exp": 1731613413,
+          "iat": 1700077413,
+          "iss": "https://kubernetes.default.svc",
+          "jti": "ea28ed49-2e11-4280-9ec5-bc3d1d84661a",
+          "kubernetes.io": {
+            "namespace": "kube-system",
+            "node": {
+              "name": "127.0.0.1",
+              "uid": "58456cb0-dd00-45ed-b797-5578fdceaced"
+            },
+            "pod": {
+              "name": "coredns-69cbfb9798-jv9gn",
+              "uid": "778a530c-b3f4-47c0-9cd5-ab018fb64f33"
+            },
+            "serviceaccount": {
+              "name": account,
+              "uid": "a087d5a0-e1dd-43ec-93ac-f13d89cd13af"
+            },
+            "warnafter": 1700081020
+          },
+          "nbf": 1700077413,
+          // The service account is also in the `sub` field. We don't read it, but let's mock it faithfully.
+          "sub": format!("system:serviceaccount:kube-system:{account}"),
+        }))
+    }
+
+    #[test]
+    fn extracts_service_account_name_from_kubernetes_jwt_subject() {
+        let jwt = jwt_with_account("carbide-bmc-proxy".into());
+        let role_name = service_account_role_name_from_jwt(&jwt).unwrap();
+        assert_eq!(role_name, "carbide-bmc-proxy");
+    }
+
+    #[test]
+    fn rejects_unexpected_jwt_subject_format() {
+        let jwt = jwt_with_account(serde_json::Value::Null);
+        assert!(service_account_role_name_from_jwt(&jwt).is_err());
+    }
+
+    #[test]
+    fn rejects_random_json() {
+        let jwt = jwt_from_payload(json!({"foo": ["bar"]}));
+        assert!(service_account_role_name_from_jwt(&jwt).is_err());
+    }
 }

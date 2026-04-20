@@ -171,7 +171,7 @@ SELECT m.* FROM (
             FROM racks rack
             WHERE rack.health_report_overrides IS NOT NULL
             AND rack.deleted IS NULL
-            AND rack.config->'compute_trays' ? m.id
+            AND m.rack_id = rack.id
             GROUP BY rack.id
         ) x
         WHERE x.rn = 1

@@ -87,7 +87,7 @@ pub enum NmxmApiError {
     InvalidArguments,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)] // WARN: Do not derive Debug: Endpoint may contain credentials and must not be logged accidentally.
 pub struct Endpoint {
     pub host: String,
     pub username: Option<String>,
@@ -147,7 +147,7 @@ impl NmxmClientPool {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct NmxmApiClient {
     endpoint: Endpoint,
     client: HttpClient,

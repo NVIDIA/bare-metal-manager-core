@@ -452,7 +452,7 @@ impl From<DpaInterface> for rpc::forge::DpaInterface {
             None => String::new(),
         };
 
-        let history: Vec<rpc::forge::DpaInterfaceStateHistoryRecord> = src
+        let history: Vec<rpc::forge::StateHistoryRecord> = src
             .history
             .into_iter()
             .sorted_by(
@@ -502,9 +502,9 @@ pub struct DpaInterfaceStateHistoryRecord {
     timestamp: DateTime<Utc>,
 }
 
-impl From<DpaInterfaceStateHistoryRecord> for rpc::forge::DpaInterfaceStateHistoryRecord {
+impl From<DpaInterfaceStateHistoryRecord> for rpc::forge::StateHistoryRecord {
     fn from(value: DpaInterfaceStateHistoryRecord) -> Self {
-        rpc::forge::DpaInterfaceStateHistoryRecord {
+        rpc::forge::StateHistoryRecord {
             state: value.state,
             version: value.state_version.version_string(),
             time: Some(value.timestamp.into()),

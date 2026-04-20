@@ -5,7 +5,7 @@ This page discusses the high level architecture of a site running NCX Infra Cont
 NICo orchestrates the lifecycle of ["Managed Hosts"](#managed-hosts) and other resources via set of cooperating control plane services.
 These control plane services have to be deployed to a Kubernetes cluster with a size of at least 3 nodes (for high availability).
 
-![NICo Architecture Diagram](/images/nico_arch_diagram.png)
+![NICo Architecture Diagram](../static/nico_arch_diagram.png)
 
 The Kubernetes cluster needs to have variety of services deployed:
 1. [The Carbide control plane services](#carbide-control-plane-services). These services are specific to Carbide, and must be deployed together in order to allow Carbide to manage the lifecyle of hosts.

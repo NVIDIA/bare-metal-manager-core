@@ -27,6 +27,11 @@ do
         then
                 server_uri=`echo $line|cut -d'=' -f2`
         fi
+        line=`echo $i|grep pxe_uri`
+        if [ ! -z "$line" ] ;
+        then
+                pxe_uri=`echo $line|cut -d'=' -f2`
+        fi
         line=`echo $i|grep cli_cmd`
         if [ ! -z "$line" ] ;
         then
@@ -39,7 +44,11 @@ echo server_uri=$server_uri >> "/opt/forge/forge-scout.env"
 echo machine_id=$machine_id >> "/opt/forge/forge-scout.env"
 echo cli_cmd=$cli_cmd >> "/opt/forge/forge-scout.env"
 
-curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem http://carbide-pxe.forge/api/v0/tls/root_ca
+# Use the PXE URL from the kernel command line if available (supports
+# external hosts that can't resolve internal hostnames), otherwise fall
+# back to the default internal hostname.
+pxe_base_url=${pxe_uri:-http://carbide-pxe.forge}
+curl --retry 5 --retry-all-errors -v -o /opt/forge/forge_root.pem ${pxe_base_url}/api/v0/tls/root_ca
 
 mkdir -p ~/.ssh
 

@@ -13,6 +13,6 @@ ARG DISTROLESS_DEBUG_TAG=${DEBUG_DISTROLESS:+"dev"} # 'dev' provides a busybox s
 # NVIDIA Distroless Container
 FROM --platform=linux/arm64 ${IMG}:${TAG}-${DISTROLESS_DEBUG_TAG}
 
-COPY target/aarch64-unknown-linux-gnu/release/forge-dhcp-server /usr/bin/forge-dhcp-server
+COPY target/aarch64-unknown-linux-gnu/release/forge-dhcp-server /var/support/forge-dhcp/bin/forge-dhcp-server
 
-ENTRYPOINT ["/usr/bin/forge-dhcp-server"]
+ENTRYPOINT ["/var/support/forge-dhcp/bin/forge-dhcp-server"]

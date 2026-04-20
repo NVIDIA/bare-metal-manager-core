@@ -20,7 +20,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::Router;
-use bmc_mock::{CombinedServer, HostnameQuerying, ListenerOrAddress, MachineInfo, PowerControl};
+use bmc_mock::{
+    BmcState, Callbacks, CombinedServer, HostnameQuerying, ListenerOrAddress, MachineInfo,
+};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
@@ -33,11 +35,11 @@ use crate::mock_ssh_server::{MockSshServerHandle, PromptBehavior};
 /// BmcMockWrapper launches a single instance of bmc-mock, configured to mock a single BMC for
 /// either a DPU or a Host. It will rewrite certain responses to customize them for the machines
 /// machine-a-tron is mocking.
-#[derive(Debug)]
 pub struct BmcMockWrapper {
     machine_info: MachineInfo,
     app_context: Arc<MachineATronContext>,
     bmc_mock_router: Router,
+    bmc_mock_state: BmcState,
     hostname: Arc<dyn HostnameQuerying>,
 }
 
@@ -45,17 +47,18 @@ impl BmcMockWrapper {
     pub fn new(
         machine_info: MachineInfo,
         app_context: Arc<MachineATronContext>,
-        power_control: Arc<dyn PowerControl>,
+        callbacks: Arc<dyn Callbacks>,
         hostname: Arc<dyn HostnameQuerying>,
         host_id: Uuid,
     ) -> Self {
-        let bmc_mock_router =
-            bmc_mock::machine_router(machine_info.clone(), power_control, host_id.to_string());
+        let (bmc_mock_router, bmc_mock_state) =
+            bmc_mock::machine_router(machine_info.clone(), callbacks, host_id.to_string());
 
         BmcMockWrapper {
             machine_info,
             app_context,
             bmc_mock_router,
+            bmc_mock_state,
             hostname,
         }
     }
@@ -155,6 +158,10 @@ impl BmcMockWrapper {
 
     pub fn router(&self) -> &Router {
         &self.bmc_mock_router
+    }
+
+    pub fn state(&self) -> &BmcState {
+        &self.bmc_mock_state
     }
 }
 

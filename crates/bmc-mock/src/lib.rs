@@ -23,7 +23,7 @@ use tokio::time::Instant;
 pub mod ipmi;
 
 mod bmc_state;
-mod bug;
+pub mod bug;
 mod combined_server;
 mod combined_service;
 mod http;
@@ -36,6 +36,7 @@ mod redfish;
 pub mod test_support;
 pub mod tls;
 
+pub use bmc_state::{BmcEvent, BmcState};
 pub use combined_server::{CombinedServer, ListenerOrAddress};
 pub use machine_info::{
     DpuFirmwareVersions, DpuMachineInfo, DpuSettings, HostMachineInfo, MachineInfo,
@@ -113,7 +114,7 @@ impl fmt::Display for MockPowerState {
 // Simulate a 5-second power cycle
 pub const POWER_CYCLE_DELAY: Duration = Duration::from_secs(5);
 
-pub trait PowerControl: std::fmt::Debug + Send + Sync {
+pub trait Callbacks: std::fmt::Debug + Send + Sync {
     fn get_power_state(&self) -> MockPowerState;
     fn send_power_command(&self, reset_type: SystemPowerControl)
     -> Result<(), SetSystemPowerError>;
@@ -139,6 +140,8 @@ pub trait PowerControl: std::fmt::Debug + Send + Sync {
         }?;
         self.send_power_command(reset_type)
     }
+
+    fn state_refresh_indication(&self);
 }
 
 pub trait HostnameQuerying: std::fmt::Debug + Send + Sync {
@@ -203,4 +206,10 @@ pub trait LogService: Send + Sync {
     fn id(&self) -> &str;
 
     fn entries(&self, collection: &redfish::Collection<'_>) -> Vec<serde_json::Value>;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BootOptionKind {
+    Disk,
+    Network,
 }

@@ -15,90 +15,79 @@
  * limitations under the License.
  */
 
-//! Latest-wins dedup queue for health override submissions.
+//! Latest-wins dedup queue.
 //!
-//! Both machine-level and rack-level override sinks share this queue
-//! pattern: reports are keyed by `(Id, ReportSource)`, and a new report
-//! for the same key silently replaces the previous one before it is
-//! drained by a worker.
+//! Generic queue keyed by `K` that replaces the value when the same key
+//! is pushed again. Used by health override sinks (keyed by machine/rack
+//! + report source) and OtlpSink (keyed by event type identity string).
 
 use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use tokio::sync::Notify;
 
-use super::{HealthReport, ReportSource};
-
-pub(crate) struct OverrideJob<Id> {
-    pub id: Id,
-    pub report: Arc<HealthReport>,
+struct QueueState<K: Eq + Hash, V> {
+    values: HashMap<K, V>,
+    ready: VecDeque<K>,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct OverrideKey<Id: Eq + Hash> {
-    id: Id,
-    source: ReportSource,
-}
-
-struct QueueState<Id: Eq + Hash> {
-    reports: HashMap<OverrideKey<Id>, OverrideJob<Id>>,
-    ready: VecDeque<OverrideKey<Id>>,
-}
-
-pub(crate) struct OverrideQueue<Id: Eq + Hash + Clone> {
-    state: Mutex<QueueState<Id>>,
+pub(crate) struct OverrideQueue<K: Eq + Hash + Clone, V> {
+    state: Mutex<QueueState<K, V>>,
     notify: Notify,
 }
 
-impl<Id: Eq + Hash + Clone> OverrideQueue<Id> {
+impl<K: Eq + Hash + Clone, V> OverrideQueue<K, V> {
     pub fn new() -> Self {
         Self {
             state: Mutex::new(QueueState {
-                reports: HashMap::new(),
+                values: HashMap::new(),
                 ready: VecDeque::new(),
             }),
             notify: Notify::new(),
         }
     }
 
-    pub fn save_latest(&self, job: OverrideJob<Id>) {
-        let key = OverrideKey {
-            id: job.id.clone(),
-            source: job.report.source,
-        };
-
+    /// returns true if an existing value was replaced
+    pub fn save_latest(&self, key: K, value: V) -> bool {
+        let replaced;
         {
             let mut state = self.state.lock().expect("override queue mutex poisoned");
-            if let Some(existing) = state.reports.get_mut(&key) {
-                *existing = job;
+            if state.values.contains_key(&key) {
+                state.values.insert(key, value);
+                replaced = true;
             } else {
-                state.reports.insert(key.clone(), job);
+                state.values.insert(key.clone(), value);
                 state.ready.push_back(key);
+                replaced = false;
             }
         }
         self.notify.notify_one();
+        replaced
     }
 
-    pub async fn next(&self) -> OverrideJob<Id> {
+    pub async fn next(&self) -> (K, V) {
         loop {
-            if let Some(job) = self.pop() {
-                return job;
+            if let Some(pair) = self.pop() {
+                return pair;
             }
-
             self.notify.notified().await;
         }
     }
 
-    pub fn pop(&self) -> Option<OverrideJob<Id>> {
+    pub fn pop(&self) -> Option<(K, V)> {
         let mut state = self.state.lock().expect("override queue mutex poisoned");
         while let Some(key) = state.ready.pop_front() {
-            if let Some(job) = state.reports.remove(&key) {
-                return Some(job);
+            if let Some(value) = state.values.remove(&key) {
+                return Some((key, value));
             }
         }
-
         None
+    }
+
+    #[allow(dead_code)] // used by OtlpDrainTask in the next commit
+    pub async fn notified(&self) {
+        self.notify.notified().await;
     }
 }
 
@@ -106,34 +95,13 @@ impl<Id: Eq + Hash + Clone> OverrideQueue<Id> {
 mod tests {
     use super::*;
 
-    fn report(source: ReportSource) -> OverrideJob<String> {
-        OverrideJob {
-            id: String::new(),
-            report: Arc::new(HealthReport {
-                source,
-                observed_at: None,
-                successes: Vec::new(),
-                alerts: Vec::new(),
-            }),
-        }
-    }
-
     #[test]
-    fn deduplicates_by_id_and_source() {
-        let queue = OverrideQueue::<String>::new();
+    fn deduplicates_by_key() {
+        let queue = OverrideQueue::<String, i32>::new();
 
-        queue.save_latest(OverrideJob {
-            id: "a".into(),
-            ..report(ReportSource::BmcSensors)
-        });
-        queue.save_latest(OverrideJob {
-            id: "a".into(),
-            ..report(ReportSource::BmcSensors)
-        });
-        queue.save_latest(OverrideJob {
-            id: "b".into(),
-            ..report(ReportSource::TrayLeakDetection)
-        });
+        queue.save_latest("a".into(), 1);
+        queue.save_latest("a".into(), 2);
+        queue.save_latest("b".into(), 3);
 
         let mut count = 0;
         while queue.pop().is_some() {
@@ -143,17 +111,11 @@ mod tests {
     }
 
     #[test]
-    fn same_id_different_source_are_separate() {
-        let queue = OverrideQueue::<String>::new();
+    fn different_keys_are_separate() {
+        let queue = OverrideQueue::<String, i32>::new();
 
-        queue.save_latest(OverrideJob {
-            id: "a".into(),
-            ..report(ReportSource::BmcSensors)
-        });
-        queue.save_latest(OverrideJob {
-            id: "a".into(),
-            ..report(ReportSource::TrayLeakDetection)
-        });
+        queue.save_latest("a".into(), 1);
+        queue.save_latest("b".into(), 2);
 
         let mut count = 0;
         while queue.pop().is_some() {
@@ -164,40 +126,27 @@ mod tests {
 
     #[test]
     fn preserves_fifo_order() {
-        let queue = OverrideQueue::<String>::new();
+        let queue = OverrideQueue::<String, i32>::new();
 
-        queue.save_latest(OverrideJob {
-            id: "first".into(),
-            ..report(ReportSource::BmcSensors)
-        });
-        queue.save_latest(OverrideJob {
-            id: "second".into(),
-            ..report(ReportSource::BmcSensors)
-        });
+        queue.save_latest("first".into(), 1);
+        queue.save_latest("second".into(), 2);
 
-        assert_eq!(queue.pop().unwrap().id, "first");
-        assert_eq!(queue.pop().unwrap().id, "second");
+        assert_eq!(queue.pop().unwrap().0, "first");
+        assert_eq!(queue.pop().unwrap().0, "second");
         assert!(queue.pop().is_none());
     }
 
     #[test]
     fn update_replaces_value_but_keeps_position() {
-        let queue = OverrideQueue::<String>::new();
+        let queue = OverrideQueue::<String, i32>::new();
 
-        queue.save_latest(OverrideJob {
-            id: "a".into(),
-            ..report(ReportSource::BmcSensors)
-        });
-        queue.save_latest(OverrideJob {
-            id: "b".into(),
-            ..report(ReportSource::BmcSensors)
-        });
-        queue.save_latest(OverrideJob {
-            id: "a".into(),
-            ..report(ReportSource::BmcSensors)
-        });
+        queue.save_latest("a".into(), 1);
+        queue.save_latest("b".into(), 2);
+        queue.save_latest("a".into(), 99);
 
-        assert_eq!(queue.pop().unwrap().id, "a");
-        assert_eq!(queue.pop().unwrap().id, "b");
+        let (key_a, val_a) = queue.pop().unwrap();
+        assert_eq!(key_a, "a");
+        assert_eq!(val_a, 99);
+        assert_eq!(queue.pop().unwrap().0, "b");
     }
 }

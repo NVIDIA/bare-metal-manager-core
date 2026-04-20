@@ -204,7 +204,13 @@ run_task = "internal-bfb-aarch64-sa"
 [tasks.ipxe-aarch64-sa]
 category = "iPXE Kernel"
 description = "Build iPXE kernel for aarch64 (EFI) for SA builds"
-dependencies = ["ipxe-build-efi-aarch64", "ipxe-install-efi-aarch64"]
+dependencies = [
+  "ipxe-config",
+  "ipxe-patch-mlnx",
+  "ipxe-patch-grace-grace",
+  "ipxe-patch-efi-rng",
+  "ipxe-install-efi-aarch64",
+]
 
 
 [tasks.build-boot-artifacts-bfb]
@@ -826,23 +832,21 @@ dependencies = [
   "bfbtools-download",
   "bfb-extract",
   "bfb-extract-efi-sa",
-  #"download-docker-containers",  # save doca_hbn.tar to /tmp/bfb-dump/initramfs-tmp
-  #"bfb-hbn-pull",                # replacement for "download-docker-containers"
-  #"bfb-hbn-export",              # replacement for "download-docker-containers"
+  "bfb-hbn-pull",
+  "bfb-hbn-export",
   "bfb-extract-ifconfig",
   "bfb-add-scout-to-bfb-ci",
   "bfb-add-debs-to-bfb",
   "bfb-add-nvinit-setup-to-bfb",
   "bfb-add-prod-forge-root-ca-to-bfb",
-  "download-hbn-installer-to-bfb-sa",                                      # put doca_container_configs.zip in /tmp
   "mkdir-hbn-folder-in-bfb",
-  "unzip-hbn-folder-in-bfb",
+  "download-hbn-installer-to-bfb",
   "mv-hbn-configs-to-bfb",
   "mv-hbn-scripts-to-bfb",
   "cleanup-hbn-scripts",
   { name = "build-forge-dpu-deb-local", path = "${REPO_ROOT}/bluefield" },
   "cp-forge-dpu-package-to-bfb",
-  "bfb-copy-efi",
+  "bfb-copy-efi-sa",
   "bfb-remove-extracted-efi",
   "replace-bfpxe-script",
   "bfb-rebuild-rootfs",
@@ -955,7 +959,7 @@ cwd = "/tmp/bfb-dump"
 [tasks.bfb-extract-efi-sa]
 category = "iPXE Kernel"
 description = "Extract the BFB initramfs using fakeroot"
-script = ["gzip -d < /tmp/bfb-dump/dump-initramfs-v0 | fakeroot cpio -id"]
+script = ["gzip -d < /tmp/bfb-dump/dump-initramfs-v0 | fakeroot -s /tmp/bfb-dump/fakeroot.env cpio -id"]
 cwd = "${BUILD_LOCATION}"
 
 [tasks.bfb-extract-efi]
@@ -1208,6 +1212,22 @@ Label: Ubuntu
 Architecture: amd64" > Release
 '''
 
+
+[tasks.bfb-copy-efi-sa]
+category = "iPXE Kernel"
+description = "Copy the BFB efi kernel on aarch64 gitlab runner"
+script = '''
+  # Check that efi kernel is compressed
+  efi_kernel="/tmp/bfb-dump/dump-image-v0"
+  if file -b "$efi_kernel" | grep -q 'LZMA compressed data'; then
+    xz --format=lzma -d "$efi_kernel" -c > carbide.efi
+  else
+    cp "$efi_kernel" carbide.efi
+  fi
+'''
+cwd = "static/blobs/internal/aarch64"
+
+
 [tasks.bfb-copy-efi]
 category = "iPXE Kernel"
 description = "Copy the BFB efi kernel on aarch64 gitlab runner"
@@ -1233,13 +1253,26 @@ args = ["-fr", "${BUILD_LOCATION}/dump-image-v0"]
 category = "iPXE Kernel"
 description = "Rebuild the BFB root fs on aarch64 gitlab runner"
 script = '''
-  echo "Pipeline source is $CI_PIPELINE_SOURCE"
-  if [ "$CI_PIPELINE_SOURCE" = "merge_request_event" ] ;then
-    echo "Rebuilding BFB with fast compression"
-    find . -print0 | cpio --null -o --format=newc | gzip -1 > ../dump-initramfs-v0
+  # Detect PR/MR builds on both GitLab and GitHub Actions
+  IS_PR="false"
+  if [ "$CI_PIPELINE_SOURCE" = "merge_request_event" ]; then
+    IS_PR="true"
+  elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+    IS_PR="true"
+  fi
+
+  if [ "$IS_PR" = "true" ]; then
+    echo "Rebuilding BFB with fast compression (PR build)"
+    find . -print0 | cpio --null -o --format=newc | pigz -1 > ../dump-initramfs-v0
   else
-    echo "Rebuilding BFB with best compression"
-    find . -print0 | cpio --null -o --format=newc | gzip -9 > ../dump-initramfs-v0
+    echo "Rebuilding BFB with best compression (pigz parallel)"
+    if [ -n "${SA_ENABLEMENT}" ]; then
+      FAKEROOT_STATE="/tmp/bfb-dump/fakeroot.env"
+      find . -print0 | fakeroot -i "$FAKEROOT_STATE" -s "$FAKEROOT_STATE" \
+      cpio --null -o --format=newc | pigz -9 > ../dump-initramfs-v0
+    else
+      find . -print0 | cpio --null -o --format=newc | pigz -9 > ../dump-initramfs-v0
+    fi
   fi
 '''
 cwd = "${BUILD_LOCATION}"

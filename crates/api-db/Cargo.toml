@@ -39,6 +39,7 @@ carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 carbide-measured-boot = { path = "../measured-boot", features = ["sqlx"] }
 dns-record = { path = "../dns-record" }
 carbide-api-model = { path = "../api-model", default-features = false }
+carbide-ipxe-renderer = { path = "../ipxe-renderer" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized
@@ -86,6 +87,8 @@ version-compare = { workspace = true }
 carbide-version = { path = "../version" }
 
 [dev-dependencies]
+base64 = { workspace = true }
+carbide-secrets = { path = "../secrets" }
 lazy_static = { workspace = true }
 carbide-macros = { path = "../macros" }
 carbide-sqlx-testing = { path = "../sqlx-testing" }

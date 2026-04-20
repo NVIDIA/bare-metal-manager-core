@@ -18,12 +18,26 @@
 use std::borrow::Cow;
 
 use color_eyre::Result;
+use rpc::forge as rpc;
 
 use super::args::Args;
+use crate::cfg::runtime::RuntimeConfig;
 use crate::rpc::ApiClient;
 
-pub async fn list_switches(data: Args, api_client: &ApiClient) -> Result<()> {
-    let response = api_client.0.find_switches(data).await?;
+pub async fn list_switches(
+    args: Args,
+    api_client: &ApiClient,
+    config: &RuntimeConfig,
+) -> Result<()> {
+    let filter = rpc::SwitchSearchFilter {
+        rack_id: None,
+        deleted: args.deleted as i32,
+        controller_state: args.controller_state,
+        bmc_mac: args.bmc_mac.map(|m| m.to_string()),
+    };
+    let response = api_client
+        .get_all_switches(filter, config.page_size)
+        .await?;
 
     let switches = response.switches;
 
@@ -61,11 +75,27 @@ pub async fn list_switches(data: Args, api_client: &ApiClient) -> Result<()> {
 
         let controller_state = switch.controller_state.as_str();
 
+        let slot_number = switch
+            .placement_in_rack
+            .as_ref()
+            .and_then(|p| p.slot_number)
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "N/A".to_string());
+
+        let tray_index = switch
+            .placement_in_rack
+            .as_ref()
+            .and_then(|p| p.tray_index)
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "N/A".to_string());
+
         println!(
-            "{}. {} (ID: {}) - Power: {}, Health: {}, State: {}",
+            "{}. {} (ID: {}) - Slot: {}, Tray: {}, Power: {}, Health: {}, State: {}",
             i + 1,
             name,
             id,
+            slot_number,
+            tray_index,
             power_state,
             health,
             controller_state

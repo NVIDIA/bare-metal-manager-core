@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-use std::pin::Pin;
-
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 
 use super::args::Args;
@@ -26,7 +24,7 @@ pub async fn network(
     api_client: &ApiClient,
     cmd: Args,
     format: OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
 ) -> CarbideCliResult<()> {
     match cmd {
         Args::Status => {

@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-use ::rpc::forge::{self as rpc, HealthReportOverride};
+use ::rpc::forge::{self as rpc, HealthReportEntry};
 use carbide_uuid::machine::MachineId;
-use health_report::OverrideMode;
+use health_report::HealthReportApplyMode;
 use model::machine::machine_search_config::MachineSearchConfig;
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
@@ -30,7 +30,7 @@ use crate::handlers::utils::convert_and_log_machine_id;
 pub async fn list_health_report_overrides(
     api: &Api,
     machine_id: Request<MachineId>,
-) -> Result<Response<rpc::ListHealthReportOverrideResponse>, Status> {
+) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
     let mut txn = api.txn_begin().await?;
 
     let machine_id = convert_and_log_machine_id(Some(&machine_id.into_inner()))?;
@@ -44,12 +44,12 @@ pub async fn list_health_report_overrides(
 
     txn.commit().await?;
 
-    Ok(Response::new(rpc::ListHealthReportOverrideResponse {
-        overrides: host_machine
-            .health_report_overrides
+    Ok(Response::new(rpc::ListHealthReportResponse {
+        health_report_entries: host_machine
+            .health_reports
             .clone()
             .into_iter()
-            .map(|o| HealthReportOverride {
+            .map(|o| HealthReportEntry {
                 report: Some(o.0.into()),
                 mode: o.1 as i32,
             })
@@ -80,19 +80,15 @@ async fn remove_by_source(
 
     // Ensure this source already exists in override list
     let mode = if host_machine
-        .health_report_overrides
+        .health_reports
         .replace
         .as_ref()
         .map(|o| &o.source)
         == Some(&source)
     {
-        OverrideMode::Replace
-    } else if host_machine
-        .health_report_overrides
-        .merges
-        .contains_key(&source)
-    {
-        OverrideMode::Merge
+        HealthReportApplyMode::Replace
+    } else if host_machine.health_reports.merges.contains_key(&source) {
+        HealthReportApplyMode::Merge
     } else {
         return Err(CarbideError::NotFoundError {
             kind: "machine with source",
@@ -117,7 +113,7 @@ pub async fn insert_health_report_override(
 
     let rpc::InsertHealthReportOverrideRequest {
         machine_id,
-        r#override: Some(rpc::HealthReportOverride { report, mode }),
+        health_report_entry: Some(rpc::HealthReportEntry { report, mode }),
     } = request.into_inner()
     else {
         return Err(CarbideError::MissingArgument("override").into());
@@ -126,13 +122,13 @@ pub async fn insert_health_report_override(
     let Some(report) = report else {
         return Err(CarbideError::MissingArgument("report").into());
     };
-    let Ok(mode) = rpc::OverrideMode::try_from(mode) else {
+    let Ok(mode) = rpc::HealthReportApplyMode::try_from(mode) else {
         return Err(CarbideError::InvalidArgument("mode".to_string()).into());
     };
-    let mode: OverrideMode = mode.into();
-    if machine_id.machine_type().is_dpu() && mode == OverrideMode::Replace {
+    let mode: HealthReportApplyMode = mode.into();
+    if machine_id.machine_type().is_dpu() && mode == HealthReportApplyMode::Replace {
         return Err(CarbideError::InvalidArgument(
-            "DPU's cannot have OverrideMode::Replace health report overrides".to_string(),
+            "DPU's cannot have HealthReportApplyMode::Replace health report overrides".to_string(),
         )
         .into());
     }

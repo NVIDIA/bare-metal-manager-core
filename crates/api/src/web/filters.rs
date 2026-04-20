@@ -59,31 +59,40 @@ fn machine_link(id: impl Display, path: impl Display) -> ::askama::Result<String
     Ok(formatted)
 }
 
-pub fn rack_id_link(id: impl Display) -> ::askama::Result<String> {
-    // Sanitize rack ID for HTML content and links (it can contain arbitrary content)
+fn escaped_shortened_id_link(id: impl Display, path: impl Display) -> ::askama::Result<String> {
+    // Sanitize ID for HTML content and links (it can contain arbitrary content)
     let id = id.to_string();
+    if id == "Unlinked" || id.is_empty() {
+        return Ok("Unlinked".to_string());
+    }
     let link_path: String = url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
 
-    let mut rack_id = String::new();
-    askama_escape::Html.write_escaped(&mut rack_id, &id)?;
+    let mut escaped_id = String::new();
+    askama_escape::Html.write_escaped(&mut escaped_id, &id)?;
 
-    let short_id = if rack_id.len() < 10 {
-        &rack_id
-    } else {
-        &rack_id[0..6] // Shorter to have space for ellipsis ("...")
-    };
-
-    // machine_id is used here since its already a defined CSS class
+    let short_id = &escaped_id[escaped_id.len().saturating_sub(6)..];
     let formatted = format!(
         r#"
-    <a href="/admin/rack/{link_path}">
+    <a href="/admin/{path}/{link_path}">
         <div class="machine_id">
-            <div>{rack_id}</div><div>{short_id}</div>
+            <div>{escaped_id}</div><div>{short_id}</div>
         </div>
     </a>"#
     );
 
     Ok(formatted)
+}
+
+pub fn rack_id_link(id: impl Display) -> ::askama::Result<String> {
+    escaped_shortened_id_link(id, "rack")
+}
+
+pub fn power_shelf_id_link(id: impl Display) -> ::askama::Result<String> {
+    escaped_shortened_id_link(id, "power-shelf")
+}
+
+pub fn switch_id_link(id: impl Display) -> ::askama::Result<String> {
+    escaped_shortened_id_link(id, "switch")
 }
 
 /// Formats labels into HTML

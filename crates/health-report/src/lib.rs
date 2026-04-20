@@ -337,7 +337,7 @@ fn merge_classifications(
 
 /// How to apply a HealthReport override.
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum OverrideMode {
+pub enum HealthReportApplyMode {
     /// Successes or alerts in the override HealthReports will supersede any
     /// successes and alerts in the non-override HealthReports, merging by id
     /// and target.

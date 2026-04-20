@@ -47,6 +47,8 @@ pub struct MachineSearchConfig {
     pub only_with_health_alert: Option<String>,
     /// Returns machines only if they are part of the given rack
     pub rack_id: Option<RackId>,
+    /// Filter by the top-level controller state tag (e.g. "created", "ready")
+    pub controller_state: Option<String>,
 }
 
 impl TryFrom<rpc::forge::MachineSearchConfig> for MachineSearchConfig {
@@ -72,6 +74,7 @@ impl TryFrom<rpc::forge::MachineSearchConfig> for MachineSearchConfig {
             only_with_power_state: value.only_with_power_state,
             only_with_health_alert: value.only_with_health_alert,
             rack_id: value.rack_id,
+            controller_state: None,
         })
     }
 }

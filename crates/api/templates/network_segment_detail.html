@@ -14,20 +14,8 @@
 	<tr><th>Created </th><td>{{ created }}</td></tr>
 	<tr><th>Updated</th><td>{{ updated }}</td></tr>
 	<tr><th>Deleted</th><td>{{ deleted }}</td></tr>
-			<tr><th>State</th><td>
-			{% if state.to_lowercase().contains("failed") %}
-				<span class="bubble error">{{ state }}{% if time_in_state_above_sla %} ⏱️{% endif %}</span>
-			{% else if time_in_state_above_sla %}
-				<span class="bubble warning">{{ state }} ⏱️</span>
-			{% else if state == "Ready" || state == "Assigned/Ready" %}
-				<span class="bubble success">{{ state }}</span>
-			{% else %}
-				<span class="bubble">{{ state }}</span>
-			{% endif %}
-		</td></tr>
-	<tr><th>State SLA</th><td>{{ state_sla }}</td></tr>
-	<tr><th>Time in State is above SLA</th><td>{{ time_in_state_above_sla }}</td></tr>
-	<tr><th>State Handler Outcome</th><td>{{ state_reason|controller_state_reason_fmt|safe }}</td></tr>
+			<tr><th>State</th><td>{{ state_display|safe }}</td></tr>
+	{{ state_sla_detail|safe }}
 	<tr><th>Domain id</th><td><a href="/admin/domain">{{ domain_id }}</a></td></tr>
 	<tr><th>Domain name</th><td>{{ domain_name }}</td></tr>
 	<tr><th>Type</th><td>{{ segment_type }}</td></tr>

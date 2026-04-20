@@ -16,7 +16,6 @@
  */
 use std::borrow::Cow;
 use std::fmt::Write;
-use std::pin::Pin;
 use std::str::FromStr;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
@@ -127,12 +126,17 @@ async fn convert_instance_to_nice_format(
             "IPXE SCRIPT",
             instance_os
                 .and_then(|os| match os.variant.as_ref() {
-                    Some(::rpc::forge::operating_system::Variant::Ipxe(ipxe_os)) => {
-                        Some(Cow::Borrowed(ipxe_os.ipxe_script.as_str()))
-                    }
-                    Some(::rpc::forge::operating_system::Variant::OsImageId(image)) => {
-                        Some(Cow::Owned(format!("OS Image ID: {}", image.value)))
-                    }
+                    Some(::rpc::forge::instance_operating_system_config::Variant::Ipxe(
+                        ipxe_os,
+                    )) => Some(Cow::Borrowed(ipxe_os.ipxe_script.as_str())),
+                    Some(::rpc::forge::instance_operating_system_config::Variant::OsImageId(
+                        image,
+                    )) => Some(Cow::Owned(format!("OS Image ID: {}", image.value))),
+                    Some(
+                        ::rpc::forge::instance_operating_system_config::Variant::OperatingSystemId(
+                            id,
+                        ),
+                    ) => Some(Cow::Owned(format!("Operating System ID: {}", id))),
                     None => None,
                 })
                 .unwrap_or_default(),
@@ -441,7 +445,7 @@ fn convert_instances_to_nice_table(instances: forgerpc::InstanceList) -> Box<Tab
 
 async fn show_instance_details(
     id: String,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     api_client: &ApiClient,
     extrainfo: bool,
@@ -491,7 +495,7 @@ async fn show_instance_details(
 
 pub async fn handle_show(
     args: Args,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     api_client: &ApiClient,
     page_size: usize,

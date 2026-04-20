@@ -18,14 +18,14 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use db::{DatabaseError, rack_firmware as rack_firmware_db};
+use db::{DatabaseError, ObjectColumnFilter, rack_firmware as rack_firmware_db};
 use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 use rpc::forge::{
     DeviceUpdateResult, NodeJobInfo, RackFirmware, RackFirmwareApplyRequest,
     RackFirmwareApplyResponse, RackFirmwareCreateRequest, RackFirmwareDeleteRequest,
     RackFirmwareGetRequest, RackFirmwareHistoryRecords, RackFirmwareHistoryRequest,
     RackFirmwareHistoryResponse, RackFirmwareJobStatusRequest, RackFirmwareJobStatusResponse,
-    RackFirmwareList, RackFirmwareListRequest,
+    RackFirmwareList, RackFirmwareSearchFilter, RackFirmwareSetDefaultRequest,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -34,6 +34,9 @@ use tonic::{Request, Response, Status};
 
 use crate::api::Api;
 use crate::errors::CarbideError;
+use crate::rack::firmware_update::{
+    build_firmware_update_batches, load_rack_firmware_inventory, submit_firmware_update_batches,
+};
 // Structs for parsing rack firmware JSON
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -334,7 +337,29 @@ pub async fn create(
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new("begin create", e)))?;
 
-    let db_config = rack_firmware_db::create(&mut txn, &id, config, parsed_components).await?;
+    let rack_hardware_type: model::rack_type::RackHardwareType = req
+        .rack_hardware_type
+        .ok_or_else(|| CarbideError::MissingArgument("rack_hardware_type"))?
+        .into();
+
+    let mut db_config = rack_firmware_db::create(
+        &mut txn,
+        &id,
+        rack_hardware_type.clone(),
+        config,
+        parsed_components,
+    )
+    .await?;
+
+    // Auto-set as default if no default exists for this rack_hardware_type.
+    if !rack_firmware_db::has_default(&mut txn, &rack_hardware_type).await? {
+        db_config = rack_firmware_db::set_default(&mut txn, &id).await?;
+        tracing::info!(
+            firmware_id = %id,
+            rack_hardware_type = %rack_hardware_type,
+            "Auto-set as default firmware (first for this rack hardware type)."
+        );
+    }
 
     txn.commit()
         .await
@@ -379,9 +404,9 @@ pub async fn get(
 /// List all Rack firmware configurations
 pub async fn list(
     api: &Api,
-    request: Request<RackFirmwareListRequest>,
+    request: Request<RackFirmwareSearchFilter>,
 ) -> Result<Response<RackFirmwareList>, Status> {
-    let req = request.into_inner();
+    let filter: model::rack_firmware::RackFirmwareSearchFilter = request.into_inner().into();
 
     let mut txn = api
         .database_connection
@@ -389,7 +414,7 @@ pub async fn list(
         .await
         .map_err(|e| CarbideError::from(DatabaseError::new("begin list", e)))?;
 
-    let db_configs = rack_firmware_db::list_all(&mut txn, req.only_available).await?;
+    let db_configs = rack_firmware_db::list_all(&mut txn, filter).await?;
 
     txn.commit()
         .await
@@ -973,31 +998,66 @@ pub async fn apply(
         .into());
     }
 
-    let parsed_components: serde_json::Value = fw_config
-        .parsed_components
-        .as_ref()
-        .map(|p| p.0.clone())
-        .unwrap_or_else(|| {
-            tracing::warn!("No parsed_components in firmware config, using empty object");
-            serde_json::json!({})
-        });
+    let rack = db::rack::find_by(
+        api.db_reader().as_mut(),
+        ObjectColumnFilter::One(db::rack::IdColumn, &rack_id),
+    )
+    .await
+    .map_err(CarbideError::from)?
+    .pop()
+    .ok_or_else(|| CarbideError::NotFoundError {
+        kind: "rack",
+        id: rack_id.to_string(),
+    })?;
 
-    let rack = db::rack::get(&api.database_connection, &rack_id)
-        .await
-        .map_err(|e| CarbideError::Internal {
-            message: format!("Failed to get rack: {}", e),
-        })?;
+    // Validate firmware hardware type and firmware_type against rack capabilities.
+    if let Some(rack_profile_id) = rack.rack_profile_id.as_ref()
+        && let Some(profile) = api
+            .runtime_config
+            .rack_profiles
+            .get(rack_profile_id.as_str())
+    {
+        // Validate firmware hardware type matches rack's hardware type.
+        if !fw_config.rack_hardware_type.is_any()
+            && let Some(rack_hw_type) = &profile.rack_hardware_type
+            && *rack_hw_type != fw_config.rack_hardware_type
+        {
+            return Err(CarbideError::FailedPrecondition(format!(
+                "Firmware hardware type '{}' does not match rack '{}' hardware type '{}'",
+                fw_config.rack_hardware_type, rack_id, rack_hw_type
+            ))
+            .into());
+        }
 
-    // Convert rack to proto to get device IDs
-    let rack_proto: rpc::forge::Rack = rack.into();
+        // Validate firmware_type matches rack's hardware class.
+        if let Some(rack_hw_class) = profile.rack_hardware_class {
+            let expected_fw_type = match rack_hw_class {
+                model::rack_type::RackHardwareClass::Dev => "dev",
+                model::rack_type::RackHardwareClass::Prod => "prod",
+            };
+            if req.firmware_type != expected_fw_type {
+                return Err(CarbideError::FailedPrecondition(format!(
+                    "Firmware type '{}' does not match rack '{}' hardware class '{}'",
+                    req.firmware_type, rack_id, rack_hw_class
+                ))
+                .into());
+            }
+        }
+    }
 
-    let has_compute_trays = !rack_proto.compute_trays.is_empty();
-    let has_power_shelves = !rack_proto.power_shelves.is_empty();
-    let has_switches = !rack_proto.expected_nvlink_switches.is_empty();
+    let inventory = load_rack_firmware_inventory(
+        &api.database_connection,
+        api.credential_manager.as_ref(),
+        &rack_id,
+    )
+    .await
+    .map_err(|e| CarbideError::Internal {
+        message: format!("Failed to load rack firmware inventory: {}", e),
+    })?;
 
-    if !has_compute_trays && !has_power_shelves && !has_switches {
+    if inventory.machines.is_empty() && inventory.switches.is_empty() {
         return Err(CarbideError::FailedPrecondition(format!(
-            "Rack '{}' contains no devices",
+            "Rack '{}' contains no compute or switch devices",
             rack_id
         ))
         .into());
@@ -1005,136 +1065,36 @@ pub async fn apply(
 
     tracing::info!(
         rack_id = %rack_id,
-        compute_trays = rack_proto.compute_trays.len(),
-        power_shelves = rack_proto.power_shelves.len(),
-        switches = rack_proto.expected_nvlink_switches.len(),
-        "Found devices in rack"
+        compute_trays = inventory.machines.len(),
+        switches = inventory.switches.len(),
+        "Found supported devices in rack"
     );
 
-    // Each device type is updated via a single update_firmware_by_node_type_async
-    // call — RMS handles distributing to all nodes of that type in the rack.
-    let mut device_results = Vec::new();
+    let rms_client = api
+        .rms_client
+        .as_ref()
+        .ok_or_else(|| CarbideError::FailedPrecondition("RMS client not configured".to_string()))?;
+    let batches =
+        build_firmware_update_batches(&rack_id, &fw_config, &req.firmware_type, &inventory)
+            .map_err(|e| CarbideError::Internal {
+                message: format!("Failed to build firmware update requests: {}", e),
+            })?;
+
+    if batches.is_empty() {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "Rack '{}' contains no supported compute or switch devices",
+            rack_id
+        ))
+        .into());
+    }
+
+    let submissions = submit_firmware_update_batches(rms_client.as_ref(), batches).await;
+    let mut device_results = Vec::with_capacity(submissions.len());
     let mut successful_updates = 0;
     let mut failed_updates = 0;
 
-    // Device types to update: (lookup_table_key, RMS NodeType, display_name, has_devices, activate)
-    // activate=true for compute trays (Redfish activation after flash).
-    // activate=false for switches (activation is handled internally via power cycle).
-    let device_types: &[(&str, i32, &str, bool, bool)] = &[
-        (
-            "Compute Node",
-            librms::protos::rack_manager::NodeType::Compute as i32,
-            "Compute Node",
-            has_compute_trays,
-            true,
-        ),
-        (
-            "Power Shelf",
-            librms::protos::rack_manager::NodeType::Powershelf as i32,
-            "Power Shelf",
-            has_power_shelves,
-            false,
-        ),
-        (
-            "Switch Tray",
-            librms::protos::rack_manager::NodeType::Switch as i32,
-            "Switch",
-            has_switches,
-            false,
-        ),
-    ];
-
-    for &(lookup_key, node_type, display_name, has_devices, activate) in device_types {
-        if !has_devices {
-            continue;
-        }
-
-        let mut firmware_components =
-            find_firmware_components_for_device(&parsed_components, lookup_key, &req.firmware_type);
-
-        // Sort components into the required flashing order for this device type
-        let flash_order = get_firmware_flash_order(lookup_key);
-        firmware_components.sort_by_key(|(_, _, target)| {
-            flash_order
-                .iter()
-                .position(|&t| t == target.as_str())
-                .unwrap_or(usize::MAX)
-        });
-
-        if firmware_components.is_empty() {
-            tracing::warn!(
-                rack_id = %rack_id,
-                device_type = %display_name,
-                "No matching firmware found in config"
-            );
-            device_results.push(DeviceUpdateResult {
-                device_id: rack_id.to_string(),
-                device_type: display_name.to_string(),
-                success: false,
-                message: format!("No matching firmware found in config for {}", display_name),
-                job_id: String::new(),
-                node_jobs: vec![],
-            });
-            failed_updates += 1;
-            continue;
-        }
-
-        let Some(rms_client) = &api.rms_client else {
-            tracing::warn!(
-                rack_id = %rack_id,
-                device_type = %display_name,
-                "RMS client not configured, cannot update firmware"
-            );
-            device_results.push(DeviceUpdateResult {
-                device_id: rack_id.to_string(),
-                device_type: display_name.to_string(),
-                success: false,
-                message: "RMS client not configured".to_string(),
-                job_id: String::new(),
-                node_jobs: vec![],
-            });
-            failed_updates += 1;
-            continue;
-        };
-
-        // Build FirmwareTarget entries from the lookup table
-        let firmware_targets: Vec<librms::protos::rack_manager::FirmwareTarget> =
-            firmware_components
-                .iter()
-                .map(|(_component_name, filename, target)| {
-                    let full_firmware_path = format!(
-                        "/forge-boot-artifacts/blobs/internal/fw/rack_firmware/{}/{}",
-                        req.firmware_id, filename
-                    );
-                    librms::protos::rack_manager::FirmwareTarget {
-                        target: target.clone(),
-                        filename: full_firmware_path,
-                    }
-                })
-                .collect();
-
-        tracing::info!(
-            rack_id = %rack_id,
-            device_type = %display_name,
-            firmware_target_count = firmware_targets.len(),
-            targets = ?firmware_targets.iter().map(|t| &t.target).collect::<Vec<_>>(),
-            "Applying firmware via async batch API"
-        );
-
-        let rms_request = librms::protos::rack_manager::UpdateFirmwareByNodeTypeRequest {
-            metadata: None,
-            node_type,
-            filename: String::new(),
-            target: String::new(),
-            rack_id: rack_id.to_string(),
-            firmware_targets,
-            activate,
-        };
-
-        match rms_client
-            .update_firmware_by_node_type_async(rms_request)
-            .await
-        {
+    for submission in submissions {
+        match submission.response {
             Ok(response) => {
                 let success =
                     response.status == librms::protos::rack_manager::ReturnCode::Success as i32;
@@ -1148,24 +1108,15 @@ pub async fn apply(
                 let node_jobs: Vec<NodeJobInfo> = response
                     .node_jobs
                     .iter()
-                    .map(|j| NodeJobInfo {
-                        node_id: j.node_id.clone(),
-                        job_id: j.job_id.clone(),
+                    .map(|job| NodeJobInfo {
+                        node_id: job.node_id.clone(),
+                        job_id: job.job_id.clone(),
                     })
                     .collect();
 
-                for node_job in &response.node_jobs {
-                    tracing::info!(
-                        device_type = %display_name,
-                        node_id = %node_job.node_id,
-                        job_id = %node_job.job_id,
-                        "Firmware update job created"
-                    );
-                }
-
                 device_results.push(DeviceUpdateResult {
                     device_id: rack_id.to_string(),
-                    device_type: display_name.to_string(),
+                    device_type: submission.display_name.to_string(),
                     success,
                     message: format!(
                         "Async firmware update initiated for {} nodes: {}",
@@ -1175,22 +1126,16 @@ pub async fn apply(
                     node_jobs,
                 });
             }
-            Err(e) => {
-                tracing::warn!(
-                    rack_id = %rack_id,
-                    device_type = %display_name,
-                    error = %e,
-                    "Failed to initiate async firmware update"
-                );
+            Err(error) => {
+                failed_updates += 1;
                 device_results.push(DeviceUpdateResult {
                     device_id: rack_id.to_string(),
-                    device_type: display_name.to_string(),
+                    device_type: submission.display_name.to_string(),
                     success: false,
-                    message: format!("RMS API Error: {}", e),
+                    message: format!("RMS API Error: {}", error),
                     job_id: String::new(),
                     node_jobs: vec![],
                 });
-                failed_updates += 1;
             }
         }
     }
@@ -1216,6 +1161,7 @@ pub async fn apply(
         &req.firmware_id,
         &rack_id_str,
         &req.firmware_type,
+        fw_config.rack_hardware_type,
     )
     .await
     .map_err(CarbideError::from)?;
@@ -1226,96 +1172,6 @@ pub async fn apply(
         failed_updates,
         device_results,
     }))
-}
-
-fn get_firmware_flash_order(device_type_key: &str) -> &'static [&'static str] {
-    match device_type_key {
-        "Switch Tray" => &["bmc", "fpga", "erot", "bios"],
-        "Compute Node" => &["/redfish/v1/Chassis/HGX_Chassis_0", "FW_BMC_0"],
-        _ => &[],
-    }
-}
-
-/// Helper function to find all firmware components for a specific device type using the lookup table
-/// Returns a vector of (component_name, filename, target) tuples
-/// Only returns components matching the requested firmware_type (prod or dev)
-fn find_firmware_components_for_device(
-    parsed_components: &serde_json::Value,
-    hardware_type: &str,
-    firmware_type: &str, // "prod" or "dev"
-) -> Vec<(String, String, String)> {
-    let mut results = Vec::new();
-
-    // Try to parse as FirmwareLookupTable
-    let lookup_table: FirmwareLookupTable =
-        match serde_json::from_value::<FirmwareLookupTable>(parsed_components.clone()) {
-            Ok(table) => {
-                tracing::debug!(
-                    device_count = table.devices.len(),
-                    "Successfully parsed firmware lookup table"
-                );
-                table
-            }
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    raw_json = %parsed_components,
-                    "Failed to parse firmware lookup table, no firmware will be applied"
-                );
-                return results;
-            }
-        };
-
-    // Normalize firmware type to lowercase
-    let fw_type = firmware_type.to_lowercase();
-
-    let available_device_types: Vec<&String> = lookup_table.devices.keys().collect();
-    tracing::debug!(
-        available_device_types = ?available_device_types,
-        requested_hardware_type = %hardware_type,
-        requested_firmware_type = %fw_type,
-        "Looking up firmware components in lookup table"
-    );
-
-    // Look up the device type in the lookup table
-    if let Some(device_components) = lookup_table.devices.get(hardware_type) {
-        for (component_key, entry) in device_components {
-            // Only include components matching the requested firmware type
-            // Keys are formatted as "HMC_prod" or "HMC_dev"
-            if entry.firmware_type.to_lowercase() != fw_type {
-                tracing::debug!(
-                    hardware_type = %hardware_type,
-                    component = %component_key,
-                    entry_type = %entry.firmware_type,
-                    requested_type = %fw_type,
-                    "Skipping firmware component - type mismatch"
-                );
-                continue;
-            }
-
-            tracing::debug!(
-                hardware_type = %hardware_type,
-                component = %component_key,
-                firmware_type = %entry.firmware_type,
-                filename = %entry.filename,
-                target = %entry.target,
-                "Found matching firmware component in lookup table"
-            );
-
-            results.push((
-                component_key.clone(),
-                entry.filename.clone(),
-                entry.target.clone(),
-            ));
-        }
-    } else {
-        tracing::debug!(
-            hardware_type = %hardware_type,
-            "No firmware components found for device type in lookup table"
-        );
-    }
-
-    results
 }
 
 /// Get the status of an async firmware update job by proxying to RMS GetFirmwareJobStatus
@@ -1403,4 +1259,30 @@ pub async fn get_history(
         .collect();
 
     Ok(Response::new(RackFirmwareHistoryResponse { histories }))
+}
+
+/// Set a rack firmware configuration as the default for its rack hardware type.
+pub async fn set_default(
+    api: &Api,
+    request: Request<RackFirmwareSetDefaultRequest>,
+) -> Result<Response<()>, Status> {
+    let req = request.into_inner();
+
+    if req.firmware_id.is_empty() {
+        return Err(CarbideError::InvalidArgument("firmware_id is required".to_string()).into());
+    }
+
+    let mut txn = api
+        .database_connection
+        .begin()
+        .await
+        .map_err(|e| CarbideError::from(DatabaseError::new("begin set_default", e)))?;
+
+    rack_firmware_db::set_default(&mut txn, &req.firmware_id).await?;
+
+    txn.commit()
+        .await
+        .map_err(|e| CarbideError::from(DatabaseError::new("commit set_default", e)))?;
+
+    Ok(Response::new(()))
 }

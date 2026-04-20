@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use carbide_redfish::libredfish::RedfishClientPool;
 use db::managed_host::load_snapshot;
 use db::{self};
 use model::machine::LoadSnapshotOptions;
@@ -23,7 +24,6 @@ use rpc::forge::{
     MaintenanceOperation, MaintenanceRequest, PowerOptionRequest, PowerOptionUpdateRequest,
 };
 
-use crate::redfish::RedfishClientPool;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host, create_test_env_with_overrides,
 };
@@ -262,6 +262,92 @@ async fn test_power_manager_state_machine_desired_on_machine_off_counter(
         .into_inner();
 
     assert_eq!(res.response[0].tried_triggering_on_counter, 3);
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_power_manager_state_machine_desired_off_machine_off(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().enable_power_manager())
+            .await;
+    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
+
+    let mut txn = env.pool.begin().await?;
+    let power_entry = db::power_options::get_all(&mut txn).await?;
+    assert_eq!(power_entry[0].desired_power_state, PowerState::On);
+    assert_eq!(power_entry[0].last_fetched_power_state, PowerState::On);
+    let mh_snapshot = load_snapshot(
+        txn.as_mut(),
+        &host_machine_id,
+        LoadSnapshotOptions::default(),
+    )
+    .await?
+    .unwrap();
+    txn.commit().await?;
+
+    // Set maintenance mode (required before setting desired=Off).
+    env.api
+        .set_maintenance(tonic::Request::new(MaintenanceRequest {
+            operation: MaintenanceOperation::Enable as i32,
+            host_id: Some(host_machine_id),
+            reference: Some("testing".to_string()),
+        }))
+        .await?;
+
+    // Set desired power state to Off.
+    env.api
+        .update_power_option(tonic::Request::new(PowerOptionUpdateRequest {
+            machine_id: Some(host_machine_id),
+            power_state: rpc::forge::PowerState::Off as i32,
+        }))
+        .await?;
+
+    let mut txn = env.pool.begin().await?;
+    let power_entry = db::power_options::get_all(&mut txn).await?;
+    assert_eq!(power_entry[0].desired_power_state, PowerState::Off);
+    txn.rollback().await?;
+
+    // Simulate the host being powered off via BMC.
+    let sim = env
+        .redfish_sim
+        .create_client_from_machine(&mh_snapshot.host_snapshot, &env.pool)
+        .await?;
+    sim.power(libredfish::SystemPowerControl::ForceOff).await?;
+    assert_eq!(
+        sim.get_power_state().await.unwrap(),
+        libredfish::PowerState::Off
+    );
+
+    // Record timestamps before the state controller iteration.
+    let mut txn = env.pool.begin().await?;
+    let before = db::power_options::get_all(&mut txn).await?;
+    let ts_before = before[0].last_fetched_updated_at;
+    txn.rollback().await?;
+
+    // Advance next_try_at so the state controller will poll BMC.
+    let mut txn = env.pool.begin().await?;
+    update_next_try_now(&host_machine_id, &mut txn).await;
+    txn.commit().await?;
+
+    // Run state controller iteration — should poll BMC, see Off, and persist the update.
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.pool.begin().await?;
+    let power_entry = db::power_options::get_all(&mut txn).await?;
+    assert_eq!(power_entry[0].desired_power_state, PowerState::Off);
+    assert_eq!(
+        power_entry[0].last_fetched_power_state,
+        PowerState::Off,
+        "last_fetched_power_state should be updated to Off when BMC reports Off"
+    );
+    assert!(
+        power_entry[0].last_fetched_updated_at > ts_before,
+        "last_fetched_updated_at should advance after state controller polls BMC"
+    );
+    txn.rollback().await?;
 
     Ok(())
 }

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 use std::collections::HashMap;
+use std::net::IpAddr;
 
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::rack::RackId;
@@ -26,6 +27,87 @@ use sqlx::{FromRow, Row};
 use uuid::Uuid;
 
 use crate::metadata::Metadata;
+
+/// Per-host DPU operating mode declared by a site operator on an
+/// `ExpectedMachine`. This replaces the site-wide `force_dpu_nic_mode`
+/// config flag; the flag is still honored as a fallback when
+/// `DpuMode::default()` is in effect (i.e. the operator didn't set a
+/// per-host value). `force_dpu_nic_mode` will eventually go away.
+///
+/// Backed by the Postgres enum `dpu_mode_t`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, sqlx::Type, Serialize, Deserialize)]
+#[sqlx(type_name = "dpu_mode_t", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+#[allow(clippy::enum_variant_names)]
+pub enum DpuMode {
+    /// DPUs are managed by NICo as normal -- upgrades, overlay networking,
+    /// DPA agents, etc. The default.
+    #[default]
+    DpuMode,
+    /// DPU hardware is physically present but configured as a plain NIC;
+    /// NICo skips DPU ingest / management and treats the host as zero-DPU.
+    NicMode,
+    /// No DPU hardware at all -- a plain host NIC on the underlay.
+    NoDpu,
+}
+
+impl DpuMode {
+    /// Returns `true` when the host is not being managed as a host with DPUs
+    /// (`NicMode` or `NoDpu`). Used by site-explorer and the state
+    /// controller to skip DPU-specific work.
+    pub fn is_dpu_managed(&self) -> bool {
+        matches!(self, DpuMode::DpuMode)
+    }
+
+    /// Resolve a host's effective DPU mode from its (optional) per-host
+    /// `ExpectedMachine.dpu_mode` value and the site-wide
+    /// `force_dpu_nic_mode` "fallback" flag, which is deprecated more
+    /// than a fallback, but for now I'm treating it as a fallback.
+    ///
+    /// Notes!
+    /// - An explicit per-host `NicMode` or `NoDpu` always wins.
+    /// - `DpuMode` (the default) or no `ExpectedMachine` at all means
+    ///   back back to the site flag, where `force_dpu_nic_mode=true` means
+    ///   `NicMode`, otherwise `DpuMode`.
+    ///
+    /// This keeps backwards compatibility with deployments that still rely
+    /// on the `force_dpu_nic_mode` site-level flag; once all hosts have explicit
+    /// modes configured (or we're happy with the `None` default), the flag can
+    /// be retired.
+    pub fn resolve(expected_mode: Option<DpuMode>, site_force_nic_mode: bool) -> DpuMode {
+        match expected_mode {
+            Some(DpuMode::NicMode) => DpuMode::NicMode,
+            Some(DpuMode::NoDpu) => DpuMode::NoDpu,
+            // `DpuMode` (default) or missing == let the site flag decide.
+            _ if site_force_nic_mode => DpuMode::NicMode,
+            _ => DpuMode::DpuMode,
+        }
+    }
+}
+
+impl From<DpuMode> for rpc::forge::DpuMode {
+    fn from(mode: DpuMode) -> Self {
+        match mode {
+            DpuMode::DpuMode => rpc::forge::DpuMode::DpuMode,
+            DpuMode::NicMode => rpc::forge::DpuMode::NicMode,
+            DpuMode::NoDpu => rpc::forge::DpuMode::NoDpu,
+        }
+    }
+}
+
+impl From<rpc::forge::DpuMode> for DpuMode {
+    fn from(mode: rpc::forge::DpuMode) -> Self {
+        match mode {
+            rpc::forge::DpuMode::DpuMode => DpuMode::DpuMode,
+            rpc::forge::DpuMode::NicMode => DpuMode::NicMode,
+            rpc::forge::DpuMode::NoDpu => DpuMode::NoDpu,
+            // Unspecified (0) or any unknown value means "use the default",
+            // which preserves behavior for old clients that don't send the
+            // field at all.
+            rpc::forge::DpuMode::Unspecified => DpuMode::default(),
+        }
+    }
+}
 
 /// A request to identify an ExpectedMachine by either ID or MAC address.
 #[derive(Debug, Clone)]
@@ -69,12 +151,21 @@ pub struct ExpectedHostNic {
     pub fixed_ip: Option<String>,
     pub fixed_mask: Option<String>,
     pub fixed_gateway: Option<String>,
+    /// When true, `primary` flags this NIC as the host's boot (primary)
+    /// interface. At most one NIC per ExpectedMachine may be marked primary
+    /// (which is enforced in the API). This ultimately propagates into the
+    /// machine_interfaces table, but, in today's world, only really applies
+    /// to zero-DPU. A machine *with* a DPU will end up taking over when
+    /// site-explorer finds a DPU for the machine (and update the primary
+    /// interface accordingly).
+    #[serde(default)]
+    pub primary: Option<bool>,
 }
 
 // Important : new fields for expected machine should be Optional _and_ #[serde(default)],
 // unless you want to go update all the files in each production deployment that autoload
 // the expected machines on api startup
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct ExpectedMachine {
     #[serde(default)]
     pub id: Option<Uuid>,
@@ -83,7 +174,7 @@ pub struct ExpectedMachine {
     pub data: ExpectedMachineData,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Clone, Default, Deserialize)] // Do not add Debug here, it contains password
 pub struct ExpectedMachineData {
     pub bmc_username: String,
     pub bmc_password: String,
@@ -99,6 +190,21 @@ pub struct ExpectedMachineData {
     pub rack_id: Option<RackId>,
     pub default_pause_ingestion_and_poweron: Option<bool>,
     pub dpf_enabled: Option<bool>,
+    /// When set, the API pre-allocates a `machine_interface` for this BMC MAC at this address
+    /// (same pattern as expected switches / power shelves) so Site Explorer can reach the BMC
+    /// without DHCP. IPs outside Carbide-managed prefixes land on the `static-assignments` segment.
+    #[serde(default)]
+    pub bmc_ip_address: Option<IpAddr>,
+    /// When true, site-explorer skips BMC password rotation and stores the
+    /// factory-default credentials in Vault as-is.
+    #[serde(default)]
+    pub bmc_retain_credentials: Option<bool>,
+    /// Per-host DPU operating mode (default `DpuMode::DpuMode` for
+    /// backward compat). See `DpuMode` for semantics. Operators set
+    /// this to `NicMode` when a physically-present DPU should be treated
+    /// as a plain NIC, or to `NoDpu` when there's no DPU hardware at all.
+    #[serde(default)]
+    pub dpu_mode: DpuMode,
 }
 // Important : new fields for expected machine (and data) should be optional _and_ serde(default),
 // unless you want to go update all the files in each production deployment that autoload
@@ -131,6 +237,9 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
                 default_pause_ingestion_and_poweron: row
                     .try_get("default_pause_ingestion_and_poweron")?,
                 dpf_enabled: row.try_get("dpf_enabled")?,
+                bmc_ip_address: row.try_get("bmc_ip_address")?,
+                bmc_retain_credentials: row.try_get("bmc_retain_credentials")?,
+                dpu_mode: row.try_get("dpu_mode")?,
             },
         })
     }
@@ -144,6 +253,7 @@ impl From<ExpectedHostNic> for rpc::forge::ExpectedHostNic {
             fixed_ip: expected_host_nic.fixed_ip,
             fixed_mask: expected_host_nic.fixed_mask,
             fixed_gateway: expected_host_nic.fixed_gateway,
+            primary: expected_host_nic.primary,
         }
     }
 }
@@ -156,6 +266,7 @@ impl From<rpc::forge::ExpectedHostNic> for ExpectedHostNic {
             fixed_ip: expected_host_nic.fixed_ip,
             fixed_mask: expected_host_nic.fixed_mask,
             fixed_gateway: expected_host_nic.fixed_gateway,
+            primary: expected_host_nic.primary,
         }
     }
 }
@@ -188,6 +299,18 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
             #[allow(deprecated)]
             dpf_enabled: expected_machine.data.dpf_enabled.unwrap_or_default(),
             is_dpf_enabled: expected_machine.data.dpf_enabled,
+            // Optional configured BMC IP (proto optional string).
+            bmc_ip_address: expected_machine
+                .data
+                .bmc_ip_address
+                .map(|ip| ip.to_string()),
+            bmc_retain_credentials: expected_machine.data.bmc_retain_credentials.filter(|&v| v),
+            // Only emit `dpu_mode` when it's non-default (which matches the
+            // bmc_retain_credentials filter pattern above).
+            dpu_mode: match expected_machine.data.dpu_mode {
+                DpuMode::DpuMode => None,
+                other => Some(rpc::forge::DpuMode::from(other) as i32),
+            },
         }
     }
 }
@@ -217,6 +340,8 @@ impl From<LinkedExpectedMachine> for rpc::forge::LinkedExpectedMachine {
     }
 }
 
+/// Parses gRPC `ExpectedMachine` into persisted model data, including optional `bmc_ip_address`
+/// (empty or unset proto field becomes `None`; invalid strings fail conversion).
 impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
     type Error = RpcDataConversionError;
 
@@ -232,6 +357,21 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
             rack_id: em.rack_id,
             default_pause_ingestion_and_poweron: em.default_pause_ingestion_and_poweron,
             dpf_enabled: em.is_dpf_enabled,
+            bmc_ip_address: match em.bmc_ip_address.as_deref() {
+                None | Some("") => None,
+                Some(s) => Some(s.parse::<IpAddr>().map_err(|_| {
+                    RpcDataConversionError::InvalidArgument(format!("Invalid BMC IP address: {s}"))
+                })?),
+            },
+            bmc_retain_credentials: em.bmc_retain_credentials,
+            // `dpu_mode` is optional on the wire; missing / ::Unspecified
+            // both fall back to `DpuMode::default()`, which is ::DpuMode,
+            // so old clients continue to behave as before.
+            dpu_mode: em
+                .dpu_mode
+                .map(|i| rpc::forge::DpuMode::try_from(i).unwrap_or_default())
+                .map(DpuMode::from)
+                .unwrap_or_default(),
         })
     }
 }
@@ -259,3 +399,92 @@ fn metadata_from_request(
 }
 
 // default_uuid removed; ids are optional to support legacy rows with NULL ids
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A completely-unset mode (client didn't set the field) should behave
+    /// the same as `DpuMode` (default) for resolution purposes: the site
+    /// flag decides.
+    #[test]
+    fn resolve_no_expected_mode_with_site_flag_off_returns_dpu_mode() {
+        assert_eq!(DpuMode::resolve(None, false), DpuMode::DpuMode);
+    }
+
+    #[test]
+    fn resolve_no_expected_mode_with_site_flag_on_returns_nic_mode() {
+        assert_eq!(DpuMode::resolve(None, true), DpuMode::NicMode);
+    }
+
+    /// Explicit per-host `DpuMode` is indistinguishable from "not set" in
+    /// the storage type (the default). So it also defers to the site flag
+    /// -- existing `force_dpu_nic_mode` deployments keep working.
+    #[test]
+    fn resolve_explicit_dpu_mode_defers_to_site_flag() {
+        assert_eq!(
+            DpuMode::resolve(Some(DpuMode::DpuMode), false),
+            DpuMode::DpuMode
+        );
+        assert_eq!(
+            DpuMode::resolve(Some(DpuMode::DpuMode), true),
+            DpuMode::NicMode
+        );
+    }
+
+    /// An explicit per-host `NicMode` always wins, regardless of the site
+    /// flag. This is the "I want this specific host in NIC mode" override.
+    #[test]
+    fn resolve_nic_mode_always_wins() {
+        assert_eq!(
+            DpuMode::resolve(Some(DpuMode::NicMode), false),
+            DpuMode::NicMode
+        );
+        assert_eq!(
+            DpuMode::resolve(Some(DpuMode::NicMode), true),
+            DpuMode::NicMode
+        );
+    }
+
+    /// An explicit per-host `NoDpu` always wins. Useful for hosts where
+    /// the operator knows there's genuinely no DPU hardware (as opposed
+    /// to "DPU present but used as NIC", which is `NicMode`).
+    #[test]
+    fn resolve_no_dpu_always_wins() {
+        assert_eq!(
+            DpuMode::resolve(Some(DpuMode::NoDpu), false),
+            DpuMode::NoDpu
+        );
+        assert_eq!(DpuMode::resolve(Some(DpuMode::NoDpu), true), DpuMode::NoDpu);
+    }
+
+    /// `is_dpu_managed()` returns true only for the default `DpuMode`
+    /// variant -- the two "not managed by NICo as DPU" cases both return
+    /// false, which is what site-explorer and state handlers use to skip
+    /// DPU-specific work.
+    #[test]
+    fn is_dpu_managed_covers_both_skip_cases() {
+        assert!(DpuMode::DpuMode.is_dpu_managed());
+        assert!(!DpuMode::NicMode.is_dpu_managed());
+        assert!(!DpuMode::NoDpu.is_dpu_managed());
+    }
+
+    /// Unspecified (0) on the wire means "use the default." Old clients
+    /// sending no value land here, and we want to preserve the DpuMode
+    /// default so existing deployments keep their behavior.
+    #[test]
+    fn from_rpc_unspecified_maps_to_default() {
+        assert_eq!(
+            DpuMode::from(rpc::forge::DpuMode::Unspecified),
+            DpuMode::default()
+        );
+        assert_eq!(DpuMode::default(), DpuMode::DpuMode);
+    }
+
+    #[test]
+    fn rpc_enum_round_trips_all_named_variants() {
+        for mode in [DpuMode::DpuMode, DpuMode::NicMode, DpuMode::NoDpu] {
+            assert_eq!(DpuMode::from(rpc::forge::DpuMode::from(mode)), mode);
+        }
+    }
+}

@@ -24,6 +24,7 @@ use tonic::Status;
 
 use crate::config::MachineATronContext;
 use crate::tui::{SubnetDetails, UiUpdate};
+use crate::vpc::Vpc;
 
 #[derive(Debug, Clone)]
 pub struct Subnet {
@@ -40,11 +41,11 @@ impl Subnet {
     pub async fn new(
         app_context: Arc<MachineATronContext>,
         ui_event_tx: Option<tokio::sync::mpsc::Sender<UiUpdate>>,
-        vpc_name: &String,
+        vpc: &Vpc,
     ) -> Result<Subnet, Status> {
         let network_segment = app_context
             .api_client()
-            .create_network_segment(vpc_name)
+            .create_network_segment(&vpc.vpc_name, vpc.network_virtualization_type)
             .await
             .map_err(|e| {
                 tracing::error!("Error creating network segment: {}", e);

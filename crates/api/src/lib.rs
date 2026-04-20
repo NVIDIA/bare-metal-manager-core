@@ -82,7 +82,6 @@ mod handlers;
 mod ib;
 mod ib_fabric_monitor;
 mod instance;
-mod ipmitool;
 mod ipxe;
 mod listener;
 mod logging;
@@ -92,10 +91,8 @@ mod machine_validation;
 mod measured_boot;
 mod mqtt_state_change_hook;
 mod network_segment;
-mod nv_redfish;
 mod nvl_partition_monitor;
 mod nvlink;
-mod periodic_timer;
 mod preingestion_manager;
 mod rack;
 mod redfish;
@@ -112,15 +109,12 @@ mod web;
 // Allow carbide_macros::sqlx_test to be referred as #[crate::sqlx_test]
 #[cfg(test)]
 pub(crate) use carbide_macros::sqlx_test;
-pub use cfg::file::SiteExplorerExploreMode;
 // TODO: temporary while migrating db to its own crate
 pub use db::{DatabaseError, DatabaseResult};
 // Save typing
 pub(crate) use errors::{CarbideError, CarbideResult};
-pub use ipmitool::IPMIToolTestImpl;
-pub use nv_redfish::NvRedfishClientPool;
-pub use redfish::RedfishClientPoolImpl;
 pub use site_explorer::BmcEndpointExplorer;
+pub use site_explorer::config::SiteExplorerExploreMode;
 
 // Stuff needed by main.rs and api-test
 pub use crate::{cfg::command_line::Command, cfg::command_line::Options, run::run};

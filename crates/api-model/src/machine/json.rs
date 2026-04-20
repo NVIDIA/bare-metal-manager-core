@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use crate::bmc_info::BmcInfo;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::hardware_info::{MachineInventory, MachineNvLinkInfo};
-use crate::machine::health_override::HealthReportOverrides;
+use crate::machine::health_override::HealthReportSources;
 use crate::machine::infiniband::MachineInfinibandStatusObservation;
 use crate::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use crate::machine::nvlink::MachineNvLinkStatusObservation;
@@ -40,6 +40,7 @@ use crate::machine::{
 };
 use crate::metadata::Metadata;
 use crate::power_manager::PowerOptions;
+use crate::rack::RackFirmwareUpgradeStatus;
 use crate::sku::SkuStatus;
 
 /// This represents the structure of a machine we get from postgres via the row_to_json or
@@ -79,7 +80,7 @@ pub struct MachineSnapshotPgJson {
     pub machine_validation_health_report: HealthReport,
     pub site_explorer_health_report: Option<HealthReport>,
     pub firmware_autoupdate: Option<bool>,
-    pub health_report_overrides: Option<HealthReportOverrides>,
+    pub health_report_overrides: Option<HealthReportSources>,
     pub on_demand_machine_validation_id: Option<uuid::Uuid>,
     pub on_demand_machine_validation_request: Option<bool>,
     pub asn: Option<u32>,
@@ -104,6 +105,12 @@ pub struct MachineSnapshotPgJson {
     pub update_complete: bool,
     pub nvlink_info: Option<MachineNvLinkInfo>,
     pub dpf: Dpf,
+    #[serde(default)]
+    pub rack_fw_details: Option<RackFirmwareUpgradeStatus>,
+    #[serde(default)]
+    pub slot_number: Option<i32>,
+    #[serde(default)]
+    pub tray_index: Option<i32>,
 }
 
 impl TryFrom<MachineSnapshotPgJson> for Machine {
@@ -189,7 +196,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             dpu_agent_health_report: value.dpu_agent_health_report,
             machine_validation_health_report: value.machine_validation_health_report,
             site_explorer_health_report: value.site_explorer_health_report,
-            health_report_overrides: value.health_report_overrides.unwrap_or_default(),
+            health_reports: value.health_report_overrides.unwrap_or_default(),
             inventory: value.agent_reported_inventory,
             last_reboot_requested: value.last_reboot_requested,
             controller_state_outcome: value.controller_state_outcome,
@@ -216,6 +223,9 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             update_complete: value.update_complete,
             nvlink_info: value.nvlink_info,
             dpf: value.dpf,
+            rack_fw_details: value.rack_fw_details,
+            slot_number: value.slot_number,
+            tray_index: value.tray_index,
         })
     }
 }

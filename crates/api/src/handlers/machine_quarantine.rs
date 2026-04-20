@@ -52,7 +52,7 @@ pub(crate) async fn set_managed_host_quarantine_state(
     match db::machine::remove_health_report_override(
         &mut txn,
         &machine_id,
-        health_report::OverrideMode::Merge,
+        health_report::HealthReportApplyMode::Merge,
         HealthReport::QUARANTINE_SOURCE,
     )
     .await
@@ -66,7 +66,7 @@ pub(crate) async fn set_managed_host_quarantine_state(
     db::machine::insert_health_report_override(
         &mut txn,
         &machine_id,
-        health_report::OverrideMode::Merge,
+        health_report::HealthReportApplyMode::Merge,
         &report,
         false,
     )
@@ -114,7 +114,7 @@ pub(crate) async fn clear_managed_host_quarantine_state(
     match db::machine::remove_health_report_override(
         &mut txn,
         &machine_id,
-        health_report::OverrideMode::Merge,
+        health_report::HealthReportApplyMode::Merge,
         HealthReport::QUARANTINE_SOURCE,
     )
     .await

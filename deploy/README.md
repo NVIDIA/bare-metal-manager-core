@@ -26,6 +26,8 @@ The `deploy/kustomization.yaml` file drives the top‑level deployment. Populate
 | `CARBIDE_NTP_SERVERS_IP_0` | First NTP service IP address. |
 | `CARBIDE_NTP_SERVERS_IP_1` | Second NTP service IP address. |
 | `CARBIDE_NTP_SERVERS_IP_2` | Third NTP service IP address. |
+| `CARBIDE_STATIC_PXE_IP` | IP address for the static boot asset server (`carbide-static-pxe.forge`). |
+| `SOCKS_EXTERNAL_IP` | IP address for the SOCKS5 outbound proxy (`socks.forge`). |
 
 ## Files inputs (deploy/files/)
 
@@ -34,7 +36,7 @@ The templates in `deploy/files/` are mounted into services and must be filled wi
 - `deploy/files/carbide-api/admin_root_cert_pem` – place the PEM‑encoded root CA chain used to authenticate Carbide admins (matches the CA trusted by the admin CLI). Generate this from your CA and keep private keys elsewhere.
 - `deploy/files/carbide-api/carbide-api-site-config.toml` – set site identifiers (`ENVIRONMENT_NAME`, `SITE_DOMAIN_NAME`), admin network pool and gateway, service VIPs (API, DHCP, DNS, PXE, SSH console, NGINX/proxy, Unbound), tenant overlay prefixes, and IPMI pools/names for controllers and managed hosts. Ensure service VIPs come from your chosen /27 (or equivalent) VIP pool and that IPMI pools each have a gateway and unique network name.
 - `deploy/files/unbound/forwarders.conf` – list upstream recursive DNS endpoints reachable from the cluster. Use IPs for resolvers allowed to recurse for your site.
-- `deploy/files/unbound/local_data.conf` – define static DNS records for Carbide services (e.g., `api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>` and any other internal names). Map each hostname to the corresponding service VIP you selected above.
+- `deploy/files/unbound/local_data.conf` – defines static DNS A records for Carbide services, including all `.forge` service endpoints (API, PXE, static PXE, NTP, Unbound, otel-receiver, and SOCKS proxy) and any additional site-specific names (e.g., `api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>`). Map each hostname to the corresponding service VIP you selected above. Several `.forge` hostnames are hardcoded in compiled binaries and must resolve correctly before DPU agents can start. See [`.forge` DNS Zone — Service Endpoint Reference](DNS.md) for the full list of hostnames, required ports, and which entries are hardcoded.
 - `deploy/files/kea_config.json` – provide the Kea DHCPv4 configuration tailored to your admin/tenant networks, including option definitions, subnets, pools, and relay settings. Reference the same service IPs used elsewhere and ensure leases align with the admin network pool.
 - `deploy/files/vtysh.conf` – FRRouting vtysh shell configuration. Align hostname and service addresses here with the FRR service IPs chosen from your service VIP pool.
 

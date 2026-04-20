@@ -131,7 +131,7 @@ impl TryFrom<InstanceConfig> for rpc::InstanceConfig {
 
     fn try_from(config: InstanceConfig) -> Result<rpc::InstanceConfig, Self::Error> {
         let tenant = rpc::forge::TenantConfig::try_from(config.tenant)?;
-        let os = rpc::forge::OperatingSystem::try_from(config.os)?;
+        let os = rpc::forge::InstanceOperatingSystemConfig::try_from(config.os)?;
         let network = rpc::InstanceNetworkConfig::try_from(config.network)?;
         let infiniband = rpc::InstanceInfinibandConfig::try_from(config.infiniband)?;
         let infiniband = match infiniband.ib_interfaces.is_empty() {

@@ -1,5 +1,5 @@
 <form id="bmcreset_action" method="POST" action="/admin/explored-endpoint/{{ bmc_ip }}/bmc-reset">
-	<div>
+	<span class="action-spinner"></span><div>
 		<input title="Use IPMI instead of Redfish to reset the target BMC" type="checkbox" id="use_ipmi" name="use_ipmi"
 			value="true">
 		<label for="use_ipmi">Use IPMI</label>
@@ -9,4 +9,3 @@
 	{% endif %}
 	<input type="submit" value="Reset BMC">
 </form>
-{{ action_status::action_spinner_script("bmcreset_action")|safe }}

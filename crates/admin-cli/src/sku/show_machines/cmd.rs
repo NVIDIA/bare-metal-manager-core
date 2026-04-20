@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::SkuList;
@@ -25,7 +24,7 @@ use super::super::common::ShowSkuOptions;
 use crate::rpc::ApiClient;
 
 async fn show_machine_table(
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     skus: Vec<::rpc::forge::Sku>,
 ) -> CarbideCliResult<()> {
@@ -56,7 +55,7 @@ async fn show_machine_table(
 pub async fn show_machines(
     args: ShowSkuOptions,
     api_client: &ApiClient,
-    output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
 ) -> CarbideCliResult<()> {
     if let Some(sku_id) = args.sku_id {

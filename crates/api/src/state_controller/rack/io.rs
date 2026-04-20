@@ -23,7 +23,9 @@ use db::rack::IdColumn;
 use db::{DatabaseError, ObjectColumnFilter, rack as db_rack};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
-use model::rack::{Rack, RackSearchFilter, RackState, RackValidationState, state_sla};
+use model::rack::{
+    Rack, RackMaintenanceState, RackSearchFilter, RackState, RackValidationState, state_sla,
+};
 use sqlx::PgConnection;
 
 use crate::state_controller::io::StateControllerIO;
@@ -118,19 +120,25 @@ impl StateControllerIO for RackStateControllerIO {
 
     fn metric_state_names(state: &RackState) -> (&'static str, &'static str) {
         match state {
-            RackState::Unknown => ("unknown", ""),
-            RackState::Expected => ("expected", ""),
+            RackState::Created => ("created", ""),
             RackState::Discovering => ("discovering", ""),
-            RackState::Validation { rack_validation } => match rack_validation {
+            RackState::Validating { validating_state } => match validating_state {
                 RackValidationState::Pending => ("validation", "pending"),
-                RackValidationState::InProgress => ("validation", "in_progress"),
-                RackValidationState::Partial => ("validation", "partial"),
-                RackValidationState::FailedPartial => ("validation", "failed_partial"),
-                RackValidationState::Validated => ("validation", "validated"),
-                RackValidationState::Failed => ("validation", "failed"),
+                RackValidationState::InProgress { .. } => ("validation", "in_progress"),
+                RackValidationState::Partial { .. } => ("validation", "partial"),
+                RackValidationState::FailedPartial { .. } => ("validation", "failed_partial"),
+                RackValidationState::Validated { .. } => ("validation", "validated"),
+                RackValidationState::Failed { .. } => ("validation", "failed"),
             },
             RackState::Ready => ("ready", ""),
-            RackState::Maintenance { .. } => ("maintenance", ""),
+            RackState::Maintenance { maintenance_state } => match maintenance_state {
+                RackMaintenanceState::FirmwareUpgrade { .. } => ("maintenance", "firmware_upgrade"),
+                RackMaintenanceState::ConfigureNmxCluster => {
+                    ("maintenance", "configure_nmx_cluster")
+                }
+                RackMaintenanceState::PowerSequence { .. } => ("maintenance", "power_sequence"),
+                RackMaintenanceState::Completed => ("maintenance", "completed"),
+            },
             RackState::Error { .. } => ("error", ""),
             RackState::Deleting => ("deleting", ""),
         }

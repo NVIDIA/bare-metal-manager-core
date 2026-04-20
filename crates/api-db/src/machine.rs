@@ -24,9 +24,9 @@ use std::str::FromStr;
 
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineType};
-use chrono::prelude::*;
+use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use health_report::{HealthReport, OverrideMode};
+use health_report::{HealthReport, HealthReportApplyMode};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
@@ -955,18 +955,22 @@ pub async fn update_sku_validation_health_report(
 pub async fn insert_health_report_override(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-    mode: OverrideMode,
+    mode: HealthReportApplyMode,
     health_report: &HealthReport,
     no_overwrite: bool,
 ) -> Result<(), DatabaseError> {
-    let column_name = "health_report_overrides";
-    let path = match mode {
-        OverrideMode::Merge => format!("merges,\"{}\"", health_report.source),
-        OverrideMode::Replace => "replace".to_string(),
-    };
+    if no_overwrite {
+        // TODO(chet): This appears to be a machine-specific thing -- skip insert
+        // if a merge with the same source already exists -- but I'm not sure what
+        // it's used for, since others seem to do a remove + insert. Do we need
+        // to support this still? Might be nice to explain it somewhere.
+        let column_name = "health_report_overrides";
+        let path = match mode {
+            HealthReportApplyMode::Merge => format!("merges,\"{}\"", health_report.source),
+            HealthReportApplyMode::Replace => "replace".to_string(),
+        };
 
-    let query = if no_overwrite {
-        format!(
+        let query = format!(
             "UPDATE machines SET {column_name} = jsonb_set(
                 coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb),
                 '{{{}}}',
@@ -975,51 +979,29 @@ pub async fn insert_health_report_override(
             AND coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb)->'merges' ? '{}' = FALSE
             RETURNING id",
             path, health_report.source
-        )
+        );
+
+        let _id: (MachineId,) = sqlx::query_as(&query)
+            .bind(sqlx::types::Json(&health_report))
+            .bind(machine_id)
+            .fetch_one(txn)
+            .await
+            .map_err(|e| DatabaseError::new("insert health report override", e))?;
+
+        Ok(())
     } else {
-        format!(
-            "UPDATE machines SET {column_name} = jsonb_set(
-                coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb),
-                '{{{path}}}',
-                $1::jsonb
-            ) WHERE id = $2
-            RETURNING id"
-        )
-    };
-
-    let _id: (MachineId,) = sqlx::query_as(&query)
-        .bind(sqlx::types::Json(&health_report))
-        .bind(machine_id)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::new("insert health report override", e))?;
-
-    Ok(())
+        crate::health_report::insert_health_report(txn, "machines", machine_id, mode, health_report)
+            .await
+    }
 }
 
 pub async fn remove_health_report_override(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-    mode: OverrideMode,
+    mode: HealthReportApplyMode,
     source: &str,
 ) -> Result<(), DatabaseError> {
-    let column_name = "health_report_overrides";
-    let path = match mode {
-        OverrideMode::Merge => format!("merges,{source}"),
-        OverrideMode::Replace => "replace".to_string(),
-    };
-    let query = format!(
-        "UPDATE machines SET {column_name} = ({column_name} #- '{{{path}}}') WHERE id = $1
-            RETURNING id"
-    );
-
-    let _id: (MachineId,) = sqlx::query_as(&query)
-        .bind(machine_id)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::new("remove health report override", e))?;
-
-    Ok(())
+    crate::health_report::remove_health_report(txn, "machines", machine_id, mode, source).await
 }
 
 pub async fn update_agent_reported_inventory(
@@ -1142,11 +1124,16 @@ pub async fn try_sync_stable_id_with_current_machine_id_for_host(
         };
     }
 
-    // Update the machine state and heatlh history to account for the rename
+    // Update the machine state and health history to account for the rename
     crate::machine_state_history::update_machine_ids(txn, current_machine_id, stable_machine_id)
         .await?;
-    crate::machine_health_history::update_machine_ids(txn, current_machine_id, stable_machine_id)
-        .await?;
+    crate::health_history::update_object_ids(
+        txn,
+        crate::health_history::HealthHistoryTableId::Machine,
+        &current_machine_id,
+        &stable_machine_id,
+    )
+    .await?;
 
     // Table machine_interfaces has a FK ON UPDATE CASCADE so machine_interfaces.machine_id will
     // also change.
@@ -1310,6 +1297,22 @@ pub async fn create(
         crate::power_options::create(&machine.id, txn).await?;
     }
     Ok(machine)
+}
+
+pub async fn update_slot_and_tray(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    slot_number: Option<i32>,
+    tray_index: Option<i32>,
+) -> DatabaseResult<()> {
+    sqlx::query("UPDATE machines SET slot_number = $1, tray_index = $2 WHERE id = $3")
+        .bind(slot_number)
+        .bind(tray_index)
+        .bind(machine_id)
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::new("update_slot_and_tray", e))?;
+    Ok(())
 }
 
 // Trigger DPU reprovisioning. For machine assigned to user, needs user approval to start
@@ -1733,6 +1736,11 @@ pub async fn find_machine_ids(
         qb.push_bind(rack_id);
     }
 
+    if let Some(state) = search_config.controller_state {
+        qb.push(" AND controller_state->>'state' = ");
+        qb.push_bind(state);
+    }
+
     if search_config.for_update {
         qb.push(" FOR UPDATE");
     }
@@ -1983,6 +1991,22 @@ pub async fn set_firmware_autoupdate(
         .bind(state)
         .bind(machine_id)
         .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+    Ok(())
+}
+
+pub async fn update_rack_fw_details(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    details: Option<&model::rack::RackFirmwareUpgradeStatus>,
+) -> Result<(), DatabaseError> {
+    let query =
+        "UPDATE machines SET rack_fw_details = $1, updated = NOW() WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, MachineId>(query)
+        .bind(details.map(|d| sqlx::types::Json(d.clone())))
+        .bind(machine_id)
+        .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
     Ok(())

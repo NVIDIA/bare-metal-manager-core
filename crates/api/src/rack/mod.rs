@@ -15,4 +15,5 @@
  * limitations under the License.
  */
 
+pub mod firmware_update;
 pub mod rms_client;

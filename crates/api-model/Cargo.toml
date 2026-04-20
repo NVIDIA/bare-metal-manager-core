@@ -36,6 +36,7 @@ carbide-libmlx = { path = "../libmlx" }
 carbide-network = { path = "../network", features = ["sqlx"] }
 carbide-version = { path = "../version" }
 carbide-health-report = { path = "../health-report" }
+carbide-ipxe-renderer = { path = "../ipxe-renderer" }
 carbide-rpc = { path = "../rpc", features = ["sqlx"] }
 carbide-utils = { path = "../utils", features = ["sqlx"] }
 carbide-uuid = { path = "../uuid", features = ["sqlx"] }
@@ -80,6 +81,7 @@ strum_macros = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tss-esapi = { optional = true, workspace = true }
+url = { workspace = true }
 uuid = { features = ["v4", "serde"], workspace = true }
 version-compare = { workspace = true }
 tokio = { workspace = true }

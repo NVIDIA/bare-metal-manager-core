@@ -23,9 +23,11 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use bmc_mock::{
-    BmcCommand, HostMachineInfo, HostnameQuerying, MachineInfo, MockPowerState, POWER_CYCLE_DELAY,
-    PowerControl, SetSystemPowerError, SetSystemPowerResult, SystemPowerControl,
+    BmcCommand, BmcState, BootOptionKind, Callbacks, HostMachineInfo, HostnameQuerying,
+    MachineInfo, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError, SetSystemPowerResult,
+    SystemPowerControl,
 };
+use carbide_network::virtualization::build_dual_stack_list;
 use carbide_uuid::machine::MachineId;
 use rpc::forge::{MachineArchitecture, MachineDiscoveryResult, ManagedHostNetworkConfigResponse};
 use rpc::forge_agent_control_response::Action;
@@ -54,7 +56,6 @@ pub type DpuDhcpRelayHandle = oneshot::Sender<()>;
 ///
 /// This code is in common between DPUs and Hosts.(ie. anything that has a BMC, boots via DHCP, can
 /// receive PXE instructions, etc.)
-#[derive(Debug)]
 pub struct MachineStateMachine {
     pub live_state: Arc<RwLock<LiveState>>,
     pub machine_dhcp_id: Uuid,
@@ -64,6 +65,7 @@ pub struct MachineStateMachine {
 
     fsm: MachineFsm,
     bmc_mock: Option<Arc<BmcMockWrapperHandle>>,
+    bmc_state: Option<BmcState>,
     power_cycle_deadline: Option<Instant>,
     machine_on_deadline: Option<Instant>,
     agent_polling_deadline: Option<(Instant, Timer)>,
@@ -81,12 +83,12 @@ pub struct MachineStateMachine {
 }
 
 #[derive(Debug, Clone)]
-pub struct LiveStatePowerControl {
+pub struct LiveStateCallbacks {
     state: Arc<RwLock<LiveState>>,
     command_channel: mpsc::UnboundedSender<BmcCommand>,
 }
 
-impl LiveStatePowerControl {
+impl LiveStateCallbacks {
     pub fn new(
         state: Arc<RwLock<LiveState>>,
         command_channel: mpsc::UnboundedSender<BmcCommand>,
@@ -98,7 +100,7 @@ impl LiveStatePowerControl {
     }
 }
 
-impl PowerControl for LiveStatePowerControl {
+impl Callbacks for LiveStateCallbacks {
     fn get_power_state(&self) -> MockPowerState {
         self.state.read().unwrap().power_state
     }
@@ -113,6 +115,12 @@ impl PowerControl for LiveStatePowerControl {
                 reply: None,
             })
             .map_err(|err| SetSystemPowerError::CommandSendError(err.to_string()))
+    }
+
+    fn state_refresh_indication(&self) {
+        let _ = self
+            .command_channel
+            .send(BmcCommand::StateRefreshIndication);
     }
 }
 
@@ -141,6 +149,7 @@ pub struct LiveState {
     pub machine_ip: Option<Ipv4Addr>,
     pub bmc_ip: Option<Ipv4Addr>,
     pub booted_os: MaybeOsImage,
+    pub next_boot_kind: Option<BootOptionKind>,
     pub installed_os: OsImage,
     pub state_string: Option<&'static str>,
     pub api_state: String,
@@ -158,11 +167,22 @@ impl Default for LiveState {
             machine_ip: None,
             bmc_ip: None,
             booted_os: Default::default(),
+            next_boot_kind: None,
             installed_os: Default::default(),
             state_string: None,
             api_state: "Unknown".to_string(),
             tpm_ek_certificate: None,
             ssh_host_key: None,
+        }
+    }
+}
+
+impl LiveState {
+    pub fn ui_next_boot_kind(&self) -> &'static str {
+        match self.next_boot_kind {
+            Some(BootOptionKind::Disk) => "Disk",
+            Some(BootOptionKind::Network) => "Network",
+            None => "Unknown",
         }
     }
 }
@@ -226,6 +246,7 @@ impl MachineStateMachine {
             fsm,
             actions: actions.into_iter().collect(),
             bmc_mock: None,
+            bmc_state: None,
             power_cycle_deadline: None,
             machine_on_deadline: None,
             agent_polling_deadline: None,
@@ -270,6 +291,7 @@ impl MachineStateMachine {
             actions: actions.into_iter().collect(),
             bmc_dhcp_info: None,
             bmc_mock: None,
+            bmc_state: None,
             machine_dhcp_info: None,
             machine_discovery_result: None,
             machine_on_deadline: None,
@@ -334,8 +356,9 @@ impl MachineStateMachine {
             self.update_live_state();
             match action {
                 FsmAction::SetupBmc => match self.setup_bmc().await {
-                    Ok(bmc_mock) => {
+                    Ok((bmc_mock, bmc_state)) => {
                         self.bmc_mock = bmc_mock;
+                        self.bmc_state = Some(bmc_state);
                         self.actions.pop_front();
                     }
                     Err(_) => return Some(self.config.run_interval_working),
@@ -389,6 +412,12 @@ impl MachineStateMachine {
                     }
                     Err(_) => return Some(self.config.run_interval_working),
                 },
+                FsmAction::BmcEvent(event) => {
+                    if let Some(bmc_state) = &self.bmc_state {
+                        bmc_state.on_event(event)
+                    }
+                    self.actions.pop_front();
+                }
                 FsmAction::InitialDiscoveryRequest(os_image) => {
                     match self.initial_discovery_request(*os_image).await {
                         Ok(None) => {
@@ -456,7 +485,9 @@ impl MachineStateMachine {
         self.fsm = new_state;
     }
 
-    async fn setup_bmc(&self) -> Result<Option<Arc<BmcMockWrapperHandle>>, MachineStateError> {
+    async fn setup_bmc(
+        &self,
+    ) -> Result<(Option<Arc<BmcMockWrapperHandle>>, BmcState), MachineStateError> {
         let Some(dhcp_info) = &self.bmc_dhcp_info else {
             return Err(MachineStateError::NoBmcDhcpInfo);
         };
@@ -746,6 +777,10 @@ impl MachineStateMachine {
         live_state.state_string = Some(self.fsm.state_string());
         live_state.power_state = self.fsm.power_state();
         live_state.booted_os = self.booted_os();
+        live_state.next_boot_kind = self
+            .bmc_state
+            .as_ref()
+            .and_then(|state| state.system_state.resolve_current_boot_selection());
     }
 
     async fn run_machine_discovery(
@@ -788,12 +823,23 @@ impl MachineStateMachine {
                 .admin_interface
                 .as_ref()
                 .expect("use_admin_network true so admin_interface should be Some");
+            let addresses = build_dual_stack_list(
+                iface.ip.clone(),
+                iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
+            );
+            let prefixes = build_dual_stack_list(
+                iface.interface_prefix.clone(),
+                iface
+                    .ipv6_interface_config
+                    .as_ref()
+                    .map(|v6| v6.interface_prefix.clone()),
+            );
             interfaces = vec![rpc::forge::InstanceInterfaceStatusObservation {
                 function_type: iface.function_type,
                 virtual_function_id: None,
                 mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
-                addresses: vec![iface.ip.clone()],
-                prefixes: vec![iface.interface_prefix.clone()],
+                addresses,
+                prefixes,
                 gateways: vec![iface.gateway.clone()],
                 network_security_group: None,
                 internal_uuid: None,
@@ -803,12 +849,23 @@ impl MachineStateMachine {
                 Some(network_config.instance_network_config_version.clone());
 
             for iface in network_config.tenant_interfaces.iter() {
+                let addresses = build_dual_stack_list(
+                    iface.ip.clone(),
+                    iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
+                );
+                let prefixes = build_dual_stack_list(
+                    iface.interface_prefix.clone(),
+                    iface
+                        .ipv6_interface_config
+                        .as_ref()
+                        .map(|v6| v6.interface_prefix.clone()),
+                );
                 interfaces.push(rpc::forge::InstanceInterfaceStatusObservation {
                     function_type: iface.function_type,
                     virtual_function_id: iface.virtual_function_id,
                     mac_address: self.machine_info.host_mac_address().map(|a| a.to_string()),
-                    addresses: vec![iface.ip.clone()],
-                    prefixes: vec![iface.interface_prefix.clone()],
+                    addresses,
+                    prefixes,
                     gateways: vec![iface.gateway.clone()],
                     network_security_group: iface.network_security_group.as_ref().map(|s| {
                         rpc::forge::NetworkSecurityGroupStatus {
@@ -874,11 +931,11 @@ impl MachineStateMachine {
     async fn run_bmc_mock(
         &self,
         ip_address: Ipv4Addr,
-    ) -> Result<Option<Arc<BmcMockWrapperHandle>>, MachineStateError> {
+    ) -> Result<(Option<Arc<BmcMockWrapperHandle>>, BmcState), MachineStateError> {
         let mut bmc_mock = BmcMockWrapper::new(
             self.machine_info.clone(),
             self.app_context.clone(),
-            Arc::new(LiveStatePowerControl::new(
+            Arc::new(LiveStateCallbacks::new(
                 self.live_state.clone(),
                 self.bmc_command_channel.clone(),
             )),
@@ -905,7 +962,7 @@ impl MachineStateMachine {
                 None
             }
         };
-        Ok(maybe_bmc_mock_handle)
+        Ok((maybe_bmc_mock_handle, bmc_mock.state().clone()))
     }
 
     async fn send_discovery_complete(&self, machine_id: &MachineId) -> Result<(), ClientApiError> {

@@ -122,11 +122,12 @@ impl IntegrationTestEnvironment {
 
         let credential_config = CredentialConfig {
             vault: VaultConfig {
-                address: Some(format!("http://{vault_addr}")),
+                address: Some(format!("https://{vault_addr}")),
                 kv_mount_location: Some("secret".to_string()),
                 pki_mount_location: Some("forgeca".to_string()),
                 pki_role_name: Some("forge-cluster".to_string()),
                 token: Some(vault.token.clone()),
+                vault_cacert: Some(vault.ca_cert.clone()),
             },
             ..Default::default()
         };

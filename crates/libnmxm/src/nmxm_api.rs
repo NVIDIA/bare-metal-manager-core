@@ -65,7 +65,7 @@ macro_rules! async_operation {
     }};
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct NmxmApi {
     pub client: NmxmApiClient,
 }

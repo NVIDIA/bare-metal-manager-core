@@ -21,7 +21,7 @@ use carbide_uuid::machine::MachineId;
 use prettytable::{Table, row};
 
 use super::args::{ReprovisionClear, ReprovisionSet};
-use crate::machine::{HealthOverrideTemplates, get_health_report};
+use crate::machine::{HealthReportTemplates, get_health_report};
 use crate::rpc::ApiClient;
 
 pub async fn trigger_reprovisioning_set(
@@ -29,7 +29,7 @@ pub async fn trigger_reprovisioning_set(
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     if let Some(update_message) = data.update_message.clone() {
-        // Set a HostUpdateInProgress health override on the Host
+        // Set a HostUpdateInProgress health report entry on the Host
 
         let host_machine = api_client
             .get_machines_by_ids(&[data.id])
@@ -40,17 +40,17 @@ pub async fn trigger_reprovisioning_set(
 
         if let Some(host_machine) = host_machine
             && host_machine
-                .health_overrides
+                .health_sources
                 .iter()
                 .any(|or| or.source == "host-update")
         {
             return Err(CarbideCliError::GenericError(format!(
-                "Host machine: {:?} already has a \"host-update\" override.",
+                "Host machine: {:?} already has a \"host-update\" health report entry.",
                 host_machine.id,
             )));
         }
 
-        let report = get_health_report(HealthOverrideTemplates::HostUpdate, Some(update_message));
+        let report = get_health_report(HealthReportTemplates::HostUpdate, Some(update_message));
 
         api_client
             .machine_insert_health_report_override(data.id, report.into(), false)

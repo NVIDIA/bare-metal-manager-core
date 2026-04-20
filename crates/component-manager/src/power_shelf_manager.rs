@@ -5,9 +5,9 @@ use std::fmt::Debug;
 use std::net::IpAddr;
 
 use mac_address::MacAddress;
+use model::component_manager::{FirmwareState, PowerAction, PowerShelfComponent};
 
 use crate::error::ComponentManagerError;
-use crate::types::{FirmwareState, PowerAction, PowerShelfComponent};
 
 /// Physical network identifiers for a power shelf, used to register with and
 /// operate against the backend service (PSM).

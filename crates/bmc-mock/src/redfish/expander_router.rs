@@ -242,27 +242,29 @@ mod tests {
     use crate::*;
 
     #[derive(Debug)]
-    struct TestPowerControl {}
+    struct TestCallbacks {}
 
-    impl PowerControl for TestPowerControl {
+    impl Callbacks for TestCallbacks {
         fn get_power_state(&self) -> MockPowerState {
             MockPowerState::On
         }
         fn send_power_command(&self, _: SystemPowerControl) -> Result<(), SetSystemPowerError> {
             Ok(())
         }
+        fn state_refresh_indication(&self) {}
     }
 
     fn test_host_mock() -> Router {
-        let power_control = Arc::new(TestPowerControl {});
+        let callbacks = Arc::new(TestCallbacks {});
         crate::machine_router(
             MachineInfo::Host(HostMachineInfo::new(
                 HostHardwareType::DellPowerEdgeR750,
                 vec![DpuMachineInfo::default()],
             )),
-            power_control,
+            callbacks,
             String::default(),
         )
+        .0
     }
 
     #[tokio::test]

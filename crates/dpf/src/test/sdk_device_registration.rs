@@ -29,7 +29,8 @@ use crate::crds::dpunodes_generated::*;
 use crate::crds::dpus_generated::*;
 use crate::error::DpfError;
 use crate::repository::{
-    DpuDeviceRepository, DpuNodeRepository, DpuRepository, K8sConfigRepository,
+    DpfOperatorConfigRepository, DpuDeviceRepository, DpuNodeRepository, DpuRepository,
+    K8sConfigRepository,
 };
 use crate::sdk::DpfSdkBuilder;
 use crate::types::*;
@@ -171,6 +172,13 @@ impl K8sConfigRepository for DeviceRegistrationMock {
         _: &str,
         _: BTreeMap<String, Vec<u8>>,
     ) -> Result<(), DpfError> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl DpfOperatorConfigRepository for DeviceRegistrationMock {
+    async fn patch(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
         Ok(())
     }
 }

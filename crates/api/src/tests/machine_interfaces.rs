@@ -642,9 +642,12 @@ async fn test_max_one_interface_association(
             name: "Test Switch".to_string(),
             enable_nmxc: false,
             fabric_manager_config: None,
-            location: None,
         },
         bmc_mac_address: None,
+        metadata: None,
+        rack_id: None,
+        slot_number: None,
+        tray_index: None,
     };
     db::switch::create(&mut txn, &new_switch).await?;
 
@@ -663,8 +666,9 @@ async fn test_max_one_interface_association(
             name: "Test Power Shelf".to_string(),
             capacity: None,
             voltage: None,
-            location: None,
         },
+        metadata: None,
+        rack_id: None,
     };
     db::power_shelf::create(&mut txn, &new_power_shelf).await?;
 
@@ -714,8 +718,9 @@ async fn test_power_shelf_association(
             name: "Test Power Shelf".to_string(),
             capacity: Some(10000),
             voltage: Some(480),
-            location: Some("Rack A1".to_string()),
         },
+        metadata: None,
+        rack_id: None,
     };
     db::power_shelf::create(&mut txn, &new_power_shelf).await?;
 
@@ -762,9 +767,12 @@ async fn test_switch_association(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
             name: "Test Switch".to_string(),
             enable_nmxc: false,
             fabric_manager_config: None,
-            location: Some("Rack B2".to_string()),
         },
         bmc_mac_address: None,
+        metadata: None,
+        rack_id: None,
+        slot_number: Some(2),
+        tray_index: Some(1),
     };
     db::switch::create(&mut txn, &new_switch).await?;
 

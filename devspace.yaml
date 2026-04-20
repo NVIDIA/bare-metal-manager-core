@@ -34,6 +34,21 @@ images:
         - dev/deployment/devspace/Dockerfile.api
         - pxe/templates
         - pxe/static/blobs/internal/aarch64/secure-boot-pk.pem
+  carbide-bmc-proxy:
+    image: carbide-bmc-proxy
+    custom:
+      command: |-
+        docker image inspect build-container-localdev >/dev/null 2>&1 || docker build --pull=false -t build-container-localdev -f dev/docker/Dockerfile.build-container-x86_64 .
+        docker build -t ${runtime.images.carbide-bmc-proxy.image}:${runtime.images.carbide-bmc-proxy.tag} -f dev/deployment/devspace/Dockerfile.bmc-proxy .
+      onChange:
+        - .dockerignore
+        - Cargo.toml
+        - Cargo.lock
+        - rust-toolchain.toml
+        - .cargo
+        - crates
+        - dev/docker/Dockerfile.build-container-x86_64
+        - dev/deployment/devspace/Dockerfile.bmc-proxy
   machine-a-tron:
     image: machine-a-tron
     custom:
@@ -63,6 +78,11 @@ deployments:
           image:
             repository: ${runtime.images.carbide-api.image}
             tag: ${runtime.images.carbide-api.tag}
+            pullPolicy: IfNotPresent
+        carbide-bmc-proxy:
+          image:
+            repository: ${runtime.images.carbide-bmc-proxy.image}
+            tag: ${runtime.images.carbide-bmc-proxy.tag}
             pullPolicy: IfNotPresent
       valuesFiles:
         - dev/deployment/devspace/values.base.yaml

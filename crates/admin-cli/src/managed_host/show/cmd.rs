@@ -17,7 +17,6 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
-use std::pin::Pin;
 
 use ::rpc::Machine;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
@@ -38,6 +37,11 @@ const UNKNOWN: &str = "Unknown";
 struct ManagedHostOutputWrapper {
     options: ManagedHostOutputOptions,
     managed_host_output: utils::ManagedHostOutput,
+}
+
+#[derive(Serialize)]
+struct ManagedHostList<'a> {
+    managed_hosts: &'a [utils::ManagedHostOutput],
 }
 
 #[derive(Default, Clone, Copy, Serialize)]
@@ -201,7 +205,7 @@ fn convert_managed_hosts_to_nice_output(
 
 async fn show_managed_hosts(
     managed_host_data: utils::ManagedHostMetadata,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     output_options: ManagedHostOutputOptions,
     sort_by: SortField,
@@ -222,7 +226,10 @@ async fn show_managed_hosts(
                     )?
                 )
             } else {
-                println!("{}", serde_json::to_string_pretty(&managed_hosts)?)
+                let wrapped = ManagedHostList {
+                    managed_hosts: &managed_hosts,
+                };
+                println!("{}", serde_json::to_string_pretty(&wrapped)?)
             }
         }
         OutputFormat::Yaml => {
@@ -233,7 +240,10 @@ async fn show_managed_hosts(
                     serde_yaml::to_string(managed_hosts.first().ok_or(CarbideCliError::Empty)?)?
                 )
             } else {
-                println!("{}", serde_yaml::to_string(&managed_hosts)?)
+                let wrapped = ManagedHostList {
+                    managed_hosts: &managed_hosts,
+                };
+                println!("{}", serde_yaml::to_string(&wrapped)?)
             }
         }
         OutputFormat::Csv => {
@@ -453,7 +463,7 @@ fn format_health_alerts(alerts: &[HealthProbeAlert], width: usize) -> String {
 }
 
 pub async fn show(
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,

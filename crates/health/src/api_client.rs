@@ -244,14 +244,14 @@ impl ApiClientWrapper {
         machine_id: &carbide_uuid::machine::MachineId,
         report: health_report::HealthReport,
     ) -> Result<(), HealthError> {
-        let ovrd = rpc::forge::HealthReportOverride {
+        let ovrd = rpc::forge::HealthReportEntry {
             report: Some(report.into()),
-            mode: rpc::forge::OverrideMode::Merge.into(),
+            mode: rpc::forge::HealthReportApplyMode::Merge.into(),
         };
 
         let request = rpc::forge::InsertHealthReportOverrideRequest {
             machine_id: Some(*machine_id),
-            r#override: Some(ovrd),
+            health_report_entry: Some(ovrd),
         };
 
         self.client
@@ -267,14 +267,14 @@ impl ApiClientWrapper {
         rack_id: &carbide_uuid::rack::RackId,
         report: health_report::HealthReport,
     ) -> Result<(), HealthError> {
-        let ovrd = rpc::forge::HealthReportOverride {
+        let ovrd = rpc::forge::HealthReportEntry {
             report: Some(report.into()),
-            mode: rpc::forge::OverrideMode::Merge.into(),
+            mode: rpc::forge::HealthReportApplyMode::Merge.into(),
         };
 
         let request = rpc::forge::InsertRackHealthReportOverrideRequest {
             rack_id: Some(rack_id.clone()),
-            r#override: Some(ovrd),
+            health_report_entry: Some(ovrd),
         };
 
         self.client

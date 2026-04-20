@@ -20,6 +20,7 @@ use std::str::FromStr;
 
 use carbide_uuid::machine::MachineId;
 use db::{self, DatabaseError};
+use model::firmware::FirmwareComponentType;
 use model::site_explorer::{
     Chassis, ComputerSystem, ComputerSystemAttributes, EndpointExplorationReport, EndpointType,
     Inventory, PowerState, Service,
@@ -38,6 +39,27 @@ pub async fn insert_endpoint_version(
         "Dell",
         "R750",
         version,
+    )
+    .await
+}
+
+pub async fn insert_endpoint_with_firmware_versions(
+    txn: &mut PgConnection,
+    addr: &str,
+    versions: HashMap<FirmwareComponentType, String>,
+) -> Result<(), DatabaseError> {
+    let mut report = build_exploration_report(
+        "Dell",
+        "R750",
+        "1.0",
+        "fm100hsag07peffp850l14kvmhrqjf9h6jslilfahaknhvb6sq786c0g3jg",
+    );
+    report.versions = versions;
+    db::explored_endpoints::insert(
+        IpAddr::V4(Ipv4Addr::from_str(addr).unwrap()),
+        &report,
+        false,
+        txn,
     )
     .await
 }

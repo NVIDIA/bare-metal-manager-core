@@ -14,9 +14,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::collections::HashMap;
 use std::ops::DerefMut;
 
 use ::rpc::forge as rpc;
+use model::firmware::FirmwareComponentType;
 use rpc::forge_server::Forge;
 use tonic::Code;
 
@@ -246,6 +248,59 @@ async fn test_admin_bmc_reset(db_pool: sqlx::PgPool) -> Result<(), eyre::Report>
     let e = api_result.unwrap_err();
     assert!(e.code() == Code::Internal);
     assert!(e.message().contains("BMC IP is missing"));
+
+    Ok(())
+}
+
+#[crate::sqlx_test()]
+async fn test_find_explored_endpoint_firmware_versions(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+
+    let versions = HashMap::from([
+        (FirmwareComponentType::Bmc, "25.06-2_NV_WW_02".to_string()),
+        (FirmwareComponentType::Uefi, "00000083".to_string()),
+        (FirmwareComponentType::HGXBmc, "97.00.B9.00.76".to_string()),
+    ]);
+
+    let mut txn = env.pool.begin().await?;
+    common::endpoint::insert_endpoint_with_firmware_versions(
+        &mut txn,
+        "141.219.24.1",
+        versions.clone(),
+    )
+    .await?;
+    txn.commit().await?;
+
+    let id_list = env
+        .api
+        .find_explored_endpoint_ids(tonic::Request::new(
+            ::rpc::site_explorer::ExploredEndpointSearchFilter {},
+        ))
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(id_list.endpoint_ids.len(), 1);
+
+    let request = tonic::Request::new(::rpc::site_explorer::ExploredEndpointsByIdsRequest {
+        endpoint_ids: id_list.endpoint_ids,
+    });
+
+    let endpoint_list = env
+        .api
+        .find_explored_endpoints_by_ids(request)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(endpoint_list.endpoints.len(), 1);
+
+    let report = endpoint_list.endpoints[0].report.as_ref().unwrap();
+    let fw_versions = &report.firmware_versions;
+    assert_eq!(fw_versions.len(), 3);
+    assert_eq!(fw_versions.get("bmc").unwrap(), "25.06-2_NV_WW_02");
+    assert_eq!(fw_versions.get("uefi").unwrap(), "00000083");
+    assert_eq!(fw_versions.get("hgxbmc").unwrap(), "97.00.B9.00.76");
 
     Ok(())
 }

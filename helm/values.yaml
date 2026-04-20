@@ -61,6 +61,13 @@ carbide-api:
   enabled: true
 
 ## ---------------------------------------------------------------------------
+## carbide-bmc-proxy — Standalone BMC proxy
+## Provides an authenticated HTTP proxy to each BMC known by carbide
+## ---------------------------------------------------------------------------
+carbide-bmc-proxy:
+  enabled: false
+
+## ---------------------------------------------------------------------------
 ## carbide-dhcp — DHCP server (Kea-based)
 ## Provides DHCP for PXE boot and bare metal network assignment.
 ## ---------------------------------------------------------------------------

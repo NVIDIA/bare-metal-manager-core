@@ -883,10 +883,10 @@ pub async fn handle_debug_bundle(
     println!("   Alerts: {} records collected", alert_count);
 
     println!("\nFetching health alert overrides...");
-    let alert_overrides = get_alert_overrides(api_client, &debug_bundle.host_id).await?;
+    let alert_entries = get_alert_entries(api_client, &debug_bundle.host_id).await?;
     println!(
         "   Overrides: {} overrides collected",
-        alert_overrides.overrides.len()
+        alert_entries.health_report_entries.len()
     );
 
     println!("\nFetching site controller details...");
@@ -920,7 +920,7 @@ pub async fn handle_debug_bundle(
     );
     println!(
         "   Health Alert Overrides: {} overrides",
-        alert_overrides.overrides.len()
+        alert_entries.health_report_entries.len()
     );
     println!("   Site Controller Details: Collected");
     println!("   Machine State Information: Collected");
@@ -941,7 +941,7 @@ pub async fn handle_debug_bundle(
         &dpu_batch_links,
         loki_uid.as_deref(),
         &health_alerts,
-        &alert_overrides,
+        &alert_entries,
         &site_controller_analysis,
         &machine_analysis,
     )?;
@@ -1007,7 +1007,7 @@ async fn get_health_alerts(
     api_client: &ApiClient,
     host_id: &str,
     time_range: &TimeRange,
-) -> CarbideCliResult<::rpc::forge::MachineHealthHistories> {
+) -> CarbideCliResult<::rpc::forge::HealthHistories> {
     use std::str::FromStr;
 
     use carbide_uuid::machine::MachineId;
@@ -1042,11 +1042,11 @@ async fn get_health_alerts(
     Ok(response)
 }
 
-/// Collect alert overrides for a machine (current state)
-async fn get_alert_overrides(
+/// Collect health report entries for a machine (current state)
+async fn get_alert_entries(
     api_client: &ApiClient,
     host_id: &str,
-) -> CarbideCliResult<::rpc::forge::ListHealthReportOverrideResponse> {
+) -> CarbideCliResult<::rpc::forge::ListHealthReportResponse> {
     use std::str::FromStr;
 
     use carbide_uuid::machine::MachineId;
@@ -1362,8 +1362,8 @@ impl<'a> ZipBundleCreator<'a> {
         carbide_batch_links: &[(String, String, usize, String)],
         dpu_batch_links: &[(String, String, usize, String)],
         loki_uid: Option<&str>,
-        health_alerts: &::rpc::forge::MachineHealthHistories,
-        alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
+        health_alerts: &::rpc::forge::HealthHistories,
+        alert_entries: &::rpc::forge::ListHealthReportResponse,
         site_controller_analysis: &SiteControllerAnalysis,
         machine_analysis: &MachineAnalysis,
     ) -> CarbideCliResult<String> {
@@ -1390,7 +1390,7 @@ impl<'a> ZipBundleCreator<'a> {
             options,
         )?;
         self.add_alerts_json(&mut zip, health_alerts, options)?;
-        self.add_alert_overrides_json(&mut zip, alert_overrides, options)?;
+        self.add_alert_entries_json(&mut zip, alert_entries, options)?;
         self.add_site_controller_analysis_json(&mut zip, site_controller_analysis, options)?;
         self.add_machine_analysis_json(&mut zip, machine_analysis, options)?;
         self.add_metadata(
@@ -1403,7 +1403,7 @@ impl<'a> ZipBundleCreator<'a> {
             dpu_batch_links,
             loki_uid,
             health_alerts,
-            alert_overrides,
+            alert_entries,
             site_controller_analysis,
             machine_analysis,
             options,
@@ -1425,7 +1425,7 @@ impl<'a> ZipBundleCreator<'a> {
                 .get(&self.config.host_id)
                 .map(|h| h.records.len())
                 .unwrap_or(0),
-            alert_overrides.overrides.len()
+            alert_entries.health_report_entries.len()
         );
 
         Ok(filepath)
@@ -1450,7 +1450,7 @@ impl<'a> ZipBundleCreator<'a> {
     fn add_alerts_json(
         &self,
         zip: &mut ZipWriter<File>,
-        health_alerts: &::rpc::forge::MachineHealthHistories,
+        health_alerts: &::rpc::forge::HealthHistories,
         options: FileOptions,
     ) -> CarbideCliResult<()> {
         zip.start_file("health_alerts.json", options).map_err(|e| {
@@ -1517,10 +1517,10 @@ impl<'a> ZipBundleCreator<'a> {
         Ok(())
     }
 
-    fn add_alert_overrides_json(
+    fn add_alert_entries_json(
         &self,
         zip: &mut ZipWriter<File>,
-        alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
+        alert_entries: &::rpc::forge::ListHealthReportResponse,
         options: FileOptions,
     ) -> CarbideCliResult<()> {
         zip.start_file("health_alert_overrides.json", options)
@@ -1533,10 +1533,10 @@ impl<'a> ZipBundleCreator<'a> {
         // Build JSON using serde_json::json! macro
         let json_output = serde_json::json!({
             "summary": {
-                "total_overrides": alert_overrides.overrides.len()
+                "total_overrides": alert_entries.health_report_entries.len()
             },
-            "overrides": alert_overrides.overrides.iter().map(|override_entry| {
-                let mode_str = match override_entry.mode {
+            "overrides": alert_entries.health_report_entries.iter().map(|entry| {
+                let mode_str = match entry.mode {
                     1 => "Merge",
                     2 => "Replace",
                     _ => "Unknown"
@@ -1544,7 +1544,7 @@ impl<'a> ZipBundleCreator<'a> {
 
                 serde_json::json!({
                     "mode": mode_str,
-                    "report": override_entry.report.as_ref().map(|report| {
+                    "report": entry.report.as_ref().map(|report| {
                         serde_json::json!({
                             "source": &report.source,
                             "alerts": report.alerts.iter().map(|alert| {
@@ -1815,8 +1815,8 @@ impl<'a> ZipBundleCreator<'a> {
         carbide_batch_links: &[(String, String, usize, String)],
         dpu_batch_links: &[(String, String, usize, String)],
         loki_uid: Option<&str>,
-        health_alerts: &::rpc::forge::MachineHealthHistories,
-        alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
+        health_alerts: &::rpc::forge::HealthHistories,
+        alert_entries: &::rpc::forge::ListHealthReportResponse,
         site_controller_analysis: &SiteControllerAnalysis,
         machine_analysis: &MachineAnalysis,
         options: FileOptions,
@@ -1878,10 +1878,10 @@ impl<'a> ZipBundleCreator<'a> {
         writeln!(
             zip,
             "  Total Overrides: {}",
-            alert_overrides.overrides.len()
+            alert_entries.health_report_entries.len()
         )?;
-        let active_overrides = alert_overrides
-            .overrides
+        let active_entries = alert_entries
+            .health_report_entries
             .iter()
             .filter(|o| {
                 if let Some(ref report) = o.report {
@@ -1891,7 +1891,7 @@ impl<'a> ZipBundleCreator<'a> {
                 }
             })
             .count();
-        writeln!(zip, "  Active Overrides: {}", active_overrides)?;
+        writeln!(zip, "  Active Entries: {}", active_entries)?;
         writeln!(zip)?;
 
         // Add Site Controller Details
@@ -2070,8 +2070,8 @@ fn create_debug_bundle_zip(
     carbide_batch_links: &[(String, String, usize, String)],
     dpu_batch_links: &[(String, String, usize, String)],
     loki_uid: Option<&str>,
-    health_alerts: &::rpc::forge::MachineHealthHistories,
-    alert_overrides: &::rpc::forge::ListHealthReportOverrideResponse,
+    health_alerts: &::rpc::forge::HealthHistories,
+    alert_entries: &::rpc::forge::ListHealthReportResponse,
     site_controller_analysis: &SiteControllerAnalysis,
     machine_analysis: &MachineAnalysis,
 ) -> CarbideCliResult<()> {
@@ -2084,7 +2084,7 @@ fn create_debug_bundle_zip(
         dpu_batch_links,
         loki_uid,
         health_alerts,
-        alert_overrides,
+        alert_entries,
         site_controller_analysis,
         machine_analysis,
     )?;

@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-use std::pin::Pin;
-
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use carbide_uuid::dpu_remediations::RemediationId;
 use carbide_uuid::machine::MachineId;
@@ -33,7 +31,7 @@ use crate::{async_write, async_writeln};
 pub(crate) async fn handle_list_applied(
     args: Args,
     output_format: OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
     page_size: usize,
 ) -> CarbideCliResult<()> {
@@ -84,7 +82,7 @@ async fn show_applied_remediation_details(
     remediation_id: RemediationId,
     machine_id: MachineId,
     output_format: OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
     _page_size: usize,
 ) -> CarbideCliResult<()> {
@@ -118,7 +116,7 @@ async fn show_applied_remediation_details(
 async fn show_machines_for_applied_remediation(
     remediation_id: RemediationId,
     output_format: OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
     _page_size: usize,
 ) -> CarbideCliResult<()> {
@@ -152,7 +150,7 @@ async fn show_machines_for_applied_remediation(
 async fn show_applied_remediations_for_machine(
     machine_id: MachineId,
     output_format: OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
     _page_size: usize,
 ) -> CarbideCliResult<()> {

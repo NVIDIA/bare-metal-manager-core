@@ -15,12 +15,16 @@
  * limitations under the License.
  */
 
+use std::str::FromStr;
+
+use carbide_uuid::power_shelf::PowerShelfId;
 use color_eyre::Result;
 use prettytable::{Table, row};
 use rpc::admin_cli::{CarbideCliResult, OutputFormat};
 use rpc::forge::PowerShelf;
 
 use super::args::Args;
+use crate::cfg::runtime::RuntimeConfig;
 use crate::rpc::ApiClient;
 
 pub fn show_power_shelves(
@@ -32,15 +36,21 @@ pub fn show_power_shelves(
         table.set_titles(row![
             "ID",
             "Name",
+            "Metadata Name",
             "Capacity(W)",
             "Voltage(V)",
-            "Location",
             "Power State",
             "Health",
             "State"
         ]);
 
         for shelf in shelves {
+            let metadata_name = shelf
+                .metadata
+                .as_ref()
+                .map(|m| m.name.as_str())
+                .unwrap_or("N/A");
+
             table.add_row(row![
                 shelf
                     .id
@@ -52,6 +62,7 @@ pub fn show_power_shelves(
                     .as_ref()
                     .map(|c| c.name.as_str())
                     .unwrap_or("N/A"),
+                metadata_name,
                 shelf
                     .config
                     .as_ref()
@@ -64,11 +75,6 @@ pub fn show_power_shelves(
                     .and_then(|c| c.voltage)
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| "N/A".to_string()),
-                shelf
-                    .config
-                    .as_ref()
-                    .and_then(|c| c.location.as_deref())
-                    .unwrap_or("N/A"),
                 shelf
                     .status
                     .as_ref()
@@ -108,12 +114,35 @@ pub fn show_power_shelves(
 
 pub async fn handle_show(
     args: Args,
-    output_format: OutputFormat,
     api_client: &ApiClient,
+    config: &RuntimeConfig,
 ) -> CarbideCliResult<()> {
-    let response = api_client.0.find_power_shelves(args).await?;
-    let power_shelves = response.power_shelves;
+    let power_shelves = match args.identifier {
+        Some(id) if !id.is_empty() => match PowerShelfId::from_str(&id) {
+            Ok(power_shelf_id) => {
+                api_client
+                    .get_one_power_shelf(power_shelf_id)
+                    .await?
+                    .power_shelves
+            }
+            Err(_) => {
+                // Fall back to name-based lookup
+                let query = rpc::forge::PowerShelfQuery {
+                    name: Some(id),
+                    power_shelf_id: None,
+                };
+                api_client.0.find_power_shelves(query).await?.power_shelves
+            }
+        },
+        _ => {
+            let filter = rpc::forge::PowerShelfSearchFilter::default();
+            api_client
+                .get_all_power_shelves(filter, config.page_size)
+                .await?
+                .power_shelves
+        }
+    };
 
-    show_power_shelves(power_shelves, output_format).ok();
+    show_power_shelves(power_shelves, config.format).ok();
     Ok(())
 }

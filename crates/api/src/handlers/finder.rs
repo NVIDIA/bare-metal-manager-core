@@ -28,6 +28,7 @@ use carbide_uuid::machine::MachineInterfaceId;
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::vpc::VpcId;
 use db::{DatabaseError, ObjectColumnFilter, instance, network_segment, vpc};
+use model::allocation_type::AllocationType;
 use model::network_segment::NetworkSegmentSearchConfig;
 use model::resource_pool::ResourcePoolEntryState;
 use model::route_server::RouteServerSourceType;
@@ -35,6 +36,19 @@ use model::route_server::RouteServerSourceType;
 use crate::CarbideError;
 use crate::api::Api;
 
+/// Returns true when this machine-interface address should be labeled as operator/static BMC
+/// (`IpTypeStaticBmcIp`): either explicitly static allocation, or an address on the synthetic
+/// `static-assignments` segment used for external IPs outside Carbide-managed prefixes.
+fn machine_interface_address_is_operator_static(
+    segment_name: &str,
+    allocation_type: AllocationType,
+) -> bool {
+    allocation_type == AllocationType::Static
+        || segment_name == network_segment::STATIC_ASSIGNMENTS_SEGMENT_NAME
+}
+
+/// Resolves an IP to zero or more typed matches (BMC, instance, static BMC, etc.). Static BMC
+/// classification for `machine_interface_addresses` uses [`machine_interface_address_is_operator_static`].
 pub(crate) async fn find_ip_address(
     api: &Api,
     request: tonic::Request<rpc::FindIpAddressRequest>,
@@ -274,36 +288,76 @@ async fn search(
             })
         }
 
-        // Look in machine_interface_addresses
+        // machine_interface_addresses: classify operator/static BMC as StaticBmcIp (see
+        // machine_interface_address_is_operator_static).
         MachineAddresses => {
             let out = db::machine_interface_address::find_by_address(db, addr).await?;
-            out.map(|e| {
-                let message = match e.machine_id.as_ref() {
-                    Some(machine_id) => format!(
-                        "{ip} belongs to machine {} (interface {}) on network segment {} of type {}",
-                        machine_id, e.id, e.name, e.network_segment_type,
-                    ),
-                    None => format!(
-                        "{ip} belongs to interface {} on network segment {} of type {}. It is not attached to a machine.",
-                        e.id, e.name, e.network_segment_type,
+            match out {
+                Some(e) => {
+                    let is_static_bmc =
+                        machine_interface_address_is_operator_static(&e.name, e.allocation_type);
+
+                    let (ip_type, type_label) = if is_static_bmc {
+                        (rpc::IpType::StaticBmcIp, "static BMC IP")
+                    } else {
+                        (rpc::IpType::MachineAddress, "machine address")
+                    };
+
+                    let message = match e.machine_id.as_ref() {
+                        Some(machine_id) => format!(
+                            "{ip} is a {type_label} on machine {} (interface {}) on network segment {} of type {}",
+                            machine_id, e.id, e.name, e.network_segment_type,
                         ),
-                };
-                rpc::IpAddressMatch {
-                    ip_type: rpc::IpType::MachineAddress as i32,
-                    owner_id: e.machine_id.map(|id| id.to_string()),
-                    message,
+                        None => format!(
+                            "{ip} is a {type_label} on interface {} on network segment {} of type {}. It is not attached to a machine.",
+                            e.id, e.name, e.network_segment_type,
+                        ),
+                    };
+                    Some(rpc::IpAddressMatch {
+                        ip_type: ip_type as i32,
+                        owner_id: e.machine_id.map(|id| id.to_string()),
+                        message,
+                    })
                 }
-            })
+                None => None,
+            }
         }
 
-        // BMC IP of the host
+        // BMC IP from machine topology; if that IP is also a static/operator machine_interface
+        // assignment, classify as StaticBmcIp instead of plain BmcIp.
         BmcIp => {
             let out = db::machine_topology::find_machine_id_by_bmc_ip(db, ip).await?;
-            out.map(|machine_id| rpc::IpAddressMatch {
-                ip_type: rpc::IpType::BmcIp as i32,
-                owner_id: Some(machine_id.to_string()),
-                message: format!("{ip} is the BMC IP of {machine_id}"),
-            })
+            match out {
+                Some(machine_id) => {
+                    let addr: IpAddr = ip.parse()?;
+                    let is_static = db::machine_interface_address::find_by_address(db, addr)
+                        .await?
+                        .is_some_and(|row| {
+                            machine_interface_address_is_operator_static(
+                                &row.name,
+                                row.allocation_type,
+                            )
+                        });
+
+                    Some(rpc::IpAddressMatch {
+                        ip_type: if is_static {
+                            rpc::IpType::StaticBmcIp as i32
+                        } else {
+                            rpc::IpType::BmcIp as i32
+                        },
+                        owner_id: Some(machine_id.to_string()),
+                        message: format!(
+                            "{ip} is the {} BMC IP of {machine_id}",
+                            if is_static {
+                                "static"
+                            } else {
+                                "DHCP-discovered"
+                            }
+                        ),
+                    })
+                }
+                None => None,
+            }
         }
         ExploredEndpoint => {
             let out = db::explored_endpoints::find_by_ips(db, vec![addr]).await?;

@@ -16,7 +16,7 @@
  */
 
 use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
-use prettytable::{Cell, Row, Table};
+use prettytable::{Cell, Row, Table, row};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -42,13 +42,21 @@ pub async fn get(
     if format == OutputFormat::Json {
         println!("{}", serde_json::to_string_pretty(&result)?);
     } else {
-        println!("Rack Firmware Configuration:");
-        println!("  ID: {}", result.id);
-        println!("  Available: {}", result.available);
-        println!("  Created: {}", result.created);
-        println!("  Updated: {}", result.updated);
+        let mut table = Table::new();
+        table.add_row(row!["ID", result.id]);
+        let hw_type = result
+            .rack_hardware_type
+            .as_ref()
+            .map(|t| t.value.as_str())
+            .unwrap_or("N/A");
+        table.add_row(row!["Hardware Type", hw_type]);
+        table.add_row(row!["Default", result.is_default]);
+        table.add_row(row!["Available", result.available]);
+        table.add_row(row!["Created", result.created]);
+        table.add_row(row!["Updated", result.updated]);
+        table.printstd();
 
-        // Display parsed firmware components
+        // Display parsed firmware components.
         if !result.parsed_components.is_empty() && result.parsed_components != "{}" {
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&result.parsed_components)
                 && let Some(devices) = parsed.get("devices").and_then(|d| d.as_object())

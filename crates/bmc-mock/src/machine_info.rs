@@ -226,23 +226,19 @@ impl HostMachineInfo {
 
     pub fn system_config(
         &self,
-        power_control: Arc<dyn crate::PowerControl>,
+        callbacks: Arc<dyn crate::Callbacks>,
     ) -> redfish::computer_system::Config {
         match self.hw_type {
             HostHardwareType::DellPowerEdgeR750 => {
-                self.dell_poweredge_r750().system_config(power_control)
+                self.dell_poweredge_r750().system_config(callbacks)
             }
-            HostHardwareType::WiwynnGB200Nvl => {
-                self.wiwynn_gb200_nvl().system_config(power_control)
-            }
-            HostHardwareType::LenovoGB300Nvl => {
-                self.lenovo_gb300_nvl().system_config(power_control)
-            }
+            HostHardwareType::WiwynnGB200Nvl => self.wiwynn_gb200_nvl().system_config(callbacks),
+            HostHardwareType::LenovoGB300Nvl => self.lenovo_gb300_nvl().system_config(callbacks),
             HostHardwareType::LiteOnPowerShelf => self.liteon_power_shelf().system_config(),
             HostHardwareType::NvidiaSwitchNd5200Ld => {
                 self.nvidia_switch_nd5200_ld().system_config()
             }
-            HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().system_config(power_control),
+            HostHardwareType::NvidiaDgxH100 => self.nvidia_dgx_h100().system_config(callbacks),
         }
     }
 
@@ -521,17 +517,17 @@ impl MachineInfo {
     pub fn bmc_product(&self) -> Option<&'static str> {
         match self {
             MachineInfo::Host(h) => h.bmc_product(),
-            MachineInfo::Dpu(_) => None,
+            MachineInfo::Dpu(_) => Some("BlueField-3 DPU"),
         }
     }
 
     pub fn system_config(
         &self,
-        power_control: Arc<dyn crate::PowerControl>,
+        callbacks: Arc<dyn crate::Callbacks>,
     ) -> redfish::computer_system::Config {
         match self {
-            MachineInfo::Host(host) => host.system_config(power_control),
-            MachineInfo::Dpu(dpu) => dpu.bluefield3().system_config(power_control),
+            MachineInfo::Host(host) => host.system_config(callbacks),
+            MachineInfo::Dpu(dpu) => dpu.bluefield3().system_config(callbacks),
         }
     }
 

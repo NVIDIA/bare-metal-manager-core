@@ -1,0 +1,9 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: carbide-bmc-proxy-certificate
+  namespace: {{ include "carbide-bmc-proxy.namespace" . }}
+  labels:
+    {{- include "carbide-bmc-proxy.labels" . | nindent 4 }}
+spec:
+  {{- include "carbide-bmc-proxy.certificateSpec" (dict "name" "carbide-bmc-proxy-certificate" "cert" .Values.certificate "global" .Values.global "namespace" (include "carbide-bmc-proxy.namespace" .)) | nindent 2 }}

@@ -43,11 +43,14 @@ use tracing::log::error;
 use utils::models::dhcp::{DhcpTimestamps, DhcpTimestampsFilePath};
 use version_compare::Version;
 
+use crate::command_line::HbnConfigMode;
 use crate::dpu::DpuNetworkInterfaces;
 use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::duppet::{SummaryFormat, SyncOptions};
-use crate::ethernet_virtualization::ServiceAddresses;
+use crate::ethernet_virtualization::{
+    InterfaceTranslationMode, NvueUpdateFlavor, ServiceAddresses,
+};
 use crate::fmds_client::FmdsUpdater;
 use crate::health::HealthCheckParams;
 use crate::host_machine_id::get_host_machine_id_retry;
@@ -91,7 +94,9 @@ pub async fn setup_and_run(
     // the ATF/UEFI is loaded.
     //
     // Once the fleet is all on 2.9.2, we can remove this ugly hack.
-    hack_dpu_os_to_load_atf_uefi_with_specific_versions().await?;
+    if options.agent_platform_type.is_dpu_os() {
+        hack_dpu_os_to_load_atf_uefi_with_specific_versions().await?;
+    }
 
     let process_start_time = SystemTime::now();
 
@@ -171,7 +176,8 @@ pub async fn setup_and_run(
         }
     }
 
-    if !agent_config.machine.is_fake_dpu
+    if options.agent_platform_type.is_dpu_os()
+        && !agent_config.machine.is_fake_dpu
         && let Err(e) = crate::agent_platform::ensure_doca_containers().await
     {
         // The HBN container health check will notice this problem and
@@ -188,9 +194,19 @@ pub async fn setup_and_run(
         "Unable to convert string: {NVUE_MINIMUM_HBN_VERSION} to Version"
     ))?;
 
-    if let Err(err) = crate::ovs::set_vswitchd_yield().await {
+    if options.agent_platform_type.is_dpu_os()
+        && let Err(err) = crate::ovs::set_vswitchd_yield().await
+    {
         tracing::warn!(%err, "Failed asking ovs_vswitchd to not use 100% of a CPU core. Non-fatal.");
         // We have eight cores. Letting ovs_vswitchd have one is OK.
+    };
+
+    let nvue_client = match options.hbn_config_mode {
+        HbnConfigMode::ContainerExec => None,
+        HbnConfigMode::NvueRest => {
+            let nvue_client = nvue_client::NvueClient::new_https_from_env()?;
+            Some(nvue_client)
+        }
     };
 
     let build_version = carbide_version::v!(build_version).to_string();
@@ -229,9 +245,13 @@ pub async fn setup_and_run(
         summary_format: SummaryFormat::PlainText,
     };
 
-    managed_files::main_sync(duppet_options, &machine_id, &host_machine_id);
+    if options.agent_platform_type.is_dpu_os() {
+        managed_files::main_sync(duppet_options, &machine_id, &host_machine_id);
+    }
 
-    if let Err(e) = lldp::set_lldp_system_description(&machine_id) {
+    if options.agent_platform_type.is_dpu_os()
+        && let Err(e) = lldp::set_lldp_system_description(&machine_id)
+    {
         tracing::warn!("Couldn't update LLDP system description: {e}")
     }
 
@@ -280,6 +300,7 @@ pub async fn setup_and_run(
         machine_id,
         forge_api: forge_api_server.clone(),
         forge_client_config: Arc::clone(&forge_client_config),
+        agent_platform_type: options.agent_platform_type.clone(),
     };
 
     // Get all DPU Ip addresses via gRPC call
@@ -331,6 +352,15 @@ pub async fn setup_and_run(
     // used in the event that hbn crashes and can no longer read the actual version of hbn
     let hbn_device_names = HBNDeviceNames::hbn_23();
 
+    let extension_service_manager = extension_services::ExtensionServiceManager::platform_defaults(
+        &options.agent_platform_type,
+    );
+
+    let dhcp_interface_translation_mode = options
+        .dhcp_server_interface_prepend
+        .as_ref()
+        .map(|prefix| InterfaceTranslationMode::Prepend(prefix.clone()));
+
     let mut main_loop = MainLoop {
         forge_client_config,
         build_version,
@@ -356,7 +386,9 @@ pub async fn setup_and_run(
         service_addrs,
         close_sender,
         network_monitor_handle,
-        extension_service_manager: extension_services::ExtensionServiceManager::default(),
+        extension_service_manager,
+        nvue_client,
+        dhcp_interface_translation_mode,
     };
 
     main_loop.run().await
@@ -388,6 +420,8 @@ struct MainLoop {
     network_monitor_handle: Option<JoinHandle<()>>,
     close_sender: watch::Sender<bool>,
     extension_service_manager: extension_services::ExtensionServiceManager,
+    nvue_client: Option<nvue_client::NvueClient>,
+    dhcp_interface_translation_mode: Option<InterfaceTranslationMode>,
 }
 
 struct IterationResult {
@@ -535,7 +569,19 @@ impl MainLoop {
                 if self.is_hbn_up {
                     // First thing is to read the existing HBN version and properly set the hbn device names
                     // associated with that version.
-                    let hbn_version = hbn::read_version().await?;
+                    let hbn_version = match self.nvue_client.as_mut() {
+                        None => hbn::read_version().await?,
+                        Some(nvue_client) => {
+                            let nvue_system_build = nvue_client.system_build_info().await?;
+                            match nvue_system_build.strip_prefix("HBN ") {
+                                Some(hbn_version) => Ok(hbn_version.into()),
+                                None => Err(eyre::format_err!(
+                                    "Couldn't parse HBN version from NVUE system build (\"{nvue_system_build}\")"
+                                )),
+                            }?
+                        }
+                    };
+
                     let hbn_version = Version::from(hbn_version.as_str())
                         .ok_or(eyre::eyre!("Unable to convert string to version"))?;
                     // HBN changed their naming scheme in HBN 2.3 from _sf to _if so we will pass that little bit around
@@ -551,14 +597,18 @@ impl MainLoop {
                     }
 
                     // Now issue a one time per container runtime hack in the event the hack is needed for new DPU hardware
-                    if let Err(err) = nvue::hack_platform_config_for_nvue().await {
+                    if self.options.hbn_config_mode.is_container_exec()
+                        && let Err(err) = nvue::hack_platform_config_for_nvue().await
+                    {
                         tracing::error!(
                             error = format!("{err:#}"),
                             "Hacking the container platform config."
                         );
                     };
 
-                    if let Err(e) = self.hbn_file_configs.ensure_configs().await {
+                    if self.options.hbn_config_mode.is_container_exec()
+                        && let Err(e) = self.hbn_file_configs.ensure_configs().await
+                    {
                         tracing::error!(
                             "Error from HBNContainerFileConfigs::ensure_configs(): {e}"
                         );
@@ -593,11 +643,14 @@ impl MainLoop {
                         &self.service_addrs,
                         self.hbn_device_names.clone(),
                         self.options.dhcp_grpc_server.clone(),
+                        self.dhcp_interface_translation_mode.as_ref(),
                     )
                     .await;
 
                     let update_result = {
-                        if hbn_version >= self.fmds_minimum_hbn_version {
+                        if self.options.agent_platform_type.is_dpu_os()
+                            && hbn_version >= self.fmds_minimum_hbn_version
+                        {
                             // Apply the interface plan. This is where we actually configure
                             // the FMDS phone home interface on the DPU.
                             Interface::apply(fmds_interface_plan).await?;
@@ -619,11 +672,12 @@ impl MainLoop {
 
                         // We'll update some internal bridging config if bridging config
                         // for traffic_intercept was sent in.
-                        let bridging_result = if conf
-                            .traffic_intercept_config
-                            .as_ref()
-                            .map(|vc| vc.bridging.is_some())
-                            .unwrap_or_default()
+                        let bridging_result = if self.options.agent_platform_type.is_dpu_os()
+                            && conf
+                                .traffic_intercept_config
+                                .as_ref()
+                                .map(|vc| vc.bridging.is_some())
+                                .unwrap_or_default()
                         {
                             ethernet_virtualization::update_traffic_intercept_bridging(
                                 &conf,
@@ -635,11 +689,17 @@ impl MainLoop {
                         };
 
                         if bridging_result.is_ok() {
+                            let update_flavor = match self.nvue_client.as_ref() {
+                                Some(nvue_client) => NvueUpdateFlavor::RestApi { nvue_client },
+                                None => NvueUpdateFlavor::StartupFile {
+                                    hbn_root: &self.agent_config.hbn.root_dir,
+                                    skip_post: self.agent_config.hbn.skip_reload,
+                                },
+                            };
                             ethernet_virtualization::update_nvue(
                                 virtualization_type,
-                                &self.agent_config.hbn.root_dir,
+                                update_flavor,
                                 &conf,
-                                self.agent_config.hbn.skip_reload,
                                 self.hbn_device_names.clone(),
                             )
                             .await
@@ -656,7 +716,9 @@ impl MainLoop {
                     match joined_result {
                         Ok(has_changed) => {
                             has_changed_configs = has_changed;
-                            if let Err(err) = mtu::ensure().await {
+                            if self.options.agent_platform_type.is_dpu_os()
+                                && let Err(err) = mtu::ensure().await
+                            {
                                 tracing::error!(error = %err, "Error reading/setting MTU for p0 or p1");
                             }
 
@@ -727,6 +789,7 @@ impl MainLoop {
                             match ethernet_virtualization::interfaces(
                                 &conf,
                                 self.factory_mac_address,
+                                self.nvue_client.as_ref(),
                             )
                             .await
                             {
@@ -766,17 +829,22 @@ impl MainLoop {
                 current_instance_config_version = status_out.instance_config_version.clone();
                 current_instance_id = status_out.instance_id.as_ref().map(|id| id.to_string());
 
-                let health_report = health::health_check(HealthCheckParams {
-                    hbn_root: &self.agent_config.hbn.root_dir,
-                    host_routes: &tenant_peers,
-                    has_changed_configs,
-                    min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2),
-                    route_servers: &conf.route_servers,
-                    hbn_device_names: self.hbn_device_names.clone(),
-                    include_dhcp_server: !conf.use_admin_network || conf.is_primary_dpu,
-                    run_restricted_mode_check: false,
-                })
-                .await;
+                let health_report = match self.nvue_client.as_ref() {
+                    None => {
+                        health::health_check(HealthCheckParams {
+                            hbn_root: &self.agent_config.hbn.root_dir,
+                            host_routes: &tenant_peers,
+                            has_changed_configs,
+                            min_healthy_links: conf.min_dpu_functioning_links.unwrap_or(2),
+                            route_servers: &conf.route_servers,
+                            hbn_device_names: self.hbn_device_names.clone(),
+                            include_dhcp_server: !conf.use_admin_network || conf.is_primary_dpu,
+                            run_restricted_mode_check: false,
+                        })
+                        .await
+                    }
+                    Some(nvue_client) => health::nvue_api_health(nvue_client).await,
+                };
                 is_healthy = !health_report.successes.is_empty() && health_report.alerts.is_empty();
                 self.is_hbn_up = health::is_up(&health_report);
                 // subset of is_healthy
@@ -925,7 +993,7 @@ impl MainLoop {
     }
 
     async fn perform_upgrade_check(&mut self, now: std::time::Instant) -> IterationResult {
-        if self.options.skip_upgrade_check {
+        if self.options.skip_upgrade_check || !self.options.agent_platform_type.is_dpu_os() {
             return IterationResult {
                 stop_agent: false,
                 loop_period: Default::default(),
@@ -1005,18 +1073,12 @@ fn effective_virtualization_type(
         .unwrap_or_else(|| {
             tracing::warn!(
                 "Missing network_virtualization_type, defaulting to {}",
-                VpcVirtualizationType::EthernetVirtualizerWithNvue
+                VpcVirtualizationType::EthernetVirtualizer
             );
-            VpcVirtualizationType::EthernetVirtualizerWithNvue
+            VpcVirtualizationType::EthernetVirtualizer
         });
 
-    match virtualization_type {
-        VpcVirtualizationType::Fnn => Ok(virtualization_type),
-        VpcVirtualizationType::EthernetVirtualizerWithNvue => Ok(virtualization_type),
-        VpcVirtualizationType::EthernetVirtualizer => Err(eyre::eyre!(
-            "EthernetVirtualizer unsupported. This shouldn't have made its way to here at this point."
-        )),
-    }
+    Ok(virtualization_type)
 }
 
 // TODO(chet): We'll eventually want a documented IPv6 address we can

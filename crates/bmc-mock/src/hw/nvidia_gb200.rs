@@ -72,11 +72,8 @@ impl BiancaBoard<'_> {
             part_number: Some("900-2G548-0001-000".into()),
             model: Some("Grace A02P".into()),
             serial_number: Some(self.cpu_serial_number.to_string().into()),
-            network_adapters: None,
-            pcie_devices: None,
             sensors: Some(sensors),
-            assembly: None,
-            oem: None,
+            ..redfish::chassis::SingleChassisConfig::defaults()
         }
     }
 
@@ -102,7 +99,6 @@ impl BiancaBoard<'_> {
                 part_number: Some("NA".into()),
                 model: Some("GB200 186GB HBM3e".into()),
                 serial_number: Some(self.gpu_serial_number.to_string().into()),
-                network_adapters: None,
                 pcie_devices: Some(vec![
                     redfish::pcie_device::builder(&redfish::pcie_device::chassis_resource(
                         &ids.chassis_id,
@@ -116,8 +112,7 @@ impl BiancaBoard<'_> {
                 ]),
                 id: ids.chassis_id,
                 sensors: Some(sensors),
-                assembly: None,
-                oem: None,
+                ..redfish::chassis::SingleChassisConfig::defaults()
             }
         })
     }
@@ -210,9 +205,8 @@ impl IoBoard<'_> {
             ),
             pcie_devices: Some(vec![]),
             sensors: Some(sensors),
-            assembly: None,
-            oem: None,
             id,
+            ..redfish::chassis::SingleChassisConfig::defaults()
         }
     }
 

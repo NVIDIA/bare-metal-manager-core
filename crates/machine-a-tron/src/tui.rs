@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::error::Error;
 use std::time::Duration;
@@ -100,6 +101,7 @@ pub struct HostDetails {
     pub machine_ip: String,
     pub dpus: Vec<HostDetails>,
     pub booted_os: String,
+    pub next_boot_kind: Cow<'static, str>,
 }
 
 impl HostDetails {
@@ -130,6 +132,7 @@ impl HostDetails {
             &format!("BMC IP: {}\n", self.oob_ip),
             &format!("Power State: {}\n", self.power_state),
             &format!("Booted OS: {}\n", self.booted_os),
+            &format!("Next boot: {}\n", self.next_boot_kind),
             &format!("MAT State: {}\n", self.mat_state.unwrap_or("Unknown")),
             &format!("API State: {}\n", self.api_state),
         ]

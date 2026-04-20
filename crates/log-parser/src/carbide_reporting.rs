@@ -126,8 +126,8 @@ async fn send_one_report(
 
     let request = tonic::Request::new(rpc::InsertHealthReportOverrideRequest {
         machine_id: MachineId::from_str(machine_id).ok(),
-        r#override: Some(rpc::HealthReportOverride {
-            mode: rpc::OverrideMode::Merge.into(),
+        health_report_entry: Some(rpc::HealthReportEntry {
+            mode: rpc::HealthReportApplyMode::Merge.into(),
             report: Some(report.clone().into()),
         }),
     });

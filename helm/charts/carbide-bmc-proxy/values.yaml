@@ -1,0 +1,108 @@
+## =============================================================================
+## carbide-bmc-proxy - Authenticating HTTP proxy for BMC's
+## =============================================================================
+
+global:
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-forge-issuer
+      group: cert-manager.io
+  spiffe:
+    trustDomain: forge.local
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/part-of: site-controller
+
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+
+namespaceOverride: ""
+
+replicas: 2
+serviceAccountName: carbide-bmc-proxy
+automountServiceAccountToken: true
+annotations:
+  configmap.reloader.stakater.com/reload: "carbide-bmc-proxy-config-files, carbide-bmc-proxy-site-config-files"
+
+resources:
+  limits:
+    cpu: 4
+    memory: 2Gi
+  requests:
+    cpu: 1
+    memory: 512Mi
+
+service:
+  proxy:
+    port: 1079
+  metrics:
+    port: 1080
+
+certificate:
+  serviceName: carbide-bmc-proxy
+  extraDnsNames: []
+  extraUris: []
+
+command:
+  - /bin/sh
+  - -c
+  - /opt/carbide/carbide-bmc-proxy --config-path /etc/forge/carbide-bmc-proxy/carbide-bmc-proxy.toml
+
+env:
+  VAULT_PKI_ROLE_NAME: "forge-cluster"
+  RUST_BACKTRACE: "full"
+  RUST_LIB_BACKTRACE: "0"
+
+extraEnv: []
+
+envFrom:
+  vaultApproleTokens:
+    secretName: carbide-vault-approle-tokens
+  vaultToken:
+    secretName: carbide-vault-token
+  vaultClusterInfo:
+    configMapName: vault-cluster-info
+  databaseCredentials:
+    secretName: forge-system.carbide.forge-pg-cluster.credentials
+  databaseConfig:
+    configMapName: forge-system-carbide-database-config
+
+livenessProbe:
+  httpGet:
+    port: 1080
+    scheme: HTTP
+  initialDelaySeconds: 20
+  periodSeconds: 20
+  failureThreshold: 3
+  successThreshold: 1
+  timeoutSeconds: 20
+
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 25s
+
+configFiles:
+  carbideBmcProxyConfig: ""
+
+bmcProxy:
+  listen: "[::]:1079"
+  allowedPrincipals: []
+
+vaultClusterInfo: {}
+
+databaseConfig: {}
+
+externalService:
+  enabled: false
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  annotations: {}

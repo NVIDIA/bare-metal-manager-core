@@ -26,6 +26,8 @@ use uuid::Uuid;
 /// Patch expected machine (partial update, preserves unprovided fields).
 ///
 /// Only the fields provided in the command will be updated. All other fields remain unchanged.
+/// When `--bmc-ip-address` is used, the merged RPC update runs the same static BMC interface logic
+/// as a full `update_expected_machine` call.
 ///
 /// Examples:
 ///   # Update only SKU, preserve all other fields including metadata
@@ -42,6 +44,7 @@ use uuid::Uuid;
 "chassis_serial_number",
 "fallback_dpu_serial_numbers",
 "sku_id",
+"bmc_ip_address",
 ])))]
 pub struct Args {
     #[clap(short = 'a', long, help = "BMC MAC Address of the expected machine")]
@@ -135,6 +138,21 @@ pub struct Args {
         help = "DPF enable/disable for this machine. Default is updated as true.",
     )]
     pub dpf_enabled: Option<bool>,
+
+    #[clap(
+        long = "bmc-ip-address",
+        value_name = "BMC_IP_ADDRESS",
+        group = "group",
+        help = "Static BMC IP (updates pre-allocated machine_interface when safe, same as expected switches)"
+    )]
+    pub bmc_ip_address: Option<String>,
+
+    #[clap(
+        long = "bmc-retain-credentials",
+        value_name = "BMC_RETAIN_CREDENTIALS",
+        help = "When true, site-explorer skips BMC password rotation and stores factory-default credentials in Vault as-is"
+    )]
+    pub bmc_retain_credentials: Option<bool>,
 }
 
 impl Args {
@@ -158,8 +176,9 @@ impl Args {
             && self.fallback_dpu_serial_numbers.is_none()
             && self.sku_id.is_none()
             && self.rack_id.is_none()
+            && self.bmc_ip_address.is_none()
         {
-            return Err(CarbideCliError::GenericError("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number".to_string()));
+            return Err(CarbideCliError::GenericError("One of the following options must be specified: bmc-user-name and bmc-password or chassis-serial-number or fallback-dpu-serial-number or bmc-ip-address".to_string()));
         }
         if self
             .fallback_dpu_serial_numbers

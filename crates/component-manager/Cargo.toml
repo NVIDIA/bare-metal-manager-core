@@ -23,8 +23,13 @@ authors.workspace = true
 
 [dependencies]
 async-trait = { workspace = true }
+carbide-api-db = { path = "../api-db", default-features = false }
+carbide-api-model = { path = "../api-model" }
 carbide-uuid = { path = "../uuid" }
+chrono = { workspace = true }
+librms = { workspace = true }
 mac_address = { workspace = true }
+sqlx = { workspace = true, features = ["postgres"] }
 prost = { workspace = true }
 prost-types = { workspace = true }
 thiserror = { workspace = true }
@@ -33,6 +38,12 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 tracing = { workspace = true }
+
+[dev-dependencies]
+carbide-api-test-helper = { path = "../api-test-helper" }
+carbide-macros = { path = "../macros" }
+carbide-sqlx-testing = { path = "../sqlx-testing" }
+uuid = { workspace = true }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

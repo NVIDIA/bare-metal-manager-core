@@ -28,10 +28,13 @@ use crate::crds::bfbs_generated::BFB;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpuflavors_generated::DPUFlavor;
 use crate::crds::dpuserviceconfigurations_generated::DPUServiceConfiguration;
+use crate::crds::dpuserviceinterfaces_generated::DPUServiceInterface;
+use crate::crds::dpuservicenads_generated::DPUServiceNAD;
 use crate::crds::dpuservicetemplates_generated::DPUServiceTemplate;
 use crate::error::DpfError;
 use crate::repository::{
-    BfbRepository, DpuDeploymentRepository, DpuFlavorRepository, DpuServiceConfigurationRepository,
+    BfbRepository, DpfOperatorConfigRepository, DpuDeploymentRepository, DpuFlavorRepository,
+    DpuServiceConfigurationRepository, DpuServiceInterfaceRepository, DpuServiceNADRepository,
     DpuServiceTemplateRepository, K8sConfigRepository,
 };
 use crate::types::*;
@@ -57,6 +60,8 @@ struct InitializationMock {
     deployments: Arc<DashMap<String, DPUDeployment>>,
     service_templates: Arc<DashMap<String, DPUServiceTemplate>>,
     service_configs: Arc<DashMap<String, DPUServiceConfiguration>>,
+    nads: Arc<DashMap<String, DPUServiceNAD>>,
+    service_interfaces: Arc<DashMap<String, DPUServiceInterface>>,
     configs: Arc<DashMap<String, BTreeMap<String, String>>>,
     secrets: Arc<DashMap<String, BTreeMap<String, Vec<u8>>>>,
 }
@@ -186,6 +191,50 @@ impl DpuServiceConfigurationRepository for InitializationMock {
 }
 
 #[async_trait]
+impl DpuServiceNADRepository for InitializationMock {
+    async fn get(&self, name: &str, ns: &str) -> Result<Option<DPUServiceNAD>, DpfError> {
+        Ok(self.nads.get(&ns_key(ns, name)).map(|r| r.clone()))
+    }
+    async fn list(&self, ns: &str) -> Result<Vec<DPUServiceNAD>, DpfError> {
+        let prefix = format!("{}/", ns);
+        Ok(self
+            .nads
+            .iter()
+            .filter(|entry| entry.key().starts_with(&prefix))
+            .map(|entry| entry.value().clone())
+            .collect())
+    }
+    async fn apply(&self, nad: &DPUServiceNAD) -> Result<DPUServiceNAD, DpfError> {
+        self.nads.insert(resource_key(nad), nad.clone());
+        Ok(nad.clone())
+    }
+}
+
+#[async_trait]
+impl DpuServiceInterfaceRepository for InitializationMock {
+    async fn get(&self, name: &str, ns: &str) -> Result<Option<DPUServiceInterface>, DpfError> {
+        Ok(self
+            .service_interfaces
+            .get(&ns_key(ns, name))
+            .map(|r| r.clone()))
+    }
+    async fn list(&self, ns: &str) -> Result<Vec<DPUServiceInterface>, DpfError> {
+        let prefix = format!("{}/", ns);
+        Ok(self
+            .service_interfaces
+            .iter()
+            .filter(|entry| entry.key().starts_with(&prefix))
+            .map(|entry| entry.value().clone())
+            .collect())
+    }
+    async fn apply(&self, iface: &DPUServiceInterface) -> Result<DPUServiceInterface, DpfError> {
+        self.service_interfaces
+            .insert(resource_key(iface), iface.clone());
+        Ok(iface.clone())
+    }
+}
+
+#[async_trait]
 impl K8sConfigRepository for InitializationMock {
     async fn get_configmap(
         &self,
@@ -217,6 +266,13 @@ impl K8sConfigRepository for InitializationMock {
         data: BTreeMap<String, Vec<u8>>,
     ) -> Result<(), DpfError> {
         self.secrets.insert(ns_key(ns, name), data);
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl DpfOperatorConfigRepository for InitializationMock {
+    async fn patch(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
         Ok(())
     }
 }
@@ -255,4 +311,168 @@ async fn test_create_initialization_objects() {
     assert!(secret.is_some());
 
     drop(sdk);
+}
+
+#[tokio::test]
+async fn test_generate_yaml_for_initialized_resources() {
+    let mock = InitializationMock::default();
+
+    let config = InitDpfResourcesConfig {
+        bfb_url: "http://example.com/test.bfb".to_string(),
+        deployment_name: "carbide-deployment".to_string(),
+        ..Default::default()
+    };
+
+    let sdk = crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
+        .initialize(&config)
+        .await
+        .unwrap();
+    drop(sdk);
+
+    for entry in mock.bfbs.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+    for entry in mock.flavors.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+    for entry in mock.service_templates.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+    for entry in mock.service_configs.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+    for entry in mock.nads.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+    for entry in mock.deployments.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+}
+
+#[tokio::test]
+async fn test_generate_yaml_for_v2_services() {
+    use crate::types::{ServiceInterface, ServiceNAD, ServiceNADResourceType};
+
+    let mock = InitializationMock::default();
+
+    let doca_helm = "https://helm.ngc.nvidia.com/nvidia/doca";
+    let carbide_helm =
+        "https://gitlab-master.nvidia.com/aadvani/my-helm-project/-/raw/main/charts-repo";
+    let doca_image = "nvcr.io/nvidia/doca";
+    let carbide_image = "https://gitlab-master.nvidia.com/aadvani/my-helm-project";
+
+    let services = vec![
+        crate::services::dts_service(&crate::services::ServiceRegistryConfig::default()),
+        ServiceDefinition {
+            helm_values: Some(serde_json::json!({
+                "image": {
+                    "repository": format!("{}/forge-dhcp-server", carbide_image),
+                    "tag": "v1.9.5-arm64-distroless",
+                }
+            })),
+            interfaces: vec![ServiceInterface {
+                name: "d_pf0hpf_if".to_string(),
+                network: "mybrsfc-dhcp".to_string(),
+            }],
+            service_nad: Some(ServiceNAD {
+                name: "mybrsfc-dhcp".to_string(),
+                bridge: Some("br-sfc".to_string()),
+                resource_type: ServiceNADResourceType::Sf,
+                ipam: Some(false),
+                mtu: Some(1500),
+            }),
+            ..ServiceDefinition::new(
+                "carbide-dhcp-server",
+                carbide_helm,
+                "carbide-dhcp-server",
+                "2.0.9",
+            )
+        },
+        ServiceDefinition {
+            helm_values: Some(serde_json::json!({
+                "image": {
+                    "repository": format!("{}/doca-hbn", doca_image),
+                    "tag": "3.2.1-doca3.2.1",
+                },
+                "resources": { "memory": "6Gi", "nvidia.com/bf_sf": 2 },
+            })),
+            config_values: Some(serde_json::json!({
+                "configuration": {
+                    "startupYAMLJ2": concat!(
+                        "- header:\n",
+                        "    model: BLUEFIELD\n",
+                        "    nvue-api-version: nvue_v1\n",
+                        "    rev-id: 1.0\n",
+                        "    version: HBN 2.4.0\n",
+                        "- set:\n",
+                        "    interface:\n",
+                        "      p0_if:\n",
+                        "        type: swp\n",
+                        "      pf0hpf_if:\n",
+                        "        type: swp\n",
+                    )
+                }
+            })),
+            interfaces: vec![
+                ServiceInterface {
+                    name: "p0_if".to_string(),
+                    network: "mybrhbn".to_string(),
+                },
+                ServiceInterface {
+                    name: "pf0hpf_if".to_string(),
+                    network: "mybrhbn".to_string(),
+                },
+            ],
+            ..ServiceDefinition::new("doca-hbn", doca_helm, "doca-hbn", "1.0.5")
+        },
+        ServiceDefinition {
+            helm_values: Some(serde_json::json!({
+                "image": {
+                    "repository": format!("{}/forge-dpu-agent", carbide_image),
+                    "tag": "v0.3-arm64-multistage",
+                }
+            })),
+            ..ServiceDefinition::new(
+                "carbide-dpu-agent",
+                carbide_helm,
+                "carbide-dpu-agent",
+                "0.4.0",
+            )
+        },
+    ];
+
+    let config = InitDpfResourcesConfig {
+        bfb_url: "http://example.com/test.bfb".to_string(),
+        deployment_name: "carbide-deployment".to_string(),
+        services,
+        ..Default::default()
+    };
+
+    let sdk = crate::sdk::DpfSdkBuilder::new(mock.clone(), TEST_NS, "test-password".to_string())
+        .initialize(&config)
+        .await
+        .unwrap();
+    drop(sdk);
+
+    for entry in mock.bfbs.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+    for entry in mock.flavors.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+    for entry in mock.service_templates.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+    for entry in mock.service_configs.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+    for entry in mock.nads.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+    for entry in mock.service_interfaces.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
+    for entry in mock.deployments.iter() {
+        println!("---\n{}", serde_yaml::to_string(entry.value()).unwrap());
+    }
 }

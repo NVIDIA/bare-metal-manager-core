@@ -39,7 +39,6 @@ use crate::machine_utils::create_random_self_signed_cert;
 use crate::saturating_add_duration_to_instant;
 use crate::tui::{HostDetails, UiUpdate};
 
-#[derive(Debug)]
 pub struct HostMachine {
     mat_id: Uuid,
     machine_config_section: String,
@@ -314,6 +313,9 @@ impl HostMachine {
                             _ = reply.send(response);
                         }
                     }
+                    BmcCommand::StateRefreshIndication => {
+                        self.state_machine.update_live_state();
+                    }
                 }
                 // continue to process_state
             }
@@ -422,14 +424,11 @@ impl HostMachine {
         HostDetails {
             mat_id: self.mat_id,
             hw_type: Some(self.host_info.hw_type),
-            machine_id: self
-                .live_state
-                .read()
-                .unwrap()
+            machine_id: live_state
                 .observed_machine_id
                 .as_ref()
                 .map(|m| m.to_string()),
-            mat_state: self.state_machine.live_state.read().unwrap().state_string,
+            mat_state: live_state.state_string,
             api_state: self.api_state.clone(),
             oob_ip: live_state
                 .bmc_ip
@@ -443,6 +442,7 @@ impl HostMachine {
                 .unwrap_or_default(),
             dpus: dpu_details,
             booted_os: live_state.booted_os.to_string(),
+            next_boot_kind: live_state.ui_next_boot_kind().into(),
             power_state: live_state.power_state,
         }
     }

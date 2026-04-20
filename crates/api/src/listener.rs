@@ -20,6 +20,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use ::rpc::forge as rpc;
+use carbide_authn::SpiffeContext;
+use carbide_authn::middleware::{CertDescriptionMiddleware, ConnectionAttributes};
 use hyper::server::conn::{http1, http2};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::service::TowerToHyperService;
@@ -27,7 +29,6 @@ use model::ConfigValidationError;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
 use rustls::server::WebPkiClientVerifier;
-use rustls_pki_types::CertificateDer;
 use tokio::net::TcpListener;
 use tokio::task::JoinSet;
 use tokio_rustls::TlsAcceptor;
@@ -39,7 +40,7 @@ use tower_http::auth::AsyncRequireAuthorizationLayer;
 
 use crate::api::Api;
 use crate::auth;
-use crate::auth::forge_spiffe::ForgeSpiffeContext;
+use crate::auth::Authorization;
 use crate::cfg::file::AuthConfig;
 use crate::errors::CarbideError;
 use crate::logging::api_logs::LogLayer;
@@ -157,25 +158,6 @@ fn get_tls_acceptor(tls_config: &ApiTlsConfig) -> Option<TlsAcceptor> {
     }
 }
 
-// This is used as an extension to requests for anything that is an attribute of
-// the connection the request came in on, as opposed to the HTTP request itself.
-// Note that if you're trying to retrieve it, it's probably inside an Arc in the
-// extensions typemap, so .get::<Arc<ConnectionAttributes>>() is what you want.
-pub struct ConnectionAttributes {
-    peer_address: SocketAddr,
-    peer_certificates: Vec<CertificateDer<'static>>,
-}
-
-impl ConnectionAttributes {
-    pub fn peer_address(&self) -> &SocketAddr {
-        &self.peer_address
-    }
-
-    pub fn peer_certificates(&self) -> &[CertificateDer<'static>] {
-        self.peer_certificates.as_slice()
-    }
-}
-
 /// Start listening for requests, spawning the listener task into `join_set`.
 ///
 /// This method will return an error if any preconditions fail (could not bind to the port, issues
@@ -225,7 +207,7 @@ pub async fn start(
         .inspect(|trust_config| {
             tracing::info!("TrustConfig rendered from config: {trust_config:?}")
         })
-        .map(ForgeSpiffeContext::try_from)
+        .map(SpiffeContext::try_from)
         .transpose()?
         .ok_or(CarbideError::InvalidConfiguration(
             ConfigValidationError::InvalidValue(
@@ -234,8 +216,8 @@ pub async fn start(
             ),
         ))?;
 
-    let cert_description_layer =
-        auth::middleware::CertDescriptionMiddleware::new(extra_cli_certs, spiffe_context);
+    let cert_description_layer: CertDescriptionMiddleware<Authorization> =
+        CertDescriptionMiddleware::new(extra_cli_certs, spiffe_context);
     let casbin_layer = if let Some(auth_config) = auth_config {
         if let Some(casbin_policy_file) = &auth_config.casbin_policy_file {
             let casbin_authorizer = Arc::new(

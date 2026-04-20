@@ -37,7 +37,21 @@ const TELEMETRY_METRICS_SERVICE_ADDRESS: &str = "0.0.0.0:8888";
 /// This is what we WRITE to /etc/forge/config.toml
 #[derive(Debug, Clone, Serialize)]
 pub struct AgentConfigFromPxe {
+    // This is primarily used in the case of "external" overrides. If a host is
+    // being provisioned from an external location, this will ensure we correctly
+    // populate the carbide-api endpoint with CARBIDE_EXTERNAL_API_URL, and
+    // not [defaulting] to carbide-api.forge, to allow scout to work.
+    #[serde(rename = "forge-system", skip_serializing_if = "Option::is_none")]
+    pub forge_system: Option<ForgeSystemConfigFromPxe>,
     pub machine: MachineConfigFromPxe,
+}
+
+/// Optional forge-system overrides written by PXE for external hosts
+/// whose DPU agents can't resolve the default internal hostname.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct ForgeSystemConfigFromPxe {
+    pub api_server: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

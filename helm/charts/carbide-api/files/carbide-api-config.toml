@@ -40,6 +40,11 @@ create_machines = true
 [firmware_global]
 autoupdate = true
 
+[machine_identity]
+enabled = true
+current_encryption_key_id = "kv1" # must match a key under machine_identity.encryption_keys in credentials
+algorithm = "ES256" # must match tenant identity signing alg (ES256 only)
+
 [tls]
 identity_pemfile_path = "/var/run/secrets/spiffe.io/tls.crt"
 identity_keyfile_path = "/var/run/secrets/spiffe.io/tls.key"
@@ -84,3 +89,15 @@ max_network_security_group_size = 200
 [machine_validation_config]
 enabled = true
 test_selection_mode = "EnableAll"
+
+# OEM manager attribute profiles applied during machine_setup.
+# These are vendor-specific BMC/manager settings applied before BMC lockdown.
+#
+# Fix for nvbugs-5834644: Dell R760 PSU Hot Spare causes unnecessary fan spin-up.
+# Disabling PSRapidOn prevents the BMC from activating standby PSUs as hot spares,
+# eliminating the associated fan ramp-up. Applied for all profile types.
+[oem_manager_profiles.Dell.PowerEdge_R760.performance]
+"ServerPwr.1.PSRapidOn" = "Disabled"
+
+[oem_manager_profiles.Dell.PowerEdge_R760.powerefficiency]
+"ServerPwr.1.PSRapidOn" = "Disabled"

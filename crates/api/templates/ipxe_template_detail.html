@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}iPXE Template {{ name }}{% endblock %}
+
+{% block content %}
+<h1>iPXE Template: {{ name }}</h1>
+
+<table class="detailsview">
+	<tr><th>Name</th><td>{{ name }}</td></tr>
+	<tr><th>Description</th><td>{{ description }}</td></tr>
+	<tr><th>Scope</th><td>{{ scope }}</td></tr>
+</table>
+
+{% if !required_params.is_empty() %}
+<h2>Required Parameters</h2>
+<table class="sortable overview">
+	<thead>
+		<th>Name</th>
+	</thead>
+	<tbody>
+		{% for param in required_params %}
+		<tr>
+			<td>{{ param }}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+{% endif %}
+
+{% if !reserved_params.is_empty() %}
+<h2>Reserved Parameters</h2>
+<table class="sortable overview">
+	<thead>
+		<th>Name</th>
+	</thead>
+	<tbody>
+		{% for param in reserved_params %}
+		<tr>
+			<td>{{ param }}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+{% endif %}
+
+{% if !required_artifacts.is_empty() %}
+<h2>Required Artifacts</h2>
+<table class="sortable overview">
+	<thead>
+		<th>Name</th>
+	</thead>
+	<tbody>
+		{% for artifact in required_artifacts %}
+		<tr>
+			<td>{{ artifact }}</td>
+		</tr>
+		{% endfor %}
+	</tbody>
+</table>
+{% endif %}
+
+<h2>Template</h2>
+<textarea disabled rows="30" cols="100" style="width:100%;font-family:monospace;">{{ template_text }}</textarea>
+
+{% endblock %}

@@ -82,9 +82,10 @@ applicable.
 | `mlxconfig_profiles` | `Option<HashMap<String, MlxConfigProfile>>` | — | Named Mellanox NIC register configuration profiles for superNIC firmware flashing. TOML key: `mlx-config-profiles`. |
 | `rack_management_enabled` | `bool` | `false` | Standalone infrastructure manager mode for GB200/GB300/VR144. See doc comment for full behavioral changes. |
 | `force_dpu_nic_mode` | `bool` | `false` | Treat DPUs as regular NICs (skip managed DPU config). For dev labs with BF DPUs. |
-| `rms_api_url` | `Option<String>` | — | Rack Manager Service API URL for rack-level firmware and power operations. |
-| `rack_types` | `RackTypeConfig` | *(default)* | Rack type definitions referenced by expected racks. |
+| `rms` | `RmsConfig` | *(see below)* | Rack Manager Service configuration for API connectivity and mTLS (see [RmsConfig](#rmsconfig)). |
+| `rack_profiles` | `RackProfileConfig` | *(default)* | Rack profile definitions referenced by expected racks. |
 | `spdm` | `SpdmConfig` | *(see below)* | SPDM hardware attestation (see [SpdmConfig](#spdmconfig)). |
+| `bgp_leaf_session_password` | `Option<BgpLeafSessionPassword>` | — | Selects the credential source for leaf-facing BGP session passwords returned to agents in managed host network config. Supported value: `site_wide`. |
 | `site_global_vpc_vni` | `Option<u32>` | — | Forces all VRFs to share a single VNI (Cumulus Linux route-leaking workaround). Limits DPU to one VRF. |
 | `dpf` | `DpfConfig` | *(see below)* | DPF (DPU Platform Framework) Kubernetes deployment (see [DpfConfig](#dpfconfig)). |
 | `x86_pxe_boot_url_override` | `Option<String>` | — | Override PXE boot URL for x86 machines. |
@@ -293,6 +294,16 @@ Extends `StateControllerConfig` with:
 | `deployment_name` | `Option<String>` | — | Kubernetes deployment name. |
 | `services` | `Option<Vec<DpfServiceConfig>>` | — | Additional Helm services. |
 
+### `RmsConfig`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `api_url` | `Option<String>` | — | RMS API URL for rack-level firmware upgrades and power sequencing. |
+| `root_ca_path` | `Option<String>` | — | Path to the root CA certificate for TLS verification. |
+| `client_cert` | `Option<String>` | — | Path to the client certificate PEM for mTLS. |
+| `client_key` | `Option<String>` | — | Path to the client private key PEM for mTLS. |
+| `enforce_tls` | `bool` | `true` | Enforce TLS when connecting to RMS. |
+
 ### `SpdmConfig`
 
 | Field | Type | Default | Description |
@@ -304,7 +315,7 @@ Extends `StateControllerConfig` with:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `enabled` | `bool` | `true` | Master switch for machine identity APIs. |
+| `enabled` | `bool` | `false` | Master switch for machine identity APIs (opt-in; set `true` with `current_encryption_key_id` and credentials). |
 | `algorithm` | `String` | `"ES256"` | Signing algorithm for per-org keys. |
 | `token_ttl_min_sec` | `u32` | `60` | Minimum token TTL in seconds. |
 | `token_ttl_max_sec` | `u32` | `86400` | Maximum token TTL in seconds. |

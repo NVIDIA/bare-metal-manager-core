@@ -95,7 +95,10 @@ impl CollectorState {
         }
     }
 
-    fn map_mut(&mut self, kind: CollectorKind) -> &mut HashMap<Cow<'static, str>, Collector> {
+    pub(super) fn map_mut(
+        &mut self,
+        kind: CollectorKind,
+    ) -> &mut HashMap<Cow<'static, str>, Collector> {
         match kind {
             CollectorKind::Sensor => &mut self.sensors,
             CollectorKind::Logs => &mut self.logs,
@@ -120,13 +123,6 @@ impl CollectorState {
 
     pub(super) fn len(&self, kind: CollectorKind) -> usize {
         self.map(kind).len()
-    }
-
-    pub(super) fn map_mut_for_kind(
-        &mut self,
-        kind: CollectorKind,
-    ) -> &mut HashMap<Cow<'static, str>, Collector> {
-        self.map_mut(kind)
     }
 
     pub(super) fn removed_keys(

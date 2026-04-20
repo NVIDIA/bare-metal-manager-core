@@ -18,3 +18,14 @@ carbide-api:
   extraEnv:
     - name: DISABLE_TLS_ENFORCEMENT
       value: "1"
+
+carbide-bmc-proxy:
+  automountServiceAccountToken: false
+  vaultClusterInfo:
+    VAULT_SERVICE: http://vault.vault.svc.cluster.local:8200
+    FORGE_VAULT_MOUNT: secrets
+    FORGE_VAULT_PKI_MOUNT: certs
+  databaseConfig: {}
+  extraEnv:
+    - name: DISABLE_TLS_ENFORCEMENT
+      value: "1"

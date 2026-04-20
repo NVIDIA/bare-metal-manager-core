@@ -17,7 +17,6 @@
 
 // CLI enums variants can be rather large, we are ok with that.
 #![allow(clippy::large_enum_variant)]
-use std::pin::Pin;
 
 use ::rpc::admin_cli::CarbideCliError;
 use ::rpc::forge_api_client::ForgeApiClient;
@@ -57,12 +56,14 @@ mod expected_switch;
 mod extension_service;
 mod firmware;
 mod generate_shell_complete;
+mod health_utils;
 mod host;
 mod ib_partition;
 mod instance;
 mod instance_type;
 mod inventory;
 mod ip;
+mod ipxe_template;
 mod jump;
 mod machine;
 mod machine_interfaces;
@@ -77,6 +78,7 @@ mod network_security_group;
 mod network_segment;
 mod nvl_logical_partition;
 mod nvl_partition;
+mod operating_system;
 mod os_image;
 mod ping;
 mod power_shelf;
@@ -236,7 +238,9 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::NetworkSecurityGroup(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NetworkSegment(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NvlPartition(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::IpxeTemplate(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::OsImage(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::OperatingSystem(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Ping(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::PowerShelf(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::Rack(cmd) => cmd.dispatch(ctx).await?,
@@ -274,16 +278,16 @@ async fn main() -> color_eyre::Result<()> {
 
 pub async fn get_output_file_or_stdout(
     output_filename: Option<&str>,
-) -> Result<Pin<Box<dyn tokio::io::AsyncWrite>>, CarbideCliError> {
-    let output: Pin<Box<dyn tokio::io::AsyncWrite>> = if let Some(filename) = output_filename {
+) -> Result<Box<dyn tokio::io::AsyncWrite + Unpin>, CarbideCliError> {
+    let output: Box<dyn tokio::io::AsyncWrite + Unpin> = if let Some(filename) = output_filename {
         let file = tokio::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(filename)
             .await?;
-        Box::pin(file)
+        Box::new(file)
     } else {
-        Box::pin(tokio::io::stdout())
+        Box::new(tokio::io::stdout())
     };
     Ok(output)
 }

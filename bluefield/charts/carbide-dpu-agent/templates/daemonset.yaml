@@ -31,8 +31,7 @@ spec:
           {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+      dnsPolicy: ClusterFirst
       {{- if not (empty .Values.serviceDaemonSet.nodeSelector) }}
       affinity:
         nodeAffinity:
@@ -50,8 +49,15 @@ spec:
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          args:
+            - run
+            - "--hbn-config-mode=nvue-rest"
+            - "--agent-platform-type=containerized"
+            - "--discovery-info-file={{ .Values.discovery.hardware_file }}"
+            {{- if not (empty .Values.dhcp_server.interface_prepend) }}
+            - "--dhcp-server-interface-prepend={{ .Values.dhcp_server.interface_prepend }}"
+            {{ end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args: ["run", "--enable-metadata-service"]
           {{- with toYaml .Values.serviceDaemonSet.resources }}
           resources:
             limits:
@@ -60,6 +66,10 @@ spec:
               {{- . | nindent 14 }}
           {{- end }}
           env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP  # always resolves to cluster-internal IP
             - name: RUST_BACKTRACE
               value: "full"
             - name: RUST_LIB_BACKTRACE
@@ -78,6 +88,18 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            - name: NVUE_HTTPS_ADDRESS
+              value: {{ .Values.hbn.nvue_https_address }}
+            - name: NVUE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.hbn.nvue_credentials_secret_name }}
+                  key: {{ .Values.hbn.nvue_username_key }}
+            - name: NVUE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.hbn.nvue_credentials_secret_name }}
+                  key: {{ .Values.hbn.nvue_password_key }}
           volumeMounts:
             - name: forge-certs
               mountPath: /opt/forge

@@ -118,7 +118,7 @@ async fn cleanup_test(db_name: &str) -> Result<(), sqlx::Error> {
         .unwrap()
         .acquire()
         .await?
-        .execute(&format!("drop database if exists {db_name:?};")[..])
+        .execute(&format!("drop database if exists {db_name:?} WITH (FORCE);")[..])
         .await
         .map(|_| ())
 }
@@ -149,22 +149,42 @@ async fn init_pool() -> PgPool {
         .after_release(|_conn, _| Box::pin(async move { Ok(false) }))
         .connect_lazy_with(opts);
 
+    // Terminate any existing connections to the template database
     root_pool
-        .execute(&format!("drop database if exists {TEMPLATE_DB:?};")[..])
+        .execute(
+            &format!(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = {TEMPLATE_DB:?} AND pid <> pg_backend_pid();"
+            )[..],
+        )
         .await
-        .expect("cannot cleanup template database");
-    // Create and migrate template databas
-    root_pool
-        .execute(&format!("create database {TEMPLATE_DB}")[..])
+        .ok(); // Ignore errors if no connections exist
+
+    // Wait a moment for PostgreSQL to clean up terminated connections
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // Try to drop and recreate the template database
+    // Use WITH (FORCE) to forcefully disconnect any lingering sessions
+    let dropped = root_pool
+        .execute(&format!("drop database if exists {TEMPLATE_DB:?} WITH (FORCE);")[..])
         .await
-        .expect("cannot create template database");
-    let root_opts: std::sync::Arc<PgConnectOptions> = root_pool.connect_options();
-    let template_opts = root_opts.deref().clone().database(TEMPLATE_DB);
-    let template_pool = PoolOptions::new().connect_lazy_with(template_opts);
-    db::migrations::migrate(&template_pool)
-        .await
-        .expect("cannot migrate DB used as template");
-    template_pool.close().await;
+        .is_ok();
+
+    if !dropped {
+        eprintln!("Note: Template database is in use, reusing existing version");
+    } else {
+        // Create and migrate template database
+        root_pool
+            .execute(&format!("create database {TEMPLATE_DB}")[..])
+            .await
+            .expect("cannot create template database");
+        let root_opts: std::sync::Arc<PgConnectOptions> = root_pool.connect_options();
+        let template_opts = root_opts.deref().clone().database(TEMPLATE_DB);
+        let template_pool = PoolOptions::new().connect_lazy_with(template_opts);
+        db::migrations::migrate(&template_pool)
+            .await
+            .expect("cannot migrate DB used as template");
+        template_pool.close().await;
+    }
     root_pool
 }
 
@@ -179,8 +199,23 @@ async fn test_context(args: &TestArgs) -> Result<TestContext<Postgres>, sqlx::Er
 
     pool.acquire()
         .await?
-        .execute(&format!("drop database if exists {new_db_name:?};")[..])
+        .execute(&format!("drop database if exists {new_db_name:?} WITH (FORCE);")[..])
         .await?;
+
+    // Terminate connections to template database before copying from it
+    // PostgreSQL requires exclusive access to template databases
+    pool.acquire()
+        .await?
+        .execute(
+            &format!(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = {TEMPLATE_DB:?} AND pid <> pg_backend_pid();"
+            )[..],
+        )
+        .await
+        .ok(); // Ignore if no connections
+
+    // Wait for PostgreSQL to fully close terminated connections
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
     pool.acquire()
         .await?

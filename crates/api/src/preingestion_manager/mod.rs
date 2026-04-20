@@ -21,6 +21,7 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide_redfish::libredfish::{RedfishClientCreationError, RedfishClientPool};
 use chrono::{DateTime, Utc};
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{DatabaseError, WithTransaction};
@@ -40,17 +41,31 @@ use tokio::io::AsyncBufReadExt;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
+use utils::periodic_timer::PeriodicTimer;
 
 use crate::cfg::file::{CarbideConfig, FirmwareConfig, FirmwareGlobal};
 use crate::firmware_downloader::FirmwareDownloader;
-use crate::periodic_timer::PeriodicTimer;
 use crate::preingestion_manager::metrics::PreingestionMetrics;
-use crate::redfish::{RedfishClientCreationError, RedfishClientPool};
+use crate::site_explorer::EndpointExplorer;
 use crate::{CarbideError, CarbideResult};
 
 mod metrics;
 
 const NOT_FOUND: u16 = 404;
+
+/// Fallback timeout for BFB copy. SSH layer has 30-min timeout that should fire first;
+/// this catches edge cases where the task dies without reporting.
+const BFB_COPY_TIMEOUT_MINS: i64 = 35;
+
+/// BF2 fallback timeout. SSH layer uses 80-min timeout for BF2 (SFTP capped at ~325 KB/s
+/// with 128 KiB buffer; 1 MiB buffer fails immediately on BF2 BMCs).
+const BFB_COPY_TIMEOUT_MINS_BF2: i64 = 85;
+
+/// Minimum wait time before checking if BFB installation completed.
+const BFB_INSTALLATION_MIN_WAIT_MINS: i64 = 10;
+
+/// Timeout for waiting for DPU to report valid firmware after BFB installation.
+const BFB_INSTALLATION_TIMEOUT_MINS: i64 = 45;
 
 pub struct PreingestionManager {
     static_info: Arc<PreingestionManagerStatic>,
@@ -71,6 +86,9 @@ struct PreingestionManagerStatic {
     upgrade_script_state: Arc<UpdateScriptManager>,
     credential_reader: Option<Arc<dyn CredentialReader>>,
     work_lock_manager_handle: WorkLockManagerHandle,
+    endpoint_explorer: Arc<dyn EndpointExplorer>,
+    bfb_copy_state: Arc<BfbCopyManager>,
+    bfb_copy_limiter: Arc<Semaphore>,
 }
 
 impl PreingestionManager {
@@ -89,6 +107,7 @@ impl PreingestionManager {
         upload_limiter: Option<Arc<Semaphore>>,
         credential_reader: Option<Arc<dyn CredentialReader>>,
         work_lock_manager_handle: WorkLockManagerHandle,
+        endpoint_explorer: Arc<dyn EndpointExplorer>,
     ) -> PreingestionManager {
         let hold_period = config
             .firmware_global
@@ -120,6 +139,11 @@ impl PreingestionManager {
                     .to_std()
                     .unwrap_or(Duration::from_secs(30)),
                 work_lock_manager_handle,
+                endpoint_explorer,
+                bfb_copy_state: Default::default(),
+                bfb_copy_limiter: Arc::new(Semaphore::new(
+                    config.firmware_global.max_concurrent_bfb_copies,
+                )),
             }),
             metric_holder,
             database_connection,
@@ -384,6 +408,44 @@ async fn one_endpoint(
         }
         PreingestionState::ScriptRunning => {
             static_info.waiting_for_script(db, endpoint).await?;
+            false
+        }
+        PreingestionState::BfbRecoveryNeeded {
+            reason: _,
+            host_bmc_ip,
+            pre_copy_powercycle,
+        } => {
+            static_info
+                .in_bfb_recovery_needed(db, endpoint, host_bmc_ip, *pre_copy_powercycle)
+                .await?;
+            false
+        }
+        PreingestionState::BfbPlatformPowercycle {
+            host_bmc_ip,
+            phase,
+            post_install,
+        } => {
+            static_info
+                .in_bfb_platform_powercycle(db, endpoint, host_bmc_ip, phase, *post_install)
+                .await?;
+            false
+        }
+        PreingestionState::BfbCopyInProgress {
+            started_at,
+            host_bmc_ip,
+        } => {
+            static_info
+                .in_bfb_copy_in_progress(db, endpoint, started_at, host_bmc_ip)
+                .await?;
+            false
+        }
+        PreingestionState::BfbInstallationWait {
+            started_at,
+            host_bmc_ip,
+        } => {
+            static_info
+                .in_bfb_installation_wait(db, endpoint, started_at, host_bmc_ip)
+                .await?;
             false
         }
         PreingestionState::Complete => {
@@ -1687,6 +1749,464 @@ impl PreingestionManagerStatic {
             );
             Ok(true)
         }
+    }
+
+    /// Handler for BfbRecoveryNeeded state.
+    /// Host preingestion state was already validated by the gRPC handler at trigger time.
+    async fn in_bfb_recovery_needed(
+        &self,
+        db: &PgPool,
+        endpoint: &ExploredEndpoint,
+        host_bmc_ip: &std::net::IpAddr,
+        pre_copy_powercycle: bool,
+    ) -> Result<(), DatabaseError> {
+        let address = endpoint.address;
+
+        self.bfb_copy_state.clear(&address.to_string());
+
+        if pre_copy_powercycle {
+            db.with_txn(|txn| {
+                db::explored_endpoints::set_preingestion_bfb_platform_powercycle(
+                    address,
+                    *host_bmc_ip,
+                    model::site_explorer::BfbPlatformPowercyclePhase::PowerOff,
+                    false,
+                    txn,
+                )
+                .boxed()
+            })
+            .await??;
+            return Ok(());
+        }
+
+        self.start_bfb_copy(db, endpoint, *host_bmc_ip).await
+    }
+
+    async fn in_bfb_platform_powercycle(
+        &self,
+        db: &PgPool,
+        endpoint: &ExploredEndpoint,
+        host_bmc_ip: &std::net::IpAddr,
+        phase: &model::site_explorer::BfbPlatformPowercyclePhase,
+        post_install: bool,
+    ) -> Result<(), DatabaseError> {
+        use model::site_explorer::BfbPlatformPowercyclePhase;
+
+        let address = endpoint.address;
+        let label = if post_install {
+            "post-install"
+        } else {
+            "pre-copy"
+        };
+
+        match phase {
+            BfbPlatformPowercyclePhase::PowerOff => {
+                let redfish_client = match self
+                    .redfish_client_pool
+                    .create_client_for_ingested_host(*host_bmc_ip, None, db)
+                    .await
+                {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::error!(%address, host_ip=%host_bmc_ip, error=%e, "{label}: failed to create Redfish client for host, will retry");
+                        return Ok(());
+                    }
+                };
+
+                tracing::info!(%address, host_ip=%host_bmc_ip, "{label}: powering off host");
+                if let Err(e) = redfish_client.power(SystemPowerControl::ForceOff).await {
+                    tracing::error!(%address, host_ip=%host_bmc_ip, error=%e, "{label}: failed to power off host, will retry");
+                    return Ok(());
+                }
+
+                db.with_txn(|txn| {
+                    db::explored_endpoints::set_preingestion_bfb_platform_powercycle(
+                        address,
+                        *host_bmc_ip,
+                        BfbPlatformPowercyclePhase::PowerOn,
+                        post_install,
+                        txn,
+                    )
+                    .boxed()
+                })
+                .await??;
+            }
+            BfbPlatformPowercyclePhase::PowerOn => {
+                let redfish_client = match self
+                    .redfish_client_pool
+                    .create_client_for_ingested_host(*host_bmc_ip, None, db)
+                    .await
+                {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::error!(%address, host_ip=%host_bmc_ip, error=%e, "{label}: failed to create Redfish client for host, will retry");
+                        return Ok(());
+                    }
+                };
+
+                tracing::info!(%address, host_ip=%host_bmc_ip, "{label}: powering on host");
+                if let Err(e) = redfish_client.power(SystemPowerControl::On).await {
+                    tracing::error!(%address, host_ip=%host_bmc_ip, error=%e, "{label}: failed to power on host, will retry");
+                    return Ok(());
+                }
+
+                db.with_txn(|txn| {
+                    db::explored_endpoints::set_preingestion_bfb_platform_powercycle(
+                        address,
+                        *host_bmc_ip,
+                        BfbPlatformPowercyclePhase::WaitingForDpuBmc,
+                        post_install,
+                        txn,
+                    )
+                    .boxed()
+                })
+                .await??;
+            }
+            BfbPlatformPowercyclePhase::WaitingForDpuBmc => {
+                let dpu_addr = std::net::SocketAddr::new(address, 443);
+                match self
+                    .endpoint_explorer
+                    .probe_redfish_endpoint(dpu_addr)
+                    .await
+                {
+                    Ok(()) if post_install => {
+                        tracing::info!(%address, "DPU BMC online after post-install power-cycle, completing preingestion");
+                        db.with_txn(|txn| {
+                            async move {
+                                db::explored_endpoints::set_preingestion_complete(address, txn)
+                                    .await?;
+                                db::explored_endpoints::set_waiting_for_explorer_refresh(
+                                    address, txn,
+                                )
+                                .await?;
+                                db::explored_endpoints::set_pause_remediation(
+                                    *host_bmc_ip,
+                                    false,
+                                    txn,
+                                )
+                                .await?;
+                                Ok::<(), DatabaseError>(())
+                            }
+                            .boxed()
+                        })
+                        .await??;
+                    }
+                    Ok(()) => {
+                        tracing::info!(%address, "DPU BMC online after host power-cycle, starting BFB copy");
+                        self.start_bfb_copy(db, endpoint, *host_bmc_ip).await?;
+                    }
+                    Err(_) => {
+                        tracing::debug!(%address, "DPU BMC not yet reachable after {label} power-cycle");
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn start_bfb_copy(
+        &self,
+        db: &PgPool,
+        endpoint: &ExploredEndpoint,
+        host_bmc_ip: std::net::IpAddr,
+    ) -> Result<(), DatabaseError> {
+        let address = endpoint.address;
+
+        let Ok(permit) = self.bfb_copy_limiter.clone().try_acquire_owned() else {
+            tracing::warn!(%address, "deferring BFB copy, too many copies already active");
+            return Ok(());
+        };
+
+        let interface = match db::machine_interface::find_by_ip(db, address).await? {
+            Some(interface) => interface,
+            None => {
+                tracing::error!(%address, "no machine interface found for BFB copy, marking as failed");
+                db.with_txn(|txn| {
+                    db::explored_endpoints::set_preingestion_failed(
+                        address,
+                        "No machine interface found for this DPU. \
+                             Re-run `site-explorer copy-bfb-to-dpu-rshim` to retry."
+                            .to_string(),
+                        txn,
+                    )
+                    .boxed()
+                })
+                .await??;
+                return Ok(());
+            }
+        };
+
+        let is_bf2 = endpoint.report.identify_dpu() == Some(model::DpuModel::BlueField2);
+
+        db.with_txn(|txn| {
+            db::explored_endpoints::set_preingestion_bfb_copy_in_progress(address, host_bmc_ip, txn)
+                .boxed()
+        })
+        .await??;
+
+        self.bfb_copy_state.started(address.to_string());
+
+        let bfb_copy_state = self.bfb_copy_state.clone();
+        let endpoint_explorer = self.endpoint_explorer.clone();
+        let bmc_addr = std::net::SocketAddr::new(address, 22);
+
+        tokio::spawn(async move {
+            let _permit = permit;
+
+            tracing::info!(%address, is_bf2, "starting BFB copy to DPU rshim");
+
+            let result = endpoint_explorer
+                .copy_bfb_to_dpu_rshim(bmc_addr, &interface, is_bf2)
+                .await;
+
+            match result {
+                Ok(()) => {
+                    tracing::info!(%address, "BFB copy completed successfully");
+                    bfb_copy_state.completed(address.to_string(), BfbCopyResult::Success);
+                }
+                Err(e) => {
+                    tracing::error!(%address, error=%e, "BFB copy failed");
+                    bfb_copy_state
+                        .completed(address.to_string(), BfbCopyResult::Failed(e.to_string()));
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    async fn in_bfb_copy_in_progress(
+        &self,
+        db: &PgPool,
+        endpoint: &ExploredEndpoint,
+        started_at: &DateTime<Utc>,
+        host_bmc_ip: &std::net::IpAddr,
+    ) -> Result<(), DatabaseError> {
+        let address = endpoint.address.to_string();
+
+        let is_bf2 = endpoint.report.identify_dpu() == Some(model::DpuModel::BlueField2);
+        let timeout_mins = if is_bf2 {
+            BFB_COPY_TIMEOUT_MINS_BF2
+        } else {
+            BFB_COPY_TIMEOUT_MINS
+        };
+
+        let elapsed_mins = Utc::now().signed_duration_since(*started_at).num_minutes();
+        if elapsed_mins > timeout_mins {
+            self.bfb_copy_state.clear(&address);
+            tracing::error!(%address, elapsed_mins, timeout_mins, "BFB copy timed out");
+            db.with_txn(|txn| {
+                db::explored_endpoints::set_preingestion_failed(
+                    endpoint.address,
+                    format!(
+                        "BFB copy timed out after {elapsed_mins} minutes. \
+                         Re-run `site-explorer copy-bfb-to-dpu-rshim` to retry.",
+                    ),
+                    txn,
+                )
+                .boxed()
+            })
+            .await??;
+            return Ok(());
+        }
+
+        if !self.bfb_copy_state.is_tracked(&address) {
+            tracing::warn!(%address, "detected orphaned BFB copy state, restarting copy");
+            db.with_txn(|txn| {
+                db::explored_endpoints::set_preingestion_bfb_recovery_needed(
+                    endpoint.address,
+                    "Restarting after orphaned copy state detected".to_string(),
+                    *host_bmc_ip,
+                    false,
+                    txn,
+                )
+                .boxed()
+            })
+            .await??;
+            return Ok(());
+        }
+
+        match self.bfb_copy_state.state(&address) {
+            None => {
+                tracing::debug!(%address, "BFB copy still in progress");
+                Ok(())
+            }
+            Some(BfbCopyResult::Success) => {
+                self.bfb_copy_state.clear(&address);
+                tracing::info!(%address, "BFB copy completed, waiting for installation");
+                db.with_txn(|txn| {
+                    db::explored_endpoints::set_preingestion_bfb_installation_wait(
+                        endpoint.address,
+                        *host_bmc_ip,
+                        txn,
+                    )
+                    .boxed()
+                })
+                .await??;
+                Ok(())
+            }
+            Some(BfbCopyResult::Failed(error)) => {
+                self.bfb_copy_state.clear(&address);
+                tracing::error!(%address, error=%error, "BFB copy failed");
+                db.with_txn(|txn| {
+                    db::explored_endpoints::set_preingestion_failed(
+                        endpoint.address,
+                        format!(
+                            "BFB copy failed: {error}. \
+                             Re-run `site-explorer copy-bfb-to-dpu-rshim` to retry.",
+                        ),
+                        txn,
+                    )
+                    .boxed()
+                })
+                .await??;
+                Ok(())
+            }
+        }
+    }
+
+    async fn in_bfb_installation_wait(
+        &self,
+        db: &PgPool,
+        endpoint: &ExploredEndpoint,
+        started_at: &DateTime<Utc>,
+        host_bmc_ip: &std::net::IpAddr,
+    ) -> Result<(), DatabaseError> {
+        let elapsed_mins = Utc::now().signed_duration_since(*started_at).num_minutes();
+        if elapsed_mins > BFB_INSTALLATION_TIMEOUT_MINS {
+            tracing::error!(address=%endpoint.address, elapsed_mins, "BFB installation timed out");
+            db.with_txn(|txn| {
+                db::explored_endpoints::set_preingestion_failed(
+                    endpoint.address,
+                    format!(
+                        "BFB installation timed out after {elapsed_mins} minutes. \
+                         Re-run `site-explorer copy-bfb-to-dpu-rshim` to retry.",
+                    ),
+                    txn,
+                )
+                .boxed()
+            })
+            .await??;
+            return Ok(());
+        }
+
+        if elapsed_mins < BFB_INSTALLATION_MIN_WAIT_MINS {
+            tracing::debug!(address=%endpoint.address, elapsed_mins, min_wait=BFB_INSTALLATION_MIN_WAIT_MINS, "BFB installation in progress, waiting before checking");
+            return Ok(());
+        }
+
+        if self.check_dpu_console_install_complete(db, endpoint).await {
+            tracing::info!(address=%endpoint.address, "DPU installation complete, powercycling host");
+            db.with_txn(|txn| {
+                db::explored_endpoints::set_preingestion_bfb_platform_powercycle(
+                    endpoint.address,
+                    *host_bmc_ip,
+                    model::site_explorer::BfbPlatformPowercyclePhase::PowerOff,
+                    true,
+                    txn,
+                )
+                .boxed()
+            })
+            .await??;
+            return Ok(());
+        }
+
+        tracing::debug!(address=%endpoint.address, elapsed_mins, "DPU console login not yet detected, waiting");
+        Ok(())
+    }
+
+    async fn check_dpu_console_install_complete(
+        &self,
+        db: &PgPool,
+        endpoint: &ExploredEndpoint,
+    ) -> bool {
+        const MARKERS: &[&str] = &[
+            "login:",
+            "Running bfb_post_install from bf.cfg",
+            "total 100% complete",
+        ];
+
+        let address = endpoint.address;
+        let bmc_addr = std::net::SocketAddr::new(address, 22);
+
+        let Some(credential_reader) = &self.credential_reader else {
+            tracing::debug!(%address, "no credential reader, skipping console check");
+            return false;
+        };
+
+        let interface = match db::machine_interface::find_by_ip(db, address).await {
+            Ok(Some(iface)) => iface,
+            _ => {
+                tracing::debug!(%address, "no machine interface for console check");
+                return false;
+            }
+        };
+
+        let key = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::BmcRoot {
+                bmc_mac_address: interface.mac_address,
+            },
+        };
+
+        let (username, password) = match credential_reader.get_credentials(&key).await {
+            Ok(Some(Credentials::UsernamePassword { username, password })) => (username, password),
+            Ok(None) => {
+                tracing::debug!(%address, "no credentials found for console check");
+                return false;
+            }
+            Err(e) => {
+                tracing::warn!(%address, error=%e, "failed to retrieve credentials for console check");
+                return false;
+            }
+        };
+
+        match forge_ssh::ssh::check_console_for_markers(bmc_addr, username, password, MARKERS).await
+        {
+            Ok(found) => found,
+            Err(e) => {
+                tracing::debug!(%address, error=%e, "SSH console check failed");
+                false
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum BfbCopyResult {
+    Success,
+    Failed(String),
+}
+
+#[derive(Debug, Default)]
+struct BfbCopyManager {
+    active: std::sync::Mutex<HashMap<String, Option<BfbCopyResult>>>,
+}
+
+impl BfbCopyManager {
+    fn started(&self, address: String) {
+        let mut hashmap = self.active.lock().expect("lock poisoned");
+        hashmap.insert(address, None);
+    }
+
+    fn completed(&self, address: String, result: BfbCopyResult) {
+        let mut hashmap = self.active.lock().expect("lock poisoned");
+        hashmap.insert(address, Some(result));
+    }
+
+    fn clear(&self, address: &str) {
+        let mut hashmap = self.active.lock().expect("lock poisoned");
+        hashmap.remove(address);
+    }
+
+    fn state(&self, address: &str) -> Option<BfbCopyResult> {
+        let hashmap = self.active.lock().expect("lock poisoned");
+        hashmap.get(address).and_then(|r| r.clone())
+    }
+
+    fn is_tracked(&self, address: &str) -> bool {
+        let hashmap = self.active.lock().expect("lock poisoned");
+        hashmap.contains_key(address)
     }
 }
 

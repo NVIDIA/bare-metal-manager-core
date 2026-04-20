@@ -35,6 +35,8 @@ message EndpointExplorationReport {
   SecureBootStatus secure_boot_status = 17;
   // `LockdownStatus` reported by Redfish
   LockdownStatus lockdown_status = 18;
+  // Parsed firmware component versions (e.g. {"bmc": "25.06-2", "uefi": "00000083", "hgxbmc": "97.00.B9.00.76"})
+  map<string, string> firmware_versions = 19;
 }
 
 message ExploredEndpoint {
@@ -153,6 +155,7 @@ enum PowerState {
   PoweringOff = 2;
   PoweringOn = 3;
   Paused = 4;
+  Unknown = 5;
 }
 
 // `Manager` definition. Matches redfish definition
@@ -167,6 +170,8 @@ message EthernetInterface {
   optional string description = 2;
   optional bool interface_enabled = 3;
   optional string mac_address = 4;
+  // Redfish LinkStatus (e.g. LinkUp, LinkDown, NoLink)
+  optional string link_status = 5;
 }
 
 // `Chassis` definition. Matches redfish definition

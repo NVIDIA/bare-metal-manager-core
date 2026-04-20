@@ -40,6 +40,9 @@ pub mod dpu;
 mod gpu;
 mod tpm;
 
+/// Path where the init container writes the hardware snapshot, and the containerized agent reads it from.
+pub const HW_CACHE_PATH: &str = "/data/hw_output.json";
+
 const PCI_SUBCLASS: &str = "ID_PCI_SUBCLASS_FROM_DATABASE";
 const PCI_DEV_PATH: &str = "DEVPATH";
 const PCI_MODEL: &str = "ID_MODEL_FROM_DATABASE";
@@ -371,6 +374,12 @@ fn get_cpu_info(
 }
 
 pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnumerationError> {
+    enumerate_hardware_inner("/proc/cpuinfo")
+}
+
+fn enumerate_hardware_inner(
+    cpu_info_path: &str,
+) -> Result<rpc_discovery::DiscoveryInfo, HardwareEnumerationError> {
     let context = libudev::Context::new()?;
 
     // uname to detect type
@@ -446,7 +455,7 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
     // cpus
     // TODO(baz): make this work with udev one day... I tried and it gave me useless information on the cpu subsystem
     let cpu_info = {
-        let file = File::open("/proc/cpuinfo")
+        let file = File::open(cpu_info_path)
             .map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
         let reader = BufReader::new(file);
         CpuInfo::from_read(reader)
@@ -859,4 +868,129 @@ pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnum
         // TODO: Remove when there's no longer a need to handle the old topology format
         ..Default::default()
     })
+}
+
+/// Path where the host's `/proc/cpuinfo` is bind-mounted inside the init container.
+const INIT_CPU_INFO_PATH: &str = "/host-cpu-info";
+
+/// Enumerate hardware and save the result as JSON to [`HW_CACHE_PATH`].
+///
+/// Used by the init container to snapshot host hardware info so the containerized agent can
+/// read it via [`load_hardware_from_cache`] without needing direct access to host devices.
+///
+/// Reads CPU info from [`INIT_CPU_INFO_PATH`] (`/host-cpu-info`) where the init container
+/// bind-mounts the host's `/proc/cpuinfo`.
+pub fn enumerate_and_save_hardware()
+-> Result<rpc_discovery::DiscoveryInfo, HardwareEnumerationError> {
+    let info = enumerate_hardware_inner(INIT_CPU_INFO_PATH)?;
+    save_hardware_to(&info, HW_CACHE_PATH)?;
+    Ok(info)
+}
+
+/// Load the hardware snapshot from [`HW_CACHE_PATH`] written by the init container.
+///
+/// Used by the containerized agent instead of direct hardware probing.
+pub fn load_hardware_from_cache() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnumerationError>
+{
+    load_hardware_from(HW_CACHE_PATH)
+}
+
+fn save_hardware_to(
+    info: &rpc_discovery::DiscoveryInfo,
+    path: &str,
+) -> Result<(), HardwareEnumerationError> {
+    let json = serde_json::to_string_pretty(info)
+        .map_err(|e| HardwareEnumerationError::GenericError(e.to_string()))?;
+    fs::write(path, json).map_err(|e| {
+        HardwareEnumerationError::GenericError(format!(
+            "Failed to write hardware cache to {path}: {e}"
+        ))
+    })
+}
+
+fn load_hardware_from(
+    path: &str,
+) -> Result<rpc_discovery::DiscoveryInfo, HardwareEnumerationError> {
+    let contents = fs::read_to_string(path).map_err(|e| {
+        HardwareEnumerationError::GenericError(format!(
+            "Failed to read hardware cache from {path}: {e}"
+        ))
+    })?;
+    serde_json::from_str(&contents).map_err(|e| {
+        HardwareEnumerationError::GenericError(format!(
+            "Failed to parse hardware cache from {path}: {e}"
+        ))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::NamedTempFile;
+
+    use super::*;
+
+    fn minimal_discovery_info() -> rpc_discovery::DiscoveryInfo {
+        rpc_discovery::DiscoveryInfo {
+            machine_type: "aarch64".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_save_and_load_roundtrip() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+
+        let info = minimal_discovery_info();
+        save_hardware_to(&info, path).expect("save should succeed");
+
+        let loaded = load_hardware_from(path).expect("load should succeed");
+        assert_eq!(loaded.machine_type, "aarch64");
+    }
+
+    #[test]
+    fn test_load_file_not_found() {
+        let err = load_hardware_from("/nonexistent/path/hw.json").unwrap_err();
+        assert!(
+            err.to_string().contains("/nonexistent/path/hw.json"),
+            "error should mention the path: {err}"
+        );
+    }
+
+    #[test]
+    fn test_load_invalid_json() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        fs::write(path, b"not valid json { {").unwrap();
+
+        let err = load_hardware_from(path).unwrap_err();
+        assert!(
+            err.to_string().contains("Failed to parse hardware cache"),
+            "error should indicate parse failure: {err}"
+        );
+    }
+
+    #[test]
+    fn test_save_roundtrip_preserves_fields() {
+        let tmp = NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+
+        let info = rpc_discovery::DiscoveryInfo {
+            machine_type: "x86_64".to_string(),
+            block_devices: vec![rpc_discovery::BlockDevice {
+                model: "test-disk".to_string(),
+                serial: "SN123".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        save_hardware_to(&info, path).unwrap();
+        let loaded = load_hardware_from(path).unwrap();
+
+        assert_eq!(loaded.machine_type, "x86_64");
+        assert_eq!(loaded.block_devices.len(), 1);
+        assert_eq!(loaded.block_devices[0].model, "test-disk");
+        assert_eq!(loaded.block_devices[0].serial, "SN123");
+    }
 }

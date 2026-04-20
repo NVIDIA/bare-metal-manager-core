@@ -9,6 +9,9 @@ Deployed sub-charts:
 {{- if index .Values "carbide-api" "enabled" | default true }}
   ✓ carbide-api
 {{- end }}
+{{- if index .Values "carbide-bmc-proxy" "enabled" | default false }}
+  ✓ carbide-bmc-proxy
+{{- end }}
 {{- if index .Values "carbide-dhcp" "enabled" | default true }}
   ✓ carbide-dhcp
 {{- end }}

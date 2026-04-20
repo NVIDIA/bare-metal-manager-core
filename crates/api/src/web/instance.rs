@@ -233,6 +233,7 @@ struct InstanceDetail {
 
 #[derive(Default)]
 struct InstanceOs {
+    os_id: String,
     ipxe_script: String,
     userdata: String,
     run_provisioning_instructions_on_every_boot: bool,
@@ -347,7 +348,7 @@ impl From<forgerpc::Instance> for InstanceDetail {
             .and_then(|config| config.os.as_ref())
             .map(|os| match &os.variant {
                 Some(os_variant) => match os_variant {
-                    forgerpc::operating_system::Variant::Ipxe(ipxe) => InstanceOs {
+                    forgerpc::instance_operating_system_config::Variant::Ipxe(ipxe) => InstanceOs {
                         ipxe_script: ipxe.ipxe_script.clone(),
                         userdata: os
                             .user_data
@@ -356,14 +357,27 @@ impl From<forgerpc::Instance> for InstanceDetail {
                         run_provisioning_instructions_on_every_boot: os
                             .run_provisioning_instructions_on_every_boot,
                         phone_home_enabled: os.phone_home_enabled,
+                        ..Default::default()
                     },
-                    forgerpc::operating_system::Variant::OsImageId(_id) => InstanceOs {
-                        ipxe_script: "".to_string(),
-                        userdata: os.user_data.clone().unwrap_or_default(),
-                        run_provisioning_instructions_on_every_boot: os
-                            .run_provisioning_instructions_on_every_boot,
-                        phone_home_enabled: os.phone_home_enabled,
-                    },
+                    forgerpc::instance_operating_system_config::Variant::OsImageId(_id) => {
+                        InstanceOs {
+                            userdata: os.user_data.clone().unwrap_or_default(),
+                            run_provisioning_instructions_on_every_boot: os
+                                .run_provisioning_instructions_on_every_boot,
+                            phone_home_enabled: os.phone_home_enabled,
+                            ..Default::default()
+                        }
+                    }
+                    forgerpc::instance_operating_system_config::Variant::OperatingSystemId(id) => {
+                        InstanceOs {
+                            os_id: id.to_string(),
+                            userdata: os.user_data.clone().unwrap_or_default(),
+                            run_provisioning_instructions_on_every_boot: os
+                                .run_provisioning_instructions_on_every_boot,
+                            phone_home_enabled: os.phone_home_enabled,
+                            ..Default::default()
+                        }
+                    }
                 },
                 None => InstanceOs::default(),
             })

@@ -29,7 +29,7 @@ use uuid::Uuid;
 
 use crate::metadata::{Metadata, default_metadata_for_deserializer};
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Clone, Default, Deserialize)] // Do not add Debug here. It contains password.
 pub struct ExpectedPowerShelf {
     #[serde(default)]
     pub expected_power_shelf_id: Option<Uuid>,
@@ -37,10 +37,14 @@ pub struct ExpectedPowerShelf {
     pub bmc_username: String,
     pub serial_number: String,
     pub bmc_password: String,
-    pub ip_address: Option<IpAddr>,
+    pub bmc_ip_address: Option<IpAddr>,
     #[serde(default = "default_metadata_for_deserializer")]
     pub metadata: Metadata,
     pub rack_id: Option<RackId>,
+    /// When true, site-explorer skips BMC password rotation and stores the
+    /// factory-default credentials in Vault as-is.
+    #[serde(default)]
+    pub bmc_retain_credentials: Option<bool>,
 }
 
 impl<'r> FromRow<'r, PgRow> for ExpectedPowerShelf {
@@ -58,9 +62,10 @@ impl<'r> FromRow<'r, PgRow> for ExpectedPowerShelf {
             bmc_username: row.try_get("bmc_username")?,
             serial_number: row.try_get("serial_number")?,
             bmc_password: row.try_get("bmc_password")?,
-            ip_address: row.try_get("ip_address").ok(),
+            bmc_ip_address: row.try_get("bmc_ip_address").ok(),
             metadata,
             rack_id: row.try_get("rack_id").ok(),
+            bmc_retain_credentials: row.try_get("bmc_retain_credentials")?,
         })
     }
 }
@@ -77,12 +82,13 @@ impl From<ExpectedPowerShelf> for rpc::forge::ExpectedPowerShelf {
             bmc_username: expected_power_shelf.bmc_username,
             bmc_password: expected_power_shelf.bmc_password,
             shelf_serial_number: expected_power_shelf.serial_number,
-            ip_address: expected_power_shelf
-                .ip_address
+            bmc_ip_address: expected_power_shelf
+                .bmc_ip_address
                 .map(|ip| ip.to_string())
                 .unwrap_or_default(),
             metadata: Some(expected_power_shelf.metadata.into()),
             rack_id: expected_power_shelf.rack_id,
+            bmc_retain_credentials: expected_power_shelf.bmc_retain_credentials.filter(|&v| v),
         }
     }
 }
@@ -100,10 +106,10 @@ impl TryFrom<rpc::forge::ExpectedPowerShelf> for ExpectedPowerShelf {
                     .map_err(|_| RpcDataConversionError::InvalidArgument(u.value))
             })
             .transpose()?;
-        let ip_address = if rpc.ip_address.is_empty() {
+        let bmc_ip_address = if rpc.bmc_ip_address.is_empty() {
             None
         } else {
-            rpc.ip_address.parse().ok()
+            rpc.bmc_ip_address.parse().ok()
         };
         let metadata = Metadata::try_from(rpc.metadata.unwrap_or_default())?;
 
@@ -113,9 +119,10 @@ impl TryFrom<rpc::forge::ExpectedPowerShelf> for ExpectedPowerShelf {
             bmc_username: rpc.bmc_username,
             bmc_password: rpc.bmc_password,
             serial_number: rpc.shelf_serial_number,
-            ip_address,
+            bmc_ip_address,
             metadata,
             rack_id: rpc.rack_id,
+            bmc_retain_credentials: rpc.bmc_retain_credentials,
         })
     }
 }

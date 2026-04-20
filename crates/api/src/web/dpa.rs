@@ -26,7 +26,7 @@ use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 use uuid::Uuid;
 
-use super::filters;
+use super::state_history::StateHistoryTable;
 use crate::api::Api;
 
 #[derive(Template)]
@@ -116,17 +116,6 @@ async fn fetch_dpas(api: Arc<Api>) -> Result<Vec<forgerpc::DpaInterface>, tonic:
 }
 
 #[derive(Template)]
-#[template(path = "dpa_state_history_table.html")]
-pub(super) struct DpaStateHistoryTable {
-    pub records: Vec<DpaStateHistoryRecord>,
-}
-
-#[derive(Debug, serde::Serialize)]
-pub(super) struct DpaStateHistoryRecord {
-    pub state: String,
-    pub version: String,
-}
-#[derive(Template)]
 #[template(path = "dpa_detail.html")]
 struct DpaDetail {
     id: String,
@@ -142,21 +131,18 @@ struct DpaDetail {
     network_config: String,
     network_config_version: String,
     network_status_observation: String,
-    history: DpaStateHistoryTable,
+    history: StateHistoryTable,
 }
 
 impl From<forgerpc::DpaInterface> for DpaDetail {
     fn from(dpa: forgerpc::DpaInterface) -> Self {
         let mut history_records = Vec::new();
 
-        for e in dpa.history.into_iter().rev() {
-            history_records.push(DpaStateHistoryRecord {
-                state: e.state,
-                version: e.version,
-            });
+        for record in dpa.history.into_iter().rev() {
+            history_records.push(record.into());
         }
 
-        let history = DpaStateHistoryTable {
+        let history = StateHistoryTable {
             records: history_records,
         };
 

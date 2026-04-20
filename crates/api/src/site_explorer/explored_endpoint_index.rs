@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 
 use mac_address::MacAddress;
+use model::expected_entity::ExpectedEntity;
 use model::expected_machine::ExpectedMachine;
 use model::expected_power_shelf::ExpectedPowerShelf;
 use model::expected_switch::ExpectedSwitch;
@@ -29,9 +30,7 @@ use model::site_explorer::ExploredEndpoint;
 pub struct ExploredEndpointIndex {
     explored_underlay_interfaces: HashMap<MacAddress, MachineInterfaceSnapshot>,
     explored_endpoints: HashMap<IpAddr, ExploredEndpoint>,
-    expected_machines: HashMap<MacAddress, ExpectedMachine>,
-    expected_power_shelves: HashMap<MacAddress, ExpectedPowerShelf>,
-    expected_switches: HashMap<MacAddress, ExpectedSwitch>,
+    expected: HashMap<MacAddress, ExpectedEntity>,
 
     // 2-level index: Look up the IpAddr to get the MacAddress, then look that up to get the actual data.
     underlay_interfaces_addr_index: HashMap<IpAddr, MacAddress>,
@@ -53,9 +52,9 @@ impl ExploredEndpointIndex {
         &self.explored_endpoints
     }
 
-    /// Get a HashMap of expected machines, indexed by their MAC address
-    pub fn expected_machines(&self) -> &HashMap<MacAddress, ExpectedMachine> {
-        &self.expected_machines
+    /// Get a HashMap of expected entities, indexed by their MAC address
+    pub fn expected(&self) -> &HashMap<MacAddress, ExpectedEntity> {
+        &self.expected
     }
 
     /// Get the underlay interface from `explored_underlay_interfaces` with the given address.
@@ -65,25 +64,48 @@ impl ExploredEndpointIndex {
             .and_then(|mac| self.explored_underlay_interfaces.get(mac))
     }
 
-    /// Get the [`ExpectedMachine`] that was matched with an ExploredEndpoint, if one was given.
-    pub fn matched_expected_machine(&self, addr: &IpAddr) -> Option<&ExpectedMachine> {
+    /// Get the [`ExpectedEntity`] that was matched with an ExploredEndpoint, if one was given.
+    pub fn matched_expected(&self, addr: &IpAddr) -> Option<&ExpectedEntity> {
         self.explored_machines_addr_index
             .get(addr)
-            .and_then(|mac| self.expected_machines.get(mac))
+            .or_else(|| self.explored_power_shelves_addr_index.get(addr))
+            .or_else(|| self.explored_switches_addr_index.get(addr))
+            .and_then(|mac| self.expected.get(mac))
+    }
+
+    /// Get the [`ExpectedMachine`] that was matched with an ExploredEndpoint, if one was given.
+    pub fn matched_expected_machine(&self, addr: &IpAddr) -> Option<&ExpectedMachine> {
+        self.explored_machines_addr_index.get(addr).and_then(|mac| {
+            if let Some(ExpectedEntity::Machine(v)) = self.expected.get(mac) {
+                Some(v)
+            } else {
+                None
+            }
+        })
     }
 
     /// Get the [`ExpectedPowerShelf`] that was matched with an ExploredEndpoint, if one was given.
     pub fn matched_expected_power_shelf(&self, addr: &IpAddr) -> Option<&ExpectedPowerShelf> {
         self.explored_power_shelves_addr_index
             .get(addr)
-            .and_then(|mac| self.expected_power_shelves.get(mac))
+            .and_then(|mac| {
+                if let Some(ExpectedEntity::PowerShelf(v)) = self.expected.get(mac) {
+                    Some(v)
+                } else {
+                    None
+                }
+            })
     }
 
     /// Get the [`ExpectedSwitch`] that was matched with an ExploredEndpoint, if one was given.
     pub fn matched_expected_switch(&self, addr: &IpAddr) -> Option<&ExpectedSwitch> {
-        self.explored_switches_addr_index
-            .get(addr)
-            .and_then(|mac| self.expected_switches.get(mac))
+        self.explored_switches_addr_index.get(addr).and_then(|mac| {
+            if let Some(ExpectedEntity::Switch(v)) = self.expected.get(mac) {
+                Some(v)
+            } else {
+                None
+            }
+        })
     }
 
     /// Get [`MachineInterfaceSnapshot`]s from `explored_underlay_interfaces` that do not have
@@ -107,10 +129,12 @@ impl ExploredEndpointIndex {
 
     /// Return the expected machines that were found in `explored_underlay_interfaces`
     pub fn all_matched_expected_machines(&self) -> HashMap<MacAddress, &ExpectedMachine> {
-        self.expected_machines
+        self.expected
             .iter()
-            .filter_map(|(mac, expected_machine)| {
-                if self.explored_underlay_interfaces.contains_key(mac) {
+            .filter_map(|(mac, expected)| {
+                if let ExpectedEntity::Machine(expected_machine) = expected
+                    && self.explored_underlay_interfaces.contains_key(mac)
+                {
                     Some((*mac, expected_machine))
                 } else {
                     None
@@ -130,9 +154,7 @@ impl ExploredEndpointIndex {
 pub struct ExploredEndpointIndexBuilder {
     explored_underlay_interfaces: HashMap<MacAddress, MachineInterfaceSnapshot>,
     explored_endpoints: HashMap<IpAddr, ExploredEndpoint>,
-    expected_machines: HashMap<MacAddress, ExpectedMachine>,
-    expected_power_shelves: HashMap<MacAddress, ExpectedPowerShelf>,
-    expected_switches: HashMap<MacAddress, ExpectedSwitch>,
+    expected: HashMap<MacAddress, ExpectedEntity>,
 
     // 2-level index: Look up the IpAddr to get the MacAddress, then look that up to get the actual data.
     underlay_interfaces_addr_index: HashMap<IpAddr, MacAddress>,
@@ -169,9 +191,7 @@ impl ExploredEndpointIndexBuilder {
             explored_underlay_interfaces,
             underlay_interfaces_addr_index,
             explored_endpoints,
-            expected_machines: Default::default(),
-            expected_power_shelves: Default::default(),
-            expected_switches: Default::default(),
+            expected: Default::default(),
             explored_machines_addr_index: Default::default(),
             explored_power_shelves_addr_index: Default::default(),
             explored_switches_addr_index: Default::default(),
@@ -199,8 +219,8 @@ impl ExploredEndpointIndexBuilder {
                         .insert(*addr, shelf.bmc_mac_address);
                 }
             }
-            self.expected_power_shelves
-                .insert(shelf.bmc_mac_address, shelf);
+            self.expected
+                .insert(shelf.bmc_mac_address, ExpectedEntity::PowerShelf(shelf));
         }
         self
     }
@@ -227,8 +247,8 @@ impl ExploredEndpointIndexBuilder {
                         .insert(*addr, switch.bmc_mac_address);
                 }
             }
-            self.expected_switches
-                .insert(switch.bmc_mac_address, switch);
+            self.expected
+                .insert(switch.bmc_mac_address, ExpectedEntity::Switch(switch));
         }
         self
     }
@@ -244,8 +264,8 @@ impl ExploredEndpointIndexBuilder {
                         .insert(*addr, machine.bmc_mac_address);
                 }
             }
-            self.expected_machines
-                .insert(machine.bmc_mac_address, machine);
+            self.expected
+                .insert(machine.bmc_mac_address, ExpectedEntity::Machine(machine));
         }
         self
     }
@@ -254,9 +274,7 @@ impl ExploredEndpointIndexBuilder {
         ExploredEndpointIndex {
             explored_underlay_interfaces: self.explored_underlay_interfaces,
             explored_endpoints: self.explored_endpoints,
-            expected_machines: self.expected_machines,
-            expected_power_shelves: self.expected_power_shelves,
-            expected_switches: self.expected_switches,
+            expected: self.expected,
             underlay_interfaces_addr_index: self.underlay_interfaces_addr_index,
             explored_machines_addr_index: self.explored_machines_addr_index,
             explored_power_shelves_addr_index: self.explored_power_shelves_addr_index,

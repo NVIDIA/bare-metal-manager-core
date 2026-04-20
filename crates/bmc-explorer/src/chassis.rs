@@ -16,10 +16,13 @@
  */
 
 use std::convert::identity;
+use std::fmt;
 
-use model::site_explorer::Chassis;
+use itertools::Itertools;
+use model::site_explorer::{Chassis, PowerState as ModelPowerState};
 use nv_redfish::assembly::Model as AssemblyModel;
 use nv_redfish::chassis::Chassis as NvChassis;
+use nv_redfish::core::ODataId;
 use nv_redfish::hardware_id::{Manufacturer, Model};
 use nv_redfish::pcie_device::PcieDevice;
 use nv_redfish::resource::ResourceIdRef;
@@ -32,6 +35,7 @@ type AssemblyModelFilterFn = fn(Option<AssemblyModel<&str>>) -> bool;
 pub struct Config {
     pub network_adapter: network_adapter::Config,
     pub need_assembly_sn: fn(ResourceIdRef) -> Option<AssemblyModelFilterFn>,
+    pub lazy_fetch: Option<fn(&ODataId) -> bool>,
 }
 
 pub struct ExploredChassisCollection<B: Bmc> {
@@ -40,19 +44,43 @@ pub struct ExploredChassisCollection<B: Bmc> {
 
 impl<B: Bmc> ExploredChassisCollection<B> {
     pub async fn explore(root: &ServiceRoot<B>, config: &Config) -> Result<Self, Error<B>> {
-        let nv_members = root
-            .chassis()
-            .await
-            .map_err(Error::nv_redfish("chassis collection"))?
-            .ok_or_else(Error::bmc_not_provided("chassis collection"))?
-            .members()
-            .await
-            .map_err(Error::nv_redfish("chassis collection members"))?;
         let mut members = Vec::new();
-        for m in nv_members {
+        for m in Self::fetch_members(root, config).await? {
             members.push(ExploredChassis::explore(m, config).await?);
         }
         Ok(Self { members })
+    }
+
+    async fn fetch_members(
+        root: &ServiceRoot<B>,
+        config: &Config,
+    ) -> Result<Vec<NvChassis<B>>, Error<B>> {
+        if let Some(filter) = config.lazy_fetch {
+            let links = root
+                .chassis_links()
+                .await
+                .map_err(Error::nv_redfish("chassis collection"))?
+                .ok_or_else(Error::bmc_not_provided("chassis collection"))?;
+            let mut result = Vec::with_capacity(links.len());
+            for l in links {
+                if filter(l.odata_id()) {
+                    result.push(
+                        l.upgrade()
+                            .await
+                            .map_err(Error::nv_redfish("chassis collection member"))?,
+                    )
+                }
+            }
+            Ok(result)
+        } else {
+            root.chassis()
+                .await
+                .map_err(Error::nv_redfish("chassis collection"))?
+                .ok_or_else(Error::bmc_not_provided("chassis collection"))?
+                .members()
+                .await
+                .map_err(Error::nv_redfish("chassis collection members"))
+        }
     }
 
     pub fn to_model(&self) -> Vec<Chassis> {
@@ -60,9 +88,23 @@ impl<B: Bmc> ExploredChassisCollection<B> {
     }
 
     pub fn is_liteon_powershelf(&self) -> bool {
-        self.members
-            .iter()
-            .any(|m| m.chassis.id().into_inner() == "powershelf")
+        self.members.iter().any(|m| {
+            m.chassis.id().into_inner() == "powershelf"
+                || (m.chassis.id().into_inner() == "chassis"
+                    && m.chassis
+                        .hardware_id()
+                        .manufacturer
+                        .as_ref()
+                        .is_some_and(|mfg| mfg.as_ref().to_lowercase().contains("lite-on")))
+        })
+    }
+
+    pub fn liteon_power_state(&self) -> Option<LiteOnSuppliesState<'_>> {
+        self.members.iter().find_map(|m| {
+            m.oem_liteon_power_supplies
+                .as_ref()
+                .map(|v| LiteOnSuppliesState(v))
+        })
     }
 
     pub fn is_gb300(&self) -> bool {
@@ -130,6 +172,7 @@ pub struct ExploredChassis<B: Bmc> {
     pub chassis: NvChassis<B>,
     pub network_adapters: ExploredNetworkAdapterCollection<B>,
     pub assembly_sn: Option<String>,
+    pub oem_liteon_power_supplies: Option<Vec<LiteOnPowerSupply>>,
 }
 
 impl<B: Bmc> ExploredChassis<B> {
@@ -160,11 +203,36 @@ impl<B: Bmc> ExploredChassis<B> {
         } else {
             None
         };
+        // Here we rely on the fact that
+        // Chassis::oem_liteon_power_supply_links returns None
+        // immediately if chassis is not LiteOn.
+        let oem_liteon_power_supplies = if let Some(ps_links) = chassis
+            .oem_liteon_power_supply_links()
+            .await
+            .map_err(Error::nv_redfish("LiteOn power supply links"))?
+        {
+            let mut power_supplies = Vec::new();
+            for l in ps_links {
+                let ps = l
+                    .fetch()
+                    .await
+                    .map_err(Error::nv_redfish("LiteOn power supply"))?;
+                power_supplies.push(LiteOnPowerSupply {
+                    id: ps.base.id.clone(),
+                    serial_number: ps.serial_number.clone().and_then(std::convert::identity),
+                    power_state: ps.power_state,
+                });
+            }
+            Some(power_supplies)
+        } else {
+            None
+        };
 
         Ok(Self {
             chassis,
             network_adapters,
             assembly_sn,
+            oem_liteon_power_supplies,
         })
     }
 
@@ -205,6 +273,43 @@ impl<B: Bmc> ExploredChassis<B> {
                 .as_ref()
                 .and_then(|x| x.revision_id())
                 .map(|v| v.into_inner() as i32),
+        }
+    }
+}
+
+pub struct LiteOnPowerSupply {
+    pub id: String,
+    pub serial_number: Option<String>,
+    pub power_state: Option<bool>,
+}
+
+pub struct LiteOnSuppliesState<'a>(&'a [LiteOnPowerSupply]);
+
+impl fmt::Display for LiteOnSuppliesState<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0
+            .iter()
+            .map(|s| format!("{}:{:?}:{:?}", s.id, s.serial_number, s.power_state))
+            .join(", ")
+            .fmt(f)
+    }
+}
+
+impl LiteOnSuppliesState<'_> {
+    pub fn to_model(&self) -> ModelPowerState {
+        if self.0.is_empty() {
+            return ModelPowerState::Unknown;
+        }
+
+        let on = self.0.iter().all(|v| v.power_state == Some(true));
+        let off = self.0.iter().all(|v| v.power_state == Some(false));
+        if on {
+            ModelPowerState::On
+        } else if off {
+            ModelPowerState::Off
+        } else {
+            tracing::warn!("powershelf power state is unknown: {self}");
+            ModelPowerState::Unknown
         }
     }
 }

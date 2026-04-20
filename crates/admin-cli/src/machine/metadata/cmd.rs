@@ -15,12 +15,9 @@
  * limitations under the License.
  */
 
-use std::collections::HashSet;
-use std::pin::Pin;
-
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
+use carbide_uuid::machine::MachineId;
 use mac_address::MacAddress;
-use prettytable::{Row, Table};
 use rpc::Machine;
 
 use super::args::{
@@ -28,12 +25,11 @@ use super::args::{
     MachineMetadataCommandRemoveLabels, MachineMetadataCommandSet, MachineMetadataCommandShow,
 };
 use crate::rpc::ApiClient;
-use crate::{async_write, async_writeln};
 
 pub async fn metadata(
     api_client: &ApiClient,
     cmd: Args,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     format: OutputFormat,
     extended: bool,
 ) -> CarbideCliResult<()> {
@@ -47,46 +43,19 @@ pub async fn metadata(
 }
 
 pub async fn handle_metadata_show(
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     _extended: bool,
     machine: Machine,
 ) -> CarbideCliResult<()> {
     let metadata = machine.metadata.ok_or(CarbideCliError::Empty)?;
-
-    match output_format {
-        OutputFormat::AsciiTable => {
-            async_writeln!(output_file, "Name        : {}", metadata.name)?;
-            async_writeln!(output_file, "Description : {}", metadata.description)?;
-            let mut table = Table::new();
-            table.set_titles(Row::from(vec!["Key", "Value"]));
-            for l in &metadata.labels {
-                table.add_row(Row::from(vec![&l.key, l.value.as_deref().unwrap_or("")]));
-            }
-            async_write!(output_file, "{}", table)?;
-        }
-        OutputFormat::Csv => {
-            return Err(CarbideCliError::NotImplemented(
-                "CSV formatted output".to_string(),
-            ));
-        }
-        OutputFormat::Json => {
-            async_writeln!(output_file, "{}", serde_json::to_string_pretty(&metadata)?)?
-        }
-        OutputFormat::Yaml => {
-            return Err(CarbideCliError::NotImplemented(
-                "YAML formatted output".to_string(),
-            ));
-        }
-    }
-
-    Ok(())
+    crate::metadata::display_metadata(output_file, output_format, &metadata).await
 }
 
 pub async fn metadata_show(
     api_client: &ApiClient,
     cmd: MachineMetadataCommandShow,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     format: OutputFormat,
     extended: bool,
 ) -> CarbideCliResult<()> {
@@ -103,93 +72,44 @@ pub async fn metadata_show(
     handle_metadata_show(output_file, &format, extended, machine).await
 }
 
+async fn fetch_machine(api_client: &ApiClient, machine_id: MachineId) -> CarbideCliResult<Machine> {
+    let mut machines = api_client
+        .get_machines_by_ids(&[machine_id])
+        .await?
+        .machines;
+    machines.pop().ok_or_else(|| {
+        CarbideCliError::GenericError(format!("Machine with ID {} was not found", machine_id))
+    })
+}
+
 pub async fn metadata_set(
     api_client: &ApiClient,
     cmd: MachineMetadataCommandSet,
 ) -> CarbideCliResult<()> {
-    let mut machines = api_client
-        .get_machines_by_ids(&[cmd.machine])
-        .await?
-        .machines;
-    if machines.len() != 1 {
-        return Err(CarbideCliError::GenericError(format!(
-            "Machine with ID {} was not found",
-            cmd.machine
-        )));
-    }
-    let machine = machines.remove(0);
-
-    let mut metadata = machine.metadata.ok_or_else(|| {
-        CarbideCliError::GenericError("Machine does not carry Metadata that can be patched".into())
-    })?;
-    if let Some(name) = cmd.name {
-        metadata.name = name;
-    }
-    if let Some(description) = cmd.description {
-        metadata.description = description;
-    }
-
+    let machine = fetch_machine(api_client, cmd.machine).await?;
+    let metadata = crate::metadata::apply_set(machine.metadata, cmd.name, cmd.description)?;
     api_client
         .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
-        .await?;
-    Ok(())
+        .await
 }
 
 pub async fn metadata_add_label(
     api_client: &ApiClient,
     cmd: MachineMetadataCommandAddLabel,
 ) -> CarbideCliResult<()> {
-    let mut machines = api_client
-        .get_machines_by_ids(&[cmd.machine])
-        .await?
-        .machines;
-    if machines.len() != 1 {
-        return Err(CarbideCliError::GenericError(format!(
-            "Machine with ID {} was not found",
-            cmd.machine
-        )));
-    }
-    let machine = machines.remove(0);
-
-    let mut metadata = machine.metadata.ok_or_else(|| {
-        CarbideCliError::GenericError("Machine does not carry Metadata that can be patched".into())
-    })?;
-    metadata.labels.retain_mut(|l| l.key != cmd.key);
-    metadata.labels.push(::rpc::forge::Label {
-        key: cmd.key,
-        value: cmd.value,
-    });
-
+    let machine = fetch_machine(api_client, cmd.machine).await?;
+    let metadata = crate::metadata::apply_add_label(machine.metadata, cmd.key, cmd.value)?;
     api_client
         .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
-        .await?;
-    Ok(())
+        .await
 }
 
 pub async fn metadata_remove_labels(
     api_client: &ApiClient,
     cmd: MachineMetadataCommandRemoveLabels,
 ) -> CarbideCliResult<()> {
-    let mut machines = api_client
-        .get_machines_by_ids(&[cmd.machine])
-        .await?
-        .machines;
-    if machines.len() != 1 {
-        return Err(CarbideCliError::GenericError(format!(
-            "Machine with ID {} was not found",
-            cmd.machine
-        )));
-    }
-    let machine = machines.remove(0);
-
-    let mut metadata = machine.metadata.ok_or_else(|| {
-        CarbideCliError::GenericError("Machine does not carry Metadata that can be patched".into())
-    })?;
-
-    // Retain everything that isn't specified as removed
-    let removed_labels: HashSet<String> = cmd.keys.into_iter().collect();
-    metadata.labels.retain(|l| !removed_labels.contains(&l.key));
-
+    let machine = fetch_machine(api_client, cmd.machine).await?;
+    let metadata = crate::metadata::apply_remove_labels(machine.metadata, cmd.keys)?;
     api_client
         .update_machine_metadata(machine.id.unwrap(), metadata, machine.version)
         .await?;

@@ -75,11 +75,11 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let initial_os = rpc::forge::OperatingSystem {
+    let initial_os = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
@@ -124,11 +124,11 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     let initial_config_version = instance.config_version();
     assert_eq!(initial_config_version.version_nr(), 1);
 
-    let updated_os_1 = rpc::forge::OperatingSystem {
+    let updated_os_1 = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: true,
         run_provisioning_instructions_on_every_boot: true,
         user_data: Some("SomeRandomData2".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe2".to_string(),
                 user_data: Some("SomeRandomData2".to_string()),
@@ -226,11 +226,11 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
     // And we should be ready from the tenant's perspective.
     assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
 
-    let updated_os_2 = rpc::forge::OperatingSystem {
+    let updated_os_2 = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData3".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe3".to_string(),
                 user_data: Some("SomeRandomData3".to_string()),
@@ -330,11 +330,11 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let initial_os = rpc::forge::OperatingSystem {
+    let initial_os = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
@@ -366,11 +366,11 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         .await;
 
     // Try to update to an invalid OS
-    let invalid_os = rpc::forge::OperatingSystem {
+    let invalid_os = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: true,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData2".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "".to_string(),
                 user_data: Some("SomeRandomData2".to_string()),
@@ -436,6 +436,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         device_instance: 0u32,
         virtual_function_id: None,
         ip_address: Some("192.168.0.1".to_string()),
+        ipv6_interface_config: None,
     }];
 
     let err = env
@@ -479,6 +480,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
             device_instance: 0u32,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         });
     let err = env
         .api
@@ -594,11 +596,11 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
     let segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let initial_os = rpc::forge::OperatingSystem {
+    let initial_os = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
@@ -728,11 +730,11 @@ async fn test_update_instance_config_vpc_prefix_network_update(
     let _segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let initial_os = rpc::forge::OperatingSystem {
+    let initial_os = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
@@ -775,6 +777,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
 
@@ -825,6 +828,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -834,6 +838,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ],
     };
@@ -889,6 +894,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
     let mut updated_config_1 = initial_config.clone();
@@ -926,11 +932,11 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
     let _segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host(&env).await;
 
-    let initial_os = rpc::forge::OperatingSystem {
+    let initial_os = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
@@ -973,6 +979,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
 
@@ -1028,6 +1035,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -1037,6 +1045,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ],
     };
@@ -1076,11 +1085,11 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
     let _segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host_multi_dpu(&env, 2).await;
 
-    let initial_os = rpc::forge::OperatingSystem {
+    let initial_os = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
@@ -1123,6 +1132,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
 
@@ -1173,6 +1183,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1182,6 +1193,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
                 device_instance: 1,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ],
     };
@@ -1238,11 +1250,11 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
     let _segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host_multi_dpu(&env, 2).await;
 
-    let initial_os = rpc::forge::OperatingSystem {
+    let initial_os = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
@@ -1312,6 +1324,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
 
@@ -1362,6 +1375,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1371,6 +1385,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
                 device_instance: 1,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ],
     };
@@ -1427,11 +1442,11 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
     let _segment_id = env.create_vpc_and_tenant_segment().await;
     let mh = create_managed_host_multi_dpu(&env, 2).await;
 
-    let initial_os = rpc::forge::OperatingSystem {
+    let initial_os = rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData1".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe1".to_string(),
                 user_data: Some("SomeRandomData1".to_string()),
@@ -1486,6 +1501,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                             device_instance: 0,
                             virtual_function_id: None,
                             ip_address: Some("5.5.5.1".to_string()),
+                            ipv6_interface_config: None,
                         }],
                     }),
                     infiniband: None,
@@ -1522,6 +1538,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                             device_instance: 0,
                             virtual_function_id: None,
                             ip_address: Some("192.1.4.0".to_string()),
+                            ipv6_interface_config: None,
                         }],
                     }),
                     infiniband: None,
@@ -1560,6 +1577,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                             device_instance: 0,
                             virtual_function_id: None,
                             ip_address: Some(expected_ip.to_string()),
+                            ipv6_interface_config: None,
                         }],
                     }),
                     infiniband: None,
@@ -1681,6 +1699,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 device_instance: 0,
                                 virtual_function_id: None,
                                 ip_address: Some("5.5.5.5".to_string()),
+                                ipv6_interface_config: None,
                             },
                             rpc::InstanceInterfaceConfig {
                                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1690,6 +1709,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 device_instance: 1,
                                 virtual_function_id: None,
                                 ip_address: Some("6.6.6.6".to_string()),
+                                ipv6_interface_config: None,
                             },
                         ],
                     }),
@@ -1733,6 +1753,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 device_instance: 0,
                                 virtual_function_id: None,
                                 ip_address: Some(expected_ip.to_string()),
+                                ipv6_interface_config: None,
                             },
                             rpc::InstanceInterfaceConfig {
                                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1742,6 +1763,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 device_instance: 1,
                                 virtual_function_id: None,
                                 ip_address: Some(expected_ip.to_string()),
+                                ipv6_interface_config: None,
                             },
                         ],
                     }),
@@ -1785,6 +1807,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 device_instance: 0,
                                 virtual_function_id: None,
                                 ip_address: Some(expected_ip.to_string()),
+                                ipv6_interface_config: None,
                             },
                             rpc::InstanceInterfaceConfig {
                                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1794,6 +1817,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 device_instance: 1,
                                 virtual_function_id: None,
                                 ip_address: Some(expected_ip2.to_string()),
+                                ipv6_interface_config: None,
                             },
                         ],
                     }),

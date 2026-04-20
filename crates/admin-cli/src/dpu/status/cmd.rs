@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-use std::pin::Pin;
-
 use ::rpc::Machine;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::forge::BuildInfo;
@@ -28,7 +26,7 @@ use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv};
 
 pub async fn status(
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,
@@ -164,7 +162,7 @@ pub fn get_dpu_version_status(build_info: &BuildInfo, machine: &Machine) -> Stri
 }
 
 pub async fn handle_dpu_status(
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     api_client: &ApiClient,
     page_size: usize,

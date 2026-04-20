@@ -472,7 +472,7 @@ pub mod tests {
 
         let res = do_compare_pub_key_against_cert(
             &TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()),
-            &ek_pub.to_vec(),
+            &ek_pub,
         );
 
         match res {
@@ -576,7 +576,7 @@ pub mod tests {
 
         let res = do_compare_pub_key_against_cert(
             &TpmEkCertificate::from(ek_cert_corrupted.to_vec()),
-            &EK_PUB_SERIALIZED.to_vec(),
+            EK_PUB_SERIALIZED.as_ref(),
         );
 
         match res {
@@ -599,7 +599,7 @@ pub mod tests {
     fn test_compare_pub_key_against_cert_different_cert_returns_false() {
         let res = do_compare_pub_key_against_cert(
             &TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()),
-            &AK_PUB_SERIALIZED.to_vec(), // using AK instad of EK on purpose to make it fail
+            AK_PUB_SERIALIZED.as_ref(), // using AK instad of EK on purpose to make it fail
         );
 
         match res {
@@ -612,7 +612,7 @@ pub mod tests {
     fn test_compare_pub_key_against_cert_success_returns_true() {
         let res = do_compare_pub_key_against_cert(
             &TpmEkCertificate::from(EK_CERT_SERIALIZED.to_vec()),
-            &EK_PUB_SERIALIZED.to_vec(),
+            EK_PUB_SERIALIZED.as_ref(),
         );
 
         match res {

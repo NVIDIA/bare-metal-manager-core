@@ -16,112 +16,14 @@
  */
 use std::sync::Arc;
 
+use carbide_authn::middleware::Principal;
 use futures_util::future::BoxFuture;
 use hyper::{Request, Response, StatusCode};
 use tonic::service::AxumBody;
-use tower::{Layer, Service};
 use tower_http::auth::AsyncAuthorizeRequest;
 
-use crate::auth::forge_spiffe::ForgeSpiffeContext;
 use crate::auth::internal_rbac_rules::InternalRBACRules;
-use crate::auth::{AuthContext, CasbinAuthorizer, Predicate, Principal};
-use crate::cfg::file::AllowedCertCriteria;
-// A middleware layer to deal with per-request authentication.
-// This might mean extracting a service identifier from a SPIFFE x509
-// certificate (in which case most of the heavy lifting has already been done by
-// the TLS verifier), validating a JWT, validating a TPM signature, or any other
-// similar mechanism.
-//
-// This middleware is not expected to enforce anything on its own, so anything
-// that an access control policy might need to do its work should be passed
-// along in the request extensions.
-#[derive(Clone)]
-pub struct CertDescriptionMiddleware {
-    pub spiffe_context: Arc<ForgeSpiffeContext>,
-    pub extra_allowed_certs: Option<AllowedCertCriteria>,
-}
-
-impl CertDescriptionMiddleware {
-    pub fn new(
-        extra_allowed_certs: Option<AllowedCertCriteria>,
-        spiffe_context: ForgeSpiffeContext,
-    ) -> Self {
-        CertDescriptionMiddleware {
-            spiffe_context: Arc::new(spiffe_context),
-            extra_allowed_certs,
-        }
-    }
-}
-
-impl<S> Layer<S> for CertDescriptionMiddleware {
-    type Service = CertDescriptionService<S>;
-
-    fn layer(&self, inner: S) -> Self::Service {
-        CertDescriptionService {
-            inner,
-            authorization_context: Arc::new(self.clone()),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct CertDescriptionService<S> {
-    inner: S,
-    authorization_context: Arc<CertDescriptionMiddleware>,
-}
-
-impl<S, B> Service<Request<B>> for CertDescriptionService<S>
-where
-    B: tonic::codegen::Body,
-    S: Service<Request<B>>,
-{
-    type Response = S::Response;
-    type Error = S::Error;
-    type Future = S::Future;
-
-    fn poll_ready(
-        &mut self,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx)
-    }
-
-    fn call(&mut self, mut request: Request<B>) -> Self::Future {
-        if let Some(_req_auth_header) = request.headers().get(hyper::header::AUTHORIZATION) {
-            // If we want to extract additional principals from the request's
-            // Authorization header, we can do it here.
-        }
-        let extensions = request.extensions_mut();
-        let mut auth_context = AuthContext::default();
-        if let Some(conn_attrs) = extensions.get::<Arc<crate::listener::ConnectionAttributes>>() {
-            let peer_certs = conn_attrs.peer_certificates();
-            let peer_cert_principals = peer_certs.iter().filter_map(|cert| {
-                match Principal::try_from_client_certificate(cert, &self.authorization_context) {
-                    Ok(x) => Some(x),
-                    Err(e) => {
-                        tracing::debug!(
-                            "Saw bad certificate from {:?}: {e}",
-                            conn_attrs.peer_address()
-                        );
-                        None
-                    }
-                }
-            });
-            auth_context.principals.extend(peer_cert_principals);
-            // Regardless of whether we were able to get a specific Principal
-            // flavor out of the certificate, having a trusted certificate
-            // presented by the client is worth recording on its own.
-            if !peer_certs.is_empty() {
-                auth_context.principals.push(Principal::TrustedCertificate);
-            }
-        } else {
-            tracing::warn!("No ConnectionAttributes in request extensions!");
-        }
-
-        extensions.insert(auth_context);
-        self.inner.call(request)
-    }
-}
+use crate::auth::{AuthContext, CasbinAuthorizer, Predicate};
 
 // An authorization handler to plug into tower_http::auth::AsyncAuthorizeRequest.
 // According to the docs for AsyncAuthorizeRequest, we're _supposed_ to use the
@@ -300,9 +202,9 @@ where
 
                     if !allowed {
                         let client_address = if let Some(conn_attrs) =
-                            extensions.get::<Arc<crate::listener::ConnectionAttributes>>()
+                            extensions.get::<Arc<carbide_authn::middleware::ConnectionAttributes>>()
                         {
-                            conn_attrs.peer_address().to_string()
+                            conn_attrs.peer_address.to_string()
                         } else {
                             "<Unable to determine client address>".to_string()
                         };

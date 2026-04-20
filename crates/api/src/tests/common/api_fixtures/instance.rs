@@ -201,6 +201,7 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     }
 }
@@ -218,6 +219,7 @@ pub fn single_interface_network_config_with_vfs(
         device_instance: 0,
         virtual_function_id: None,
         ip_address: None,
+        ipv6_interface_config: None,
     }];
 
     interfaces.extend(
@@ -229,6 +231,7 @@ pub fn single_interface_network_config_with_vfs(
             device_instance: 0,
             virtual_function_id: Some(function_id as u32),
             ip_address: None,
+            ipv6_interface_config: None,
         }),
     );
 
@@ -250,6 +253,7 @@ pub fn interface_network_config_with_devices(
             device_instance: dl.device_instance as u32,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         })
         .collect();
     rpc::InstanceNetworkConfig { interfaces }
@@ -267,16 +271,17 @@ pub fn single_interface_network_config_with_vpc_prefix(
             device_instance: 0u32,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     }
 }
 
-pub fn default_os_config() -> rpc::forge::OperatingSystem {
-    rpc::forge::OperatingSystem {
+pub fn default_os_config() -> rpc::forge::InstanceOperatingSystemConfig {
+    rpc::forge::InstanceOperatingSystemConfig {
         phone_home_enabled: false,
         run_provisioning_instructions_on_every_boot: false,
         user_data: Some("SomeRandomData".to_string()),
-        variant: Some(rpc::forge::operating_system::Variant::Ipxe(
+        variant: Some(rpc::forge::instance_operating_system_config::Variant::Ipxe(
             rpc::forge::InlineIpxe {
                 ipxe_script: "SomeRandomiPxe".to_string(),
                 user_data: Some("SomeRandomData".to_string()),

@@ -27,6 +27,9 @@ use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 use crate::expected_machines::common::ExpectedMachineJson;
 
+/// `expected-machine update <file>`: deserializes `ExpectedMachineJson` and calls
+/// `patch_expected_machine` with every field from the file (full replacement style), including
+/// optional `bmc_ip_address` when present in JSON.
 impl Run for Args {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
         let json_file_path = Path::new(&self.filename);
@@ -35,7 +38,7 @@ impl Run for Args {
 
         let metadata = expected_machine.metadata.unwrap_or_default();
 
-        // Use patch API but provide all fields from JSON for full replacement
+        // Patch merges with the server record; we pass all fields from JSON so the result matches the file.
         ctx.api_client
             .patch_expected_machine(
                 Some(expected_machine.bmc_mac_address),
@@ -63,6 +66,8 @@ impl Run for Args {
                 expected_machine.rack_id,
                 expected_machine.default_pause_ingestion_and_poweron,
                 expected_machine.dpf_enabled,
+                expected_machine.bmc_ip_address,
+                expected_machine.bmc_retain_credentials,
             )
             .await?;
         Ok(())

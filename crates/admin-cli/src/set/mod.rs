@@ -18,6 +18,7 @@
 mod bmc_proxy;
 mod create_machines;
 mod log_filter;
+mod site_explorer_enabled;
 mod tracing_enabled;
 
 #[cfg(test)]
@@ -34,6 +35,8 @@ pub enum Cmd {
     LogFilter(log_filter::Args),
     #[clap(about = "Set create_machines")]
     CreateMachines(create_machines::Args),
+    #[clap(about = "Enable or disable site-explorer")]
+    SiteExplorer(site_explorer_enabled::Args),
     #[clap(about = "Set bmc_proxy")]
     BmcProxy(bmc_proxy::Args),
     #[clap(

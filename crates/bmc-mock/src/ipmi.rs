@@ -68,15 +68,15 @@ async fn handle_ipmi(
 ) -> Json<IpmiResponse> {
     tracing::debug!(action = %req.action, "IPMI mock request");
 
-    let Some(ref power_control) = state.power_control else {
-        tracing::error!("IPMI request received but power_control not configured");
-        return Json(IpmiResponse::err("power_control not configured"));
+    let Some(ref callbacks) = state.callbacks else {
+        tracing::error!("IPMI request received but IPMI handler is not configured");
+        return Json(IpmiResponse::err("IPMI handler is not configured"));
     };
 
     let response = match req.action.as_str() {
         "chassis_power_reset" => {
             tracing::info!("IPMI: chassis power reset");
-            match power_control.send_power_command(SystemPowerControl::ForceRestart) {
+            match callbacks.send_power_command(SystemPowerControl::ForceRestart) {
                 Ok(()) => IpmiResponse::ok(),
                 Err(e) => {
                     tracing::error!(error = ?e, "chassis power reset failed");
@@ -90,7 +90,7 @@ async fn handle_ipmi(
         }
         "dpu_legacy_boot" => {
             tracing::info!("IPMI: dpu legacy boot");
-            match power_control.send_power_command(SystemPowerControl::ForceRestart) {
+            match callbacks.send_power_command(SystemPowerControl::ForceRestart) {
                 Ok(()) => IpmiResponse::ok(),
                 Err(e) => {
                     tracing::error!(error = ?e, "dpu legacy boot failed");

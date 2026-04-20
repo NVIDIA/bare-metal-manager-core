@@ -205,10 +205,8 @@ struct NetworkSegmentDetail {
     created: String,
     updated: String,
     deleted: String,
-    state: String,
-    state_sla: String,
-    time_in_state_above_sla: bool,
-    state_reason: Option<rpc::forge::ControllerStateReason>,
+    state_display: super::StateDisplay,
+    state_sla_detail: super::StateSlaDetail,
     domain_id: String,
     domain_name: String,
     segment_type: String,
@@ -263,26 +261,35 @@ impl From<forgerpc::NetworkSegment> for NetworkSegmentDetail {
                 .deleted
                 .map(|x| x.to_string())
                 .unwrap_or("Not Deleted".to_string()),
-            state: format!(
-                "{:?}",
-                forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
-            ),
-            state_sla: segment
-                .state_sla
-                .as_ref()
-                .and_then(|sla| sla.sla)
-                .map(|sla| {
-                    config_version::format_duration(
-                        chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::MAX),
-                    )
-                })
-                .unwrap_or_default(),
-            time_in_state_above_sla: segment
-                .state_sla
-                .as_ref()
-                .map(|sla| sla.time_in_state_above_sla)
-                .unwrap_or_default(),
-            state_reason: segment.state_reason,
+            state_display: super::StateDisplay {
+                state: format!(
+                    "{:?}",
+                    forgerpc::TenantState::try_from(segment.state).unwrap_or_default()
+                ),
+                time_in_state_above_sla: segment
+                    .state_sla
+                    .as_ref()
+                    .map(|sla| sla.time_in_state_above_sla)
+                    .unwrap_or_default(),
+            },
+            state_sla_detail: super::StateSlaDetail {
+                state_sla: segment
+                    .state_sla
+                    .as_ref()
+                    .and_then(|sla| sla.sla)
+                    .map(|sla| {
+                        config_version::format_duration(
+                            chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::MAX),
+                        )
+                    })
+                    .unwrap_or_default(),
+                time_in_state_above_sla: segment
+                    .state_sla
+                    .as_ref()
+                    .map(|sla| sla.time_in_state_above_sla)
+                    .unwrap_or_default(),
+                state_reason: segment.state_reason,
+            },
             domain_id: segment.subdomain_id.unwrap_or_default().to_string(),
             domain_name: String::new(), // filled in later
             segment_type: format!(

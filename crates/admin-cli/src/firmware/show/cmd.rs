@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-use std::pin::Pin;
-
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use prettytable::{Table, row};
 
@@ -27,7 +25,7 @@ use crate::rpc::ApiClient;
 pub async fn show(
     _args: &Args,
     format: OutputFormat,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     api_client: &ApiClient,
 ) -> CarbideCliResult<()> {
     let resp = api_client.0.list_host_firmware().await?;

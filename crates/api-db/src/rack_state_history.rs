@@ -16,11 +16,35 @@
  */
 use carbide_uuid::rack::RackId;
 use config_version::ConfigVersion;
-use model::rack::{RackState, RackStateHistory};
-use model::rack_state_history::DbRackStateHistory;
-use sqlx::PgConnection;
+use model::rack::RackState;
+use model::state_history::StateHistoryRecord;
+use sqlx::{FromRow, PgConnection};
 
 use crate::{DatabaseError, DatabaseResult};
+
+/// History of Rack states for a single Rack
+#[derive(Debug, Clone, FromRow)]
+struct DbRackStateHistory {
+    /// The ID of the rack that experienced the state change
+    rack_id: RackId,
+
+    /// The state that was entered
+    state: String,
+
+    /// Current version.
+    state_version: ConfigVersion,
+    // The timestamp of the state change, currently unused
+    // timestamp: DateTime<Utc>,
+}
+
+impl From<DbRackStateHistory> for StateHistoryRecord {
+    fn from(event: DbRackStateHistory) -> Self {
+        Self {
+            state: event.state,
+            state_version: event.state_version,
+        }
+    }
+}
 
 /// Retrieve the rack state history for a list of Racks
 ///
@@ -33,7 +57,7 @@ use crate::{DatabaseError, DatabaseResult};
 pub async fn find_by_rack_ids(
     txn: &mut PgConnection,
     ids: &[RackId],
-) -> DatabaseResult<std::collections::HashMap<RackId, Vec<RackStateHistory>>> {
+) -> DatabaseResult<std::collections::HashMap<RackId, Vec<StateHistoryRecord>>> {
     let query = "SELECT rack_id, state::TEXT, state_version, timestamp
         FROM rack_state_history
         WHERE rack_id=ANY($1)
@@ -46,8 +70,8 @@ pub async fn find_by_rack_ids(
 
     let mut histories = std::collections::HashMap::new();
     for result in query_results.into_iter() {
-        let events: &mut Vec<RackStateHistory> = histories.entry(result.rack_id).or_default();
-        events.push(RackStateHistory {
+        let events: &mut Vec<StateHistoryRecord> = histories.entry(result.rack_id).or_default();
+        events.push(StateHistoryRecord {
             state: result.state,
             state_version: result.state_version,
         });
@@ -61,7 +85,7 @@ pub async fn persist(
     rack_id: &RackId,
     state: &RackState,
     state_version: ConfigVersion,
-) -> DatabaseResult<RackStateHistory> {
+) -> DatabaseResult<StateHistoryRecord> {
     let query = "INSERT INTO rack_state_history (rack_id, state, state_version)
         VALUES ($1, $2, $3)
         RETURNING rack_id, state::TEXT, state_version, timestamp";

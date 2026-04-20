@@ -265,11 +265,7 @@ pub async fn show_detail(
     }
     .allocations
     .pop() else {
-        return (
-            StatusCode::NOT_FOUND,
-            "Requested compute allocation not found",
-        )
-            .into_response();
+        return super::not_found_response(compute_allocation_id);
     };
 
     if show_json {

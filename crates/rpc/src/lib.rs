@@ -491,11 +491,11 @@ impl TryFrom<health::HealthReport> for health_report::HealthReport {
     }
 }
 
-impl From<forge::OverrideMode> for health_report::OverrideMode {
-    fn from(value: forge::OverrideMode) -> Self {
+impl From<forge::HealthReportApplyMode> for health_report::HealthReportApplyMode {
+    fn from(value: forge::HealthReportApplyMode) -> Self {
         match value {
-            forge::OverrideMode::Merge => health_report::OverrideMode::Merge,
-            forge::OverrideMode::Replace => health_report::OverrideMode::Replace,
+            forge::HealthReportApplyMode::Merge => health_report::HealthReportApplyMode::Merge,
+            forge::HealthReportApplyMode::Replace => health_report::HealthReportApplyMode::Replace,
         }
     }
 }
@@ -531,7 +531,7 @@ impl From<JsonDnsResourceRecord> for Value {
     }
 }
 
-impl FromStr for forge::OperatingSystem {
+impl FromStr for forge::InstanceOperatingSystemConfig {
     type Err = RpcDataConversionError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -807,8 +807,8 @@ mod tests {
 
     use carbide_uuid::machine::MachineId;
 
-    use self::forge::operating_system::Variant;
-    use self::forge::{InlineIpxe, OperatingSystem};
+    use self::forge::instance_operating_system_config::Variant;
+    use self::forge::{InlineIpxe, InstanceOperatingSystemConfig};
     use super::*;
     use crate::protos::dns::{Domain, Metadata};
 
@@ -846,7 +846,7 @@ mod tests {
 
     #[test]
     fn test_serialize_os() {
-        let os = OperatingSystem {
+        let os = InstanceOperatingSystemConfig {
             phone_home_enabled: true,
             run_provisioning_instructions_on_every_boot: true,
             user_data: Some("def".to_string()),

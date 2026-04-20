@@ -18,11 +18,10 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use ::utils::metrics::SharedMetricsHolder;
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use serde::Serialize;
-
-use crate::logging::metrics_utils::SharedMetricsHolder;
 
 /// Metrics that are gathered in one a single `IbFabricMonitor` run
 #[derive(Clone, Debug)]

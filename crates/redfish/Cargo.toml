@@ -1,0 +1,36 @@
+[package]
+name = "carbide-redfish"
+version = "0.0.1"
+edition.workspace = true
+description = "Carbide Redfish"
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "carbide_redfish"
+
+[features]
+default = []
+test-support = [ "dep:chrono", "dep:serde_json", "dep:tokio" ]
+
+[dependencies]
+carbide-api-db = { path = "../api-db", default-features = false }
+carbide-api-model = { path = "../api-model", default-features = false }
+carbide-secrets = { path = "../secrets" }
+carbide-utils = { path = "../utils", default-features = false }
+
+#these are alphabetized
+arc-swap = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true, optional = true }
+http = { workspace = true }
+libredfish = { workspace = true }
+mac_address = { workspace = true }
+nv-redfish = { workspace = true, features = ["bmc-http", "oem-hpe"] }
+reqwest = { workspace = true, default-features = false }
+serde_json = { workspace = true, optional = true }
+sqlx = { workspace = true, features = [ "postgres" ] }
+thiserror = { workspace = true }
+tokio = { workspace = true, optional = true }
+tracing = { workspace = true }
+url = { workspace = true }

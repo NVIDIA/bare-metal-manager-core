@@ -21,6 +21,7 @@ mod delete;
 mod get;
 mod history;
 mod list;
+mod set_default;
 mod status;
 
 #[cfg(test)]
@@ -52,4 +53,7 @@ pub enum Cmd {
 
     #[clap(about = "Show history of rack firmware apply operations")]
     History(history::Args),
+
+    #[clap(about = "Set a firmware configuration as the default for its hardware type")]
+    SetDefault(set_default::Args),
 }

@@ -21,6 +21,7 @@ use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, CredentialType, Credentials,
 };
 use mac_address::MacAddress;
+use model::expected_entity::BmcCredentialsData;
 use model::site_explorer::EndpointExplorationError;
 
 use super::metrics::SiteExplorationMetrics;
@@ -163,10 +164,11 @@ impl CredentialClient {
             .await
     }
 
-    pub fn get_default_hardware_dpu_bmc_root_credentials(&self) -> Credentials {
-        Credentials::UsernamePassword {
-            username: "root".into(),
-            password: "0penBmc".into(),
+    pub fn get_default_hardware_dpu_bmc_root_credentials(&self) -> BmcCredentialsData<'static> {
+        BmcCredentialsData {
+            username: "root",
+            password: "0penBmc",
+            retain_credentials: false,
         }
     }
 

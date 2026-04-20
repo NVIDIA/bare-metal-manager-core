@@ -216,7 +216,7 @@ pub async fn create_instance<'a, 'b>(
     run_provisioning_instructions_on_every_boot: bool,
     segment_id: NetworkSegmentId,
 ) -> TestInstance<'a, 'b> {
-    let mut os: rpc::forge::OperatingSystem = default_os_config();
+    let mut os: rpc::forge::InstanceOperatingSystemConfig = default_os_config();
     os.run_provisioning_instructions_on_every_boot = run_provisioning_instructions_on_every_boot;
 
     let config = rpc::InstanceConfig {

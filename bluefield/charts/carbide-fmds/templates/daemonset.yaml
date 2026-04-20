@@ -31,8 +31,7 @@ spec:
           {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
+      dnsPolicy: ClusterFirst
       {{- if not (empty .Values.serviceDaemonSet.nodeSelector) }}
       affinity:
         nodeAffinity:
@@ -48,6 +47,8 @@ spec:
       initContainers:
         - name: wait-for-certs
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          args:
+            - "--grpc-address=$(POD_IP):50052"
           command:
             - /bin/sh
             - -c
@@ -81,6 +82,10 @@ spec:
               value: "0"
             - name: RUST_LOG
               value: "info"
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
             - name: NODE_NAME
               valueFrom:
                 fieldRef:

@@ -15,22 +15,26 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
-use carbide_uuid::rack::RackId;
-use db::rack as db_rack;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
-use model::expected_machine::{ExpectedMachine, ExpectedMachineData, ExpectedMachineRequest};
+use model::expected_machine::{
+    ExpectedHostNic, ExpectedMachine, ExpectedMachineData, ExpectedMachineRequest,
+};
 use regex::Regex;
 use uuid::Uuid;
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
+use crate::handlers::machine_interface_address::{
+    preallocate_machine_interface, update_preallocated_machine_interface,
+};
 
 lazy_static! {
     // Verify what serial is alphanumeric string with, allows dashes '-' and underscores '_'
     static ref CHASSIS_SERIAL_REGEX: Regex = Regex::new(r"^[A-Za-z0-9_-]{4,64}$").unwrap();
 }
 
+/// Returns one expected machine by database id or BMC MAC (from `ExpectedMachineRequest`).
 pub(crate) async fn get(
     api: &Api,
     request: tonic::Request<rpc::ExpectedMachineRequest>,
@@ -60,6 +64,9 @@ pub(crate) async fn get(
     Ok(tonic::Response::new(response))
 }
 
+/// Adds an expected machine. When `bmc_ip_address` is present, pre-allocates a `machine_interface`
+/// for that BMC MAC and IP (shared helper with expected switches / power shelves) so discovery can
+/// proceed without waiting on DHCP.
 pub(crate) async fn add(
     api: &Api,
     request: tonic::Request<rpc::ExpectedMachine>,
@@ -86,7 +93,6 @@ pub(crate) async fn add(
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
 
-    let request_rack_id = request.rack_id.clone();
     let id = request
         .id
         .as_ref()
@@ -104,28 +110,33 @@ pub(crate) async fn add(
         data: db_data,
     };
 
+    validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
+
     let mut txn = api.txn_begin().await?;
 
-    db::expected_machine::create(&mut txn, machine).await?;
+    // Pre-allocate BMC interface if bmc_ip_address is set.
+    if let Some(bmc_ip) = machine.data.bmc_ip_address {
+        preallocate_machine_interface(&mut txn, machine.bmc_mac_address, bmc_ip).await?;
+    }
 
-    if let Some(ref rack_id) = request_rack_id {
-        let adopted = db_rack::adopt_expected_machine(&mut txn, rack_id, parsed_mac)
-            .await
-            .map_err(CarbideError::from)?;
-        if !adopted {
-            tracing::debug!(
-                "rack {} does not exist yet, machine {} will be adopted later.",
-                rack_id,
-                parsed_mac
-            );
+    // Pre-allocate machine interfaces for host NICs with fixed IPs.
+    for nic in &machine.data.host_nics {
+        if let Some(ref ip_str) = nic.fixed_ip {
+            let ip: std::net::IpAddr = ip_str.parse().map_err(|_| {
+                CarbideError::InvalidArgument(format!("invalid fixed_ip: {ip_str}"))
+            })?;
+            preallocate_machine_interface(&mut txn, nic.mac_address, ip).await?;
         }
     }
+
+    db::expected_machine::create(&mut txn, machine).await?;
 
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))
 }
 
+/// Deletes an expected machine by id or BMC MAC.
 pub(crate) async fn delete(
     api: &Api,
     request: tonic::Request<rpc::ExpectedMachineRequest>,
@@ -148,6 +159,9 @@ pub(crate) async fn delete(
     Ok(tonic::Response::new(()))
 }
 
+/// Updates an expected machine row and, when `bmc_ip_address` is set, reconciles the pre-allocated
+/// `machine_interface` via [`update_preallocated_machine_interface`] (no-op for interfaces that
+/// already have addresses—operators use `machine-interfaces assign-address` for those).
 pub(crate) async fn update(
     api: &Api,
     request: tonic::Request<rpc::ExpectedMachine>,
@@ -174,7 +188,6 @@ pub(crate) async fn update(
         .bmc_mac_address
         .parse::<MacAddress>()
         .map_err(CarbideError::from)?;
-    let request_rack_id = request.rack_id.clone();
     let data: ExpectedMachineData = request.try_into()?;
 
     let machine = ExpectedMachine {
@@ -183,30 +196,36 @@ pub(crate) async fn update(
         data,
     };
 
+    validate_at_most_one_primary_host_nic(&machine.data.host_nics)?;
+
     let mut txn = api.txn_begin().await?;
+
+    // Update BMC interface if bmc_ip_address is set.
+    if let Some(bmc_ip) = machine.data.bmc_ip_address {
+        update_preallocated_machine_interface(&mut txn, machine.bmc_mac_address, bmc_ip).await?;
+    }
+
+    // Update/create machine interfaces for host NICs with fixed IPs.
+    for nic in &machine.data.host_nics {
+        if let Some(ref ip_str) = nic.fixed_ip {
+            let ip: std::net::IpAddr = ip_str.parse().map_err(|_| {
+                CarbideError::InvalidArgument(format!("invalid fixed_ip: {ip_str}"))
+            })?;
+            update_preallocated_machine_interface(&mut txn, nic.mac_address, ip).await?;
+        }
+    }
 
     db::expected_machine::update(&mut txn, &machine)
         .await
         .map_err(CarbideError::from)?;
-
-    if let Some(ref rack_id) = request_rack_id {
-        let adopted = db_rack::adopt_expected_machine(&mut txn, rack_id, parsed_mac)
-            .await
-            .map_err(CarbideError::from)?;
-        if !adopted {
-            tracing::debug!(
-                "rack {} does not exist yet, machine {} will be adopted later.",
-                rack_id,
-                parsed_mac
-            );
-        }
-    }
 
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))
 }
 
+/// Clears all expected machines, then creates each entry via [`add`]. Optional `bmc_ip_address` on
+/// each RPC message runs the same `machine_interface` pre-allocation as a single create.
 pub(crate) async fn replace_all(
     api: &Api,
     request: tonic::Request<rpc::ExpectedMachineList>,
@@ -226,6 +245,7 @@ pub(crate) async fn replace_all(
     Ok(tonic::Response::new(()))
 }
 
+/// Lists all expected machines (includes configured `bmc_ip_address` when set).
 pub(crate) async fn get_all(
     api: &Api,
     request: tonic::Request<()>,
@@ -240,6 +260,7 @@ pub(crate) async fn get_all(
     }))
 }
 
+/// Lists expected machines joined to explored interfaces / machines (linkage view).
 pub(crate) async fn get_linked(
     api: &Api,
     request: tonic::Request<()>,
@@ -253,6 +274,7 @@ pub(crate) async fn get_linked(
     Ok(tonic::Response::new(list))
 }
 
+/// Deletes every expected machine row.
 pub(crate) async fn delete_all(
     api: &Api,
     request: tonic::Request<()>,
@@ -266,6 +288,26 @@ pub(crate) async fn delete_all(
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))
+}
+
+/// Rejects an ExpectedMachine payload that declares more than one host NIC
+/// with `primary: true`, returning an InvalidArgument if found.
+fn validate_at_most_one_primary_host_nic(
+    host_nics: &[ExpectedHostNic],
+) -> Result<(), CarbideError> {
+    let primaries: Vec<_> = host_nics
+        .iter()
+        .filter(|n| n.primary == Some(true))
+        .map(|n| n.mac_address.to_string())
+        .collect();
+    if primaries.len() > 1 {
+        return Err(CarbideError::InvalidArgument(format!(
+            "at most one host_nic may be flagged primary=true, got {}: {}",
+            primaries.len(),
+            primaries.join(", ")
+        )));
+    }
+    Ok(())
 }
 
 /// Helper function to sanitize expected machine and return parsed IDs (ID+MAC)
@@ -316,33 +358,14 @@ fn sanitize_expected_machine_and_get_ids(
     Ok((id, parsed_mac))
 }
 
-/// process_rack_association registers an expected machine MAC with a rack, creating the rack if needed.
-async fn process_rack_association(
-    txn: &mut sqlx::PgConnection,
-    rack_id: &RackId,
-    parsed_mac: MacAddress,
-) -> Result<(), CarbideError> {
-    let adopted = db_rack::adopt_expected_machine(txn, rack_id, parsed_mac)
-        .await
-        .map_err(CarbideError::from)?;
-    if !adopted {
-        tracing::debug!(
-            "rack {} does not exist yet, machine {} will be adopted later.",
-            rack_id,
-            parsed_mac
-        );
-    }
-    Ok(())
-}
-
-/// Helper function to create a single expected machine within a transaction
+/// Creates one expected machine inside an existing transaction (batch API). Applies the same static
+/// BMC pre-allocation rules as [`add`].
 async fn create_expected_machine(
     txn: &mut sqlx::PgConnection,
     machine: rpc::ExpectedMachine,
     id: Uuid,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
-    let request_rack_id = machine.rack_id.clone();
     let db_data: ExpectedMachineData = machine.try_into()?;
 
     let expected_machine = ExpectedMachine {
@@ -351,24 +374,23 @@ async fn create_expected_machine(
         data: db_data,
     };
 
-    db::expected_machine::create(txn, expected_machine).await?;
-
-    // Handle rack association
-    if let Some(ref rack_id) = request_rack_id {
-        process_rack_association(txn, rack_id, parsed_mac).await?;
+    if let Some(bmc_ip) = expected_machine.data.bmc_ip_address {
+        preallocate_machine_interface(txn, expected_machine.bmc_mac_address, bmc_ip).await?;
     }
+
+    db::expected_machine::create(txn, expected_machine).await?;
 
     Ok(())
 }
 
-/// Helper function to update a single expected machine within a transaction
+/// Updates one expected machine inside an existing transaction (batch API). Applies the same
+/// static BMC reconciliation as [`update`].
 async fn update_expected_machine(
     txn: &mut sqlx::PgConnection,
     machine: rpc::ExpectedMachine,
     id: Uuid,
     parsed_mac: MacAddress,
 ) -> Result<(), CarbideError> {
-    let request_rack_id = machine.rack_id.clone();
     let data: ExpectedMachineData = machine.try_into()?;
 
     let expected_machine = ExpectedMachine {
@@ -377,12 +399,12 @@ async fn update_expected_machine(
         data,
     };
 
-    db::expected_machine::update(txn, &expected_machine).await?;
-
-    // Handle rack association
-    if let Some(ref rack_id) = request_rack_id {
-        process_rack_association(txn, rack_id, parsed_mac).await?;
+    if let Some(bmc_ip) = expected_machine.data.bmc_ip_address {
+        update_preallocated_machine_interface(txn, expected_machine.bmc_mac_address, bmc_ip)
+            .await?;
     }
+
+    db::expected_machine::update(txn, &expected_machine).await?;
 
     Ok(())
 }
@@ -528,6 +550,7 @@ async fn process_batch_operations(
     Ok(results)
 }
 
+/// Batch-create expected machines. Static BMC IP handling matches single [`add`] for each row.
 pub(crate) async fn create_expected_machines(
     api: &Api,
     request: tonic::Request<rpc::BatchExpectedMachineOperationRequest>,
@@ -549,6 +572,7 @@ pub(crate) async fn create_expected_machines(
     ))
 }
 
+/// Batch-update expected machines. Static BMC IP handling matches single [`update`] for each row.
 pub(crate) async fn update_expected_machines(
     api: &Api,
     request: tonic::Request<rpc::BatchExpectedMachineOperationRequest>,

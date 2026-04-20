@@ -16,7 +16,6 @@
  */
 
 use std::collections::HashMap;
-use std::pin::Pin;
 
 use ::rpc::Machine;
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
@@ -29,7 +28,7 @@ use crate::rpc::ApiClient;
 use crate::{async_write, async_write_table_as_csv};
 
 pub async fn versions(
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     api_client: &ApiClient,
     options: Args,
@@ -145,7 +144,7 @@ pub fn generate_firmware_status_table(machines: Vec<Machine>) -> Box<Table> {
 }
 
 pub async fn handle_dpu_versions(
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     api_client: &ApiClient,
     updates_only: bool,

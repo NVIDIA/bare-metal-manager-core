@@ -19,7 +19,7 @@ use carbide_uuid::rack::RackId;
 use forge_tls::client_config::ClientCert;
 use health_report::HealthReport;
 use rpc::forge::{
-    HealthReportOverride, InsertRackHealthReportOverrideRequest, OverrideMode,
+    HealthReportApplyMode, HealthReportEntry, InsertRackHealthReportOverrideRequest,
     RemoveRackHealthReportOverrideRequest,
 };
 use rpc::forge_api_client::ForgeApiClient;
@@ -76,9 +76,9 @@ impl RackHealthReportSink for ApiClientWrapper {
         let rack_id = parse_rack_id(rack_id)?;
         let request = InsertRackHealthReportOverrideRequest {
             rack_id: Some(rack_id),
-            r#override: Some(HealthReportOverride {
+            health_report_entry: Some(HealthReportEntry {
                 report: Some(report.into()),
-                mode: OverrideMode::Merge.into(),
+                mode: HealthReportApplyMode::Merge.into(),
             }),
         };
 

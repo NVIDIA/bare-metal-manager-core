@@ -16,17 +16,24 @@
  */
 use std::collections::HashMap;
 
+use base64::prelude::*;
+use carbide_uuid::machine::MachineId;
 use chrono::Duration;
 use common::api_fixtures::dpu::{
     create_dpu_machine, create_dpu_machine_in_waiting_for_network_install,
 };
 use common::api_fixtures::host::{host_discover_dhcp, host_discover_machine, host_uefi_setup};
+use common::api_fixtures::network_segment::{
+    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY,
+    create_host_inband_network_segment,
+};
 use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED};
 use common::api_fixtures::{
-    TestManagedHost, create_managed_host, create_test_env, create_test_env_with_overrides,
-    get_config,
+    TestEnv, TestManagedHost, create_managed_host, create_managed_host_with_config,
+    create_test_env, create_test_env_with_overrides, get_config,
 };
 use health_report::HealthReport;
+use ipnetwork::IpNetwork;
 use measured_boot::bundle::MeasurementBundle;
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::MeasurementBundleState;
@@ -35,14 +42,18 @@ use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::hardware_info::TpmEkCertificate;
 use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::{
-    DpuInitState, FailureCause, FailureDetails, FailureSource, InstanceState, LockdownMode,
-    MachineState, MachineValidatingState, ManagedHostState, MeasuringState, ValidationState,
+    DpuInitState, DpuReprovisionStates, FailureCause, FailureDetails, FailureSource, InstanceState,
+    LockdownMode, MachineState, MachineValidatingState, ManagedHostState, MeasuringState,
+    ValidationState,
 };
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{HealthReportOverride, InsertHealthReportOverrideRequest, TpmCaCert, TpmCaCertId};
+use rpc::forge::{HealthReportEntry, InsertHealthReportOverrideRequest, TpmCaCert, TpmCaCertId};
 use rpc::forge_agent_control_response::Action;
+use rpc::machine_discovery::AttestKeyInfo;
+use rpc::{DiscoveryData, DiscoveryInfo};
 use tonic::{Code, Request};
 
+use crate::handlers::measured_boot::rpc_forge::MachineDiscoveryInfo;
 use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::handler::{
@@ -82,7 +93,7 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
 
     assert!(carbide_machines_per_state.contains(&(
         "{fresh=\"true\",state=\"ready\",substate=\"\"}".to_string(),
-        "2".to_string()
+        "3".to_string()
     )));
 
     let expected_states_entered = &[
@@ -169,6 +180,207 @@ async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
             expected.1
         );
     }
+}
+
+#[crate::sqlx_test]
+async fn test_waiting_for_rack_firmware_upgrade_waits_for_terminal_status(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let host = create_managed_host(&env).await;
+
+    let mut txn = env.db_txn().await;
+    db::host_machine_update::trigger_host_reprovisioning_request(
+        txn.as_mut(),
+        "rack-test",
+        &host.id,
+    )
+    .await?;
+    db::machine::update_state(
+        txn.as_mut(),
+        &host.id,
+        &ManagedHostState::HostReprovision {
+            reprovision_state: model::machine::HostReprovisionState::WaitingForRackFirmwareUpgrade,
+            retry_count: 0,
+        },
+    )
+    .await?;
+    let requested_at = db::machine::find_one(
+        txn.as_mut(),
+        &host.id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("machine should exist")
+    .host_reprovision_requested
+    .expect("rack reprovision request should exist")
+    .requested_at;
+    db::machine::update_rack_fw_details(
+        txn.as_mut(),
+        &host.id,
+        Some(&model::rack::RackFirmwareUpgradeStatus {
+            task_id: "rack-job".to_string(),
+            status: model::rack::RackFirmwareUpgradeState::InProgress,
+            started_at: Some(requested_at),
+            ended_at: None,
+        }),
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let machine = db::machine::find_one(
+        &pool,
+        &host.id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("machine should exist");
+    assert!(matches!(
+        machine.current_state(),
+        ManagedHostState::HostReprovision {
+            reprovision_state: model::machine::HostReprovisionState::WaitingForRackFirmwareUpgrade,
+            ..
+        }
+    ));
+    assert!(machine.host_reprovision_requested.is_some());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_waiting_for_rack_firmware_upgrade_advances_on_completion(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let host = create_managed_host(&env).await;
+
+    let mut txn = env.db_txn().await;
+    db::host_machine_update::trigger_host_reprovisioning_request(
+        txn.as_mut(),
+        "rack-test",
+        &host.id,
+    )
+    .await?;
+    db::machine::update_state(
+        txn.as_mut(),
+        &host.id,
+        &ManagedHostState::HostReprovision {
+            reprovision_state: model::machine::HostReprovisionState::WaitingForRackFirmwareUpgrade,
+            retry_count: 0,
+        },
+    )
+    .await?;
+    let requested_at = db::machine::find_one(
+        txn.as_mut(),
+        &host.id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("machine should exist")
+    .host_reprovision_requested
+    .expect("rack reprovision request should exist")
+    .requested_at;
+    db::machine::update_rack_fw_details(
+        txn.as_mut(),
+        &host.id,
+        Some(&model::rack::RackFirmwareUpgradeStatus {
+            task_id: "rack-job".to_string(),
+            status: model::rack::RackFirmwareUpgradeState::Completed,
+            started_at: Some(requested_at),
+            ended_at: Some(chrono::Utc::now()),
+        }),
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let machine = db::machine::find_one(
+        &pool,
+        &host.id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("machine should exist");
+    assert!(matches!(
+        machine.current_state(),
+        ManagedHostState::HostReprovision {
+            reprovision_state: model::machine::HostReprovisionState::CheckingFirmwareRepeatV2 { .. },
+            ..
+        }
+    ));
+    assert!(machine.host_reprovision_requested.is_none());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_waiting_for_rack_firmware_upgrade_accepts_completion_when_only_ended_at_is_current(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let host = create_managed_host(&env).await;
+
+    let mut txn = env.db_txn().await;
+    db::host_machine_update::trigger_host_reprovisioning_request(
+        txn.as_mut(),
+        "rack-test",
+        &host.id,
+    )
+    .await?;
+    db::machine::update_state(
+        txn.as_mut(),
+        &host.id,
+        &ManagedHostState::HostReprovision {
+            reprovision_state: model::machine::HostReprovisionState::WaitingForRackFirmwareUpgrade,
+            retry_count: 0,
+        },
+    )
+    .await?;
+    let requested_at = db::machine::find_one(
+        txn.as_mut(),
+        &host.id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("machine should exist")
+    .host_reprovision_requested
+    .expect("rack reprovision request should exist")
+    .requested_at;
+    db::machine::update_rack_fw_details(
+        txn.as_mut(),
+        &host.id,
+        Some(&model::rack::RackFirmwareUpgradeStatus {
+            task_id: "rack-job".to_string(),
+            status: model::rack::RackFirmwareUpgradeState::Completed,
+            started_at: Some(requested_at - chrono::Duration::seconds(1)),
+            ended_at: Some(requested_at + chrono::Duration::seconds(1)),
+        }),
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let machine = db::machine::find_one(
+        &pool,
+        &host.id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await?
+    .expect("machine should exist");
+    assert!(matches!(
+        machine.current_state(),
+        ManagedHostState::HostReprovision {
+            reprovision_state: model::machine::HostReprovisionState::CheckingFirmwareRepeatV2 { .. },
+            ..
+        }
+    ));
+    assert!(machine.host_reprovision_requested.is_none());
+
+    Ok(())
 }
 
 #[crate::sqlx_test]
@@ -1238,7 +1450,7 @@ async fn test_measurement_host_init_failed_to_waiting_for_measurements_to_pendin
 
     env.api
         .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
-            r#override: Some(HealthReportOverride {
+            health_report_entry: Some(HealthReportEntry {
                 report: Some(
                     HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health")).into(),
                 ),
@@ -1487,7 +1699,7 @@ async fn test_scout_heartbeat_timeout_alert_cleared_on_ready_transition(pool: sq
     let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     assert!(
-        !host.health_report_overrides.merges.contains_key("scout"),
+        !host.health_reports.merges.contains_key("scout"),
         "expected scout_heartbeat_timeout alert to be cleared when leaving Ready"
     );
 }
@@ -1563,7 +1775,7 @@ async fn test_scout_heartbeat_timeout_alert_cleared_on_instance_creation_transit
     let mut txn = env.db_txn().await;
     let host = mh.host().db_machine(&mut txn).await;
     assert!(
-        !host.health_report_overrides.merges.contains_key("scout"),
+        !host.health_reports.merges.contains_key("scout"),
         "expected scout_heartbeat_timeout alert to be cleared when leaving Ready via instance creation"
     );
 }
@@ -1625,7 +1837,249 @@ async fn test_scout_heartbeat_timeout_alert_not_cleared_when_unhealthy_allocatio
     let host = mh.host().db_machine(&mut txn).await;
     assert!(matches!(host.current_state(), ManagedHostState::Ready));
     assert!(
-        host.health_report_overrides.merges.contains_key("scout"),
+        host.health_reports.merges.contains_key("scout"),
         "expected scout_heartbeat_timeout alert to remain when unhealthy allocation is blocked"
     );
+}
+
+#[crate::sqlx_test]
+async fn test_tpm_logging(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let host_config = env.managed_host_config();
+    let dpu_machine_id = create_dpu_machine(&env, &host_config).await;
+
+    let machine_interface_id = host_discover_dhcp(&env, &host_config, &dpu_machine_id).await;
+
+    // First discovery - establishes the host with the original TPM-based ID
+    host_discover_machine(&env, &host_config, machine_interface_id).await;
+
+    // Second discovery - different TPM EK cert simulates TPM replacement
+    // without force-delete, producing a different stable_machine_id
+    let mut discovery_info =
+        DiscoveryInfo::try_from(model::hardware_info::HardwareInfo::from(&host_config)).unwrap();
+    // Use a different valid EK cert to simulate TPM replacement
+    discovery_info.tpm_ek_certificate =
+        Some(BASE64_STANDARD.encode(common::api_fixtures::tpm_attestation::EK_CERT_SERIALIZED));
+    discovery_info.attest_key_info = Some(AttestKeyInfo {
+        ek_pub: common::api_fixtures::tpm_attestation::EK_PUB_SERIALIZED.to_vec(),
+        ak_pub: common::api_fixtures::tpm_attestation::AK_PUB_SERIALIZED.to_vec(),
+        ak_name: common::api_fixtures::tpm_attestation::AK_NAME_SERIALIZED.to_vec(),
+    });
+    let result = env
+        .api
+        .discover_machine(Request::new(MachineDiscoveryInfo {
+            machine_interface_id: Some(machine_interface_id),
+            discovery_data: Some(DiscoveryData::Info(discovery_info)),
+            create_machine: false,
+        }))
+        .await;
+
+    let err = result.expect_err("Expected FK violation from mismatched TPM");
+    assert_eq!(err.code(), Code::FailedPrecondition);
+    assert!(
+        err.message().contains("machine_id foreign key violation"),
+        "Expected TPM mismatch error, got: {}",
+        err.message()
+    );
+}
+
+/// Spins up a test env configured for zero-DPU hosts plus a zero-DPU
+/// managed host, and inserts a bare `instances` row attached to it,
+/// which is the minimal state needed to exercise the state controller
+/// for an assigned host (which would otherwise bail early if
+/// `mh_snapshot.instance` is `None`).
+async fn zero_dpu_host_with_instance(pool: sqlx::PgPool) -> (TestEnv, TestManagedHost) {
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            allow_zero_dpu_hosts: Some(true),
+            site_prefixes: Some(vec![
+                IpNetwork::new(
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+                IpNetwork::new(
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.network(),
+                    FIXTURE_HOST_INBAND_NETWORK_SEGMENT_GATEWAY.prefix(),
+                )
+                .unwrap(),
+            ]),
+            ..Default::default()
+        },
+    )
+    .await;
+    create_host_inband_network_segment(&env.api, None).await;
+
+    let mh = create_managed_host_with_config(&env, ManagedHostConfig::with_dpus(Vec::new())).await;
+    assert!(
+        mh.dpu_ids.is_empty(),
+        "zero-DPU fixture should produce no DPU machines"
+    );
+
+    // Provide valid empty configs explicitly so the state controller can
+    // load the snapshot.
+    //
+    // TODO(chet): It looks like a handful of `instances` column "defaults"
+    // are stale JSON shapes that don't match the current Rust structs (e.g.
+    // `network_config` defaults to '{}' but `InstanceNetworkConfig` requires
+    // an `interfaces` field; and `nvlink_config` defaults to '{"nvlink_gpus": []}'
+    // but the struct expects `gpu_configs`). I want to say lol here, so lol.
+    let mut txn = env.pool.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO instances (machine_id, network_config, nvlink_config) \
+         VALUES ($1, '{\"interfaces\": []}'::jsonb, '{\"gpu_configs\": []}'::jsonb)",
+    )
+    .bind(mh.host().id)
+    .execute(txn.as_mut())
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    (env, mh)
+}
+
+/// Set the host directly into an `Assigned { instance_state }` state
+/// and commit so the next state controller iteration picks it up.
+async fn set_assigned_state(env: &TestEnv, host_id: &MachineId, instance_state: InstanceState) {
+    let mut txn = env.db_txn().await;
+    db::machine::update_state(
+        txn.as_mut(),
+        host_id,
+        &ManagedHostState::Assigned { instance_state },
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+}
+
+async fn load_host_state(env: &TestEnv, host_id: &MachineId) -> ManagedHostState {
+    db::machine::find_one(
+        &env.pool,
+        host_id,
+        model::machine::machine_search_config::MachineSearchConfig::default(),
+    )
+    .await
+    .unwrap()
+    .expect("host should exist")
+    .current_state()
+    .clone()
+}
+
+#[crate::sqlx_test]
+async fn test_waiting_for_extension_services_config_skips_for_zero_dpu(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (env, mh) = zero_dpu_host_with_instance(pool).await;
+    set_assigned_state(
+        &env,
+        &mh.host().id,
+        InstanceState::WaitingForExtensionServicesConfig,
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    assert!(matches!(
+        load_host_state(&env, &mh.host().id).await,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::WaitingForRebootToReady,
+        }
+    ));
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_waiting_for_dpus_to_up_skips_wait_for_zero_dpu(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (env, mh) = zero_dpu_host_with_instance(pool).await;
+    set_assigned_state(&env, &mh.host().id, InstanceState::WaitingForDpusToUp).await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    // Without the zero-DPU guard the handler would have returned a
+    // "Waiting for DPUs to come up" wait and the state would be
+    // unchanged. With the guard, we proceed past the wait into the
+    // termination/reboot path.
+    let state = load_host_state(&env, &mh.host().id).await;
+    assert!(
+        !matches!(
+            state,
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::WaitingForDpusToUp,
+            }
+        ),
+        "expected to advance past WaitingForDpusToUp, got: {state:?}"
+    );
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_dpu_reprovision_errors_for_zero_dpu(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (env, mh) = zero_dpu_host_with_instance(pool).await;
+    set_assigned_state(
+        &env,
+        &mh.host().id,
+        InstanceState::DPUReprovision {
+            dpu_states: DpuReprovisionStates {
+                states: HashMap::new(),
+            },
+        },
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    // The guard returns an error, which the state controller surfaces
+    // as a handler failure rather than silently advancing. The host
+    // should not have transitioned out of DPUReprovision.
+    assert!(matches!(
+        load_host_state(&env, &mh.host().id).await,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::DPUReprovision { .. },
+        }
+    ));
+    Ok(())
+}
+
+/// Host-level `ManagedHostState::DPUReprovision` (different from the
+/// instance-scoped `InstanceState::DPUReprovision` covered above) is only
+/// entered from `Ready` when `dpu_reprovisioning_needed()` returns true;
+/// this requires non-empty DPUs. Reaching it with a zero-DPU host is a
+/// bug: without the explicit guard the empty loop would fall through
+/// to `do_nothing()` and the host would sit in the state forever.
+/// Verify the guard surfaces a loud error instead.
+#[crate::sqlx_test]
+async fn test_host_level_dpu_reprovision_errors_for_zero_dpu(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (env, mh) = zero_dpu_host_with_instance(pool).await;
+
+    let mut txn = env.db_txn().await;
+    db::machine::update_state(
+        txn.as_mut(),
+        &mh.host().id,
+        &ManagedHostState::DPUReprovision {
+            dpu_states: DpuReprovisionStates {
+                states: HashMap::new(),
+            },
+        },
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    env.run_machine_state_controller_iteration().await;
+
+    // The guard returns an error, which the state controller surfaces as
+    // a handler failure rather than silently advancing. The host stays in
+    // DPUReprovision.
+    assert!(matches!(
+        load_host_state(&env, &mh.host().id).await,
+        ManagedHostState::DPUReprovision { .. }
+    ));
+    Ok(())
 }

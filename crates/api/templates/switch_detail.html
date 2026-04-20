@@ -14,10 +14,7 @@
 		<th>ID</th>
 		<td>{{ id }}</td>
 	</tr>
-	<tr>
-		<th>Rack ID</th>
-		<td>TBD</td>
-	</tr>
+	<tr><th>Rack ID</th><td>{{ rack_id|rack_id_link|safe }}</td></tr>
 	<tr>
 		<th>State</th>
 		<td>
@@ -64,21 +61,28 @@
 	{% endif %}
 </table>
 
-<h2>Metadata</h2>
+<h2>Configuration</h2>
 <table class="detailsview">
 	<tr>
 		<th>Name</th>
 		<td>{{ name }}</td>
 	</tr>
 	<tr>
-		<th>Location</th>
-		<td>{{ location }}</td>
+		<th>Slot Number</th>
+		<td>{{ slot_number }}</td>
+	</tr>
+	<tr>
+		<th>Tray Index</th>
+		<td>{{ tray_index }}</td>
 	</tr>
 	<tr>
 		<th>Enable NMXC</th>
 		<td>{{ enable_nmxc }}</td>
 	</tr>
 </table>
+
+<h2>Metadata</h2>
+{{ metadata_detail|safe }}
 
 <h2>Health</h2>
 <table class="detailsview">

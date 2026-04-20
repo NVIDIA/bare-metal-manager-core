@@ -87,10 +87,18 @@ service Forge {
   rpc IBPartitionsForTenant(TenantSearchQuery) returns (IBPartitionList);
 
   rpc FindPowerShelves(PowerShelfQuery) returns (PowerShelfList);
+  rpc FindPowerShelfIds(PowerShelfSearchFilter) returns (PowerShelfIdList);
+  rpc FindPowerShelvesByIds(PowerShelvesByIdsRequest) returns (PowerShelfList);
   rpc DeletePowerShelf(PowerShelfDeletionRequest) returns (PowerShelfDeletionResult);
+  // Force deletes a Power Shelf and optionally its associated interfaces from the database.
+  rpc AdminForceDeletePowerShelf(AdminForceDeletePowerShelfRequest) returns (AdminForceDeletePowerShelfResponse);
 
   rpc FindSwitches(SwitchQuery) returns (SwitchList);
+  rpc FindSwitchIds(SwitchSearchFilter) returns (SwitchIdList);
+  rpc FindSwitchesByIds(SwitchesByIdsRequest) returns (SwitchList);
   rpc DeleteSwitch(SwitchDeletionRequest) returns (SwitchDeletionResult);
+  // Force deletes a Switch and optionally its associated interfaces from the database.
+  rpc AdminForceDeleteSwitch(AdminForceDeleteSwitchRequest) returns (AdminForceDeleteSwitchResponse);
 
   // InfiniBand Fabrics
   // Returns the list of all InfiniBand fabrics available within the site
@@ -127,17 +135,29 @@ service Forge {
   rpc GetManagedHostNetworkConfig(ManagedHostNetworkConfigRequest) returns (ManagedHostNetworkConfigResponse);
   rpc RecordDpuNetworkStatus(DpuNetworkStatus) returns (google.protobuf.Empty);
   // Lists all overrides that have been placed on a Machine health status
-  rpc ListHealthReportOverrides(common.MachineId) returns (ListHealthReportOverrideResponse);
+  rpc ListHealthReportOverrides(common.MachineId) returns (ListHealthReportResponse);
   // Adds a new override for a Machines health status
   rpc InsertHealthReportOverride(InsertHealthReportOverrideRequest) returns (google.protobuf.Empty);
   // Removes a health report override
   rpc RemoveHealthReportOverride(RemoveHealthReportOverrideRequest) returns (google.protobuf.Empty);
   // Lists all overrides that have been placed on a Rack health status
-  rpc ListRackHealthReportOverrides(ListRackHealthReportOverridesRequest) returns (ListHealthReportOverrideResponse);
+  rpc ListRackHealthReportOverrides(ListRackHealthReportOverridesRequest) returns (ListHealthReportResponse);
   // Adds a new health report override for a Rack
   rpc InsertRackHealthReportOverride(InsertRackHealthReportOverrideRequest) returns (google.protobuf.Empty);
   // Removes a health report override for a Rack
   rpc RemoveRackHealthReportOverride(RemoveRackHealthReportOverrideRequest) returns (google.protobuf.Empty);
+  // Lists all health report sources for a Switch
+  rpc ListSwitchHealthReports(ListSwitchHealthReportsRequest) returns (ListHealthReportResponse);
+  // Adds a health report source for a Switch
+  rpc InsertSwitchHealthReport(InsertSwitchHealthReportRequest) returns (google.protobuf.Empty);
+  // Removes a health report source for a Switch
+  rpc RemoveSwitchHealthReport(RemoveSwitchHealthReportRequest) returns (google.protobuf.Empty);
+  // Lists all health report sources for a Power Shelf
+  rpc ListPowerShelfHealthReports(ListPowerShelfHealthReportsRequest) returns (ListHealthReportResponse);
+  // Adds a health report source for a Power Shelf
+  rpc InsertPowerShelfHealthReport(InsertPowerShelfHealthReportRequest) returns (google.protobuf.Empty);
+  // Removes a health report source for a Power Shelf
+  rpc RemovePowerShelfHealthReport(RemovePowerShelfHealthReportRequest) returns (google.protobuf.Empty);
   rpc DpuAgentUpgradeCheck(DpuAgentUpgradeCheckRequest) returns (DpuAgentUpgradeCheckResponse);
   rpc DpuAgentUpgradePolicyAction(DpuAgentUpgradePolicyRequest) returns (DpuAgentUpgradePolicyResponse);
   // Looks up a DNS record for DNS names assigned by Forge
@@ -172,6 +192,10 @@ service Forge {
   rpc DiscoverDhcp(DhcpDiscovery) returns (DhcpRecord);
   rpc ExpireDhcpLease(ExpireDhcpLeaseRequest) returns (ExpireDhcpLeaseResponse);
 
+  rpc AssignStaticAddress(AssignStaticAddressRequest) returns (AssignStaticAddressResponse);
+  rpc RemoveStaticAddress(RemoveStaticAddressRequest) returns (RemoveStaticAddressResponse);
+  rpc FindInterfaceAddresses(FindInterfaceAddressesRequest) returns (FindInterfaceAddressesResponse);
+
   // PRIVILEGED: Find things
   rpc FindInterfaces(InterfaceSearchQuery) returns (InterfaceList);
   rpc DeleteInterface(InterfaceDeleteQuery) returns (google.protobuf.Empty);
@@ -179,10 +203,10 @@ service Forge {
   rpc FindMachineIds(MachineSearchConfig) returns (common.MachineIdList);
   rpc FindMachinesByIds(MachinesByIdsRequest) returns (MachineList);
   rpc FindMachineStateHistories(MachineStateHistoriesRequest) returns (MachineStateHistories);
-  rpc FindMachineHealthHistories(MachineHealthHistoriesRequest) returns (MachineHealthHistories);
-  rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (PowerShelfStateHistories);
-  rpc FindRackStateHistories(RackStateHistoriesRequest) returns (RackStateHistories);
-  rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (SwitchStateHistories);
+  rpc FindMachineHealthHistories(MachineHealthHistoriesRequest) returns (HealthHistories);
+  rpc FindPowerShelfStateHistories(PowerShelfStateHistoriesRequest) returns (StateHistories);
+  rpc FindRackStateHistories(RackStateHistoriesRequest) returns (StateHistories);
+  rpc FindSwitchStateHistories(SwitchStateHistoriesRequest) returns (StateHistories);
   rpc FindTenantOrganizationIds(TenantSearchFilter) returns (TenantOrganizationIdList);
   rpc FindTenantsByOrganizationIds(TenantByOrganizationIdsRequest) returns (TenantList);
   rpc FindConnectedDevicesByDpuMachineIds(common.MachineIdList) returns (ConnectedDeviceList);
@@ -273,6 +297,15 @@ service Forge {
   // Update the Metadata of a Machine
   rpc UpdateMachineMetadata(MachineMetadataUpdateRequest) returns (google.protobuf.Empty);
 
+  // Update the Metadata of a Rack
+  rpc UpdateRackMetadata(RackMetadataUpdateRequest) returns (google.protobuf.Empty);
+
+  // Update the Metadata of a Switch
+  rpc UpdateSwitchMetadata(SwitchMetadataUpdateRequest) returns (google.protobuf.Empty);
+
+  // Update the Metadata of a PowerShelf
+  rpc UpdatePowerShelfMetadata(PowerShelfMetadataUpdateRequest) returns (google.protobuf.Empty);
+
   // Update the NVLink Info of a Machine
   rpc UpdateMachineNvLinkInfo(UpdateMachineNvLinkInfoRequest) returns (google.protobuf.Empty);
 
@@ -294,6 +327,8 @@ service Forge {
   // TODO: Remove when manual upgrade feature is removed
   // Mark host as having completed manual firmware upgrade
   rpc MarkManualFirmwareUpgradeComplete(common.MachineId) returns (google.protobuf.Empty);
+  // Report the result of a scout-based firmware upgrade
+  rpc ReportScoutFirmwareUpgradeStatus(ScoutFirmwareUpgradeStatusRequest) returns (google.protobuf.Empty);
 
   rpc GetDpuInfoList(GetDpuInfoListRequest) returns (GetDpuInfoListResponse);
 
@@ -345,7 +380,7 @@ service Forge {
   // Get a Rack firmware configuration by ID
   rpc GetRackFirmware(RackFirmwareGetRequest) returns (RackFirmware);
   // List all Rack firmware configurations
-  rpc ListRackFirmware(RackFirmwareListRequest) returns (RackFirmwareList);
+  rpc ListRackFirmware(RackFirmwareSearchFilter) returns (RackFirmwareList);
   // Delete a Rack firmware configuration
   rpc DeleteRackFirmware(RackFirmwareDeleteRequest) returns (google.protobuf.Empty);
   // Apply firmware to all devices in a rack
@@ -354,6 +389,7 @@ service Forge {
   rpc GetRackFirmwareJobStatus(RackFirmwareJobStatusRequest) returns (RackFirmwareJobStatusResponse);
   // Get the history of rack firmware apply operations
   rpc GetRackFirmwareHistory(RackFirmwareHistoryRequest) returns (RackFirmwareHistoryResponse);
+  rpc RackFirmwareSetDefault(RackFirmwareSetDefaultRequest) returns (google.protobuf.Empty);
 
   // Replace all expected machines in site
   rpc ReplaceAllExpectedMachines(ExpectedMachineList) returns (google.protobuf.Empty);
@@ -514,6 +550,10 @@ service Forge {
   rpc GetOsImage(common.UUID) returns (OsImage);
   rpc UpdateOsImage(OsImageAttributes) returns (OsImage);
 
+  // iPXE Script Template management
+  rpc GetIpxeTemplate(GetIpxeTemplateRequest) returns (IpxeTemplate);
+  rpc ListIpxeTemplates(ListIpxeTemplatesRequest) returns (IpxeTemplateList);
+
   rpc RebootCompleted(MachineRebootCompletedRequest) returns (MachineRebootCompletedResponse);
 
   // Validation result Persist
@@ -649,6 +689,7 @@ service Forge {
   // Deprecated: Use FindRackIds
   rpc GetRack(GetRackRequest) returns (GetRackResponse);
   rpc DeleteRack(DeleteRackRequest) returns (google.protobuf.Empty);
+  rpc GetRackProfile(GetRackProfileRequest) returns (GetRackProfileResponse);
 
   //
   // Compute Allocations
@@ -711,14 +752,17 @@ service Forge {
   // SPIFFE Machine Identity APIs
   // Signs a JWT-SVID token for machine identity
   rpc SignMachineIdentity(MachineIdentityRequest) returns (MachineIdentityResponse);
-  // Get, set, or delete per-org identity configuration (issuer, audiences, TTL, signing key)
-  rpc GetIdentityConfiguration(GetIdentityConfigRequest) returns (IdentityConfigResponse);
-  rpc SetIdentityConfiguration(IdentityConfigRequest) returns (IdentityConfigResponse);
-  rpc DeleteIdentityConfiguration(GetIdentityConfigRequest) returns (google.protobuf.Empty);
+  // Get, set, or delete per-org tenant identity configuration (issuer, audiences, TTL, signing key)
+  rpc GetTenantIdentityConfiguration(GetTenantIdentityConfigRequest) returns (TenantIdentityConfigResponse);
+  rpc SetTenantIdentityConfiguration(SetTenantIdentityConfigRequest) returns (TenantIdentityConfigResponse);
+  rpc DeleteTenantIdentityConfiguration(GetTenantIdentityConfigRequest) returns (google.protobuf.Empty);
   // Token delegation: get, set, or delete per-org token exchange config
   rpc GetTokenDelegation(GetTokenDelegationRequest) returns (TokenDelegationResponse);
   rpc SetTokenDelegation(TokenDelegationRequest) returns (TokenDelegationResponse);
   rpc DeleteTokenDelegation(GetTokenDelegationRequest) returns (google.protobuf.Empty);
+  // Public discovery: JWKS and OpenID provider metadata (intended for unauthenticated fetch via REST gateway).
+  rpc GetJWKS(JwksRequest) returns (Jwks);
+  rpc GetOpenIDConfiguration(OpenIdConfigRequest) returns (OpenIdConfiguration);
 
   // ScoutStream establishes a bidirectional streaming connection between
   // scout agents and carbide-api. The initial use-case for this is for
@@ -837,6 +881,19 @@ service Forge {
   rpc UpdateComponentFirmware(UpdateComponentFirmwareRequest) returns (UpdateComponentFirmwareResponse);
   rpc GetComponentFirmwareStatus(GetComponentFirmwareStatusRequest) returns (GetComponentFirmwareStatusResponse);
   rpc ListComponentFirmwareVersions(ListComponentFirmwareVersionsRequest) returns (ListComponentFirmwareVersionsResponse);
+
+  // Operating System library
+  rpc CreateOperatingSystem(CreateOperatingSystemRequest) returns (OperatingSystem);
+  rpc GetOperatingSystem(common.OperatingSystemId) returns (OperatingSystem);
+  rpc UpdateOperatingSystem(UpdateOperatingSystemRequest) returns (OperatingSystem);
+  rpc DeleteOperatingSystem(DeleteOperatingSystemRequest) returns (DeleteOperatingSystemResponse);
+  rpc FindOperatingSystemIds(OperatingSystemSearchFilter) returns (OperatingSystemIdList);
+  rpc FindOperatingSystemsByIds(OperatingSystemsByIdsRequest) returns (OperatingSystemList);
+  // Returns the ordered artifact list for an OS definition without fetching the full record.
+  rpc GetOperatingSystemCachableIpxeTemplateArtifacts(GetOperatingSystemCachableIpxeTemplateArtifactsRequest) returns (IpxeTemplateArtifactList);
+  // Updates the cached_url field of named artifacts in-place, leaving all other artifact fields
+  // and OS definition fields (including ipxe_definition_hash) unchanged.
+  rpc UpdateOperatingSystemCachableIpxeTemplateArtifacts(UpdateOperatingSystemIpxeTemplateArtifactRequest) returns (IpxeTemplateArtifactList);
 }
 
 message AttestationIdsRequest {
@@ -881,32 +938,35 @@ message MachineIdentityResponse {
   string access_token = 1;
   string issued_token_type = 2;
   string token_type = 3;
-  string expires_in = 4;
+  uint32 expires_in_sec = 4;
 }
 
-// Identity configuration (per-org)
-message GetIdentityConfigRequest {
+// Tenant identity configuration (per-org machine identity signing)
+message GetTenantIdentityConfigRequest {
   string organization_id = 1;
 }
 
-message IdentityConfig {
+message TenantIdentityConfig {
   bool enabled = 1;
+  // JWT `iss` / OIDC issuer string: `https://` or `http://` URL (trust domain = host),
+  // `spiffe://<trust-domain>/...` (scheme ASCII case-insensitive), or bare DNS hostname / IP.
   string issuer = 2;
   string default_audience = 3;
   repeated string allowed_audiences = 4;
   uint32 token_ttl_sec = 5;
-  string subject_prefix = 6;
+  // When unset or empty, defaults to spiffe://<trust-domain-from-issuer>
+  optional string subject_prefix = 6;
   bool rotate_key = 7;
 }
 
-message IdentityConfigRequest {
+message SetTenantIdentityConfigRequest {
   string organization_id = 1;
-  IdentityConfig config = 2;
+  TenantIdentityConfig config = 2;
 }
 
-message IdentityConfigResponse {
+message TenantIdentityConfigResponse {
   string organization_id = 1;
-  IdentityConfig config = 2;
+  TenantIdentityConfig config = 2;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
   string key_id = 10;
@@ -955,6 +1015,43 @@ message TokenDelegation {
 message TokenDelegationRequest {
   string organization_id = 1;
   TokenDelegation config = 2;
+}
+
+// Carried JWKS document for GetJWKS. Standard key fields live in `jwks` only (RFC 7517).
+message Jwks {
+  // UTF-8 JSON text: {"keys":[ ... ]} per RFC 7517.
+  string jwks = 1;
+}
+
+message OpenIdConfiguration {
+  string issuer = 1;
+  string jwks_uri = 2;
+  // OAuth-style access token (JWT bearer) only; no OIDC `id_token` is issued.
+  repeated string response_types_supported = 3;
+  repeated string subject_types_supported = 4;
+  // Verifiers use `jwks_uri` / `spiffe_jwks_uri` and the GetJWKS `jwks` JSON (`keys[].alg`) for JWT verification.
+  repeated string id_token_signing_alg_values_supported = 5;
+  // SPIFFE trust-domain style JWKS URL: `{issuer}/.well-known/spiffe/jwks.json` (GetJWKS with Spiffe kind).
+  string spiffe_jwks_uri = 7;
+}
+
+// Which JWKS document GetJWKS should return.
+enum JwksKind {
+  Unspecified = 0;  // Same as Oidc: tenant OIDC-style JWT signing JWKS (current default).
+  // Keys for verifying JWTs from this org issuer (e.g. machine identity ES256 public key).
+  Oidc = 1;
+  // SPIFFE trust-domain bundle keys (federation / SVID validation); distinct from OIDC OP JWKS above.
+  Spiffe = 2;
+}
+
+message JwksRequest {
+  string organization_id = 1;
+  // When omitted, treated as Unspecified / Oidc behavior.
+  optional JwksKind kind = 2;
+}
+
+message OpenIdConfigRequest {
+  string organization_id = 1;
 }
 
 // Determines machine ingestion state in relation to the power on gate
@@ -1048,6 +1145,7 @@ enum CredentialType {
   RootBmcByMacAddress = 8;
   BmcForgeAdminByMacAddress = 9;
   NmxM = 10;
+  BgpSiteWideLeafPassword = 11;
 }
 
 message CredentialCreationRequest {
@@ -1166,6 +1264,8 @@ message RuntimeConfig {
   int32 dpa_subnet_mask = 48;
 
   bool dpf_enabled = 49;
+
+  bool rack_validation_enabled = 50;
 }
 
 message EchoRequest {
@@ -1350,7 +1450,9 @@ message VpcCreationRequest {
 enum VpcVirtualizationType {
   ETHERNET_VIRTUALIZER = 0;
   // 1 was previously FORGE_NATIVE_NETWORKING
-  ETHERNET_VIRTUALIZER_WITH_NVUE = 2;
+  // ETHERNET_VIRTUALIZER_WITH_NVUE is deprecated. NVUE is now
+  // implied; just use ETHERNET_VIRTUALIZER.
+  ETHERNET_VIRTUALIZER_WITH_NVUE = 2 [deprecated = true];
   // Deprecated: FN_CLASSIC and FNN_L3 are deprecated now. Use FNN only.
   FNN_CLASSIC = 3;
   FNN_L3 = 4;
@@ -1689,8 +1791,7 @@ message PowerShelfConfig {
   optional int32 capacity = 2;
   // Voltage in volts
   optional int32 voltage = 3;
-  // Physical location
-  optional string location = 4;
+  reserved 4; // location moved to PowerShelf message
 }
 
 // Describe the status and applied configuration of a PowerShelf
@@ -1706,6 +1807,8 @@ message PowerShelfStatus {
   optional string power_state = 4;
   // Health status: "ok", "warning", "critical"
   optional string health_status = 5;
+  // The controller state machine state (e.g. "initializing", "ready", "error")
+  optional string controller_state = 6;
 }
 
 // Describe a PowerShelf configuration and status
@@ -1719,7 +1822,21 @@ message PowerShelf {
   // Timestamp when the power shelf was marked as deleted
   optional google.protobuf.Timestamp deleted = 4;
 
+  // Deprecated: use status.controller_state instead
   string controller_state = 5;
+
+  Metadata metadata = 6;
+  string version = 7;
+
+  BmcInfo bmc_info = 8;
+
+  // Version string for the current controller state (e.g. "V3-T1774905143273055").
+  string state_version = 9;
+
+  // The rack that this powershelf is associated with
+  optional common.RackId rack_id = 10;
+  health.HealthReport health = 11;
+  repeated HealthSourceOrigin health_sources = 12;
 }
 
 message PowerShelfList {
@@ -1741,22 +1858,8 @@ message PowerShelfDeletionRequest {
 message PowerShelfDeletionResult {
 }
 
-message PowerShelfStateHistoryRecord {
-  string state = 1;
-  string version = 2;
-  google.protobuf.Timestamp time = 3;
-}
-
 message PowerShelfStateHistoriesRequest {
   repeated common.PowerShelfId power_shelf_ids = 1;
-}
-
-message PowerShelfStateHistories {
-  map<string, PowerShelfStateHistoryRecords> histories = 1;
-}
-
-message PowerShelfStateHistoryRecords {
-  repeated PowerShelfStateHistoryRecord records = 1;
 }
 
 message PowerShelfQuery {
@@ -1764,17 +1867,44 @@ message PowerShelfQuery {
   common.PowerShelfId power_shelf_id = 2;
 }
 
+// Filter for controlling whether deleted resources are included in search results.
+enum DeletedFilter {
+  // Exclude deleted resources (default behavior)
+  DELETED_FILTER_EXCLUDE = 0;
+  // Return only deleted resources
+  DELETED_FILTER_ONLY = 1;
+  // Include both deleted and non-deleted resources
+  DELETED_FILTER_INCLUDE = 2;
+}
+
+message PowerShelfSearchFilter {
+  optional common.RackId rack_id = 1;
+  // Controls whether deleted power shelves are included. Defaults to EXCLUDE.
+  DeletedFilter deleted = 2;
+  // Filter by controller state (e.g. "ready", "initializing", "error")
+  optional string controller_state = 3;
+  // Filter by BMC MAC address via machine_interfaces
+  optional string bmc_mac = 4;
+}
+
+message PowerShelvesByIdsRequest {
+  repeated common.PowerShelfId power_shelf_ids = 1;
+}
+
 message ExpectedPowerShelf {
   string bmc_mac_address = 1;
   string bmc_username = 2;
   string bmc_password = 3;
   string shelf_serial_number = 4;
-  string ip_address = 5;
+  string bmc_ip_address = 5;
   // Metadata that will automatically get associated with a newly created PowerShelf
   Metadata metadata = 6;
   optional common.RackId rack_id = 7;
   // Unique identifier for the expected power shelf. When omitted, server generates one.
   optional common.UUID expected_power_shelf_id = 8;
+  // When true, site-explorer skips BMC password rotation and stores the
+  // factory-default credentials in Vault as-is.
+  optional bool bmc_retain_credentials = 9;
 }
 
 message ExpectedPowerShelfRequest {
@@ -1807,8 +1937,7 @@ message SwitchConfig {
   string name = 1;
   bool enable_nmxc = 2;
   FabricManagerConfig fabric_manager_config = 3;
-  // Physical location
-  optional string location = 4;
+  reserved 4; // location moved to Switch message
 }
 
 // Describe the desired configuration of Fabric Manager
@@ -1829,6 +1958,13 @@ message SwitchStatus {
   optional string power_state = 4;
   // Health status: "ok", "warning", "critical"
   optional string health_status = 5;
+  // The controller state machine state (e.g. "initializing", "ready", "error")
+  optional string controller_state = 6;
+}
+
+message PlacementInRack {
+  optional int32 slot_number = 1;
+  optional int32 tray_index = 2;
 }
 
 // Describe a Switch configuration and status
@@ -1842,12 +1978,22 @@ message Switch {
   // Timestamp when the switch was marked as deleted
   optional google.protobuf.Timestamp deleted = 4;
 
+  // Deprecated: use status.controller_state instead
   string controller_state = 5;
 
   BmcInfo bmc_info = 6;
 
   // Version string for the current controller state (e.g. "V3-T1774905143273055").
   string state_version = 7;
+
+  Metadata metadata = 8;
+  string version = 9;
+
+  // The rack that this switch is associated with
+  optional common.RackId rack_id = 10;
+  optional PlacementInRack placement_in_rack = 11;
+  health.HealthReport health = 12;
+  repeated HealthSourceOrigin health_sources = 13;
 }
 
 message SwitchList {
@@ -1860,6 +2006,8 @@ message SwitchCreationRequest {
   // a random ID.
   // The Switch ID must be unique within the Forge site.
   optional common.UUID id = 2;
+
+  optional PlacementInRack placement_in_rack = 3;
 }
 
 message SwitchDeletionRequest {
@@ -1869,29 +2017,43 @@ message SwitchDeletionRequest {
 message SwitchDeletionResult {
 }
 
-
-message SwitchStateHistoryRecord {
+// The state that a object/resource had at a certain point in time
+message StateHistoryRecord {
   string state = 1;
   string version = 2;
   google.protobuf.Timestamp time = 3;
+}
+
+message StateHistoryRecords {
+  repeated StateHistoryRecord records = 1;
 }
 
 message SwitchStateHistoriesRequest {
   repeated common.SwitchId switch_ids = 1;
 }
 
-message SwitchStateHistories {
-  map<string, SwitchStateHistoryRecords> histories = 1;
+message StateHistories {
+  // Maps from the object identifier to a list of state history records
+  map<string, StateHistoryRecords> histories = 1;
 }
-
-message SwitchStateHistoryRecords {
-  repeated SwitchStateHistoryRecord records = 1;
-}
-
 
 message SwitchQuery {
   optional string name = 1;
   common.SwitchId switch_id = 2;
+}
+
+message SwitchSearchFilter {
+  optional common.RackId rack_id = 1;
+  // Controls whether deleted switches are included. Defaults to EXCLUDE.
+  DeletedFilter deleted = 2;
+  // Filter by controller state (e.g. "ready", "initializing", "error")
+  optional string controller_state = 3;
+  // Filter by BMC MAC address via machine_interfaces
+  optional string bmc_mac = 4;
+}
+
+message SwitchesByIdsRequest {
+  repeated common.SwitchId switch_ids = 1;
 }
 
 message ExpectedSwitch {
@@ -1907,6 +2069,10 @@ message ExpectedSwitch {
   // Unique identifier for the expected switch. When omitted, server generates one.
   optional common.UUID expected_switch_id = 9;
   repeated string nvos_mac_addresses = 10;
+  string bmc_ip_address = 11;
+  // When true, site-explorer skips BMC password rotation and stores the
+  // factory-default credentials in Vault as-is.
+  optional bool bmc_retain_credentials = 12;
 }
 
 message ExpectedSwitchRequest {
@@ -1936,8 +2102,8 @@ message LinkedExpectedSwitch {
 message ExpectedRack {
   // The rack identifier. Same rack_id referenced by expected machines, switches, and power shelves.
   optional common.RackId rack_id = 1;
-  // The rack type name. Determines expected counts of compute trays, switches, and power shelves.
-  string rack_type = 2;
+  // The rack profile ID. Determines expected counts of compute trays, switches, and power shelves.
+  common.RackProfileId rack_profile_id = 2;
   // Metadata that will be associated with the rack.
   Metadata metadata = 3;
 }
@@ -2179,6 +2345,52 @@ message BatchInstanceAllocationResponse {
   repeated Instance instances = 1;
 }
 
+// Parameter for iPXE template substitution or kernel command line
+// Can be used to replace variables in iPXE templates or add parameters to kernel command line
+// Some are "well known" like 'console', others can be custom defined by users
+message IpxeTemplateParameter {
+  string name = 1;   // Name of the parameter (used as variable in template)
+  string value = 2;  // Value of the parameter
+}
+
+// Artifact cache strategy
+enum IpxeTemplateArtifactCacheStrategy {
+  CACHE_AS_NEEDED = 0;   // Download and cache artifact locally if possible
+  LOCAL_ONLY = 1;        // Artifact URL provided is only usable locally: site specific, no caching applicable.
+  CACHED_ONLY = 2;       // Artifact URL must be cached locally or is unusable
+  REMOTE_ONLY = 3;       // Always fetch from remote URL, never cache locally
+}
+
+// Remote artifact to be cached locally before booting
+// Examples: kernel, initrd, rootfs, qcow-imager.efi, OS image, ...
+message IpxeTemplateArtifact {
+  string name = 1;                          // Name of the artifact (can be used as variable in template)
+  string url = 2;                           // Original URL for the artifact
+  optional string sha = 3;                  // Optional SHA256 checksum for the artifact
+  optional string auth_type = 4;            // Auth type: "None", "Basic", "Bearer"
+  optional string auth_token = 5;           // Optional auth token for the artifact
+  IpxeTemplateArtifactCacheStrategy cache_strategy = 6; // How to handle caching for this artifact
+  optional string cached_url = 7;           // Local cached URL, set by carbide-core on successful download. If present overrides 'url' at boot time.
+}
+
+// Scope for iPXE script templates.
+enum IpxeTemplateScope {
+  INTERNAL = 0;  // Carbide-core usage only
+  PUBLIC = 1;    // Usable by tenant
+}
+
+// Template management messages
+message IpxeTemplate {
+  string name = 1;
+  string template = 2;
+  repeated string required_params = 3;  // Error if these params are not provided or empty
+  string description = 4;
+  repeated string reserved_params = 5;  // Reserved for carbide-core to provide at render time
+  repeated string required_artifacts = 6;  // Error if these artifacts are not provided or empty
+  IpxeTemplateScope scope = 7;  // INTERNAL = carbide-core only, PUBLIC = tenant-usable
+  common.IpxeTemplateId id = 8;  // Stable UUID, hardcoded in templates.yaml; consistent across all sites
+}
+
 // Tenant related configuration that is set once the instance is allocated
 // by a tenant
 message TenantConfig {
@@ -2186,7 +2398,7 @@ message TenantConfig {
   string tenant_organization_id = 1;
 
   // These fields have been used for OS configuration in the past.
-  // They are now replaced with the OperatingSystem message.
+  // They are now replaced with the InstanceOperatingSystemConfig message.
   reserved 11, 12, 13, 14;
 
   optional string hostname = 15;
@@ -2196,11 +2408,14 @@ message TenantConfig {
   repeated string tenantKeysetIds = 8; // this may be empty
 }
 
-message OperatingSystem {
+message InstanceOperatingSystemConfig {
   // Contains the operating system definition based on the variant of operating system
   oneof variant {
     InlineIpxe ipxe = 1;
     common.UUID os_image_id = 2;
+    // Reference any operating system definition by ID (any variant except OS image).
+    // On read the actual variant (iPXE / ipxe_os_definition) is resolved from the row.
+    common.OperatingSystemId operating_system_id = 4;
   }
 
   // If this flag is set to `true` the instance will not transition to a Ready state until
@@ -2235,7 +2450,7 @@ message InlineIpxe {
   string ipxe_script = 1;
   // Optional user-data that is associated with the iPXE script
   // This can be a cloud-init script
-  // Deprecated, use OperatingSystem user_data field
+  // Deprecated, use InstanceOperatingSystemConfig user_data field
   optional string user_data = 2;
 }
 
@@ -2248,7 +2463,7 @@ message InstanceConfig {
   TenantConfig tenant = 1;
 
   // Operating system. This is required if no operating system reference is provided
-  OperatingSystem os = 2;
+  InstanceOperatingSystemConfig os = 2;
   // Can be used to reference an OS in the OS library based on a unique ID
   // string os_reference = 3;
 
@@ -2333,7 +2548,7 @@ message InstanceOperatingSystemUpdateRequest {
   optional string if_version_match = 2;
 
   // Operating system. This is required if no operating system reference is provided
-  OperatingSystem os = 3;
+  InstanceOperatingSystemConfig os = 3;
   // Can be used to reference an OS in the OS library based on a unique ID
   // string os_reference = 4;
 }
@@ -2539,7 +2754,8 @@ message InstanceInterfaceConfig {
   oneof network_details {
     common.NetworkSegmentId segment_id = 5;
     // In case of vpc_prefix_id, carbide should allocate a network segment
-    // and continue IP allocation.
+    // and continue IP allocation. This field is address-family agnostic —
+    // it can be an IPv4 or IPv6 VPC prefix.
     common.VpcPrefixId vpc_prefix_id = 6;
   }
 
@@ -2568,10 +2784,21 @@ message InstanceInterfaceConfig {
   // for this network interface.
   optional uint32 virtual_function_id = 9;
 
-  // Explicit _host_ IP address requested for the interface.
-  // Only allowed when VPC prefix is used.
-  // Must match VPC prefix defined for the interface.
+  // Explicit _host_ IP address requested for the interface (for vpc_prefix_id).
   optional string ip_address = 10;
+
+  // Optional IPv6 configuration for dual-stack interfaces. When set alongside
+  // vpc_prefix_id (field 6), both prefixes are allocated to a single network segment.
+  optional InstanceInterfaceIpv6Config ipv6_interface_config = 11;
+}
+
+// IPv6 configuration for a dual-stack instance interface.
+message InstanceInterfaceIpv6Config {
+  // The IPv6 VPC prefix to allocate from. The primary vpc_prefix_id creates
+  // the segment, and this prefix is added to it.
+  common.VpcPrefixId vpc_prefix_id = 1;
+  // Explicit host IPv6 address requested for this interface.
+  optional string ip_address = 2;
 }
 
 // The configuration that a customer desires for an instances IB interface
@@ -2765,18 +2992,18 @@ message MachineHealthHistoriesRequest {
   google.protobuf.Timestamp end_time = 3;
 }
 
-message MachineHealthHistories {
+message HealthHistories {
   // The Health History for each Machine
-  map<string, MachineHealthHistoryRecords> histories = 1;
+  map<string, HealthHistoryRecords> histories = 1;
 }
 
-// A list of Machine health history records, starting by the oldest
-message MachineHealthHistoryRecords {
-  repeated MachineHealthHistoryRecord records = 1;
+// A list of health history records, starting by the oldest
+message HealthHistoryRecords {
+  repeated HealthHistoryRecord records = 1;
 }
 
-// The observed health for a Machine at a certain point in time
-message MachineHealthHistoryRecord {
+// The observed health for a resource at a certain point in time
+message HealthHistoryRecord {
   // The observed health
   health.HealthReport health = 1;
   // The time when the health was observed
@@ -2814,6 +3041,53 @@ message InterfaceDeleteQuery {
 message InterfaceSearchQuery {
   optional common.MachineInterfaceId id = 1;
   optional string ip = 2;
+}
+
+message AssignStaticAddressRequest {
+  common.MachineInterfaceId interface_id = 1;
+  string ip_address = 2;
+}
+
+enum AssignStaticAddressStatus {
+  ASSIGN_STATIC_ADDRESS_STATUS_ASSIGNED = 0;
+  ASSIGN_STATIC_ADDRESS_STATUS_REPLACED_STATIC = 1;
+  ASSIGN_STATIC_ADDRESS_STATUS_REPLACED_DHCP = 2;
+}
+
+message AssignStaticAddressResponse {
+  common.MachineInterfaceId interface_id = 1;
+  string ip_address = 2;
+  AssignStaticAddressStatus status = 3;
+}
+
+message RemoveStaticAddressRequest {
+  common.MachineInterfaceId interface_id = 1;
+  string ip_address = 2;
+}
+
+enum RemoveStaticAddressStatus {
+  REMOVE_STATIC_ADDRESS_STATUS_REMOVED = 0;
+  REMOVE_STATIC_ADDRESS_STATUS_NOT_FOUND = 1;
+}
+
+message RemoveStaticAddressResponse {
+  common.MachineInterfaceId interface_id = 1;
+  string ip_address = 2;
+  RemoveStaticAddressStatus status = 3;
+}
+
+message FindInterfaceAddressesRequest {
+  common.MachineInterfaceId interface_id = 1;
+}
+
+message InterfaceAddress {
+  string address = 1;
+  string allocation_type = 2;
+}
+
+message FindInterfaceAddressesResponse {
+  common.MachineInterfaceId interface_id = 1;
+  repeated InterfaceAddress addresses = 2;
 }
 
 enum MachineType {
@@ -2891,9 +3165,9 @@ message Machine {
   // For DPUs, it returns the individual DPU health
   health.HealthReport health = 27;
 
-  // Informs whether any overrides (identified by a specific source name and mode) are applied
-  // to health
-  repeated HealthOverrideOrigin health_overrides = 29;
+  // Health report sources (identified by a specific source name and mode) that are applied
+  // to the aggregate health of this machine
+  repeated HealthSourceOrigin health_sources = 29;
 
   optional bool firmware_autoupdate = 28;
 
@@ -2931,7 +3205,10 @@ message Machine {
 
   optional MachineNVLinkStatusObservation nvlink_status_observation = 44;
 
+  // The rack that this machine is associated with
   optional common.RackId rack_id = 45;
+
+  optional PlacementInRack placement_in_rack = 46;
 }
 
 message InstanceNetworkRestrictions {
@@ -2969,6 +3246,48 @@ message MachineMetadataUpdateRequest {
   Metadata metadata = 3;
 }
 
+message RackMetadataUpdateRequest {
+  // The ID of the Rack for which the Metadata update will apply
+  common.RackId rack_id = 1;
+
+  // If the field here is set, the update will only be applied if the version
+  // is equivalent to the current Rack `version` on the Forge Site.
+  // If a concurrent update changed the site configuration, the API will return
+  // a `ConcurrentModificationError`.
+  optional string if_version_match = 2;
+
+  // New Metadata to be utilized by the Rack
+  Metadata metadata = 3;
+}
+
+message SwitchMetadataUpdateRequest {
+  // The ID of the Switch for which the Metadata update will apply
+  common.SwitchId switch_id = 1;
+
+  // If the field here is set, the update will only be applied if the version
+  // is equivalent to the current Switch `version` on the Forge Site.
+  // If a concurrent update changed the site configuration, the API will return
+  // a `ConcurrentModificationError`.
+  optional string if_version_match = 2;
+
+  // New Metadata to be utilized by the Switch
+  Metadata metadata = 3;
+}
+
+message PowerShelfMetadataUpdateRequest {
+  // The ID of the PowerShelf for which the Metadata update will apply
+  common.PowerShelfId power_shelf_id = 1;
+
+  // If the field here is set, the update will only be applied if the version
+  // is equivalent to the current PowerShelf `version` on the Forge Site.
+  // If a concurrent update changed the site configuration, the API will return
+  // a `ConcurrentModificationError`.
+  optional string if_version_match = 2;
+
+  // New Metadata to be utilized by the PowerShelf
+  Metadata metadata = 3;
+}
+
 message DpuAgentInventoryReport {
   common.MachineId machine_id = 1;
   MachineInventory inventory = 2;
@@ -2984,9 +3303,9 @@ message MachineInventorySoftwareComponent {
   string url = 3;
 }
 
-// A health override that is applied to a Host
-message HealthOverrideOrigin {
-  OverrideMode mode = 1;
+// Summary of a health report source: its mode and source identifier.
+message HealthSourceOrigin {
+  HealthReportApplyMode mode = 1;
   string source = 2;
 }
 
@@ -3278,6 +3597,12 @@ message SshRequest {
 message CopyBfbToDpuRshimRequest {
   SshRequest ssh_request = 1;
   reserved 2;
+  // Host BMC IP address. Required for the mandatory post-copy host
+  // power-cycle to apply the new BFB.
+  string host_bmc_ip = 3;
+  // When true, the host is also power-cycled *before* the BFB copy
+  // to release rshim control to the DPU BMC.
+  bool pre_copy_powercycle = 4;
 }
 
 message UpdateMachineHardwareInfoRequest {
@@ -3441,6 +3766,10 @@ message ManagedHostNetworkConfigResponse {
   // will still use the dynamically allocated VNI for deriving
   // route-targets.
   optional uint32 site_global_vpc_vni = 117;
+
+  // The password the DPU should use when configuring a
+  // BGP session with the its TOR
+  optional string bgp_leaf_session_password = 118;
 }
 
 message TrafficInterceptConfig {
@@ -3627,6 +3956,9 @@ message FlatInterfaceConfig {
   // MTU size
   optional uint32 mtu = 18;
 
+  // IPv6 configuration for dual-stack FNN interfaces.
+  optional FlatInterfaceIpv6Config ipv6_interface_config = 19;
+
   // The details of the network security group associated with
   // either the instance or its parent VPC.
   // Currently, source would either be INSTANCE or VPC.
@@ -3639,6 +3971,18 @@ message FlatInterfaceConfig {
 
   // A UUID used to associate a network status with an interface config.
   optional common.UUID internal_uuid = 108;
+}
+
+// IPv6 configuration for a dual-stack FNN interface, sent from the API to
+// the DPU agent as part of FlatInterfaceConfig.
+message FlatInterfaceIpv6Config {
+  // Host IPv6 address (e.g. "2001:db8::1").
+  string ip = 1;
+  // Interface-specific prefix allocation (e.g. "2001:db8::/127").
+  string interface_prefix = 2;
+  // SVI IP for L2 FNN segments — the DPU's IPv6 gateway address on the VLAN.
+  // Only set for L2 segments (can_stretch = true).
+  optional string svi_ip = 3;
 }
 
 message FlatInterfaceNetworkSecurityGroupConfig {
@@ -3887,6 +4231,7 @@ message ForgeAgentControlResponse {
     LOGERROR = 6; // Log error.
     MACHINE_VALIDATION = 7; // Machine validation.
     MLX_ACTION = 8; // MlxAction for DPA NICs
+    FIRMWARE_UPGRADE = 9; // Firmware upgrade through scout
   }
   Action action = 1;
 
@@ -3991,6 +4336,13 @@ message PxeInstructionRequest {
 
 message PxeInstructions {
   string pxe_script = 1;
+  // URL overrides for external clients (e.g. on the static-assignments
+  // segment). When set, carbide-pxe uses these instead of its global
+  // env var URLs, allowing external hosts to reach services via an
+  // alternate hostname or IP that they can resolve.
+  optional string api_url_override = 2;
+  optional string pxe_url_override = 3;
+  optional string static_pxe_url_override = 4;
 }
 
 message CloudInitDiscoveryInstructions {
@@ -4027,6 +4379,12 @@ message CloudInitInstructions {
   optional string custom_cloud_init = 1;
   optional CloudInitDiscoveryInstructions discovery_instructions = 2;
   optional CloudInitMetaData metadata = 3;
+  // URL overrides for external clients (e.g. on the static-assignments
+  // segment). When set, carbide-pxe uses these instead of its global
+  // env var URLs, allowing external hosts to reach services via an
+  // alternate hostname or IP that they can resolve.
+  optional string api_url_override = 4;
+  optional string pxe_url_override = 5;
 }
 
 // Specifies whether a network interface is physical network function (PF)
@@ -4091,7 +4449,7 @@ message OptionalHealthReport {
   optional health.HealthReport report = 1;
 }
 
-enum OverrideMode {
+enum HealthReportApplyMode {
   // Keep the existing health reports, and merge them with this health report.
   // If 2 reports report the same failures based on `id`s on `target`s
   // - the classifications of both alerts will be merged
@@ -4102,21 +4460,21 @@ enum OverrideMode {
   Replace = 1;
 }
 
-message HealthReportOverride {
+message HealthReportEntry {
   health.HealthReport report = 1;
-  OverrideMode mode = 2;
+  HealthReportApplyMode mode = 2;
 }
 
 message InsertHealthReportOverrideRequest {
   common.MachineId machine_id = 1;
-  HealthReportOverride override = 2;
+  HealthReportEntry health_report_entry = 2;
 }
 
 // Request to insert a health report override for a Rack.
 // Same as InsertHealthReportOverrideRequest but with rack_id instead of machine_id.
 message InsertRackHealthReportOverrideRequest {
   common.RackId rack_id = 1;
-  HealthReportOverride override = 2;
+  HealthReportEntry health_report_entry = 2;
 }
 
 // Request to remove a health report override for a Rack.
@@ -4131,8 +4489,42 @@ message ListRackHealthReportOverridesRequest {
   optional common.RackId rack_id = 1;
 }
 
-message ListHealthReportOverrideResponse {
-  repeated HealthReportOverride overrides = 1;
+// Request to insert a health report source for a Switch.
+message InsertSwitchHealthReportRequest {
+  common.SwitchId switch_id = 1;
+  HealthReportEntry health_report_entry = 2;
+}
+
+// Request to remove a health report source for a Switch.
+message RemoveSwitchHealthReportRequest {
+  common.SwitchId switch_id = 1;
+  string source = 2;
+}
+
+// Request to list health report sources for a Switch.
+message ListSwitchHealthReportsRequest {
+  optional common.SwitchId switch_id = 1;
+}
+
+// Request to insert a health report source for a Power Shelf.
+message InsertPowerShelfHealthReportRequest {
+  common.PowerShelfId power_shelf_id = 1;
+  HealthReportEntry health_report_entry = 2;
+}
+
+// Request to remove a health report source for a Power Shelf.
+message RemovePowerShelfHealthReportRequest {
+  common.PowerShelfId power_shelf_id = 1;
+  string source = 2;
+}
+
+// Request to list health report sources for a Power Shelf.
+message ListPowerShelfHealthReportsRequest {
+  optional common.PowerShelfId power_shelf_id = 1;
+}
+
+message ListHealthReportResponse {
+  repeated HealthReportEntry health_report_entries = 1;
 }
 
 message RemoveHealthReportOverrideRequest {
@@ -4398,6 +4790,7 @@ enum ConfigSetting {
   CREATE_MACHINES = 1;
   BMC_PROXY = 2;
   TRACING_ENABLED = 3;
+  SITE_EXPLORER_ENABLED = 4;
 }
 
 message FindIpAddressRequest {
@@ -4565,6 +4958,12 @@ enum IpType {
   // DB records specifically say their source type is `admin`.
   IpTypeRouteServerFromAdminApi = 10;
   IpTypeDpaInterface = 11;
+  // IpTypeStaticBmcIp are BMC IPs that were statically assigned via
+  // ExpectedMachine.bmc_ip_address, ExpectedPowerShelf.bmc_ip_address,
+  // ExpectedSwitch.bmc_ip_address, or operator static assignment
+  // (AllocationType::Static / static-assignments segment), as opposed to
+  // a normal DHCP allocation.
+  IpTypeStaticBmcIp = 12;
 }
 
 message MachineBootOverride {
@@ -4751,6 +5150,19 @@ message DeleteOsImageRequest {
 message DeleteOsImageResponse {
 }
 
+// Request/Response messages for iPXE Script Template management
+message GetIpxeTemplateRequest {
+  common.IpxeTemplateId id = 1;  // Stable template UUID
+}
+
+message ListIpxeTemplatesRequest {
+  // Empty for now
+}
+
+message IpxeTemplateList {
+  repeated IpxeTemplate templates = 1;
+}
+
 
 message ExpectedHostNic {
   string mac_address = 1;
@@ -4758,6 +5170,35 @@ message ExpectedHostNic {
   optional string fixed_ip = 3;
   optional string fixed_mask = 4;
   optional string fixed_gateway = 5;
+  // When true, this flags the given NIC as the host's primary (boot)
+  // interface (used in cases of zero DPU).
+  //
+  // Up to one NIC per ExpectedMachine may be marked primary, if set at
+  // all. Propagates to `machine_interfaces.primary_interface` during DHCP
+  // when this NIC is first discovered.
+  //
+  // Some day this could be even possibly used to say "this dumb NIC
+  // *is* the primary interface, even though I know I have a DPU."
+  optional bool primary = 6;
+}
+
+// Per-host DPU operating mode. Ultimately replaces the site-wide
+// `force_dpu_nic_mode` config flag, so site operators can mix DPU-mode,
+// NIC-mode, and no-DPU hosts within a single site.
+//
+// - DPU_MODE: The default. Attached DPUs are managed by NICo (DPU upgrades,
+//   overlay networking, etc).
+// - NIC_MODE: DPUs are present physically but operate as plain NICs. Site
+//   explorer skips DPU ingest; the host is tracked as if it had no DPUs.
+// - NO_DPU: no DPU hardware at all -- a plain host NIC on the underlay.
+//
+// Unset and `DPU_MODE_UNSPECIFIED` both mean "use the site default," which
+// is DPU_MODE unless the site-wide `force_dpu_nic_mode` config flag is on.
+enum DpuMode {
+  DPU_MODE_UNSPECIFIED = 0;
+  DPU_MODE = 1;
+  NIC_MODE = 2;
+  NO_DPU = 3;
 }
 
 message ExpectedMachine {
@@ -4777,6 +5218,16 @@ message ExpectedMachine {
   // deprecated
   bool dpf_enabled = 12 [deprecated = true];
   optional bool is_dpf_enabled = 13;
+  // Static BMC IP (optional). Pre-allocates a machine_interface like expected
+  // switches and power shelves; external IPs use the static-assignments segment.
+  optional string bmc_ip_address = 14;
+  // When true, site-explorer skips BMC password rotation and stores the
+  // factory-default credentials in Vault as-is.
+  optional bool bmc_retain_credentials = 15;
+  // Per-host DPU operating mode. See `DpuMode` above. Unset means "site
+  // default" -- the site-wide `force_dpu_nic_mode` config flag still applies
+  // when no per-host override is set, so existing deployments keep working.
+  optional DpuMode dpu_mode = 16;
 }
 
 message ExpectedMachineRequest {
@@ -4832,6 +5283,16 @@ message MachineRebootCompletedResponse {
 message MachineRebootCompletedRequest {
   common.MachineId machine_id = 1;
 }
+
+message ScoutFirmwareUpgradeStatusRequest {
+  common.MachineId machine_id = 1;
+  bool success = 2;
+  int32 exit_code = 3;
+  string stdout = 4;
+  string stderr = 5;
+  string error = 6;
+}
+
 // enum MachineValidationState {
 //     Started = 0;
 //     InProgress = 1;
@@ -5815,7 +6276,7 @@ message DpaInterface {
   string network_config = 11;
   string network_config_version = 12;
 
-  repeated DpaInterfaceStateHistoryRecord history = 13;
+  repeated StateHistoryRecord history = 13;
 
   google.protobuf.Timestamp last_hb_time = 14;
 
@@ -5856,12 +6317,6 @@ message DpaInterfacesByIdsRequest {
 
 message DpaInterfaceList {
   repeated DpaInterface interfaces = 1;
-}
-
-message DpaInterfaceStateHistoryRecord {
-  string state = 1;
-  string version = 2;
-  google.protobuf.Timestamp time = 3;
 }
 
 message DpaNetworkObservationSetRequest {
@@ -6051,34 +6506,85 @@ message Rack {
   repeated string expected_nvlink_switches = 5;
   repeated common.MachineId compute_trays = 6;
   repeated common.PowerShelfId power_shelves = 7;
-  // repeated common.NvlinkSwitchId nvlink_switches = 8;
+  repeated common.SwitchId switches = 8;
   google.protobuf.Timestamp created = 9;
   google.protobuf.Timestamp updated = 10;
   google.protobuf.Timestamp deleted = 11;
   health.HealthReport health = 12;
-  repeated HealthOverrideOrigin health_overrides = 13;
-}
-
-message RackStateHistoryRecord {
-  string state = 1;
-  string version = 2;
-  google.protobuf.Timestamp time = 3;
+  repeated HealthSourceOrigin health_sources = 13;
+  Metadata metadata = 14;
+  string version = 15;
 }
 
 message RackStateHistoriesRequest {
   repeated common.RackId rack_ids = 1;
 }
 
-message RackStateHistories {
-  map<string, RackStateHistoryRecords> histories = 1;
-}
-
-message RackStateHistoryRecords {
-  repeated RackStateHistoryRecord records = 1;
-}
-
 message DeleteRackRequest {
   string id = 1;
+}
+
+// Rack Capabilities
+
+
+enum RackHardwareTopology {
+  RACK_HARDWARE_TOPOLOGY_UNSPECIFIED = 0;
+  RACK_HARDWARE_TOPOLOGY_GB200_NVL36R1_C2G4 = 1;
+  RACK_HARDWARE_TOPOLOGY_GB300_NVL36R1_C2G4 = 2;
+  RACK_HARDWARE_TOPOLOGY_GB200_NVL72R1_C2G4 = 3;
+  RACK_HARDWARE_TOPOLOGY_GB300_NVL72R1_C2G4 = 4;
+  RACK_HARDWARE_TOPOLOGY_VR_NVL8R1_C2G4_RTF = 5;
+  RACK_HARDWARE_TOPOLOGY_VR_NVL72R1_C2G4 = 6;
+}
+
+enum RackHardwareClass {
+  RACK_HARDWARE_CLASS_UNSPECIFIED = 0;
+  RACK_HARDWARE_CLASS_DEV = 1;
+  RACK_HARDWARE_CLASS_PROD = 2;
+}
+
+message RackCapabilityCompute {
+  optional string name = 1;
+  uint32 count = 2;
+  optional string vendor = 3;
+  repeated uint32 slot_ids = 4;
+}
+
+message RackCapabilitySwitch {
+  optional string name = 1;
+  uint32 count = 2;
+  optional string vendor = 3;
+  repeated uint32 slot_ids = 4;
+}
+
+message RackCapabilityPowerShelf {
+  optional string name = 1;
+  uint32 count = 2;
+  optional string vendor = 3;
+  repeated uint32 slot_ids = 4;
+}
+
+message RackCapabilitiesSet {
+  RackCapabilityCompute compute = 1;
+  RackCapabilitySwitch switch = 2;
+  RackCapabilityPowerShelf power_shelf = 3;
+}
+
+message RackProfile {
+  common.RackHardwareType rack_hardware_type = 1;
+  RackHardwareTopology rack_hardware_topology = 2;
+  RackHardwareClass rack_hardware_class = 3;
+  RackCapabilitiesSet capabilities = 4;
+}
+
+message GetRackProfileRequest {
+  common.RackId rack_id = 1;
+}
+
+message GetRackProfileResponse {
+  common.RackId rack_id = 1;
+  common.RackProfileId rack_profile_id = 2;
+  RackProfile profile = 3;
 }
 
 // put some sample rack manager commands in for now
@@ -6752,6 +7258,11 @@ message RoutingProfile {
   repeated common.RouteTarget route_targets_on_exports = 2;
   bool leak_default_route_from_underlay                = 3;
   bool leak_tenant_host_routes_to_underlay             = 4;
+
+  // Are route-leak communities sent by the host OS honored by the DPU for allowing
+  // routes advertised by the host OS to be leaked into the underlay?
+  bool tenant_leak_communities_accepted                = 5;
+
 }
 
 // ============================================================================
@@ -6828,6 +7339,12 @@ message RackFirmware {
   string created = 4;
   string updated = 5;
   string parsed_components = 6; // JSON string of firmware lookup table
+  common.RackHardwareType rack_hardware_type = 7;
+  bool is_default = 8;
+}
+
+message RackFirmwareSetDefaultRequest {
+  string firmware_id = 1;
 }
 
 message FirmwareComponentInfo {
@@ -6842,14 +7359,16 @@ message FirmwareComponentInfo {
 message RackFirmwareCreateRequest {
   string config_json = 1;
   string artifactory_token = 2;
+  common.RackHardwareType rack_hardware_type = 3;
 }
 
 message RackFirmwareGetRequest {
   string id = 1;
 }
 
-message RackFirmwareListRequest {
+message RackFirmwareSearchFilter {
   bool only_available = 1;
+  common.RackHardwareType rack_hardware_type = 2; // Optional: filter by rack hardware type. Unspecified means no filter.
 }
 
 message RackFirmwareList {
@@ -6920,6 +7439,7 @@ message RackFirmwareHistoryRecord {
   string firmware_type = 3;
   string applied_at = 4;
   bool firmware_available = 5; // Whether the firmware ID still exists and is available
+  common.RackHardwareType rack_hardware_type = 6;
 }
 
 message ModifyDPFStateRequest {
@@ -7095,4 +7615,156 @@ message DeviceFirmwareVersions {
 
 message ListComponentFirmwareVersionsResponse {
   repeated DeviceFirmwareVersions devices = 1;
+}
+
+// Force deletes a Switch and optionally its associated interfaces.
+message AdminForceDeleteSwitchRequest {
+  // The Switch ID to force delete.
+  common.SwitchId switch_id = 1;
+  // Should we delete the machine interfaces associated with this switch?
+  bool delete_interfaces = 2;
+}
+
+message AdminForceDeleteSwitchResponse {
+  // The ID of the switch that was deleted.
+  string switch_id = 1;
+  // Number of interfaces deleted.
+  uint32 interfaces_deleted = 2;
+}
+
+// Force deletes a Power Shelf and optionally its associated interfaces.
+message AdminForceDeletePowerShelfRequest {
+  // The Power Shelf ID to force delete.
+  common.PowerShelfId power_shelf_id = 1;
+  // Should we delete the machine interfaces associated with this power shelf?
+  bool delete_interfaces = 2;
+}
+
+message AdminForceDeletePowerShelfResponse {
+  // The ID of the power shelf that was deleted.
+  string power_shelf_id = 1;
+  // Number of interfaces deleted.
+  uint32 interfaces_deleted = 2;
+}
+
+// --- Operating System library messages ---
+
+// Operating system definition (CRUD resource, table operating_systems).
+// Type of Operating System variant
+enum OperatingSystemType {
+  OS_TYPE_UNSPECIFIED = 0;
+  OS_TYPE_IPXE = 1;              // Raw inline iPXE script
+  OS_TYPE_TEMPLATED_IPXE = 2; // iPXE OS using an iPXE template
+}
+
+message OperatingSystem {
+  common.OperatingSystemId id = 1;
+  string name = 2;
+  optional string description = 3;
+  string tenant_organization_id = 4;
+  OperatingSystemType type = 5;
+  TenantState status = 6; // we only use some states from TenantState
+  bool is_active = 7;
+  bool allow_override = 8;
+  bool phone_home_enabled = 9;
+  optional string user_data = 10;
+  string created = 11;
+  string updated = 12;
+
+  // Variant: ipxe
+  optional string ipxe_script = 20;
+  // Variant: ipxe_os_definition
+  optional common.IpxeTemplateId ipxe_template_id = 22;
+  repeated IpxeTemplateParameter ipxe_template_parameters = 23;
+  repeated IpxeTemplateArtifact ipxe_template_artifacts = 24;
+  optional string ipxe_template_definition_hash = 25;
+}
+
+message CreateOperatingSystemRequest {
+  string name = 1;
+  optional string description = 2;
+  string tenant_organization_id = 3;
+  bool is_active = 4;
+  bool allow_override = 5;
+  bool phone_home_enabled = 6;
+  optional string user_data = 7;
+  optional common.OperatingSystemId id = 8;
+
+  // Exactly one variant must be provided to determine the type.
+  // This is only set for 'ipxe' variant:
+  optional string ipxe_script = 20;
+  // This is only set for 'ipxe_os_definition' variant (with optional parameters/artifacts):
+  optional common.IpxeTemplateId ipxe_template_id = 22;
+  repeated IpxeTemplateParameter ipxe_template_parameters = 23;
+  repeated IpxeTemplateArtifact ipxe_template_artifacts = 24;
+}
+
+// Wrapper for repeated IpxeTemplateParameter so that an optional field can distinguish
+// "not provided" (keep existing) from "provided but empty" (clear the list).
+message IpxeTemplateParameters {
+  repeated IpxeTemplateParameter items = 1;
+}
+
+// Wrapper for repeated IpxeTemplateArtifact (same rationale as IpxeTemplateParameters).
+message IpxeTemplateArtifacts {
+  repeated IpxeTemplateArtifact items = 1;
+}
+
+message UpdateOperatingSystemRequest {
+  common.OperatingSystemId id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  optional bool is_active = 4;
+  optional bool allow_override = 5;
+  optional bool phone_home_enabled = 6;
+  optional string user_data = 7;
+
+  optional string ipxe_script = 20;
+  optional common.IpxeTemplateId ipxe_template_id = 22;
+  optional IpxeTemplateParameters ipxe_template_parameters = 23;
+  optional IpxeTemplateArtifacts ipxe_template_artifacts = 24;
+  optional string ipxe_template_definition_hash = 25; // if provided, used as-is; otherwise recomputed
+}
+
+message DeleteOperatingSystemRequest {
+  common.OperatingSystemId id = 1;
+}
+
+message DeleteOperatingSystemResponse {
+}
+
+message OperatingSystemSearchFilter {
+  optional string tenant_organization_id = 1;
+}
+
+message OperatingSystemIdList {
+  repeated common.OperatingSystemId ids = 1;
+}
+
+message OperatingSystemsByIdsRequest {
+  repeated common.OperatingSystemId ids = 1;
+}
+
+message OperatingSystemList {
+  repeated OperatingSystem operating_systems = 1;
+}
+
+message GetOperatingSystemCachableIpxeTemplateArtifactsRequest {
+  common.OperatingSystemId id = 1;
+}
+
+message IpxeTemplateArtifactList {
+  repeated IpxeTemplateArtifact artifacts = 1;
+}
+
+// A single (artifact name, cached_url) pair for UpdateOperatingSystemCachableIpxeTemplateArtifacts.
+// cached_url is optional: absent means clear the cached_url on the matching artifact(s).
+message IpxeTemplateArtifactUpdateRequest {
+  string name = 1;
+  optional string cached_url = 2;
+}
+
+message UpdateOperatingSystemIpxeTemplateArtifactRequest {
+  common.OperatingSystemId id = 1;
+  repeated IpxeTemplateArtifactUpdateRequest updates = 2;
 }

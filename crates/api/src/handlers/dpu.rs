@@ -27,6 +27,7 @@ use db::{
     DatabaseError, ObjectColumnFilter, dpu_agent_upgrade_policy, network_security_group,
     network_segment,
 };
+use forge_secrets::credentials::{BgpCredentialType, CredentialKey, Credentials};
 use futures_util::future::join_all;
 use itertools::Itertools;
 use model::extension_service::{ExtensionService, ExtensionServiceVersionInfo};
@@ -45,7 +46,7 @@ use crate::api::{Api, log_machine_id, log_request_data};
 use crate::cfg::file::VpcIsolationBehaviorType;
 use crate::handlers::extension_service;
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::{CarbideError, ethernet_virtualization};
+use crate::{CarbideError, cfg, ethernet_virtualization};
 
 /// vxlan48 is special HBN single vxlan device. It handles networking between machines on the
 /// same subnet. It handles the encapsulation into VXLAN and VNI for cross-host comms.
@@ -153,7 +154,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
     // prevent the host from using the DPU at all.
     let use_admin_network = dpu_snapshot.use_admin_network() || !dpu_has_tenant_interface_config;
 
-    let mut network_virtualization_type = VpcVirtualizationType::EthernetVirtualizerWithNvue;
+    let mut network_virtualization_type = VpcVirtualizationType::EthernetVirtualizer;
 
     let mut use_fnn_over_admin_nw = false;
 
@@ -263,17 +264,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 None
             };
 
-            // EthernetVirtualizer is treated as EthernetVirtualizerWithNvue — NVUE is
-            // always enabled, and the non-NVUE ETV agent code path has been removed.
-            // In practice the DB decode already maps "etv" -> EthernetVirtualizerWithNvue,
-            // so EthernetVirtualizer shouldn't appear here, but we handle it defensively.
-            network_virtualization_type = match vpc.network_virtualization_type {
-                VpcVirtualizationType::EthernetVirtualizer
-                | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
-                    VpcVirtualizationType::EthernetVirtualizerWithNvue
-                }
-                VpcVirtualizationType::Fnn => VpcVirtualizationType::Fnn,
-            };
+            network_virtualization_type = vpc.network_virtualization_type;
 
             vpc_vni = vpc.status.as_ref().and_then(|v| v.vni.map(|x|x as u32));
 
@@ -646,9 +637,17 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 .version_string()
         },
         remote_id: dpu_machine_id.remote_id(),
-        network_virtualization_type: Some(
-            rpc::VpcVirtualizationType::from(network_virtualization_type).into(),
-        ),
+        // TODO(chet): Once all agents are upgraded past the ETV cleanup PRs, this can
+        // use rpc::VpcVirtualizationType::from(network_virtualization_type).into() instead.
+        // For now, force ETV to proto value 2 (ETHERNET_VIRTUALIZER_WITH_NVUE) so that
+        // older agents that reject proto value 0 (ETHERNET_VIRTUALIZER) continue to work.
+        network_virtualization_type: Some(match network_virtualization_type {
+            VpcVirtualizationType::EthernetVirtualizer
+            | VpcVirtualizationType::EthernetVirtualizerWithNvue => {
+                rpc::VpcVirtualizationType::EthernetVirtualizerWithNvue.into()
+            }
+            VpcVirtualizationType::Fnn => rpc::VpcVirtualizationType::Fnn.into(),
+        }),
         vpc_vni,
         // Deprecated: this field is always true now.
         // This should be removed in future version.
@@ -667,6 +666,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                 })
         }),
         routing_profile: routing_profile.map(|p| rpc::RoutingProfile {
+            tenant_leak_communities_accepted: p.tenant_leak_communities_accepted,
             leak_default_route_from_underlay: p.leak_default_route_from_underlay,
             leak_tenant_host_routes_to_underlay: p.leak_tenant_host_routes_to_underlay,
             route_target_imports: p
@@ -720,6 +720,20 @@ pub(crate) async fn get_managed_host_network_config_inner(
             .unwrap_or_default(),
         instance: maybe_instance,
         dpu_extension_services: extension_services,
+        bgp_leaf_session_password: match api.runtime_config.bgp_leaf_session_password.as_ref() {
+            Some(p) => match p {
+                cfg::file::BgpLeafSessionPassword::SiteWide => Some(
+                    get_bgp_password(
+                        &api.credential_manager,
+                        CredentialKey::Bgp {
+                            credential_type: BgpCredentialType::SiteWideLeafPassword,
+                        },
+                    )
+                    .await?,
+                ),
+            },
+            None => None,
+        },
     };
 
     // If this all worked, we shouldn't emit a log line
@@ -1162,7 +1176,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                 return Err(CarbideError::InvalidArgument("A restart has to be triggered for all DPUs together. Only host_id is accepted for restart operation.".to_string()).into());
             }
 
-            if snapshot.dpu_snapshots.is_empty() {
+            if snapshot.is_zero_dpu() {
                 return Err(CarbideError::InvalidArgument(
                     "Machine has no DPUs, cannot trigger DPU reprovisioning.".to_string(),
                 )
@@ -1240,4 +1254,26 @@ pub(crate) async fn list_dpu_waiting_for_reprovisioning(
         .collect_vec();
 
     Ok(Response::new(rpc::DpuReprovisioningListResponse { dpus }))
+}
+
+/// Get the configured BGP password.
+pub(crate) async fn get_bgp_password(
+    credential_reader: &dyn forge_secrets::credentials::CredentialReader,
+    credential_key: forge_secrets::credentials::CredentialKey,
+) -> Result<String, CarbideError> {
+    let credential = credential_reader
+        .get_credentials(&credential_key)
+        .await
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Could not find the credential: {}", e),
+        })?;
+
+    Ok(match credential {
+        Some(Credentials::UsernamePassword { password, .. }) => password,
+        _ => {
+            return Err(CarbideError::Internal {
+                message: "Could not find BGP credential".to_string(),
+            });
+        }
+    })
 }

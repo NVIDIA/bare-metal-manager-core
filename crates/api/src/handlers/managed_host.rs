@@ -257,7 +257,7 @@ pub(crate) async fn set_maintenance(
                 api,
                 Request::new(rpc::InsertHealthReportOverrideRequest {
                     machine_id: req.host_id,
-                    r#override: Some(::rpc::forge::HealthReportOverride {
+                    health_report_entry: Some(::rpc::forge::HealthReportEntry {
                         report: Some(health_report::HealthReport {
                             source: "maintenance".to_string(),
                             triggered_by,
@@ -276,7 +276,7 @@ pub(crate) async fn set_maintenance(
                             }],
                         }
                                      .into()),
-                        mode: ::rpc::forge::OverrideMode::Merge.into(),
+                        mode: ::rpc::forge::HealthReportApplyMode::Merge.into(),
                     }),
                 }),
             )

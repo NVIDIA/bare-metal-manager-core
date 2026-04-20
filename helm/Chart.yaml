@@ -14,6 +14,9 @@ dependencies:
   - name: carbide-api
     version: "0.1.1"
     condition: carbide-api.enabled
+  - name: carbide-bmc-proxy
+    version: "0.1.0"
+    condition: carbide-bmc-proxy.enabled
   - name: carbide-dhcp
     version: "0.1.0"
     condition: carbide-dhcp.enabled

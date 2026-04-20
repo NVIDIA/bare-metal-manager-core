@@ -25,7 +25,7 @@ fn stop_collectors_for_keys(
     kind: CollectorKind,
     removed_keys: &HashSet<Cow<'static, str>>,
 ) {
-    let collectors = ctx.collectors.map_mut_for_kind(kind);
+    let collectors = ctx.collectors.map_mut(kind);
     for key in removed_keys {
         if let Some(collector) = collectors.remove(key) {
             tracing::info!(

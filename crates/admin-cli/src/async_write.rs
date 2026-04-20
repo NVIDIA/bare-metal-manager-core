@@ -17,7 +17,7 @@
 
 /// Macro for writing formatted output to a tokio::io::AsyncWrite object
 /// Similar to write! but for async writers
-/// $writer must be AsyncWrite + Pin
+/// $writer must be AsyncWrite + Unpin
 #[macro_export]
 macro_rules! async_write {
     ($writer:expr, $($arg:tt)*) => {
@@ -38,7 +38,7 @@ macro_rules! async_write {
 
 /// Macro for writing formatted output with a newline to a tokio::io::AsyncWrite object
 /// Similar to writeln! but for async writers
-/// $writer must be AsyncWrite + Pin
+/// $writer must be AsyncWrite + Unpin
 #[macro_export]
 macro_rules! async_writeln {
     ($writer:expr) => {{
@@ -61,7 +61,7 @@ macro_rules! async_writeln {
 }
 
 /// Macro for writing a prettytable table as csv to a tokio::io::AsyncWrite object
-/// $writer must be AsyncWrite + Pin
+/// $writer must be AsyncWrite + Unpin
 #[macro_export]
 macro_rules! async_write_table_as_csv {
     ($writer:expr, $table:expr) => {{

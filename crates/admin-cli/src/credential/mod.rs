@@ -21,6 +21,7 @@ mod add_host_factory_default;
 mod add_nmxm;
 mod add_uefi;
 mod add_ufm;
+mod bgp;
 mod common;
 mod delete_bmc;
 mod delete_nmxm;
@@ -59,4 +60,6 @@ pub enum Cmd {
     AddNmxM(add_nmxm::Args),
     #[clap(about = "Delete NmxM credentials")]
     DeleteNmxM(delete_nmxm::Args),
+    #[clap(about = "Manage leaf BGP passwords", subcommand)]
+    Bgp(bgp::Cmd),
 }

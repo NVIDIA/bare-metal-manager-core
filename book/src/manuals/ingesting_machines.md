@@ -32,14 +32,13 @@ The required credentials include the following:
 - Host UEFI password
 - DPU UEFI password
 
-:::{note}
-The following commands use the `<api-url>` placeholder, which is typically the following:
+> **Note**:
+> The following commands use the `<api-url>` placeholder, which is typically the following:
 
 ```bash
 https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>
 ```
 
-:::
 
 ### Update Host and DPU BMC Password
 
@@ -64,9 +63,7 @@ Run this command to update host uefi password:
 admin-cli -c <api-url> credential add-uefi --kind=host --password='x'
 ```
 
-### Update DPU UEFI Password
-
-TODO: Need to add this command.
+<!-- TODO: Need to add "update DPU UEFI password" command. -->
 
 ## Add Expected Machines Table
 

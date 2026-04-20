@@ -34,8 +34,10 @@ use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
 
 pub mod address_selection_strategy;
+pub mod allocation_type;
 pub mod attestation;
 pub mod bmc_info;
+pub mod component_manager;
 pub mod compute_allocation;
 pub mod controller_outcome;
 pub mod dhcp_entry;
@@ -45,6 +47,7 @@ pub mod dpa_interface;
 pub mod dpu_machine_update;
 pub mod dpu_remediation;
 pub mod errors;
+pub mod expected_entity;
 pub mod expected_machine;
 pub mod expected_power_shelf;
 pub mod expected_rack;
@@ -52,6 +55,7 @@ pub mod expected_switch;
 pub mod extension_service;
 pub mod firmware;
 pub mod hardware_info;
+pub mod health;
 pub mod host_machine_update;
 pub mod ib;
 pub mod ib_partition;
@@ -71,6 +75,7 @@ pub mod network_segment;
 pub mod network_segment_state_history;
 pub mod nvl_logical_partition;
 pub mod nvl_partition;
+pub mod operating_system_definition;
 pub mod os;
 pub mod power_manager;
 pub mod power_shelf;
@@ -78,13 +83,13 @@ pub mod predicted_machine_interface;
 pub mod pxe;
 pub mod rack;
 pub mod rack_firmware;
-pub mod rack_state_history;
 pub mod rack_type;
 pub mod redfish;
 pub mod resource_pool;
 pub mod route_server;
 pub mod site_explorer;
 pub mod sku;
+pub mod state_history;
 pub mod storage;
 pub mod switch;
 pub mod tenant;
@@ -172,6 +177,28 @@ pub enum StatusValidationError {
     /// A configuration value is invalid
     #[error("Invalid value: {0}")]
     InvalidValue(String),
+}
+
+/// Filter for controlling whether deleted resources are included in search results.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum DeletedFilter {
+    /// Exclude deleted resources (default)
+    #[default]
+    Exclude,
+    /// Return only deleted resources
+    Only,
+    /// Include both deleted and non-deleted resources
+    Include,
+}
+
+impl From<i32> for DeletedFilter {
+    fn from(value: i32) -> Self {
+        match value {
+            1 => DeletedFilter::Only,
+            2 => DeletedFilter::Include,
+            _ => DeletedFilter::Exclude,
+        }
+    }
 }
 
 /// A transparent wrapper around [`MacAddress`] that enables serde serialization

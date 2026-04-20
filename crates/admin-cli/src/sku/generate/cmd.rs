@@ -14,7 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
 
@@ -25,7 +24,7 @@ use crate::sku::show::cmd::show_sku_details;
 pub async fn generate(
     args: Args,
     api_client: &ApiClient,
-    output: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: &OutputFormat,
     extended: bool,
 ) -> CarbideCliResult<()> {

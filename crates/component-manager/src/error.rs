@@ -20,4 +20,20 @@ pub enum ComponentManagerError {
 
     #[error("gRPC status error: {0}")]
     Status(#[from] tonic::Status),
+
+    #[error("RMS error: {0}")]
+    Rms(String),
+}
+
+impl From<librms::RackManagerError> for ComponentManagerError {
+    fn from(err: librms::RackManagerError) -> Self {
+        match err {
+            librms::RackManagerError::ApiInvocationError(status) => {
+                ComponentManagerError::Status(status)
+            }
+            librms::RackManagerError::TlsError(e) => {
+                ComponentManagerError::Unavailable(e.to_string())
+            }
+        }
+    }
 }

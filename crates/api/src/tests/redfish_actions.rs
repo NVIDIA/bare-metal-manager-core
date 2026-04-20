@@ -17,11 +17,12 @@
 use std::time::Duration;
 
 use ::rpc::forge::forge_server::Forge;
+use carbide_authn::middleware::{ExternalUserInfo, Principal};
 use rpc::forge::{RedfishAction, RedfishActionResult};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tokio::time::Instant;
 
-use crate::auth::{AuthContext, ExternalUserInfo};
+use crate::auth::AuthContext;
 use crate::handlers::redfish::TestBehavior;
 use crate::tests::common::api_fixtures::{TestEnv, create_managed_host, create_test_env};
 
@@ -339,7 +340,7 @@ fn request_with_username<T>(user: &str, request: T) -> tonic::Request<T> {
     let mut auth_context = AuthContext::default();
     auth_context
         .principals
-        .push(crate::auth::Principal::ExternalUser(ExternalUserInfo {
+        .push(Principal::ExternalUser(ExternalUserInfo {
             org: Some("test_org".to_string()),
             group: "test_group".to_string(),
             user: Some(user.to_string()),

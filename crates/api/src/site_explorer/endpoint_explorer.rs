@@ -20,9 +20,7 @@ use std::net::SocketAddr;
 use libredfish::RoleId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
-use model::expected_machine::ExpectedMachine;
-use model::expected_power_shelf::ExpectedPowerShelf;
-use model::expected_switch::ExpectedSwitch;
+use model::expected_entity::ExpectedEntity;
 use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, LockdownStatus};
 
@@ -36,14 +34,11 @@ pub trait EndpointExplorer: Send + Sync + 'static {
     /// The query carries the information `MachineInterface` information that is derived
     /// from DHCP requests as well as the information that might have been fetched in
     /// a previous exploration.
-    #[allow(clippy::too_many_arguments)]
     async fn explore_endpoint(
         &self,
         address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-        expected: Option<&ExpectedMachine>,
-        expected_power_shelf: Option<&ExpectedPowerShelf>,
-        expected_switch: Option<&ExpectedSwitch>,
+        expected: Option<&ExpectedEntity>,
         last_report: Option<&EndpointExplorationReport>,
         boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError>;
@@ -149,6 +144,7 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
+        is_bf2: bool,
     ) -> Result<(), EndpointExplorationError>;
 
     async fn create_bmc_user(

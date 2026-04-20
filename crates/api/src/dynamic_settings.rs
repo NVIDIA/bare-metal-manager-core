@@ -26,9 +26,13 @@ use utils::HostPortPair;
 
 use super::logging::level_filter::ActiveLevel;
 
+#[derive(Clone)]
 pub struct DynamicSettings {
     /// RUST_LOG level
     pub log_filter: Arc<ActiveLevel>,
+
+    /// Whether site-explorer is enabled (running periodic explorations)
+    pub site_explorer_enabled: Arc<AtomicBool>,
 
     /// Should site-explorer create machines
     pub create_machines: Arc<AtomicBool>,
@@ -72,8 +76,4 @@ impl DynamicSettings {
             // Safety: spawn only fails if outside the tokio runtime.
             .expect("Could not spawn dynamic_feature_reset task");
     }
-}
-
-pub fn bmc_proxy(s: Option<HostPortPair>) -> Arc<ArcSwap<Option<HostPortPair>>> {
-    Arc::new(ArcSwap::new(Arc::new(s)))
 }

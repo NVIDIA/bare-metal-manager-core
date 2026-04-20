@@ -21,6 +21,7 @@ use ::rpc::forge as rpc;
 use ::rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use carbide_uuid::machine::MachineId;
 
+use crate::command_line::AgentPlatformType;
 use crate::containerd::container;
 use crate::containerd::container::ContainerSummary;
 
@@ -32,6 +33,7 @@ pub struct MachineInventoryUpdaterConfig {
     pub machine_id: MachineId,
     pub forge_api: String,
     pub forge_client_config: Arc<ForgeClientConfig>,
+    pub agent_platform_type: AgentPlatformType,
 }
 
 pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<()> {
@@ -40,23 +42,29 @@ pub async fn single_run(config: &MachineInventoryUpdaterConfig) -> eyre::Result<
         config.machine_id
     );
 
-    let containers = container::Containers::list().await?;
-
-    let images = container::Images::list().await?;
-
-    tracing::trace!("Containers: {:?}", containers);
-
     let machine_id = config.machine_id;
 
-    let mut result: Vec<ContainerSummary> = Vec::new();
+    // We won't be able to see these containers unless we're in the DPU OS.
+    let result = if config.agent_platform_type.is_dpu_os() {
+        let containers = container::Containers::list().await?;
 
-    // Map container images to container names
-    for mut c in containers.containers {
-        let images_clone = images.clone();
-        let images_names = images_clone.find_by_id(&c.image.id)?;
-        c.image_ref = images_names.names;
-        result.push(c);
-    }
+        let images = container::Images::list().await?;
+
+        tracing::trace!("Containers: {:?}", containers);
+
+        let mut result: Vec<ContainerSummary> = Vec::new();
+
+        // Map container images to container names
+        for mut c in containers.containers {
+            let images_clone = images.clone();
+            let images_names = images_clone.find_by_id(&c.image.id)?;
+            c.image_ref = images_names.names;
+            result.push(c);
+        }
+        result
+    } else {
+        vec![]
+    };
 
     let mut inventory: Vec<rpc::MachineInventorySoftwareComponent> = result
         .into_iter()

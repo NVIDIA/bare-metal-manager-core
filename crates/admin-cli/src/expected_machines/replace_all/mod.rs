@@ -30,6 +30,9 @@ use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 use crate::expected_machines::common::ExpectedMachineJson;
 
+/// `expected-machine replace-all`: reads a JSON list and calls `replace_all_expected_machines`.
+/// Each `ExpectedMachineJson` may include `bmc_ip_address`; the API runs the same pre-allocation
+/// path as `add_expected_machine` for each entry.
 impl Run for Args {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
         let json_file_path = Path::new(&self.filename);

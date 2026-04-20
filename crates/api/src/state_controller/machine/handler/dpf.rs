@@ -221,10 +221,14 @@ async fn handle_dpf_reboot(
     // Custom BFB: wait for all DPU agents to complete discovery before rebooting
     // the host. This indicates cloud-init has completed on every DPU.
     // Remove when switching to a vanilla BFB.
-    if let Some(pending) = state
-        .dpu_snapshots
-        .iter()
-        .find(|d| d.last_discovery_time.is_none())
+
+    // BUG ALERT: This is a bug. This might work fine for M1 for initial ingestion, but will fail for reprovisioning.
+    // Quickest fix might be clearing discovery_time on reprovisioning.
+    if !ctx.services.site_config.dpf.v2
+        && let Some(pending) = state
+            .dpu_snapshots
+            .iter()
+            .find(|d| d.last_discovery_time.is_none())
     {
         return update_phase_detail_or_wait(
             state,
@@ -328,7 +332,7 @@ async fn handle_dpf_waiting_for_ready(
         );
     }
     // also wait for dpu scout discovery to complete
-    if dpu_snapshot.last_discovery_time.is_none() {
+    if !ctx.services.site_config.dpf.v2 && dpu_snapshot.last_discovery_time.is_none() {
         return update_phase_detail_or_wait(
             state,
             &dpu_snapshot.id,

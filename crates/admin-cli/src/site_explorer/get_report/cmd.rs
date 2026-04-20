@@ -16,7 +16,6 @@
  */
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::pin::Pin;
 
 use ::rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use ::rpc::site_explorer::{ExploredEndpoint, ExploredManagedHost, SiteExplorationReport};
@@ -189,7 +188,7 @@ async fn get_exploration_report_for_bmc_address(
 
 pub async fn show_discovered_managed_host(
     api_client: &ApiClient,
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     output_format: OutputFormat,
     internal_page_size: usize,
     mode: Args,
@@ -363,7 +362,7 @@ fn filter_endpoints(
 }
 
 async fn print_managed_host_info(
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     managed_host: &ExploredManagedHost,
     endpoints: HashMap<&str, &ExploredEndpoint>,
 ) -> CarbideCliResult<()> {
@@ -465,16 +464,18 @@ fn endpoint_to_row(endpoint: &ExploredEndpoint) -> Row {
             x.ethernet_interfaces
                 .iter()
                 .map(|a| {
+                    let mac = a.mac_address.as_deref().unwrap_or_default();
                     if a.interface_enabled() {
-                        Cow::Borrowed(a.mac_address.as_deref().unwrap_or_default())
+                        if let Some(ls) = a.link_status.as_deref().filter(|v| !v.is_empty()) {
+                            format!("{mac} [{}]", ls)
+                        } else {
+                            mac.to_string()
+                        }
                     } else {
-                        Cow::Owned(format!(
-                            "{} - Disabled",
-                            a.mac_address.as_deref().unwrap_or_default()
-                        ))
+                        format!("{mac} - Disabled")
                     }
                 })
-                .collect::<Vec<Cow<str>>>()
+                .collect::<Vec<String>>()
         })
         .unwrap_or_default();
 
@@ -532,7 +533,7 @@ fn endpoint_to_row(endpoint: &ExploredEndpoint) -> Row {
 }
 
 async fn display_endpoint(
-    output_file: &mut Pin<Box<dyn tokio::io::AsyncWrite>>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     endpoint: ExploredEndpoint,
 ) -> CarbideCliResult<()> {
     let report = &endpoint.report;
@@ -588,13 +589,14 @@ async fn display_endpoint(
         table.add_row(row!["Serial Number", system.serial_number()]);
 
         let mut ethernet_interface_table = Table::new();
-        ethernet_interface_table.set_titles(row!["Id", "Mac Address", "Enabled"]);
+        ethernet_interface_table.set_titles(row!["Id", "Mac Address", "Enabled", "Link status"]);
 
         for eth in &system.ethernet_interfaces {
             ethernet_interface_table.add_row(row![
                 eth.id(),
                 eth.mac_address(),
-                eth.interface_enabled.unwrap_or_default()
+                eth.interface_enabled.unwrap_or_default(),
+                eth.link_status.as_deref().unwrap_or("")
             ]);
         }
         table.add_row(row![
@@ -613,13 +615,14 @@ async fn display_endpoint(
         table.add_row(row!["Id", manager.id]);
 
         let mut ethernet_interface_table = Table::new();
-        ethernet_interface_table.set_titles(row!["Id", "Mac Address", "Enabled"]);
+        ethernet_interface_table.set_titles(row!["Id", "Mac Address", "Enabled", "Link status"]);
 
         for eth in &manager.ethernet_interfaces {
             ethernet_interface_table.add_row(row![
                 eth.id(),
                 eth.mac_address(),
-                eth.interface_enabled.unwrap_or_default()
+                eth.interface_enabled.unwrap_or_default(),
+                eth.link_status.as_deref().unwrap_or("")
             ]);
         }
         table.add_row(row![

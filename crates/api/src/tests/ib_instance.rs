@@ -22,6 +22,7 @@ use carbide_uuid::machine::MachineId;
 use common::api_fixtures::ib_partition::{DEFAULT_TENANT, create_ib_partition};
 use common::api_fixtures::instance::{config_for_ib_config, create_instance_with_ib_config};
 use common::api_fixtures::{TestEnv, create_managed_host};
+use db::ObjectColumnFilter;
 use model::ib::DEFAULT_IB_FABRIC_NAME;
 use model::machine::ManagedHostState;
 use rpc::forge::forge_server::Forge;
@@ -1293,13 +1294,23 @@ async fn test_postpone_partition_deletion_while_instances_reference_it(pool: sql
         ib_conn.unbind_ib_ports(pkey_u16, guids).await.unwrap();
     }
 
-    // Delete the partition via the API (marks it for deletion).
-    env.api
-        .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
-            id: Some(ib_partition_id),
-        }))
+    // Mark the partition for deletion directly in the DB, bypassing the API
+    // handler which rejects deletion when instances are still bound.
+    // This test exercises the controller's postponement logic, not the handler guard.
+    {
+        let mut txn = env.pool.begin().await.unwrap();
+        let db_partition = db::ib_partition::find_by(
+            &mut *txn,
+            ObjectColumnFilter::One(db::ib_partition::IdColumn, &ib_partition_id),
+        )
         .await
-        .expect("expect deletion request to succeed");
+        .unwrap()
+        .remove(0);
+        db::ib_partition::mark_as_deleted(&db_partition, &mut txn)
+            .await
+            .unwrap();
+        txn.commit().await.unwrap();
+    }
 
     // Controller iteration 1: Ready + is_marked_as_deleted → transitions to Deleting
     env.run_ib_partition_controller_iteration().await;
@@ -1589,4 +1600,68 @@ async fn test_count_instances_multi_partition_multi_interface(pool: sqlx::PgPool
         count_b, 0,
         "No instances reference partition B after both hard-deleted"
     );
+}
+
+#[crate::sqlx_test]
+async fn test_delete_ib_partition_rejected_with_active_instances(pool: sqlx::PgPool) {
+    let mut config = common::api_fixtures::get_config();
+    config.ib_config = Some(IBFabricConfig {
+        enabled: true,
+        mtu: crate::ib::IBMtu(2),
+        rate_limit: crate::ib::IBRateLimit(10),
+        max_partition_per_tenant: 16,
+        ..Default::default()
+    });
+
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::with_config(config),
+    )
+    .await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let (ib_partition_id, _ib_partition) = create_ib_partition(
+        &env,
+        "guarded_partition".to_string(),
+        DEFAULT_TENANT.to_string(),
+    )
+    .await;
+
+    let mh = create_managed_host(&env).await;
+    let ib_config = rpc::forge::InstanceInfinibandConfig {
+        ib_interfaces: vec![rpc::forge::InstanceIbInterfaceConfig {
+            function_type: rpc::forge::InterfaceFunctionType::Physical as i32,
+            virtual_function_id: None,
+            ib_partition_id: Some(ib_partition_id),
+            device: "MT2910 Family [ConnectX-7]".to_string(),
+            vendor: None,
+            device_instance: 0,
+        }],
+    };
+    let (tinstance, _instance) =
+        create_instance_with_ib_config(&env, &mh, ib_config, segment_id).await;
+
+    let err = env
+        .api
+        .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
+            id: Some(ib_partition_id),
+        }))
+        .await
+        .expect_err("delete should be rejected when instances are bound");
+
+    assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+    assert!(
+        err.message().contains("instance(s) are still using it"),
+        "Error message should mention active instances, got: {}",
+        err.message()
+    );
+
+    mh.delete_instance(&env, tinstance.id).await;
+
+    env.api
+        .delete_ib_partition(Request::new(rpc::forge::IbPartitionDeletionRequest {
+            id: Some(ib_partition_id),
+        }))
+        .await
+        .expect("delete should succeed once no instances reference the partition");
 }

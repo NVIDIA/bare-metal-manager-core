@@ -24,16 +24,20 @@ pub use crate::chained_reader::ChainedCredentialReader;
 /// through `create_credential_manager` instead of using the vault client directly.
 pub use crate::forge_vault::{ForgeVaultClient, VaultConfig, create_vault_client};
 pub use crate::local_credentials::{
-    CredentialSnapshot, EnvCredentialsConfig, FileCredentialsConfig, UsernamePassword,
+    CredentialSnapshot, EnvCredentialsConfig, FileCredentialsConfig, MachineIdentityConfig,
+    UsernamePassword,
 };
 
 pub mod certificates;
-pub(crate) mod chained_reader;
+pub mod chained_reader;
 pub mod credentials;
 pub mod forge_vault;
-pub(crate) mod local_credentials;
+pub mod key_encryption;
+pub mod local_credentials;
 
-use credentials::{CompositeCredentialManager, CredentialManager, CredentialReader};
+use credentials::{
+    CompositeCredentialManager, CredentialManager, CredentialReader, CredentialWriter,
+};
 use local_credentials::{EnvCredentials, FileCredentialsWatcher};
 
 #[derive(Default, Debug, Clone)]
@@ -43,6 +47,7 @@ pub struct CredentialConfig {
     pub file: FileCredentialsConfig,
 }
 
+/// create_credential_manager builds the default credential chain: env -> file -> vault.
 pub async fn create_credential_manager(
     config: &CredentialConfig,
     meter: Meter,
@@ -65,6 +70,18 @@ pub async fn create_credential_manager(
     let chained = ChainedCredentialReader::from(readers);
     let composite = CompositeCredentialManager::new(chained, vault_client);
     Ok(Arc::new(composite))
+}
+
+/// create_credential_manager_from builds a
+/// credential manager from a caller-defined chain.
+/// The caller fully controls the reader order and
+/// writer selection.
+pub fn create_credential_manager_from(
+    writer: Arc<dyn CredentialWriter>,
+    readers: Vec<Box<dyn CredentialReader>>,
+) -> Arc<dyn CredentialManager> {
+    let chained = ChainedCredentialReader::from(readers);
+    Arc::new(CompositeCredentialManager::new(chained, writer))
 }
 
 #[derive(Debug)]

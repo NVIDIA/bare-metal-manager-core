@@ -47,6 +47,7 @@ carbide-version = { path = "../version" }
 carbide-health-report = { path = "../health-report" }
 carbide-rpc = { path = "../rpc" }
 carbide-utils = { path = "../utils" }
+nvue-client = { path = "../nvue-client" }
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 
 #these are alphabetized

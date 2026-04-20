@@ -55,14 +55,18 @@ carbide-api:
       cpu: 1500m
       memory: 8Gi
 
-  ## Optional init containers for boot artifacts
-  initContainers:
-    - name: boot-artifacts-x86
+  ## Boot-artifact init containers — volume mount at /boot-artifacts/blobs/internal
+  ## is auto-injected by the template.
+  bootArtifactContainers:
+    - name: boot-artifacts-x86-64
       image: "your-registry.example.com/boot-artifacts-x86_64:latest"
-      command: ["cp", "-r", "/artifacts/.", "/opt/carbide/firmware/"]
-      volumeMounts:
-        - name: firmware
-          mountPath: /opt/carbide/firmware
+      command: ["sh", "-c", "cp -r /x86_64 /boot-artifacts/blobs/internal"]
+    - name: boot-artifacts-aarch64
+      image: "your-registry.example.com/boot-artifacts-aarch64:latest"
+      command: ["sh", "-c", "cp -r /aarch64 /apt /firmware /boot-artifacts/blobs/internal"]
+    - name: machine-validation-config
+      image: "your-registry.example.com/machine-validation-config:latest"
+      command: ["sh", "-c", "cp -r /machine-validation /boot-artifacts/blobs/internal"]
 
   env:
     VAULT_PKI_ROLE_NAME: "forge-cluster"
@@ -227,6 +231,20 @@ carbide-pxe:
   enabled: true
   replicas: 1
 
+  bootArtifacts:
+    servePath: /boot-artifacts
+
+  bootArtifactContainers:
+    - name: boot-artifacts-x86-64
+      image: "your-registry.example.com/boot-artifacts-x86_64:latest"
+      command: ["sh", "-c", "cp -r /x86_64 /boot-artifacts/blobs/internal"]
+    - name: boot-artifacts-aarch64
+      image: "your-registry.example.com/boot-artifacts-aarch64:latest"
+      command: ["sh", "-c", "cp -r /aarch64 /apt /firmware /boot-artifacts/blobs/internal"]
+    - name: machine-validation-config
+      image: "your-registry.example.com/machine-validation-config:latest"
+      command: ["sh", "-c", "cp -r /machine-validation /boot-artifacts/blobs/internal"]
+
   externalService:
     enabled: true
     type: LoadBalancer
@@ -280,3 +298,32 @@ unbound:
         forward-addr: 8.8.8.8
         forward-addr: 8.8.4.4
         forward-addr: 1.1.1.1
+
+## ---------------------------------------------------------------------------
+## carbide-bmc-proxy: Authenticating BMC redfish proxy
+## ---------------------------------------------------------------------------
+carbide-bmc-proxy:
+  enabled: true
+  replicas: 2
+  configFiles:
+    enabled: true
+    carbideBmcProxyConfig: |
+      listen = "[::]:1079"
+      metrics_endpoint = "[::]:1080"
+      database_url = "postgres://replaced-by-env-var"
+      allowed_principals = ["spiffe-service-id/carbide-api", "spiffe-service-id/nv-dps"]
+
+      [tls]
+      identity_pemfile_path = "/var/run/secrets/spiffe.io/tls.crt"
+      identity_keyfile_path = "/var/run/secrets/spiffe.io/tls.key"
+      root_cafile_path = "/var/run/secrets/spiffe.io/ca.crt"
+      admin_root_cafile_path = "/etc/forge/carbide-bmc-proxy/site/admin_root_cert_pem"
+
+      [auth.trust]
+      spiffe_trust_domain = "forge.local"
+      spiffe_service_base_paths = [
+        "/forge-system/sa/",
+        "/default/sa/",
+      ]
+      spiffe_machine_base_path = "/forge-system/machine/"
+      additional_issuer_cns = []

@@ -42,10 +42,7 @@ pub fn cbc_chassis(
         part_number: Some("750-0567-002".into()),
         model: Some("18x1RU CBL Cartridge".into()),
         serial_number: Some("1821220000000".into()),
-        network_adapters: None,
         pcie_devices: Some(vec![]),
-        sensors: None,
-        assembly: None,
         oem: Some(json!({
             "Nvidia": {
                 "@odata.type": "#NvidiaChassis.v1_4_0.NvidiaCBCChassis",
@@ -55,5 +52,6 @@ pub fn cbc_chassis(
                 "TopologyId": topology.topology_id,
             }
         })),
+        ..redfish::chassis::SingleChassisConfig::defaults()
     }
 }

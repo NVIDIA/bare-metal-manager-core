@@ -25,6 +25,7 @@ use ::machine_a_tron::{BmcMockRegistry, HostMachineHandle, MachineATronConfig, M
 use ::utils::HostPortPair;
 use api_test_helper::{
     IntegrationTestEnvironment, domain, instance, machine, metrics, subnet, tenant, utils, vpc,
+    vpc_prefix,
 };
 use bmc_mock::{HostHardwareType, ListenerOrAddress};
 use eyre::ContextCompat;
@@ -112,6 +113,17 @@ async fn test_integration() -> eyre::Result<()> {
         subnet::create(carbide_api_addrs, &tenant1_vpc, &domain_id, 10, false).await?;
     subnet::create(carbide_api_addrs, &tenant1_vpc, &domain_id, 11, true).await?;
 
+    // Create FNN VPC + VPC prefixes (IPv4 + IPv6) for dual-stack L3 linknet testing.
+    let fnn_vpc = vpc::create_fnn(carbide_api_addrs, tenant_org_id).await?;
+    let v4_vpc_prefix_id =
+        vpc_prefix::create(carbide_api_addrs, &fnn_vpc, "10.10.12.0/24", "fnn-v4").await?;
+    let v6_vpc_prefix_id =
+        vpc_prefix::create(carbide_api_addrs, &fnn_vpc, "2001:db8:12::/48", "fnn-v6").await?;
+
+    // Create dual-stack L2 segment on the FNN VPC for L2 dual-stack testing.
+    let dual_stack_l2_segment_id =
+        subnet::create_dual_stack(carbide_api_addrs, &fnn_vpc, &domain_id, 13).await?;
+
     // Run several tests in parallel.
     let all_tests = join_all([
         test_machine_a_tron_multidpu(
@@ -155,6 +167,25 @@ async fn test_integration() -> eyre::Result<()> {
             &bmc_address_registry,
             // Relay IP in host-inband  net
             Ipv4Addr::new(10, 10, 11, 2),
+        )
+        .boxed(),
+        test_machine_a_tron_dual_stack(
+            HostHardwareType::DellPowerEdgeR750,
+            &test_env,
+            &bmc_address_registry,
+            &v4_vpc_prefix_id,
+            &v6_vpc_prefix_id,
+            // Relay IP in admin net
+            Ipv4Addr::new(172, 20, 0, 2),
+        )
+        .boxed(),
+        test_machine_a_tron_dual_stack_l2(
+            HostHardwareType::DellPowerEdgeR750,
+            &test_env,
+            &bmc_address_registry,
+            &dual_stack_l2_segment_id,
+            // Relay IP in admin net
+            Ipv4Addr::new(172, 20, 0, 2),
         )
         .boxed(),
     ]);
@@ -582,6 +613,180 @@ async fn test_machine_a_tron_singledpu_nic_mode(
     .await
 }
 
+async fn test_machine_a_tron_dual_stack(
+    hw_type: HostHardwareType,
+    test_env: &IntegrationTestEnvironment,
+    bmc_mock_registry: &BmcMockRegistry,
+    v4_vpc_prefix_id: &str,
+    v6_vpc_prefix_id: &str,
+    admin_dhcp_relay_address: Ipv4Addr,
+) -> eyre::Result<()> {
+    run_machine_a_tron_test(
+        hw_type,
+        1,
+        1,
+        false,
+        test_env,
+        bmc_mock_registry,
+        admin_dhcp_relay_address,
+        |machine_handle| {
+            let v4_prefix_id = v4_vpc_prefix_id.to_string();
+            let v6_prefix_id = v6_vpc_prefix_id.to_string();
+            let carbide_api_addrs = &test_env.carbide_api_addrs;
+            async move {
+                machine_handle
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
+                    .await?;
+                let machine_id = machine_handle
+                    .observed_machine_id()
+                    .expect("Machine ID should be set if host is ready");
+                tracing::info!(
+                    "Machine {machine_id} is Ready, allocating dual-stack instance via ipv6 config"
+                );
+                let instance_id = instance::create_with_vpc_prefixes(
+                    carbide_api_addrs,
+                    &machine_id,
+                    &[&v4_prefix_id, &v6_prefix_id],
+                )
+                .await?;
+
+                machine_handle
+                    .wait_until_machine_up_with_api_state(
+                        "Assigned/Ready",
+                        Duration::from_secs(60),
+                    )
+                    .await?;
+
+                // Wait for the agent to report interface addresses. The agent runs
+                // a network observation loop that populates addresses asynchronously
+                // after the instance reaches Assigned/Ready.
+                let machine_id_str = machine_id.to_string();
+                let mut addrs = vec![];
+                for _ in 0..30 {
+                    let instance_json = instance::get_instance_json_by_machine_id(
+                        carbide_api_addrs,
+                        &machine_id_str,
+                    )
+                    .await?;
+                    if let Some(iface) = instance_json["instances"][0]["status"]["network"]["interfaces"]
+                        .as_array()
+                        .and_then(|ifaces| ifaces.first())
+                        && let Some(a) = iface["addresses"].as_array()
+                        && !a.is_empty()
+                    {
+                        addrs = a.clone();
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+
+                let addr_strings: Vec<&str> =
+                    addrs.iter().filter_map(|a| a.as_str()).collect();
+                let has_ipv4 = addr_strings.iter().any(|a| a.contains('.'));
+                let has_ipv6 = addr_strings.iter().any(|a| a.contains(':'));
+                assert!(
+                    has_ipv4,
+                    "Dual-stack interface should have an IPv4 address, got: {addr_strings:?}"
+                );
+                assert!(
+                    has_ipv6,
+                    "Dual-stack interface should have an IPv6 address, got: {addr_strings:?}"
+                );
+                assert_eq!(
+                    addr_strings.len(),
+                    2,
+                    "Dual-stack interface should have exactly 2 addresses (IPv4 + IPv6), got: {addr_strings:?}"
+                );
+
+                tracing::info!(
+                    "Machine {machine_id} dual-stack allocation verified: addresses = {addr_strings:?}"
+                );
+
+                instance::release(carbide_api_addrs, &machine_id, &instance_id, false)
+                    .await?;
+
+                machine_handle
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
+                    .await?;
+                tracing::info!(
+                    "Machine {machine_id} back to Ready after dual-stack release"
+                );
+                Ok::<(), eyre::Report>(())
+            }
+        },
+    )
+    .await
+}
+
+/// Tests dual-stack on an FNN L2 segment (shared subnet with SVI/VRR).
+/// The segment is pre-created with both IPv4 and IPv6 prefixes, and the
+/// handler allocates SVI IPs for both. Instances get one IP per prefix.
+async fn test_machine_a_tron_dual_stack_l2(
+    hw_type: HostHardwareType,
+    test_env: &IntegrationTestEnvironment,
+    bmc_mock_registry: &BmcMockRegistry,
+    dual_stack_segment_id: &str,
+    admin_dhcp_relay_address: Ipv4Addr,
+) -> eyre::Result<()> {
+    run_machine_a_tron_test(
+        hw_type,
+        1,
+        1,
+        false,
+        test_env,
+        bmc_mock_registry,
+        admin_dhcp_relay_address,
+        |machine_handle| {
+            let segment_id = dual_stack_segment_id.to_string();
+            let carbide_api_addrs = &test_env.carbide_api_addrs;
+            async move {
+                machine_handle
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
+                    .await?;
+                let machine_id = machine_handle
+                    .observed_machine_id()
+                    .expect("Machine ID should be set if host is ready");
+                tracing::info!(
+                    "Machine {machine_id} is Ready, allocating dual-stack L2 instance"
+                );
+                let instance_id = instance::create(
+                    carbide_api_addrs,
+                    &machine_id,
+                    Some(&segment_id),
+                    None,
+                    false,
+                    false,
+                    &[],
+                )
+                .await?;
+
+                machine_handle
+                    .wait_until_machine_up_with_api_state(
+                        "Assigned/Ready",
+                        Duration::from_secs(120),
+                    )
+                    .await?;
+
+                tracing::info!(
+                    "Machine {machine_id} dual-stack L2 instance allocated and reached Assigned/Ready"
+                );
+
+                instance::release(carbide_api_addrs, &machine_id, &instance_id, false)
+                    .await?;
+
+                machine_handle
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
+                    .await?;
+                tracing::info!(
+                    "Machine {machine_id} back to Ready after dual-stack L2 release"
+                );
+                Ok::<(), eyre::Report>(())
+            }
+        },
+    )
+    .await
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_machine_a_tron_test<F, O>(
     hw_type: HostHardwareType,
@@ -630,6 +835,7 @@ where
                 run_interval_working: Duration::from_millis(100),
                 network_status_run_interval: Duration::from_secs(1),
                 scout_run_interval: Duration::from_secs(1),
+                network_virtualization_type: None,
                 dpus_in_nic_mode,
                 dpu_firmware_versions: None,
                 dpu_agent_version: None,

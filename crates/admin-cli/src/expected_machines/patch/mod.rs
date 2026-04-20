@@ -24,6 +24,9 @@ pub use args::Args;
 use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 
+/// `expected-machine patch`: forwards CLI flags to `ApiClient::patch_expected_machine` (partial
+/// update; unset flags keep existing values). `--bmc-ip-address` uses the same server-side
+/// static-interface logic as a full RPC update.
 impl Run for Args {
     async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
         if let Err(e) = self.validate() {
@@ -45,6 +48,8 @@ impl Run for Args {
                 self.rack_id,
                 self.default_pause_ingestion_and_poweron,
                 self.dpf_enabled,
+                self.bmc_ip_address,
+                self.bmc_retain_credentials,
             )
             .await?;
         Ok(())

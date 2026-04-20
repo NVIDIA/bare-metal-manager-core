@@ -21,6 +21,7 @@ use std::str::FromStr;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use carbide_redfish::libredfish::RedfishAuth;
 use carbide_uuid::machine::MachineId;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey};
 use itertools::Itertools;
@@ -33,8 +34,8 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
+use crate::auth::AuthContext;
 use crate::handlers::utils::convert_and_log_machine_id;
-use crate::redfish::RedfishAuth;
 
 pub(crate) async fn find_machine_ids(
     api: &Api,
@@ -158,71 +159,7 @@ pub(crate) async fn find_machine_state_histories(
 pub(crate) async fn find_machine_health_histories(
     api: &Api,
     request: Request<rpc::MachineHealthHistoriesRequest>,
-) -> Result<Response<rpc::MachineHealthHistories>, Status> {
-    log_request_data(&request);
-    let request_inner = request.into_inner();
-
-    // Check if time range filtering is requested
-    if let (Some(start_time), Some(end_time)) = (request_inner.start_time, request_inner.end_time) {
-        // Time-filtered query path
-        let machine_id = request_inner
-            .machine_ids
-            .first()
-            .ok_or_else(|| CarbideError::InvalidArgument("machine_id is required".to_string()))?;
-
-        // Convert protobuf timestamps to chrono DateTime
-        let start_dt = chrono::DateTime::<chrono::Utc>::from_timestamp(
-            start_time.seconds,
-            start_time.nanos as u32,
-        )
-        .ok_or_else(|| CarbideError::InvalidArgument("Invalid start_time timestamp".to_string()))?;
-        let end_dt = chrono::DateTime::<chrono::Utc>::from_timestamp(
-            end_time.seconds,
-            end_time.nanos as u32,
-        )
-        .ok_or_else(|| CarbideError::InvalidArgument("Invalid end_time timestamp".to_string()))?;
-
-        // Start database transaction
-        let mut txn = api.txn_begin().await?;
-
-        // Call database function to get health history records with time filter
-        let db_records = db::machine_health_history::find_by_time_range(
-            &mut txn, machine_id, &start_dt, &end_dt,
-        )
-        .await?;
-
-        // Convert database records to MachineHealthHistories format
-        let response_records: Vec<rpc::MachineHealthHistoryRecord> = db_records
-            .into_iter()
-            .map(|db_rec| rpc::MachineHealthHistoryRecord {
-                health: Some(db_rec.health.into()),
-                time: Some(db_rec.time.into()),
-            })
-            .collect();
-
-        // Put records in a map keyed by machine ID string
-        let machine_id_str = machine_id.to_string();
-        let mut histories = HashMap::new();
-        histories.insert(
-            machine_id_str,
-            rpc::MachineHealthHistoryRecords {
-                records: response_records,
-            },
-        );
-
-        txn.commit().await?;
-
-        Ok(Response::new(rpc::MachineHealthHistories { histories }))
-    } else {
-        // Original behavior: no time filtering
-        find_machine_health_histories_no_time_range(api, Request::new(request_inner)).await
-    }
-}
-
-async fn find_machine_health_histories_no_time_range(
-    api: &Api,
-    request: Request<rpc::MachineHealthHistoriesRequest>,
-) -> Result<Response<rpc::MachineHealthHistories>, Status> {
+) -> Result<Response<rpc::HealthHistories>, Status> {
     log_request_data(&request);
     let request = request.into_inner();
 
@@ -240,15 +177,34 @@ async fn find_machine_health_histories_no_time_range(
         );
     }
 
+    // Convert protobuf timestamps to chrono DateTime
+    let start_time = request
+        .start_time
+        .map(chrono::DateTime::<chrono::Utc>::try_from)
+        .transpose()
+        .map_err(|_| CarbideError::InvalidArgument("Invalid start_time timestamp".to_string()))?;
+    let end_time = request
+        .end_time
+        .map(chrono::DateTime::<chrono::Utc>::try_from)
+        .transpose()
+        .map_err(|_| CarbideError::InvalidArgument("Invalid end_time timestamp".to_string()))?;
+
     let mut txn = api.txn_begin().await?;
 
-    let results = db::machine_health_history::find_by_machine_ids(&mut txn, &machine_ids).await?;
+    let results = db::health_history::find_by_object_ids(
+        &mut txn,
+        db::health_history::HealthHistoryTableId::Machine,
+        &machine_ids,
+        start_time,
+        end_time,
+    )
+    .await?;
 
-    let mut response = rpc::MachineHealthHistories::default();
+    let mut response = rpc::HealthHistories::default();
     for (machine_id, records) in results {
         response.histories.insert(
             machine_id.to_string(),
-            ::rpc::forge::MachineHealthHistoryRecords {
+            ::rpc::forge::HealthHistoryRecords {
                 records: records.into_iter().map(Into::into).collect(),
             },
         );
@@ -340,7 +296,7 @@ pub(crate) async fn admin_force_delete_machine(
 ) -> Result<Response<rpc::AdminForceDeleteMachineResponse>, Status> {
     log_request_data(&request);
 
-    let request = request.into_inner();
+    let (_metadata, extensions, request) = request.into_parts();
     let query = request.host_query;
 
     let mut response = rpc::AdminForceDeleteMachineResponse {
@@ -353,8 +309,6 @@ pub(crate) async fn admin_force_delete_machine(
     response.initial_lockdown_state = "".to_string();
     response.machine_unlocked = false;
 
-    tracing::info!("admin_force_delete_machine query='{query}'");
-
     let mut txn = api.txn_begin().await?;
 
     let machine = match db::machine::find_by_query(&mut txn, &query).await? {
@@ -366,6 +320,22 @@ pub(crate) async fn admin_force_delete_machine(
         }
     };
     log_machine_id(&machine.id);
+
+    let issued_by = extensions
+        .get::<AuthContext>()
+        .and_then(|ctx| ctx.get_external_user_name());
+
+    let serial = machine
+        .hardware_info
+        .as_ref()
+        .and_then(|hw| hw.dmi_data.as_ref())
+        .map(|dmi| dmi.product_serial.as_str())
+        .unwrap_or("unknown");
+
+    tracing::info!(
+        "admin_force_delete_machine query='{query}' machine_id={} serial='{serial}' issued_by={issued_by:?}",
+        machine.id
+    );
 
     if machine.instance_type_id.is_some() {
         return Err(CarbideError::FailedPrecondition(format!(
@@ -482,7 +452,7 @@ pub(crate) async fn admin_force_delete_machine(
                         RedfishAuth::Key(CredentialKey::BmcCredentials {
                             credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
                         }),
-                        true,
+                        None,
                     )
                     .await
                 {

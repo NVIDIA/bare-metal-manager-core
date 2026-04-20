@@ -23,7 +23,7 @@
                             <thead>
                             <tr>
                                 <th>Rack ID</th>
-                                <th>Rack Type</th>
+                                <th>Rack Profile</th>
                                 <th>Compute Trays</th>
                                 <th>Switches</th>
                                 <th>Power Shelves</th>
@@ -33,7 +33,7 @@
                             {% for rack in racks %}
                             <tr>
                                 <td>{{ rack.rack_id|rack_id_link|safe }}</td>
-                                <td>{{ rack.rack_type }}</td>
+                                <td>{{ rack.rack_profile_id }}</td>
                                 <td>{{ rack.compute_trays }}</td>
                                 <td>{{ rack.switches }}</td>
                                 <td>{{ rack.power_shelves }}</td>

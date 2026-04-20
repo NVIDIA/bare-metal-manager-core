@@ -25,8 +25,8 @@ use std::sync::Arc;
 
 use axum::Router;
 use bmc_mock::{
-    BmcCommand, DpuMachineInfo, HostHardwareType, HostMachineInfo, ListenerOrAddress, MachineInfo,
-    MockPowerState, PowerControl, SetSystemPowerError, SystemPowerControl,
+    BmcCommand, Callbacks, DpuMachineInfo, HostHardwareType, HostMachineInfo, ListenerOrAddress,
+    MachineInfo, MockPowerState, SetSystemPowerError, SystemPowerControl,
 };
 use tar_router::TarGzOption;
 use tokio::sync::{RwLock, mpsc};
@@ -114,6 +114,7 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
             match command {
                 // Assume SetSystemPower is just a reboot
                 BmcCommand::SetSystemPower { .. } => {}
+                BmcCommand::StateRefreshIndication => continue,
             }
             let reboot_output = match Command::new("virsh")
                 .arg("reboot")
@@ -153,29 +154,30 @@ fn spawn_qemu_reboot_handler() -> mpsc::UnboundedSender<BmcCommand> {
 
 fn default_host_mock() -> Router {
     let command_channel = spawn_qemu_reboot_handler();
-    let power_control = Arc::new(ChannelPowerControl::new(command_channel));
+    let callbacks = Arc::new(ChannelCallbacks::new(command_channel));
     bmc_mock::machine_router(
         MachineInfo::Host(HostMachineInfo::new(
             HostHardwareType::WiwynnGB200Nvl,
             vec![DpuMachineInfo::default(), DpuMachineInfo::default()],
         )),
-        power_control,
+        callbacks,
         String::default(),
     )
+    .0
 }
 
 #[derive(Debug)]
-struct ChannelPowerControl {
+struct ChannelCallbacks {
     command_channel: mpsc::UnboundedSender<BmcCommand>,
 }
 
-impl ChannelPowerControl {
+impl ChannelCallbacks {
     fn new(command_channel: mpsc::UnboundedSender<BmcCommand>) -> Self {
         Self { command_channel }
     }
 }
 
-impl PowerControl for ChannelPowerControl {
+impl Callbacks for ChannelCallbacks {
     fn get_power_state(&self) -> MockPowerState {
         MockPowerState::On
     }
@@ -190,5 +192,11 @@ impl PowerControl for ChannelPowerControl {
                 reply: None,
             })
             .map_err(|err| SetSystemPowerError::CommandSendError(err.to_string()))
+    }
+
+    fn state_refresh_indication(&self) {
+        let _ = self
+            .command_channel
+            .send(BmcCommand::StateRefreshIndication);
     }
 }

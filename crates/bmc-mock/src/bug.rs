@@ -15,11 +15,12 @@
  * limitations under the License.
  */
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use arc_swap::ArcSwap;
+use axum::http::StatusCode;
 use duration_str::deserialize_option_duration;
 use serde::{Deserialize, Serialize};
 
@@ -29,40 +30,55 @@ use crate::redfish;
 pub struct InjectedBugs {
     all_dpu_lost_on_host: Arc<AtomicBool>,
     long_response: Arc<ArcSwap<Option<LongResponse>>>,
+    http_error: Arc<Mutex<Option<HttpErrorRule>>>,
 }
 
-#[derive(Deserialize, Serialize)]
-struct Args {
-    all_dpu_lost_on_host: Option<bool>,
-    long_response: Option<LongResponse>,
+#[derive(Deserialize, Serialize, Default)]
+pub struct Args {
+    pub all_dpu_lost_on_host: Option<bool>,
+    pub long_response: Option<LongResponse>,
+    pub http_error: Option<HttpErrorRule>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-struct LongResponse {
-    path: Option<String>,
+pub struct LongResponse {
+    pub path: Option<String>,
     #[serde(deserialize_with = "deserialize_option_duration")]
-    timeout: Option<Duration>,
+    pub timeout: Option<Duration>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub struct HttpErrorRule {
+    pub path: String,
+    pub status: u16,
+    pub remaining: usize,
+    pub method: Option<String>,
 }
 
 impl InjectedBugs {
     pub fn get(&self) -> serde_json::Value {
         let long_response = self.long_response.load();
+        let http_error = self.http_error.lock().unwrap();
         serde_json::json!(Args {
             all_dpu_lost_on_host: Some(self.all_dpu_lost_on_host().is_some()),
-            long_response: long_response.as_ref().clone()
+            long_response: long_response.as_ref().clone(),
+            http_error: http_error.clone()
         })
     }
 
     pub fn update(&self, v: serde_json::Value) -> Result<(), serde_json::Error> {
         let args = serde_json::from_value::<Args>(v)?;
+        self.update_args(args);
+        Ok(())
+    }
 
+    pub fn update_args(&self, args: Args) {
         self.all_dpu_lost_on_host.store(
             args.all_dpu_lost_on_host.unwrap_or(false),
             Ordering::Relaxed,
         );
-
         self.long_response.store(args.long_response.into());
-        Ok(())
+        *self.http_error.lock().unwrap() = args.http_error;
     }
 
     pub fn all_dpu_lost_on_host(&self) -> Option<AllDpuLostOnHost> {
@@ -79,6 +95,20 @@ impl InjectedBugs {
                 None
             }
         })
+    }
+
+    pub fn http_error(&self, method: &str, path: &str) -> Option<StatusCode> {
+        let mut rule = self.http_error.lock().unwrap();
+        let rule = rule.as_mut()?;
+
+        let method_matches = rule.method.as_ref().is_none_or(|m| m == method);
+        let path_matches = rule.path == path;
+        if !method_matches || !path_matches || rule.remaining == 0 {
+            return None;
+        }
+
+        rule.remaining -= 1;
+        Some(StatusCode::from_u16(rule.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR))
     }
 }
 

@@ -319,7 +319,7 @@ pub async fn show_detail(
     }
     .instance_types
     .pop() else {
-        return (StatusCode::NOT_FOUND, "Requested instance type not found").into_response();
+        return super::not_found_response(instance_type_id);
     };
 
     if show_json {

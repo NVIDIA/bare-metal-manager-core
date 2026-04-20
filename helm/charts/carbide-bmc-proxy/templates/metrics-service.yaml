@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: carbide-bmc-proxy-metrics
+  namespace: {{ include "carbide-bmc-proxy.namespace" . }}
+  labels:
+    {{- include "carbide-bmc-proxy.labels" . | nindent 4 }}
+    app: carbide-bmc-proxy
+    app.kubernetes.io/metrics: carbide-bmc-proxy
+spec:
+  selector:
+    {{- include "carbide-bmc-proxy.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.metrics.port }}
+      targetPort: metrics
+      protocol: TCP

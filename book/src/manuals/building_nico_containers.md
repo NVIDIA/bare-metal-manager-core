@@ -11,7 +11,7 @@ Before you begin, ensure you have the following prerequisites:
 Use the following steps to install the prerequisite software on the Ubuntu Host or VM. These instructions
 assume an `apt`-based distribution such as Ubuntu 24.04.
 
-1. `apt-get install build-essential direnv mkosi uidmap curl fakeroot git docker.io docker-buildx sccache protobuf-compiler libopenipmi-dev libudev-dev libboost-dev libgrpc-dev libprotobuf-dev libssl-dev libtss2-dev kea-dev systemd-boot systemd-ukify jq zip`
+1. `apt-get install build-essential cpio direnv mkosi uidmap curl file fakeroot git docker.io docker-buildx sccache protobuf-compiler libopenipmi-dev libudev-dev libboost-dev libgrpc-dev libprotobuf-dev libssl-dev libtss2-dev kea-dev systemd-boot systemd-ukify jq zip`
 2. [Add the correct hook for your shell](https://direnv.net/docs/hook.html)
 3. Install rustup: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh` (select Option 1)
 4. Start a new shell to pick up changes made from direnv and rustup.
@@ -93,49 +93,6 @@ BUILD_CONTAINER_X86_URL="nico-buildcontainer-x86_64" cargo make build-cli
 ```
 
 ### Building the DPU BFB
-## Download and Extracting the HBN container
-```
-docker pull --platform=linux/arm64 nvcr.io/nvidia/doca/doca_hbn:3.2.0-doca3.2.0
-docker save --output=/tmp/doca_hbn.tar nvcr.io/nvidia/doca/doca_hbn:3.2.0-doca3.2.0
-```
-
-## Downloading HBN configuration files and scripts
-```sh
-#!/usr/bin/env bash
-HBN_VERSION="3.2.0"
-set -e
-mkdir -p temp
-cd temp || exit 1
-files=$(curl -s "https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/doca/doca_hbn/${HBN_VERSION}/files")
-printf '%s\n' "$files" |
-  jq -c '
-    .urls as $u
-  | .filepath as $p
-  | .sha256_base64 as $s
-  | range(0; $u | length) as $i
-  | {url: $u[$i], filepath: $p[$i], sha256_base64: $s[$i]}
-  ' |
-  while IFS= read -r obj; do
-    url=$(printf '%s\n' "$obj" | jq -r '.url')
-    path=$(printf '%s\n' "$obj" | jq -r '.filepath')
-    sha=$(printf '%s\n' "$obj" | jq -r '.sha256_base64' | base64 -d | od -An -vtx1 | tr -d ' \n')
-    mkdir -p "$(dirname "$path")"
-    curl -sSL "$url" -o "$path"
-    printf '%s  %s\n' "$sha" "$path" | sha256sum -c --status || exit 1
-  done
-cd ..
-mkdir -p doca_container_configs
-mv temp/scripts/${HBN_VERSION}/ doca_container_configs/scripts
-mv temp/configs/${HBN_VERSION}/ doca_container_configs/configs
-cd doca_container_configs
-zip -r ../doca_container_configs.zip .
-```
-
-After running the script above:
-
-```sh
-cp doca_container_configs.zip /tmp
-```
 
 ```sh
 cargo make --cwd pxe --env SA_ENABLEMENT=1 build-boot-artifacts-bfb-sa

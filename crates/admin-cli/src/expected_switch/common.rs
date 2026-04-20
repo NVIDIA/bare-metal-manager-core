@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::net::IpAddr;
+
 use carbide_uuid::rack::RackId;
 use mac_address::MacAddress;
 use serde::{Deserialize, Serialize};
@@ -32,4 +34,7 @@ pub struct ExpectedSwitchJson {
     #[serde(default)]
     pub metadata: Option<rpc::forge::Metadata>,
     pub rack_id: Option<RackId>,
+    pub bmc_ip_address: Option<IpAddr>,
+    #[serde(default)]
+    pub bmc_retain_credentials: Option<bool>,
 }

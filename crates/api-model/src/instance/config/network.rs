@@ -154,6 +154,7 @@ impl InstanceNetworkConfig {
                     )),
                     ip_addrs: HashMap::default(),
                     requested_ip_addr: None,
+                    ipv6_interface_config: None,
                     interface_prefixes: HashMap::default(),
                     network_segment_gateways: HashMap::default(),
                     host_inband_mac_address: None,
@@ -174,6 +175,7 @@ impl InstanceNetworkConfig {
                         )),
                         ip_addrs: HashMap::default(),
                         requested_ip_addr: None,
+                        ipv6_interface_config: None,
                         interface_prefixes: HashMap::default(),
                         network_segment_gateways: HashMap::default(),
                         host_inband_mac_address: None,
@@ -197,6 +199,7 @@ impl InstanceNetworkConfig {
                 network_details: Some(NetworkDetails::VpcPrefixId(vpc_prefix_id)),
                 ip_addrs: HashMap::default(),
                 requested_ip_addr: None,
+                ipv6_interface_config: None,
                 interface_prefixes: HashMap::default(),
                 network_segment_gateways: HashMap::default(),
                 host_inband_mac_address: None,
@@ -337,6 +340,7 @@ impl InstanceNetworkConfig {
                     // to trigger postgres table constraints.  For now, the existing implementation
                     // gap is being maintained, and both will need to be resolved together.
                     x.network_details == interface.network_details
+                        && x.ipv6_interface_config == interface.ipv6_interface_config
                 } else if interface.network_segment_id.is_some() {
                     x.network_segment_id == interface.network_segment_id
                 } else {
@@ -357,6 +361,7 @@ impl InstanceNetworkConfig {
                 // TODO: Zero DPU changes.
                 interface.ip_addrs = existing_interface.ip_addrs.clone();
                 interface.requested_ip_addr = existing_interface.requested_ip_addr;
+                interface.ipv6_interface_config = existing_interface.ipv6_interface_config.clone();
                 interface.interface_prefixes = existing_interface.interface_prefixes.clone();
                 interface.network_segment_gateways =
                     existing_interface.network_segment_gateways.clone();
@@ -540,6 +545,56 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                 ));
             };
 
+            // ipv6_interface_config is only valid alongside a VPC prefix -- it makes no
+            // sense with a NetworkSegment (segment already has its own prefixes) or
+            // without any network_details at all. Check before parsing.
+            if iface.ipv6_interface_config.is_some()
+                && !matches!(network_details, Some(NetworkDetails::VpcPrefixId(_)))
+            {
+                return Err(RpcDataConversionError::InvalidArgument(
+                    "ipv6 requires vpc_prefix_id to be set".to_string(),
+                ));
+            };
+
+            // Prevent setting an IPv6 address in ip_address when ipv6_interface_config
+            // is also set -- that would mean two IPv6 configs for the same interface,
+            // and DHCP can't hand out two IPs of the same family on one interface.
+            if let Some(ref ip_str) = iface.ip_address
+                && iface.ipv6_interface_config.is_some()
+                && ip_str.parse::<std::net::Ipv6Addr>().is_ok()
+            {
+                return Err(RpcDataConversionError::InvalidArgument(
+                    "ip_address cannot be IPv6 when ipv6_interface_config is also set -- use ipv6_interface_config.ip_address for the IPv6 address".to_string(),
+                ));
+            }
+
+            let ipv6_interface_config = iface
+                .ipv6_interface_config
+                .map(
+                    |v6| -> Result<Ipv6InterfaceConfig, RpcDataConversionError> {
+                        let vpc_prefix_id =
+                            v6.vpc_prefix_id
+                                .ok_or(RpcDataConversionError::MissingArgument(
+                                    "InstanceInterfaceIpv6Config::vpc_prefix_id",
+                                ))?;
+                        let requested_ip_addr = v6
+                            .ip_address
+                            .map(|s| {
+                                s.parse::<std::net::Ipv6Addr>().map_err(|_| {
+                                    RpcDataConversionError::InvalidIpAddress(format!(
+                                        "IPv6 address expected, got: {s}"
+                                    ))
+                                })
+                            })
+                            .transpose()?;
+                        Ok(Ipv6InterfaceConfig {
+                            vpc_prefix_id,
+                            requested_ip_addr,
+                        })
+                    },
+                )
+                .transpose()?;
+
             let device_locator = iface.device.map(|device| DeviceLocator {
                 device,
                 device_instance: iface.device_instance as usize,
@@ -555,6 +610,7 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                     .map(|i| i.parse::<IpAddr>())
                     .transpose()
                     .map_err(|e| RpcDataConversionError::InvalidIpAddress(e.to_string()))?,
+                ipv6_interface_config,
                 interface_prefixes: HashMap::default(),
                 network_segment_gateways: HashMap::new(),
                 host_inband_mac_address: None,
@@ -598,6 +654,12 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
                 device_instance,
                 virtual_function_id,
                 ip_address: iface.requested_ip_addr.map(|i| i.to_string()),
+                ipv6_interface_config: iface.ipv6_interface_config.map(|v6| {
+                    rpc::forge::InstanceInterfaceIpv6Config {
+                        vpc_prefix_id: Some(v6.vpc_prefix_id),
+                        ip_address: v6.requested_ip_addr.map(|i| i.to_string()),
+                    }
+                }),
             });
         }
 
@@ -730,6 +792,13 @@ impl Display for DeviceLocator {
     }
 }
 
+/// IPv6 dual-stack configuration for an instance interface.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ipv6InterfaceConfig {
+    pub vpc_prefix_id: VpcPrefixId,
+    pub requested_ip_addr: Option<std::net::Ipv6Addr>,
+}
+
 /// The configuration that a customer desires for an instances network interface
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceInterfaceConfig {
@@ -751,9 +820,13 @@ pub struct InstanceInterfaceConfig {
     )]
     pub ip_addrs: HashMap<NetworkPrefixId, IpAddr>,
 
-    /// IP address allocation that was explicitly requested by a caller
-    /// from the VPC prefix of the interface.
+    /// IP address allocation that was explicitly requested by a caller from the VPC prefix of the interface.
     pub requested_ip_addr: Option<IpAddr>,
+
+    /// Optional IPv6 dual-stack configuration. When set alongside a
+    /// VpcPrefixId in network_details, both prefixes are allocated to a single segment.
+    #[serde(rename = "ipv6")]
+    pub ipv6_interface_config: Option<Ipv6InterfaceConfig>,
 
     /// The interface-specific prefix allocation we carved out from each
     /// network prefix for this interface (e.g. in FNN we might carve out
@@ -929,6 +1002,7 @@ mod tests {
             network_segment_id: Some(network_segment_id),
             ip_addrs,
             requested_ip_addr,
+            ipv6_interface_config: None,
             interface_prefixes,
             network_segment_gateways,
             host_inband_mac_address: None,
@@ -939,7 +1013,7 @@ mod tests {
         let serialized = serde_json::to_string(&interface).unwrap();
         assert_eq!(
             serialized,
-            r#"{"function_id":{"type":"physical"},"network_details":null,"network_segment_id":"91609f10-c91d-470d-a260-6293ea0c1200","ip_addrs":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2"},"requested_ip_addr":"192.168.1.2","interface_prefixes":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2/32"},"network_segment_gateways":{},"host_inband_mac_address":null,"device_locator":null,"internal_uuid":"37c3dc65-9aef-4439-b7ca-d532a0a41d7f"}"#
+            r#"{"function_id":{"type":"physical"},"network_details":null,"network_segment_id":"91609f10-c91d-470d-a260-6293ea0c1200","ip_addrs":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2"},"requested_ip_addr":"192.168.1.2","ipv6":null,"interface_prefixes":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2/32"},"network_segment_gateways":{},"host_inband_mac_address":null,"device_locator":null,"internal_uuid":"37c3dc65-9aef-4439-b7ca-d532a0a41d7f"}"#
         );
 
         assert_eq!(
@@ -965,6 +1039,7 @@ mod tests {
                     network_segment_id: Some(network_segment_id),
                     ip_addrs: HashMap::default(),
                     requested_ip_addr: None,
+                    ipv6_interface_config: None,
                     interface_prefixes: HashMap::default(),
                     network_segment_gateways: HashMap::default(),
                     host_inband_mac_address: None,
@@ -989,6 +1064,7 @@ mod tests {
                 device_instance: 0u32,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             }],
         };
 
@@ -1000,6 +1076,7 @@ mod tests {
                 network_segment_id: Some(BASE_SEGMENT_ID.into()),
                 ip_addrs: HashMap::new(),
                 requested_ip_addr: None,
+                ipv6_interface_config: None,
                 interface_prefixes: HashMap::new(),
                 network_segment_gateways: HashMap::new(),
                 host_inband_mac_address: None,
@@ -1020,6 +1097,7 @@ mod tests {
             device_instance: 0u32,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }];
         for vfid in INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX {
             interfaces.push(rpc::InstanceInterfaceConfig {
@@ -1030,6 +1108,7 @@ mod tests {
                 device_instance: 0u32,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             });
         }
 
@@ -1042,6 +1121,7 @@ mod tests {
             network_segment_id: Some(BASE_SEGMENT_ID.into()),
             ip_addrs: HashMap::new(),
             requested_ip_addr: None,
+            ipv6_interface_config: None,
             interface_prefixes: HashMap::new(),
             network_segment_gateways: HashMap::new(),
             host_inband_mac_address: None,
@@ -1057,6 +1137,7 @@ mod tests {
                 network_segment_id: Some(segment_id),
                 ip_addrs: HashMap::new(),
                 requested_ip_addr: None,
+                ipv6_interface_config: None,
                 interface_prefixes: HashMap::new(),
                 network_segment_gateways: HashMap::new(),
                 host_inband_mac_address: None,
@@ -1122,6 +1203,7 @@ mod tests {
                 device: None,
                 device_instance: 0u32,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -1135,6 +1217,7 @@ mod tests {
                 device: None,
                 device_instance: 0u32,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -1148,6 +1231,7 @@ mod tests {
                 device: None,
                 device_instance: 0u32,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -1161,6 +1245,7 @@ mod tests {
                 device: None,
                 device_instance: 0u32,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ]
     }
@@ -1255,5 +1340,198 @@ mod tests {
             network_config.try_into();
 
         assert!(network_config.is_err());
+    }
+
+    #[test]
+    fn test_network_details_serde_backward_compat_single() {
+        // Old JSON format: single VPC prefix.
+        let uuid = uuid::Uuid::new_v4();
+        let json = format!(r#"{{"VpcPrefixId":"{}"}}"#, uuid);
+        let nd: NetworkDetails = serde_json::from_str(&json).unwrap();
+        assert_eq!(nd, NetworkDetails::VpcPrefixId(VpcPrefixId::from(uuid)));
+
+        // Round-trip
+        let serialized = serde_json::to_string(&nd).unwrap();
+        let nd2: NetworkDetails = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(nd, nd2);
+    }
+
+    #[test]
+    fn test_network_details_rpc_roundtrip_single() {
+        let id = VpcPrefixId::new();
+        let model_nd = NetworkDetails::VpcPrefixId(id);
+
+        // Model -> RPC
+        let rpc_nd: rpc::forge::instance_interface_config::NetworkDetails = model_nd.clone().into();
+        assert!(matches!(
+            rpc_nd,
+            rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(_)
+        ));
+
+        // RPC -> Model
+        let roundtripped: NetworkDetails = rpc_nd.try_into().unwrap();
+        assert_eq!(roundtripped, model_nd);
+    }
+
+    #[test]
+    fn test_dual_stack_rpc_roundtrip() {
+        // Verify that ipv6 survives a model → rpc → model round-trip.
+        let v4_id = VpcPrefixId::new();
+        let v6_id = VpcPrefixId::new();
+
+        let model_config = InstanceNetworkConfig {
+            interfaces: vec![InstanceInterfaceConfig {
+                function_id: InterfaceFunctionId::Physical {},
+                network_segment_id: None,
+                network_details: Some(NetworkDetails::VpcPrefixId(v4_id)),
+                ip_addrs: HashMap::default(),
+                requested_ip_addr: None,
+                ipv6_interface_config: Some(Ipv6InterfaceConfig {
+                    vpc_prefix_id: v6_id,
+                    requested_ip_addr: Some("2001:db8::1".parse().unwrap()),
+                }),
+                interface_prefixes: HashMap::default(),
+                network_segment_gateways: HashMap::default(),
+                host_inband_mac_address: None,
+                device_locator: None,
+                internal_uuid: uuid::Uuid::new_v4(),
+            }],
+        };
+
+        // Model -> RPC
+        let rpc_config: rpc::InstanceNetworkConfig = model_config.try_into().unwrap();
+        let rpc_iface = &rpc_config.interfaces[0];
+        assert!(matches!(
+            rpc_iface.network_details,
+            Some(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(_))
+        ));
+        assert_eq!(
+            rpc_iface
+                .ipv6_interface_config
+                .as_ref()
+                .and_then(|v6| v6.vpc_prefix_id),
+            Some(v6_id)
+        );
+        assert_eq!(
+            rpc_iface
+                .ipv6_interface_config
+                .as_ref()
+                .and_then(|v6| v6.ip_address.clone()),
+            Some("2001:db8::1".to_string())
+        );
+
+        // RPC -> Model
+        let roundtripped: InstanceNetworkConfig = rpc_config.try_into().unwrap();
+        let v6 = roundtripped.interfaces[0]
+            .ipv6_interface_config
+            .as_ref()
+            .unwrap();
+        assert_eq!(v6.vpc_prefix_id, v6_id);
+        assert_eq!(v6.requested_ip_addr, Some("2001:db8::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn test_ipv6_requires_vpc_prefix_id() {
+        // ipv6 without vpc_prefix_id should be rejected.
+        let v6_id = VpcPrefixId::new();
+        let rpc_config = rpc::InstanceNetworkConfig {
+            interfaces: vec![rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                network_segment_id: Some(NetworkSegmentId::new()),
+                network_details: Some(
+                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(
+                        NetworkSegmentId::new(),
+                    ),
+                ),
+                device: None,
+                device_instance: 0,
+                virtual_function_id: None,
+                ip_address: None,
+                ipv6_interface_config: Some(rpc::forge::InstanceInterfaceIpv6Config {
+                    vpc_prefix_id: Some(v6_id),
+                    ip_address: None,
+                }),
+            }],
+        };
+        let result: Result<InstanceNetworkConfig, _> = rpc_config.try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_v6_only_uses_primary_field() {
+        // v6-only allocation: just put the v6 prefix in the primary vpc_prefix_id field.
+        let v6_id = VpcPrefixId::new();
+        let rpc_config = rpc::InstanceNetworkConfig {
+            interfaces: vec![rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                network_segment_id: None,
+                network_details: Some(
+                    rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(v6_id),
+                ),
+                device: None,
+                device_instance: 0,
+                virtual_function_id: None,
+                ip_address: None,
+                ipv6_interface_config: None,
+            }],
+        };
+        let model: InstanceNetworkConfig = rpc_config.try_into().unwrap();
+        assert_eq!(
+            model.interfaces[0].network_details,
+            Some(NetworkDetails::VpcPrefixId(v6_id))
+        );
+        assert_eq!(model.interfaces[0].ipv6_interface_config, None);
+    }
+
+    #[test]
+    fn test_reject_v6_ip_address_with_ipv6_interface_config() {
+        // Setting an IPv6 ip_address AND ipv6_interface_config should be rejected.
+        let v4_id = VpcPrefixId::new();
+        let v6_id = VpcPrefixId::new();
+        let rpc_config = rpc::InstanceNetworkConfig {
+            interfaces: vec![rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                network_segment_id: None,
+                network_details: Some(
+                    rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(v4_id),
+                ),
+                device: None,
+                device_instance: 0,
+                virtual_function_id: None,
+                ip_address: Some("2001:db8::1".to_string()),
+                ipv6_interface_config: Some(rpc::forge::InstanceInterfaceIpv6Config {
+                    vpc_prefix_id: Some(v6_id),
+                    ip_address: None,
+                }),
+            }],
+        };
+        let result: Result<InstanceNetworkConfig, _> = rpc_config.try_into();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_allow_v4_ip_address_with_ipv6_interface_config() {
+        // Setting an IPv4 ip_address AND ipv6_interface_config is fine (dual-stack).
+        let v4_id = VpcPrefixId::new();
+        let v6_id = VpcPrefixId::new();
+        let rpc_config = rpc::InstanceNetworkConfig {
+            interfaces: vec![rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                network_segment_id: None,
+                network_details: Some(
+                    rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(v4_id),
+                ),
+                device: None,
+                device_instance: 0,
+                virtual_function_id: None,
+                ip_address: Some("10.0.0.1".to_string()),
+                ipv6_interface_config: Some(rpc::forge::InstanceInterfaceIpv6Config {
+                    vpc_prefix_id: Some(v6_id),
+                    ip_address: None,
+                }),
+            }],
+        };
+        let result: Result<InstanceNetworkConfig, _> = rpc_config.try_into();
+        assert!(result.is_ok());
     }
 }

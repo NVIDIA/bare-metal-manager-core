@@ -105,7 +105,8 @@ pub async fn handle_power_desired_on(
                 );
                 update_done = true;
             }
-            UsablePowerState::Usable(PowerState::PowerManagerDisabled) => { /* Not expected here */
+            UsablePowerState::Usable(PowerState::PowerManagerDisabled) => {
+                tracing::warn!("Unexpected PowerManagerDisabled state from BMC poll");
             }
             UsablePowerState::NotUsable(s) => {
                 tracing::warn!(
@@ -174,15 +175,19 @@ pub async fn get_updated_power_options_desired_off(
         match power_state {
             UsablePowerState::Usable(power_state) => {
                 updated_power_options.last_fetched_power_state = power_state;
+                let cause = if let PowerState::On = power_state {
+                    "Power state is On while expected is Off. Since desired state is Off, not processing any event.".to_string()
+                } else {
+                    "Desired state is Off and actual state is Off.".to_string()
+                };
                 if let PowerState::On = power_state {
-                    let cause = "Power state is On while expected is Off. Since desired state is Off, not processing any event.".to_string();
                     tracing::warn!(cause);
-                    return Ok(PowerHandlingOutcome::new(
-                        Some(updated_power_options),
-                        false,
-                        Some(cause),
-                    ));
                 }
+                return Ok(PowerHandlingOutcome::new(
+                    Some(updated_power_options),
+                    false,
+                    Some(cause),
+                ));
             }
             UsablePowerState::NotUsable(s) => {
                 let cause = format!(
@@ -222,8 +227,8 @@ async fn get_power_state(
         libredfish::PowerState::On | libredfish::PowerState::PoweringOn => {
             UsablePowerState::Usable(PowerState::On)
         }
-        libredfish::PowerState::Paused | libredfish::PowerState::Reset => {
-            UsablePowerState::NotUsable(power_state)
-        }
+        libredfish::PowerState::Paused
+        | libredfish::PowerState::Reset
+        | libredfish::PowerState::Unknown => UsablePowerState::NotUsable(power_state),
     })
 }

@@ -30,8 +30,8 @@ use crate::bmc_state::BmcState;
 use crate::json::{JsonExt, JsonPatch, json_patch};
 use crate::redfish::Builder;
 use crate::{
-    LogServices, MockPowerState, POWER_CYCLE_DELAY, PowerControl, SetSystemPowerError, http,
-    redfish,
+    BootOptionKind, Callbacks, LogServices, MockPowerState, POWER_CYCLE_DELAY, SetSystemPowerError,
+    http, redfish,
 };
 
 pub fn collection() -> redfish::Collection<'static> {
@@ -129,7 +129,7 @@ pub struct SingleSystemConfig {
     pub manufacturer: Option<Cow<'static, str>>,
     pub model: Option<Cow<'static, str>>,
     pub boot_order_mode: BootOrderMode,
-    pub power_control: Option<Arc<dyn PowerControl>>,
+    pub callbacks: Option<Arc<dyn Callbacks>>,
     pub chassis: Vec<Cow<'static, str>>,
     pub boot_options: Option<Vec<redfish::boot_option::BootOption>>,
     pub bios_mode: BiosMode,
@@ -148,9 +148,17 @@ pub struct SystemState {
     systems: Vec<SingleSystemState>,
 }
 
+#[derive(Default)]
+pub struct BootSourceOverride {
+    mode: Option<String>,
+    enabled: Option<String>,
+    target: Option<String>,
+}
+
 pub struct SingleSystemState {
     config: SingleSystemConfig,
     boot_order_override: Mutex<Option<Vec<String>>>,
+    boot_source_override: Mutex<BootSourceOverride>,
     secure_boot_enabled: Arc<AtomicBool>,
     bios_overrides: Arc<Mutex<serde_json::Value>>,
 }
@@ -193,6 +201,16 @@ impl SystemState {
         let systems = configs.into_iter().map(SingleSystemState::new).collect();
         Self { systems }
     }
+
+    pub fn resolve_current_boot_selection(&self) -> Option<BootOptionKind> {
+        self.systems
+            .iter()
+            .find_map(|system| system.resolve_current_boot_selection())
+    }
+
+    pub fn on_boot_completed(&self) {
+        self.systems.iter().for_each(|s| s.on_boot_completed())
+    }
 }
 
 impl SingleSystemState {
@@ -200,8 +218,16 @@ impl SingleSystemState {
         Self {
             config,
             boot_order_override: Mutex::new(None),
+            boot_source_override: Mutex::new(BootSourceOverride::default()),
             secure_boot_enabled: Arc::new(AtomicBool::new(false)),
             bios_overrides: Arc::new(Mutex::new(serde_json::json!({}))),
+        }
+    }
+
+    pub fn on_boot_completed(&self) {
+        let mut src = self.boot_source_override.lock().unwrap();
+        if src.enabled.as_ref().is_some_and(|v| v == "Once") {
+            src.enabled = Some("Disabled".into())
         }
     }
 
@@ -219,6 +245,48 @@ impl SingleSystemState {
 
     fn boot_order_override(&self) -> Option<Vec<String>> {
         self.boot_order_override.lock().unwrap().clone()
+    }
+
+    fn resolve_current_boot_selection(&self) -> Option<BootOptionKind> {
+        let src = self.boot_source_override.lock().unwrap();
+        if src.enabled.as_ref().is_some_and(|v| v != "Disabled")
+            && src.mode.as_ref().is_some_and(|v| v == "UEFI")
+            && let Some(target) = src.target.as_ref()
+        {
+            match target.as_str() {
+                "Hdd" => Some(BootOptionKind::Disk),
+                "UefiHttp" | "Pxe" => Some(BootOptionKind::Network),
+                _ => None,
+            }
+            .filter(|kind| {
+                self.config
+                    .boot_options
+                    .iter()
+                    .flatten()
+                    .any(|opt| opt.kind == *kind)
+            })
+        } else {
+            None
+        }
+        .or_else(|| {
+            self.boot_order_override().and_then(|overrides| {
+                overrides.first().and_then(|optref| {
+                    self.config
+                        .boot_options
+                        .iter()
+                        .flatten()
+                        .find(|v| v.boot_reference() == optref)
+                        .map(|opt| opt.kind)
+                })
+            })
+        })
+        .or_else(|| {
+            self.config
+                .boot_options
+                .as_ref()?
+                .first()
+                .map(|opt| opt.kind)
+        })
     }
 }
 
@@ -242,9 +310,9 @@ async fn get_system(State(state): State<BmcState>, Path(system_id): Path<String>
     let config = &system_state.config;
 
     if let Some(state) = config
-        .power_control
+        .callbacks
         .as_ref()
-        .map(|control| control.get_power_state())
+        .map(|callbacks| callbacks.get_power_state())
     {
         b = b.power_state(state)
     }
@@ -363,28 +431,50 @@ async fn patch_settings(
     let Some(system_state) = state.system_state.find(&system_id) else {
         return http::not_found();
     };
-    if let Some(new_boot_order) = patch_settings
-        .get("Boot")
-        .and_then(|obj| obj.get("BootOrder"))
-        .and_then(serde_json::Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(serde_json::Value::as_str)
-                .map(ToString::to_string)
-                .collect()
-        })
-    {
-        match system_state.config.boot_order_mode {
-            BootOrderMode::ViaSettings => {
-                system_state.set_boot_order_override(new_boot_order);
-                json!({}).into_ok_response()
+    if let Some(boot) = patch_settings.get("Boot") {
+        if let Some(new_boot_order) = boot
+            .get("BootOrder")
+            .and_then(serde_json::Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(ToString::to_string)
+                    .collect()
+            })
+        {
+            match system_state.config.boot_order_mode {
+                BootOrderMode::ViaSettings => {
+                    system_state.set_boot_order_override(new_boot_order);
+                }
+                _ => {
+                    return json!("Boot order setup must use ComputerSystem resource")
+                        .into_response(StatusCode::BAD_REQUEST);
+                }
             }
-            _ => json!("Boot order setup must use ComputerSystem resource")
-                .into_response(StatusCode::BAD_REQUEST),
         }
-    } else {
-        json!({}).into_ok_response()
+        boot.get("BootSourceOverrideMode").inspect(|v| {
+            if let Some(v) = v.as_str() {
+                system_state.boot_source_override.lock().unwrap().mode = Some(v.to_string())
+            } else {
+                system_state.boot_source_override.lock().unwrap().mode = None
+            }
+        });
+        boot.get("BootSourceOverrideEnabled").inspect(|v| {
+            if let Some(v) = v.as_str() {
+                system_state.boot_source_override.lock().unwrap().enabled = Some(v.to_string())
+            } else {
+                system_state.boot_source_override.lock().unwrap().enabled = None
+            }
+        });
+        boot.get("BootSourceOverrideTarget").inspect(|v| {
+            if let Some(v) = v.as_str() {
+                system_state.boot_source_override.lock().unwrap().target = Some(v.to_string())
+            } else {
+                system_state.boot_source_override.lock().unwrap().target = None
+            }
+        });
     }
+    json!({}).into_ok_response()
 }
 
 async fn patch_system(
@@ -428,12 +518,10 @@ async fn post_reset_system(
     Path(system_id): Path<String>,
     Json(mut power_request): Json<serde_json::Value>,
 ) -> Response {
-    state.complete_all_bios_jobs();
-
     let Some(system_state) = state.system_state.find(&system_id) else {
         return http::not_found();
     };
-    let Some(power_control) = system_state.config.power_control.as_ref() else {
+    let Some(callbacks) = system_state.config.callbacks.as_ref() else {
         return http::not_found();
     };
     let Some(reset_type) = power_request
@@ -451,7 +539,7 @@ async fn post_reset_system(
     // introduce a deadlock if the API server holds a lock on the row for this machine
     // while issuing a redfish call, and MachineStateMachine is blocked waiting for the row lock
     // to be released.
-    match power_control.set_power_state(reset_type) {
+    match callbacks.set_power_state(reset_type) {
         Ok(_) => json!({}).into_ok_response(),
         Err(SetSystemPowerError::BadRequest(_)) => StatusCode::BAD_REQUEST.into_response(),
         Err(SetSystemPowerError::CommandSendError(_)) => {

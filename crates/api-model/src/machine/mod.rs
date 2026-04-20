@@ -36,7 +36,7 @@ use health_report::HealthReport;
 use json::MachineSnapshotPgJson;
 use libredfish::{PowerState, SystemPowerControl};
 use mac_address::MacAddress;
-use rpc::forge::HealthOverrideOrigin;
+use rpc::forge::HealthSourceOrigin;
 use rpc::forge_agent_control_response::{Action, ForgeAgentControlExtraInfo};
 use serde::{Deserialize, Serialize, Serializer};
 use sqlx::postgres::PgRow;
@@ -62,7 +62,7 @@ use crate::hardware_info::{HardwareInfo, MachineNvLinkInfo};
 use crate::instance::config::network::DeviceLocator;
 use crate::instance::snapshot::InstanceSnapshotPgJson;
 use crate::machine::capabilities::MachineCapabilitiesSet;
-use crate::machine::health_override::HealthReportOverrides;
+use crate::machine::health_override::HealthReportSources;
 use crate::machine_interface_address::InterfaceAssociationType;
 use crate::network_segment::NetworkSegmentType;
 use crate::power_manager::PowerOptions;
@@ -109,6 +109,9 @@ fn default_true() -> bool {
     true
 }
 
+// This should be updated on each new model introduction
+pub const CURRENT_STATE_MODEL_VERSION: i16 = 2;
+
 /// Represents the current state of `Machine`
 #[derive(Debug, Clone)]
 pub struct ManagedHostStateSnapshot {
@@ -123,14 +126,14 @@ pub struct ManagedHostStateSnapshot {
     pub aggregate_health: health_report::HealthReport,
     /// Health overrides inherited from the rack this host belongs to (if any).
     /// Populated at read time; not stored on the machines table.
-    pub rack_health_overrides: Option<HealthReportOverrides>,
+    pub rack_health_overrides: Option<HealthReportSources>,
 }
 
 impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for ManagedHostStateSnapshot {
     fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
         #[derive(Deserialize)]
         struct RackHealthOverrides {
-            json: HealthReportOverrides,
+            json: HealthReportSources,
         }
 
         let host_snapshot: sqlx::types::Json<MachineSnapshotPgJson> =
@@ -238,15 +241,147 @@ impl From<ManagedHostStateSnapshotError> for sqlx::Error {
     }
 }
 
+/// Pick the MAC address the host should boot from, given its interfaces.
+///
+/// See `ManagedHostStateSnapshot::boot_interface_mac` for the caller-facing
+/// details. I split this out as a function so it can be unit-tested directly
+/// without constructing a full `ManagedHostStateSnapshot`.
+///
+/// Ordering:
+/// 1. Any interface with `primary_interface == true` wins. This is the
+///    path operators can drive explicitly via `ExpectedHostNic.primary`,
+///    in the case of zero DPU hosts, and is also how hosts with DPU(s)
+///    end up with a boot MAC automatically during site-explorer ingestion.
+/// 2. If there's no primary interface, the interface outside the management
+///    segment with the "smallest" MAC address wins -- mainly so we can
+///    have some sense of a stable MAC for zero-DPU hosts where no operator
+///    explicitly declared a primary NIC (and ingestion didn't assign one either).
+/// 3. `None` -- This is the "I don't have any candidate interfaces yet" case,
+///    so it's on the caller to figure out. What this usually means is the
+///    caller passes `boot_interface_mac: None` to machine_setup, and then
+///    subsequent logic flows from there (e.g. ::NoDpu handling).
+fn pick_boot_interface_mac(
+    interfaces: &[MachineInterfaceSnapshot],
+) -> Option<mac_address::MacAddress> {
+    // The primary wins!
+    if let Some(primary) = interfaces.iter().find(|x| x.primary_interface) {
+        return Some(primary.mac_address);
+    }
+    // ..no primary, so lets try to find *some* interface.
+    interfaces
+        .iter()
+        .filter(|x| x.network_segment_type != Some(NetworkSegmentType::Underlay))
+        .min_by_key(|x| x.mac_address)
+        .map(|x| x.mac_address)
+}
+
+/// Derive a host-level `use_admin_network` from the per-DPU values for
+/// the host.
+///
+/// Split out from `ManagedHostStateSnapshot::use_admin_network` so it's
+/// more easily testable without building a full snapshot. The way this works is:
+/// - True when an empty slice (e.g. zero-DPU host or snapshots failed to load),
+///   because zero DPU hosts have no DPU to handle tenant overlay (and
+///   are always admin). In the snapshot failure case, it seemed more
+///   conservative to treat it as such.
+/// - Otherwise, walk across all of the use_admin_network values from the
+///   hosts DPU(s) and collect their values, defaulting to true otherwise.
+fn derive_use_admin_network(dpu_use_admin_network: &[Option<bool>]) -> bool {
+    dpu_use_admin_network.is_empty()
+        || dpu_use_admin_network
+            .iter()
+            .any(|flag| flag.unwrap_or(true))
+}
+
 impl ManagedHostStateSnapshot {
-    /// Returns `true` if override report is hw_health, `false` otherwise
+    /// Returns `true` if this managed host has no DPU snapshots attached.
+    ///
+    /// Most call sites in the state controller use this to follow a "zero-DPU"
+    /// branch -- skip DPU-specific work, use the host's primary interface MAC
+    /// directly, reject DPU-only operations, etc.
+    ///
+    /// Note: Currently, a handful of call sites combine this with
+    /// `host_snapshot.associated_dpu_machine_ids().is_empty()` to distinguish
+    /// "truly zero-DPU" from "DPU expected per topology but the snapshot
+    /// failed to load". Those sites intentionally inspect both fields and
+    /// should NOT be rewritten to use this helper alone. Maybe we can enhance
+    /// that later, but for now this keeps it simple.
+    ///
+    /// NOTE(chet): When called from state-controller handlers (anything reached
+    /// via `MachineStateHandler::handle_object_state`), there is an upstream
+    /// guard that short-circuits with an error if topology reports DPUs but
+    /// `dpu_snapshots` is empty -- i.e. the DPU snapshots failed to load.
+    /// That guard runs before the `ManagedHostState` dispatch, so by the time
+    /// a state handler asks `is_zero_dpu()`, the potential bug of "topology
+    /// has DPUs, but snapshots are empty, so we think it's zero DPU" has
+    /// already been filtered out. A `true` return in that context means
+    /// genuinely zero-DPU (both topology and snapshots agree).
+    ///
+    /// Now, callers OUTSIDE the state-controller path DON'T get that upstream
+    /// guard; if you need the stronger guarantee there, you'll need to
+    /// check both:
+    /// `self.dpu_snapshots.is_empty()` and
+    /// `self.host_snapshot.associated_dpu_machine_ids().is_empty()`.
+    pub fn is_zero_dpu(&self) -> bool {
+        self.dpu_snapshots.is_empty()
+    }
+
+    /// Returns `true` if this managed host is currently operating on the
+    /// admin network (rather than a tenant overlay).
+    ///
+    /// The underlying `use_admin_network` flag is persisted per-DPU on
+    /// `ManagedHostNetworkConfig` (fwiw, the config is generic, but
+    /// site-explorer and the machine state controller only populate this
+    /// for DPUs. Default is true.
+    ///
+    /// Zero-DPU hosts always return `true`, because there's no DPU to
+    /// handle tenant overlay networking. This allows consumers like the
+    /// IB and NVLink partition monitors to treat the host as admin-only
+    /// and detach.
+    ///
+    /// Now, this helper doesn't change where the *flag* is stored. I'm
+    /// planning on doing that in a future PR, but it will be a bit more
+    /// disruptive. It may end up going into the host's network_config,
+    /// allowing us to drop the per-DPU copies, and then this helper can
+    /// just read the host's config value directly.
+    pub fn use_admin_network(&self) -> bool {
+        let dpu_use_admin_network: Vec<_> = self
+            .dpu_snapshots
+            .iter()
+            .map(|dpu| dpu.network_config.use_admin_network)
+            .collect();
+        derive_use_admin_network(&dpu_use_admin_network)
+    }
+
+    /// Returns the MAC address the host should boot from, if one can be
+    /// determined from this snapshot.
+    ///
+    /// For hosts with DPUs, this is the DPU-facing "primary" `machine_interface`,
+    /// flagged as `primary_interface: true` during site-explorer ingestion.
+    ///
+    /// For zero-DPU hosts, the `primary_interface` flag is not (yet) set at
+    /// ingestion time, so this method "falls back" to the first non-underlay
+    /// `machine_interface` (i.e. not the BMC) sorted deterministically by MAC.
+    ///
+    /// Returns `None` if the host has no non-underlay interfaces yet -- e.g.
+    /// only the BMC has been discovered, or the host's primary NIC hasn't
+    /// DHCP'd yet.
+    ///
+    /// This helper exists to centralize the boot MAC selection logic that used
+    /// to be duplicated at every state controller callsite needing to pass a MAC
+    /// into things like machine_setup, is_bios_setup, etc.
+    pub fn boot_interface_mac(&self) -> Option<mac_address::MacAddress> {
+        pick_boot_interface_mac(&self.host_snapshot.interfaces)
+    }
+
+    /// Returns `true` if override report is hw_health, `false` otherwise.
     fn merge_override_report_with_hw_health(
         output: &mut HealthReport,
         source: &str,
         report: &mut HealthReport,
         hardware_health_config: HardwareHealthReportsConfig,
     ) -> bool {
-        if HealthReportOverrides::is_hardware_health_override_source(source) {
+        if HealthReportSources::is_hardware_health_override_source(source) {
             match hardware_health_config {
                 HardwareHealthReportsConfig::Disabled => {}
                 HardwareHealthReportsConfig::MonitorOnly => {
@@ -311,10 +446,10 @@ impl ManagedHostStateSnapshot {
         let source = "aggregate-host-health".to_string();
         let observed_at = Some(chrono::Utc::now());
 
-        // If there is an [`OverrideMode::Replace`] health report override on
+        // If there is an [`HealthReportApplyMode::Replace`] health report override on
         // the host, then use that. A host-level Replace takes full precedence,
         // including over any rack-level overrides.
-        if let Some(mut over) = self.host_snapshot.health_report_overrides.replace.clone() {
+        if let Some(mut over) = self.host_snapshot.health_reports.replace.clone() {
             over.source = source;
             over.observed_at = observed_at;
             self.aggregate_health = over;
@@ -384,7 +519,7 @@ impl ManagedHostStateSnapshot {
                 output.merge(report);
             }
 
-            for (source, over) in snapshot.health_report_overrides.merges.iter_mut() {
+            for (source, over) in snapshot.health_reports.merges.iter_mut() {
                 let merged_hardware = Self::merge_override_report_with_hw_health(
                     &mut output,
                     source,
@@ -395,7 +530,7 @@ impl ManagedHostStateSnapshot {
             }
         }
 
-        for (source, over) in self.host_snapshot.health_report_overrides.merges.iter_mut() {
+        for (source, over) in self.host_snapshot.health_reports.merges.iter_mut() {
             let merged_hardware = Self::merge_override_report_with_hw_health(
                 &mut output,
                 source,
@@ -549,7 +684,7 @@ impl ManagedHostStateSnapshot {
                 let snapshot = self.dpu_snapshots.remove(index);
                 self.dpu_snapshots.insert(0, snapshot);
             }
-        } else if !self.dpu_snapshots.is_empty() {
+        } else if !self.is_zero_dpu() {
             // If it is not Zero-DPU case, return failure.
             return Err(ManagedHostStateSnapshotError::AttachedDpuIdMissing(
                 self.host_snapshot.id,
@@ -736,8 +871,8 @@ pub struct Machine {
     /// Latest health report submitted by site-explorer
     pub site_explorer_health_report: Option<HealthReport>,
 
-    /// All health report overrides
-    pub health_report_overrides: HealthReportOverrides,
+    /// All health report sources
+    pub health_reports: HealthReportSources,
 
     // Inventory related to a DPU machine as reported by the agent there.
     // Software and versions installed on the machine.
@@ -814,6 +949,12 @@ pub struct Machine {
 
     /// The rack that this machine is associated with
     pub rack_id: Option<RackId>,
+
+    /// Rack-level firmware upgrade status, updated by the rack state machine.
+    pub rack_fw_details: Option<RackFirmwareUpgradeStatus>,
+
+    pub slot_number: Option<i32>,
+    pub tray_index: Option<i32>,
 }
 
 // Dpf status field.
@@ -1085,10 +1226,10 @@ impl From<Machine> for rpc::forge::Machine {
                 if let Some(hr) = machine.site_explorer_health_report.as_ref() {
                     health.merge(hr);
                 }
-                match machine.health_report_overrides.replace.as_ref() {
+                match machine.health_reports.replace.as_ref() {
                     Some(over) => over.clone(),
                     None => {
-                        for over in machine.health_report_overrides.merges.values() {
+                        for over in machine.health_reports.merges.values() {
                             health.merge(over);
                         }
                         health
@@ -1100,7 +1241,7 @@ impl From<Machine> for rpc::forge::Machine {
 
         let (maintenance_reference, maintenance_start_time) = if !machine.is_dpu() {
             machine
-                .health_report_overrides
+                .health_reports
                 .maintenance_override()
                 .map(|o| (Some(o.maintenance_reference), o.maintenance_start_time))
                 .unwrap_or_default()
@@ -1182,10 +1323,10 @@ impl From<Machine> for rpc::forge::Machine {
             state_reason: machine.controller_state_outcome.map(|r| r.into()),
             health: Some(health.into()),
             firmware_autoupdate: machine.firmware_autoupdate,
-            health_overrides: machine
-                .health_report_overrides
+            health_sources: machine
+                .health_reports
                 .into_iter()
-                .map(|(hr, m)| HealthOverrideOrigin {
+                .map(|(hr, m)| HealthSourceOrigin {
                     mode: m as i32,
                     source: hr.source,
                 })
@@ -1216,6 +1357,10 @@ impl From<Machine> for rpc::forge::Machine {
             nvlink_status_observation: machine
                 .nvlink_status_observation
                 .map(|status| status.into()),
+            placement_in_rack: Some(rpc::forge::PlacementInRack {
+                slot_number: machine.slot_number,
+                tray_index: machine.tray_index,
+            }),
         }
     }
 }
@@ -1242,18 +1387,6 @@ pub struct DpuReprovisionStates {
 /// Only DPU machine field in DB will contain state. Host will be empty. DPU state field will be
 /// used to derive state for DPU and Host both.
 pub enum ManagedHostState {
-    /// Verifying the host is registered with RMS by checking inventory.
-    /// If no RMS client or no rack_id, skips ahead immediately.
-    /// If the node is found, skips registration and transitions forward.
-    /// If the node is not found or RMS returns NotFound, transitions to
-    /// RegisterRmsMembership. On other API errors, retries next tick.
-    VerifyRmsMembership,
-
-    /// Registering the host with Rack Manager Service.
-    /// On success, transitions forward to DpuDiscoveringState.
-    /// On failure, retries on next tick.
-    RegisterRmsMembership,
-
     /// Dpu was discovered by a site-explorer and is being configuring via redfish.
     DpuDiscoveringState {
         dpu_states: DpuDiscoveringStates,
@@ -1577,6 +1710,23 @@ pub enum HostReprovisionState {
         report_time: Option<DateTime<Utc>>,
         reason: Option<String>,
     },
+    WaitingForRackFirmwareUpgrade,
+    WaitingForScoutUpgrade {
+        component_type: FirmwareComponentType,
+        target_version: String,
+        started_at: DateTime<Utc>,
+        #[serde(default)]
+        result: Option<ScoutUpgradeResult>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct ScoutUpgradeResult {
+    pub success: bool,
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub error: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -2039,6 +2189,8 @@ pub struct HostReprovisionRequest {
     pub request_reset: Option<bool>,
 }
 
+pub use crate::rack::RackFirmwareUpgradeStatus;
+
 /// Should a forge-dpu-agent upgrade itself?
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpgradeDecision {
@@ -2150,8 +2302,6 @@ impl Display for MeasuringState {
 impl Display for ManagedHostState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ManagedHostState::RegisterRmsMembership => write!(f, "RegisterRmsMembership"),
-            ManagedHostState::VerifyRmsMembership => write!(f, "VerifyRmsMembership"),
             ManagedHostState::DpuDiscoveringState { dpu_states } => {
                 // Min state indicates the least processed DPU. The state machine is blocked
                 // becasue of this.
@@ -2234,8 +2384,6 @@ impl Display for ManagedHostState {
 impl ManagedHostState {
     pub fn dpu_state_string(&self, dpu_id: &MachineId) -> String {
         match self {
-            ManagedHostState::RegisterRmsMembership => "RegisterRmsMembership".to_string(),
-            ManagedHostState::VerifyRmsMembership => "VerifyRmsMembership".to_string(),
             ManagedHostState::DpuDiscoveringState { dpu_states } => dpu_states
                 .states
                 .get(dpu_id)
@@ -2463,25 +2611,6 @@ impl From<MachineStateHistory> for rpc::MachineEvent {
     }
 }
 
-/// History of Machine health for a single Machine
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MachineHealthHistoryRecord {
-    /// The observed health of the Machine
-    pub health: health_report::HealthReport,
-
-    /// The time when the health was observed
-    pub time: DateTime<Utc>,
-}
-
-impl From<MachineHealthHistoryRecord> for rpc::forge::MachineHealthHistoryRecord {
-    fn from(record: MachineHealthHistoryRecord) -> rpc::forge::MachineHealthHistoryRecord {
-        rpc::forge::MachineHealthHistoryRecord {
-            health: Some(record.health.into()),
-            time: Some(record.time.into()),
-        }
-    }
-}
-
 /// Returns the SLA for the current state.
 ///
 /// If any alert in `aggregate_health` carries the `ExcludeFromStateMachineSla` classification,
@@ -2512,9 +2641,6 @@ pub fn state_sla(
         .unwrap_or(std::time::Duration::from_secs(60 * 60 * 24));
 
     match state {
-        ManagedHostState::RegisterRmsMembership | ManagedHostState::VerifyRmsMembership => {
-            StateSla::no_sla()
-        }
         ManagedHostState::DpuDiscoveringState { dpu_states } => {
             // Min state indicates the least processed DPU. The state machine is blocked
             // because of this.
@@ -3116,6 +3242,107 @@ mod tests {
         let rpc_info: rpc::forge::DpuInfo = info.into();
         assert_eq!(rpc_info.id, "dpu-123");
         assert_eq!(rpc_info.loopback_ip, "10.0.0.1");
+    }
+
+    /// Build a mock `MachineInterfaceSnapshot` with the fields
+    /// `pick_boot_interface_mac` actually inspects (MAC, primary flag,
+    /// segment type) set, and everything else left at the mock default.
+    fn build_mock_interface(
+        mac: &str,
+        primary: bool,
+        segment_type: Option<NetworkSegmentType>,
+    ) -> MachineInterfaceSnapshot {
+        MachineInterfaceSnapshot {
+            primary_interface: primary,
+            network_segment_type: segment_type,
+            ..MachineInterfaceSnapshot::mock_with_mac(mac.parse().unwrap())
+        }
+    }
+
+    // Whichever interface is flagged `primary_interface` wins, regardless
+    // of MAC ordering or segment type of the other interfaces. This covers
+    // both paths that can set the flag, whether it be site-explorer w/ DPU
+    // ingestion, or operator-driven `ExpectedHostNic.primary` for zero-DPU
+    // hosts.
+    #[test]
+    fn pick_boot_interface_mac_returns_primary_interface_when_set() {
+        let primary_mac = "10:00:00:00:00:01";
+        let other_mac = "05:00:00:00:00:01"; // numerically lower but not primary
+        let interfaces = vec![
+            build_mock_interface(other_mac, false, Some(NetworkSegmentType::HostInband)),
+            build_mock_interface(primary_mac, true, Some(NetworkSegmentType::Admin)),
+        ];
+
+        assert_eq!(
+            pick_boot_interface_mac(&interfaces),
+            Some(primary_mac.parse().unwrap())
+        );
+    }
+
+    // This is our zero DPU fallback case -- no interface is flagged primary,
+    // so pick the lowest-MAC non-underlay interface. Verifies (a) the underlay
+    // BMC interface is excluded, and (b) ordering is deterministic across
+    // multiple non-underlay candidates.
+    #[test]
+    fn pick_boot_interface_mac_falls_back_to_lowest_non_underlay_mac_when_no_primary() {
+        let bmc_mac = "01:00:00:00:00:01"; // numerically lowest, but BMC!
+        let onboard_mac_lo = "10:00:00:00:00:01";
+        let onboard_mac_hi = "20:00:00:00:00:01";
+        let interfaces = vec![
+            build_mock_interface(bmc_mac, false, Some(NetworkSegmentType::Underlay)),
+            build_mock_interface(onboard_mac_hi, false, Some(NetworkSegmentType::HostInband)),
+            build_mock_interface(onboard_mac_lo, false, Some(NetworkSegmentType::HostInband)),
+        ];
+
+        assert_eq!(
+            pick_boot_interface_mac(&interfaces),
+            Some(onboard_mac_lo.parse().unwrap())
+        );
+    }
+
+    // Check the case  where only the BMC has been discovered so far (which
+    // is common during early ingestion). In this case, there's no valid boot MAC
+    // yet; callers fall back to the `::NoDpu` handling downstream.
+    #[test]
+    fn pick_boot_interface_mac_returns_none_when_only_underlay_interfaces() {
+        let bmc_mac = "01:00:00:00:00:01";
+        let interfaces = vec![build_mock_interface(
+            bmc_mac,
+            false,
+            Some(NetworkSegmentType::Underlay),
+        )];
+
+        assert_eq!(pick_boot_interface_mac(&interfaces), None);
+    }
+
+    // Zero-DPU hosts have no DPU snapshots at all. The helper must return
+    // `true` -- consumers (IB partition monitor, NVLink partition monitor)
+    // use this to decide whether to detach tenant partitions, and zero-DPU
+    // hosts never have a tenant overlay to protect.
+    #[test]
+    fn derive_use_admin_network_returns_true_for_empty_dpu_snapshots() {
+        assert!(derive_use_admin_network(&[]));
+    }
+
+    // Make sure the legacy default still works; when a DPU snapshot has no
+    // explicit value, treat it as admin-network. All or any "None" should
+    // therefore resolve to true.
+    #[test]
+    fn derive_use_admin_network_treats_none_as_true() {
+        assert!(derive_use_admin_network(&[None]));
+        assert!(derive_use_admin_network(&[None, None]));
+    }
+
+    // ...aand check OR semantics across DPUs: if any single DPU says admin,
+    // the whole host is treated as admin. Only "all DPUs explicitly say false"
+    // flips the host to tenant-network mode.
+    #[test]
+    fn derive_use_admin_network_ors_across_dpus() {
+        assert!(derive_use_admin_network(&[Some(false), Some(true)]));
+        assert!(derive_use_admin_network(&[Some(true), Some(true)]));
+        assert!(derive_use_admin_network(&[Some(false), None]));
+        assert!(!derive_use_admin_network(&[Some(false)]));
+        assert!(!derive_use_admin_network(&[Some(false), Some(false)]));
     }
 }
 

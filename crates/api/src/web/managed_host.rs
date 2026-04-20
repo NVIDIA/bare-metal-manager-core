@@ -107,7 +107,7 @@ impl From<ManagedHostStateSnapshot> for ManagedHostRowDisplay {
         } = item;
 
         let (maintenance_reference, maintenance_start_time) = host_snapshot
-            .health_report_overrides
+            .health_reports
             .maintenance_override()
             .map(|o| {
                 (
@@ -183,7 +183,7 @@ impl From<ManagedHostStateSnapshot> for ManagedHostRowDisplay {
                 .unwrap_or_default(),
             health_probe_alerts: aggregate_health.alerts,
             health_overrides: host_snapshot
-                .health_report_overrides
+                .health_reports
                 .into_iter()
                 .map(|(r, _)| r.source)
                 .collect(),

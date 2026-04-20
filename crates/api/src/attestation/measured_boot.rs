@@ -289,7 +289,7 @@ pub fn event_log_to_string(event_log: &Option<Vec<u8>>) -> String {
 pub async fn compare_pub_key_against_cert(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-    ek_pub: &Vec<u8>,
+    ek_pub: &[u8],
 ) -> CarbideResult<(bool, rsa::RsaPublicKey)> {
     let tpm_ek_cert = get_ek_cert_by_machine_id(txn, machine_id).await?;
     #[cfg(feature = "linux-build")]
@@ -371,7 +371,7 @@ pub mod linux_build {
 
     pub fn do_compare_pub_key_against_cert(
         tpm_ek_cert: &TpmEkCertificate,
-        ek_pub: &Vec<u8>,
+        ek_pub: &[u8],
     ) -> CarbideResult<(bool, rsa::RsaPublicKey)> {
         // compare the pub key and the cert
 
@@ -406,7 +406,7 @@ pub mod linux_build {
             ))
         })?;
         // construct the Public structure and extract the PublicKeyRsa from it, which is really just the modulus
-        let ek_pub = Public::unmarshall(ek_pub.as_slice()).map_err(|e| {
+        let ek_pub = Public::unmarshall(ek_pub).map_err(|e| {
             CarbideError::AttestBindKeyError(format!("Could not unmarshall EK: {e}"))
         })?;
 

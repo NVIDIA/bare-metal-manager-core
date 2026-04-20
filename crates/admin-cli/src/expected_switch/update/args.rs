@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::net::IpAddr;
+
 use ::rpc::admin_cli::CarbideCliError;
 use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
@@ -103,6 +105,20 @@ pub struct Args {
         action = clap::ArgAction::Append
     )]
     pub rack_id: Option<RackId>,
+
+    #[clap(
+        long = "bmc-ip-address",
+        value_name = "BMC_IP_ADDRESS",
+        help = "BMC IP address of the expected switch"
+    )]
+    pub bmc_ip_address: Option<IpAddr>,
+
+    #[clap(
+        long = "bmc-retain-credentials",
+        value_name = "BMC_RETAIN_CREDENTIALS",
+        help = "When true, site-explorer skips BMC password rotation and stores factory-default credentials in Vault as-is"
+    )]
+    pub bmc_retain_credentials: Option<bool>,
 }
 
 impl TryFrom<Args> for rpc::forge::ExpectedSwitch {
@@ -155,6 +171,11 @@ impl TryFrom<Args> for rpc::forge::ExpectedSwitch {
                 .iter()
                 .map(|m| m.to_string())
                 .collect(),
+            bmc_ip_address: args
+                .bmc_ip_address
+                .map(|ip| ip.to_string())
+                .unwrap_or_default(),
+            bmc_retain_credentials: args.bmc_retain_credentials,
         })
     }
 }

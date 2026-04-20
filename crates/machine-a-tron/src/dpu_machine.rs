@@ -36,7 +36,6 @@ use crate::machine_state_machine::{LiveState, MachineStateMachine, OsImage, Pers
 use crate::tui::HostDetails;
 use crate::{MachineConfig, saturating_add_duration_to_instant};
 
-#[derive(Debug)]
 pub struct DpuMachine {
     mat_id: Uuid,
     // The mat_id of the host that owns this DPU
@@ -242,6 +241,9 @@ impl DpuMachine {
                             _ = reply.send(response)
                         }
                     }
+                    BmcCommand::StateRefreshIndication => {
+                        self.state_machine.update_live_state();
+                    }
                 }
             }
             result = actor_message_rx.recv() => {
@@ -395,6 +397,7 @@ impl DpuMachineHandle {
                 .unwrap_or_default(),
             dpus: Vec::default(),
             booted_os: guard.booted_os.to_string(),
+            next_boot_kind: guard.ui_next_boot_kind().into(),
             power_state: guard.power_state,
         }
     }

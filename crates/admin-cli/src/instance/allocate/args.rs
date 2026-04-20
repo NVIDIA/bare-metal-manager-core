@@ -18,7 +18,7 @@
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::vpc::VpcPrefixId;
 use clap::{ArgGroup, Parser};
-use rpc::forge::OperatingSystem;
+use rpc::forge::InstanceOperatingSystemConfig;
 
 #[derive(Parser, Debug)]
 #[clap(group(ArgGroup::new("selector").required(true).args(&["subnet", "vpc_prefix_id"])))]
@@ -28,9 +28,6 @@ pub struct Args {
 
     #[clap(short, long, help = "The subnet to assign to a PF")]
     pub subnet: Vec<String>,
-
-    #[clap(short, long, help = "The VPC prefix to assign to a PF")]
-    pub vpc_prefix_id: Vec<VpcPrefixId>,
 
     #[clap(short, long)]
     // This will not be needed after vpc_prefix implementation.
@@ -59,13 +56,46 @@ pub struct Args {
     pub instance_type_id: Option<String>,
 
     #[clap(long, help = "OS definition in JSON format", value_name = "OS_JSON")]
-    pub os: Option<OperatingSystem>,
+    pub os: Option<InstanceOperatingSystemConfig>,
 
     #[clap(long, help = "The subnet to assign to a VF")]
     pub vf_subnet: Vec<String>,
 
+    #[clap(short, long, help = "The VPC prefix to assign to a PF")]
+    pub vpc_prefix_id: Vec<VpcPrefixId>,
+
     #[clap(long, help = "The VPC prefix to assign to a VF")]
     pub vf_vpc_prefix_id: Vec<VpcPrefixId>,
+
+    #[clap(long, help = "Explicit IPv4 address to request for each PF interface")]
+    pub ip_address: Vec<String>,
+
+    #[clap(long, help = "Explicit IPv4 address to request for each VF interface")]
+    pub vf_ip_address: Vec<String>,
+
+    #[clap(
+        long,
+        help = "IPv6 VPC prefix to pair with each PF vpc-prefix-id for dual-stack"
+    )]
+    pub ipv6_vpc_prefix_id: Vec<VpcPrefixId>,
+
+    #[clap(
+        long,
+        help = "IPv6 VPC prefix to pair with each VF vf-vpc-prefix-id for dual-stack"
+    )]
+    pub ipv6_vf_prefix_id: Vec<VpcPrefixId>,
+
+    #[clap(
+        long,
+        help = "Explicit IPv6 address to request for each PF interface (dual-stack)"
+    )]
+    pub ipv6_ip_address: Vec<String>,
+
+    #[clap(
+        long,
+        help = "Explicit IPv6 address to request for each VF interface (dual-stack)"
+    )]
+    pub ipv6_vf_ip_address: Vec<String>,
 
     #[clap(
         long,

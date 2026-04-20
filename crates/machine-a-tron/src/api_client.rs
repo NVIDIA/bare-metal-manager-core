@@ -21,11 +21,11 @@ use bmc_mock::MachineInfo;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use mac_address::MacAddress;
+use rpc::forge::instance_operating_system_config::Variant;
 use rpc::forge::machine_cleanup_info::CleanupStepResult;
-use rpc::forge::operating_system::Variant;
 use rpc::forge::{
-    ConfigSetting, ExpectedMachine, InlineIpxe, MachinesByIdsRequest, OperatingSystem,
-    PxeInstructions, SetDynamicConfigRequest,
+    ConfigSetting, ExpectedMachine, InlineIpxe, InstanceOperatingSystemConfig,
+    MachinesByIdsRequest, PxeInstructions, SetDynamicConfigRequest, VpcVirtualizationType,
 };
 use rpc::protos::forge_api_client::ForgeApiClient;
 
@@ -263,6 +263,7 @@ impl ApiClient {
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         };
 
         let tenant_config = rpc::TenantConfig {
@@ -273,7 +274,7 @@ impl ApiClient {
 
         let instance_config = rpc::InstanceConfig {
             tenant: Some(tenant_config),
-            os: Some(OperatingSystem {
+            os: Some(InstanceOperatingSystemConfig {
                 variant: Some(Variant::Ipxe(InlineIpxe {
                     ipxe_script: "Non-existing-ipxe".to_string(),
                     user_data: None,
@@ -326,6 +327,7 @@ impl ApiClient {
     pub async fn create_network_segment(
         &self,
         vpc_name: &String,
+        network_virtualization_type: Option<VpcVirtualizationType>,
     ) -> ClientApiResult<rpc::NetworkSegment> {
         let subnet_count = SUBNET_COUNTER.fetch_add(1, Ordering::Acquire);
 
@@ -353,20 +355,35 @@ impl ApiClient {
                     ),
                 }
 
+                let is_fnn = network_virtualization_type == Some(VpcVirtualizationType::Fnn);
+
+                let mut prefixes = vec![rpc::forge::NetworkPrefix {
+                    id: None,
+                    prefix: format!("192.5.{subnet_count}.12/24"),
+                    gateway: Some(format!("192.5.{subnet_count}.13")),
+                    reserve_first: 1,
+                    free_ip_count: 0,
+                    svi_ip: None,
+                }];
+
+                if is_fnn {
+                    prefixes.push(rpc::forge::NetworkPrefix {
+                        id: None,
+                        prefix: format!("2001:db8:{subnet_count}::/112"),
+                        gateway: None,
+                        reserve_first: 1,
+                        free_ip_count: 0,
+                        svi_ip: None,
+                    });
+                }
+
                 self.0
                     .create_network_segment(rpc::forge::NetworkSegmentCreationRequest {
                         id: None,
                         vpc_id: vpc_id_list.vpc_ids.first().copied(),
                         name: format!("subnet_{subnet_count}"),
                         segment_type: rpc::forge::NetworkSegmentType::Tenant.into(),
-                        prefixes: vec![rpc::forge::NetworkPrefix {
-                            id: None,
-                            prefix: format!("192.5.{subnet_count}.12/24"),
-                            gateway: Some(format!("192.5.{subnet_count}.13")),
-                            reserve_first: 1,
-                            free_ip_count: 1022,
-                            svi_ip: None,
-                        }],
+                        prefixes,
                         mtu: Some(1500),
                         subdomain_id: None,
                     })
@@ -380,7 +397,10 @@ impl ApiClient {
         }
     }
 
-    pub async fn create_vpc(&self) -> ClientApiResult<rpc::forge::Vpc> {
+    pub async fn create_vpc(
+        &self,
+        network_virtualization_type: Option<VpcVirtualizationType>,
+    ) -> ClientApiResult<rpc::forge::Vpc> {
         let vpc_count = VPC_COUNTER.fetch_add(1, Ordering::Acquire);
         self.0
             .create_vpc(rpc::forge::VpcCreationRequest {
@@ -389,7 +409,7 @@ impl ApiClient {
                 tenant_organization_id: "Forge-simulation-tenant".to_string(),
                 tenant_keyset_id: None,
                 network_security_group_id: None,
-                network_virtualization_type: None,
+                network_virtualization_type: network_virtualization_type.map(|t| t as i32),
                 vni: None,
                 routing_profile_type: None,
                 metadata: Some(rpc::forge::Metadata {
@@ -478,6 +498,8 @@ impl ApiClient {
             .map_err(ClientApiError::InvocationError)
     }
 
+    /// Registers a mock expected machine. Static BMC (`bmc_ip_address`) is left unset here;
+    /// real environments set it through the admin CLI / API when DHCP discovery is not used.
     pub async fn add_expected_machine(
         &self,
         bmc_mac_address: String,
@@ -499,6 +521,9 @@ impl ApiClient {
                 #[allow(deprecated)]
                 dpf_enabled: true,
                 is_dpf_enabled: Some(true),
+                bmc_ip_address: None,
+                bmc_retain_credentials: None,
+                dpu_mode: None,
             })
             .await
             .map_err(ClientApiError::InvocationError)

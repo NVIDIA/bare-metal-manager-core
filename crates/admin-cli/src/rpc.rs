@@ -38,7 +38,9 @@ use carbide_uuid::instance::InstanceId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
+use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
+use carbide_uuid::switch::SwitchId;
 use carbide_uuid::vpc::VpcId;
 use mac_address::MacAddress;
 
@@ -272,8 +274,87 @@ impl ApiClient {
         Ok(racks)
     }
 
+    pub async fn get_rack_profile(
+        &self,
+        rack_id: RackId,
+    ) -> CarbideCliResult<rpc::GetRackProfileResponse> {
+        Ok(self
+            .0
+            .get_rack_profile(rpc::GetRackProfileRequest {
+                rack_id: Some(rack_id),
+            })
+            .await?)
+    }
+
     async fn get_rack_ids(&self) -> CarbideCliResult<rpc::RackIdList> {
         Ok(self.0.find_rack_ids().await?)
+    }
+
+    pub async fn get_all_switches(
+        &self,
+        filter: rpc::SwitchSearchFilter,
+        page_size: usize,
+    ) -> CarbideCliResult<rpc::SwitchList> {
+        let all_ids = self.0.find_switch_ids(filter).await?;
+        let mut all_list = rpc::SwitchList {
+            switches: Vec::with_capacity(all_ids.ids.len()),
+        };
+
+        for ids in all_ids.ids.chunks(page_size) {
+            let list = self
+                .0
+                .find_switches_by_ids(rpc::SwitchesByIdsRequest {
+                    switch_ids: ids.to_vec(),
+                })
+                .await?;
+            all_list.switches.extend(list.switches);
+        }
+
+        Ok(all_list)
+    }
+
+    pub async fn get_one_switch(&self, switch_id: SwitchId) -> CarbideCliResult<rpc::SwitchList> {
+        Ok(self
+            .0
+            .find_switches_by_ids(rpc::SwitchesByIdsRequest {
+                switch_ids: vec![switch_id],
+            })
+            .await?)
+    }
+
+    pub async fn get_all_power_shelves(
+        &self,
+        filter: rpc::PowerShelfSearchFilter,
+        page_size: usize,
+    ) -> CarbideCliResult<rpc::PowerShelfList> {
+        let all_ids = self.0.find_power_shelf_ids(filter).await?;
+        let mut all_list = rpc::PowerShelfList {
+            power_shelves: Vec::with_capacity(all_ids.ids.len()),
+        };
+
+        for ids in all_ids.ids.chunks(page_size) {
+            let list = self
+                .0
+                .find_power_shelves_by_ids(rpc::PowerShelvesByIdsRequest {
+                    power_shelf_ids: ids.to_vec(),
+                })
+                .await?;
+            all_list.power_shelves.extend(list.power_shelves);
+        }
+
+        Ok(all_list)
+    }
+
+    pub async fn get_one_power_shelf(
+        &self,
+        power_shelf_id: PowerShelfId,
+    ) -> CarbideCliResult<rpc::PowerShelfList> {
+        Ok(self
+            .0
+            .find_power_shelves_by_ids(rpc::PowerShelvesByIdsRequest {
+                power_shelf_ids: vec![power_shelf_id],
+            })
+            .await?)
     }
 
     pub async fn get_all_segments(
@@ -344,12 +425,12 @@ impl ApiClient {
     ) -> CarbideCliResult<()> {
         let request = ::rpc::forge::InsertHealthReportOverrideRequest {
             machine_id: Some(id),
-            r#override: Some(rpc::HealthReportOverride {
+            health_report_entry: Some(rpc::HealthReportEntry {
                 report: Some(report),
                 mode: if replace {
-                    rpc::OverrideMode::Replace
+                    rpc::HealthReportApplyMode::Replace
                 } else {
-                    rpc::OverrideMode::Merge
+                    rpc::HealthReportApplyMode::Merge
                 } as i32,
             }),
         };
@@ -467,6 +548,9 @@ impl ApiClient {
         Ok(self.0.set_dynamic_config(request).await?)
     }
 
+    /// Partially updates an expected machine: merges CLI-provided fields with the current API
+    /// record, then calls `update_expected_machine`. When `bmc_ip_address` is supplied, the server
+    /// runs the same static-interface reconciliation as a full RPC update.
     #[allow(clippy::too_many_arguments)]
     pub async fn patch_expected_machine(
         &self,
@@ -483,6 +567,8 @@ impl ApiClient {
         rack_id: Option<RackId>,
         default_pause_ingestion_and_poweron: Option<bool>,
         dpf_enabled: Option<bool>,
+        bmc_ip_address: Option<String>,
+        bmc_retain_credentials: Option<bool>,
     ) -> Result<(), CarbideCliError> {
         let get_req = match (bmc_mac_address, id) {
             (Some(_), Some(_)) => {
@@ -561,10 +647,19 @@ impl ApiClient {
             #[allow(deprecated)]
             dpf_enabled: dpf_enabled.unwrap_or_default(),
             is_dpf_enabled: dpf_enabled,
+            bmc_ip_address: bmc_ip_address.or(expected_machine.bmc_ip_address),
+            bmc_retain_credentials: bmc_retain_credentials
+                .or(expected_machine.bmc_retain_credentials),
+            // Patch doesn't expose `--dpu-mode` yet; preserve the existing
+            // server-side value.
+            dpu_mode: expected_machine.dpu_mode,
         };
 
         Ok(self.0.update_expected_machine(request).await?)
     }
+
+    /// Replaces the entire expected-machine table from JSON. Entries with `bmc_ip_address` trigger
+    /// the same static BMC `machine_interface` setup as a single create.
     pub async fn replace_all_expected_machines(
         &self,
         expected_machine_list: Vec<ExpectedMachineJson>,
@@ -590,6 +685,9 @@ impl ApiClient {
                     #[allow(deprecated)]
                     dpf_enabled: machine.dpf_enabled.unwrap_or_default(),
                     is_dpf_enabled: machine.dpf_enabled,
+                    bmc_ip_address: machine.bmc_ip_address,
+                    bmc_retain_credentials: machine.bmc_retain_credentials,
+                    dpu_mode: machine.dpu_mode.map(|m| m as i32),
                 })
                 .collect(),
         };
@@ -610,9 +708,13 @@ impl ApiClient {
                     bmc_username: power_shelf.bmc_username,
                     bmc_password: power_shelf.bmc_password,
                     shelf_serial_number: power_shelf.shelf_serial_number,
-                    ip_address: power_shelf.ip_address.unwrap_or_default(),
+                    bmc_ip_address: power_shelf
+                        .bmc_ip_address
+                        .map(|ip| ip.to_string())
+                        .unwrap_or_default(),
                     metadata: power_shelf.metadata,
                     rack_id: power_shelf.rack_id,
+                    bmc_retain_credentials: power_shelf.bmc_retain_credentials,
                 })
                 .collect(),
         };
@@ -642,8 +744,13 @@ impl ApiClient {
                         .collect(),
                     nvos_username: switch.nvos_username,
                     nvos_password: switch.nvos_password,
+                    bmc_ip_address: switch
+                        .bmc_ip_address
+                        .map(|ip| ip.to_string())
+                        .unwrap_or_default(),
                     metadata: switch.metadata,
                     rack_id: switch.rack_id,
+                    bmc_retain_credentials: switch.bmc_retain_credentials,
                 })
                 .collect(),
         };
@@ -741,7 +848,7 @@ impl ApiClient {
                 tenant_organization_id: "devenv_test_org".to_string(),
                 tenant_keyset_id: None,
                 network_virtualization_type: Some(
-                    VpcVirtualizationType::EthernetVirtualizerWithNvue.into(),
+                    VpcVirtualizationType::EthernetVirtualizer.into(),
                 ),
                 id: Some(vpc_id),
                 metadata: Some(rpc::Metadata {
@@ -1059,6 +1166,7 @@ impl ApiClient {
                     device_instance,
                     virtual_function_id: None,
                     ip_address: None,
+                    ipv6_interface_config: None,
                 });
 
                 if let Some(vf_network_segment_chunks) = vf_chunk_iter.next() {
@@ -1073,6 +1181,7 @@ impl ApiClient {
                             device_instance,
                             virtual_function_id: Some(vf_function_id),
                             ip_address: None,
+                            ipv6_interface_config: None,
                         });
                         vf_function_id += 1;
                     }
@@ -1106,6 +1215,7 @@ impl ApiClient {
             };
             tracing::debug!("VFs per PF: {vfs_per_pf}");
             let mut vf_chunk_iter = vf_vpc_prefix_ids.chunks(vfs_per_pf);
+            let mut ipv6_vf_chunk_iter = allocate_instance.ipv6_vf_prefix_id.chunks(vfs_per_pf);
             for (map_index, i) in discovery_info
                 .network_interfaces
                 .iter()
@@ -1134,14 +1244,26 @@ impl ApiClient {
                         device: Some(pci_properties.device.clone()),
                         device_instance,
                         virtual_function_id: None,
-                        ip_address: None,
+                        ip_address: allocate_instance.ip_address.get(map_index).cloned(),
+                        ipv6_interface_config: allocate_instance
+                            .ipv6_vpc_prefix_id
+                            .get(map_index)
+                            .copied()
+                            .map(|vpc_prefix_id| rpc::InstanceInterfaceIpv6Config {
+                                vpc_prefix_id: Some(vpc_prefix_id),
+                                ip_address: allocate_instance
+                                    .ipv6_ip_address
+                                    .get(map_index)
+                                    .cloned(),
+                            }),
                     };
                     tracing::debug!("Adding interface: {:?}", new_interface);
 
                     interface_configs.push(new_interface);
 
                     if let Some(vf_prefix_chunks) = vf_chunk_iter.next() {
-                        for vf_vpc_prefix_id in vf_prefix_chunks {
+                        let ipv6_vf_chunk = ipv6_vf_chunk_iter.next();
+                        for (vf_idx, vf_vpc_prefix_id) in vf_prefix_chunks.iter().enumerate() {
                             let new_interface = rpc::InstanceInterfaceConfig {
                                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
                                 network_segment_id: None,
@@ -1151,7 +1273,19 @@ impl ApiClient {
                                 device: Some(pci_properties.device.clone()),
                                 device_instance,
                                 virtual_function_id: Some(vf_function_id),
-                                ip_address: None,
+                                ip_address: allocate_instance.vf_ip_address.get(vf_idx).cloned(),
+                                ipv6_interface_config: ipv6_vf_chunk
+                                    .and_then(|c| c.get(vf_idx))
+                                    .copied()
+                                    .map(|vpc_prefix_id| rpc::InstanceInterfaceIpv6Config {
+                                        vpc_prefix_id: Some(vpc_prefix_id),
+                                        ip_address: ipv6_vf_chunk.and_then(|_| {
+                                            allocate_instance
+                                                .ipv6_vf_ip_address
+                                                .get(vf_idx)
+                                                .cloned()
+                                        }),
+                                    }),
                             };
                             vf_function_id += 1;
                             tracing::debug!("Adding interface: {:?}", new_interface);
@@ -1511,6 +1645,48 @@ impl ApiClient {
             metadata: Some(metadata),
         };
         Ok(self.0.update_machine_metadata(request).await?)
+    }
+
+    pub async fn update_rack_metadata(
+        &self,
+        rack_id: RackId,
+        metadata: ::rpc::forge::Metadata,
+        current_version: String,
+    ) -> CarbideCliResult<()> {
+        let request = ::rpc::forge::RackMetadataUpdateRequest {
+            rack_id: Some(rack_id),
+            if_version_match: Some(current_version),
+            metadata: Some(metadata),
+        };
+        Ok(self.0.update_rack_metadata(request).await?)
+    }
+
+    pub async fn update_switch_metadata(
+        &self,
+        switch_id: SwitchId,
+        metadata: ::rpc::forge::Metadata,
+        current_version: String,
+    ) -> CarbideCliResult<()> {
+        let request = ::rpc::forge::SwitchMetadataUpdateRequest {
+            switch_id: Some(switch_id),
+            if_version_match: Some(current_version),
+            metadata: Some(metadata),
+        };
+        Ok(self.0.update_switch_metadata(request).await?)
+    }
+
+    pub async fn update_power_shelf_metadata(
+        &self,
+        power_shelf_id: PowerShelfId,
+        metadata: ::rpc::forge::Metadata,
+        current_version: String,
+    ) -> CarbideCliResult<()> {
+        let request = ::rpc::forge::PowerShelfMetadataUpdateRequest {
+            power_shelf_id: Some(power_shelf_id),
+            if_version_match: Some(current_version),
+            metadata: Some(metadata),
+        };
+        Ok(self.0.update_power_shelf_metadata(request).await?)
     }
 
     pub async fn get_single_network_security_group(

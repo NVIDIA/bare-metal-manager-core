@@ -256,6 +256,16 @@ async fn set_neighmgr_subnet_checks(container_id: &str) -> eyre::Result<()> {
         .map(|_stdout| ())
 }
 
+/// Try to parse the HBN version out of the value of the system build reported
+/// by NVUE.
+pub fn parse_nvue_build_as_hbn_version(build_value: &str) -> eyre::Result<String> {
+    // We expect build_value to look like this: "HBN 3.2.0"
+    build_value
+        .strip_prefix("HBN ")
+        .ok_or_else(|| eyre::eyre!("Couldn't find \"HBN \" prefix in build_value"))
+        .map(String::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::parse_container_id;

@@ -20,8 +20,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
-use ::metrics_endpoint::{MetricsEndpointConfig, new_metrics_setup, run_metrics_endpoint};
-use metrics_endpoint::{HealthController, MetricsSetup};
+use metrics_endpoint::{
+    HealthController, MetricsEndpointConfig, MetricsSetup, new_metrics_setup, run_metrics_endpoint,
+};
 use opentelemetry::KeyValue;
 use rpc::forge_tls_client::{self, ApiConfig, ForgeClientConfig};
 use tokio::runtime::Runtime;

@@ -57,6 +57,18 @@ enabled = false
 [sinks.prometheus]
 enabled = true
 
+[sinks.log_file]
+enabled = false
+output_dir = "/tmp/logs"
+max_file_size = 104857600 # 100MB
+max_backups = 5
+
+[sinks.otlp]
+enabled = false
+endpoint = "http://localhost:4317"
+batch_size = 512
+flush_interval = "2s"
+
 [sinks.health_override]
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
@@ -88,12 +100,13 @@ include_sensor_thresholds = true
 firmware_refresh_interval = "30m"
 
 [collectors.logs]
-logs_collection_interval = "5m"
-state_refresh_interval = "30m"
-logs_state_file = "/tmp/logs_collector_{machine_id}.json"
-logs_output_dir = "/tmp/logs"
-logs_max_file_size = 104857600                            # 100MB
-logs_max_backups = 5
+mode = "sse" # "sse" (default, preferred) or "periodic" (fallback)
+
+# required when mode = "periodic", must not be set when mode = "sse"
+# [collectors.logs.periodic]
+# logs_collection_interval = "5m"
+# state_refresh_interval = "30m"
+# logs_state_file = "/tmp/logs_collector_{machine_id}.json"
 
 [collectors.nmxt]
 scrape_interval = "1m"

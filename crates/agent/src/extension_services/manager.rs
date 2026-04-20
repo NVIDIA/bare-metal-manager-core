@@ -20,6 +20,7 @@ use ::rpc::forge::{self as rpc, DpuExtensionServiceType};
 
 use super::k8s_pod_handler::KubernetesPodServicesHandler;
 use super::service_handler::{ExtensionServiceHandler, ServiceConfig};
+use crate::command_line::AgentPlatformType;
 
 /// Manager for all extension services on the DPU
 ///
@@ -28,13 +29,24 @@ pub struct ExtensionServiceManager {
     service_handlers: HashMap<DpuExtensionServiceType, Box<dyn ExtensionServiceHandler>>,
 }
 
-impl Default for ExtensionServiceManager {
-    fn default() -> Self {
+impl ExtensionServiceManager {
+    pub fn platform_defaults(agent_platform_type: &AgentPlatformType) -> Self {
         let mut service_handlers = HashMap::new();
-        service_handlers.insert(
-            DpuExtensionServiceType::KubernetesPod,
-            Box::new(KubernetesPodServicesHandler::default()) as Box<dyn ExtensionServiceHandler>,
-        );
+        match agent_platform_type {
+            AgentPlatformType::DpuOs => {
+                service_handlers.insert(
+                    DpuExtensionServiceType::KubernetesPod,
+                    Box::new(KubernetesPodServicesHandler::default())
+                        as Box<dyn ExtensionServiceHandler>,
+                );
+            }
+            AgentPlatformType::Containerized | AgentPlatformType::ContainerInitializer => {
+                // We can't support the KubernetesPod or
+                // KubernetesPodServicesHandler handlers as currently
+                // implemented (they do a lot of raw crictl operations), so
+                // there's nothing in here.
+            }
+        }
 
         Self { service_handlers }
     }

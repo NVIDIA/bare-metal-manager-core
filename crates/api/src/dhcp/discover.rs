@@ -19,13 +19,12 @@ use std::str::FromStr;
 
 use ::rpc::forge as rpc;
 use carbide_network::ip::{IdentifyAddressFamily, IpAddressFamily};
-use carbide_uuid::machine::MachineId;
-use carbide_uuid::rack::RackId;
 use db::dhcp_entry::DhcpEntry;
 use db::{self, expected_machine, machine_interface};
 use mac_address::MacAddress;
 use model::dpa_interface::DpaInterface;
 use model::expected_machine::ExpectedHostNic;
+use model::network_segment::AllocationStrategy;
 use sqlx::PgConnection;
 use tonic::{Request, Response};
 
@@ -185,6 +184,11 @@ pub async fn discover_dhcp(
     let relay_ip = IpAddr::from_str(&relay_address)?;
     let address_family = relay_ip.address_family();
     let mut host_nic: Option<ExpectedHostNic> = None;
+    // `is_primary_nic` reflects the matched ExpectedHostNic's `primary` flag.
+    // - `Some(true)` -- the operator flagged this NIC as the host's boot interface.
+    // - `Some(false)` -- another NIC on this host is the declared primary.
+    // - `None` -- no declaration, use the default at interface creation time.
+    let mut is_primary_nic: Option<bool> = None;
 
     let parsed_mac: MacAddress = mac_address.parse()?;
 
@@ -200,19 +204,10 @@ pub async fn discover_dhcp(
                         .await?
                 {
                     // remember expected machine id for later rack update
-                    let predicted_machine_id = expected_interface.machine_id;
                     machine_interface::move_predicted_machine_interface_to_machine(
                         &mut txn,
                         &expected_interface,
                         relay_ip,
-                    )
-                    .await?;
-                    // replace predicted id saved above in rack table with actual id
-                    update_rack_config_predicted_id_with_actual(
-                        &mut txn,
-                        &parsed_mac,
-                        &predicted_machine_id,
-                        &expected_interface.machine_id,
                     )
                     .await?;
                     Some(expected_interface.machine_id)
@@ -246,10 +241,20 @@ pub async fn discover_dhcp(
                                     .map_err(CarbideError::from)?;
                             if let Some(m) = expected_machine {
                                 // select ip segment from Underlay for BMC, Admin for BF3/Onboard
-                                for nic in m.data.host_nics {
+                                for nic in &m.data.host_nics {
                                     if nic.mac_address == parsed_mac {
-                                        host_nic = Some(nic);
+                                        host_nic = Some(nic.clone());
                                     }
+                                }
+                                // If any NIC on this host declares primary=true,
+                                // then this NIC is primary iff it's that one.
+                                // Handler-side validation keeps at most one
+                                // primary=true per ExpectedMachine.
+                                if let Some(declared_primary) =
+                                    m.data.host_nics.iter().find(|n| n.primary == Some(true))
+                                {
+                                    is_primary_nic =
+                                        Some(declared_primary.mac_address == parsed_mac);
                                 }
                             }
                         }
@@ -265,16 +270,64 @@ pub async fn discover_dhcp(
         parsed_mac,
         parsed_relay,
         host_nic,
+        is_primary_nic,
     )
     .await?;
 
-    if let Some(machine_id) = machine_interface.machine_id {
-        // Can't block host's DHCP handling completely to support Zero-DPU.
-        if machine_id.machine_type().is_host()
-            && let Some(instance_id) =
-                db::instance::find_id_by_machine_id(&mut txn, &machine_id).await?
-        {
-            // An instance is associated with machine id. DPU must process it.
+    // If the interface has no address for the requested address family
+    // (e.g., after a lease expiration cleaned up the DHCP allocation,
+    // or this is a new address family for a dual-stack interface),
+    // re-allocate from the segment.
+    if !db::machine_interface_address::has_address_for_family(
+        &mut txn,
+        machine_interface.id,
+        address_family,
+    )
+    .await?
+    {
+        tracing::info!(
+            interface_id = %machine_interface.id,
+            %parsed_mac,
+            ?address_family,
+            "Interface missing address for family, re-allocating from segment"
+        );
+        let segment = db::network_segment::for_relay(&mut txn, parsed_relay)
+            .await?
+            .ok_or_else(|| {
+                CarbideError::internal(format!(
+                    "No network segment defined for relay address: {parsed_relay}"
+                ))
+            })?;
+
+        // If the segment only allows static reservations, don't
+        // dynamically allocate. The device has no reservation.
+        if segment.allocation_strategy == AllocationStrategy::Reserved {
+            return Err(CarbideError::internal(format!(
+                "segment {} configured for static DHCP leases only; no static reservation for MAC {parsed_mac}",
+                segment.name,
+            )));
+        }
+
+        db::machine_interface::allocate_address_for_family(
+            &mut txn,
+            machine_interface.id,
+            &segment,
+            address_family,
+        )
+        .await?;
+    }
+
+    if let Some(machine_id) = machine_interface.machine_id
+        && machine_id.machine_type().is_host()
+        && let Some(instance_id) =
+            db::instance::find_id_by_machine_id(&mut txn, &machine_id).await?
+    {
+        // An instance is associated with this host. If the host has DPUs,
+        // the DPUs proxy DHCP on its behalf, so we reject the host's direct
+        // DHCP request. Zero-DPU hosts have no such intermediary, so let
+        // their DHCP proceed.
+        let dpus = db::machine::find_dpus_by_host_machine_id(&mut txn, &machine_id).await?;
+        if !dpus.is_empty() {
             return Err(CarbideError::internal(format!(
                 "DHCP request received for instance: {instance_id}. Ignoring."
             )));
@@ -316,42 +369,4 @@ pub async fn discover_dhcp(
 
     txn.commit().await?;
     Ok(Response::new(record))
-}
-
-async fn update_rack_config_predicted_id_with_actual(
-    txn: &mut PgConnection,
-    parsed_mac: &MacAddress,
-    predicted: &MachineId,
-    actual: &MachineId,
-) -> Result<(), CarbideError> {
-    // TODO: pass in a rack id query by that when we support multirack, when supported
-    let racks = db::rack::list(&mut *txn).await?;
-    let rack = match racks.is_empty() {
-        false => racks[0].clone(),
-        true => {
-            let expected_compute_trays = vec![*parsed_mac];
-            #[allow(deprecated)]
-            let rack_id: RackId = RackId::default();
-            let rack = db::rack::create(txn, &rack_id, expected_compute_trays, vec![], vec![])
-                .await
-                .map_err(CarbideError::from)?;
-            tracing::warn!(
-                "Handling DHCP response for mac {parsed_mac} but no rack was found! Create one with id {rack_id}"
-            );
-            rack
-        }
-    };
-
-    let mut config = rack.config.clone();
-    if let Some(item) = config
-        .compute_trays
-        .iter_mut()
-        .find(|item| *item == predicted)
-    {
-        *item = *actual;
-        db::rack::update(txn, &rack.id, &config)
-            .await
-            .map_err(CarbideError::from)?;
-    }
-    Ok(())
 }

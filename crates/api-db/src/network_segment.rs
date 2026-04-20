@@ -115,8 +115,9 @@ pub async fn persist(
                 vlan_id,
                 vni_id,
                 network_segment_type,
-                can_stretch)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                can_stretch,
+                allocation_strategy)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING id";
     let segment_id: NetworkSegmentId = sqlx::query_as(query)
         .bind(value.id)
@@ -131,6 +132,7 @@ pub async fn persist(
         .bind(value.vni)
         .bind(value.segment_type)
         .bind(value.can_stretch)
+        .bind(value.allocation_strategy)
         .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;
@@ -564,6 +566,16 @@ pub async fn find_by_name(
         .map_err(|e| DatabaseError::query(&query, e))
 }
 
+/// Well-known name for the static assignments "anchor segment",
+/// making it extra-obvious that it's a special one.
+pub const STATIC_ASSIGNMENTS_SEGMENT_NAME: &str = "static-assignments";
+
+/// Returns the static-assignments anchor segment, used for external
+/// static IP assignments that don't fall within any managed network prefix.
+pub async fn static_assignments(txn: &mut PgConnection) -> Result<NetworkSegment, DatabaseError> {
+    find_by_name(txn, STATIC_ASSIGNMENTS_SEGMENT_NAME).await
+}
+
 /// This method returns Admin network segment.
 pub async fn admin(txn: &mut PgConnection) -> Result<NetworkSegment, DatabaseError> {
     lazy_static! {
@@ -626,45 +638,58 @@ pub async fn mark_as_deleted_no_validation(
 /// SVI IP is needed for Network Segments attached to FNN VPCs.
 /// Usually third IP of a prefix is used as SVI IP. In case, first 3 IPs are not reserved,
 /// carbide will pick any available free IP and store it in DB for further use.
+/// Allocates SVI IPs for all prefixes in a segment that don't already have one.
+/// For dual-stack segments, this allocates one SVI IP per prefix (v4 and v6).
+///
+/// For each prefix, the SVI IP is the 3rd address in the prefix (e.g. 10.0.1.2
+/// in 10.0.1.0/24, or 2001:db8::2 in 2001:db8::/112). This address is shared
+/// across all DPUs via VRR.
 pub async fn allocate_svi_ip(
     value: &NetworkSegment,
-    // Note: This is a PgTransaction, not a PgConnection, because we will be doing table locking,
-    // which must happen in a transaction.
     txn: &mut PgTransaction<'_>,
 ) -> Result<IpAddr, DatabaseError> {
-    let Some(ipv4_prefix) = value.prefixes.iter().find(|x| x.prefix.is_ipv4()) else {
-        return Err(DatabaseError::NotFoundError {
-            kind: "ipv4_prefix",
-            id: value.id.to_string(),
-        });
-    };
+    let mut first_svi_ip = None;
 
-    if let Some(svi_ip) = ipv4_prefix.svi_ip {
-        // SVI IP is already allocated.
-        return Ok(svi_ip);
+    for prefix in &value.prefixes {
+        if prefix.svi_ip.is_some() {
+            if first_svi_ip.is_none() {
+                first_svi_ip = prefix.svi_ip;
+            }
+            continue;
+        }
+
+        // For prefixes with num_reserved >= 3, the 3rd IP is guaranteed reserved
+        // and safe to use as the SVI IP. For smaller prefixes, the 3rd IP may
+        // already be allocated to an instance, so we fall back to the IP allocator
+        // to find the next free address in this specific prefix.
+        let svi_ip = if prefix.num_reserved >= 3 {
+            prefix.prefix.iter().nth(2).ok_or_else(|| {
+                DatabaseError::internal(format!("Prefix {} does not have 3 valid IPs.", prefix.id))
+            })?
+        } else {
+            // Build a single-prefix segment view so the allocator only looks
+            // at this prefix (avoids the cross-prefix bug for dual-stack).
+            let single_prefix_segment = NetworkSegment {
+                prefixes: vec![prefix.clone()],
+                ..value.clone()
+            };
+            let (_, svi_ip) = if !value.segment_type.is_tenant() {
+                crate::machine_interface::allocate_svi_ip(txn, &single_prefix_segment).await?
+            } else {
+                crate::instance_address::allocate_svi_ip(txn, &single_prefix_segment).await?
+            };
+            svi_ip
+        };
+
+        crate::network_prefix::set_svi_ip(txn, prefix.id, &svi_ip).await?;
+
+        if first_svi_ip.is_none() {
+            first_svi_ip = Some(svi_ip);
+        }
     }
 
-    let (prefix_id, svi_ip) = if ipv4_prefix.num_reserved < 3 {
-        // Need to allocate a IP from prefix.
-        if !value.segment_type.is_tenant() {
-            crate::machine_interface::allocate_svi_ip(txn, value).await?
-        } else {
-            crate::instance_address::allocate_svi_ip(txn, value).await?
-        }
-    } else {
-        // Pick the third IP to use as SVI IP.
-        (
-            ipv4_prefix.id,
-            ipv4_prefix.prefix.iter().nth(2).ok_or_else(|| {
-                DatabaseError::internal(format!(
-                    "Prefix {} does not have 3 valid IPs.",
-                    ipv4_prefix.id
-                ))
-            })?,
-        )
-    };
-
-    crate::network_prefix::set_svi_ip(txn, prefix_id, &svi_ip).await?;
-
-    Ok(svi_ip)
+    first_svi_ip.ok_or_else(|| DatabaseError::NotFoundError {
+        kind: "prefix",
+        id: value.id.to_string(),
+    })
 }

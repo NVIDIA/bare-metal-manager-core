@@ -1,0 +1,12 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: carbide-bmc-proxy-metrics
+  namespace: {{ include "carbide-bmc-proxy.namespace" . }}
+  labels:
+    {{- include "carbide-bmc-proxy.labels" . | nindent 4 }}
+    app: carbide-bmc-proxy
+spec:
+  {{- include "carbide-bmc-proxy.serviceMonitorSpec" (dict "name" "carbide-bmc-proxy" "port" "http" "monitor" .Values.serviceMonitor "namespace" (include "carbide-bmc-proxy.namespace" .)) | nindent 2 }}
+{{- end }}

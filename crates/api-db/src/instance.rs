@@ -31,12 +31,13 @@ use model::instance::config::extension_services::InstanceExtensionServicesConfig
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate};
 use model::instance::config::nvlink::InstanceNvLinkConfig;
-use model::instance::snapshot::InstanceSnapshot;
+use model::instance::snapshot::{self, InstanceSnapshot, InstanceSnapshotPgJson};
 use model::metadata::Metadata;
-use model::os::{OperatingSystem, OperatingSystemVariant};
+use model::os::{InlineIpxe, OperatingSystem, OperatingSystemVariant};
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
+use crate::operating_system::{self, OperatingSystem as OsRow};
 use crate::{
     ColumnInfo, DatabaseError, DatabaseResult, FilterableQueryBuilder, ObjectColumnFilter,
     instance_address,
@@ -137,25 +138,173 @@ pub async fn find(
     txn: impl DbReader<'_>,
     filter: ObjectColumnFilter<'_, IdColumn>,
 ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
-    let mut query = FilterableQueryBuilder::new("SELECT row_to_json(i.*) FROM instances i")
-        .filter_relation(&filter, Some("i"));
-    query
+    let mut query = FilterableQueryBuilder::new(
+        "SELECT row_to_json(i.*), row_to_json(o.*) FROM instances i \
+         LEFT JOIN operating_systems o ON i.operating_system_id = o.id AND o.deleted IS NULL",
+    )
+    .filter_relation(&filter, Some("i"));
+    let rows: Vec<(serde_json::Value, Option<serde_json::Value>)> = query
         .build_query_as()
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::query(query.sql(), e))
+        .map_err(|e| DatabaseError::query(query.sql(), e))?;
+    let mut snapshots = Vec::with_capacity(rows.len());
+    for (instance_json, os_json) in rows {
+        let pg_json: InstanceSnapshotPgJson =
+            serde_json::from_value(instance_json).map_err(|e| DatabaseError::Internal {
+                message: format!("instance snapshot json decode: {e}"),
+            })?;
+        let snapshot = match os_json {
+            Some(oj) => {
+                let os_row: OsRow =
+                    serde_json::from_value(oj).map_err(|e| DatabaseError::Internal {
+                        message: format!("operating_system row json decode: {e}"),
+                    })?;
+                let os = build_operating_system_for_snapshot(&os_row, &pg_json);
+                snapshot::from_pg_json_and_os(pg_json, os).map_err(|e| DatabaseError::Internal {
+                    message: format!("instance snapshot from_pg_json_and_os: {e}"),
+                })?
+            }
+            None => InstanceSnapshot::try_from(pg_json).map_err(|e| DatabaseError::Internal {
+                message: format!("instance snapshot try_from: {e}"),
+            })?,
+        };
+        snapshots.push(snapshot);
+    }
+    Ok(snapshots)
+}
+
+/// Converts raw JSON rows to InstanceSnapshots, batch-loading OS definitions as needed.
+async fn resolve_snapshots_from_json_rows(
+    txn: &mut PgConnection,
+    rows: Vec<(serde_json::Value,)>,
+) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
+    let mut pg_jsons: Vec<InstanceSnapshotPgJson> = Vec::with_capacity(rows.len());
+    for (json,) in rows {
+        let pg_json: InstanceSnapshotPgJson =
+            serde_json::from_value(json).map_err(|e| DatabaseError::Internal {
+                message: format!("instance snapshot json decode: {e}"),
+            })?;
+        pg_jsons.push(pg_json);
+    }
+    if pg_jsons.is_empty() {
+        return Ok(Vec::new());
+    }
+    let os_ids: Vec<uuid::Uuid> = pg_jsons
+        .iter()
+        .filter_map(|p| p.operating_system_id)
+        .collect();
+    let os_by_id: std::collections::HashMap<uuid::Uuid, OsRow> = if os_ids.is_empty() {
+        std::collections::HashMap::new()
+    } else {
+        operating_system::get_many(&mut *txn, &os_ids)
+            .await?
+            .into_iter()
+            .map(|r| (r.id, r))
+            .collect()
+    };
+    let mut snapshots = Vec::with_capacity(pg_jsons.len());
+    for pg_json in pg_jsons {
+        let snapshot = match pg_json.operating_system_id.and_then(|id| os_by_id.get(&id)) {
+            Some(os_row) => {
+                let os = build_operating_system_for_snapshot(os_row, &pg_json);
+                snapshot::from_pg_json_and_os(pg_json, os).map_err(|e| DatabaseError::Internal {
+                    message: format!("instance snapshot from_pg_json_and_os: {e}"),
+                })?
+            }
+            None => InstanceSnapshot::try_from(pg_json).map_err(|e| DatabaseError::Internal {
+                message: format!("instance snapshot try_from: {e}"),
+            })?,
+        };
+        snapshots.push(snapshot);
+    }
+    Ok(snapshots)
+}
+
+/// Builds the effective OperatingSystem for an instance by merging the OS definition with instance overrides.
+fn build_operating_system_for_snapshot(
+    os_row: &OsRow,
+    pg_json: &InstanceSnapshotPgJson,
+) -> OperatingSystem {
+    let user_data = pg_json
+        .os_user_data
+        .clone()
+        .or_else(|| os_row.user_data.clone());
+    let variant = match os_row.type_.as_str() {
+        model::operating_system_definition::OS_TYPE_IPXE => {
+            let script = if os_row.allow_override && !pg_json.os_ipxe_script.is_empty() {
+                pg_json.os_ipxe_script.clone()
+            } else {
+                os_row.ipxe_script.clone().unwrap_or_default()
+            };
+            OperatingSystemVariant::Ipxe(InlineIpxe {
+                ipxe_script: script,
+            })
+        }
+        model::operating_system_definition::OS_TYPE_TEMPLATED_IPXE => {
+            OperatingSystemVariant::OperatingSystemId(os_row.id)
+        }
+        _ => {
+            tracing::warn!(
+                os_id = %os_row.id,
+                os_type = %os_row.type_,
+                "unexpected operating_system type, falling back to inline iPXE"
+            );
+            OperatingSystemVariant::Ipxe(InlineIpxe {
+                ipxe_script: os_row
+                    .ipxe_script
+                    .clone()
+                    .unwrap_or_else(|| pg_json.os_ipxe_script.clone()),
+            })
+        }
+    };
+    OperatingSystem {
+        variant,
+        user_data,
+        phone_home_enabled: pg_json.os_phone_home_enabled,
+        run_provisioning_instructions_on_every_boot: pg_json.os_always_boot_with_ipxe,
+    }
 }
 
 pub async fn find_by_id(
     txn: impl DbReader<'_>,
     id: InstanceId,
 ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
-    let query = "SELECT row_to_json(i.*) from instances i WHERE id = $1";
-    sqlx::query_as(query)
+    // Single query; LEFT JOIN so we get instance even when operating_system_id is NULL.
+    let query = "SELECT row_to_json(i.*), row_to_json(o.*) FROM instances i
+        LEFT JOIN operating_systems o ON i.operating_system_id = o.id AND o.deleted IS NULL
+        WHERE i.id = $1";
+    let row: Option<(serde_json::Value, Option<serde_json::Value>)> = sqlx::query_as(query)
         .bind(id)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))
+        .map_err(|e| DatabaseError::query(query, e))?;
+    let Some((instance_json, os_json)) = row else {
+        return Ok(None);
+    };
+    let pg_json: InstanceSnapshotPgJson =
+        serde_json::from_value(instance_json).map_err(|e| DatabaseError::Internal {
+            message: format!("instance snapshot json decode: {e}"),
+        })?;
+    let snapshot = match os_json {
+        Some(oj) => {
+            let os_row: OsRow =
+                serde_json::from_value(oj).map_err(|e| DatabaseError::Internal {
+                    message: format!("operating_system row json decode: {e}"),
+                })?;
+            let os = build_operating_system_for_snapshot(&os_row, &pg_json);
+            snapshot::from_pg_json_and_os(pg_json, os).map_err(|e| DatabaseError::Internal {
+                message: format!("instance snapshot from_pg_json_and_os: {e}"),
+            })?
+        }
+        None => {
+            // No OS reference: derive OS from instance columns only (legacy behavior).
+            InstanceSnapshot::try_from(pg_json).map_err(|e| DatabaseError::Internal {
+                message: format!("instance snapshot try_from: {e}"),
+            })?
+        }
+    };
+    Ok(Some(snapshot))
 }
 
 pub async fn find_id_by_machine_id(
@@ -174,24 +323,26 @@ pub async fn find_by_machine_id(
     txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> Result<Option<InstanceSnapshot>, DatabaseError> {
-    let query = "SELECT row_to_json(i.*) from instances i WHERE machine_id = $1";
-    sqlx::query_as(query)
-        .bind(machine_id)
-        .fetch_optional(txn)
-        .await
-        .map_err(|e| DatabaseError::query(query, e))
+    let Some(instance_id) = find_id_by_machine_id(txn, machine_id).await? else {
+        return Ok(None);
+    };
+    find_by_id(txn, instance_id).await
 }
 
 pub async fn find_by_machine_ids(
     txn: &mut PgConnection,
     machine_ids: &[&MachineId],
 ) -> Result<Vec<InstanceSnapshot>, DatabaseError> {
+    if machine_ids.is_empty() {
+        return Ok(Vec::new());
+    }
     let query = "SELECT row_to_json(i.*) from instances i WHERE machine_id = ANY($1)";
-    sqlx::query_as(query)
+    let rows: Vec<(serde_json::Value,)> = sqlx::query_as(query)
         .bind(machine_ids)
-        .fetch_all(txn)
+        .fetch_all(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))
+        .map_err(|e| DatabaseError::query(query, e))?;
+    resolve_snapshots_from_json_rows(&mut *txn, rows).await
 }
 
 pub async fn find_by_extension_service(
@@ -215,11 +366,12 @@ pub async fn find_by_extension_service(
     }
     builder.push(")");
 
-    builder
+    let rows: Vec<(serde_json::Value,)> = builder
         .build_query_as()
-        .fetch_all(txn)
+        .fetch_all(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::query(builder.sql(), e))
+        .map_err(|e| DatabaseError::query(builder.sql(), e))?;
+    resolve_snapshots_from_json_rows(txn, rows).await
 }
 
 /// Returns true if any non-deleted instance has this logical partition ID in
@@ -340,21 +492,27 @@ pub async fn update_config(
     let mut os_ipxe_script = String::new();
     let os_user_data = config.os.user_data;
     let mut os_image_id = None;
-    match &config.os.variant {
+    let operating_system_id = match &config.os.variant {
         OperatingSystemVariant::Ipxe(ipxe) => {
             os_ipxe_script = ipxe.ipxe_script.clone();
+            None
         }
-        OperatingSystemVariant::OsImage(id) => os_image_id = Some(id),
-    }
+        OperatingSystemVariant::OsImage(id) => {
+            os_image_id = Some(id);
+            None
+        }
+        OperatingSystemVariant::OperatingSystemId(id) => Some(*id),
+    };
 
     let query = "UPDATE instances SET config_version=$1,
-            os_ipxe_script=$2, os_user_data=$3, os_always_boot_with_ipxe=$4, os_phone_home_enabled=$5,
-            os_image_id=$6, keyset_ids=$7,
-            name=$8, description=$9, labels=$10::json, network_security_group_id=$13
-            WHERE id=$11 AND config_version=$12
+            operating_system_id=$2, os_ipxe_script=$3, os_user_data=$4, os_always_boot_with_ipxe=$5, os_phone_home_enabled=$6,
+            os_image_id=$7, keyset_ids=$8,
+            name=$9, description=$10, labels=$11::json, network_security_group_id=$14
+            WHERE id=$12 AND config_version=$13
             RETURNING id";
     let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
         .bind(next_version)
+        .bind(operating_system_id)
         .bind(os_ipxe_script)
         .bind(os_user_data)
         .bind(config.os.run_provisioning_instructions_on_every_boot)
@@ -396,19 +554,25 @@ pub async fn update_os(
     let mut os_ipxe_script = String::new();
     let os_user_data = os.user_data;
     let mut os_image_id = None;
-    match &os.variant {
+    let operating_system_id = match &os.variant {
         OperatingSystemVariant::Ipxe(ipxe) => {
             os_ipxe_script = ipxe.ipxe_script.clone();
+            None
         }
-        OperatingSystemVariant::OsImage(id) => os_image_id = Some(id),
-    }
+        OperatingSystemVariant::OsImage(id) => {
+            os_image_id = Some(id);
+            None
+        }
+        OperatingSystemVariant::OperatingSystemId(id) => Some(*id),
+    };
 
     let query = "UPDATE instances SET config_version=$1,
-            os_ipxe_script=$2, os_user_data=$3, os_always_boot_with_ipxe=$4, os_phone_home_enabled=$5, os_image_id=$6
-            WHERE id=$7 AND config_version=$8
+            operating_system_id=$2, os_ipxe_script=$3, os_user_data=$4, os_always_boot_with_ipxe=$5, os_phone_home_enabled=$6, os_image_id=$7
+            WHERE id=$8 AND config_version=$9
             RETURNING id";
     let query_result: Result<(InstanceId,), _> = sqlx::query_as(query)
         .bind(next_version)
+        .bind(operating_system_id)
         .bind(os_ipxe_script)
         .bind(os_user_data)
         .bind(os.run_provisioning_instructions_on_every_boot)
@@ -552,6 +716,7 @@ pub async fn batch_persist<'a>(
     let query = "INSERT INTO instances (
                         id,
                         machine_id,
+                        operating_system_id,
                         os_user_data,
                         os_ipxe_script,
                         os_image_id,
@@ -577,7 +742,7 @@ pub async fn batch_persist<'a>(
                         nvlink_config_version
                     )
                     SELECT 
-                            vals.id, vals.machine_id, vals.os_user_data, vals.os_ipxe_script, 
+                            vals.id, vals.machine_id, vals.operating_system_id, vals.os_user_data, vals.os_ipxe_script,
                             vals.os_image_id, vals.os_always_boot_with_ipxe, vals.tenant_org, 
                             vals.network_config::json, vals.network_config_version, 
                             vals.ib_config::json, vals.ib_config_version, vals.keyset_ids, 
@@ -597,17 +762,24 @@ pub async fn batch_persist<'a>(
         let mut os_ipxe_script = String::new();
         let os_user_data = value.config.os.user_data.clone();
         let mut os_image_id: Option<uuid::Uuid> = None;
-        match &value.config.os.variant {
+        let operating_system_id = match &value.config.os.variant {
             OperatingSystemVariant::Ipxe(ipxe) => {
                 os_ipxe_script = ipxe.ipxe_script.clone();
+                None
             }
-            OperatingSystemVariant::OsImage(id) => os_image_id = Some(*id),
-        }
+            OperatingSystemVariant::OsImage(id) => {
+                os_image_id = Some(*id);
+                None
+            }
+            OperatingSystemVariant::OperatingSystemId(id) => Some(*id),
+        };
 
         separated.push("(");
         separated.push_bind_unseparated(value.instance_id);
         separated.push_unseparated(",");
         separated.push_bind_unseparated(value.machine_id.to_string());
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(operating_system_id);
         separated.push_unseparated(",");
         separated.push_bind_unseparated(os_user_data);
         separated.push_unseparated(",");
@@ -665,7 +837,7 @@ pub async fn batch_persist<'a>(
         separated.push_unseparated(")");
     }
 
-    qb.push(") AS vals(id, machine_id, os_user_data, os_ipxe_script, os_image_id, 
+    qb.push(") AS vals(id, machine_id, operating_system_id, os_user_data, os_ipxe_script, os_image_id,
                        os_always_boot_with_ipxe, tenant_org, network_config, network_config_version,
                        ib_config, ib_config_version, keyset_ids, os_phone_home_enabled, name, 
                        description, labels, config_version, hostname, network_security_group_id,
@@ -689,13 +861,14 @@ pub async fn batch_persist<'a>(
         ));
     }
 
-    // Now fetch the inserted instances
+    // Fetch the inserted instances, resolving OS definitions as needed.
     let query = "SELECT row_to_json(i.*) FROM instances i WHERE i.id = ANY($1)";
-    sqlx::query_as(query)
+    let rows: Vec<(serde_json::Value,)> = sqlx::query_as(query)
         .bind(&instance_ids)
-        .fetch_all(txn)
+        .fetch_all(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::query(query, e))
+        .map_err(|e| DatabaseError::query(query, e))?;
+    resolve_snapshots_from_json_rows(txn, rows).await
 }
 
 /// Batch update network configs for multiple instances

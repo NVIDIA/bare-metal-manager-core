@@ -2,6 +2,7 @@
 
 FROM build-container-localdev AS builder
 
+ENV CARGO_HOME=/cargo-home
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 ENV CARGO_TARGET_DIR=/cargo-target
 
@@ -9,9 +10,8 @@ WORKDIR /workspace
 
 COPY . .
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
-  --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
-  --mount=type=cache,target=/cargo-target,sharing=locked \
+RUN --mount=type=cache,id=nico-devspace-cargo-home,target=/cargo-home,sharing=locked \
+  --mount=type=cache,id=nico-devspace-cargo-target,target=/cargo-target,sharing=locked \
   cargo build -p carbide-api --bin carbide-api --locked && \
   mkdir -p /artifacts && \
   cp /cargo-target/debug/carbide-api /artifacts/carbide-api

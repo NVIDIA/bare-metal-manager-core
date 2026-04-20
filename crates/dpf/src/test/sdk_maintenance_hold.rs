@@ -25,7 +25,9 @@ use kube::core::ObjectMeta;
 
 use crate::crds::dpunodemaintenances_generated::*;
 use crate::error::DpfError;
-use crate::repository::{DpuNodeMaintenanceRepository, K8sConfigRepository};
+use crate::repository::{
+    DpfOperatorConfigRepository, DpuNodeMaintenanceRepository, K8sConfigRepository,
+};
 use crate::sdk::{DpfSdkBuilder, HOLD_ANNOTATION};
 
 const TEST_NS: &str = "sdk-maintenance-ns";
@@ -106,6 +108,13 @@ impl K8sConfigRepository for MaintenanceHoldMock {
         _: &str,
         _: BTreeMap<String, Vec<u8>>,
     ) -> Result<(), DpfError> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl DpfOperatorConfigRepository for MaintenanceHoldMock {
+    async fn patch(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
         Ok(())
     }
 }

@@ -29,7 +29,7 @@ The following issues might prevent this call from happening:
   successfully, or whether it bootloops and not obtain an IP or load an image.
   If the boot process does not succeed, check carbide-dhcp and carbide-pxe for
   further logs.
-  **TODO: Better runbooks for DHCP failures**
+  <!-- TODO: Better runbooks for DHCP failures -->
 - The machine boots into the discovery image (or BFB for DPUs), but the execution
   inside `forge-scout` will fail. For this case check the carbide-api logs on
   whether scout was able to send a `ReportForgeScoutError` call which indicates

@@ -21,8 +21,8 @@ use model::expected_switch::ExpectedSwitch;
 use model::site_explorer::ExploredManagedSwitch;
 use sqlx::{PgConnection, PgPool};
 
-use crate::CarbideResult;
 use crate::site_explorer::SiteExplorerConfig;
+use crate::site_explorer::errors::SiteExplorerResult;
 use crate::site_explorer::explored_endpoint_index::ExploredEndpointIndex;
 use crate::site_explorer::metrics::SiteExplorationMetrics;
 
@@ -44,7 +44,7 @@ impl SwitchCreator {
         metrics: &mut SiteExplorationMetrics,
         explored_managed_switches: &[ExploredManagedSwitch],
         expected_explored_endpoint_index: &ExploredEndpointIndex,
-    ) -> CarbideResult<()> {
+    ) -> SiteExplorerResult<()> {
         for explored_managed_switch in explored_managed_switches {
             let expected_switch = match expected_explored_endpoint_index
                 .matched_expected_switch(&explored_managed_switch.bmc_ip)
@@ -87,7 +87,7 @@ impl SwitchCreator {
         explored_managed_switch: &ExploredManagedSwitch,
         expected_switch: &ExpectedSwitch,
         pool: &PgPool,
-    ) -> CarbideResult<bool> {
+    ) -> SiteExplorerResult<bool> {
         let mut txn = pool
             .begin()
             .await
@@ -110,7 +110,7 @@ impl SwitchCreator {
         txn: &mut PgConnection,
         explored_managed_switch: &ExploredManagedSwitch,
         expected_switch: &ExpectedSwitch,
-    ) -> CarbideResult<Option<SwitchId>> {
+    ) -> SiteExplorerResult<Option<SwitchId>> {
         if !explored_managed_switch.nv_os_mac_addresses.is_empty() {
             let explored_macs = explored_managed_switch.nv_os_mac_addresses.clone();
             if *explored_macs != expected_switch.nvos_mac_addresses {
@@ -150,7 +150,7 @@ impl SwitchCreator {
         txn: &mut PgConnection,
         expected_switch: &ExpectedSwitch,
         switch_id: SwitchId,
-    ) -> CarbideResult<()> {
+    ) -> SiteExplorerResult<()> {
         let name = match expected_switch.metadata.name.is_empty() {
             true => expected_switch.serial_number.to_string(),
             false => expected_switch.metadata.name.to_string(),
@@ -160,15 +160,23 @@ impl SwitchCreator {
             name,
             enable_nmxc: false,
             fabric_manager_config: None,
-            location: Some("US/CA/DC/San Jose/1000 N Mathilda Ave".to_string()),
         };
+
         let new_switch = model::switch::NewSwitch {
             id: switch_id,
+            slot_number: None,
+            tray_index: None,
             config,
             bmc_mac_address: Some(expected_switch.bmc_mac_address),
+            metadata: Some(expected_switch.metadata.clone()),
+            rack_id: expected_switch.rack_id.clone(),
         };
 
         _ = db::switch::create(txn, &new_switch).await?;
+
+        if let Some(ref rack_id) = expected_switch.rack_id {
+            let _ = crate::site_explorer::ensure_rack_exists(&mut *txn, rack_id).await?;
+        }
 
         Ok(())
     }

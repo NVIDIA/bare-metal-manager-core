@@ -21,9 +21,7 @@ use std::sync::{Arc, Mutex};
 use libredfish::RoleId;
 use libredfish::model::oem::nvidia_dpu::NicMode;
 use mac_address::MacAddress;
-use model::expected_machine::ExpectedMachine;
-use model::expected_power_shelf::ExpectedPowerShelf;
-use model::expected_switch::ExpectedSwitch;
+use model::expected_entity::ExpectedEntity;
 use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{
     EndpointExplorationError, EndpointExplorationReport, InternalLockdownStatus, LockdownStatus,
@@ -36,6 +34,10 @@ use crate::site_explorer::{EndpointExplorer, SiteExplorationMetrics};
 pub struct MockEndpointExplorer {
     pub reports:
         Arc<Mutex<HashMap<IpAddr, Result<EndpointExplorationReport, EndpointExplorationError>>>>,
+    /// Records every call to `set_nic_mode` (BMC address + requested target
+    /// mode) so tests can assert the auto-correct path fired with the
+    /// right arguments. Cleared on each `insert_endpoints` reset.
+    pub set_nic_mode_calls: Arc<Mutex<Vec<(SocketAddr, NicMode)>>>,
 }
 
 impl MockEndpointExplorer {
@@ -82,9 +84,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         bmc_ip_address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
-        _expected: Option<&ExpectedMachine>,
-        _expected_power_shelf: Option<&ExpectedPowerShelf>,
-        _expected_switch: Option<&ExpectedSwitch>,
+        _expected: Option<&ExpectedEntity>,
         _last_report: Option<&EndpointExplorationReport>,
         _boot_interface_mac: Option<MacAddress>,
     ) -> Result<EndpointExplorationReport, EndpointExplorationError> {
@@ -171,10 +171,14 @@ impl EndpointExplorer for MockEndpointExplorer {
 
     async fn set_nic_mode(
         &self,
-        _address: SocketAddr,
+        address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
-        _mode: NicMode,
+        mode: NicMode,
     ) -> Result<(), EndpointExplorationError> {
+        self.set_nic_mode_calls
+            .lock()
+            .unwrap()
+            .push((address, mode));
         Ok(())
     }
 
@@ -198,6 +202,7 @@ impl EndpointExplorer for MockEndpointExplorer {
         &self,
         _bmc_ip_address: SocketAddr,
         _interface: &MachineInterfaceSnapshot,
+        _is_bf2: bool,
     ) -> Result<(), EndpointExplorationError> {
         Ok(())
     }

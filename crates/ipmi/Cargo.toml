@@ -1,0 +1,25 @@
+[package]
+name = "carbide-ipmi"
+version = "0.0.1"
+edition.workspace = true
+description = "Carbide IPMI"
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "carbide_ipmi"
+
+[dependencies]
+carbide-secrets = { path = "../secrets", default-features = false }
+carbide-utils = { path = "../utils", default-features = false }
+carbide-uuid = { path = "../uuid" }
+
+#these are alphabetized
+arc-swap = { workspace = true }
+async-trait = { workspace = true }
+eyre = { workspace = true }
+reqwest = { workspace = true }
+serde = { features = ["derive"], workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+

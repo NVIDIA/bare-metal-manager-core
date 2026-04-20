@@ -27,12 +27,12 @@ use hyper::http::StatusCode;
 use itertools::Itertools;
 use model::machine::network::ManagedHostQuarantineState;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{self as forgerpc, MachineInventorySoftwareComponent, OverrideMode};
+use rpc::forge::{self as forgerpc, HealthReportApplyMode, MachineInventorySoftwareComponent};
 use serde::Deserialize;
 use utils::managed_host_display::to_time;
 
 use super::filters;
-use super::machine_state_history::{MachineStateHistoryRecord, MachineStateHistoryTable};
+use super::state_history::StateHistoryTable;
 use crate::api::Api;
 use crate::web::action_status::{self, ActionStatus};
 
@@ -111,14 +111,14 @@ impl MachineRowDisplay {
             num_nvlink_gpus = nvlink_info.gpus.len();
         }
         let replace_count = m
-            .health_overrides
+            .health_sources
             .iter()
-            .filter(|o| o.mode() == OverrideMode::Replace)
+            .filter(|o| o.mode() == HealthReportApplyMode::Replace)
             .count();
         let merge_count = m
-            .health_overrides
+            .health_sources
             .iter()
-            .filter(|o| o.mode() == OverrideMode::Merge)
+            .filter(|o| o.mode() == HealthReportApplyMode::Merge)
             .count();
 
         let health = m
@@ -431,17 +431,15 @@ struct MachineDetail<'a> {
     id: String,
     host_id: String,
     rack_id: String,
-    state: String,
     state_version: String,
     time_in_state: String,
-    state_sla: String,
-    time_in_state_above_sla: bool,
+    state_display: super::StateDisplay,
+    state_sla_detail: super::StateSlaDetail,
     last_reboot: String,
-    state_reason: Option<::rpc::forge::ControllerStateReason>,
     machine_type: String,
     is_host: bool,
     network_config: String,
-    history: MachineStateHistoryTable,
+    history: StateHistoryTable,
     bios_version: String,
     board_version: String,
     product_name: String,
@@ -459,8 +457,7 @@ struct MachineDetail<'a> {
     health_overrides: Vec<String>,
     bmc_info: Option<rpc::forge::BmcInfo>,
     discovery_info_json: String,
-    metadata: rpc::forge::Metadata,
-    version: String,
+    metadata_detail: super::MetadataDetail,
     capabilities: Vec<MachineCapability>,
     capabilities_json: String,
     validation_runs: Vec<ValidationRun>,
@@ -528,16 +525,8 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
     fn from(m: forgerpc::Machine) -> Self {
         let machine_id = m.id.map(|id| id.to_string()).unwrap_or_default();
 
-        let history = MachineStateHistoryTable {
-            records: m
-                .events
-                .into_iter()
-                .rev()
-                .map(|e| MachineStateHistoryRecord {
-                    state: e.event,
-                    version: e.version,
-                })
-                .collect(),
+        let history = StateHistoryTable {
+            records: m.events.into_iter().rev().map(Into::into).collect(),
         };
 
         let interfaces: Vec<_> = m
@@ -656,28 +645,39 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
             id: machine_id.clone(),
             rack_id: m.rack_id.map(|id| id.to_string()).unwrap_or_default(),
             time_in_state: config_version::since_state_change_humanized(&m.state_version),
-            state: m.state,
             state_version: m.state_version,
-            state_sla: m
-                .state_sla
-                .as_ref()
-                .and_then(|sla| sla.sla)
-                .map(|sla| {
-                    config_version::format_duration(
-                        chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::MAX),
-                    )
-                })
-                .unwrap_or_default(),
-            time_in_state_above_sla: m
-                .state_sla
-                .as_ref()
-                .map(|sla| sla.time_in_state_above_sla)
-                .unwrap_or_default(),
+            state_display: super::StateDisplay {
+                state: m.state,
+                time_in_state_above_sla: m
+                    .state_sla
+                    .as_ref()
+                    .map(|sla| sla.time_in_state_above_sla)
+                    .unwrap_or_default(),
+            },
+            state_sla_detail: super::StateSlaDetail {
+                state_sla: m
+                    .state_sla
+                    .as_ref()
+                    .and_then(|sla| sla.sla)
+                    .map(|sla| {
+                        config_version::format_duration(
+                            chrono::TimeDelta::try_from(sla).unwrap_or(chrono::TimeDelta::MAX),
+                        )
+                    })
+                    .unwrap_or_default(),
+                time_in_state_above_sla: m
+                    .state_sla
+                    .as_ref()
+                    .map(|sla| sla.time_in_state_above_sla)
+                    .unwrap_or_default(),
+                state_reason: m.state_reason,
+            },
             last_reboot: to_time(m.last_reboot_time, Some(&machine_id))
                 .unwrap_or("N/A".to_string()),
-            state_reason: m.state_reason,
-            version: m.version,
-            metadata: m.metadata.unwrap_or_default(),
+            metadata_detail: super::MetadataDetail {
+                metadata: m.metadata.unwrap_or_default(),
+                metadata_version: m.version,
+            },
             machine_type: get_machine_type(&machine_id),
             is_host: m.machine_type == forgerpc::MachineType::Host as i32,
             network_config: String::new(), // filled in later
@@ -711,11 +711,7 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
                         .unwrap_or_else(health_report::HealthReport::malformed_report)
                 })
                 .unwrap_or_else(health_report::HealthReport::missing_report),
-            health_overrides: m
-                .health_overrides
-                .iter()
-                .map(|o| o.source.clone())
-                .collect(),
+            health_overrides: m.health_sources.iter().map(|o| o.source.clone()).collect(),
             discovery_info_json,
             capabilities_json: m
                 .capabilities

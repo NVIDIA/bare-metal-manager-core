@@ -63,9 +63,13 @@ impl InlineIpxe {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OperatingSystemVariant {
-    /// An operating system that is booted into via iPXE
+    /// An operating system that is booted into via iPXE (inline script)
     Ipxe(InlineIpxe),
+    /// An operating system that references a qcow image
     OsImage(Uuid),
+    /// Reference to any operating system definition by ID (any variant except OS image).
+    /// On read, the actual type (iPXE / ipxe_os_definition) is resolved from the row.
+    OperatingSystemId(Uuid),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,26 +107,31 @@ pub struct OperatingSystem {
     pub run_provisioning_instructions_on_every_boot: bool,
 }
 
-impl TryFrom<rpc::forge::OperatingSystem> for OperatingSystem {
+impl TryFrom<rpc::forge::InstanceOperatingSystemConfig> for OperatingSystem {
     type Error = RpcDataConversionError;
 
-    fn try_from(mut config: rpc::forge::OperatingSystem) -> Result<Self, Self::Error> {
+    fn try_from(
+        mut config: rpc::forge::InstanceOperatingSystemConfig,
+    ) -> Result<Self, Self::Error> {
         let variant = config
             .variant
             .take()
             .ok_or(RpcDataConversionError::MissingArgument(
-                "OperatingSystem::variant",
+                "InstanceOperatingSystemConfig::variant",
             ))?;
         let mut ipxe_user_data = None;
         let variant = match variant {
-            rpc::forge::operating_system::Variant::Ipxe(ipxe) => {
+            rpc::forge::instance_operating_system_config::Variant::Ipxe(ipxe) => {
                 ipxe_user_data = ipxe.user_data.clone();
                 OperatingSystemVariant::Ipxe(ipxe.try_into()?)
             }
-            rpc::forge::operating_system::Variant::OsImageId(id) => {
+            rpc::forge::instance_operating_system_config::Variant::OsImageId(id) => {
                 OperatingSystemVariant::OsImage(Uuid::try_from(id).map_err(|e| {
                     RpcDataConversionError::InvalidUuid("os_image_id: ", e.to_string())
                 })?)
+            }
+            rpc::forge::instance_operating_system_config::Variant::OperatingSystemId(id) => {
+                OperatingSystemVariant::OperatingSystemId(Uuid::from(id))
             }
         };
 
@@ -136,18 +145,23 @@ impl TryFrom<rpc::forge::OperatingSystem> for OperatingSystem {
     }
 }
 
-impl TryFrom<OperatingSystem> for rpc::forge::OperatingSystem {
+impl TryFrom<OperatingSystem> for rpc::forge::InstanceOperatingSystemConfig {
     type Error = RpcDataConversionError;
 
-    fn try_from(config: OperatingSystem) -> Result<rpc::forge::OperatingSystem, Self::Error> {
+    fn try_from(
+        config: OperatingSystem,
+    ) -> Result<rpc::forge::InstanceOperatingSystemConfig, Self::Error> {
         let variant = match config.variant {
             OperatingSystemVariant::Ipxe(ipxe) => {
                 let mut ipxe: rpc::forge::InlineIpxe = ipxe.try_into()?;
                 ipxe.user_data = config.user_data.clone();
-                rpc::forge::operating_system::Variant::Ipxe(ipxe)
+                rpc::forge::instance_operating_system_config::Variant::Ipxe(ipxe)
             }
             OperatingSystemVariant::OsImage(id) => {
-                rpc::forge::operating_system::Variant::OsImageId(id.into())
+                rpc::forge::instance_operating_system_config::Variant::OsImageId(id.into())
+            }
+            OperatingSystemVariant::OperatingSystemId(id) => {
+                rpc::forge::instance_operating_system_config::Variant::OperatingSystemId(id.into())
             }
         };
 
@@ -167,6 +181,7 @@ impl OperatingSystem {
         match &self.variant {
             OperatingSystemVariant::Ipxe(ipxe) => ipxe.validate(),
             OperatingSystemVariant::OsImage(_id) => Ok(()),
+            OperatingSystemVariant::OperatingSystemId(_id) => Ok(()),
         }
     }
 

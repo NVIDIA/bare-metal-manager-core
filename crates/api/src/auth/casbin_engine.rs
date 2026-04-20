@@ -17,9 +17,10 @@
 use std::error;
 use std::path::{Path, PathBuf};
 
+use carbide_authn::middleware::Principal;
 use casbin::{CoreApi, DefaultModel, Enforcer, FileAdapter};
 
-use crate::auth::{Authorization, AuthorizationError, PolicyEngine, Predicate, Principal};
+use crate::auth::{Authorization, AuthorizationError, PolicyEngine, Predicate};
 
 pub enum ModelType {
     // Basic ACL with three arguments (subject, action, object)

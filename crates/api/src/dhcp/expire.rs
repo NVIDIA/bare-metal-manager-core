@@ -30,7 +30,12 @@ pub async fn expire_dhcp_lease(
     let ip_address: IpAddr = request.into_inner().ip_address.parse()?;
 
     let mut txn = api.txn_begin().await?;
-    let deleted = db::machine_interface_address::delete_by_address(&mut txn, ip_address).await?;
+    let deleted = db::machine_interface_address::delete_by_address(
+        &mut txn,
+        ip_address,
+        model::allocation_type::AllocationType::Dhcp,
+    )
+    .await?;
     txn.commit().await?;
 
     let status = if deleted {

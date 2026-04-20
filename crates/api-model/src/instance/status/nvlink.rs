@@ -67,10 +67,6 @@ impl InstanceNvLinkStatus {
             return Self::unsynchronized_for_config(&config);
         };
 
-        if config.gpu_configs.len() != observations.nvlink_gpus.len() {
-            return Self::unsynchronized_for_config(&config);
-        }
-
         let mut configs_synced = SyncState::Synced;
 
         let mut nvlink_gpus: Vec<InstanceNvLinkGpuStatus> =

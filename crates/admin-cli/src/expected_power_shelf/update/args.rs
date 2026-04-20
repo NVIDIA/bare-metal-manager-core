@@ -15,6 +15,8 @@
  * limitations under the License.
  */
 
+use std::net::IpAddr;
+
 use ::rpc::admin_cli::CarbideCliError;
 use carbide_uuid::rack::RackId;
 use clap::{ArgGroup, Parser};
@@ -102,12 +104,19 @@ pub struct Args {
     pub rack_id: Option<RackId>,
 
     #[clap(
-        long = "ip_address",
-        value_name = "IP_ADDRESS",
-        help = "IP address of the power shelf",
+        long = "bmc-ip-address",
+        value_name = "BMC_IP_ADDRESS",
+        help = "BMC IP address of the power shelf",
         action = clap::ArgAction::Append
     )]
-    pub ip_address: Option<String>,
+    pub bmc_ip_address: Option<IpAddr>,
+
+    #[clap(
+        long = "bmc-retain-credentials",
+        value_name = "BMC_RETAIN_CREDENTIALS",
+        help = "When true, site-explorer skips BMC password rotation and stores factory-default credentials in Vault as-is"
+    )]
+    pub bmc_retain_credentials: Option<bool>,
 }
 
 impl TryFrom<Args> for rpc::forge::ExpectedPowerShelf {
@@ -145,13 +154,17 @@ impl TryFrom<Args> for rpc::forge::ExpectedPowerShelf {
             bmc_username: args.bmc_username.unwrap_or_default(),
             bmc_password: args.bmc_password.unwrap_or_default(),
             shelf_serial_number: args.shelf_serial_number.unwrap_or_default(),
-            ip_address: args.ip_address.unwrap_or_default(),
+            bmc_ip_address: args
+                .bmc_ip_address
+                .map(|ip| ip.to_string())
+                .unwrap_or_default(),
             metadata: Some(rpc::forge::Metadata {
                 name: args.meta_name.unwrap_or_default(),
                 description: args.meta_description.unwrap_or_default(),
                 labels: crate::metadata::parse_rpc_labels(args.labels.unwrap_or_default()),
             }),
             rack_id: args.rack_id,
+            bmc_retain_credentials: args.bmc_retain_credentials,
         })
     }
 }

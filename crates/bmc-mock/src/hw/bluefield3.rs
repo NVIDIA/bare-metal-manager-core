@@ -24,7 +24,7 @@ use rpc::{NetworkInterface, PciDeviceProperties};
 use serde_json::json;
 use utils::models::arch::CpuArchitecture;
 
-use crate::{LogService, LogServices, PowerControl, hw, redfish};
+use crate::{BootOptionKind, Callbacks, LogService, LogServices, hw, redfish};
 
 pub struct Bluefield3<'a> {
     pub product_serial_number: Cow<'a, str>,
@@ -72,22 +72,14 @@ impl Bluefield3<'_> {
                     part_number: Some(Cow::Borrowed(self.part_number())),
                     pcie_devices: Some(vec![]),
                     serial_number: Some(self.product_serial_number.to_string().into()),
-                    sensors: None,
-                    assembly: None,
-                    oem: None,
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "Bluefield_ERoT".into(),
                     chassis_type: "Component".into(),
                     manufacturer: Some(Cow::Borrowed("NVIDIA")),
-                    model: None,
-                    network_adapters: None,
-                    part_number: None,
-                    pcie_devices: None,
                     serial_number: Some("".into()),
-                    sensors: None,
-                    assembly: None,
-                    oem: None,
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "CPU_0".into(),
@@ -98,9 +90,7 @@ impl Bluefield3<'_> {
                     part_number: Some(format!("OPN: {}", self.opn()).into()),
                     serial_number: Some("Unspecified Serial Number".into()),
                     pcie_devices: Some(vec![]),
-                    sensors: None,
-                    assembly: None,
-                    oem: None,
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 },
                 redfish::chassis::SingleChassisConfig {
                     id: "Card1".into(),
@@ -115,17 +105,16 @@ impl Bluefield3<'_> {
                         "Card1",
                         Self::sensor_layout(),
                     )),
-                    assembly: None,
-                    oem: None,
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 },
             ],
         }
     }
 
-    pub fn system_config(&self, pc: Arc<dyn PowerControl>) -> redfish::computer_system::Config {
+    pub fn system_config(&self, callbacks: Arc<dyn Callbacks>) -> redfish::computer_system::Config {
         let system_id = "Bluefield";
-        let boot_opt_builder = |id: &str| {
-            redfish::boot_option::builder(&redfish::boot_option::resource(system_id, id))
+        let boot_opt_builder = |id: &str, kind| {
+            redfish::boot_option::builder(&redfish::boot_option::resource(system_id, id), kind)
                 .boot_option_reference(id)
         };
         let nic_mode = if let hw::bluefield3::Mode::SuperNIC { nic_mode: true } = self.mode {
@@ -146,7 +135,7 @@ impl Bluefield3<'_> {
                 })
                 .collect();
         let boot_options = [
-            boot_opt_builder("Boot0040")
+            boot_opt_builder("Boot0040", BootOptionKind::Disk)
                 .display_name("ubuntu0")
                 .uefi_device_path("HD(1,GPT,2FAFB38D-05F6-DF41-AE01-F9991E2CC0F0,0x800,0x19000)/\\EFI\\ubuntu\\shimaa64.efi")
                 .build()
@@ -156,7 +145,7 @@ impl Bluefield3<'_> {
                 .replace(':', "")
                 .to_ascii_uppercase();
             vec![
-                boot_opt_builder("Boot0000")
+                boot_opt_builder("Boot0000", BootOptionKind::Network)
                     .display_name("NET-OOB-IPV4-HTTP")
                     .uefi_device_path(&format!("MAC({mocked_mac_no_colons},0x1)/IPv4(0.0.0.0,0x0,DHCP,0.0.0.0,0.0.0.0,0.0.0.0)/Uri()"))
                     .build(),
@@ -171,8 +160,8 @@ impl Bluefield3<'_> {
                 eth_interfaces: Some(eth_interfaces),
                 chassis: vec!["Bluefield_BMC".into()],
                 serial_number: Some(self.product_serial_number.to_string().into()),
-                boot_order_mode: redfish::computer_system::BootOrderMode::Generic,
-                power_control: Some(pc),
+                boot_order_mode: redfish::computer_system::BootOrderMode::ViaSettings,
+                callbacks: Some(callbacks),
                 boot_options: Some(boot_options),
                 bios_mode: redfish::computer_system::BiosMode::Generic,
                 oem: redfish::computer_system::Oem::NvidiaBluefield,

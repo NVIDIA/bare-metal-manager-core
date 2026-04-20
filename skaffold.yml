@@ -34,6 +34,7 @@ build:
     - image: carbide-api
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.api.localdev
+        noCache: true
       sync:
         infer:
           - "carbide-api"
@@ -81,6 +82,12 @@ build:
       sync:
         infer:
           - "hw-health"
+    - image: carbide-bmc-proxy
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.bmc-proxy.localdev
+      sync:
+        infer:
+          - "carbide-bmc-proxy"
     - image: ssh-console-rs
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.ssh-console.localdev
@@ -99,4 +106,3 @@ deploy:
     defaultNamespace: forge-system
   statusCheckDeadlineSeconds: 60
   tolerateFailuresUntilDeadline: true
-
