@@ -68,7 +68,9 @@ Yes, NICo supports OS installation onto servers through PXE & Image-based. Any O
 
 **What is the way to communicate with NICo? Does it expose an API? Does it have a shell interface?**
 
-NICo exposes an API interface & authentication through JWT tokens or IdP integration (keycloak). There is also an admin-facing CLI & debugging/Engineering UI. 
+NICo exposes an REST API interface and authentication through JWT tokens or IdP integration (keycloak). There is also an admin-facing CLI and debugging/Engineering UI.
+
+> **Note**: The REST API is the primary way to interact with NICo and should be used for all state-modifying operations (creating/modifying tenants, VPCs, instances, etc). The admin CLI is a convenience tool for administrative tasks and should not be relied upon for production workflows.
 
 **Where is NICo run? Is it a container/microservice? Is it a single container or a collection deployed via Helm?**
 
