@@ -577,6 +577,23 @@ impl Collector {
         })
     }
 
+    /// spawn helper for streaming collectors that don't fit `StreamingCollector`
+    /// (e.g. gNMI bidi subscribe with in-loop multiplexing). The closure gets a
+    /// CancellationToken and should return once it's cancelled.
+    pub fn spawn_task<F, Fut>(task_fn: F) -> Self
+    where
+        F: FnOnce(CancellationToken) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let cancel_token = CancellationToken::new();
+        let cancel_clone = cancel_token.clone();
+        let handle = tokio::spawn(task_fn(cancel_clone));
+        Self {
+            handle,
+            cancel_token,
+        }
+    }
+
     pub async fn stop(self) {
         self.cancel_token.cancel();
         let _ = self.handle.await;

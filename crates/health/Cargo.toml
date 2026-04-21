@@ -37,13 +37,17 @@ http = { workspace = true }
 humantime = { workspace = true }
 humantime-serde = { workspace = true }
 hyper = { workspace = true }
+hyper-rustls = { workspace = true, features = ["http2"] }
 hyper-util = { workspace = true }
 mac_address = { workspace = true }
 prometheus = { workspace = true }
 reqwest = { workspace = true }
+rustls = { workspace = true }
+rustls-pki-types = { workspace = true }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 serde_with = { workspace = true }
+tokio-stream = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { features = [

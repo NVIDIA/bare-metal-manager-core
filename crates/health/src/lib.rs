@@ -85,6 +85,9 @@ pub enum HealthError {
 
     #[error("Redfish SSE not available: {0}")]
     SseNotAvailable(String),
+
+    #[error("gNMI error: {0}")]
+    GnmiError(String),
 }
 
 impl From<String> for HealthError {

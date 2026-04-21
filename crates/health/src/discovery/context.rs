@@ -44,15 +44,17 @@ pub(super) enum CollectorKind {
     Firmware,
     Nmxt,
     NvueRest,
+    NvueGnmi,
 }
 
 impl CollectorKind {
-    pub(super) const ALL: [CollectorKind; 5] = [
+    pub(super) const ALL: [CollectorKind; 6] = [
         CollectorKind::Sensor,
         CollectorKind::Logs,
         CollectorKind::Firmware,
         CollectorKind::Nmxt,
         CollectorKind::NvueRest,
+        CollectorKind::NvueGnmi,
     ];
 
     pub(super) fn stop_message(self) -> &'static str {
@@ -62,6 +64,9 @@ impl CollectorKind {
             CollectorKind::Firmware => "Stopping firmware collector for removed BMC endpoint",
             CollectorKind::Nmxt => "Stopping NMX-T collector for removed BMC endpoint",
             CollectorKind::NvueRest => "Stopping NVUE REST collector for removed BMC endpoint",
+            CollectorKind::NvueGnmi => {
+                "Stopping NVUE gNMI streaming collector for removed switch endpoint"
+            }
         }
     }
 }
@@ -72,6 +77,7 @@ pub(super) struct CollectorState {
     logs: HashMap<Cow<'static, str>, Collector>,
     nmxt: HashMap<Cow<'static, str>, Collector>,
     nvue_rest: HashMap<Cow<'static, str>, Collector>,
+    nvue_gnmi: HashMap<Cow<'static, str>, Collector>,
 }
 
 impl CollectorState {
@@ -82,6 +88,7 @@ impl CollectorState {
             logs: HashMap::new(),
             nmxt: HashMap::new(),
             nvue_rest: HashMap::new(),
+            nvue_gnmi: HashMap::new(),
         }
     }
 
@@ -92,6 +99,7 @@ impl CollectorState {
             CollectorKind::Firmware => &self.firmware,
             CollectorKind::Nmxt => &self.nmxt,
             CollectorKind::NvueRest => &self.nvue_rest,
+            CollectorKind::NvueGnmi => &self.nvue_gnmi,
         }
     }
 
@@ -105,6 +113,7 @@ impl CollectorState {
             CollectorKind::Firmware => &mut self.firmware,
             CollectorKind::Nmxt => &mut self.nmxt,
             CollectorKind::NvueRest => &mut self.nvue_rest,
+            CollectorKind::NvueGnmi => &mut self.nvue_gnmi,
         }
     }
 

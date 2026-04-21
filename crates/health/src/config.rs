@@ -502,12 +502,61 @@ impl Default for NmxtCollectorConfig {
 #[serde(default)]
 pub struct NvueCollectorConfig {
     pub rest: Configurable<NvueRestConfig>,
+    pub gnmi: Configurable<NvueGnmiConfig>,
 }
 
 impl Default for NvueCollectorConfig {
     fn default() -> Self {
         Self {
             rest: Configurable::Enabled(NvueRestConfig::default()),
+            gnmi: Configurable::Disabled,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NvueGnmiConfig {
+    /// gNMI server port on the switch.
+    pub gnmi_port: u16,
+
+    /// Interval between SAMPLE mode subscription updates.
+    #[serde(with = "humantime_serde")]
+    pub sample_interval: Duration,
+
+    /// Timeout for gRPC connection attempts.
+    #[serde(with = "humantime_serde")]
+    pub request_timeout: Duration,
+
+    /// gNMI SAMPLE subscription paths.
+    pub paths: NvueGnmiPaths,
+}
+
+impl Default for NvueGnmiConfig {
+    fn default() -> Self {
+        Self {
+            gnmi_port: 9339,
+            sample_interval: Duration::from_secs(300),
+            request_timeout: Duration::from_secs(30),
+            paths: NvueGnmiPaths::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NvueGnmiPaths {
+    pub components_enabled: bool,
+    pub interfaces_enabled: bool,
+    pub leak_sensors_enabled: bool,
+}
+
+impl Default for NvueGnmiPaths {
+    fn default() -> Self {
+        Self {
+            components_enabled: true,
+            interfaces_enabled: true,
+            leak_sensors_enabled: true,
         }
     }
 }
