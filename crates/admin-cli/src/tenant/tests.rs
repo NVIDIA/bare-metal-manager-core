@@ -16,18 +16,17 @@
  */
 
 // The intent of the tests.rs file is to test the integrity of the
-// command, including things like basic structure parsing, enum
-// translations, and any external input validators that are
-// configured. Specific "categories" are:
+// command, including things like basic structure parsing and any
+// external input validators that are configured. Specific
+// "categories" are:
 //
 // Command Structure - Baseline debug_assert() of the entire command.
 // Argument Parsing  - Ensure required/optional arg combinations parse correctly.
-// ValueEnum Parsing - Test string parsing for types deriving claps ValueEnum.
+// Routing Profile Parsing - Ensure profile strings are accepted unchanged.
 
 use clap::{CommandFactory, Parser};
 
 use super::*;
-use crate::tenant::common::TenantRoutingProfileType;
 
 // verify_cmd_structure runs a baseline clap debug_assert()
 // to do basic command configuration checking and validation,
@@ -93,15 +92,12 @@ fn parse_update() {
 // with -p routing profile.
 #[test]
 fn parse_update_with_routing_profile() {
-    let cmd = Cmd::try_parse_from(["tenant", "update", "org-123", "-p", "internal"])
+    let cmd = Cmd::try_parse_from(["tenant", "update", "org-123", "-p", "profile-a"])
         .expect("should parse update with routing profile");
 
     match cmd {
         Cmd::Update(args) => {
-            assert!(matches!(
-                args.routing_profile_type,
-                Some(TenantRoutingProfileType::Internal)
-            ));
+            assert_eq!(args.routing_profile_type, Some("profile-a".to_string()));
         }
         _ => panic!("expected Update variant"),
     }
@@ -141,92 +137,4 @@ fn parse_update_with_name() {
 fn parse_update_missing_tenant_org_fails() {
     let result = Cmd::try_parse_from(["tenant", "update"]);
     assert!(result.is_err(), "should fail without tenant_org");
-}
-
-/////////////////////////////////////////////////////////////////////////////
-// ValueEnum Parsing
-//
-// These tests are for testing argument values which derive
-// ValueEnum, ensuring the string representations of said
-// values correctly convert back into their expected variant,
-// or fail otherwise.
-
-// parse_routing_profile_internal ensures internal routing
-// profile parses.
-#[test]
-fn parse_routing_profile_internal() {
-    let cmd = Cmd::try_parse_from(["tenant", "update", "org-123", "-p", "internal"])
-        .expect("should parse");
-
-    match cmd {
-        Cmd::Update(args) => {
-            assert!(matches!(
-                args.routing_profile_type,
-                Some(TenantRoutingProfileType::Internal)
-            ));
-        }
-        _ => panic!("expected Update variant"),
-    }
-}
-
-// parse_routing_profile_privileged_internal ensures
-// privileged-internal routing profile parses.
-#[test]
-fn parse_routing_profile_privileged_internal() {
-    let cmd = Cmd::try_parse_from(["tenant", "update", "org-123", "-p", "privileged-internal"])
-        .expect("should parse");
-
-    match cmd {
-        Cmd::Update(args) => {
-            assert!(matches!(
-                args.routing_profile_type,
-                Some(TenantRoutingProfileType::PrivilegedInternal)
-            ));
-        }
-        _ => panic!("expected Update variant"),
-    }
-}
-
-// parse_routing_profile_external ensures external routing
-// profile parses.
-#[test]
-fn parse_routing_profile_external() {
-    let cmd = Cmd::try_parse_from(["tenant", "update", "org-123", "-p", "external"])
-        .expect("should parse");
-
-    match cmd {
-        Cmd::Update(args) => {
-            assert!(matches!(
-                args.routing_profile_type,
-                Some(TenantRoutingProfileType::External)
-            ));
-        }
-        _ => panic!("expected Update variant"),
-    }
-}
-
-// parse_routing_profile_maintenance ensures maintenance
-// routing profile parses.
-#[test]
-fn parse_routing_profile_maintenance() {
-    let cmd = Cmd::try_parse_from(["tenant", "update", "org-123", "-p", "maintenance"])
-        .expect("should parse");
-
-    match cmd {
-        Cmd::Update(args) => {
-            assert!(matches!(
-                args.routing_profile_type,
-                Some(TenantRoutingProfileType::Maintenance)
-            ));
-        }
-        _ => panic!("expected Update variant"),
-    }
-}
-
-// parse_routing_profile_invalid_fails ensures invalid
-// routing profile fails.
-#[test]
-fn parse_routing_profile_invalid_fails() {
-    let result = Cmd::try_parse_from(["tenant", "update", "org-123", "-p", "invalid"]);
-    assert!(result.is_err(), "should fail with invalid routing profile");
 }

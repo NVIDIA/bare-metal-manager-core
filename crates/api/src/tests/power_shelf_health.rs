@@ -308,18 +308,22 @@ async fn test_health_visible_in_find_power_shelves(
 
     assert_eq!(resp.power_shelves.len(), 1);
     let ps = &resp.power_shelves[0];
+    let ps_status = ps.status.as_ref().unwrap();
 
-    assert!(ps.health.is_some(), "Power shelf should have health field");
-    let health: HealthReport = ps.health.clone().unwrap().try_into().unwrap();
+    assert!(
+        ps_status.health.is_some(),
+        "Power shelf should have health field"
+    );
+    let health: HealthReport = ps_status.health.clone().unwrap().try_into().unwrap();
     assert!(
         !health.alerts.is_empty(),
         "Power shelf health should contain alerts"
     );
 
-    assert_eq!(ps.health_sources.len(), 1);
-    assert_eq!(ps.health_sources[0].source, "external-monitor");
+    assert_eq!(ps_status.health_sources.len(), 1);
+    assert_eq!(ps_status.health_sources[0].source, "external-monitor");
     assert_eq!(
-        ps.health_sources[0].mode,
+        ps_status.health_sources[0].mode,
         rpc_forge::HealthReportApplyMode::Merge as i32
     );
 

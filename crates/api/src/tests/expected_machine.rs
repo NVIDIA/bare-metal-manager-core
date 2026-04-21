@@ -88,6 +88,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
                 dpf_enabled: Some(true),
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
+                dpu_mode: Default::default(),
             },
         },
     )
@@ -734,6 +735,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         is_dpf_enabled: Some(true),
         bmc_ip_address: None,
         bmc_retain_credentials: None,
+        dpu_mode: None,
         #[allow(deprecated)]
         dpf_enabled: true,
     };
@@ -2455,6 +2457,94 @@ async fn test_add_rejects_multiple_primary_host_nics(
 
     let err = result.expect_err("multi-primary ExpectedMachine should be rejected");
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
+
+    Ok(())
+}
+
+/// Simple test to have some round-trip coverage for `ExpectedMachine.dpu_mode`
+/// to make sure a `NicMode` setting makes it from the API to the DB and back
+/// correctly. Verifies:
+/// - The RPC carrying `Some(DpuMode::NicMode)` persists.
+/// - The re-read RPC response replies `dpu_mode = Some(NicMode)` back
+/// - Other `dpu_mode` values do the same.
+#[crate::sqlx_test]
+async fn test_dpu_mode_round_trip_for_non_default_values(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    for (idx, mode) in [rpc::forge::DpuMode::NicMode, rpc::forge::DpuMode::NoDpu]
+        .iter()
+        .enumerate()
+    {
+        let mac = format!("5A:5B:5C:5D:5E:{idx:02X}");
+        let request = rpc::forge::ExpectedMachine {
+            bmc_mac_address: mac.clone(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: format!("EM-DPU-MODE-{idx}"),
+            dpu_mode: Some(*mode as i32),
+            ..Default::default()
+        };
+
+        env.api
+            .add_expected_machine(tonic::Request::new(request))
+            .await?;
+
+        let retrieved = env
+            .api
+            .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+                bmc_mac_address: mac.clone(),
+                id: None,
+            }))
+            .await?
+            .into_inner();
+
+        assert_eq!(
+            retrieved.dpu_mode,
+            Some(*mode as i32),
+            "DPU mode {mode:?} should survive DB round-trip unchanged"
+        );
+    }
+
+    Ok(())
+}
+
+/// Also have some "round trip" coverage for the dpu_mode default case,
+/// when the operator didn't set `dpu_mode` on the wire. In this case,
+/// we should persist the Postgrs default (`DpuMode::DpuMode`) and return
+/// `None` on the wire (so old clients see the same thing they sent).
+#[crate::sqlx_test]
+async fn test_dpu_mode_default_value_omitted_on_wire(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let mac = "5A:5B:5C:5D:5E:FF";
+    env.api
+        .add_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachine {
+            bmc_mac_address: mac.into(),
+            bmc_username: "ADMIN".into(),
+            bmc_password: "PASS".into(),
+            chassis_serial_number: "EM-DPU-DEFAULT".into(),
+            dpu_mode: None,
+            ..Default::default()
+        }))
+        .await?;
+
+    let retrieved = env
+        .api
+        .get_expected_machine(tonic::Request::new(rpc::forge::ExpectedMachineRequest {
+            bmc_mac_address: mac.into(),
+            id: None,
+        }))
+        .await?
+        .into_inner();
+
+    assert_eq!(
+        retrieved.dpu_mode, None,
+        "default DpuMode should not be emitted on the wire for stable round-trips"
+    );
 
     Ok(())
 }

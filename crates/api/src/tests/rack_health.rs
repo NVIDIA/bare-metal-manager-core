@@ -583,18 +583,24 @@ async fn test_rack_health_visible_in_find_racks_by_ids(
 
     assert_eq!(rack_resp.racks.len(), 1);
     let rack = &rack_resp.racks[0];
-
-    assert!(rack.health.is_some(), "Rack should have health field");
-    let health: HealthReport = rack.health.clone().unwrap().try_into().unwrap();
+    let rack_status = rack.status.as_ref().unwrap();
+    assert!(
+        rack_status.health.is_some(),
+        "Rack should have health field"
+    );
+    let health: HealthReport = rack_status.health.clone().unwrap().try_into().unwrap();
     assert!(
         !health.alerts.is_empty(),
         "Rack health should contain alerts"
     );
 
-    assert_eq!(rack.health_sources.len(), 1);
-    assert_eq!(rack.health_sources[0].source, "dsx-exchange-consumer");
+    assert_eq!(rack_status.health_sources.len(), 1);
     assert_eq!(
-        rack.health_sources[0].mode,
+        rack_status.health_sources[0].source,
+        "dsx-exchange-consumer"
+    );
+    assert_eq!(
+        rack_status.health_sources[0].mode,
         rpc_forge::HealthReportApplyMode::Merge as i32
     );
 

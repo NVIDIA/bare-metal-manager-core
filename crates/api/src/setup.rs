@@ -24,6 +24,7 @@ use arc_swap::ArcSwap;
 use carbide_ipmi::IPMITool;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
+use carbide_site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use db::machine::update_dpu_asns;
 use db::resource_pool::DefineResourcePoolError;
 use db::{Transaction, work_lock_manager};
@@ -72,8 +73,8 @@ use crate::mqtt_state_change_hook::hook::MqttStateChangeHook;
 use crate::nvl_partition_monitor::NvlPartitionMonitor;
 use crate::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
 use crate::preingestion_manager::PreingestionManager;
+use crate::rack::bms_client::BmsDsxExchangeHandle;
 use crate::scout_stream::ConnectionRegistry;
-use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::controller::{Enqueuer, StateController};
 use crate::state_controller::dpa_interface::handler::DpaInterfaceStateHandler;
@@ -164,21 +165,13 @@ pub fn parse_carbide_config(
     )
     .map_err(|e| eyre::eyre!(e).wrap_err("Invalid configuration"))?;
 
-    if config.machine_identity.enabled {
-        if config.machine_identity.current_encryption_key_id.is_none() {
-            return Err(eyre::eyre!(
-                "current_encryption_key_id must be set in [machine_identity] when machine identity is enabled"
-            )
-            .wrap_err("Invalid configuration"));
-        }
-        if config.machine_identity.algorithm != model::tenant::TENANT_IDENTITY_SIGNING_JWT_ALG {
-            return Err(eyre::eyre!(
-                "machine_identity.algorithm must be {} (only ES256 signing is implemented); got {:?}",
-                model::tenant::TENANT_IDENTITY_SIGNING_JWT_ALG,
-                config.machine_identity.algorithm
-            )
-            .wrap_err("Invalid configuration"));
-        }
+    if config.machine_identity.enabled
+        && config.machine_identity.current_encryption_key_id.is_none()
+    {
+        return Err(eyre::eyre!(
+            "current_encryption_key_id must be set in [machine_identity] when machine identity is enabled"
+        )
+        .wrap_err("Invalid configuration"));
     }
 
     tracing::trace!("Carbide config: {:#?}", config.redacted());
@@ -540,6 +533,7 @@ pub async fn start_api(
         machine_state_handler_enqueuer: Enqueuer::new(db_pool),
         metric_emitter: ApiMetricsEmitter::new(&meter),
         component_manager,
+        bms_client: std::sync::OnceLock::new(),
     });
 
     if carbide_config.listen_only {
@@ -792,6 +786,23 @@ pub async fn initialize_and_start_controllers(
                 config.mqtt_endpoint,
                 config.mqtt_broker_port
             );
+
+            let bms_client = BmsDsxExchangeHandle::new(
+                client.clone(),
+                db_pool,
+                join_set,
+                config.publish_timeout,
+                config.queue_capacity,
+                &meter,
+                cancel_token.clone(),
+            )
+            .await?;
+
+            api_service
+                .bms_client
+                .set(bms_client)
+                .map_err(|_| eyre::eyre!("BMS DSX Exchange handle already initialized"))?;
+
             emitter_builder = emitter_builder.hook(Box::new(MqttStateChangeHook::new(
                 client,
                 join_set,

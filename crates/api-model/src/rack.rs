@@ -159,11 +159,10 @@ impl From<Rack> for rpc::forge::Rack {
         let health = derive_rack_aggregate_health(&value.health_reports);
         let health_sources = value
             .health_reports
-            .clone()
-            .into_iter()
+            .iter()
             .map(|(hr, m)| rpc::forge::HealthSourceOrigin {
                 mode: m as i32,
-                source: hr.source,
+                source: hr.source.clone(),
             })
             .collect();
 
@@ -179,10 +178,13 @@ impl From<Rack> for rpc::forge::Rack {
             created: Some(Timestamp::from(value.created)),
             updated: Some(Timestamp::from(value.updated)),
             deleted: value.deleted.map(Timestamp::from),
-            health: Some(health.into()),
-            health_sources,
             metadata: Some(value.metadata.into()),
             version: value.version.version_string(),
+            config: Some(rpc::forge::RackConfig {}),
+            status: Some(rpc::forge::RackStatus {
+                health: Some(health.into()),
+                health_sources,
+            }),
         }
     }
 }

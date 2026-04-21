@@ -78,7 +78,7 @@ pub async fn find_switch(
         rows.into_iter()
             .map(|row| {
                 (
-                    row.serial_number,
+                    row.bmc_mac_address.to_string(),
                     rpc::BmcInfo {
                         ip: Some(row.ip_address.to_string()),
                         mac: Some(row.bmc_mac_address.to_string()),
@@ -98,8 +98,10 @@ pub async fn find_switch(
     let switches: Vec<rpc::Switch> = switch_list
         .into_iter()
         .map(|s| {
-            let serial = s.config.name.clone();
-            let bmc_info = bmc_info_map.get(&serial).cloned();
+            let bmc_info = s
+                .bmc_mac_address
+                .as_ref()
+                .and_then(|mac| bmc_info_map.get(&mac.to_string()).cloned());
 
             rpc::Switch::try_from(s).map(|mut rpc_switch| {
                 rpc_switch.bmc_info = bmc_info;

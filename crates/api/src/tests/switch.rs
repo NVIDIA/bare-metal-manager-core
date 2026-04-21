@@ -568,9 +568,35 @@ async fn test_find_switch_bmc_info_no_matching_data(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_test_env(pool).await;
-    let switch_id = new_switch(&env, Some("Switch3".to_string()), None).await?;
 
-    // bmc_info should be None when no expected_switch or machine_interface data exists
+    // Create a switch without the corresponding expected switch data
+    let switch_id = model::switch::switch_id::from_hardware_info(
+        "NO-BMC-SERIAL",
+        "NVIDIA",
+        "Switch",
+        carbide_uuid::switch::SwitchIdSource::ProductBoardChassisSerial,
+        carbide_uuid::switch::SwitchType::NvLink,
+    )
+    .unwrap();
+
+    let new_switch_record = NewSwitch {
+        id: switch_id,
+        config: SwitchConfig {
+            name: "SwitchNoBmc".to_string(),
+            enable_nmxc: false,
+            fabric_manager_config: None,
+        },
+        bmc_mac_address: None,
+        metadata: None,
+        rack_id: None,
+        slot_number: Some(0),
+        tray_index: Some(0),
+    };
+
+    let mut txn = env.pool.begin().await.unwrap();
+    db_switch::create(&mut txn, &new_switch_record).await?;
+    txn.commit().await.unwrap();
+
     let find_request = SwitchQuery {
         name: None,
         switch_id: Some(switch_id),

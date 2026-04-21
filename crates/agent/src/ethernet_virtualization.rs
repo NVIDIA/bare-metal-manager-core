@@ -216,6 +216,10 @@ pub async fn update_nvue(
     let (has_stateful_nsg, network_security_groups) =
         build_network_security_group_rules(&nc.tenant_interfaces)?;
 
+    // If we aren't on the admin network _or_ if we are the primary DPU
+    // then we should be enabled for tenancy (i.e. VRFs and related config)
+    let tenancy_enabled = !nc.use_admin_network || nc.is_primary_dpu;
+
     let physical_name = hbn_device_names.reps[0].to_string();
     let networks = if nc.use_admin_network {
         if nc.is_primary_dpu {
@@ -309,6 +313,14 @@ pub async fn update_nvue(
         ifs
     };
 
+    // We should explicitly guard against the absence of interfaces.
+    // A follow-up should probably do some work to split out tenant enabled vs. disabled DPUs more clearly.
+    if tenancy_enabled && networks.is_empty() {
+        return Err(eyre::eyre!(
+            "BUG: network config provided without interfaces"
+        ));
+    }
+
     // Currently there's only one quarantine mode, BlockAllTraffic, so we block everything if it's set at all.
     let is_quarantined = nc
         .managed_host_config
@@ -332,6 +344,7 @@ pub async fn update_nvue(
         vpc_virtualization_type,
         site_global_vpc_vni: nc.site_global_vpc_vni,
         use_admin_network: nc.use_admin_network,
+        tenancy_enabled,
         loopback_ip,
         vf_intercept_bridge_port_name: nc.traffic_intercept_config.as_ref().and_then(|vc| {
             vc.bridging
@@ -1926,6 +1939,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_with_tenant_fnn_with_missing_vpcs() -> Result<(), Box<dyn std::error::Error>> {
+        let virtualization_type = VpcVirtualizationType::Fnn;
+
+        let mut network_config = netconf(virtualization_type, 32, 24, false, None, false, false);
+
+        // Empty out the interfaces so we complain if we don't see VPCs.
+        network_config.tenant_interfaces = vec![];
+
+        let td = tempfile::tempdir()?;
+        let hbn_root = td.path();
+        fs::create_dir_all(hbn_root.join("var/support"))?;
+        fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+
+        let update_flavor = NvueUpdateFlavor::StartupFile {
+            hbn_root,
+            skip_post: true,
+        };
+
+        assert!(
+            super::update_nvue(
+                virtualization_type,
+                update_flavor,
+                &network_config,
+                HBNDeviceNames::hbn_23(),
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("BUG: network config provided without interfaces")
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_with_tenant_nvue_with_nsg() -> Result<(), Box<dyn std::error::Error>> {
         // Test WITH an NSG
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizer;
@@ -2718,6 +2766,7 @@ mod tests {
             is_fnn,
             vpc_virtualization_type,
             use_admin_network: true,
+            tenancy_enabled: true,
             site_global_vpc_vni: None,
             loopback_ip: "10.217.5.39".to_string(),
             secondary_overlay_vtep_ip: Some("10.255.254.253".to_string()),

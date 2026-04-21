@@ -109,6 +109,9 @@ fn default_true() -> bool {
     true
 }
 
+// This should be updated on each new model introduction
+pub const CURRENT_STATE_MODEL_VERSION: i16 = 2;
+
 /// Represents the current state of `Machine`
 #[derive(Debug, Clone)]
 pub struct ManagedHostStateSnapshot {

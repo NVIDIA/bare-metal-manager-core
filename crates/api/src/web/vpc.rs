@@ -40,6 +40,7 @@ struct VpcRowDisplay {
     tenant_organization_id: String,
     tenant_keyset_id: String,
     network_virtualization_type: String,
+    routing_profile_type: String,
     vni: String,
 }
 
@@ -51,6 +52,7 @@ impl From<forgerpc::Vpc> for VpcRowDisplay {
             metadata: vpc.metadata.unwrap_or_default(),
             tenant_organization_id: vpc.tenant_organization_id,
             tenant_keyset_id: vpc.tenant_keyset_id.unwrap_or_default(),
+            routing_profile_type: vpc.routing_profile_type.unwrap_or("None".to_string()),
             vni: vpc.vni.map(|vni| vni.to_string()).unwrap_or_default(),
         }
     }
@@ -129,6 +131,7 @@ struct VpcDetail {
     tenant_organization_id: String,
     tenant_keyset_id: String,
     network_virtualization_type: String,
+    routing_profile_type: String,
     vni: String,
     metadata_detail: super::MetadataDetail,
 }
@@ -140,6 +143,7 @@ impl From<forgerpc::Vpc> for VpcDetail {
             id: vpc.id.unwrap_or_default().to_string(),
             tenant_organization_id: vpc.tenant_organization_id,
             tenant_keyset_id: vpc.tenant_keyset_id.unwrap_or_default(),
+            routing_profile_type: vpc.routing_profile_type.unwrap_or("None".to_string()),
             vni: vpc.vni.map(|vni| vni.to_string()).unwrap_or_default(),
             metadata_detail: super::MetadataDetail {
                 metadata: vpc.metadata.unwrap_or_default(),

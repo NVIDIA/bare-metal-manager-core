@@ -47,6 +47,18 @@ pub struct HealthReportSources {
 
 impl HealthReportSources {
     #[allow(clippy::should_implement_trait)]
+    pub fn iter(&self) -> impl Iterator<Item = (&HealthReport, HealthReportApplyMode)> {
+        self.merges
+            .values()
+            .map(|r| (r, HealthReportApplyMode::Merge))
+            .chain(
+                self.replace
+                    .as_ref()
+                    .map(|r| (r, HealthReportApplyMode::Replace)),
+            )
+    }
+
+    #[allow(clippy::should_implement_trait)]
     pub fn into_iter(self) -> impl Iterator<Item = (HealthReport, HealthReportApplyMode)> {
         self.merges
             .into_values()

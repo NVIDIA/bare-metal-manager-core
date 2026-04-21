@@ -22,10 +22,7 @@ Because you cannot build `aarch64` artifacts on an `x86_64` host, we only create
 cd $NICo_ROOT_DIR/pxe && cargo make mkdir-static-aarch64
 ```
 
-
-
 > **NOTE**: Running NICo using `docker-compose` and QEMU `clients` only works with `x86_64` binaries. CI/CD is used for testing on `aarch64` systems such as a Bluefield
-
 
 or
 

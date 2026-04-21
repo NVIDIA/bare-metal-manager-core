@@ -562,17 +562,43 @@ async fn test_machine_a_tron_zerodpu(
         bmc_mock_registry,
         admin_dhcp_relay_address,
         |machine_handle| {
+            let carbide_api_addrs = &test_env.carbide_api_addrs;
             async move {
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(90))
                     .await?;
                 let machine_id = machine_handle
                     .observed_machine_id()
-                    .expect("Machine ID should be set if host is ready")
-                    .to_string();
-                tracing::info!("Machine {machine_id} has made it to Ready.");
-                // TODO: ZERO DPU's instance handling is not yet clear. Removing this code until
-                // carbide starts supporting ZERO DPUs instance creation.
+                    .expect("Machine ID should be set if host is ready");
+                tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
+
+                // Zero-DPU tenants don't pass any network config; the allocator instead
+                // auto-picks a HostInband segment for them (which is covered as part of
+                // the test_zero_dpu_instance_allocation_no_network_config test).
+                let instance_id = instance::create(
+                    carbide_api_addrs,
+                    &machine_id,
+                    None,
+                    None,
+                    false,
+                    false,
+                    &[],
+                )
+                .await?;
+
+                machine_handle
+                    .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(60))
+                    .await?;
+                tracing::info!(
+                    "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
+                );
+
+                instance::release(carbide_api_addrs, &machine_id, &instance_id, false).await?;
+
+                machine_handle
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
+                    .await?;
+                tracing::info!("Machine {machine_id} has made it to Ready again, all done");
                 Ok::<(), eyre::Report>(())
             }
         },
@@ -595,17 +621,43 @@ async fn test_machine_a_tron_singledpu_nic_mode(
         bmc_mock_registry,
         admin_dhcp_relay_address,
         |machine_handle| {
+            let carbide_api_addrs = &test_env.carbide_api_addrs;
             async move {
                 machine_handle
                     .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
                     .await?;
                 let machine_id = machine_handle
                     .observed_machine_id()
-                    .expect("Machine ID should be set if host is ready")
-                    .to_string();
+                    .expect("Machine ID should be set if host is ready");
                 tracing::info!("Machine {machine_id} has made it to Ready, allocating instance");
-                // TODO: ZERO DPU/DPU in NIC mode's instance handling is not yet clear. Removing this code until
-                // carbide starts supporting ZERO DPUs instance creation.
+
+                // For a DPU in NIC-mode, the DPU is treated as a plain NIC, meaning
+                // allocation goes through HostInband the same way the zero-DPU path
+                // allocation does; no network config, and the allocator auto-picks.
+                let instance_id = instance::create(
+                    carbide_api_addrs,
+                    &machine_id,
+                    None,
+                    None,
+                    false,
+                    false,
+                    &[],
+                )
+                .await?;
+
+                machine_handle
+                    .wait_until_machine_up_with_api_state("Assigned/Ready", Duration::from_secs(60))
+                    .await?;
+                tracing::info!(
+                    "Machine {machine_id} has made it to Assigned/Ready, releasing instance"
+                );
+
+                instance::release(carbide_api_addrs, &machine_id, &instance_id, false).await?;
+
+                machine_handle
+                    .wait_until_machine_up_with_api_state("Ready", Duration::from_secs(60))
+                    .await?;
+                tracing::info!("Machine {machine_id} has made it to Ready again, all done");
                 Ok::<(), eyre::Report>(())
             }
         },

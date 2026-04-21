@@ -35,6 +35,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ".forge.DeletedFilter",
             "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
         )
+        .type_attribute(
+            ".forge.DpuMode",
+            "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
+        )
+        .type_attribute(
+            ".forge.DpuMode",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
         .extern_path(".google.protobuf.Duration", "crate::Duration")
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
         .extern_path(".common.DomainId", "::carbide_uuid::domain::DomainId")
@@ -744,7 +752,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )
         .type_attribute(
+            "forge.RackConfig",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.RackList",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.RackStatus",
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )
         .type_attribute("forge.PowerShelf", "#[derive(serde::Serialize)]")

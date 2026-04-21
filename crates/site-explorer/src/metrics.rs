@@ -25,7 +25,7 @@ use model::site_explorer::{EndpointExplorationError, MachineExpectation};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Histogram, Meter};
 
-use crate::cfg::file::SiteExplorerConfig;
+use super::config::SiteExplorerConfig;
 
 /// Reasons why a host fails to pair with its DPU(s).
 /// These are issues that require manual intervention.

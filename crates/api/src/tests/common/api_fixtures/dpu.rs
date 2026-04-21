@@ -68,6 +68,11 @@ pub struct DpuConfig {
     pub last_exploration_error: Option<EndpointExplorationError>,
     pub override_hosts_uefi_device_path: Option<UefiDevicePath>,
     pub hardware_info_template: HardwareInfoTemplate,
+    /// The `nic_mode` value included in the DPU's `EndpointExplorationReport`.
+    /// Defaults to `Some(NicMode::Dpu)`; tests exercising the auto-correct
+    /// path override this to `Some(NicMode::Nic)` to simulate a DPU whose
+    /// hardware mode doesn't match the operator-declared mode.
+    pub nic_mode: Option<NicMode>,
 }
 
 impl DpuConfig {
@@ -99,6 +104,7 @@ impl Default for DpuConfig {
             last_exploration_error: None,
             override_hosts_uefi_device_path: None,
             hardware_info_template: HardwareInfoTemplate::Default,
+            nic_mode: Some(NicMode::Dpu),
         }
     }
 }
@@ -151,7 +157,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
                 model: None,
                 serial_number: Some(value.serial.clone()),
                 attributes: ComputerSystemAttributes {
-                    nic_mode: Some(NicMode::Dpu),
+                    nic_mode: value.nic_mode,
                     is_infinite_boot_enabled: None,
                 },
                 pcie_devices: vec![

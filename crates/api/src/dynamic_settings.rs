@@ -77,7 +77,3 @@ impl DynamicSettings {
             .expect("Could not spawn dynamic_feature_reset task");
     }
 }
-
-pub fn bmc_proxy(s: Option<HostPortPair>) -> Arc<ArcSwap<Option<HostPortPair>>> {
-    Arc::new(ArcSwap::new(Arc::new(s)))
-}

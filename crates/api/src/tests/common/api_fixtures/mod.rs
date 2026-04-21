@@ -31,6 +31,8 @@ use async_trait::async_trait;
 use carbide_ipmi::IPMITool;
 use carbide_redfish::libredfish::test_support::{RedfishSim, RedfishSimTestOverrides};
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
+use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
+use carbide_site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
@@ -64,7 +66,7 @@ use model::metadata::Metadata;
 use model::network_security_group;
 use model::resource_pool::common::CommonPools;
 use model::resource_pool::{self};
-use model::tenant::{RoutingProfileType, TenantOrganizationId};
+use model::tenant::TenantOrganizationId;
 use nras::{
     DeviceAttestationInfo, NrasError, ProcessedAttestationOutcome, RawAttestationOutcome,
     VerifierClient,
@@ -95,9 +97,9 @@ use crate::cfg::file::{
     MachineStateControllerConfig, MachineUpdater, MachineValidationConfig,
     MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
     NetworkSegmentStateControllerConfig, NvLinkConfig, PowerManagerOptions,
-    PowerShelfStateControllerConfig, RackStateControllerConfig, SiteExplorerConfig,
-    SiteExplorerExploreMode, SpdmConfig, SpdmStateControllerConfig, StateControllerConfig,
-    SwitchStateControllerConfig, VmaasConfig, VpcPeeringPolicy, default_max_find_by_ids,
+    PowerShelfStateControllerConfig, RackStateControllerConfig, SpdmConfig,
+    SpdmStateControllerConfig, StateControllerConfig, SwitchStateControllerConfig, VmaasConfig,
+    VpcPeeringPolicy, default_max_find_by_ids,
 };
 use crate::dpf::DpfOperations;
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
@@ -110,7 +112,6 @@ use crate::nvlink::NmxmClientPool;
 use crate::nvlink::test_support::NmxmSimClient;
 use crate::rack::rms_client::test_support::RmsSim;
 use crate::scout_stream;
-use crate::site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::state_controller::controller::{Enqueuer, StateController};
 use crate::state_controller::ib_partition::handler::IBPartitionStateHandler;
@@ -289,8 +290,9 @@ impl TestEnvOverrides {
                 additional_route_target_imports: vec![],
                 routing_profiles: HashMap::from([
                     (
-                        RoutingProfileType::External.to_string(),
+                        "EXTERNAL".to_string(),
                         crate::cfg::file::FnnRoutingProfileConfig {
+                            access_tier: 2,
                             internal: false,
                             route_target_imports: vec![],
                             route_targets_on_exports: vec![],
@@ -300,8 +302,9 @@ impl TestEnvOverrides {
                         },
                     ),
                     (
-                        RoutingProfileType::Internal.to_string(),
+                        "INTERNAL".to_string(),
                         crate::cfg::file::FnnRoutingProfileConfig {
+                            access_tier: 1,
                             internal: true,
                             route_target_imports: vec![],
                             route_targets_on_exports: vec![],
@@ -1062,6 +1065,7 @@ fn host_firmware_example() -> HashMap<String, Firmware> {
 
 pub fn get_config() -> CarbideConfig {
     CarbideConfig {
+        default_tenant_routing_profile_type: "EXTERNAL".to_string(),
         bgp_leaf_session_password: None,
         rack_validation_config: crate::cfg::file::RackValidationConfig {
             enabled: true,
@@ -1550,6 +1554,7 @@ pub async fn create_test_env_with_overrides(
         machine_state_handler_enqueuer: Enqueuer::new(db_pool.clone()),
         metric_emitter: ApiMetricsEmitter::new(&test_meter.meter()),
         component_manager: None,
+        bms_client: std::sync::OnceLock::new(),
     });
 
     let attestation_enabled = config.attestation_enabled;
@@ -1685,6 +1690,7 @@ pub async fn create_test_env_with_overrides(
 
     let fake_endpoint_explorer = MockEndpointExplorer {
         reports: Arc::new(std::sync::Mutex::new(Default::default())),
+        set_nic_mode_calls: Arc::new(std::sync::Mutex::new(Default::default())),
     };
 
     // The API server is launched with a disabled site-explorer config so that it doesn't launch one
@@ -1967,6 +1973,7 @@ fn test_static_credential_snapshot() -> CredentialSnapshot {
     use std::collections::HashMap;
 
     use base64::Engine;
+
     let test_key_b64 = base64::engine::general_purpose::STANDARD.encode([0u8; 32]);
     let mut encryption_keys = HashMap::new();
     encryption_keys.insert("test".to_string(), test_key_b64);

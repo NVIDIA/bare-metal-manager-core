@@ -43,12 +43,9 @@ struct TenantDisplay {
 impl From<forgerpc::Tenant> for TenantDisplay {
     fn from(tenant: forgerpc::Tenant) -> Self {
         Self {
-            routing_profile_type: if tenant.routing_profile_type.is_none() {
-                "None"
-            } else {
-                tenant.routing_profile_type().as_str_name()
-            }
-            .to_string(),
+            routing_profile_type: tenant
+                .routing_profile_type
+                .unwrap_or_else(|| "None".to_string()),
             organization_id: tenant.organization_id,
             metadata: tenant.metadata.unwrap_or_default(),
         }

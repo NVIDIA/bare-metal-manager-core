@@ -67,13 +67,13 @@ async fn create_vpc_for_tenant_without_profile(
                         description: "".to_string(),
                         labels: Vec::new(),
                     })
-                    .routing_profile_type(rpc::forge::RoutingProfileType::PrivilegedInternal)
+                    .routing_profile_type("PRIVILEGED_INTERNAL".to_string())
                     .tonic_request(),
             )
             .await
             .unwrap_err()
             .message()
-            .contains("no tenant found")
+            .contains("no tenant or routing profile-type found")
     );
 
     // Try to request a VPC with a routing profile when the tenant has no routing profile type
@@ -86,13 +86,13 @@ async fn create_vpc_for_tenant_without_profile(
                         description: "".to_string(),
                         labels: Vec::new(),
                     })
-                    .routing_profile_type(rpc::forge::RoutingProfileType::PrivilegedInternal)
+                    .routing_profile_type("PRIVILEGED_INTERNAL".to_string())
                     .tonic_request(),
             )
             .await
             .unwrap_err()
             .message()
-            .contains("with no routing-profile type")
+            .contains("no tenant or routing profile-type found")
     );
 
     Ok(())
@@ -100,21 +100,53 @@ async fn create_vpc_for_tenant_without_profile(
 
 #[crate::sqlx_test]
 async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    // Build an FNN config with distinct access tiers so the create path
+    // covers the new routing-profile validation.
     let env = create_test_env_with_overrides(
         pool,
         TestEnvOverrides {
             ..Default::default()
         }
-        .with_fnn_config(None),
+        .with_fnn_config(Some(crate::cfg::file::FnnConfig {
+            admin_vpc: None,
+            common_internal_route_target: None,
+            additional_route_target_imports: vec![],
+            routing_profiles: HashMap::from([
+                (
+                    "INTERNAL".to_string(),
+                    crate::cfg::file::FnnRoutingProfileConfig {
+                        internal: true,
+                        route_target_imports: vec![],
+                        route_targets_on_exports: vec![],
+                        leak_default_route_from_underlay: false,
+                        leak_tenant_host_routes_to_underlay: false,
+                        tenant_leak_communities_accepted: false,
+                        access_tier: 1,
+                    },
+                ),
+                (
+                    "PRIVILEGED_INTERNAL".to_string(),
+                    crate::cfg::file::FnnRoutingProfileConfig {
+                        internal: true,
+                        route_target_imports: vec![],
+                        route_targets_on_exports: vec![],
+                        leak_default_route_from_underlay: false,
+                        leak_tenant_host_routes_to_underlay: false,
+                        tenant_leak_communities_accepted: false,
+                        access_tier: 0,
+                    },
+                ),
+            ]),
+        })),
     )
     .await;
 
-    // Create a tenant.
+    // Create a tenant using the current string field.
     let tenant = env
         .api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
             organization_id: "sizzle".to_string(),
-            routing_profile_type: Some(rpc::forge::RoutingProfileType::Internal.into()),
+            routing_profile_type: Some("INTERNAL".to_string()),
             metadata: Some(rpc::forge::Metadata {
                 name: "sizzle".to_string(),
                 description: "".to_string(),
@@ -172,7 +204,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .api
         .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
             organization_id: "fizzle".to_string(),
-            routing_profile_type: Some(rpc::forge::RoutingProfileType::Internal.into()),
+            routing_profile_type: Some("INTERNAL".to_string()),
             metadata: Some(rpc::forge::Metadata {
                 name: "fizzle".to_string(),
                 description: "".to_string(),
@@ -185,7 +217,7 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
         .tenant
         .unwrap();
 
-    // Try to request an elevated routing profile type for the VPC.
+    // Try to request a broader routing profile for the VPC.
     // This should fail.
     assert!(
         env.api
@@ -196,13 +228,13 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
                         description: "".to_string(),
                         labels: Vec::new(),
                     })
-                    .routing_profile_type(rpc::forge::RoutingProfileType::PrivilegedInternal)
+                    .routing_profile_type("PRIVILEGED_INTERNAL".to_string())
                     .tonic_request(),
             )
             .await
             .unwrap_err()
             .message()
-            .contains("greater than associated tenant")
+            .contains("broader than associated tenant routing-profile access tier")
     );
 
     // Create a VPC by explicitly selecting a VNI from
@@ -495,6 +527,58 @@ async fn create_vpc(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Error>
     let vpcs = db::vpc::find_by(txn.as_mut(), ObjectColumnFilter::<vpc::IdColumn>::All).await?;
     assert!(vpcs.is_empty());
     txn.commit().await?;
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn create_vpc_without_fnn_rejects_explicit_routing_profile(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            ..Default::default()
+        },
+    )
+    .await;
+
+    // Seed a tenant directly so the no-FNN VPC path sees a stored profile.
+    let tenant_organization_id = "sizzle_without_fnn".to_string();
+    {
+        let mut txn = env.pool.begin().await?;
+        db::tenant::create_and_persist(
+            tenant_organization_id.clone(),
+            Metadata {
+                name: "sizzle_without_fnn".to_string(),
+                description: "".to_string(),
+                labels: HashMap::new(),
+            },
+            Some("INTERNAL".to_string()),
+            txn.deref_mut(),
+        )
+        .await?;
+        txn.commit().await?;
+    };
+
+    // Requesting a VPC routing profile without FNN should fail early.
+    assert!(
+        env.api
+            .create_vpc(
+                VpcCreationRequest::builder("", &tenant_organization_id)
+                    .metadata(rpc::forge::Metadata {
+                        name: "Forge".to_string(),
+                        description: "".to_string(),
+                        labels: Vec::new(),
+                    })
+                    .routing_profile_type("PRIVILEGED_INTERNAL".to_string())
+                    .tonic_request(),
+            )
+            .await
+            .unwrap_err()
+            .message()
+            .contains("FNN configuration required to request routing-profile for VPCs")
+    );
 
     Ok(())
 }

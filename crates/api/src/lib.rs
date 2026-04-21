@@ -21,9 +21,6 @@
 // It's too cumbersome for tests to adhere to these, which are less important in testing anyway.
 #![cfg_attr(test, allow(txn_held_across_await))]
 #![cfg_attr(test, allow(txn_without_commit))]
-// Needed for nv-redfish that requires deep recursion for Redfish
-// object type tree.
-#![recursion_limit = "256"]
 
 #[cfg(test)]
 /// test_assert will run an assertion if we are compiled to run tests, or will print an error otherwise.
@@ -99,7 +96,6 @@ mod redfish;
 mod run;
 mod scout_stream;
 mod setup;
-mod site_explorer;
 mod state_controller;
 mod storage;
 #[cfg(test)]
@@ -109,12 +105,10 @@ mod web;
 // Allow carbide_macros::sqlx_test to be referred as #[crate::sqlx_test]
 #[cfg(test)]
 pub(crate) use carbide_macros::sqlx_test;
-pub use cfg::file::SiteExplorerExploreMode;
 // TODO: temporary while migrating db to its own crate
 pub use db::{DatabaseError, DatabaseResult};
 // Save typing
 pub(crate) use errors::{CarbideError, CarbideResult};
-pub use site_explorer::BmcEndpointExplorer;
 
 // Stuff needed by main.rs and api-test
 pub use crate::{cfg::command_line::Command, cfg::command_line::Options, run::run};

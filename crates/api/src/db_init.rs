@@ -69,7 +69,11 @@ pub async fn create_initial_networks(
         ObjectColumnFilter::<db::dns::domain::IdColumn>::All,
     )
     .await?;
-    if all_domains.len() != 1 {
+    if all_domains.is_empty() {
+        tracing::warn!("No domain configured, skipping initial network creation");
+        return Ok(());
+    }
+    if all_domains.len() > 1 {
         // We only create initial networks if we only have a single domain - usually created
         // as initial_domain_name in config file.
         // Having multiple domains is fine, it means we probably created the network much
@@ -274,7 +278,7 @@ pub(crate) async fn create_admin_vpc(
         tenant_organization_id: "carbide_internal".to_string(),
         // For consistency, but admin routing profile is defined in-line in the
         // FNN config.
-        routing_profile_type: Some(model::tenant::RoutingProfileType::Admin),
+        routing_profile_type: None, // It's purely informational.  Admin profile is pulled from an inline-config and not tied to a name or ID.
         network_security_group_id: None,
         network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
         metadata: Metadata {
