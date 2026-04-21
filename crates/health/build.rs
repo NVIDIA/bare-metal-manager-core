@@ -20,17 +20,39 @@ use std::path::PathBuf;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     carbide_version::build();
 
-    // vendored from opentelemetry-proto v1.5.0
     let proto_dir = PathBuf::from("proto");
 
     println!("cargo:rerun-if-changed=proto/");
 
+    // vendored from opentelemetry-proto v1.5.0
     tonic_prost_build::configure()
         .build_server(false)
         .build_client(true)
         .compile_protos(
             &[proto_dir.join("opentelemetry/proto/collector/logs/v1/logs_service.proto")],
-            &[proto_dir],
+            std::slice::from_ref(&proto_dir),
+        )?;
+
+    // vendored from openconfig/gnmi v0.11.0
+    // gnmi_ext compiled separately so gnmi.proto can extern_path it and reuse the types
+    tonic_prost_build::configure()
+        .build_client(true)
+        .build_server(false)
+        .compile_protos(
+            &[proto_dir.join("github.com/openconfig/gnmi/proto/gnmi_ext/gnmi_ext.proto")],
+            std::slice::from_ref(&proto_dir),
+        )?;
+
+    tonic_prost_build::configure()
+        .build_client(true)
+        .build_server(false)
+        .extern_path(
+            ".gnmi_ext",
+            "crate::collectors::nvue::gnmi::proto::gnmi_ext",
+        )
+        .compile_protos(
+            &[proto_dir.join("github.com/openconfig/gnmi/proto/gnmi/gnmi.proto")],
+            std::slice::from_ref(&proto_dir),
         )?;
 
     Ok(())
