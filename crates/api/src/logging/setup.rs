@@ -455,4 +455,19 @@ mod tests {
             assert!(tracing::enabled!(target: "hyper", tracing::Level::ERROR));
         });
     }
+
+    #[test]
+    fn regression_debug_default_directive_survives_dep_filter() {
+        // Make sure with_default_directive is not ignored
+        let initial = EnvFilter::builder()
+            .with_default_directive(LevelFilter::DEBUG.into())
+            .parse("")
+            .unwrap();
+
+        let subscriber = tracing_subscriber::registry().with(dep_log_filter(initial));
+        tracing::subscriber::with_default(subscriber, || {
+            assert!(tracing::enabled!(target: "carbide", tracing::Level::DEBUG));
+            assert!(!tracing::enabled!(target: "carbide", tracing::Level::TRACE));
+        });
+    }
 }
