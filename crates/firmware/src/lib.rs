@@ -30,6 +30,54 @@ use model::firmware::Firmware;
 use model::site_explorer::{EndpointExplorationReport, ExploredEndpoint};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug)]
+pub struct FirmwareConfigSnapshot {
+    data: HashMap<String, Firmware>,
+}
+
+impl FirmwareConfigSnapshot {
+    pub fn values(&self) -> impl Iterator<Item = &Firmware> {
+        self.data.values()
+    }
+
+    pub fn into_values(self) -> impl Iterator<Item = Firmware> {
+        self.data.into_values()
+    }
+
+    pub fn find(&self, vendor: bmc_vendor::BMCVendor, model: &str) -> Option<Firmware> {
+        let dpu_model = DpuModel::from(model);
+        let key = if dpu_model != DpuModel::Unknown {
+            vendor_model_to_key(vendor, &dpu_model.to_string())
+        } else {
+            vendor_model_to_key(vendor, model)
+        };
+        let ret = self.data.get(&key).map(|x| x.to_owned());
+        tracing::debug!("FirmwareConfig::find: key {key} found {ret:?}");
+        ret
+    }
+
+    /// find_fw_info_for_host looks up the firmware config for the given endpoint
+    pub fn find_fw_info_for_host(&self, endpoint: &ExploredEndpoint) -> Option<Firmware> {
+        self.find_fw_info_for_host_report(&endpoint.report)
+    }
+
+    /// find_fw_info_for_host_report looks up the firmware config for the given endpoint report
+    pub fn find_fw_info_for_host_report(
+        &self,
+        report: &EndpointExplorationReport,
+    ) -> Option<Firmware> {
+        report.vendor.and_then(|vendor| {
+            // Use report.model if it is already filled or use model()
+            // function to extract model from the report.
+            report
+                .model
+                .as_ref()
+                .and_then(|model| self.find(vendor, model))
+                .or_else(|| report.model().and_then(|model| self.find(vendor, &model)))
+        })
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct FirmwareConfig {
     base_map: HashMap<String, Firmware>,
@@ -65,56 +113,23 @@ impl FirmwareConfig {
         }
     }
 
-    pub fn find(&self, vendor: bmc_vendor::BMCVendor, model: &str) -> Option<Firmware> {
-        let dpu_model = DpuModel::from(model);
-        let key = if dpu_model != DpuModel::Unknown {
-            vendor_model_to_key(vendor, &dpu_model.to_string())
-        } else {
-            vendor_model_to_key(vendor, model)
-        };
-        let ret = self.map().get(&key).map(|x| x.to_owned());
-        tracing::debug!("FirmwareConfig::find: key {key} found {ret:?}");
-        ret
-    }
-
-    /// find_fw_info_for_host looks up the firmware config for the given endpoint
-    pub fn find_fw_info_for_host(&self, endpoint: &ExploredEndpoint) -> Option<Firmware> {
-        self.find_fw_info_for_host_report(&endpoint.report)
-    }
-
-    /// find_fw_info_for_host_report looks up the firmware config for the given endpoint report
-    pub fn find_fw_info_for_host_report(
-        &self,
-        report: &EndpointExplorationReport,
-    ) -> Option<Firmware> {
-        report.vendor.and_then(|vendor| {
-            // Use report.model if it is already filled or use model()
-            // function to extract model from the report.
-            report
-                .model
-                .as_ref()
-                .and_then(|model| self.find(vendor, model))
-                .or_else(|| report.model().and_then(|model| self.find(vendor, &model)))
-        })
-    }
-
-    pub fn map(&self) -> HashMap<String, Firmware> {
-        let mut map = self.base_map.clone();
+    pub fn create_snapshot(&self) -> FirmwareConfigSnapshot {
+        let mut data = self.base_map.clone();
         if self.firmware_directory.to_string_lossy() != "" {
-            self.merge_firmware_configs(&mut map, &self.firmware_directory);
+            self.merge_firmware_configs(&mut data, &self.firmware_directory);
         }
 
         #[cfg(test)]
         {
             // Fake configs to merge for unit tests
             for ovrd in &self.test_overrides {
-                if let Err(err) = self.merge_from_string(&mut map, ovrd.clone()) {
+                if let Err(err) = self.merge_from_string(&mut data, ovrd.clone()) {
                     tracing::error!("Bad override {ovrd}: {err}");
                 }
             }
         }
 
-        map
+        FirmwareConfigSnapshot { data }
     }
 
     pub fn config_update_time(&self) -> Option<std::time::SystemTime> {

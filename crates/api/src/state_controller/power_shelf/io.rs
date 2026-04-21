@@ -152,6 +152,7 @@ impl StateControllerIO for PowerShelfStateControllerIO {
     }
 
     fn state_sla(
+        &self,
         state: &Versioned<Self::ControllerState>,
         _object_state: &Self::State,
     ) -> StateSla {

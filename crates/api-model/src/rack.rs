@@ -24,6 +24,7 @@ use carbide_uuid::switch::SwitchId;
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
 use rpc::Timestamp;
+use rpc::forge::LifecycleStatus;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgRow;
 use sqlx::{FromRow, Row};
@@ -166,6 +167,16 @@ impl From<Rack> for rpc::forge::Rack {
             })
             .collect();
 
+        let lifecycle = LifecycleStatus {
+            state: serde_json::to_string(&value.controller_state.value).unwrap_or_default(),
+            version: value.controller_state.version.version_string(),
+            state_reason: value.controller_state_outcome.map(Into::into),
+            sla: Some(rpc::forge::StateSla {
+                sla: None, // TODO: Calculate SLA properly
+                time_in_state_above_sla: false,
+            }),
+        };
+
         rpc::forge::Rack {
             id: Some(value.id),
             rack_state: value.controller_state.value.to_string(),
@@ -184,6 +195,7 @@ impl From<Rack> for rpc::forge::Rack {
             status: Some(rpc::forge::RackStatus {
                 health: Some(health.into()),
                 health_sources,
+                lifecycle: Some(lifecycle),
             }),
         }
     }

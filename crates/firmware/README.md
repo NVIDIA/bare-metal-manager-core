@@ -36,8 +36,23 @@ This crate is intentionally narrow:
 ### `FirmwareConfig`
 
 The main entry point. Constructed from a base map (populated from
-`CarbideConfig`) and a `firmware_directory` path. Offers lookup
-methods keyed by vendor + model:
+`CarbideConfig`) and a `firmware_directory` path. It is responsible
+for loading, merging, and refreshing firmware metadata.
+
+It exposes disk-state observation:
+
+- `create_snapshot()` — produce a merged firmware snapshot (reads
+  disk each call).
+- `config_update_time()` — modification time of `firmware_directory`,
+  used by callers that want to detect on-disk changes.
+
+### `FirmwareConfigSnapshot`
+
+An immutable point-in-time view of the merged firmware catalog.
+Snapshots are created via `FirmwareConfig::create_snapshot()` and
+can be queried without re-reading the disk.
+
+It exposes lookup helpers keyed by vendor and model:
 
 - `find(vendor, model)` — look up firmware metadata for a specific
   vendor/model pair.
@@ -45,24 +60,19 @@ methods keyed by vendor + model:
   an explored endpoint.
 - `find_fw_info_for_host_report(report)` — same, given the
   exploration report directly.
-
-It also exposes disk-state observation:
-
-- `map()` — produce the merged firmware map (reads disk each call).
-- `config_update_time()` — modification time of `firmware_directory`,
-  used by callers that want to detect on-disk changes.
+- `values()` / `into_values()` — iterate over snapshot contents.
 
 ## Loading behavior
 
 `FirmwareConfig` is a **live view** over the firmware directory, not
-a snapshot. Every call to a lookup method re-reads the directory,
+a snapshot. Every call to `create_snapshot()` re-reads the directory,
 parses every `metadata.toml`, and re-merges the entries on top of
 the base map.
 
 This lets operators add new firmware metadata at runtime without
-restarting Carbide: the next lookup picks it up. Consumers that want
+restarting Carbide: the next snapshot picks it up. Consumers that want
 cheap in-memory lookups (or explicit snapshot semantics) should
-cache the result themselves.
+cache a `FirmwareConfigSnapshot` and reuse it.
 
 Merge rules, applied in oldest-to-newest directory order:
 
@@ -84,6 +94,16 @@ Currently used (directly or indirectly) by:
   `machine_update_manager` (hot-reload detection),
   `handlers/firmware.rs` (HTTP API), `preingestion_manager`,
   `site_explorer`, `state_controller`, tests.
+
+## Snapshot semantics
+
+A lightweight `FirmwareConfigSnapshot` type has been introduced to
+provide an immutable point-in-time view of the firmware catalog.
+Snapshots are created via `FirmwareConfig::create_snapshot()` and
+contain a `data: HashMap<String, Firmware>` that can be queried
+without re-reading the disk. This avoids the hidden disk I/O that
+would otherwise occur on each refresh and enables efficient sharing
+(`Arc<FirmwareConfigSnapshot>`) across concurrent code paths.
 
 ## Future direction
 

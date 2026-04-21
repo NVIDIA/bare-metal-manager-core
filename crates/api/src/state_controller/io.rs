@@ -139,5 +139,9 @@ pub trait StateControllerIO: Send + Sync + std::fmt::Debug + 'static + Default {
     ///
     /// If an object stays in a state for longer than expected, a metric will
     /// be emitted.
-    fn state_sla(state: &Versioned<Self::ControllerState>, object_state: &Self::State) -> StateSla;
+    fn state_sla(
+        &self,
+        state: &Versioned<Self::ControllerState>,
+        object_state: &Self::State,
+    ) -> StateSla;
 }

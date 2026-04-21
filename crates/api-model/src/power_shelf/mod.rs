@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
+use ::rpc::forge::{self as rpc, LifecycleStatus};
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use chrono::prelude::*;
@@ -176,7 +176,6 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
     type Error = RpcDataConversionError;
 
     fn try_from(src: PowerShelf) -> Result<Self, Self::Error> {
-        let controller_state = serde_json::to_string(&src.controller_state.value).unwrap();
         let health = derive_power_shelf_aggregate_health(&src.health_reports);
         let health_sources = src
             .health_reports
@@ -186,6 +185,17 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
                 source: hr.source.clone(),
             })
             .collect();
+
+        let lifecycle = LifecycleStatus {
+            state: serde_json::to_string(&src.controller_state.value).unwrap_or_default(),
+            version: src.controller_state.version.version_string(),
+            state_reason: src.controller_state_outcome.map(Into::into),
+            sla: Some(rpc::StateSla {
+                sla: None, // TODO: Calculate SLA properly
+                time_in_state_above_sla: false,
+            }),
+        };
+        let controller_state = lifecycle.state.clone();
 
         let status = Some(match src.status {
             Some(s) => rpc::PowerShelfStatus {
@@ -200,6 +210,7 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
                 controller_state: Some(controller_state.clone()),
                 health: Some(health.into()),
                 health_sources,
+                lifecycle: Some(lifecycle),
             },
             None => rpc::PowerShelfStatus {
                 state_reason: None,
@@ -213,6 +224,7 @@ impl TryFrom<PowerShelf> for rpc::PowerShelf {
                 controller_state: Some(controller_state.clone()),
                 health: Some(health.into()),
                 health_sources,
+                lifecycle: Some(lifecycle),
             },
         });
 

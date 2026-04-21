@@ -896,6 +896,7 @@ known_firmware = [
     let cfg = cfg.get_firmware_config();
 
     let model = cfg
+        .create_snapshot()
         .find(bmc_vendor::BMCVendor::Dell, "PowerEdge R750")
         .unwrap();
 

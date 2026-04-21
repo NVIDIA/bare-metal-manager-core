@@ -24,7 +24,7 @@ use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
-use carbide_firmware::FirmwareConfig;
+use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -1463,6 +1463,7 @@ impl MachineStateHandler {
                     )));
                 }
 
+                let fw_config_snapshot = self.dpu_handler.hardware_models.create_snapshot();
                 for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                     // TODO: Optimization Possible: We can have another outcome something like
                     // TransitionNotPossible. This will be valid for the sync states (States where
@@ -1477,7 +1478,7 @@ impl MachineStateHandler {
                             &MachineNextStateResolver,
                             dpu_snapshot,
                             ctx,
-                            &self.dpu_handler.hardware_models,
+                            &fw_config_snapshot,
                             self.dpu_handler.dpf_sdk.as_deref(),
                         )
                         .await?
@@ -2545,7 +2546,7 @@ async fn handle_dpu_reprovision(
     next_state_resolver: &impl NextState,
     dpu_snapshot: &Machine,
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
-    hardware_models: &FirmwareConfig,
+    hardware_models: &FirmwareConfigSnapshot,
     dpf_sdk: Option<&dyn DpfOperations>,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let dpu_machine_id = &dpu_snapshot.id;
@@ -2923,7 +2924,7 @@ pub async fn try_wait_for_dpu_discovery(
 async fn check_fw_component_version(
     ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     dpu_snapshot: &Machine,
-    hardware_models: &FirmwareConfig,
+    hardware_models: &FirmwareConfigSnapshot,
 ) -> Result<Option<StateHandlerOutcome<ManagedHostState>>, StateHandlerError> {
     let redfish_client = ctx
         .services
@@ -3496,8 +3497,12 @@ impl DpuMachineStateHandler {
                     }
                 };
 
-                if let Some(outcome) =
-                    check_fw_component_version(ctx, dpu_snapshot, &self.hardware_models).await?
+                if let Some(outcome) = check_fw_component_version(
+                    ctx,
+                    dpu_snapshot,
+                    &self.hardware_models.create_snapshot(),
+                )
+                .await?
                 {
                     return Ok(outcome);
                 }
@@ -5935,6 +5940,7 @@ impl StateHandler for InstanceStateHandler {
                         )));
                     }
 
+                    let fw_config_snapshot = self.hardware_models.create_snapshot();
                     for dpu_snapshot in &mh_snapshot.dpu_snapshots {
                         if let outcome @ StateHandlerOutcome::Transition { .. } =
                             handle_dpu_reprovision(
@@ -5943,7 +5949,7 @@ impl StateHandler for InstanceStateHandler {
                                 &InstanceNextStateResolver,
                                 dpu_snapshot,
                                 ctx,
-                                &self.hardware_models,
+                                &fw_config_snapshot,
                                 self.dpf_sdk.as_deref(),
                             )
                             .await?
@@ -6895,7 +6901,11 @@ impl HostUpgradeState {
             )));
         };
 
-        let Some(fw_info) = self.parsed_hosts.find_fw_info_for_host(&explored_endpoint) else {
+        let Some(fw_info) = self
+            .parsed_hosts
+            .create_snapshot()
+            .find_fw_info_for_host(&explored_endpoint)
+        else {
             return Ok(StateHandlerOutcome::transition(scenario.complete_state()));
         };
 
@@ -7576,8 +7586,10 @@ impl HostUpgradeState {
                         // If we have multiple firmware files to be uploaded, do the next one.
                         if let Some(endpoint) =
                             find_explored_refreshed_endpoint(state, machine_id, ctx).await?
-                            && let Some(fw_info) =
-                                self.parsed_hosts.find_fw_info_for_host(&endpoint)
+                            && let Some(fw_info) = self
+                                .parsed_hosts
+                                .create_snapshot()
+                                .find_fw_info_for_host(&endpoint)
                             && let Some(component_info) = fw_info.components.get(firmware_type)
                             && let Some(selected_firmware) =
                                 component_info.known_firmware.iter().find(|&x| x.default)
@@ -7688,7 +7700,10 @@ impl HostUpgradeState {
                             return Ok(StateHandlerOutcome::do_nothing());
                         };
 
-                        if let Some(fw_info) = self.parsed_hosts.find_fw_info_for_host(&endpoint)
+                        if let Some(fw_info) = self
+                            .parsed_hosts
+                            .create_snapshot()
+                            .find_fw_info_for_host(&endpoint)
                             && let Some(current_version) =
                                 endpoint.find_version(&fw_info, *firmware_type)
                             && current_version == final_version
@@ -7962,7 +7977,11 @@ impl HostUpgradeState {
             return Ok(StateHandlerOutcome::do_nothing());
         };
 
-        let Some(fw_info) = self.parsed_hosts.find_fw_info_for_host(&endpoint) else {
+        let Some(fw_info) = self
+            .parsed_hosts
+            .create_snapshot()
+            .find_fw_info_for_host(&endpoint)
+        else {
             tracing::error!("Could no longer find firmware info for {machine_id}");
             return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                 HostReprovisionState::CheckingFirmwareRepeatV2 {

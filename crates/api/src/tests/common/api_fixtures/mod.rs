@@ -1585,6 +1585,9 @@ pub async fn create_test_env_with_overrides(
         .state_handler(Arc::new(machine_swap.clone()))
         .io(Arc::new(MachineStateControllerIO {
             host_health: config.host_health,
+            sla_config: model::machine::slas::MachineSlaConfig::new(
+                config.machine_state_controller.failure_retry_time,
+            ),
         }))
         .build_for_manual_iterations(cancel_token.clone())
         .expect("Unable to build state controller");

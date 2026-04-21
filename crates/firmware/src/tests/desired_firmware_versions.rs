@@ -93,7 +93,11 @@ current_version_reported_as = "^2$"
     let mut txn = pool.begin().await?;
     desired_firmware::snapshot_desired_firmware(
         &mut txn,
-        config.map().into_values().collect::<Vec<_>>().as_slice(),
+        config
+            .create_snapshot()
+            .into_values()
+            .collect::<Vec<_>>()
+            .as_slice(),
     )
     .await?;
     txn.commit().await?;

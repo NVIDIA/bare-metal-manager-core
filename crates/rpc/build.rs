@@ -209,6 +209,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Serialize, serde::Deserialize)]",
         )
         .type_attribute(
+            "forge.LifecycleStatus",
+            "#[derive(serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.InstancePhoneHomeLastContactRequest",
             "#[derive(serde::Serialize)]",
         )
@@ -736,20 +740,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )
         .type_attribute(
-            "forge.GetRackRequest",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.GetRackResponse",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
-            "forge.DeleteRackRequest",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
-        )
-        .type_attribute(
             "forge.Rack",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
+            "#[derive(serde::Serialize)]",
         )
         .type_attribute(
             "forge.RackConfig",
@@ -757,11 +749,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .type_attribute(
             "forge.RackList",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
+            "#[derive(serde::Serialize)]",
         )
         .type_attribute(
             "forge.RackStatus",
-            "#[derive(serde::Deserialize,serde::Serialize)]",
+            "#[derive(serde::Serialize)]",
         )
         .type_attribute("forge.PowerShelf", "#[derive(serde::Serialize)]")
         .type_attribute("forge.PowerShelfConfig", "#[derive(serde::Serialize)]")

@@ -80,7 +80,12 @@ pub(crate) fn list_host_firmware(
     _request: Request<rpc::ListHostFirmwareRequest>,
 ) -> Result<Response<rpc::ListHostFirmwareResponse>, Status> {
     let mut ret = vec![];
-    for (_, entry) in api.runtime_config.get_firmware_config().map() {
+    for entry in api
+        .runtime_config
+        .get_firmware_config()
+        .create_snapshot()
+        .into_values()
+    {
         for (component, component_info) in entry.components {
             for firmware in component_info.known_firmware {
                 if firmware.default {
@@ -114,7 +119,7 @@ pub(crate) fn get_desired_firmware_versions(
     let entries = api
         .runtime_config
         .get_firmware_config()
-        .map()
+        .create_snapshot()
         .into_values()
         .map(|firmware| {
             let vendor = firmware.vendor;
