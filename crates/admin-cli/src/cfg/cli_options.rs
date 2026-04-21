@@ -19,10 +19,10 @@ use rpc::admin_cli::OutputFormat;
 
 use crate::cfg::measurement;
 use crate::{
-    bmc_machine, boot_override, compute_allocation, credential, devenv, domain, dpa, dpu,
-    dpu_remediation, expected_machines, expected_power_shelf, expected_rack, expected_switch,
-    extension_service, firmware, generate_shell_complete, host, ib_partition, instance,
-    instance_type, inventory, ip, ipxe_template, jump, machine, machine_interfaces,
+    bmc_machine, boot_override, component_manager, compute_allocation, credential, devenv, domain,
+    dpa, dpu, dpu_remediation, expected_machines, expected_power_shelf, expected_rack,
+    expected_switch, extension_service, firmware, generate_shell_complete, host, ib_partition,
+    instance, instance_type, inventory, ip, ipxe_template, jump, machine, machine_interfaces,
     machine_validation, managed_host, managed_switch, mlx, network_devices, network_security_group,
     network_segment, nvl_logical_partition, nvl_partition, operating_system, os_image, ping,
     power_shelf, rack, rack_firmware, redfish, resource_pool, rms, route_server, scout_stream, set,
@@ -293,6 +293,9 @@ pub enum CliCommand {
         subcommand
     )]
     ComputeAllocation(compute_allocation::Cmd),
+
+    #[clap(about = "Component manager actions", visible_alias = "cm", subcommand)]
+    ComponentManager(component_manager::Cmd),
 
     #[clap(about = "SSH Util functions", subcommand)]
     Ssh(ssh::Cmd),
