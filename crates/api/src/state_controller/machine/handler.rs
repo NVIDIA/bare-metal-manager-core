@@ -24,7 +24,7 @@ use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
-use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
+use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot, FirmwareDownloader};
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -88,7 +88,6 @@ use crate::cfg::file::{
     BomValidationConfig, CarbideConfig, MachineValidationConfig, PowerManagerOptions, TimePeriod,
 };
 use crate::dpf::DpfOperations;
-use crate::firmware_downloader::FirmwareDownloader;
 use crate::redfish::{
     self, host_power_control, host_power_control_with_location, set_host_uefi_password,
 };

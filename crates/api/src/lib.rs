@@ -74,7 +74,6 @@ mod dpf_services;
 mod dynamic_settings;
 mod errors;
 mod ethernet_virtualization;
-mod firmware_downloader;
 mod handlers;
 mod ib;
 mod ib_fabric_monitor;

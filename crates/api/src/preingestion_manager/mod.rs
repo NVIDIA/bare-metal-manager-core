@@ -25,6 +25,7 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
+use carbide_firmware::FirmwareDownloader;
 use carbide_redfish::libredfish::{RedfishClientCreationError, RedfishClientPool};
 use carbide_site_explorer::EndpointExplorer;
 use chrono::{DateTime, Utc};
@@ -49,7 +50,6 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use utils::periodic_timer::PeriodicTimer;
 
-use crate::firmware_downloader::FirmwareDownloader;
 use crate::preingestion_manager::errors::{PreingestionManagerError, PreingestionManagerResult};
 use crate::preingestion_manager::metrics::PreingestionMetrics;
 

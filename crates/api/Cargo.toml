@@ -112,7 +112,6 @@ lazy_static = { workspace = true }
 libredfish = { workspace = true }
 librms = { workspace = true }
 mac_address = { workspace = true }
-md5 = { workspace = true }
 num-bigint-dig = { workspace = true }
 num_cpus = { workspace = true }
 oauth2 = { default-features = false, workspace = true }
