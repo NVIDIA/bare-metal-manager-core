@@ -28,81 +28,164 @@ servers:
   - url: 'https://carbide-rest-api.carbide.svc.cluster.local'
     description: Kubernetes Cluster
 tags:
+  - name: Getting Started
+    description:  |-
+      This section provides a quick overview of the API and how to get started.
+
+      ### Authentication
+      The first step is to authenticate using a JWT bearer token. Organization structures and roles depend on the authentication configuration used. For details on authentication, please consult the
+      NICo REST `auth` module [README](https://github.com/NVIDIA/ncx-infra-controller-rest/tree/main/auth).
+
+      ### API Version
+      The next step is to be aware of the API version being used. The API version can be retrieved by calling the [Retrieve Metadata endpoint](#tag/Metadata/operation/get-metadata). In general, the API maintains backward
+      compatibility with the previous versions. Any breaking changes are announced using a deprecation notice. Current and past deprecations are listed in the [Deprecations](#tag/Deprecations) section.
+
+      ### Service Account Mode
+      Depending on the auth configuration used, the NICo REST API may be configured in Service Account mode. In this mode, API users can act as both Provider and Tenant as part of the same organization.
+      If this is the case, the user must first retrieve the Service Account by making a call to the [Retrieve Service Account endpoint](#tag/Service-Account/operation/get-current-service-account).
+      For service accounts, the Tenant entity is initialized as a privileged Tenant with `targetedInstanceCreation` capability enabled.
+
+      ### Provider or Tenant Mode
+      If NICo REST API is not configured in Service Account mode, the user should retrieve the Infrastructure Provider by making a call to the [Retrieve Infrastructure Provider endpoint](#tag/Infrastructure-Provider/operation/get-current-infrastructure-provider)
+      or the Tenant by making a call to the [Retrieve Tenant endpoint](#tag/Tenant/operation/get-current-tenant).
+
+      In both cases, these calls initialize Provider and Tenant entities for the organization. All resources created are anchored to either the Provider or Tenant entity.
+
+      Once the Provider and the Tenant are initialized, the user can create resources by making calls to the appropriate endpoints.
+
+      ### Creating Site Level IP Blocks
+      To utilize a NICo Site, the Provider or Service Account holder must create IP Blocks for each network overlay defined in NICo Core [Site configuration toml file](https://github.com/NVIDIA/ncx-infra-controller-core/blob/v0.5.8/deploy/files/carbide-api/carbide-api-site-config.toml#L30).
+
+      To create an IP Block, the user must make a call to the [Create IP Block endpoint](#tag/IP-Block/operation/create-ipblock).
+
+      > **Note:** From this point onwards, a brief outline is provided for the typical API call flows for various use cases.
+
+      ### Typical API Call Flow for Service Account
+
+      - Retrieve available Sites using the [Retrieve All Sites endpoint](#tag/Site/operation/get-all-site) and choose a Site to create resources in. For _Disconnected_ NICo installations where NICo
+      REST is deployed alongside NICo Core, typically there will be a single Site available.
+      - For each Site IP Block, create a Network Allocation for the Tenant entity using the [Create Allocation endpoint](#tag/Allocation/operation/create-allocation) using the full prefix length.
+      This will create a Tenant IP Block for each Site IP Block.
+        - Creating an Allocation will create the Tenant in NICo Core.
+      - Create a VPC using the [Create VPC endpoint](#tag/VPC/operation/create-vpc).
+      - Create a VPC Prefix or Subnet referencing the VPC and a Tenant IP Block
+        - If the Site supports Native Networking (FNN), create a VPC Prefix using the [Create VPC Prefix endpoint](#tag/VPC-Prefix/operation/create-vpc-prefix). Otherwise the user should create a Subnet
+        using the [Create Subnet endpoint](#tag/Subnet/operation/create-subnet).
+      - Create an Operating System using the [Create Operating System endpoint](#tag/Operating-System/operation/create-operating-system) specifying iPXE script and user data.
+      - Retrieve available Machines on Site using the [Retrieve All Machines endpoint](#tag/Machine/operation/get-all-machine)
+      - Create an Instance specifying the VPC, VPC Prefix or Subnet, Operating System, and Machine
+
+      ### Typical API Call Flow for Provider
+
+      - Create a Tenant Account using the [Create Tenant Account endpoint](#tag/Tenant-Account/operation/create-tenant-account). Provider must know the Tenant org name.
+      - Once the Tenant has accepted the Tenant Account, the Provider can allocate resources to the Tenant.
+      - Retrieve available Sites using the [Retrieve All Sites endpoint](#tag/Site/operation/get-all-site) and choose a Site to create resources in.
+      - Create an Instance Type using the [Create Instance Type endpoint](#tag/Instance-Type/operation/create-instance-type)
+      - Retrieve available Machines on Site using the [Retrieve All Machines endpoint](#tag/Machine/operation/get-all-machine)
+      - Update a Machine's Instance Type using the [Update Machine endpoint](#tag/Machine/operation/update-machine) or assign multiple Machines to an Instance Type using the
+      [Create Instance Type/Machine Association endpoint](#tag/Instance-Type/operation/create-instance-type-machine-association)
+      - Create a Compute Allocation for Tenant using the [Create Compute Allocation endpoint](#tag/Allocation/operation/create-allocation) referencing the Instance Type
+        - Creating any type of Allocation for a Tenant will create the Tenant in NICo Core.
+      - Create a Network Allocation for Tenant using the [Create Allocation endpoint](#tag/Allocation/operation/create-allocation) referencing a Site IP Block
+        - Creating a Network Allocation will create a Tenant IP Block
+
+      ### Typical API Call Flow for Tenant
+
+      - Accept the Tenant Account using the [Update Tenant Account endpoint](#tag/Tenant-Account/operation/update-tenant-account).
+      - Retrieve available Sites using the [Retrieve All Sites endpoint](#tag/Site/operation/get-all-site) and choose a Site to create resources in. Any Site where the Tenant
+      has an Allocation will be returned.
+      - Create a VPC using the [Create VPC endpoint](#tag/VPC/operation/create-vpc).
+      - Retrieve available Site IP Blocks using the [Retrieve All IP Blocks endpoint](#tag/IP-Block/operation/get-all-ipblock). Any IP Block for which the Tenant has received
+      a Network Allocation from the Provider will be returned.
+      - Create a VPC Prefix or Subnet referencing the VPC and a Tenant IP Block
+        - Site supports Native Networking (FNN), create a VPC Prefix using the [Create VPC Prefix endpoint](#tag/VPC-Prefix/operation/create-vpc-prefix)
+        - Otherwise the user should create a Subnet using the [Create Subnet endpoint](#tag/Subnet/operation/create-subnet)
+      - Create an Operating System using the [Create Operating System endpoint](#tag/Operating-System/operation/create-operating-system) specifying iPXE script and user data.
+      - Retrieve available Instance Types using the [Retrieve All Instance Types endpoint](#tag/Instance-Type/operation/get-all-instance-type). Any Instance Type for which
+      the Tenant has received a Compute Allocation from the Provider will be returned.
+      - Create an Instance specifying the VPC, VPC Prefix or Subnet, Operating System, and Instance Type
+
   - name: Service Account
-    description: 'When API service is configured in Service Account mode, API users can act as both Provider and Tenant'
+    description: |-
+      When API service is configured in Service Account mode, API users can act as both Provider and Tenant. For service accounts, the Tenant entity is initialized as a
+      privileged Tenant with `targetedInstanceCreation` capability enabled.
   - name: Infrastructure Provider
     description: |-
-      Infrastructure Provider issues a unique identifier for a Provider and contains information about their Org
+      Infrastructure Provider is the anchor entity for an organization that owns and manages Site resources.
 
       Deprecation history:
 
       - `name` attribute was deprecated and was removed on August 17th, 2023 0:00 UTC. Please use `orgDisplayName` instead.
       - `POST /org/:orgName/carbide/infrastructure-provider` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Providers are automatically created when retrieved by a Provider Admin.
-      - `PATCH /org/:orgName/carbide/infrastructure-provider/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Provider details are populated from Org information and cannot be updated by user.
+      - `PATCH /org/:orgName/carbide/infrastructure-provider/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Provider details are populated from Org information and cannot be updated by the user.
   - name: Tenant
     description: |-
-      Tenant issues a unique identifier for a Tenant and contains information about their Org
+      Tenant is the anchor entity for an organization that consumes Network and Compute resources on a Site.
 
       Deprecation history:
 
       - `name` attribute was deprecated and was removed on August 17th, 2023. Please use `orgDisplayName` instead.
       - `enableSSHAccess` attribute was deprecated and was removed on August 17th, 2023 0:00 UTC. Please use 'isSerialConsoleSSHKeysEnabled' attribute of Site instead.
       - `POST /org/:orgName/carbide/tenant` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenants are automatically created when retrieved by a Tenant Admin.
-      - `PATCH /org/:orgName/carbide/tenant/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenant details are populated from Org information and cannot be updated by user.
+      - `PATCH /org/:orgName/carbide/tenant/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenant details are populated from Org information and cannot be updated by the user.
   - name: Tenant Account
     description: Tenant Account connects a Tenant with an Infrastructure Provider. It represents/contains any information pertaining to their relationship.
   - name: Site
-    description: Site operations
+    description: |-
+      Site is a datacenter that contains physical hardware and networking resources. All resources created by Provider or Tenant are directly or indirectly anchored to the Site object.
   - name: Allocation
-    description: Allocation operations
+    description: |-
+      Allocations are the mechanism by which Provider can delegate Network and Compute resources to Tenant.
   - name: VPC
-    description: VPC operations
+    description: |-
+      VPC defines the networking isolation boundary for Tenant's Instances.
   - name: VPC Peering
     description: |-
-      VPC Peerings are network connections between two VPCs on the same site.
+      VPC Peering allows Instances in one VPC to communicate with Instances in another VPC on the same Site.
   - name: VPC Prefix
     description: |-
-      VPC Prefixes are networking constructs that connect a set of bare metal machines.
+      VPC Prefix is a network prefix belonging to an IP Block allocated to a Tenant. Tenant can use VPC Prefixes to enable network connectivity between their Instances.
 
-      They are defined by a prefix and prefix length and can be a slice or the whole part of an IP Block allocated to a Tenant.
+      Only Sites that support Native Networking (FNN) offer VPC Prefix management.
   - name: Subnet
     description: |-
-      Subnets are networking constructs that connect a set of bare metal machines.
+      Subnet is a network prefix belonging to an IP Block allocated to a Tenant. Tenant can use Subnets to enable network connectivity between their Instances.
 
-      They are defined by a prefix and prefix length and can be a slice or the whole part of an IP Block allocated to a Tenant.
+      Subnets are used on Sites that do not support Native Networking (FNN).
 
       Deprecation history:
 
       - `ipBlockSize` was deprecated in favor of `prefixLength` and was removed on April 15th, 2023 0:00 UTC. Please use `prefixLength` instead.
   - name: Expected Machine
     description: |-
-      Expected Machine operations allow Infrastructure Providers to pre-register machines that are expected to be discovered at a site.
-
-      Expected Machines contain BMC credentials and hardware identifiers to help with automated machine provisioning and management.
+      Expected Machine identifies a Machine that is expected to be discovered at a Site. Infrastructure Providers can pre-register Expected Machines using BMC credentials
+      and serial numbers to help with Machine discovery and ingestion.
   - name: Expected Power Shelf
     description: |-
-      Expected Power Shelf operations allow Infrastructure Providers to pre-register power shelves that are expected to be discovered at a site.
-
-      Expected Power Shelves contain BMC credentials and hardware identifiers to help with automated power shelf provisioning and management.
+      Expected Power Shelf identifies a Power Shelf that is expected to be discovered at a Site. Infrastructure Providers can pre-register Expected Power Shelves using BMC
+      credentials and serial numbers to help with Power Shelf discovery and ingestion.
   - name: Expected Switch
     description: |-
-      Expected Switch operations allow Infrastructure Providers to pre-register network switches that are expected to be discovered at a site.
-
-      Expected Switches contain BMC and NvOS credentials and hardware identifiers to help with automated switch provisioning and management.
+      Expected Switch identifies a Switch that is expected to be discovered at a Site. Infrastructure Providers can pre-register Expected Switches using BMC, NvOS credentials
+      and serial numbers to help with Switch discovery and ingestion.
   - name: SKU
     description: |-
-      SKU (Stock Keeping Unit) operations allow Infrastructure Providers to retrieve hardware configurations discovered at their sites.
+      SKU (Stock Keeping Unit) defines one or more hardware configurations or Machine Bill of Materials (BOM).
 
       SKUs are automatically derived from machine hardware characteristics and used to group similar machines. SKUs are read-only and managed by the system.
   - name: InfiniBand Partition
-    description: Partitions provide networking support for high-performance computing that features very high throughput and very low latency.
+    description: |-
+      InfiniBand (IB) is a high-performance, low-latency networking standard designed for interconnecting servers and storage in HPC (High-Performance Computing) and AI systems,
+      utilizing RDMA (Remote Direct Memory Access) to reduce CPU overhead. InfiniBand Partitions are used to group Machines into logical partitions for network isolation and load distribution.
   - name: NVLink Logical Partition
-    description: NVLink Logical Partitions provide networking support for high-performance computing that features very high throughput and very low latency for GPU to GPU communication.
+    description: |-
+      NVLink Logical Partitions are used to group GPUs into logical partitions for shared memory and low-latency direct communication between GPUs.
   - name: Operating System
-    description: Operating System operations
+    description: |-
+      Operating Systems in NICo are typically iPXE scripts that are used to boot Machines.
   - name: Instance Type
     description: |-
-      Instance Types allow grouping two or more Machines into a pool which can be specified when creating an Instance.
+      Instance Types allow grouping Machines into a pool defined by their capabilities. Providers can then allocate a portion of the Instance Type pool to a Tenant.
 
       Deprecation history:
 
@@ -110,47 +193,59 @@ tags:
       - `displayName` attribute was deprecated and removed on October 30, 2024 0:00 UTC. Please update your usage accordingly.
   - name: Instance
     description: |-
-      Instance is a Machine provisioned with an Operating System for a Tenant and attached to one or more Subnets
+      Instance is a Machine provisioned with an Operating System by a Tenant and attached to one or more VPC Prefixes or Subnets.
 
       Deprecation history:
 
       - `sshUrl` was deprecated in favor of `serialConsoleUrl` and was removed on April 25th, 2023 0:00 UTC. Please use `serialConsoleUrl` instead.
       - `instanceSubnets` was deprecated in favor of `interfaces` and was removed on May 10th, 2023 0:00 UTC. Please use `interfaces` instead.
       - `sshkeygroups` was deprecated in favor of `sshKeyGroups` and was removed on September 4th, 2025 0:00 UTC. Please use `sshKeyGroups` instead.
-      - `allocationId` was deprecated, and removed on September 6th, 2025 0:00 UTC.
   - name: Machine
-    description: Machine operations
+    description: |-
+      Machine is a physical server that contains CPUs, GPUs, memory, storage, and networking hardware. Machines are the physical building blocks of a Site.
   - name: Machine Capability
-    description: Machine Capability operations
+    description: |-
+      Machine Capability defines the hardware capabilities of a Machine. Machine Capabilities can be used to group Machines into Instance Types.
   - name: Rack
-    description: Rack operations
+    description: |-
+      Rack is a physical enclosure that contains a number of Machines. Racks are the physical building blocks of a Site.
   - name: Tray
-    description: Tray operations
+    description: |-
+      Tray represents a component within a Rack.
   - name: Network Security Group
-    description: Network Security Group operations
+    description: |-
+      Network Security Group is a security policy that controls the traffic flowing between Instances.
   - name: IP Block
     description: |-
-      IP Block is a set of IP addresses defined by a prefix and prefix length.
+      IP Block is a contiguous block of IP addresses defined by a prefix and prefix length.
 
-      It can be used by the Provider to describe the overlay network of a particular Site. Providers can also use Allocations to delegate portions of these blocks to Tenants.
+      It can be used by the Provider to describe the overlay network of a particular Site. Providers can also use Allocations to delegate portions of these IP Blocks to Tenants.
 
-      Historic deprecations:
+      Deprecation history:
 
       - `blockSize` was deprecated in favor of `prefixLength` and was removed on April 15th, 2023 0:00 UTC. Please use `prefixLength` instead.
   - name: DPU Extension Service
-    description: DPU Extension Service allows users to run custom services in the DPUs of their Instances
+    description: |-
+      DPU Extension Service allows users to run custom services in the DPUs of their Instances. Currently K8s pods are the only supported service type.
   - name: SSH Key Group
-    description: SSH Key Groups allow binding several SSH Keys together so they can be applied to Sites or other entities as a unit
+    description: |-
+      SSH Key Groups allow grouping several SSH Keys together so they can be synced to Sites and used to access the Serial Console of Instances.
   - name: SSH Key
-    description: SSH Key allows access to Serial Console
+    description: |-
+      SSH Key is a public key that can be used to access the Serial Console of an Instance.
   - name: User
-    description: User operations
+    description: |-
+      User is a logical entity that identifies individuals operating on behalf of an organization.
   - name: Audit
-    description: Audit operations
+    description: |-
+      Audit is a record of actions taken by users on the API.
   - name: Metadata
-    description: Metadata describes various system level attributes of the API server
+    description: |-
+      Metadata describes various system level attributes of the API service.
   - name: Deprecations
     description: |-
+      NICo REST API maintains backward compatibility with the previous versions. Any breaking changes are announced using deprecation notices.
+
       Endpoints that have deprecations will be grouped here. Following deprecations are in effect or slated to be effective in future:
 
       Infrastructure Provider:
@@ -172,7 +267,6 @@ tags:
       - `sshUrl` was deprecated in favor of `serialConsoleUrl` and was removed on April 25th, 2023 0:00 UTC. Please use `serialConsoleUrl` instead.
       - `instanceSubnets` was deprecated in favor of `interfaces` and was removed on May 10th, 2023 0:00 UTC. Please use `interfaces` instead.
       - `sshkeygroups` was deprecated in favor of `sshKeyGroups` and was removed on September 4th, 2025 0:00 UTC. Please use `sshKeyGroups` instead.
-      - `allocationId` was deprecated, and removed on September 6th, 2025 0:00 UTC.
 
       IP Block:
       - `blockSize` was deprecated in favor of `prefixLength` and was removed on April 15th, 2023 0:00 UTC. Please use `prefixLength` instead.
@@ -820,7 +914,7 @@ paths:
 
         Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
 
-        Tenant cannot create a Site.
+        Tenants cannot create Sites.
       requestBody:
         content:
           application/json:
@@ -872,6 +966,11 @@ paths:
         Retrieve a specific Site by ID.
 
         User must have `FORGE_PROVIDER_ADMIN` or `FORGE_TENANT_ADMIN` role.
+
+        Access is granted if:
+        - The Site is owned by the org's Infrastructure Provider
+        - The org's Tenant has an Allocation for Site
+        - The org's Tenant is privileged and has Account with Site's Provider
       parameters: []
     patch:
       summary: Update Site
@@ -888,11 +987,9 @@ paths:
       description: |-
         Update a specific Site
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_TENANT_ADMIN` authorization role.
+        User must have `FORGE_PROVIDER_ADMIN` role.
 
-        Infrastructure Provider updating the Site must be the owner of the Site.
-
-        Tenant updating the Site must have access to the Site and can only update Tenant specific attributes.
+        Infrastructure Provider updating the Site must be the owner of the Site. At present, there are no Site specific configuration modifiable by Tenant.
       requestBody:
         content:
           application/json:
@@ -905,9 +1002,6 @@ paths:
                   description: Datacenter 4 serving central San Jose
                   renewRegistrationToken: true
                   serialConsoleHostname: sol.carbide.acme.com
-                  isSerialConsoleEnabled: true
-                  serialConsoleIdleTimeout: 120
-                  serialConsoleMaxSessionLength: 1800
                   location:
                     city: San Jose
                     state: CA
@@ -985,11 +1079,12 @@ paths:
       description: |-
         Retrieve a specific Site status history
 
-        Either `infrastructureProviderId` or `tenantId` query param must be specified.
+        User must have `FORGE_PROVIDER_ADMIN` or `FORGE_TENANT_ADMIN` role.
 
-        If `infrastructureProviderId` query param is provided, then org must have an Infrastructure Provider entity and its ID should match the query param value. User must have `FORGE_PROVIDER_ADMIN` role. The Infrastructure Provider must own the Site.
-
-        If `tenantId` query param is provided, then org must have a Tenant entity and its ID should match the query param value. User must have `FORGE_TENANT_ADMIN` role. The Tenant must have an allocation with the Site.
+        Access is granted if:
+        - The Site is owned by the org's Infrastructure Provider
+        - The org's Tenant has an Allocation for Site
+        - The org's Tenant is privileged and has Account with Site's Provider
       parameters:
         - schema:
             type: integer
@@ -5695,14 +5790,6 @@ paths:
                           replacedBy: sshKeyGroups
                           takeActionBy: '2025-09-04T00:00:00Z'
                           notice: '''sshkeygroups'' is being deprecated in favor of ''sshKeyGroups''. Please take action prior to the specified date.'
-                        - attribute: allocationId
-                          replacedBy: null
-                          takeActionBy: '2025-09-06T00:00:00Z'
-                          notice: '''allocationId'' is being deprecated. Please take action prior to the specified date.'
-                        - attribute: allocationConstraintId
-                          replacedBy: null
-                          takeActionBy: '2025-09-06T00:00:00Z'
-                          notice: '''allocationConstraintId'' is being deprecated. Please take action prior to the specified date.'
                       created: '2019-08-24T14:15:22Z'
                       updated: '2019-08-24T14:15:22Z'
                 example-2:
@@ -5794,14 +5881,6 @@ paths:
                           replacedBy: sshKeyGroups
                           takeActionBy: '2025-09-04T00:00:00Z'
                           notice: '''sshkeygroups'' is being deprecated in favor of ''sshKeyGroups'' and will be removed on September 9th, 2025. Please update your usage accordingly.'
-                        - attribute: allocationId
-                          replacedBy: null
-                          takeActionBy: '2025-09-06T00:00:00Z'
-                          notice: '''allocationId'' is being deprecated. Please take action prior to the specified date.'
-                        - attribute: allocationConstraintId
-                          replacedBy: null
-                          takeActionBy: '2025-09-06T00:00:00Z'
-                          notice: '''allocationConstraintId'' is being deprecated. Please take action prior to the specified date.'
                       created: '2019-08-24T14:15:22Z'
                       updated: '2019-08-24T14:15:22Z'
                 example-3:
@@ -6116,14 +6195,6 @@ paths:
                         replacedBy: sshKeyGroups
                         takeActionBy: '2025-09-04T00:00:00Z'
                         notice: '''sshkeygroups'' is being deprecated in favor of ''sshKeyGroups''. Please take action prior to the specified date.'
-                      - attribute: allocationId
-                        replacedBy: null
-                        takeActionBy: '2025-09-06T00:00:00Z'
-                        notice: '''allocationId'' is being deprecated. Please take action prior to the specified date.'
-                      - attribute: allocationConstraintId
-                        replacedBy: null
-                        takeActionBy: '2025-09-06T00:00:00Z'
-                        notice: '''allocationConstraintId'' is being deprecated. Please take action prior to the specified date.'
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
                 With DPU Extension Service Deployments:
@@ -6583,14 +6654,6 @@ paths:
                         replacedBy: sshKeyGroups
                         takeActionBy: '2025-09-04T00:00:00Z'
                         notice: '''sshkeygroups'' is being deprecated in favor of ''sshKeyGroups''. Please take action prior to the specified date.'
-                      - attribute: allocationId
-                        replacedBy: null
-                        takeActionBy: '2025-09-06T00:00:00Z'
-                        notice: '''allocationId'' is being deprecated. Please take action prior to the specified date.'
-                      - attribute: allocationConstraintId
-                        replacedBy: null
-                        takeActionBy: '2025-09-06T00:00:00Z'
-                        notice: '''allocationConstraintId'' is being deprecated. Please take action prior to the specified date.'
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
         '403':
@@ -6772,14 +6835,6 @@ paths:
                         replacedBy: sshKeyGroups
                         takeActionBy: '2025-09-04T00:00:00Z'
                         notice: '''sshkeygroups'' is being deprecated in favor of ''sshKeyGroups''. Please take action prior to the specified date.'
-                      - attribute: allocationId
-                        replacedBy: null
-                        takeActionBy: '2025-09-06T00:00:00Z'
-                        notice: '''allocationId'' is being deprecated. Please take action prior to the specified date.'
-                      - attribute: allocationConstraintId
-                        replacedBy: null
-                        takeActionBy: '2025-09-06T00:00:00Z'
-                        notice: '''allocationConstraintId'' is being deprecated. Please take action prior to the specified date.'
                     created: '2019-08-24T14:15:22Z'
                     updated: '2019-08-24T14:15:22Z'
         '400':
@@ -12474,8 +12529,8 @@ components:
       type: object
       description: Request data to create a Site
       examples:
-        - name: San Jose Central 4
-          description: Datacenter serving San Jose central region
+        - name: sjc4
+          description: Datacenter serving San Jose central region, zone 4
           serialConsoleHostname: carbide.acme.com
           location:
             city: San Jose
@@ -12486,10 +12541,12 @@ components:
       properties:
         name:
           type: string
+          description: Name for the Site
           minLength: 2
           maxLength: 256
         description:
           type: string
+          description: Description for the Site
         serialConsoleHostname:
           type: string
           description: Hostname to reach Serial Console for the Site
@@ -12505,14 +12562,10 @@ components:
       type: object
       description: Request data to update a Site
       examples:
-        - name: San Jose Central No.4
+        - name: sjc04
           description: Datacenter 4 serving central San Jose
           renewRegistrationToken: true
           serialConsoleHostname: sol.carbide.acme.com
-          isSerialConsoleEnabled: true
-          serialConsoleIdleTimeout: 120
-          serialConsoleMaxSessionLength: 3600
-        - isSerialConsoleSSHKeysEnabled: true
           location:
             city: San Jose
             state: CA
@@ -12535,16 +12588,20 @@ components:
           format: hostname
         isSerialConsoleEnabled:
           type: boolean
-          description: Enable/disable Serial Console. Can only be updated by Provider
+          description: Enable/disable Serial Console. Can only be updated by Provider. Modifying this attribute has no actual effect on SOL. It will be removed in a future API version.
+          deprecated: true
         serialConsoleIdleTimeout:
           type: integer
-          description: Maximum idle time in seconds before Serial Console is disconnected. Can only be updated by Provider
+          description: Maximum idle time in seconds before Serial Console is disconnected. Can only be updated by Provider. Modifying this attribute has no actual effect on SOL. It will be removed in a future API version.
+          deprecated: true
         serialConsoleMaxSessionLength:
           type: integer
-          description: Maximum length of Serial Console session in seconds. Can only be updated by Provider
+          description: Maximum length of Serial Console session in seconds. Can only be updated by Provider. Modifying this attribute has no actual effect on SOL. It will be removed in a future API version.
+          deprecated: true
         isSerialConsoleSSHKeysEnabled:
           type: boolean
-          description: Enable/disable Serial Console access using SSH Keys. Can only be updated by Tenant
+          description: Enable/disable Serial Console access using SSH Keys. Previously updateable only by Tenants, modifying this value is no longer supported, update SSH Key Groups to remove Site instead.
+          deprecated: true
         location:
           $ref: '#/components/schemas/SiteLocation'
         contact:
@@ -12580,7 +12637,7 @@ components:
     Allocation:
       title: Allocation
       type: object
-      description: Specifies a portion of a Site that has been allocated to a Tenant
+      description: Specifies a group of resources on a Site that has been allocated to a Tenant
       examples:
         - id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
           name: Echo Studios Allocations
@@ -12609,22 +12666,28 @@ components:
       properties:
         id:
           type: string
+          description: ID of the Allocation
           format: uuid
           readOnly: true
         name:
           type: string
+          description: Concise and descriptive name of the Allocation
           minLength: 2
           maxLength: 256
         description:
           type: string
+          description: Detailed description of the Allocation
         infrastructureProviderId:
           type: string
+          description: ID of the Infrastructure Provider that created the Allocation
           format: uuid
         tenantId:
           type: string
+          description: ID of the Tenant that received the Allocation
           format: uuid
         siteId:
           type: string
+          description: ID of the Site where resources are allocated
           format: uuid
         status:
           $ref: '#/components/schemas/AllocationStatus'
@@ -12640,10 +12703,12 @@ components:
             $ref: '#/components/schemas/AllocationConstraint'
         created:
           type: string
+          description: Date/time when the Allocation was created
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: Date/time when the Allocation was last updated
           format: date-time
           readOnly: true
     AllocationStatus:
@@ -12652,8 +12717,8 @@ components:
       description: Status values for Allocation objects
       enum:
         - Pending
-        - Processing
-        - Ready
+        - Registered
+        - Deleting
         - Error
     AllocationCreateRequest:
       title: AllocationCreateRequest
@@ -12672,16 +12737,20 @@ components:
       properties:
         name:
           type: string
+          description: Concise and descriptive name for the Allocation
           minLength: 2
           maxLength: 256
         description:
           type: string
+          description: Detailed description for the Allocation
         tenantId:
           type: string
           format: uuid
+          description: ID of the Tenant that should receive the Allocation
         siteId:
           type: string
           format: uuid
+          description: ID of the Site where resources should be allocated
         allocationConstraints:
           type: array
           items:
@@ -12700,14 +12769,16 @@ components:
       properties:
         name:
           type: string
+          description: Update name of the Allocation
           minLength: 2
           maxLength: 256
         description:
           type: string
+          description: Update description of the Allocation
     AllocationConstraint:
       title: AllocationConstraint
       type: object
-      description: Constraints an allocation by specifying limits for different resource types
+      description: Constraints on an Allocation that specify limits for different resource types
       examples:
         - id: 497f6eca-6276-4993-bfeb-53cbbbba6f08
           allocationId: 9ec871ce-3363-4de2-8f79-062881067628
@@ -12741,42 +12812,50 @@ components:
       properties:
         id:
           type: string
+          description: ID of the Allocation Constraint
           format: uuid
           readOnly: true
         allocationId:
           type: string
           format: uuid
+          description: ID of the Allocation that contains the Allocation Constraint
         resourceType:
           type: string
+          description: Type of the Resource that the Allocation Constraint applies to
           enum:
             - InstanceType
             - IPBlock
         resourceTypeId:
           type: string
           format: uuid
+          description: ID of the Resource Type that the Allocation Constraint applies to. For InstanceType, this is the ID of the Instance Type. For IPBlock, this is the ID of the IP Block.
         constraintType:
           type: string
+          description: Type of the Allocation Constraint. Please note that OnDemand and Preemptible are not supported by current implementation.
           enum:
             - Reserved
             - OnDemand
             - Preemptible
         constraintValue:
           type: integer
+          description: Value of the Allocation Constraint. For InstanceType, this value represents number of Machines allocated for Tenant. For IPBlock, this value represents the prefix Length of the IP Block.
         derivedResourceId:
           type:
             - string
             - 'null'
-          description: Populated with resulting IP Block ID when resource type is IP Block
+          description: ID of the allocated Tenant IP Block when resource type is IPBlock
         instanceType:
           $ref: '#/components/schemas/InstanceTypeSummary'
         ipBlock:
           $ref: '#/components/schemas/IpBlockSummary'
         created:
           type: string
+          description: Date/time when the Allocation Constraint was created
           format: date-time
           readOnly: true
         updated:
           type: string
+          description: Date/time when the Allocation Constraint was last updated
           format: date-time
           readOnly: true
     AllocationConstraintCreateRequest:
@@ -12795,21 +12874,26 @@ components:
       properties:
         resourceType:
           type: string
+          description: Type of the Resource that the Allocation Constraint applies to
           enum:
             - InstanceType
             - IPBlock
         resourceTypeId:
           type: string
           format: uuid
+          description: ID of the Resource Type that the Allocation Constraint applies to. For InstanceType, this is the ID of the Instance Type. For IPBlock, this is the ID of the IP Block.
         constraintType:
           type: string
+          description: Type of the Allocation Constraint. Please note that OnDemand and Preemptible are not supported by current implementation.
           enum:
             - Reserved
             - OnDemand
             - Preemptible
         constraintValue:
           type: integer
+          description: Value of the Allocation Constraint. For InstanceType, this value represents number of Machines allocated for Tenant. For IPBlock, this value represents the prefix Length of the IP Block.
       required:
+        - resourceType
         - resourceTypeId
         - constraintType
         - constraintValue
@@ -12822,6 +12906,7 @@ components:
       properties:
         constraintValue:
           type: integer
+          description: Value of the Allocation Constraint. For InstanceType, this value represents number of Machines allocated for Tenant. For IPBlock, this value represents the prefix Length of the IP Block.
       required:
         - constraintValue
     VPC:
@@ -14713,14 +14798,6 @@ components:
               replacedBy: sshKeyGroups
               takeActionBy: '2025-09-04T00:00:00Z'
               notice: '''sshkeygroups'' is being deprecated in favor of ''sshKeyGroups''. Please take action prior to the specified date.'
-            - attribute: allocationId
-              replacedBy: null
-              takeActionBy: '2025-09-06T00:00:00Z'
-              notice: '''allocationId'' is being deprecated. Please take action prior to the specified date.'
-            - attribute: allocationConstraintId
-              replacedBy: null
-              takeActionBy: '2025-09-06T00:00:00Z'
-              notice: '''allocationConstraintId'' is being deprecated. Please take action prior to the specified date.'
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
         - id: f61fbc1b-ba32-4476-aab5-5ac7c64c3f26
@@ -14801,14 +14878,6 @@ components:
               replacedBy: sshKeyGroups
               takeActionBy: '2025-09-04T00:00:00Z'
               notice: '''sshkeygroups'' is being deprecated in favor of ''sshKeyGroups''. Please take action prior to the specified date.'
-            - attribute: allocationId
-              replacedBy: null
-              takeActionBy: '2025-09-06T00:00:00Z'
-              notice: '''allocationId'' is being deprecated. Please take action prior to the specified date.'
-            - attribute: allocationConstraintId
-              replacedBy: null
-              takeActionBy: '2025-09-06T00:00:00Z'
-              notice: '''allocationConstraintId'' is being deprecated. Please take action prior to the specified date.'
           created: '2019-08-24T14:15:22Z'
           updated: '2019-08-24T14:15:22Z'
       properties:

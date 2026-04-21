@@ -1,3 +1,6 @@
 api:
   specs:
-    - openapi: ./openapi/spec.yaml
+    - openapi: openapi/spec.yaml               # Definition file
+      # overrides: openapi/overrides.yml    # Overrides file
+      origin: https://raw.githubusercontent.com/NVIDIA/ncx-infra-controller-rest/refs/heads/main/openapi/spec.yaml # URL to fetch latest spec from
+
