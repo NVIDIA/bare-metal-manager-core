@@ -175,6 +175,7 @@ impl From<ManagedHostStateSnapshot> for ManagedHostRowDisplay {
                 &host_snapshot.state.value,
                 &host_snapshot.state.version,
                 &aggregate_health,
+                &machine::slas::MachineSlaConfig::default(),
             )
             .time_in_state_above_sla,
             state_reason: host_snapshot

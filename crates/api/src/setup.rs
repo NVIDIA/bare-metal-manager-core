@@ -899,6 +899,9 @@ pub async fn initialize_and_start_controllers(
                     .host_health
                     .suppress_external_alerting_on_scout_heartbeat_timeout,
             },
+            sla_config: model::machine::slas::MachineSlaConfig::new(
+                carbide_config.machine_state_controller.failure_retry_time,
+            ),
         }))
         .state_change_emitter(state_change_emitter)
         .build_and_spawn(join_set, cancel_token.clone())

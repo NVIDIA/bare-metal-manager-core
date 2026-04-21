@@ -65,8 +65,8 @@ default = true
     config.add_test_override(cfg2.to_string());
 
     println!("{config:#?}");
-    let map = config.map();
-    let server = map.get("dell:poweredge r750").unwrap();
+    let snapshot = config.create_snapshot();
+    let server = snapshot.data.get("dell:poweredge r750").unwrap();
     assert_eq!(
         server
             .components

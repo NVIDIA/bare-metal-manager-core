@@ -23,6 +23,7 @@ use db::{self, DatabaseError};
 use model::StateSla;
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::slas::MachineSlaConfig;
 use model::machine::{
     self, DpuDiscoveringState, DpuInitState, HostHealthConfig, MachineValidatingState,
     ManagedHostState, ManagedHostStateSnapshot, MeasuringState, ValidationState,
@@ -37,6 +38,7 @@ use crate::state_controller::machine::metrics::MachineMetricsEmitter;
 #[derive(Default, Debug)]
 pub struct MachineStateControllerIO {
     pub host_health: HostHealthConfig,
+    pub sla_config: MachineSlaConfig,
 }
 
 #[async_trait::async_trait]
@@ -311,12 +313,17 @@ impl StateControllerIO for MachineStateControllerIO {
         }
     }
 
-    fn state_sla(state: &Versioned<Self::ControllerState>, object_state: &Self::State) -> StateSla {
+    fn state_sla(
+        &self,
+        state: &Versioned<Self::ControllerState>,
+        object_state: &Self::State,
+    ) -> StateSla {
         machine::state_sla(
             &object_state.host_snapshot.id,
             &state.value,
             &state.version,
             &object_state.aggregate_health,
+            &self.sla_config,
         )
     }
 }

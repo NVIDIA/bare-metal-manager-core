@@ -630,7 +630,7 @@ async fn process_object<IO: StateControllerIO>(
             .to_std()
             .unwrap_or(Duration::from_secs(60 * 60 * 24));
 
-        let state_sla = IO::state_sla(&controller_state, &snapshot);
+        let state_sla = io.state_sla(&controller_state, &snapshot);
         metrics.common.time_in_state_above_sla = state_sla.time_in_state_above_sla;
 
         let mut pending_db_writes = DbWriteBatch::new();

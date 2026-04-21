@@ -896,6 +896,18 @@ service Forge {
   rpc UpdateOperatingSystemCachableIpxeTemplateArtifacts(UpdateOperatingSystemIpxeTemplateArtifactRequest) returns (IpxeTemplateArtifactList);
 }
 
+// Indicates the lifecycle state of a resource that is controlled by a state controller
+message LifecycleStatus {
+  // The current state of the resource
+  string state = 1;
+  // The state version. This version number is incremented each time the resource transitions into a new state
+  string version = 2;
+  // The result of last state controller run - its outcome and an optional reason for that outcome
+  optional ControllerStateReason state_reason = 3;
+  // The SLA that is associated with the current state
+  StateSla sla = 4;
+}
+
 message AttestationIdsRequest {
 
 }
@@ -1802,8 +1814,10 @@ message PowerShelfConfig {
 // Describe the status and applied configuration of a PowerShelf
 message PowerShelfStatus {
   // The result of last state controller run - its outcome and an optional reason for that outcome
+  // deprecated: Use lifecycle field
   optional ControllerStateReason state_reason = 1;
   // The SLA for the current state - and whether the SLA has been breached
+  // deprecated: Use lifecycle field
   StateSla state_sla = 2;
 
   // The shelf name of PowerShelf
@@ -1817,6 +1831,8 @@ message PowerShelfStatus {
 
   health.HealthReport health = 7;
   repeated HealthSourceOrigin health_sources = 8;
+  // Lifecycle related status
+  LifecycleStatus lifecycle = 9;
 }
 
 // Describe a PowerShelf configuration and status
@@ -1956,8 +1972,10 @@ message FabricManagerConfig {
 // Describe the status and applied configuration of a Switch
 message SwitchStatus {
   // The result of last state controller run - its outcome and an optional reason for that outcome
+  // deprecated: Use lifecycle field
   optional ControllerStateReason state_reason = 1;
   // The SLA for the current state - and whether the SLA has been breached
+  // deprecated: Use lifecycle field
   StateSla state_sla = 2;
 
   // The name of Switch
@@ -1971,6 +1989,8 @@ message SwitchStatus {
 
   health.HealthReport health = 7;
   repeated HealthSourceOrigin health_sources = 8;
+  // Lifecycle related status
+  LifecycleStatus lifecycle = 9;
 }
 
 message PlacementInRack {
@@ -1989,7 +2009,7 @@ message Switch {
   // Timestamp when the switch was marked as deleted
   optional google.protobuf.Timestamp deleted = 4;
 
-  // Deprecated: use status.controller_state instead
+  // Deprecated: use status.lifecycle instead
   string controller_state = 5;
 
   BmcInfo bmc_info = 6;
@@ -3320,10 +3340,13 @@ message HealthSourceOrigin {
   string source = 2;
 }
 
-// Result of last state controller iteration
+// Result of last state handler invocation
 message ControllerStateReason {
+  // Return value of last state handler invocation
   ControllerStateOutcome outcome = 1;
+  // Message associated with the return value of the last state handler invocation
   optional string outcome_msg = 2;
+  // Reference to source code where the outcome was generated
   optional ControllerStateSourceReference source_ref = 3;
 }
 
@@ -6515,6 +6538,7 @@ message RacksByIdsRequest {
 
 message Rack {
   common.RackId id = 1;
+  // deprecated: Use status.lifecycle field
   string rack_state = 2;
   repeated string expected_compute_trays = 3;
   repeated string expected_power_shelves = 4;
@@ -6539,6 +6563,8 @@ message RackConfig {
 message RackStatus {
   health.HealthReport health = 7;
   repeated HealthSourceOrigin health_sources = 8;
+  // Lifecycle related status
+  LifecycleStatus lifecycle = 9;
 }
 
 message RackStateHistoriesRequest {
