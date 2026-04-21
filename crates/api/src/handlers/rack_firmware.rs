@@ -170,6 +170,19 @@ fn default_true() -> bool {
     true
 }
 
+fn format_switch_system_images_deserialize_error(error: serde_json::Error) -> String {
+    let message = error.to_string();
+
+    if let Some(field) = message
+        .strip_prefix("missing field `")
+        .and_then(|s| s.strip_suffix('`'))
+    {
+        return format!("Invalid SwitchSystemImages: {field} is required");
+    }
+
+    format!("Invalid SwitchSystemImages: {message}")
+}
+
 /// Parse rack firmware JSON to extract firmware components
 fn parse_rack_firmware_json(config: &Value) -> Result<ParsedFirmwareComponents, String> {
     let board_skus = config
@@ -332,7 +345,7 @@ fn parse_switch_system_images(config: &Value) -> Result<Vec<SwitchSystemImageArt
     };
 
     let entries: Vec<RawSwitchSystemImageArtifact> = serde_json::from_value(entries.clone())
-        .map_err(|e| format!("Invalid SwitchSystemImages: {e}"))?;
+        .map_err(format_switch_system_images_deserialize_error)?;
 
     let mut parsed = Vec::with_capacity(entries.len());
 
