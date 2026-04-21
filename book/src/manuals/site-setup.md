@@ -1,6 +1,6 @@
 # Site Setup Guide
 
-This page outlines the software dependencies for a Kubernetes-based install of NVIDIA Bare Metal Manager (BMM). It includes the *validated baseline* of software dependencies,
+This page outlines the software dependencies for a Kubernetes-based install of NVIDIA NCX Infra Controller (NICo). It includes the *validated baseline* of software dependencies,
 as well as the *order of operations* for site bringup, including what you must configure if you already operate some of the common services yourself.
 
 **Important Notes**
@@ -16,7 +16,7 @@ as well as the *order of operations* for site bringup, including what you must c
 
 ## Validated Baseline
 
-This section lists all software dependencies, including the versions validated for this release of BMM.
+This section lists all software dependencies, including the versions validated for this release of NICo.
 
 ### Kubernetes and Node Runtime
 
@@ -58,7 +58,7 @@ This section lists all software dependencies, including the versions validated f
 
 ### Monitoring and Telemetry (OPTIONAL)
 
-These components are not required for BMM setup, but are recommended site metrics.
+These components are not required for NICo setup, but are recommended site metrics.
 
 - **Monitoring System**:  Prometheus Operator v0.68.0; Prometheus v2.47.0; Alertmanager v0.26.0
 
@@ -70,27 +70,30 @@ These components are not required for BMM setup, but are recommended site metric
 
 - **Host Monitoring** Node exporter v1.6.1
 
-### BMM Components
+### NICo Components
 
-The following services are installed during the BMM installation process.
+The following services are installed during the NICo installation process.
 
-- **NICo core (forge-system)**
+- **NICo core (forge-system)**: `<YOUR_REGISTRY>/nvmetal-carbide:<TAG>` (primary carbide-api, plus supporting workloads)
+    
+  - Build from the [ncx-infra-controller-core](https://github.com/NVIDIA/ncx-infra-controller-core) repo.
+    Refer to the [Building NICo Containers](building_nico_containers.md) section for more details.
 
-  - `<YOUR_REGISTRY>/nvmetal-carbide:<TAG>` (primary carbide-api, plus supporting workloads).
-    Build from [ncx-infra-controller-core](https://github.com/NVIDIA/ncx-infra-controller-core).
-    See [Building NICo Containers](building_nico_containers.md).
+- **cloud-api**: `<YOUR_REGISTRY>/carbide-rest-api:<TAG>` (two replicas)
+  
+  - Build from the [ncx-infra-controller-rest](https://github.com/NVIDIA/ncx-infra-controller-rest) repo.
 
-- **cloud-api**: `<YOUR_REGISTRY>/carbide-rest-api:<TAG>` (two replicas).
-  Build from [bare-metal-manager-rest](https://github.com/NVIDIA/bare-metal-manager-rest).
+- **cloud-workflow**: `<YOUR_REGISTRY>/carbide-rest-workflow:<TAG>` (cloud-worker, site-worker)
+  
+  - Build from the [ncx-infra-controller-rest](https://github.com/NVIDIA/ncx-infra-controller-rest) repo.
 
-- **cloud-workflow**: `<YOUR_REGISTRY>/carbide-rest-workflow:<TAG>` (cloud-worker, site-worker).
-  Build from [bare-metal-manager-rest](https://github.com/NVIDIA/bare-metal-manager-rest).
-
-- **cloud-cert-manager (credsmgr)**: `<YOUR_REGISTRY>/carbide-rest-cert-manager:<TAG>`.
-  Build from [bare-metal-manager-rest](https://github.com/NVIDIA/bare-metal-manager-rest).
+- **cloud-cert-manager (credsmgr)**: `<YOUR_REGISTRY>/carbide-rest-cert-manager:<TAG>`
+  
+  - Build from the [ncx-infra-controller-rest](https://github.com/NVIDIA/ncx-infra-controller-rest) repo.
 
 - **elektra-site-agent**: `<YOUR_REGISTRY>/carbide-rest-site-agent:<TAG>`.
-  Build from [bare-metal-manager-rest](https://github.com/NVIDIA/bare-metal-manager-rest).
+  
+  - Build from the [ncx-infra-controller-rest](https://github.com/NVIDIA/ncx-infra-controller-rest) repo.
 
 ## Order of Operations
 

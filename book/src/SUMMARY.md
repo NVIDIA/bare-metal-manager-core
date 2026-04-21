@@ -1,7 +1,7 @@
-# NVIDIA Bare Metal Manager
+# NCX Infra Controller
 
 - [Introduction](README.md)
-- [Hardware Compatbility List](hcl.md)
+- [Hardware Compatibility List](hcl.md)
 - [Release Notes](release-notes.md)
 - [FAQs](faq.md)
 
@@ -11,6 +11,7 @@
 - [Redfish Workflow](architecture/redfish_workflow.md)
     - [Redfish Endpoints Reference](architecture/redfish/endpoints_reference.md)
 - [Reliable state handling](architecture/state_handling.md)
+- [Networking integrations](architecture/networking_integrations.md)
 - [DPU configuration](architecture/dpu_configuration.md)
 - [Health checks and health aggregation](architecture/health_aggregation.md)
     - [Health probe IDs](architecture/health/health_probe_ids.md)
@@ -40,17 +41,13 @@
   - [VPC Routing Profiles](manuals/vpc/vpc_routing_profiles.md)
   - [VPC Peering](manuals/vpc/vpc_peering_management.md)
 - [Metrics]()
-    - [Core metrics](manuals/metrics/carbide_core_metrics.md)
-
-# Sites and site access
-
-- [carbide-admin-cli access](sites/forge_admin_cli.md)
+    - [Core metrics](manuals/metrics/core_metrics.md)
 
 <!-- TODO: Add "Updating Hosts" and "Removing Hosts" pages. -->
 
 # Design
 
-- [SPIFFE SVID Design](design/spiffe-svid-sdd.md)
+- [SPIFFE SVID Design](design/machine-identity/spiffe-svid-sdd.md)
 
 # Development
 
@@ -72,7 +69,7 @@
 
 # Playbooks
 
-- [Azure OIDC for NVIDIA Bare Metal Manager-Web UI](playbooks/carbide_web_oauth2.md)
+- [Azure OIDC for NCX Infra Controller-Web UI](playbooks/carbide_web_oauth2.md)
 - [Force deleting and rebuilding Forge hosts](playbooks/force_delete.md)
 - [Rebooting a machine](playbooks/machine_reboot.md)
 - [Instance/Subnet/etc is stuck in a state]()

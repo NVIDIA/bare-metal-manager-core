@@ -1,7 +1,7 @@
 # Building NICo Containers
 
 This section provides instructions for building the containers for NCX Infra Controller (NICo).
-For the complete deployment workflow, see the [End-to-End Installation Guide](installation-guide.md).
+For the complete deployment workflow, refer to the [End-to-End Installation Guide](installation-guide.md).
 
 ## Container Image Summary
 
@@ -28,8 +28,8 @@ accessible by your Kubernetes cluster.
 Before you begin, ensure you have the following prerequisites:
 
 * An Ubuntu 24.04 Host or VM with 150GB+ of disk space (MacOS is not supported)
-* For REST containers: Go (see `go.mod` in the REST repo for the required version), Docker 20.10+ with BuildKit enabled
-* An [NVIDIA NGC](https://www.nvidia.com/en-us/gpu-cloud/) account (free). Required for pulling base images such as the DOCA HBN container used in the aarch64 / DPU BFB build. Sign up at [ngc.nvidia.com](https://ngc.nvidia.com) and generate an API key under **API Keys** > **Generate Personal Key**.
+* For REST containers: Go (refer to the `go.mod` file in the [REST repo](https://github.com/NVIDIA/ncx-infra-controller-rest) for the current required version), Docker 20.10+ with BuildKit enabled
+* An [NVIDIA NGC](https://www.nvidia.com/en-us/gpu-cloud/) account (free). Required for pulling base images such as the DOCA HBN container used in the aarch64/DPU BFB build. Sign up at [ngc.nvidia.com](https://ngc.nvidia.com) and generate an API key under **API Keys** > **Generate Personal Key**.
 
 Use the following steps to install the prerequisite software on the Ubuntu Host or VM. These instructions
 assume an `apt`-based distribution such as Ubuntu 24.04.
@@ -166,5 +166,5 @@ make docker-build IMAGE_REGISTRY=<your-registry.example.com/carbide> IMAGE_TAG=<
 
 ## Next Steps
 
-After building all images, tag and push them to your private registry.
-See [Tagging and Pushing Containers](pushing_containers.md).
+After building all images, you will need to tag them and push them to your private registry.
+Refer to the [Tagging and Pushing Containers](pushing_containers.md) section for more details.

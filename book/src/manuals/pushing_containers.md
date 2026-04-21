@@ -1,8 +1,11 @@
 # Tagging and Pushing Containers to a Private Registry
 
-After building all NICo container images (see [Building NICo Containers](building_nico_containers.md)),
-tag them for your private registry and push. Set your registry URL and version tag as
-environment variables:
+After building all NICo container images (refer to the [Building NICo Containers](building_nico_containers.md) section),
+you will need to tag them and push them to your private registry.
+
+## Setting Environment Variables
+
+Set your registry URL and version tag as environment variables:
 
 ```sh
 REGISTRY=<your-registry.example.com/carbide>
@@ -33,15 +36,15 @@ docker push $REGISTRY/machine-validation-config:$TAG
 
 REST images are built from the
 [ncx-infra-controller-rest](https://github.com/NVIDIA/ncx-infra-controller-rest)
-repository. The `make docker-build` command tags images at build time when you pass
-`IMAGE_REGISTRY` and `IMAGE_TAG`:
+repository. The `make docker-build` command tags images at build time when you pass the
+`IMAGE_REGISTRY` and `IMAGE_TAG` environment variables:
 
 ```sh
 cd /path/to/ncx-infra-controller-rest
 make docker-build IMAGE_REGISTRY=$REGISTRY IMAGE_TAG=$TAG
 ```
 
-Then push all REST images:
+Then, push all REST images to your private registry:
 
 ```sh
 for image in carbide-rest-api carbide-rest-workflow carbide-rest-site-manager \
