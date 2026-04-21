@@ -1148,6 +1148,75 @@ async fn test_update_with_cached_only_artifacts_recomputes_status(pool: sqlx::Pg
     );
 }
 
+#[crate::sqlx_test]
+async fn test_update_promotes_to_ready_when_no_cached_only_remains(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let os_id = create_os_with_artifacts(&env).await;
+
+    // OS starts as PROVISIONING (has CACHED_ONLY artifacts without cached_url).
+    let os = env
+        .api
+        .get_operating_system(tonic::Request::new(os_id))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(os.status, TenantState::Provisioning as i32);
+
+    // Update artifacts to remove all CACHED_ONLY strategies — only CACHE_AS_NEEDED remains.
+    env.api
+        .update_operating_system(tonic::Request::new(
+            rpc::forge::UpdateOperatingSystemRequest {
+                id: Some(os_id),
+                name: None,
+                description: None,
+                is_active: None,
+                allow_override: None,
+                phone_home_enabled: None,
+                user_data: None,
+                ipxe_script: None,
+                ipxe_template_id: None,
+                ipxe_template_parameters: None,
+                ipxe_template_artifacts: Some(IpxeTemplateArtifacts {
+                    items: vec![
+                        IpxeTemplateArtifact {
+                            name: "kernel".to_string(),
+                            url: "http://example.com/kernel".to_string(),
+                            sha: None,
+                            auth_type: None,
+                            auth_token: None,
+                            cache_strategy: IpxeTemplateArtifactCacheStrategy::CacheAsNeeded as i32,
+                            cached_url: None,
+                        },
+                        IpxeTemplateArtifact {
+                            name: "initrd".to_string(),
+                            url: "http://example.com/initrd".to_string(),
+                            sha: None,
+                            auth_type: None,
+                            auth_token: None,
+                            cache_strategy: IpxeTemplateArtifactCacheStrategy::CacheAsNeeded as i32,
+                            cached_url: None,
+                        },
+                    ],
+                }),
+                ipxe_template_definition_hash: None,
+            },
+        ))
+        .await
+        .unwrap();
+
+    let updated_os = env
+        .api
+        .get_operating_system(tonic::Request::new(os_id))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        updated_os.status,
+        TenantState::Ready as i32,
+        "status must promote to READY when no CACHED_ONLY artifacts remain"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // End compliance tests
 // ---------------------------------------------------------------------------

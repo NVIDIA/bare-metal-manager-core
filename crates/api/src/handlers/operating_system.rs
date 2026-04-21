@@ -441,7 +441,7 @@ pub async fn update_operating_system(
         if needs_provisioning {
             Some(db::operating_system::OS_STATUS_PROVISIONING.to_string())
         } else {
-            None
+            Some(db::operating_system::OS_STATUS_READY.to_string())
         }
     } else {
         None

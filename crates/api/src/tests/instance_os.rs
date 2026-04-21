@@ -20,7 +20,7 @@ use common::api_fixtures::instance::{default_tenant_config, single_interface_net
 use common::api_fixtures::{create_managed_host, create_test_env};
 use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{IpxeTemplateArtifact, IpxeTemplateParameter};
+use rpc::forge::{IpxeTemplateArtifact, IpxeTemplateArtifactCacheStrategy, IpxeTemplateParameter};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
 use crate::tests::common;
@@ -518,5 +518,326 @@ async fn test_update_instance_os_rejects_inactive_os(_: PgPoolOptions, options: 
         err.message().contains("is not active"),
         "Expected 'is not active', got: {}",
         err.message()
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_create_instance_with_os_image_and_verify_pxe_rendering(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+
+    let os_image_id = uuid::Uuid::new_v4();
+    let source_url = "https://images.example.com/ubuntu-22.04.qcow2";
+    let digest = "sha256:abcdef1234567890";
+
+    let image = env
+        .api
+        .create_os_image(tonic::Request::new(rpc::forge::OsImageAttributes {
+            id: Some(rpc::Uuid::from(os_image_id)),
+            source_url: source_url.to_string(),
+            digest: digest.to_string(),
+            tenant_organization_id: "test-org".to_string(),
+            create_volume: false,
+            name: Some("test-qcow-image".to_string()),
+            description: Some("Test qcow2 OS image".to_string()),
+            auth_type: Some("Bearer".to_string()),
+            auth_token: Some("my-secret-token".to_string()),
+            rootfs_id: Some("root-uuid-1234".to_string()),
+            rootfs_label: None,
+            boot_disk: None,
+            capacity: Some(1024 * 1024 * 1024),
+            bootfs_id: None,
+            efifs_id: None,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    let actual_id =
+        uuid::Uuid::try_from(image.attributes.as_ref().unwrap().id.clone().unwrap()).unwrap();
+    assert_eq!(actual_id, os_image_id);
+
+    let instance_os = rpc::forge::InstanceOperatingSystemConfig {
+        phone_home_enabled: false,
+        run_provisioning_instructions_on_every_boot: false,
+        user_data: Some("os-image-userdata".to_string()),
+        variant: Some(
+            rpc::forge::instance_operating_system_config::Variant::OsImageId(rpc::Uuid::from(
+                os_image_id,
+            )),
+        ),
+    };
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(instance_os),
+        network: Some(single_interface_network_config(segment_id)),
+        infiniband: None,
+        network_security_group_id: None,
+        dpu_extension_services: None,
+        nvlink: None,
+    };
+
+    let tinstance = mh.instance_builer(&env).config(config).build().await;
+    let instance = tinstance.rpc_instance().await;
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host_interface = mh.host().first_interface(&mut txn).await;
+    txn.rollback().await.unwrap();
+
+    let pxe = host_interface
+        .get_pxe_instructions(rpc::forge::MachineArchitecture::X86)
+        .await;
+
+    assert!(
+        pxe.pxe_script.contains("qcow-imager.efi"),
+        "Expected qcow-imager chain command, got: {}",
+        pxe.pxe_script
+    );
+    assert!(
+        pxe.pxe_script.contains(source_url),
+        "Expected image_url={source_url} in script, got: {}",
+        pxe.pxe_script
+    );
+    assert!(
+        pxe.pxe_script.contains(digest),
+        "Expected image_sha={digest} in script, got: {}",
+        pxe.pxe_script
+    );
+    assert!(
+        pxe.pxe_script.contains("image_auth_token=my-secret-token"),
+        "Expected auth_token in script, got: {}",
+        pxe.pxe_script
+    );
+    assert!(
+        pxe.pxe_script.contains("image_auth_type=Bearer"),
+        "Expected auth_type in script, got: {}",
+        pxe.pxe_script
+    );
+    assert!(
+        pxe.pxe_script.contains("rootfs_uuid=root-uuid-1234"),
+        "Expected rootfs_uuid in script, got: {}",
+        pxe.pxe_script
+    );
+    assert!(
+        pxe.pxe_script.contains("ds=nocloud-net"),
+        "Expected cloud-init data source when userdata is set, got: {}",
+        pxe.pxe_script
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_create_instance_with_raw_ipxe_os_and_verify_pxe_rendering(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+
+    let raw_script = "chain --autofree https://boot.netboot.xyz";
+    let os_def = env
+        .api
+        .create_operating_system(tonic::Request::new(
+            rpc::forge::CreateOperatingSystemRequest {
+                id: None,
+                name: "raw-ipxe-os".to_string(),
+                tenant_organization_id: "test-org".to_string(),
+                description: Some("raw iPXE OS for instance test".to_string()),
+                is_active: true,
+                allow_override: true,
+                phone_home_enabled: false,
+                user_data: Some("os-level-userdata".to_string()),
+                ipxe_script: Some(raw_script.to_string()),
+                ipxe_template_id: None,
+                ipxe_template_parameters: vec![],
+                ipxe_template_artifacts: vec![],
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(
+        os_def.r#type,
+        rpc::forge::OperatingSystemType::OsTypeIpxe as i32
+    );
+    let os_id = os_def.id.unwrap();
+
+    let instance_os = rpc::forge::InstanceOperatingSystemConfig {
+        phone_home_enabled: false,
+        run_provisioning_instructions_on_every_boot: false,
+        user_data: Some("instance-userdata".to_string()),
+        variant: Some(
+            rpc::forge::instance_operating_system_config::Variant::OperatingSystemId(os_id),
+        ),
+    };
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(instance_os),
+        network: Some(single_interface_network_config(segment_id)),
+        infiniband: None,
+        network_security_group_id: None,
+        dpu_extension_services: None,
+        nvlink: None,
+    };
+
+    let tinstance = mh.instance_builer(&env).config(config).build().await;
+    let instance = tinstance.rpc_instance().await;
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
+
+    match &instance.config().os().variant {
+        Some(rpc::forge::instance_operating_system_config::Variant::OperatingSystemId(id)) => {
+            assert_eq!(*id, os_id);
+        }
+        other => panic!("expected OperatingSystemId variant, got {other:?}"),
+    }
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host_interface = mh.host().first_interface(&mut txn).await;
+    txn.rollback().await.unwrap();
+
+    let pxe = host_interface
+        .get_pxe_instructions(rpc::forge::MachineArchitecture::X86)
+        .await;
+    assert!(
+        pxe.pxe_script.contains(raw_script),
+        "Expected raw iPXE script in PXE instructions, got: {}",
+        pxe.pxe_script
+    );
+}
+
+#[crate::sqlx_test]
+async fn test_create_instance_with_templated_ipxe_os_with_artifacts_and_verify_pxe_rendering(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh = create_managed_host(&env).await;
+
+    // Use the qcow-image template (ea756ddd) which requires image_url and supports {{extra}}.
+    // Add a CachedOnly artifact that must be resolved via cached_url during rendering.
+    let os_def = env
+        .api
+        .create_operating_system(tonic::Request::new(
+            rpc::forge::CreateOperatingSystemRequest {
+                id: None,
+                name: "templated-os-with-artifacts".to_string(),
+                tenant_organization_id: "test-org".to_string(),
+                description: Some("templated iPXE OS with artifacts".to_string()),
+                is_active: true,
+                allow_override: true,
+                phone_home_enabled: false,
+                user_data: Some("os-level-userdata".to_string()),
+                ipxe_script: None,
+                ipxe_template_id: Some("ea756ddd-add3-5e42-a202-44bfc2d5aac2".parse().unwrap()),
+                ipxe_template_parameters: vec![IpxeTemplateParameter {
+                    name: "image_url".to_string(),
+                    value: "http://images.example.com/my-os.qcow2".to_string(),
+                }],
+                ipxe_template_artifacts: vec![IpxeTemplateArtifact {
+                    name: "firmware".to_string(),
+                    url: "https://remote.example.com/firmware.bin".to_string(),
+                    sha: None,
+                    auth_type: None,
+                    auth_token: None,
+                    cache_strategy: IpxeTemplateArtifactCacheStrategy::CachedOnly as i32,
+                    cached_url: None,
+                }],
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(
+        os_def.r#type,
+        rpc::forge::OperatingSystemType::OsTypeTemplatedIpxe as i32,
+    );
+    assert_eq!(
+        os_def.status,
+        rpc::forge::TenantState::Provisioning as i32,
+        "OS with CachedOnly artifact and no cached_url must start as PROVISIONING"
+    );
+    let os_id = os_def.id.unwrap();
+
+    // Set the cached_url for the CachedOnly artifact so the OS becomes READY.
+    env.api
+        .update_operating_system_cachable_ipxe_template_artifacts(tonic::Request::new(
+            rpc::forge::UpdateOperatingSystemIpxeTemplateArtifactRequest {
+                id: Some(os_id),
+                updates: vec![rpc::forge::IpxeTemplateArtifactUpdateRequest {
+                    name: "firmware".to_string(),
+                    cached_url: Some("http://local-cache.site/firmware.bin".to_string()),
+                }],
+            },
+        ))
+        .await
+        .unwrap();
+
+    let fetched = env
+        .api
+        .get_operating_system(tonic::Request::new(os_id))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        fetched.status,
+        rpc::forge::TenantState::Ready as i32,
+        "OS should be READY after setting all CachedOnly cached_urls"
+    );
+
+    // Allocate an instance referencing this OS.
+    let instance_os = rpc::forge::InstanceOperatingSystemConfig {
+        phone_home_enabled: false,
+        run_provisioning_instructions_on_every_boot: false,
+        user_data: Some("instance-userdata".to_string()),
+        variant: Some(
+            rpc::forge::instance_operating_system_config::Variant::OperatingSystemId(os_id),
+        ),
+    };
+
+    let config = rpc::InstanceConfig {
+        tenant: Some(default_tenant_config()),
+        os: Some(instance_os),
+        network: Some(single_interface_network_config(segment_id)),
+        infiniband: None,
+        network_security_group_id: None,
+        dpu_extension_services: None,
+        nvlink: None,
+    };
+
+    let tinstance = mh.instance_builer(&env).config(config).build().await;
+    let instance = tinstance.rpc_instance().await;
+    assert_eq!(instance.status().tenant(), rpc::forge::TenantState::Ready);
+
+    let mut txn = env.pool.begin().await.unwrap();
+    let host_interface = mh.host().first_interface(&mut txn).await;
+    txn.rollback().await.unwrap();
+
+    let pxe = host_interface
+        .get_pxe_instructions(rpc::forge::MachineArchitecture::X86)
+        .await;
+
+    assert!(
+        pxe.pxe_script
+            .contains("http://images.example.com/my-os.qcow2"),
+        "Expected image_url parameter value in rendered script, got: {}",
+        pxe.pxe_script
+    );
+    assert!(
+        pxe.pxe_script.contains("qcow-imager.efi"),
+        "Expected qcow-imager.efi chain from qcow-image template, got: {}",
+        pxe.pxe_script
     );
 }
