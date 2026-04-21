@@ -22,7 +22,7 @@ use db::resource_pool::ResourcePoolDatabaseError;
 use db::vpc::{self};
 use db::{self, ObjectColumnFilter, network_security_group};
 use model::resource_pool;
-use model::tenant::{InvalidTenantOrg, RoutingProfileType};
+use model::tenant::InvalidTenantOrg;
 use model::vpc::{NewVpc, UpdateVpc, UpdateVpcVirtualization, VpcStatus};
 use sqlx::PgConnection;
 use tonic::{Request, Response, Status};
@@ -103,48 +103,98 @@ pub(crate) async fn create(
         }
     }
 
-    let requested_profile_type = match (
-        vpc_creation_request
-            .routing_profile_type
-            .map(rpc::RoutingProfileType::try_from)
-            .transpose()
-            .map_err(|e| {
-                CarbideError::from(RpcDataConversionError::InvalidValue(
-                    e.to_string(),
-                    "RoutingProfileType".to_string(),
-                ))
-            })?
-            .map(RoutingProfileType::try_from)
-            .transpose()
-            .map_err(CarbideError::from)?,
-        tenant,
+    let (requested_profile_type, internal) = match (
+        vpc_creation_request.routing_profile_type.as_ref(),
+        tenant
+            .as_ref()
+            .and_then(|t| t.routing_profile_type.as_ref()),
     ) {
-        // No VPC routing profile requested, and no tenant.  Nothing to do.
-        (None, None) => None,
-        // No VPC routing profile requested, so default to the tenant's routing-profile.
-        (None, Some(t)) => t.routing_profile_type,
-        // VPC profile requested, but no tenant.  Can't validate anything, so reject.
+        // No VPC routing profile requested, and no tenant profile.  Nothing to do.
+        // If FNN disabled, assume internal.  Otherwise, external must be assumed.
+        // This is really handling any odd edge case where VPCs were created
+        // without a tenant.
+        (None, None) => (None, api.runtime_config.fnn.is_none()),
+
+        // VPC profile requested, but no tenant or tenant routing profile
+        // Can't validate anything, so reject.
         (Some(_), None) => {
             return Err(CarbideError::FailedPrecondition(format!(
-                "VPC routing-profile type requested but no tenant found for organization id `{}`",
+                "VPC routing-profile type requested but no tenant or routing profile-type found for organization id `{}`",
                 vpc_creation_request.tenant_organization_id.clone()
             ))
             .into());
         }
-        // VPC profile requested, and tenant found.
-        // Do a little validation and accept if it all looks good.
-        (Some(profile_type), Some(t)) => {
-            let Some(tenant_routing_profile_type) = t.routing_profile_type else {
-                return Err(CarbideError::FailedPrecondition(
-                    format!("VPC routing-profile type requested for tenant (`{}`) with no routing-profile type", t.organization_id)
-                )
-                .into());
-            };
-            if profile_type > tenant_routing_profile_type {
-                return Err(CarbideError::FailedPrecondition(format!("requested VPC routing-profile type (`{}`) is greater than associated tenant routing-profile type (`{}`)", profile_type, tenant_routing_profile_type)).into());
-            }
 
-            Some(profile_type)
+        // Tenant routing profile found.
+        // Check if routing profile was requested and do some validation if so,
+        // and default to the tenant profile if not.
+        (requested_profile_type, Some(tenant_profile_type)) => {
+            match (api.runtime_config.fnn.as_ref(), requested_profile_type) {
+                // If FNN disabled and profile requested, throw error.
+                (None, Some(_)) => {
+                    return Err(CarbideError::FailedPrecondition(
+                        "FNN configuration required to request routing-profile for VPCs"
+                            .to_string(),
+                    )
+                    .into());
+                }
+
+                // If FNN disabled and no profile requested, return tenant profile type and internal==true.
+                // This maintains the legacy/pre-FNN behavior.
+                (None, None) => (Some(tenant_profile_type.to_owned()), true),
+
+                // If FNN enabled and no profile requested, pull tenant profile and return tenant profile type, and tenant profile .internal value
+                (Some(_), None) => {
+                    // Pull the tenant profile
+                    let tenant_profile = api
+                        .runtime_config
+                        .fnn
+                        .as_ref()
+                        .and_then(|f| f.routing_profiles.get(tenant_profile_type))
+                        .ok_or_else(|| CarbideError::NotFoundError {
+                            kind: "routing_profile",
+                            id: tenant_profile_type.to_owned(),
+                        })?;
+                    (
+                        Some(tenant_profile_type.to_owned()),
+                        tenant_profile.internal,
+                    )
+                }
+
+                // If FNN enabled and profile requested, pull tenant and requested profile, check access tiers, and return requested profile type and requested profile .internal value
+                (Some(_), Some(profile_type)) => {
+                    // Pull the requested profile
+                    let routing_profile = api
+                        .runtime_config
+                        .fnn
+                        .as_ref()
+                        .and_then(|f| f.routing_profiles.get(profile_type))
+                        .ok_or_else(|| CarbideError::NotFoundError {
+                            kind: "routing_profile",
+                            id: profile_type.to_owned(),
+                        })?;
+
+                    // Pull the tenant profile
+                    let tenant_profile = api
+                        .runtime_config
+                        .fnn
+                        .as_ref()
+                        .and_then(|f| f.routing_profiles.get(tenant_profile_type))
+                        .ok_or_else(|| CarbideError::NotFoundError {
+                            kind: "routing_profile",
+                            id: tenant_profile_type.to_owned(),
+                        })?;
+
+                    // Higher tier value means more restrictions, narrower access.
+                    // Lower tier value means less restrictions / broader access.
+                    // A tenant with narrower access should not be able to create a VPC with broader access.
+                    if routing_profile.access_tier < tenant_profile.access_tier {
+                        return Err(CarbideError::FailedPrecondition("requested VPC routing-profile access tier is broader than associated tenant routing-profile access tier".to_string()).into());
+                    }
+
+                    (Some(profile_type.to_owned()), routing_profile.internal)
+                }
+            }
         }
     };
 
@@ -155,7 +205,7 @@ pub(crate) async fn create(
             api,
             &mut txn,
             &new_vpc.id.to_string(),
-            requested_profile_type.clone(),
+            internal,
             new_vpc.vni,
         )
         .await?,
@@ -319,7 +369,7 @@ pub(crate) async fn delete(
                 .fnn
                 .as_ref()
                 .map(|f| {
-                    let Some(profile_type) = vpc.routing_profile_type.map(|t| t.to_string()) else {
+                    let Some(profile_type) = vpc.routing_profile_type else {
                         return Err(CarbideError::MissingArgument("routing_profile_type"));
                     };
 
@@ -413,33 +463,12 @@ async fn allocate_vpc_vni(
     api: &Api,
     txn: &mut PgConnection,
     owner_id: &str,
-    routing_profile_type: Option<RoutingProfileType>,
+    internal: bool,
     requested_vni: Option<i32>,
 ) -> Result<i32, CarbideError> {
     // If FNN is not configured, then there is no distinction between internal
     // and external tenants: they're all internal.  This matches how things are
     // deployed today.
-    let internal = api.runtime_config.fnn.is_none()
-        || api
-            .runtime_config
-            .fnn
-            .as_ref()
-            .map(|f| {
-                let Some(profile_type) = routing_profile_type.map(|t| t.to_string()) else {
-                    return Err(CarbideError::MissingArgument("routing_profile_type"));
-                };
-
-                let Some(profile) = f.routing_profiles.get(&profile_type) else {
-                    return Err(CarbideError::NotFoundError {
-                        kind: "routing_profile_type",
-                        id: profile_type,
-                    });
-                };
-
-                Ok(profile.internal)
-            })
-            .transpose()?
-            .unwrap_or_default();
 
     let source_pool = if internal {
         &api.common_pools.ethernet.pool_vpc_vni

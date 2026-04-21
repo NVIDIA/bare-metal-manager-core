@@ -18,13 +18,12 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
+use ::utils::metrics::SharedMetricsHolder;
 use carbide_uuid::measured_boot::{MeasurementBundleId, MeasurementSystemProfileId};
 use measured_boot::pcr::PcrRegisterValue;
 use measured_boot::records::{MeasurementBundleState, MeasurementMachineState};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::Meter;
-
-use crate::logging::metrics_utils::SharedMetricsHolder;
 
 /// MeasuredBootMetricsCollectorMetrics stores metrics that are gathered in
 /// one a single `MeasuredBootMetricsCollector` run. These metrics are then

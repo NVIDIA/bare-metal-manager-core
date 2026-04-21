@@ -349,6 +349,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                             vlan_id,
                             network: ip.clone() + "/32",
                             ip,
+                            ipv6_vlan_config: None,
                         }
                     })
                     .collect();
@@ -359,6 +360,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                     vpc_virtualization_type: opts.virtualization_type,
                     hbn_version: opts.hbn_version,
                     use_admin_network: true,
+                    tenancy_enabled: true,
                     loopback_ip: opts.loopback_ip.to_string(),
                     secondary_overlay_vtep_ip: opts.secondary_overlay_vtep_ip,
                     internal_bridge_routing_prefix: opts.internal_bridge_routing_prefix,

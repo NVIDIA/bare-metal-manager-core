@@ -90,18 +90,74 @@ fn parse_log_filter_missing_filter_fails() {
     assert!(result.is_err(), "should fail without --filter");
 }
 
-// parse_create_machines ensures create-machines parses with --enabled.
+// parse_create_machines_enable ensures create-machines --enable works.
 #[test]
-fn parse_create_machines() {
-    let cmd = Cmd::try_parse_from(["set", "create-machines", "--enabled", "true"])
-        .expect("should parse create-machines");
+fn parse_create_machines_enable() {
+    let cmd = Cmd::try_parse_from(["set", "create-machines", "--enable"])
+        .expect("should parse create-machines --enable");
 
     match cmd {
         Cmd::CreateMachines(args) => {
-            assert!(args.enabled);
+            assert!(args.is_enabled());
         }
         _ => panic!("expected CreateMachines variant"),
     }
+}
+
+// parse_create_machines_disable ensures create-machines --disable works.
+#[test]
+fn parse_create_machines_disable() {
+    let cmd = Cmd::try_parse_from(["set", "create-machines", "--disable"])
+        .expect("should parse create-machines --disable");
+
+    match cmd {
+        Cmd::CreateMachines(args) => {
+            assert!(!args.is_enabled());
+        }
+        _ => panic!("expected CreateMachines variant"),
+    }
+}
+
+// parse_create_machines_requires_toggle ensures create-machines fails without --enable/--disable.
+#[test]
+fn parse_create_machines_requires_toggle() {
+    let result = Cmd::try_parse_from(["set", "create-machines"]);
+    assert!(result.is_err(), "should fail without --enable or --disable");
+}
+
+// parse_site_explorer_enable ensures site-explorer --enable works.
+#[test]
+fn parse_site_explorer_enable() {
+    let cmd = Cmd::try_parse_from(["set", "site-explorer", "--enable"])
+        .expect("should parse site-explorer --enable");
+
+    match cmd {
+        Cmd::SiteExplorer(args) => {
+            assert!(args.is_enabled());
+        }
+        _ => panic!("expected SiteExplorer variant"),
+    }
+}
+
+// parse_site_explorer_disable ensures site-explorer --disable works.
+#[test]
+fn parse_site_explorer_disable() {
+    let cmd = Cmd::try_parse_from(["set", "site-explorer", "--disable"])
+        .expect("should parse site-explorer --disable");
+
+    match cmd {
+        Cmd::SiteExplorer(args) => {
+            assert!(!args.is_enabled());
+        }
+        _ => panic!("expected SiteExplorer variant"),
+    }
+}
+
+// parse_site_explorer_requires_toggle ensures site-explorer fails without --enable/--disable.
+#[test]
+fn parse_site_explorer_requires_toggle() {
+    let result = Cmd::try_parse_from(["set", "site-explorer"]);
+    assert!(result.is_err(), "should fail without --enable or --disable");
 }
 
 // parse_bmc_proxy ensures bmc-proxy parses with --enabled and --proxy.

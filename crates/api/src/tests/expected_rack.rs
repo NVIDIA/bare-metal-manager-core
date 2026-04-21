@@ -15,11 +15,11 @@
  * limitations under the License.
  */
 
-use carbide_uuid::rack::RackId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use common::api_fixtures::{create_test_env, create_test_env_with_overrides, get_config};
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
-    RackTypeConfig,
+    RackProfile, RackProfileConfig,
 };
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{ExpectedRackList, ExpectedRackRequest};
@@ -27,54 +27,58 @@ use rpc::forge::{ExpectedRackList, ExpectedRackRequest};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 
-fn config_with_rack_types() -> crate::cfg::file::CarbideConfig {
+fn config_with_rack_profiles() -> crate::cfg::file::CarbideConfig {
     let mut config = get_config();
-    config.rack_types = RackTypeConfig {
-        rack_types: [
+    config.rack_profiles = RackProfileConfig {
+        rack_profiles: [
             (
                 "NVL72".to_string(),
-                RackCapabilitiesSet {
-                    compute: RackCapabilityCompute {
-                        name: Some("GB200".to_string()),
-                        count: 18,
-                        vendor: Some("NVIDIA".to_string()),
-                        slot_ids: None,
-                    },
-                    switch: RackCapabilitySwitch {
-                        name: None,
-                        count: 9,
-                        vendor: None,
-                        slot_ids: None,
-                    },
-                    power_shelf: RackCapabilityPowerShelf {
-                        name: None,
-                        count: 4,
-                        vendor: None,
-                        slot_ids: None,
+                RackProfile {
+                    rack_capabilities: RackCapabilitiesSet {
+                        compute: RackCapabilityCompute {
+                            name: Some("GB200".to_string()),
+                            count: 18,
+                            vendor: Some("NVIDIA".to_string()),
+                            slot_ids: None,
+                        },
+                        switch: RackCapabilitySwitch {
+                            name: None,
+                            count: 9,
+                            vendor: None,
+                            slot_ids: None,
+                        },
+                        power_shelf: RackCapabilityPowerShelf {
+                            name: None,
+                            count: 4,
+                            vendor: None,
+                            slot_ids: None,
+                        },
                     },
                     ..Default::default()
                 },
             ),
             (
                 "NVL36".to_string(),
-                RackCapabilitiesSet {
-                    compute: RackCapabilityCompute {
-                        name: None,
-                        count: 9,
-                        vendor: None,
-                        slot_ids: None,
-                    },
-                    switch: RackCapabilitySwitch {
-                        name: None,
-                        count: 4,
-                        vendor: None,
-                        slot_ids: None,
-                    },
-                    power_shelf: RackCapabilityPowerShelf {
-                        name: None,
-                        count: 2,
-                        vendor: None,
-                        slot_ids: None,
+                RackProfile {
+                    rack_capabilities: RackCapabilitiesSet {
+                        compute: RackCapabilityCompute {
+                            name: None,
+                            count: 9,
+                            vendor: None,
+                            slot_ids: None,
+                        },
+                        switch: RackCapabilitySwitch {
+                            name: None,
+                            count: 4,
+                            vendor: None,
+                            slot_ids: None,
+                        },
+                        power_shelf: RackCapabilityPowerShelf {
+                            name: None,
+                            count: 2,
+                            vendor: None,
+                            slot_ids: None,
+                        },
                     },
                     ..Default::default()
                 },
@@ -98,7 +102,7 @@ async fn seed_expected_racks(txn: &mut sqlx::PgConnection) -> Vec<RackId> {
         txn,
         &model::expected_rack::ExpectedRack {
             rack_id: ids[0].clone(),
-            rack_type: "NVL72".to_string(),
+            rack_profile_id: RackProfileId::new("NVL72"),
 
             metadata: model::metadata::Metadata {
                 name: "rack-1".to_string(),
@@ -114,7 +118,7 @@ async fn seed_expected_racks(txn: &mut sqlx::PgConnection) -> Vec<RackId> {
         txn,
         &model::expected_rack::ExpectedRack {
             rack_id: ids[1].clone(),
-            rack_type: "NVL72".to_string(),
+            rack_profile_id: RackProfileId::new("NVL72"),
 
             metadata: model::metadata::Metadata {
                 name: "rack-2".to_string(),
@@ -130,7 +134,7 @@ async fn seed_expected_racks(txn: &mut sqlx::PgConnection) -> Vec<RackId> {
         txn,
         &model::expected_rack::ExpectedRack {
             rack_id: ids[2].clone(),
-            rack_type: "NVL36".to_string(),
+            rack_profile_id: RackProfileId::new("NVL36"),
 
             metadata: model::metadata::Metadata {
                 name: "rack-3".to_string(),
@@ -159,7 +163,7 @@ async fn test_db_find_by_rack_id(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         .expect("Expected rack not found");
 
     assert_eq!(expected_rack.rack_id, ids[0]);
-    assert_eq!(expected_rack.rack_type, "NVL72");
+    assert_eq!(expected_rack.rack_profile_id.as_str(), "NVL72");
     assert_eq!(expected_rack.metadata.name, "rack-1");
     assert_eq!(expected_rack.metadata.description, "Test rack 1");
 
@@ -202,7 +206,7 @@ async fn test_db_create_and_find(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         &mut txn,
         &model::expected_rack::ExpectedRack {
             rack_id: rack_id.clone(),
-            rack_type: "NVL72".to_string(),
+            rack_profile_id: RackProfileId::new("NVL72"),
 
             metadata,
         },
@@ -210,7 +214,7 @@ async fn test_db_create_and_find(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     .await?;
 
     assert_eq!(created.rack_id, rack_id);
-    assert_eq!(created.rack_type, "NVL72");
+    assert_eq!(created.rack_profile_id.as_str(), "NVL72");
     assert_eq!(created.metadata.name, "test-rack");
     assert_eq!(created.metadata.labels.get("env").unwrap(), "test");
 
@@ -219,7 +223,7 @@ async fn test_db_create_and_find(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         .expect("Should find the rack we just created");
 
     assert_eq!(found.rack_id, rack_id);
-    assert_eq!(found.rack_type, "NVL72");
+    assert_eq!(found.rack_profile_id.as_str(), "NVL72");
 
     Ok(())
 }
@@ -233,7 +237,7 @@ async fn test_db_duplicate_create(pool: sqlx::PgPool) -> Result<(), Box<dyn std:
         &mut txn,
         &model::expected_rack::ExpectedRack {
             rack_id: ids[0].clone(),
-            rack_type: "NVL72".to_string(),
+            rack_profile_id: RackProfileId::new("NVL72"),
 
             metadata: model::metadata::Metadata::default(),
         },
@@ -257,11 +261,11 @@ async fn test_db_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Er
         .await?
         .expect("Expected rack not found");
 
-    assert_eq!(expected_rack.rack_type, "NVL72");
+    assert_eq!(expected_rack.rack_profile_id.as_str(), "NVL72");
 
     let updated = model::expected_rack::ExpectedRack {
         rack_id: ids[0].clone(),
-        rack_type: "NVL36".to_string(),
+        rack_profile_id: RackProfileId::new("NVL36"),
         metadata: model::metadata::Metadata {
             name: "updated-rack".to_string(),
             description: "Updated description".to_string(),
@@ -277,7 +281,7 @@ async fn test_db_update(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Er
     let found = db::expected_rack::find_by_rack_id(&mut txn, &ids[0])
         .await?
         .unwrap();
-    assert_eq!(found.rack_type, "NVL36");
+    assert_eq!(found.rack_profile_id.as_str(), "NVL36");
     assert_eq!(found.metadata.name, "updated-rack");
 
     Ok(())
@@ -328,13 +332,13 @@ async fn test_db_clear(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error::Err
 
 #[crate::sqlx_test]
 async fn test_add_expected_rack(pool: sqlx::PgPool) {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
     let expected_rack = rpc::forge::ExpectedRack {
         rack_id: Some(rack_id.clone()),
-        rack_type: "NVL72".to_string(),
+        rack_profile_id: Some(RackProfileId::new("NVL72")),
         metadata: Some(rpc::forge::Metadata {
             name: "test-rack".to_string(),
             description: "A test NVL72 rack".to_string(),
@@ -360,19 +364,22 @@ async fn test_add_expected_rack(pool: sqlx::PgPool) {
         .into_inner();
 
     assert_eq!(retrieved.rack_id, Some(rack_id));
-    assert_eq!(retrieved.rack_type, "NVL72");
+    assert_eq!(
+        retrieved.rack_profile_id.as_ref().unwrap().as_str(),
+        "NVL72"
+    );
     assert_eq!(retrieved.metadata.as_ref().unwrap().name, "test-rack");
 }
 
 #[crate::sqlx_test]
 async fn test_add_expected_rack_invalid_type(pool: sqlx::PgPool) {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
     let expected_rack = rpc::forge::ExpectedRack {
         rack_id: Some(rack_id.clone()),
-        rack_type: "INVALID_TYPE".to_string(),
+        rack_profile_id: Some(RackProfileId::new("INVALID_TYPE")),
         metadata: None,
     };
 
@@ -383,21 +390,21 @@ async fn test_add_expected_rack_invalid_type(pool: sqlx::PgPool) {
         .unwrap_err();
 
     assert!(
-        err.message().contains("Unknown rack_type"),
-        "Expected error about unknown rack_type, got: {}",
+        err.message().contains("Unknown rack_profile_id"),
+        "Expected error about unknown rack_profile_id, got: {}",
         err.message()
     );
 }
 
 #[crate::sqlx_test]
 async fn test_add_expected_rack_empty_type(pool: sqlx::PgPool) {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
     let expected_rack = rpc::forge::ExpectedRack {
         rack_id: Some(rack_id.clone()),
-        rack_type: "".to_string(),
+        rack_profile_id: Some(RackProfileId::new("")),
         metadata: None,
     };
 
@@ -408,20 +415,20 @@ async fn test_add_expected_rack_empty_type(pool: sqlx::PgPool) {
         .unwrap_err();
 
     assert!(
-        err.message().contains("rack_type is required"),
-        "Expected error about empty rack_type, got: {}",
+        err.message().contains("rack_profile_id is required"),
+        "Expected error about empty rack_profile_id, got: {}",
         err.message()
     );
 }
 
 #[crate::sqlx_test]
 async fn test_add_expected_rack_missing_rack_id(pool: sqlx::PgPool) {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let expected_rack = rpc::forge::ExpectedRack {
         rack_id: None,
-        rack_type: "NVL72".to_string(),
+        rack_profile_id: Some(RackProfileId::new("NVL72")),
         metadata: None,
     };
 
@@ -460,13 +467,13 @@ async fn test_get_expected_rack_not_found(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_delete_expected_rack(pool: sqlx::PgPool) {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
     let expected_rack = rpc::forge::ExpectedRack {
         rack_id: Some(rack_id.clone()),
-        rack_type: "NVL72".to_string(),
+        rack_profile_id: Some(RackProfileId::new("NVL72")),
         metadata: None,
     };
 
@@ -515,7 +522,7 @@ async fn test_delete_expected_rack_not_found(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_update_expected_rack(pool: sqlx::PgPool) {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
@@ -524,7 +531,7 @@ async fn test_update_expected_rack(pool: sqlx::PgPool) {
     env.api
         .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
             rack_id: Some(rack_id.clone()),
-            rack_type: "NVL72".to_string(),
+            rack_profile_id: Some(RackProfileId::new("NVL72")),
             metadata: Some(rpc::forge::Metadata {
                 name: "original".to_string(),
                 ..Default::default()
@@ -537,7 +544,7 @@ async fn test_update_expected_rack(pool: sqlx::PgPool) {
     env.api
         .update_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
             rack_id: Some(rack_id.clone()),
-            rack_type: "NVL36".to_string(),
+            rack_profile_id: Some(RackProfileId::new("NVL36")),
             metadata: Some(rpc::forge::Metadata {
                 name: "updated".to_string(),
                 description: "Updated rack".to_string(),
@@ -556,7 +563,10 @@ async fn test_update_expected_rack(pool: sqlx::PgPool) {
         .expect("unable to get expected rack")
         .into_inner();
 
-    assert_eq!(retrieved.rack_type, "NVL36");
+    assert_eq!(
+        retrieved.rack_profile_id.as_ref().unwrap().as_str(),
+        "NVL36"
+    );
     assert_eq!(retrieved.metadata.as_ref().unwrap().name, "updated");
     assert_eq!(
         retrieved.metadata.as_ref().unwrap().description,
@@ -566,7 +576,7 @@ async fn test_update_expected_rack(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_update_expected_rack_not_found(pool: sqlx::PgPool) {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
@@ -574,7 +584,7 @@ async fn test_update_expected_rack_not_found(pool: sqlx::PgPool) {
         .api
         .update_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
             rack_id: Some(rack_id.clone()),
-            rack_type: "NVL72".to_string(),
+            rack_profile_id: Some(RackProfileId::new("NVL72")),
             metadata: None,
         }))
         .await
@@ -589,7 +599,7 @@ async fn test_update_expected_rack_not_found(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_get_all_expected_racks(pool: sqlx::PgPool) {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     // Start with none.
@@ -607,7 +617,7 @@ async fn test_get_all_expected_racks(pool: sqlx::PgPool) {
         env.api
             .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
                 rack_id: Some(rack_id),
-                rack_type: "NVL72".to_string(),
+                rack_profile_id: Some(RackProfileId::new("NVL72")),
                 metadata: Some(rpc::forge::Metadata {
                     name: format!("rack-{}", i),
                     ..Default::default()
@@ -628,13 +638,13 @@ async fn test_get_all_expected_racks(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_add_expected_rack_duplicate(pool: sqlx::PgPool) {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     let rack_id = new_rack_id();
     let expected_rack = rpc::forge::ExpectedRack {
         rack_id: Some(rack_id.clone()),
-        rack_type: "NVL72".to_string(),
+        rack_profile_id: Some(RackProfileId::new("NVL72")),
         metadata: None,
     };
 
@@ -660,7 +670,7 @@ async fn test_add_expected_rack_duplicate(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_replace_all_expected_racks(pool: sqlx::PgPool) {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     // Add one initial rack.
@@ -668,7 +678,7 @@ async fn test_replace_all_expected_racks(pool: sqlx::PgPool) {
     env.api
         .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
             rack_id: Some(initial_rack_id.clone()),
-            rack_type: "NVL72".to_string(),
+            rack_profile_id: Some(RackProfileId::new("NVL72")),
             metadata: None,
         }))
         .await
@@ -681,7 +691,7 @@ async fn test_replace_all_expected_racks(pool: sqlx::PgPool) {
         expected_racks: vec![
             rpc::forge::ExpectedRack {
                 rack_id: Some(rack_id_1),
-                rack_type: "NVL72".to_string(),
+                rack_profile_id: Some(RackProfileId::new("NVL72")),
                 metadata: Some(rpc::forge::Metadata {
                     name: "replacement-1".to_string(),
                     ..Default::default()
@@ -689,7 +699,7 @@ async fn test_replace_all_expected_racks(pool: sqlx::PgPool) {
             },
             rpc::forge::ExpectedRack {
                 rack_id: Some(rack_id_2),
-                rack_type: "NVL36".to_string(),
+                rack_profile_id: Some(RackProfileId::new("NVL36")),
                 metadata: Some(rpc::forge::Metadata {
                     name: "replacement-2".to_string(),
                     ..Default::default()
@@ -724,7 +734,7 @@ async fn test_replace_all_expected_racks(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_delete_all_expected_racks(pool: sqlx::PgPool) {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env = create_test_env_with_overrides(pool, TestEnvOverrides::with_config(config)).await;
 
     // Add two racks.
@@ -733,7 +743,7 @@ async fn test_delete_all_expected_racks(pool: sqlx::PgPool) {
         env.api
             .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
                 rack_id: Some(rack_id),
-                rack_type: "NVL72".to_string(),
+                rack_profile_id: Some(RackProfileId::new("NVL72")),
                 metadata: None,
             }))
             .await
@@ -765,7 +775,7 @@ async fn test_delete_all_expected_racks(pool: sqlx::PgPool) {
 
 #[crate::sqlx_test]
 async fn test_add_expected_rack_creates_rack_entry(pool: sqlx::PgPool) {
-    let config = config_with_rack_types();
+    let config = config_with_rack_profiles();
     let env =
         create_test_env_with_overrides(pool.clone(), TestEnvOverrides::with_config(config)).await;
 
@@ -773,7 +783,7 @@ async fn test_add_expected_rack_creates_rack_entry(pool: sqlx::PgPool) {
     env.api
         .add_expected_rack(tonic::Request::new(rpc::forge::ExpectedRack {
             rack_id: Some(rack_id.clone()),
-            rack_type: "NVL72".to_string(),
+            rack_profile_id: Some(RackProfileId::new("NVL72")),
             metadata: None,
         }))
         .await
@@ -786,5 +796,5 @@ async fn test_add_expected_rack_creates_rack_entry(pool: sqlx::PgPool) {
         .await
         .unwrap();
     assert!(expected.is_some(), "expected_rack entry should exist");
-    assert_eq!(expected.unwrap().rack_type, "NVL72");
+    assert_eq!(expected.unwrap().rack_profile_id.as_str(), "NVL72");
 }

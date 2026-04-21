@@ -16,13 +16,15 @@
  */
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
+use ::rpc::forge::{self as rpc, HealthReportEntry};
 use db::{ObjectColumnFilter, power_shelf as db_power_shelf};
+use health_report::HealthReportApplyMode;
 use model::metadata::Metadata;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
+use crate::auth::AuthContext;
 
 pub async fn find_power_shelf(
     api: &Api,
@@ -380,4 +382,161 @@ pub(crate) async fn update_power_shelf_metadata(
     txn.commit().await?;
 
     Ok(tonic::Response::new(()))
+}
+
+pub async fn list_power_shelf_health_reports(
+    api: &Api,
+    request: Request<rpc::ListPowerShelfHealthReportsRequest>,
+) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
+    log_request_data(&request);
+
+    let req = request.into_inner();
+    let power_shelf_id = req
+        .power_shelf_id
+        .ok_or_else(|| CarbideError::MissingArgument("power_shelf_id"))?;
+
+    let mut conn = api
+        .database_connection
+        .acquire()
+        .await
+        .map_err(|e| CarbideError::Internal {
+            message: format!("Database error: {}", e),
+        })?;
+
+    let power_shelf = db_power_shelf::find_by_id(&mut conn, &power_shelf_id)
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "power_shelf",
+            id: power_shelf_id.to_string(),
+        })?;
+
+    Ok(Response::new(rpc::ListHealthReportResponse {
+        health_report_entries: power_shelf
+            .health_reports
+            .into_iter()
+            .map(|o| HealthReportEntry {
+                report: Some(o.0.into()),
+                mode: o.1 as i32,
+            })
+            .collect(),
+    }))
+}
+
+pub async fn insert_power_shelf_health_report(
+    api: &Api,
+    request: Request<rpc::InsertPowerShelfHealthReportRequest>,
+) -> Result<Response<()>, Status> {
+    log_request_data(&request);
+
+    let triggered_by = request
+        .extensions()
+        .get::<AuthContext>()
+        .and_then(|ctx| ctx.get_external_user_name())
+        .map(String::from);
+
+    let rpc::InsertPowerShelfHealthReportRequest {
+        power_shelf_id,
+        health_report_entry: Some(rpc::HealthReportEntry { report, mode }),
+    } = request.into_inner()
+    else {
+        return Err(CarbideError::MissingArgument("override").into());
+    };
+    let power_shelf_id =
+        power_shelf_id.ok_or_else(|| CarbideError::MissingArgument("power_shelf_id"))?;
+
+    let Some(report) = report else {
+        return Err(CarbideError::MissingArgument("report").into());
+    };
+    let Ok(mode) = rpc::HealthReportApplyMode::try_from(mode) else {
+        return Err(CarbideError::InvalidArgument("mode".to_string()).into());
+    };
+    let mode: HealthReportApplyMode = mode.into();
+
+    let mut txn = api.txn_begin().await?;
+
+    let power_shelf = db_power_shelf::find_by_id(&mut txn, &power_shelf_id)
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "power_shelf",
+            id: power_shelf_id.to_string(),
+        })?;
+
+    let mut report = health_report::HealthReport::try_from(report.clone())
+        .map_err(|e| CarbideError::internal(e.to_string()))?;
+    if report.observed_at.is_none() {
+        report.observed_at = Some(chrono::Utc::now());
+    }
+    report.triggered_by = triggered_by;
+    report.update_in_alert_since(None);
+
+    match remove_power_shelf_health_report_by_source(&power_shelf, &mut txn, report.source.clone())
+        .await
+    {
+        Ok(_) | Err(CarbideError::NotFoundError { .. }) => {}
+        Err(e) => return Err(e.into()),
+    }
+
+    db_power_shelf::insert_health_report(&mut txn, &power_shelf_id, mode, &report).await?;
+
+    txn.commit().await?;
+
+    Ok(Response::new(()))
+}
+
+pub async fn remove_power_shelf_health_report(
+    api: &Api,
+    request: Request<rpc::RemovePowerShelfHealthReportRequest>,
+) -> Result<Response<()>, Status> {
+    log_request_data(&request);
+
+    let rpc::RemovePowerShelfHealthReportRequest {
+        power_shelf_id,
+        source,
+    } = request.into_inner();
+    let power_shelf_id =
+        power_shelf_id.ok_or_else(|| CarbideError::MissingArgument("power_shelf_id"))?;
+
+    let mut txn = api.txn_begin().await?;
+
+    let power_shelf = db_power_shelf::find_by_id(&mut txn, &power_shelf_id)
+        .await
+        .map_err(CarbideError::from)?
+        .ok_or_else(|| CarbideError::NotFoundError {
+            kind: "power_shelf",
+            id: power_shelf_id.to_string(),
+        })?;
+
+    remove_power_shelf_health_report_by_source(&power_shelf, &mut txn, source).await?;
+    txn.commit().await?;
+
+    Ok(Response::new(()))
+}
+
+async fn remove_power_shelf_health_report_by_source(
+    power_shelf: &model::power_shelf::PowerShelf,
+    txn: &mut db::Transaction<'_>,
+    source: String,
+) -> Result<(), CarbideError> {
+    let mode = if power_shelf
+        .health_reports
+        .replace
+        .as_ref()
+        .map(|o| &o.source)
+        == Some(&source)
+    {
+        HealthReportApplyMode::Replace
+    } else if power_shelf.health_reports.merges.contains_key(&source) {
+        HealthReportApplyMode::Merge
+    } else {
+        return Err(CarbideError::NotFoundError {
+            kind: "power shelf health report with source",
+            id: source,
+        });
+    };
+
+    db_power_shelf::remove_health_report(&mut *txn, &power_shelf.id, mode, &source).await?;
+
+    Ok(())
 }

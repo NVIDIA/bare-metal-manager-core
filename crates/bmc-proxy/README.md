@@ -26,6 +26,7 @@ Important configuration fields:
 - `allowed_principals`: authorized caller principals, for example `spiffe-service-id/<name>`
 - `tls.*`: server certificate, key, and trust roots for mTLS
 - `auth.trust.*`: SPIFFE trust domain and allowed base paths
+- `auth.acls`: per-principal ACL rules for HTTP method and path authorization
 - `auth.cli_certs`: optional criteria for externally issued admin/client certs
 - `bmc_proxy`: optional upstream override for dev/test chaining
 
@@ -48,7 +49,66 @@ spiffe_trust_domain = "forge.local"
 spiffe_service_base_paths = ["/forge-system/sa/", "/default/sa/"]
 spiffe_machine_base_path = "/forge-system/machine/"
 additional_issuer_cns = []
+
+[auth.acls]
+"spiffe-service-id/dpf" = ["/redfish/v1/**"]
 ```
+
+### `auth.acls`
+
+`auth.acls` maps an authenticated principal to an ordered list of ACL entries:
+
+```toml
+[auth.acls]
+"spiffe-service-id/carbide-api" = ["/**"]
+"spiffe-service-id/nv-dps" = [
+  "GET /redfish/v1",
+  "GET,POST /redfish/v1/Managers/BMC/NodeManager/Domains",
+  "GET,PATCH,DELETE /redfish/v1/Managers/BMC/NodeManager/Domains/*",
+]
+```
+
+Each ACL entry has the form:
+
+```text
+[!]VERB[,VERB...] /path/pattern
+```
+
+Rules:
+
+- The leading `!` means deny. Without it, the entry allows.
+- If the verb list is omitted, the entry matches any HTTP method.
+- Entries are evaluated in order. The first matching entry wins.
+- If no entry matches, the request is denied.
+- ACLs are scoped per principal. A principal with no ACL list is denied.
+
+Path matching syntax:
+
+- Exact path components match literally.
+- `*` matches exactly one path component.
+- `prefix*` matches one path component with the given prefix.
+- `*suffix` matches one path component with the given suffix.
+- `**` matches zero or more path components.
+- A single `*` may appear by itself, at the beginning, or at the end of a path component.
+  Valid: `/redfish/v1/Systems/*/SecureBoot/**`
+  Valid: `/redfish/v1/Systems/system*/SecureBoot`
+  Valid: `/redfish/v1/Systems/*Boot/SecureBoot`
+  Invalid: `/redfish/v1/Systems/sys*tem/SecureBoot`
+- At most one `**` is allowed in an ACL path.
+
+Examples:
+
+- `"/**"`
+  Allow a principal to access any path with any method.
+- `"GET /redfish/v1/**"`
+  Allow only `GET` requests anywhere under `/redfish/v1`.
+- `"!POST,PATCH /redfish/v1/Systems/*/SecureBoot/**"`
+  Deny writes below any system's `SecureBoot` subtree.
+- `"GET,POST /redfish/v1/Managers/BMC/NodeManager/Domains"`
+  Allow both listing and creating node manager domains on the same path.
+
+If you are translating endpoint docs into ACLs, replace templated path components such as
+`{id}`, `{session_id}`, or `{policy_id}` with `*`.
 
 ## Example Request
 

@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use carbide_uuid::rack::RackId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use db::db_read::DbReader;
 use db::{self, ObjectColumnFilter, machine as db_machine, rack as db_rack};
 use model::expected_machine::ExpectedMachineData;
@@ -153,7 +153,7 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
     let env = create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
-            config: Some(handler::config_with_rack_types()),
+            config: Some(handler::config_with_rack_profiles()),
             ..Default::default()
         },
     )
@@ -167,7 +167,7 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
     let machine_id_2 = handler::new_machine_id(2);
     let mut txn = pool.acquire().await?;
     let rack_id = TestRackDbBuilder::new()
-        .with_rack_type("Simple")
+        .with_rack_profile_id("Simple")
         .persist(&mut txn)
         .await?;
 
@@ -545,10 +545,8 @@ async fn test_rack_controller_state_version_increment(
     db_rack::create(
         &mut txn,
         &rack_id,
-        &RackConfig {
-            rack_type: Some("Empty".to_string()),
-            ..Default::default()
-        },
+        Some(&RackProfileId::new("Empty")),
+        &RackConfig::default(),
         None,
     )
     .await?;

@@ -557,32 +557,24 @@ async fn test_list(db_pool: sqlx::PgPool) -> Result<(), eyre::Report> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 50)]
 async fn test_parallel() -> Result<(), eyre::Report> {
-    // sqlx tests expect this, so we're taking advantage
-    // of knowing this is going to be set. The reason we
-    // don't just use an sqlx_test here is so we can use
-    // a multi-threaded executor.
+    // We can't use #[sqlx::test] here because we need a multi-threaded
+    // executor with 50 worker threads. Instead we manage the test database
+    // lifecycle manually, using a random name so multiple test runs (or
+    // parallel CI jobs) never collide on the same Postgres instance.
     let base_url = std::env::var("DATABASE_URL")?;
-    let db_url = format!("{base_url}/test_parallel");
+    // ResourcePool.name is varchar(32), so keep the DB name short.
+    let short_id = &uuid::Uuid::new_v4().simple().to_string()[..8];
+    let db_name = format!("test_par_{short_id}");
+    let db_url = format!("{base_url}/{db_name}");
 
-    // We also also a dedicated "admin" pool (connected to
-    // the default database) to query pg_stat_activity and
-    // wait for lingering backends to drain before dropping
-    // the test_parallel database.
     let admin = sqlx::Pool::<sqlx::postgres::Postgres>::connect(&base_url).await?;
-
-    if sqlx::Postgres::database_exists(&db_url).await? {
-        sqlx::Postgres::drop_database(&db_url).await?;
-    }
 
     sqlx::Postgres::create_database(&db_url).await?;
     let db_pool = sqlx::Pool::<sqlx::postgres::Postgres>::connect(&db_url).await?;
     tests::MIGRATOR.run(&db_pool).await?;
 
     let mut txn = db_pool.begin().await?;
-    let pool = Arc::new(ResourcePool::new(
-        "test_parallel".to_string(),
-        ValueType::Integer,
-    ));
+    let pool = Arc::new(ResourcePool::new(db_name.clone(), ValueType::Integer));
 
     db::resource_pool::populate(
         &pool,
@@ -624,50 +616,12 @@ async fn test_parallel() -> Result<(), eyre::Report> {
     drop(pool);
     db_pool.close().await;
 
-    // Every value we got was unique, so the HashSet had no duplicates
     assert_eq!(all_values.lock().await.len(), 5_000);
 
-    // Wait up to 60 seconds for Postgres to fully release all
-    // backends before dropping. If there are still active
-    // connections left, just let it fail. It should really only
-    // be momentarily.
-    //
-    // The problem we were observing in CICD (but not really ever
-    // on local workstations), is that this will go to do the final
-    // drop_database(..) call down below, but would very occasionally
-    // fail, because the database was "being accessed by other users".
-    //
-    // The theory is that, while we do `db_pool.close().await`, that's
-    // only part of the story; we closed connections on our side, but
-    // Postgres may still be cleaning up backends, especially on our
-    // Github runners, which tend to be kind of busy.
-    //
-    // Another approach would be to `DROP DATABASSE WITH FORCE`, but
-    // it seemed nicer to actually take an approach of detecting if
-    // thre are still active connections for the database, logging if
-    // we detect, and then waiting.
-    //
-    // I haven't been able to get this to "trigger" on my desktop,
-    // and it always passes successfully, but hopefully we see the
-    // flaky test go away at this point
-    //
-    // Btw, the log output here will only show if you run the test
-    // with --nocapture, OR if the test fails, so if this actually
-    // does its job, you should never really see it log, which is
-    // kind of sad.
-    for attempt in 1..=60 {
-        let remaining: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM pg_stat_activity WHERE datname = 'test_parallel'",
-        )
-        .fetch_one(&admin)
-        .await?;
-        if remaining == 0 {
-            break;
-        }
-        println!("test_parallel: {remaining} connection(s) still open (attempt {attempt}/60)");
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    }
-    sqlx::Postgres::drop_database(&db_url).await?;
+    // WITH (FORCE) terminates any lingering backends before dropping,
+    // avoiding the flaky "database is being accessed by other users" error.
+    let drop_stmt = format!("DROP DATABASE \"{db_name}\" WITH (FORCE)");
+    sqlx::query(&drop_stmt).execute(&admin).await?;
     admin.close().await;
     Ok(())
 }

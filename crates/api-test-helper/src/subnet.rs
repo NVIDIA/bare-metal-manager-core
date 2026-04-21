@@ -77,4 +77,39 @@ pub async fn wait_for_network_segment_state(
     eyre::bail!("Even after {MAX_RETRY} retries, {segment_id} did not reach state {target_state}");
 }
 
+pub async fn create_dual_stack(
+    carbide_api_addrs: &[SocketAddr],
+    vpc_id: &str,
+    domain_id: &str,
+    prefix_octet: u8,
+) -> eyre::Result<String> {
+    tracing::info!("Creating dual-stack network segment");
+
+    let data = serde_json::json!({
+        "vpc_id": { "value": vpc_id },
+        "name": "tenant1_dual_stack",
+        "subdomain_id": { "value": domain_id },
+        "segment_type": "TENANT",
+        "prefixes": [
+            {
+                "prefix": format!("10.10.{prefix_octet}.0/24"),
+                "gateway": format!("10.10.{prefix_octet}.1"),
+                "reserve_first": 10,
+            },
+            {
+                "prefix": format!("2001:db8:{prefix_octet}::/112"),
+                "reserve_first": 1,
+            },
+        ]
+    });
+    let segment_id =
+        grpcurl_id(carbide_api_addrs, "CreateNetworkSegment", &data.to_string()).await?;
+    tracing::info!("Dual-stack network segment created with ID {segment_id}");
+
+    wait_for_network_segment_state(carbide_api_addrs, &segment_id, "READY").await?;
+
+    tracing::info!("Dual-stack network segment with ID {segment_id} is ready");
+    Ok(segment_id)
+}
+
 const MAX_RETRY: usize = 30; // Equal to 30s wait time

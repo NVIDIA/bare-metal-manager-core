@@ -31,7 +31,7 @@ use ::rpc::forge::{
     NetworkSecurityGroupRuleAction, NetworkSecurityGroupRuleProtocol,
 };
 use carbide_network::ip::prefix::Ipv4Net;
-use carbide_network::virtualization::VpcVirtualizationType;
+use carbide_network::virtualization::{VpcVirtualizationType, build_dual_stack_list};
 use eyre::WrapErr;
 use mac_address::MacAddress;
 use nvue_client::{NvueClient, NvueConfig};
@@ -188,6 +188,12 @@ pub async fn update_nvue(
             vlan_id: admin_interface.vlan_id,
             network: admin_interface.interface_prefix.clone(),
             ip: admin_interface.ip.clone(),
+            ipv6_vlan_config: admin_interface.ipv6_interface_config.as_ref().map(|v6| {
+                nvue::Ipv6VlanConfig {
+                    network: v6.interface_prefix.clone(),
+                    ip: v6.ip.clone(),
+                }
+            }),
         }]
     } else {
         let mut access_vlans = Vec::with_capacity(nc.tenant_interfaces.len());
@@ -196,6 +202,12 @@ pub async fn update_nvue(
                 vlan_id: net.vlan_id,
                 network: net.interface_prefix.clone(),
                 ip: net.ip.clone(),
+                ipv6_vlan_config: net.ipv6_interface_config.as_ref().map(|v6| {
+                    nvue::Ipv6VlanConfig {
+                        network: v6.interface_prefix.clone(),
+                        ip: v6.ip.clone(),
+                    }
+                }),
             });
         }
         access_vlans
@@ -203,6 +215,10 @@ pub async fn update_nvue(
 
     let (has_stateful_nsg, network_security_groups) =
         build_network_security_group_rules(&nc.tenant_interfaces)?;
+
+    // If we aren't on the admin network _or_ if we are the primary DPU
+    // then we should be enabled for tenancy (i.e. VRFs and related config)
+    let tenancy_enabled = !nc.use_admin_network || nc.is_primary_dpu;
 
     let physical_name = hbn_device_names.reps[0].to_string();
     let networks = if nc.use_admin_network {
@@ -229,6 +245,12 @@ pub async fn update_nvue(
                     None
                 },
                 gateway_cidr: admin_interface.gateway.clone(),
+                ipv6_port_config: admin_interface.ipv6_interface_config.as_ref().map(|v6| {
+                    nvue::Ipv6PortConfig {
+                        gateway_cidr: v6.interface_prefix.clone(),
+                        svi_ip: v6.svi_ip.clone(),
+                    }
+                }),
                 vpc_prefixes: admin_interface.vpc_prefixes.clone(),
                 vpc_peer_prefixes: admin_interface.vpc_peer_prefixes.clone(),
                 vpc_peer_vnis: admin_interface.vpc_peer_vnis.clone(),
@@ -261,6 +283,8 @@ pub async fn update_nvue(
                 }
             };
 
+            // For dual-stack FNN, the DPU-side IPv6 address is the network address
+            // of the /127 linknet (the ::0 end). The ::1 end is the host.
             ifs.push(nvue::PortConfig {
                 interface_name: name,
                 is_phy: net.function_type == rpc::InterfaceFunctionType::Physical as i32,
@@ -268,6 +292,12 @@ pub async fn update_nvue(
                 vni: Some(net.vni), // TODO should this be nc.vni_device?
                 l3_vni: Some(net.vpc_vni),
                 gateway_cidr: net.gateway.clone(),
+                ipv6_port_config: net.ipv6_interface_config.as_ref().map(|v6| {
+                    nvue::Ipv6PortConfig {
+                        gateway_cidr: v6.interface_prefix.clone(),
+                        svi_ip: v6.svi_ip.clone(),
+                    }
+                }),
                 vpc_prefixes: net.vpc_prefixes.clone(),
                 vpc_peer_prefixes: net.vpc_peer_prefixes.clone(),
                 vpc_peer_vnis: net.vpc_peer_vnis.clone(),
@@ -282,6 +312,14 @@ pub async fn update_nvue(
         }
         ifs
     };
+
+    // We should explicitly guard against the absence of interfaces.
+    // A follow-up should probably do some work to split out tenant enabled vs. disabled DPUs more clearly.
+    if tenancy_enabled && networks.is_empty() {
+        return Err(eyre::eyre!(
+            "BUG: network config provided without interfaces"
+        ));
+    }
 
     // Currently there's only one quarantine mode, BlockAllTraffic, so we block everything if it's set at all.
     let is_quarantined = nc
@@ -306,6 +344,7 @@ pub async fn update_nvue(
         vpc_virtualization_type,
         site_global_vpc_vni: nc.site_global_vpc_vni,
         use_admin_network: nc.use_admin_network,
+        tenancy_enabled,
         loopback_ip,
         vf_intercept_bridge_port_name: nc.traffic_intercept_config.as_ref().and_then(|vc| {
             vc.bridging
@@ -941,12 +980,23 @@ pub async fn interfaces(
         let Some(iface) = network_config.admin_interface.as_ref() else {
             eyre::bail!("use_admin_network is true but admin interface is missing");
         };
+        let addresses = build_dual_stack_list(
+            iface.ip.clone(),
+            iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
+        );
+        let prefixes = build_dual_stack_list(
+            iface.interface_prefix.clone(),
+            iface
+                .ipv6_interface_config
+                .as_ref()
+                .map(|v6| v6.interface_prefix.clone()),
+        );
         interfaces.push(rpc::InstanceInterfaceStatusObservation {
             function_type: iface.function_type,
             virtual_function_id: None,
             mac_address: Some(factory_mac_address.to_string()),
-            addresses: vec![iface.ip.clone()],
-            prefixes: vec![iface.interface_prefix.clone()],
+            addresses,
+            prefixes,
             gateways: vec![iface.gateway.clone()],
             network_security_group: None,
             internal_uuid: iface.internal_uuid.clone(),
@@ -1013,12 +1063,23 @@ pub async fn interfaces(
                         version: nsg.version.clone(),
                     });
 
+            let addresses = build_dual_stack_list(
+                iface.ip.clone(),
+                iface.ipv6_interface_config.as_ref().map(|v6| v6.ip.clone()),
+            );
+            let prefixes = build_dual_stack_list(
+                iface.interface_prefix.clone(),
+                iface
+                    .ipv6_interface_config
+                    .as_ref()
+                    .map(|v6| v6.interface_prefix.clone()),
+            );
             interfaces.push(rpc::InstanceInterfaceStatusObservation {
                 function_type: iface.function_type,
                 virtual_function_id: iface.virtual_function_id,
                 mac_address: mac,
-                addresses: vec![iface.ip.clone()],
-                prefixes: vec![iface.interface_prefix.clone()],
+                addresses,
+                prefixes,
                 gateways: vec![iface.gateway.clone()],
                 network_security_group,
                 internal_uuid: iface.internal_uuid.clone(),
@@ -1878,6 +1939,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_with_tenant_fnn_with_missing_vpcs() -> Result<(), Box<dyn std::error::Error>> {
+        let virtualization_type = VpcVirtualizationType::Fnn;
+
+        let mut network_config = netconf(virtualization_type, 32, 24, false, None, false, false);
+
+        // Empty out the interfaces so we complain if we don't see VPCs.
+        network_config.tenant_interfaces = vec![];
+
+        let td = tempfile::tempdir()?;
+        let hbn_root = td.path();
+        fs::create_dir_all(hbn_root.join("var/support"))?;
+        fs::create_dir_all(hbn_root.join("etc/cumulus/acl/policy.d"))?;
+
+        let update_flavor = NvueUpdateFlavor::StartupFile {
+            hbn_root,
+            skip_post: true,
+        };
+
+        assert!(
+            super::update_nvue(
+                virtualization_type,
+                update_flavor,
+                &network_config,
+                HBNDeviceNames::hbn_23(),
+            )
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("BUG: network config provided without interfaces")
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn test_with_tenant_nvue_with_nsg() -> Result<(), Box<dyn std::error::Error>> {
         // Test WITH an NSG
         let virtualization_type = VpcVirtualizationType::EthernetVirtualizer;
@@ -2198,6 +2294,7 @@ mod tests {
             network_security_group: None,
             internal_uuid: None,
             mtu: None,
+            ipv6_interface_config: None,
         };
         assert_eq!(admin_interface.svi_ip, None);
 
@@ -2248,6 +2345,7 @@ mod tests {
                 network_security_group: None,
                 internal_uuid: None,
                 mtu: None,
+                ipv6_interface_config: None,
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -2421,6 +2519,7 @@ mod tests {
                 },
                 internal_uuid: None,
                 mtu: None,
+                ipv6_interface_config: None,
             },
         ];
 
@@ -2658,6 +2757,7 @@ mod tests {
             vpc_peer_prefixes: vec![],
             vpc_peer_vnis: vec![],
             is_l2_segment: true,
+            ipv6_port_config: None,
         }];
         let hostname = super::hostname().wrap_err("gethostname error")?;
         let vpc_vni = 7777;
@@ -2666,6 +2766,7 @@ mod tests {
             is_fnn,
             vpc_virtualization_type,
             use_admin_network: true,
+            tenancy_enabled: true,
             site_global_vpc_vni: None,
             loopback_ip: "10.217.5.39".to_string(),
             secondary_overlay_vtep_ip: Some("10.255.254.253".to_string()),
@@ -2706,6 +2807,7 @@ mod tests {
                 vlan_id: 123,
                 network: "10.217.4.70/32".to_string(),
                 ip: "10.217.4.70".to_string(),
+                ipv6_vlan_config: None,
             }],
             ct_routing_profile: Some(nvue::RoutingProfile {
                 tenant_leak_communities_accepted: false,
@@ -2832,6 +2934,7 @@ mod tests {
             network_security_group: None,
             internal_uuid: None,
             mtu: None,
+            ipv6_interface_config: None,
         };
 
         let mut admin_interface_with_mtu = admin_interface.clone();
@@ -2867,6 +2970,7 @@ mod tests {
                 network_security_group: None,
                 internal_uuid: None,
                 mtu: None,
+                ipv6_interface_config: None,
             },
             rpc::FlatInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical.into(),
@@ -2891,6 +2995,7 @@ mod tests {
                 network_security_group: None,
                 internal_uuid: None,
                 mtu: None,
+                ipv6_interface_config: None,
             },
         ];
 
@@ -3240,5 +3345,38 @@ mod tests {
         let interface_name = "i0";
         let translated_interface_name = translation.translate(interface_name);
         assert_eq!(translated_interface_name.as_str(), "pre_i0");
+    }
+
+    #[test]
+    fn test_dual_stack_addresses_building() {
+        // Verify the iterator-based pattern used to build dual-stack address/prefix vectors.
+        let ip = "10.0.0.1".to_string();
+        let ip6 = Some("2001:db8::1".to_string());
+        let interface_prefix = "10.0.0.0/31".to_string();
+        let interface_prefix_v6 = Some("2001:db8::/127".to_string());
+
+        let addresses: Vec<String> = std::iter::once(ip.clone())
+            .chain(ip6.filter(|s| !s.is_empty()))
+            .collect();
+        assert_eq!(addresses, vec!["10.0.0.1", "2001:db8::1"]);
+
+        let prefixes: Vec<String> = std::iter::once(interface_prefix)
+            .chain(interface_prefix_v6.filter(|s| !s.is_empty()))
+            .collect();
+        assert_eq!(prefixes, vec!["10.0.0.0/31", "2001:db8::/127"]);
+
+        // Verify empty ip6 is not included.
+        let empty_ip6: Option<String> = Some("".to_string());
+        let addresses2: Vec<String> = std::iter::once(ip)
+            .chain(empty_ip6.filter(|s| !s.is_empty()))
+            .collect();
+        assert_eq!(addresses2, vec!["10.0.0.1"]);
+
+        // Verify None ip6 is not included.
+        let none_ip6: Option<String> = None;
+        let addresses3: Vec<String> = std::iter::once("10.0.0.1".to_string())
+            .chain(none_ip6.filter(|s| !s.is_empty()))
+            .collect();
+        assert_eq!(addresses3, vec!["10.0.0.1"]);
     }
 }

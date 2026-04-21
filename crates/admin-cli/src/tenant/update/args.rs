@@ -17,8 +17,6 @@
 
 use clap::Parser;
 
-use crate::tenant::common::TenantRoutingProfileType;
-
 #[derive(Parser, Debug, Clone)]
 pub struct Args {
     #[clap(help = "Tenant org ID to update", default_value(None))]
@@ -27,11 +25,10 @@ pub struct Args {
     #[clap(
         short = 'p',
         long,
-        help = "Optional, routing profile to apply to the tenant",
+        help = "Optional, routing profile name to apply to the tenant",
         default_value(None)
     )]
-    #[arg(value_enum)]
-    pub routing_profile_type: Option<TenantRoutingProfileType>,
+    pub routing_profile_type: Option<String>,
 
     #[clap(
         short = 'v',

@@ -44,6 +44,7 @@ use model::machine::{
     HostHealthConfig, LoadSnapshotOptions, Machine, ManagedHostStateSnapshot, NotAllocatableReason,
 };
 use model::metadata::Metadata;
+use model::network_segment::NetworkSegmentType;
 use model::os::OperatingSystemVariant;
 use model::tenant::TenantOrganizationId;
 use model::vpc_prefix::VpcPrefix;
@@ -52,6 +53,29 @@ use sqlx::PgConnection;
 use crate::api::Api;
 use crate::cfg::file::ComputeAllocationEnforcement;
 use crate::network_segment::allocate::PrefixAllocator;
+
+/// Validate a requested IP address for a linknet allocation and wrap it as
+/// an IpNetwork with the given prefix length. Returns an error if the host
+/// bit is 0 (the DPU end of the linknet -- the host must use the ::1 end).
+fn build_requested_linknet_prefix(
+    ip: std::net::IpAddr,
+    linknet_prefix_len: u8,
+) -> CarbideResult<IpNetwork> {
+    let host_bit_is_zero = match ip {
+        std::net::IpAddr::V4(v4) => v4.to_bits() & 1 == 0,
+        std::net::IpAddr::V6(v6) => v6.to_bits() & 1 == 0,
+    };
+    if host_bit_is_zero {
+        return Err(CarbideError::InvalidConfiguration(
+            ConfigValidationError::InvalidValue(format!(
+                "requested IP address must not have final host bit of 0: {ip}",
+            )),
+        ));
+    }
+    IpNetwork::new(ip.to_canonical(), linknet_prefix_len).map_err(|e| CarbideError::Internal {
+        message: format!("unable to create IP network for {ip}: {e}"),
+    })
+}
 use crate::{CarbideError, CarbideResult};
 
 /// Validates that an operating system definition referenced by ID exists, is active,
@@ -167,15 +191,19 @@ pub async fn allocate_network(
     // 2. Pointed vpc'organization id must be same as instance's tenant_org.
     // 3. If no vpc_prefix_id is mentioned, return.
 
+    // Collect all VPC prefix IDs across all interfaces (supports both single and dual-stack).
     let vpc_prefix_ids: Vec<VpcPrefixId> = network_config
         .interfaces
         .iter()
-        .filter_map(|x| {
+        .flat_map(|x| {
+            let mut ids = Vec::new();
             if let Some(NetworkDetails::VpcPrefixId(id)) = x.network_details {
-                Some(id)
-            } else {
-                None
+                ids.push(id);
             }
+            if let Some(ref v6) = x.ipv6_interface_config {
+                ids.push(v6.vpc_prefix_id);
+            }
+            ids
         })
         .collect_vec();
 
@@ -208,7 +236,7 @@ pub async fn allocate_network(
         )));
     };
 
-    // get all used prefixes under this vpc_prefix.
+    // Allocate linknet prefixes for each interface's VPC prefix(es).
     for interface in &mut network_config.interfaces {
         // If IP address is already allocated, ignore.
         // This is the case of updating network config when some
@@ -217,58 +245,91 @@ pub async fn allocate_network(
             continue;
         }
 
-        if let Some(network_details) = &mut interface.network_details {
-            match network_details {
-                NetworkDetails::NetworkSegment(_) => {}
-                NetworkDetails::VpcPrefixId(vpc_prefix_id) => {
-                    let vpc_prefix_id = &VpcPrefixId::from(*vpc_prefix_id);
-                    let (vpc_id, vpc_prefix, last_used_prefix) = {
-                        if let Some(vpc) = vpc_prefixes.get(vpc_prefix_id) {
-                            (vpc.vpc_id, vpc.config.prefix, vpc.status.last_used_prefix)
-                        } else {
-                            return Err(CarbideError::internal(format!(
+        let Some(network_details) = &interface.network_details else {
+            continue;
+        };
+
+        match network_details {
+            NetworkDetails::NetworkSegment(_) => {}
+            NetworkDetails::VpcPrefixId(vpc_prefix_id) => {
+                let vpc_prefix_id = &VpcPrefixId::from(*vpc_prefix_id);
+                let (vpc_id, vpc_prefix, last_used_prefix) = {
+                    vpc_prefixes
+                        .get(vpc_prefix_id)
+                        .map(|vpc| (vpc.vpc_id, vpc.config.prefix, vpc.status.last_used_prefix))
+                        .ok_or_else(|| {
+                            CarbideError::internal(format!(
                                 "Unknown VPC prefix id: {vpc_prefix_id}"
-                            )));
-                        }
-                    };
+                            ))
+                        })?
+                };
 
-                    // FNN linknets are point-to-point: two addresses per subnet.
-                    // IPv4: /31 (RFC 3021), IPv6: /127 (RFC 6164).
-                    let linknet_prefix = if vpc_prefix.is_ipv4() { 31 } else { 127 };
+                // Prevent dual-v6: if the primary VPC prefix is IPv6 and
+                // ipv6_interface_config is also set, we'd create two v6 linknets
+                // on the same segment.
+                if vpc_prefix.is_ipv6() && interface.ipv6_interface_config.is_some() {
+                    return Err(CarbideError::InvalidConfiguration(
+                        ConfigValidationError::InvalidValue(
+                            "vpc_prefix_id points to an IPv6 prefix but ipv6_interface_config is also set -- use one or the other for IPv6".to_string(),
+                        ),
+                    ));
+                }
 
-                    let requested_prefix = interface
-                        .requested_ip_addr
-                        .map(|ipaddr| {
-                            // Verify that no requested IPs are trying to use the "lower" end of a p2p prefix.
-                            if match ipaddr {
-                                std::net::IpAddr::V4(ip) => ip.to_bits() & 1 == 0,
-                                std::net::IpAddr::V6(ip) => ip.to_bits() & 1 == 0,
-                            } {
-                                return Err(CarbideError::InvalidConfiguration(
-                                    ConfigValidationError::InvalidValue(format!(
-                                        "requested IP address must not have final host bit of 0: {ipaddr}",
-                                    )),
-                                ));
-                            }
+                let linknet_prefix = if vpc_prefix.is_ipv4() { 31 } else { 127 };
 
-                            let ipaddr = ipaddr.to_canonical();
-                            IpNetwork::new(ipaddr, linknet_prefix).map_err(|e| CarbideError::Internal {
-                                message: format!("unable to create IP network for {}: {e}", ipaddr),
-                            })
-                        })
-                        .transpose()?;
+                let requested_prefix = interface
+                    .requested_ip_addr
+                    .map(|ip| build_requested_linknet_prefix(ip, linknet_prefix))
+                    .transpose()?;
 
-                    let (ns_id, prefix) = PrefixAllocator::new(
-                        *vpc_prefix_id,
-                        vpc_prefix,
-                        last_used_prefix,
-                        linknet_prefix,
-                    )?
+                let allocator = PrefixAllocator::new(
+                    *vpc_prefix_id,
+                    vpc_prefix,
+                    last_used_prefix,
+                    linknet_prefix,
+                )?;
+                let (ns_id, prefix) = allocator
                     .allocate_network_segment(txn, vpc_id, requested_prefix)
                     .await?;
-                    interface.network_segment_id = Some(ns_id);
-                    vpc_prefixes.entry(*vpc_prefix_id).and_modify(|x| {
-                        x.status.last_used_prefix = Some(prefix);
+                interface.network_segment_id = Some(ns_id);
+                vpc_prefixes.entry(*vpc_prefix_id).and_modify(|x| {
+                    x.status.last_used_prefix = Some(prefix);
+                });
+
+                // Dual-stack: if IPv6 config is set, add a v6 linknet to the same segment.
+                if let Some(ref v6_config) = interface.ipv6_interface_config {
+                    let v6_prefix_id = &v6_config.vpc_prefix_id;
+                    let (v6_vpc_prefix, v6_last_used) = {
+                        vpc_prefixes
+                            .get(v6_prefix_id)
+                            .map(|vpc| (vpc.config.prefix, vpc.status.last_used_prefix))
+                            .ok_or_else(|| {
+                                CarbideError::internal(format!(
+                                    "Unknown VPC prefix id: {v6_prefix_id}"
+                                ))
+                            })?
+                    };
+                    let v6_linknet_prefix = 127;
+                    let v6_requested_prefix = v6_config
+                        .requested_ip_addr
+                        .map(|ipv6addr| {
+                            build_requested_linknet_prefix(
+                                std::net::IpAddr::V6(ipv6addr),
+                                v6_linknet_prefix,
+                            )
+                        })
+                        .transpose()?;
+                    let v6_allocator = PrefixAllocator::new(
+                        *v6_prefix_id,
+                        v6_vpc_prefix,
+                        v6_last_used,
+                        v6_linknet_prefix,
+                    )?;
+                    let v6_prefix = v6_allocator
+                        .allocate_linknet_for_segment(txn, ns_id, v6_requested_prefix)
+                        .await?;
+                    vpc_prefixes.entry(*v6_prefix_id).and_modify(|x| {
+                        x.status.last_used_prefix = Some(v6_prefix);
                     });
                 }
             }
@@ -781,6 +842,36 @@ pub async fn batch_allocate_instances(
                 .unwrap_or(true),
         )?;
 
+        // Reject instance configs whose network interfaces reference segments
+        // the host can't actually serve. For a zero-DPU host, this means
+        // anything beyond its HostInband segments; there's no DPU to handle
+        // overlay/tenant networking, so accepting the request would leave a
+        // zero-DPU instance stuck in Provisioning with no path to completion.
+        if mh_snapshot.is_zero_dpu() {
+            let allowed_segment_ids: HashSet<_> = mh_snapshot
+                .host_snapshot
+                .interfaces
+                .iter()
+                .filter(|iface| {
+                    matches!(
+                        iface.network_segment_type,
+                        Some(NetworkSegmentType::HostInband)
+                    )
+                })
+                .map(|iface| iface.segment_id)
+                .collect();
+            for iface in &request.config.network.interfaces {
+                if let Some(ns_id) = iface.network_segment_id
+                    && !allowed_segment_ids.contains(&ns_id)
+                {
+                    return Err(CarbideError::InvalidArgument(format!(
+                        "zero-DPU host {} cannot serve an instance interface on network segment {ns_id}. must be a HostInband segment only (allowed: {allowed_segment_ids:?}).",
+                        mh_snapshot.host_snapshot.id,
+                    )));
+                }
+            }
+        }
+
         processed_requests.push((request, mh_snapshot));
     }
 
@@ -982,6 +1073,46 @@ pub async fn validate_ib_partition_ownership(
         .map(|iface| (iface.ib_partition_id, instance_tenant))
         .collect();
     batch_validate_ib_partition_ownership(txn, &validations).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_requested_linknet_prefix_valid_v4() {
+        // Host end of a /31 (odd address) should succeed.
+        let result = build_requested_linknet_prefix("10.0.0.1".parse().unwrap(), 31);
+        assert!(result.is_ok());
+        let prefix = result.unwrap();
+        assert_eq!(prefix.prefix(), 31);
+        assert_eq!(prefix.ip().to_string(), "10.0.0.1");
+    }
+
+    #[test]
+    fn test_build_requested_linknet_prefix_valid_v6() {
+        // Host end of a /127 (::1 address) should succeed.
+        let result = build_requested_linknet_prefix("2001:db8::1".parse().unwrap(), 127);
+        assert!(result.is_ok());
+        let prefix = result.unwrap();
+        assert_eq!(prefix.prefix(), 127);
+    }
+
+    #[test]
+    fn test_build_requested_linknet_prefix_rejects_dpu_end_v4() {
+        // DPU end of a /31 (even address) should be rejected.
+        let result = build_requested_linknet_prefix("10.0.0.0".parse().unwrap(), 31);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("host bit of 0"));
+    }
+
+    #[test]
+    fn test_build_requested_linknet_prefix_rejects_dpu_end_v6() {
+        // DPU end of a /127 (::0 address) should be rejected.
+        let result = build_requested_linknet_prefix("2001:db8::0".parse().unwrap(), 127);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("host bit of 0"));
+    }
 }
 
 #[cfg(test)]

@@ -17,12 +17,12 @@
 
 //! State Controller implementation for Racks.
 
-use carbide_uuid::rack::RackId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use db::machine;
 use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
-use model::rack::{Rack, RackConfig};
-use model::rack_type::RackCapabilitiesSet;
+use model::rack::Rack;
+use model::rack_type::{RackCapabilitiesSet, RackProfile};
 use sqlx::PgConnection;
 
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
@@ -60,27 +60,46 @@ pub(crate) async fn get_machines_from_rack(
     Ok(machines)
 }
 
-/// Resolves the `RackCapabilitiesSet` for a rack by looking up its `rack_type`
+/// Resolves the `RackProfile` for a rack by looking up its `rack_profile_id`
 /// from the runtime config. Returns `None` with a log message if the rack has
-/// no `rack_type` or the type is unknown.
-pub(crate) fn resolve_capabilities<'a>(
+/// no `rack_profile_id` or the profile is unknown.
+pub(crate) fn resolve_profile<'a>(
     id: &RackId,
-    config: &RackConfig,
+    rack_profile_id: Option<&RackProfileId>,
     ctx: &'a StateHandlerContext<'_, RackStateHandlerContextObjects>,
-) -> Option<&'a RackCapabilitiesSet> {
-    let rack_type = match config.rack_type.as_deref() {
-        Some(rt) => rt,
+) -> Option<&'a RackProfile> {
+    let rack_profile_id = match rack_profile_id {
+        Some(rc) => rc,
         None => {
-            tracing::info!("Rack {} has no rack_type configured", id);
+            tracing::info!("Rack {} has no rack_profile_id configured", id);
             return None;
         }
     };
 
-    match ctx.services.site_config.rack_types.get(rack_type) {
-        Some(caps) => Some(caps),
+    match ctx
+        .services
+        .site_config
+        .rack_profiles
+        .get(rack_profile_id.as_str())
+    {
+        Some(profile) => Some(profile),
         None => {
-            tracing::warn!("Rack {} has unknown rack_type '{}'", id, rack_type);
+            tracing::warn!(
+                "Rack {} has unknown rack_profile_id '{}'",
+                id,
+                rack_profile_id
+            );
             None
         }
     }
+}
+
+/// Resolves the `RackCapabilitiesSet` for a rack. Convenience wrapper around
+/// `resolve_profile` for callers that only need device counts.
+pub(crate) fn resolve_capabilities<'a>(
+    id: &RackId,
+    rack_profile_id: Option<&RackProfileId>,
+    ctx: &'a StateHandlerContext<'_, RackStateHandlerContextObjects>,
+) -> Option<&'a RackCapabilitiesSet> {
+    resolve_profile(id, rack_profile_id, ctx).map(|p| &p.rack_capabilities)
 }

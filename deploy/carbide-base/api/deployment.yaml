@@ -71,11 +71,6 @@ spec:
                 configMapKeyRef:
                   name: vault-cluster-info
                   key: VAULT_SERVICE
-            - name: VAULT_MOUNT_LOCATION
-              valueFrom:
-                configMapKeyRef:
-                  name: vault-cluster-info
-                  key: FORGE_VAULT_MOUNT
             - name: VAULT_KV_MOUNT_LOCATION
               valueFrom:
                 configMapKeyRef:

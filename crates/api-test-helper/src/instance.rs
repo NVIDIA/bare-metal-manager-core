@@ -67,9 +67,11 @@ pub async fn create(
             },
             "os": os,
         }),
-        // omit network from config if we're not specifying a segment
+        // omit network from config if we're not specifying a segment (in
+        // the zero-DPU case, the allocator auto-picks a HostInband segment).
         None => serde_json::json!({
             "tenant": tenant,
+            "os": os,
         }),
     };
 
@@ -107,6 +109,60 @@ pub async fn create(
 
     tracing::info!("Instance with ID {instance_id} is ready");
 
+    Ok(instance_id)
+}
+
+/// Allocates an instance with dual-stack VPC prefixes.
+/// Takes a primary (v4) VPC prefix ID and an optional v6 VPC prefix ID.
+pub async fn create_with_vpc_prefixes(
+    addrs: &[SocketAddr],
+    host_machine_id: &MachineId,
+    vpc_prefix_ids: &[&str],
+) -> eyre::Result<String> {
+    tracing::info!(
+        %host_machine_id,
+        ?vpc_prefix_ids,
+        "Creating instance with VPC prefix allocation",
+    );
+
+    let v4_id = vpc_prefix_ids
+        .first()
+        .ok_or_else(|| eyre::eyre!("At least one VPC prefix ID required"))?;
+
+    let mut iface = serde_json::json!({
+        "function_type": "PHYSICAL",
+        "vpc_prefix_id": {"value": v4_id},
+    });
+
+    if let Some(v6_id) = vpc_prefix_ids.get(1) {
+        iface["ipv6_interface_config"] = serde_json::json!({"vpc_prefix_id": {"value": v6_id}});
+    }
+
+    let data = serde_json::json!({
+        "machine_id": {"id": host_machine_id},
+        "config": {
+            "tenant": {
+                "tenant_organization_id": "MyOrg",
+            },
+            "network": {
+                "interfaces": [iface]
+            },
+            "os": {
+                "ipxe": {
+                    "ipxe_script": "chain --autofree https://boot.netboot.xyz"
+                },
+                "phone_home_enabled": false,
+                "user_data": "hello",
+            },
+        },
+        "metadata": {
+             "name": "test_instance_dual_stack",
+             "description": "tests/integration/dual_stack_instance"
+        },
+    });
+
+    let instance_id = grpcurl_id(addrs, "AllocateInstance", &data.to_string()).await?;
+    tracing::info!("Dual-stack instance created with ID {instance_id}");
     Ok(instance_id)
 }
 

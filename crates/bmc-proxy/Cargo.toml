@@ -90,12 +90,11 @@ urlencoding = { workspace = true }
 url = { features = ["serde"], workspace = true }
 uuid = { features = ["v4", "serde"], workspace = true }
 x509-parser = { features = ["verify"], workspace = true }
-serde = { features = ["derive"] , workspace = true }
+serde = { features = ["derive"], workspace = true }
 sqlx = { workspace = true, features = [
     "runtime-tokio-rustls",
     "postgres",
 ] }
-
 
 [build-dependencies]
 carbide-version = { path = "../version" }

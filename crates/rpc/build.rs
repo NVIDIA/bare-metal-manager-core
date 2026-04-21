@@ -35,6 +35,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ".forge.DeletedFilter",
             "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
         )
+        .type_attribute(
+            ".forge.DpuMode",
+            "#[cfg_attr(feature = \"cli\", derive(clap::ValueEnum))]",
+        )
+        .type_attribute(
+            ".forge.DpuMode",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
         .extern_path(".google.protobuf.Duration", "crate::Duration")
         .extern_path(".google.protobuf.Timestamp", "crate::Timestamp")
         .extern_path(".common.DomainId", "::carbide_uuid::domain::DomainId")
@@ -47,6 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".common.NetworkSegmentId", "::carbide_uuid::network::NetworkSegmentId")
         .extern_path(".common.PowerShelfId", "::carbide_uuid::power_shelf::PowerShelfId")
         .extern_path(".common.RackId", "::carbide_uuid::rack::RackId")
+        .extern_path(".common.RackProfileId", "::carbide_uuid::rack::RackProfileId")
         .extern_path(".common.NVLinkPartitionId", "::carbide_uuid::nvlink::NvLinkPartitionId")
         .extern_path(".common.NVLinkLogicalPartitionId", "::carbide_uuid::nvlink::NvLinkLogicalPartitionId")
         .extern_path(".common.NVLinkDomainId", "::carbide_uuid::nvlink::NvLinkDomainId")
@@ -93,6 +102,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute(".dns", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FabricManagerConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.FlatInterfaceConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.FlatInterfaceIpv6Config", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.InstanceInterfaceIpv6Config", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute(
             "forge.InstanceInterfaceConfig",
             "#[derive(serde::Serialize)]",
@@ -254,8 +265,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.MachineInventorySoftwareComponent",
             "#[derive(serde::Serialize)]",
         )
-        .type_attribute("forge.HealthReportOverride", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.HealthOverrideOrigin", "#[derive(serde::Deserialize, serde::Serialize)]")
+        .type_attribute("forge.HealthReportEntry", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.HealthSourceOrigin", "#[derive(serde::Deserialize, serde::Serialize)]")
         .type_attribute(
             "forge.ManagedHostNetworkConfig",
             "#[derive(serde::Serialize)]",
@@ -678,7 +689,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.RackCapabilityCompute", "#[derive(serde::Serialize)]")
         .type_attribute("forge.RackCapabilitySwitch", "#[derive(serde::Serialize)]")
         .type_attribute("forge.RackCapabilityPowerShelf", "#[derive(serde::Serialize)]")
-        .type_attribute("forge.GetRackCapabilitiesResponse", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.RackProfile", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.GetRackProfileResponse", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.MachineHardwareInfoGpu",
             "#[derive(serde::Deserialize, serde::Serialize)]",
@@ -740,7 +752,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )
         .type_attribute(
+            "forge.RackConfig",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
             "forge.RackList",
+            "#[derive(serde::Deserialize,serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.RackStatus",
             "#[derive(serde::Deserialize,serde::Serialize)]",
         )
         .type_attribute("forge.PowerShelf", "#[derive(serde::Serialize)]")
@@ -898,6 +918,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "::carbide_uuid::ipxe_template::IpxeTemplateId",
             ),
             (".common.RackId", "::carbide_uuid::rack::RackId"),
+            (
+                ".common.RackProfileId",
+                "::carbide_uuid::rack::RackProfileId",
+            ),
             (
                 ".common.NVLinkPartitionId",
                 "::carbide_uuid::nvlink::NvLinkPartitionId",

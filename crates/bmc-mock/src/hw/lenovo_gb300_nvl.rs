@@ -212,8 +212,6 @@ impl LenovoGB300Nvl<'_> {
                 serial_number: nic
                     .serial_number
                     .map(|v| format!("{v}                 ").into()),
-                network_adapters: None,
-                pcie_devices: None,
                 sensors: Some(redfish::sensor::generate_chassis_sensors(
                     chassis_id,
                     redfish::sensor::Layout {
@@ -221,8 +219,7 @@ impl LenovoGB300Nvl<'_> {
                         ..Default::default()
                     },
                 )),
-                assembly: None,
-                oem: None,
+                ..redfish::chassis::SingleChassisConfig::defaults()
             }
         };
         redfish::chassis::ChassisConfig {
@@ -235,8 +232,6 @@ impl LenovoGB300Nvl<'_> {
                     part_number: Some("SC57C26750".into()),
                     model: Some(" ".into()),
                     serial_number: Some(self.chassis_0_serial_number.to_string().into()),
-                    network_adapters: None,
-                    pcie_devices: None,
                     sensors: Some(redfish::sensor::generate_chassis_sensors(
                         "Chassis_0",
                         redfish::sensor::Layout {
@@ -247,8 +242,7 @@ impl LenovoGB300Nvl<'_> {
                             current: 0,
                         },
                     )),
-                    assembly: None,
-                    oem: None,
+                    ..redfish::chassis::SingleChassisConfig::defaults()
                 }))
                 .chain(self.cpu.iter().enumerate().map(|(n, cpu)| {
                     let id = format!("HGX_CPU_{n}");

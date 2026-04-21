@@ -21,14 +21,14 @@ use carbide_uuid::machine::MachineType;
 use prettytable::{Table, row};
 
 use super::args::Args;
-use crate::machine::{HealthOverrideTemplates, get_health_report};
+use crate::machine::{HealthReportTemplates, get_health_report};
 use crate::rpc::ApiClient;
 
 pub async fn reprovision(api_client: &ApiClient, reprov: Args) -> CarbideCliResult<()> {
     match reprov {
         Args::Set(data) => {
             if let Some(update_message) = &data.update_message {
-                apply_health_override(api_client, data.id, update_message.clone()).await?;
+                apply_health_report(api_client, data.id, update_message.clone()).await?;
             }
             let req: DpuReprovisioningRequest = (&data).into();
             api_client.0.trigger_dpu_reprovisioning(req).await?;
@@ -48,12 +48,12 @@ pub async fn reprovision(api_client: &ApiClient, reprov: Args) -> CarbideCliResu
     }
 }
 
-async fn apply_health_override(
+async fn apply_health_report(
     api_client: &ApiClient,
     id: carbide_uuid::machine::MachineId,
     update_message: String,
 ) -> CarbideCliResult<()> {
-    // Set a HostUpdateInProgress health override on the Host
+    // Set a HostUpdateInProgress health report entry on the Host
     let host_id = match id.machine_type() {
         MachineType::Host => Some(id),
         MachineType::Dpu => {
@@ -79,7 +79,7 @@ async fn apply_health_override(
         }
     };
 
-    // Check host must not have host-update override
+    // Check host must not already have a host-update health report entry
     if let Some(host_machine_id) = &host_id {
         let host_machine = api_client
             .get_machines_by_ids(&[*host_machine_id])
@@ -90,17 +90,17 @@ async fn apply_health_override(
 
         if let Some(host_machine) = host_machine
             && host_machine
-                .health_overrides
+                .health_sources
                 .iter()
                 .any(|or| or.source == "host-update")
         {
             return Err(CarbideCliError::GenericError(format!(
-                "Host machine: {:?} already has a \"host-update\" override.",
+                "Host machine: {:?} already has a \"host-update\" health report entry.",
                 host_machine.id,
             )));
         }
 
-        let report = get_health_report(HealthOverrideTemplates::HostUpdate, Some(update_message));
+        let report = get_health_report(HealthReportTemplates::HostUpdate, Some(update_message));
 
         api_client
             .machine_insert_health_report_override(*host_machine_id, report.into(), false)

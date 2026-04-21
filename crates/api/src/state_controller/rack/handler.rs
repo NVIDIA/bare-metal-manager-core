@@ -47,13 +47,15 @@ impl RackStateHandler {
         controller_state: &RackState,
         ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
     ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
-        let mut config = state.config.clone();
+        let rack_profile_id = state.rack_profile_id.clone();
+        let config = state.config.clone();
 
         match controller_state {
-            RackState::Created => handle_created(id, &mut config, ctx).await,
-            RackState::Discovering => handle_discovering(id, &config, ctx).await,
+            RackState::Created => handle_created(id, rack_profile_id.as_ref(), ctx).await,
+            RackState::Discovering => handle_discovering(id, rack_profile_id.as_ref(), ctx).await,
             RackState::Maintenance { maintenance_state } => {
-                handle_maintenance(id, state, &config, maintenance_state, ctx).await
+                handle_maintenance(id, state, rack_profile_id.as_ref(), maintenance_state, ctx)
+                    .await
             }
             RackState::Validating { validating_state } => {
                 handle_validating(id, state, validating_state, ctx).await

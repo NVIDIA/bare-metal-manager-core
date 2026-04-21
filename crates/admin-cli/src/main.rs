@@ -56,6 +56,7 @@ mod expected_switch;
 mod extension_service;
 mod firmware;
 mod generate_shell_complete;
+mod health_utils;
 mod host;
 mod ib_partition;
 mod instance;

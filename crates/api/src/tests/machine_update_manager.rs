@@ -199,7 +199,7 @@ async fn test_remove_machine_update_markers(
     assert!(
         !managed_host
             .host_snapshot
-            .health_report_overrides
+            .health_reports
             .merges
             .contains_key(HOST_UPDATE_HEALTH_REPORT_SOURCE)
     );
@@ -310,7 +310,7 @@ async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn st
     db::machine::insert_health_report_override(
         &mut txn,
         &host_machine_id2,
-        health_report::OverrideMode::Merge,
+        health_report::HealthReportApplyMode::Merge,
         &health_override_2,
         false,
     )
@@ -350,7 +350,7 @@ async fn add_host_update_alert(
     db::machine::insert_health_report_override(
         txn,
         &machine_update.host_machine_id,
-        health_report::OverrideMode::Merge,
+        health_report::HealthReportApplyMode::Merge,
         &health_override,
         false,
     )

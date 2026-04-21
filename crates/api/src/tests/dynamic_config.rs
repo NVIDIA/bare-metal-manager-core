@@ -140,7 +140,7 @@ async fn test_bmc_proxy_setting_parsed_config_unspecified(
         let mut config = get_config();
         // Leave allow_changing_bmc_proxy unspecified, it should behave as if false
         config.site_explorer.allow_changing_bmc_proxy = None;
-        config.site_explorer.bmc_proxy = crate::dynamic_settings::bmc_proxy(None);
+        config.site_explorer.bmc_proxy = carbide_site_explorer::config::bmc_proxy(None);
         config.site_explorer.override_target_ip = None;
         config.site_explorer.override_target_port = None;
         let config_str = toml::to_string(&config)?;
@@ -186,9 +186,8 @@ async fn test_bmc_proxy_setting_parsed_config_unspecified_with_bmc_proxy_set(
         // Leave allow_changing_bmc_proxy unspecified, it should behave as if false
         config.site_explorer.allow_changing_bmc_proxy = None;
         config.site_explorer.bmc_proxy =
-            crate::dynamic_settings::bmc_proxy(Some("test:1234".parse().unwrap()));
+            carbide_site_explorer::config::bmc_proxy(Some("test:1234".parse().unwrap()));
         let config_str = toml::to_string(&config)?;
-        println!("{config_str}");
         let parsed_config = parse_carbide_config(config_str, None)?;
         create_test_env_with_overrides(
             db_pool,

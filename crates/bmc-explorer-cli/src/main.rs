@@ -18,10 +18,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use arc_swap::ArcSwap;
-use carbide::{
-    BmcEndpointExplorer, IPMIToolTestImpl, NvRedfishClientPool, RedfishClientPoolImpl,
-    SiteExplorerExploreMode,
-};
+use carbide_redfish::nv_redfish::NvRedfishClientPool;
+use carbide_site_explorer::BmcEndpointExplorer;
+use carbide_site_explorer::config::SiteExplorerExploreMode;
 use clap::Parser;
 use forge_secrets::credentials::{Credentials, TestCredentialManager};
 use mac_address::MacAddress;
@@ -81,12 +80,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proxy_address = Arc::new(ArcSwap::new(None.into()));
     let credential_provider = Arc::new(TestCredentialManager::new(fallback_credentials.clone()));
 
-    let redfish_client_pool = Arc::new(RedfishClientPoolImpl::new(
+    let redfish_client_pool = carbide_redfish::libredfish::new_pool(
         credential_provider.clone(),
         rf_pool,
         proxy_address.clone(),
-    ));
-    let ipmi_tool = Arc::new(IPMIToolTestImpl {});
+    );
     let mode = match args.mode.as_str() {
         "libredfish" => SiteExplorerExploreMode::LibRedfish,
         "nv-redfish" => SiteExplorerExploreMode::NvRedfish,
@@ -103,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let explorer = BmcEndpointExplorer::new(
         redfish_client_pool,
         Arc::new(NvRedfishClientPool::new(proxy_address)),
-        ipmi_tool,
+        carbide_ipmi::test_support(),
         credential_provider.clone(),
         rotate_switch_nvos_credentials,
         mode,

@@ -284,7 +284,7 @@ async fn test_clear_completed_updates(
     db::machine::insert_health_report_override(
         &mut txn,
         &mh.id,
-        health_report::OverrideMode::Merge,
+        health_report::HealthReportApplyMode::Merge,
         &health_override,
         false,
     )
@@ -308,7 +308,7 @@ async fn test_clear_completed_updates(
     assert!(
         !managed_host
             .host_snapshot
-            .health_report_overrides
+            .health_reports
             .merges
             .contains_key(HOST_UPDATE_HEALTH_REPORT_SOURCE)
     );

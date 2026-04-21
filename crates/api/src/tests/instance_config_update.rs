@@ -436,6 +436,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         device_instance: 0u32,
         virtual_function_id: None,
         ip_address: Some("192.168.0.1".to_string()),
+        ipv6_interface_config: None,
     }];
 
     let err = env
@@ -479,6 +480,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
             device_instance: 0u32,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         });
     let err = env
         .api
@@ -775,6 +777,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
 
@@ -825,6 +828,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -834,6 +838,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ],
     };
@@ -889,6 +894,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
     let mut updated_config_1 = initial_config.clone();
@@ -973,6 +979,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
 
@@ -1028,6 +1035,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -1037,6 +1045,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ],
     };
@@ -1123,6 +1132,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
 
@@ -1173,6 +1183,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1182,6 +1193,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
                 device_instance: 1,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ],
     };
@@ -1312,6 +1324,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
             device_instance: 0,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
 
@@ -1362,6 +1375,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
                 device_instance: 0,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1371,6 +1385,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
                 device_instance: 1,
                 virtual_function_id: None,
                 ip_address: None,
+                ipv6_interface_config: None,
             },
         ],
     };
@@ -1486,6 +1501,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                             device_instance: 0,
                             virtual_function_id: None,
                             ip_address: Some("5.5.5.1".to_string()),
+                            ipv6_interface_config: None,
                         }],
                     }),
                     infiniband: None,
@@ -1522,6 +1538,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                             device_instance: 0,
                             virtual_function_id: None,
                             ip_address: Some("192.1.4.0".to_string()),
+                            ipv6_interface_config: None,
                         }],
                     }),
                     infiniband: None,
@@ -1560,6 +1577,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                             device_instance: 0,
                             virtual_function_id: None,
                             ip_address: Some(expected_ip.to_string()),
+                            ipv6_interface_config: None,
                         }],
                     }),
                     infiniband: None,
@@ -1681,6 +1699,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 device_instance: 0,
                                 virtual_function_id: None,
                                 ip_address: Some("5.5.5.5".to_string()),
+                                ipv6_interface_config: None,
                             },
                             rpc::InstanceInterfaceConfig {
                                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1690,6 +1709,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 device_instance: 1,
                                 virtual_function_id: None,
                                 ip_address: Some("6.6.6.6".to_string()),
+                                ipv6_interface_config: None,
                             },
                         ],
                     }),
@@ -1733,6 +1753,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 device_instance: 0,
                                 virtual_function_id: None,
                                 ip_address: Some(expected_ip.to_string()),
+                                ipv6_interface_config: None,
                             },
                             rpc::InstanceInterfaceConfig {
                                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1742,6 +1763,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 device_instance: 1,
                                 virtual_function_id: None,
                                 ip_address: Some(expected_ip.to_string()),
+                                ipv6_interface_config: None,
                             },
                         ],
                     }),
@@ -1785,6 +1807,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 device_instance: 0,
                                 virtual_function_id: None,
                                 ip_address: Some(expected_ip.to_string()),
+                                ipv6_interface_config: None,
                             },
                             rpc::InstanceInterfaceConfig {
                                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1794,6 +1817,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 device_instance: 1,
                                 virtual_function_id: None,
                                 ip_address: Some(expected_ip2.to_string()),
+                                ipv6_interface_config: None,
                             },
                         ],
                     }),

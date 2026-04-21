@@ -5,9 +5,9 @@ use std::fmt::Debug;
 use std::net::IpAddr;
 
 use mac_address::MacAddress;
+use model::component_manager::{FirmwareState, NvSwitchComponent, PowerAction};
 
 use crate::error::ComponentManagerError;
-use crate::types::{FirmwareState, NvSwitchComponent, PowerAction};
 
 /// Physical network identifiers for an NV-Switch, used to register with and
 /// operate against the backend service (NSM).

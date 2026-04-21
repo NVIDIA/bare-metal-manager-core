@@ -278,14 +278,33 @@ pub async fn find_one(
 }
 
 // Returns (MachineInterface, newly_created_interface).
-// newly_created_interface indicates that we couldn't find a MachineInterface so created new
-// one.
+// newly_created_interface indicates that we couldn't find a
+// MachineInterface, so created new one.
+//
+// `is_primary` integrates `ExpectedHostNic.primary` into machine
+// interface creation. If True, this NIC is declared the primary
+// boot NIC (which is/was the previous default behavior anyway,
+// meaning None does the same thing), and this is fine, because
+// at the end of the day, site-explorer will end up demoting it
+// as part of attaching a DPU.
+//
+// Now, if it's *False*, there's a different NIC on this host declared
+// as the boot NIC, so we actually overide the new interface and
+// explicitly mark it as non-primary here. We *could* bake this in
+// as part of validate_existing_mac_and_create, but since this is
+// the only call-site that cares about it, I'm making it specific
+// to here.
+// TODO(chet): ...but consider plumbing it through.
+//
+// If we're not making a new interface, then existing interfaces
+// are returned untouched.
 pub async fn find_or_create_machine_interface(
     txn: &mut PgConnection,
     machine_id: Option<MachineId>,
     mac_address: MacAddress,
     relay: IpAddr,
     host_nic: Option<ExpectedHostNic>,
+    is_primary: Option<bool>,
 ) -> DatabaseResult<MachineInterfaceSnapshot> {
     match machine_id {
         None => {
@@ -294,7 +313,17 @@ pub async fn find_or_create_machine_interface(
                 %relay,
                 "Found no existing machine with mac address {mac_address} using network with relay {relay}",
             );
-            Ok(validate_existing_mac_and_create(&mut *txn, mac_address, relay, host_nic).await?)
+            // validate_existing_mac_and_create hardcodes primary_interface: true
+            // at creation. If the caller has explicitly declared a *different*
+            // NIC as this machine's primary (i.e. is_primary == false), override the
+            // true/default here.
+            let mut interface =
+                validate_existing_mac_and_create(&mut *txn, mac_address, relay, host_nic).await?;
+            if is_primary == Some(false) && interface.primary_interface {
+                set_primary_interface(&interface.id, false, &mut *txn).await?;
+                interface.primary_interface = false;
+            }
+            Ok(interface)
         }
         Some(_) => {
             let mut ifcs = find_by_mac_address(&mut *txn, mac_address).await?;
@@ -1109,7 +1138,8 @@ pub async fn create_host_machine_dpu_interface_proactively(
     let existing_machine = crate::machine::find_existing_machine(txn, host_mac, gateway).await?;
 
     let machine_interface =
-        find_or_create_machine_interface(txn, existing_machine, host_mac, gateway, None).await?;
+        find_or_create_machine_interface(txn, existing_machine, host_mac, gateway, None, None)
+            .await?;
     associate_interface_with_dpu_machine(&machine_interface.id, dpu_id, txn).await?;
 
     Ok(machine_interface)

@@ -60,6 +60,26 @@ pub(crate) struct MetadataDetail {
     pub metadata_version: String,
 }
 
+/// Reusable template for rendering a color-coded state bubble.
+/// Render with `{{ state_display|safe }}`.
+#[derive(Template)]
+#[template(path = "state_display.html")]
+pub(crate) struct StateDisplay {
+    pub state: String,
+    pub time_in_state_above_sla: bool,
+}
+
+/// Reusable template for rendering State SLA, time-in-state-above-SLA, and
+/// state handler outcome rows inside a `<table>`.
+/// Render with `{{ state_sla_detail|safe }}`.
+#[derive(Template)]
+#[template(path = "state_sla_details.html")]
+pub(crate) struct StateSlaDetail {
+    pub state_sla: String,
+    pub time_in_state_above_sla: bool,
+    pub state_reason: Option<rpc::forge::ControllerStateReason>,
+}
+
 mod action_status;
 mod attestation;
 mod auth;
@@ -719,6 +739,7 @@ struct Index {
     version: &'static str,
     agent_upgrade_policy: &'static str,
     log_filter: String,
+    site_explorer_enabled: String,
     create_machines: String,
     carbide_config: CarbideConfig,
     bmc_proxy: String,
@@ -743,6 +764,11 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         }
     };
 
+    let site_explorer_enabled = state
+        .dynamic_settings
+        .site_explorer_enabled
+        .load(Ordering::Relaxed)
+        .to_string();
     let create_machines = state
         .dynamic_settings
         .create_machines
@@ -761,6 +787,7 @@ pub async fn root(state: AxumState<Arc<Api>>) -> impl IntoResponse {
         version: carbide_version::v!(build_version),
         log_filter: state.log_filter_string(),
         agent_upgrade_policy,
+        site_explorer_enabled,
         create_machines,
         carbide_config: state.runtime_config.redacted(),
         bmc_proxy,

@@ -97,15 +97,9 @@ This file contains a list of metrics exported by NCX Infra Controller (NICo). Th
 <tr><td>carbide_preingestion_waiting_download</td><td>gauge</td><td>The amount of machines that are waiting for firmware downloads on other machines to complete before doing thier own</td></tr>
 <tr><td>carbide_preingestion_waiting_installation</td><td>gauge</td><td>The amount of machines which have had firmware uploaded to them and are currently in the process of installing that firmware</td></tr>
 <tr><td>carbide_racks_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_racks in the system</td></tr>
-<tr><td>carbide_racks_handler_latency_in_state_milliseconds</td><td>histogram</td><td>The amount of time it took to invoke the state handler for objects of type carbide_racks in a certain state</td></tr>
 <tr><td>carbide_racks_iteration_latency_milliseconds</td><td>histogram</td><td>The elapsed time in the last state processor iteration to handle objects of type carbide_racks</td></tr>
-<tr><td>carbide_racks_object_tasks_completed_total</td><td>counter</td><td>The amount of object handling tasks that have been completed for objects of type carbide_racks</td></tr>
-<tr><td>carbide_racks_object_tasks_dispatched_total</td><td>counter</td><td>The amount of types that object handling tasks that have been dequeued and dispatched for processing for objects of type carbide_racks</td></tr>
 <tr><td>carbide_racks_object_tasks_enqueued_total</td><td>counter</td><td>The amount of types that object handling tasks that have been freshly enqueued for objects of type carbide_racks</td></tr>
-<tr><td>carbide_racks_per_state</td><td>gauge</td><td>The number of carbide_racks in the system with a given state</td></tr>
-<tr><td>carbide_racks_per_state_above_sla</td><td>gauge</td><td>The number of carbide_racks in the system which had been longer in a state than allowed per SLA</td></tr>
 <tr><td>carbide_racks_total</td><td>gauge</td><td>The total number of carbide_racks in the system</td></tr>
-<tr><td>carbide_racks_with_state_handling_errors_per_state</td><td>gauge</td><td>The number of carbide_racks in the system with a given state that failed state handling</td></tr>
 <tr><td>carbide_reboot_attempts_in_booting_with_discovery_image</td><td>histogram</td><td>The amount of machines rebooted again in BootingWithDiscoveryImage since there is no response after a certain time from host.</td></tr>
 <tr><td>carbide_reserved_ips_count</td><td>gauge</td><td>The total number of reserved ips in the site</td></tr>
 <tr><td>carbide_resourcepool_free_count</td><td>gauge</td><td>Count of values in the pool currently available for allocation</td></tr>
@@ -114,9 +108,11 @@ This file contains a list of metrics exported by NCX Infra Controller (NICo). Th
 <tr><td>carbide_site_exploration_expected_machines_sku_count</td><td>gauge</td><td>The total count of expected machines by SKU ID and device type</td></tr>
 <tr><td>carbide_site_exploration_identified_managed_hosts_count</td><td>gauge</td><td>The amount of Host+DPU pairs that has been identified in the last SiteExplorer run</td></tr>
 <tr><td>carbide_site_explorer_bmc_reset_count</td><td>gauge</td><td>The amount of BMC resets initiated in the last SiteExplorer run</td></tr>
+<tr><td>carbide_site_explorer_create_machines</td><td>gauge</td><td>Whether site-explorer machine creation is enabled (1) or disabled (0)</td></tr>
 <tr><td>carbide_site_explorer_create_machines_latency_milliseconds</td><td>histogram</td><td>The time it to perform create_machines inside site-explorer</td></tr>
 <tr><td>carbide_site_explorer_created_machines_count</td><td>gauge</td><td>The amount of Machine pairs that had been created by Site Explorer after being identified</td></tr>
 <tr><td>carbide_site_explorer_created_power_shelves_count</td><td>gauge</td><td>The amount of Power Shelves that had been created by Site Explorer after being identified</td></tr>
+<tr><td>carbide_site_explorer_enabled</td><td>gauge</td><td>Whether site-explorer is enabled (1) or paused (0)</td></tr>
 <tr><td>carbide_site_explorer_iteration_latency_milliseconds</td><td>histogram</td><td>The time it took to perform one site explorer iteration</td></tr>
 <tr><td>carbide_switches_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_switches in the system</td></tr>
 <tr><td>carbide_switches_iteration_latency_milliseconds</td><td>histogram</td><td>The elapsed time in the last state processor iteration to handle objects of type carbide_switches</td></tr>

@@ -8,6 +8,8 @@ use figment::providers::{Env, Format, Toml};
 use serde::{Deserialize, Serialize};
 use utils::HostPortPair;
 
+use crate::acl::AclConfig;
+
 #[derive(thiserror::Error, Debug)]
 pub enum ConfigError {
     #[error("{0}")]
@@ -24,7 +26,7 @@ impl From<figment::Error> for ConfigError {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 pub struct Config {
     #[serde(default = "Defaults::listen")]
     pub listen: SocketAddr,
@@ -89,7 +91,7 @@ impl Default for TlsConfig {
 }
 
 /// Authentication related configuration
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Deserialize)]
 pub struct AuthConfig {
     /// Additional nico-admin-cli certs allowed.  This does not include actually allowing the cert to connect, just that certs that can be verified which match these criteria can do GRPC requests.
     #[serde(default)]
@@ -98,6 +100,9 @@ pub struct AuthConfig {
     /// Configuration for the root of trust for client cert auth
     #[serde(default = "Defaults::trust_config")]
     pub trust: TrustConfig,
+
+    #[serde(default)]
+    pub acls: AclConfig,
 }
 
 impl Config {

@@ -4,6 +4,7 @@
 use std::collections::HashMap;
 
 use mac_address::MacAddress;
+use model::component_manager::{FirmwareState, NvSwitchComponent, PowerAction};
 use tonic::transport::Channel;
 use tracing::instrument;
 
@@ -13,7 +14,7 @@ use crate::nv_switch_manager::{
     NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
 };
 use crate::proto::nsm;
-use crate::types::{FirmwareState, NvSwitchComponent, PowerAction, parse_mac};
+use crate::types::parse_mac;
 
 #[derive(Debug)]
 pub struct NsmSwitchBackend {

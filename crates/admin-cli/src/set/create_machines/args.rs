@@ -18,7 +18,17 @@
 use clap::Parser;
 
 #[derive(Parser, Debug, Clone)]
+#[clap(group = clap::ArgGroup::new("toggle").required(true))]
 pub struct Args {
-    #[clap(long, action = clap::ArgAction::Set, help = "Enable site-explorer create_machines?")]
-    pub enabled: bool,
+    #[clap(long, group = "toggle", help = "Enable machine creation")]
+    pub enable: bool,
+
+    #[clap(long, group = "toggle", help = "Disable machine creation")]
+    pub disable: bool,
+}
+
+impl Args {
+    pub fn is_enabled(&self) -> bool {
+        self.enable
+    }
 }

@@ -26,7 +26,7 @@ use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::{MachineId, MachineType};
 use chrono::{DateTime, Utc};
 use config_version::{ConfigVersion, Versioned};
-use health_report::{HealthReport, OverrideMode};
+use health_report::{HealthReport, HealthReportApplyMode};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use mac_address::MacAddress;
@@ -955,18 +955,22 @@ pub async fn update_sku_validation_health_report(
 pub async fn insert_health_report_override(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-    mode: OverrideMode,
+    mode: HealthReportApplyMode,
     health_report: &HealthReport,
     no_overwrite: bool,
 ) -> Result<(), DatabaseError> {
-    let column_name = "health_report_overrides";
-    let path = match mode {
-        OverrideMode::Merge => format!("merges,\"{}\"", health_report.source),
-        OverrideMode::Replace => "replace".to_string(),
-    };
+    if no_overwrite {
+        // TODO(chet): This appears to be a machine-specific thing -- skip insert
+        // if a merge with the same source already exists -- but I'm not sure what
+        // it's used for, since others seem to do a remove + insert. Do we need
+        // to support this still? Might be nice to explain it somewhere.
+        let column_name = "health_report_overrides";
+        let path = match mode {
+            HealthReportApplyMode::Merge => format!("merges,\"{}\"", health_report.source),
+            HealthReportApplyMode::Replace => "replace".to_string(),
+        };
 
-    let query = if no_overwrite {
-        format!(
+        let query = format!(
             "UPDATE machines SET {column_name} = jsonb_set(
                 coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb),
                 '{{{}}}',
@@ -975,51 +979,29 @@ pub async fn insert_health_report_override(
             AND coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb)->'merges' ? '{}' = FALSE
             RETURNING id",
             path, health_report.source
-        )
+        );
+
+        let _id: (MachineId,) = sqlx::query_as(&query)
+            .bind(sqlx::types::Json(&health_report))
+            .bind(machine_id)
+            .fetch_one(txn)
+            .await
+            .map_err(|e| DatabaseError::new("insert health report override", e))?;
+
+        Ok(())
     } else {
-        format!(
-            "UPDATE machines SET {column_name} = jsonb_set(
-                coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb),
-                '{{{path}}}',
-                $1::jsonb
-            ) WHERE id = $2
-            RETURNING id"
-        )
-    };
-
-    let _id: (MachineId,) = sqlx::query_as(&query)
-        .bind(sqlx::types::Json(&health_report))
-        .bind(machine_id)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::new("insert health report override", e))?;
-
-    Ok(())
+        crate::health_report::insert_health_report(txn, "machines", machine_id, mode, health_report)
+            .await
+    }
 }
 
 pub async fn remove_health_report_override(
     txn: &mut PgConnection,
     machine_id: &MachineId,
-    mode: OverrideMode,
+    mode: HealthReportApplyMode,
     source: &str,
 ) -> Result<(), DatabaseError> {
-    let column_name = "health_report_overrides";
-    let path = match mode {
-        OverrideMode::Merge => format!("merges,{source}"),
-        OverrideMode::Replace => "replace".to_string(),
-    };
-    let query = format!(
-        "UPDATE machines SET {column_name} = ({column_name} #- '{{{path}}}') WHERE id = $1
-            RETURNING id"
-    );
-
-    let _id: (MachineId,) = sqlx::query_as(&query)
-        .bind(machine_id)
-        .fetch_one(txn)
-        .await
-        .map_err(|e| DatabaseError::new("remove health report override", e))?;
-
-    Ok(())
+    crate::health_report::remove_health_report(txn, "machines", machine_id, mode, source).await
 }
 
 pub async fn update_agent_reported_inventory(

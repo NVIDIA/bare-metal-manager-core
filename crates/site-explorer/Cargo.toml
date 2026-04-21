@@ -1,0 +1,55 @@
+[package]
+name = "carbide-site-explorer"
+version = "0.0.1"
+edition.workspace = true
+description = "Carbide Site Explorer"
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "carbide_site_explorer"
+
+[features]
+default = []
+
+[dependencies]
+bmc-explorer = { path = "../bmc-explorer" }
+carbide-api-db = { path = "../api-db", default-features = false }
+carbide-api-model = { path = "../api-model", default-features = false }
+carbide-firmware = { path = "../firmware" }
+carbide-health-report = { path = "../health-report" }
+carbide-ipmi = { path = "../ipmi" }
+carbide-network = { path = "../network" }
+carbide-redfish = { path = "../redfish" }
+carbide-secrets = { path = "../secrets" }
+carbide-ssh = { path = "../ssh" }
+carbide-utils = { path = "../utils" }
+carbide-uuid = { path = "../uuid" }
+config-version = { path = "../config-version" }
+
+# these are alphabetized
+arc-swap = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+duration-str = { workspace = true }
+futures-util = { workspace = true }
+itertools = { workspace = true }
+http = { workspace = true }
+libredfish = { workspace = true }
+librms = { workspace = true }
+mac_address = { workspace = true }
+nv-redfish = { workspace = true, features = ["bmc-http", "oem-hpe"] }
+opentelemetry = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sqlx = { workspace = true, features = [ "postgres" ] }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+version-compare = { workspace = true }
+
+[lints]
+workspace = true

@@ -225,6 +225,20 @@ pub struct RackCapabilityPowerShelf {
 /// compute trays, switches, and power shelves.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RackCapabilitiesSet {
+    pub compute: RackCapabilityCompute,
+    pub switch: RackCapabilitySwitch,
+    pub power_shelf: RackCapabilityPowerShelf,
+}
+
+/* ********************************** */
+/*           RackProfile              */
+/* ********************************** */
+
+/// RackProfile describes the hardware identity and expected device
+/// capabilities for a class of rack. The profile is referenced by name
+/// (the map key in the config file) from expected racks and rack configs.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RackProfile {
     #[serde(default)]
     pub rack_hardware_type: Option<RackHardwareType>,
 
@@ -234,29 +248,32 @@ pub struct RackCapabilitiesSet {
     #[serde(default)]
     pub rack_hardware_class: Option<RackHardwareClass>,
 
-    pub compute: RackCapabilityCompute,
-    pub switch: RackCapabilitySwitch,
-    pub power_shelf: RackCapabilityPowerShelf,
+    pub rack_capabilities: RackCapabilitiesSet,
 }
 
 /* ********************************** */
-/*         RackTypeConfig             */
+/*        RackProfileConfig           */
 /* ********************************** */
 
-/// RackTypeConfig contains all known rack types, keyed by rack type name.
+/// RackProfileConfig contains all known rack profiles, keyed by profile id.
 /// Loaded from the Carbide configuration file and used to validate that
 /// the correct number of expected devices have been registered for a rack.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RackTypeConfig {
-    /// Map of rack type name to its capabilities set.
+pub struct RackProfileConfig {
+    /// Map of rack profile id to its profile.
     #[serde(default, flatten)]
-    pub rack_types: HashMap<String, RackCapabilitiesSet>,
+    pub rack_profiles: HashMap<String, RackProfile>,
 }
 
-impl RackTypeConfig {
-    /// get looks up a rack capabilities set by name.
-    pub fn get(&self, name: &str) -> Option<&RackCapabilitiesSet> {
-        self.rack_types.get(name)
+impl RackProfileConfig {
+    /// get looks up a rack profile by the profile ID.
+    pub fn get(&self, name: &str) -> Option<&RackProfile> {
+        self.rack_profiles.get(name)
+    }
+
+    /// keys returns all known rack profile IDs.
+    pub fn keys(&self) -> impl Iterator<Item = &String> {
+        self.rack_profiles.keys()
     }
 }
 
@@ -392,6 +409,16 @@ impl From<&RackCapabilityPowerShelf> for rpc::forge::RackCapabilityPowerShelf {
 impl From<&RackCapabilitiesSet> for rpc::forge::RackCapabilitiesSet {
     fn from(value: &RackCapabilitiesSet) -> Self {
         rpc::forge::RackCapabilitiesSet {
+            compute: Some((&value.compute).into()),
+            switch: Some((&value.switch).into()),
+            power_shelf: Some((&value.power_shelf).into()),
+        }
+    }
+}
+
+impl From<&RackProfile> for rpc::forge::RackProfile {
+    fn from(value: &RackProfile) -> Self {
+        rpc::forge::RackProfile {
             rack_hardware_type: value
                 .rack_hardware_type
                 .as_ref()
@@ -404,9 +431,7 @@ impl From<&RackCapabilitiesSet> for rpc::forge::RackCapabilitiesSet {
                 .rack_hardware_class
                 .map(|c| rpc::forge::RackHardwareClass::from(c) as i32)
                 .unwrap_or(rpc::forge::RackHardwareClass::Unspecified as i32),
-            compute: Some((&value.compute).into()),
-            switch: Some((&value.switch).into()),
-            power_shelf: Some((&value.power_shelf).into()),
+            capabilities: Some((&value.rack_capabilities).into()),
         }
     }
 }
@@ -416,99 +441,102 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_rack_type_config_lookup() {
-        let mut config = RackTypeConfig::default();
-        config.rack_types.insert(
+    fn test_rack_profile_config_lookup() {
+        let mut config = RackProfileConfig::default();
+        config.rack_profiles.insert(
             "NVL72".to_string(),
-            RackCapabilitiesSet {
-                compute: RackCapabilityCompute {
-                    name: Some("GB200".to_string()),
-                    count: 18,
-                    vendor: Some("NVIDIA".to_string()),
-                    slot_ids: None,
-                },
-                switch: RackCapabilitySwitch {
-                    name: None,
-                    count: 9,
-                    vendor: None,
-                    slot_ids: None,
-                },
-                power_shelf: RackCapabilityPowerShelf {
-                    name: None,
-                    count: 8,
-                    vendor: None,
-                    slot_ids: None,
+            RackProfile {
+                rack_capabilities: RackCapabilitiesSet {
+                    compute: RackCapabilityCompute {
+                        name: Some("GB200".to_string()),
+                        count: 18,
+                        vendor: Some("NVIDIA".to_string()),
+                        slot_ids: None,
+                    },
+                    switch: RackCapabilitySwitch {
+                        name: None,
+                        count: 9,
+                        vendor: None,
+                        slot_ids: None,
+                    },
+                    power_shelf: RackCapabilityPowerShelf {
+                        name: None,
+                        count: 8,
+                        vendor: None,
+                        slot_ids: None,
+                    },
                 },
                 ..Default::default()
             },
         );
 
-        let def = config.get("NVL72").unwrap();
-        assert_eq!(def.compute.count, 18);
-        assert_eq!(def.switch.count, 9);
-        assert_eq!(def.power_shelf.count, 8);
+        let profile = config.get("NVL72").unwrap();
+        assert_eq!(profile.rack_capabilities.compute.count, 18);
+        assert_eq!(profile.rack_capabilities.switch.count, 9);
+        assert_eq!(profile.rack_capabilities.power_shelf.count, 8);
 
         assert!(config.get("nonexistent").is_none());
     }
 
     #[test]
-    fn test_rack_type_config_toml_deserialization() {
+    fn test_rack_profile_config_toml_deserialization() {
         let toml_str = r#"
-[NVL72]
-[NVL72.compute]
+[NVL72.rack_capabilities.compute]
 name = "GB200"
 count = 18
 vendor = "NVIDIA"
 
-[NVL72.switch]
+[NVL72.rack_capabilities.switch]
 count = 9
 
-[NVL72.power_shelf]
+[NVL72.rack_capabilities.power_shelf]
 count = 8
 
-[NVL36]
-[NVL36.compute]
+[NVL36.rack_capabilities.compute]
 count = 9
 
-[NVL36.switch]
+[NVL36.rack_capabilities.switch]
 count = 9
 
-[NVL36.power_shelf]
+[NVL36.rack_capabilities.power_shelf]
 count = 2
 "#;
-        let config: RackTypeConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(config.rack_types.len(), 2);
+        let config: RackProfileConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.rack_profiles.len(), 2);
 
         let nvl72 = config.get("NVL72").unwrap();
-        assert_eq!(nvl72.compute.count, 18);
-        assert_eq!(nvl72.compute.name.as_deref(), Some("GB200"));
+        assert_eq!(nvl72.rack_capabilities.compute.count, 18);
+        assert_eq!(
+            nvl72.rack_capabilities.compute.name.as_deref(),
+            Some("GB200")
+        );
 
         let nvl36 = config.get("NVL36").unwrap();
-        assert_eq!(nvl36.compute.count, 9);
-        assert_eq!(nvl36.switch.count, 9);
-        assert_eq!(nvl36.power_shelf.count, 2);
+        assert_eq!(nvl36.rack_capabilities.compute.count, 9);
+        assert_eq!(nvl36.rack_capabilities.switch.count, 9);
+        assert_eq!(nvl36.rack_capabilities.power_shelf.count, 2);
     }
 
     #[test]
-    fn test_rack_type_config_toml_with_hardware_fields() {
+    fn test_rack_profile_config_toml_with_hardware_fields() {
         let toml_str = r#"
 [NVL72]
 rack_hardware_type = "dsx_gb200nvl_72x1"
 rack_hardware_topology = "gb200_nvl72r1_c2g4_topology"
 rack_hardware_class = "prod"
 
-[NVL72.compute]
+[NVL72.rack_capabilities.compute]
 name = "GB200"
 count = 18
 vendor = "NVIDIA"
 
-[NVL72.switch]
+[NVL72.rack_capabilities.switch]
 count = 9
 
-[NVL72.power_shelf]
+[NVL72.rack_capabilities.power_shelf]
 count = 8
 "#;
-        let config: RackTypeConfig = toml::from_str(toml_str).unwrap();
+        let config: RackProfileConfig = toml::from_str(toml_str).unwrap();
         let nvl72 = config.get("NVL72").unwrap();
 
         assert_eq!(
@@ -520,21 +548,20 @@ count = 8
             Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology)
         );
         assert_eq!(nvl72.rack_hardware_class, Some(RackHardwareClass::Prod));
-        assert_eq!(nvl72.compute.count, 18);
+        assert_eq!(nvl72.rack_capabilities.compute.count, 18);
     }
 
     #[test]
-    fn test_rack_type_config_toml_without_hardware_fields_defaults_to_none() {
+    fn test_rack_profile_config_toml_without_hardware_fields_defaults_to_none() {
         let toml_str = r#"
-[NVL36]
-[NVL36.compute]
+[NVL36.rack_capabilities.compute]
 count = 9
-[NVL36.switch]
+[NVL36.rack_capabilities.switch]
 count = 9
-[NVL36.power_shelf]
+[NVL36.rack_capabilities.power_shelf]
 count = 2
 "#;
-        let config: RackTypeConfig = toml::from_str(toml_str).unwrap();
+        let config: RackProfileConfig = toml::from_str(toml_str).unwrap();
         let nvl36 = config.get("NVL36").unwrap();
 
         assert_eq!(nvl36.rack_hardware_type, None);
@@ -714,32 +741,34 @@ count = 2
     }
 
     #[test]
-    fn test_rack_capabilities_set_proto_conversion() {
-        let caps = RackCapabilitiesSet {
+    fn test_rack_profile_proto_conversion() {
+        let profile = RackProfile {
             rack_hardware_type: Some(RackHardwareType::from("dsx_gb200nvl_72x1")),
             rack_hardware_topology: Some(RackHardwareTopology::Gb200Nvl72r1C2g4Topology),
             rack_hardware_class: Some(RackHardwareClass::Prod),
-            compute: RackCapabilityCompute {
-                name: Some("GB200".to_string()),
-                count: 18,
-                vendor: Some("NVIDIA".to_string()),
-                slot_ids: Some(vec![1, 2, 3]),
-            },
-            switch: RackCapabilitySwitch {
-                name: None,
-                count: 9,
-                vendor: None,
-                slot_ids: None,
-            },
-            power_shelf: RackCapabilityPowerShelf {
-                name: Some("PSU".to_string()),
-                count: 8,
-                vendor: Some("Delta".to_string()),
-                slot_ids: None,
+            rack_capabilities: RackCapabilitiesSet {
+                compute: RackCapabilityCompute {
+                    name: Some("GB200".to_string()),
+                    count: 18,
+                    vendor: Some("NVIDIA".to_string()),
+                    slot_ids: Some(vec![1, 2, 3]),
+                },
+                switch: RackCapabilitySwitch {
+                    name: None,
+                    count: 9,
+                    vendor: None,
+                    slot_ids: None,
+                },
+                power_shelf: RackCapabilityPowerShelf {
+                    name: Some("PSU".to_string()),
+                    count: 8,
+                    vendor: Some("Delta".to_string()),
+                    slot_ids: None,
+                },
             },
         };
 
-        let proto: rpc::forge::RackCapabilitiesSet = (&caps).into();
+        let proto: rpc::forge::RackProfile = (&profile).into();
 
         assert_eq!(proto.rack_hardware_type.unwrap().value, "dsx_gb200nvl_72x1");
         assert_eq!(
@@ -751,17 +780,18 @@ count = 2
             rpc::forge::RackHardwareClass::Prod as i32
         );
 
-        let compute = proto.compute.unwrap();
+        let caps = proto.capabilities.unwrap();
+        let compute = caps.compute.unwrap();
         assert_eq!(compute.name, Some("GB200".to_string()));
         assert_eq!(compute.count, 18);
         assert_eq!(compute.vendor, Some("NVIDIA".to_string()));
         assert_eq!(compute.slot_ids, vec![1, 2, 3]);
 
-        let switch = proto.switch.unwrap();
+        let switch = caps.switch.unwrap();
         assert_eq!(switch.name, None);
         assert_eq!(switch.count, 9);
 
-        let power_shelf = proto.power_shelf.unwrap();
+        let power_shelf = caps.power_shelf.unwrap();
         assert_eq!(power_shelf.name, Some("PSU".to_string()));
         assert_eq!(power_shelf.count, 8);
         assert_eq!(power_shelf.vendor, Some("Delta".to_string()));
@@ -769,9 +799,9 @@ count = 2
     }
 
     #[test]
-    fn test_rack_capabilities_set_proto_conversion_with_none_fields() {
-        let caps = RackCapabilitiesSet::default();
-        let proto: rpc::forge::RackCapabilitiesSet = (&caps).into();
+    fn test_rack_profile_proto_conversion_with_defaults() {
+        let profile = RackProfile::default();
+        let proto: rpc::forge::RackProfile = (&profile).into();
 
         assert_eq!(proto.rack_hardware_type, None);
         assert_eq!(

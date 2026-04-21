@@ -25,8 +25,8 @@ use crate::metadata::parse_rpc_labels;
 pub struct Args {
     #[clap(help = "Rack ID of the expected rack")]
     pub rack_id: RackId,
-    #[clap(help = "Rack type of the expected rack")]
-    pub rack_type: String,
+    #[clap(help = "Rack profile ID of the expected rack")]
+    pub rack_profile_id: String,
 
     #[clap(
         long = "meta-name",
@@ -61,7 +61,7 @@ impl From<Args> for rpc::forge::ExpectedRack {
         };
         rpc::forge::ExpectedRack {
             rack_id: Some(value.rack_id),
-            rack_type: value.rack_type,
+            rack_profile_id: Some(value.rack_profile_id.into()),
             metadata: Some(metadata),
         }
     }

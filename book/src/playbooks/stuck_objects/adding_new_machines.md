@@ -13,7 +13,7 @@ Some of the configuration items that should be considered which could potentiall
 
 ## Host BMC Password Requirements
 
-***Note:*** New servers should be using the default username for the server type e.g. USERID for Lenovo, admin for NVIDIA/Vikings, root for Dell
+> **Note**: New servers should be using the default username for the server type e.g. USERID for Lenovo, admin for NVIDIA/Vikings, root for Dell
 
 You should check both the expected machines DB and the site vault pod data store for any existing data. If entries exist in both expected machines and vault, you should consider the password stored in vault as the password that should be used.
 
@@ -40,7 +40,7 @@ in expected machines or change the password on the Host BMC to match.
     carbide-admin-cli expected-machine add --bmc-mac-address <BMC MAC Address> --bmc-username <BMC Username> --bmc-password <BMC Password --chassis-serial-number <Chassis Serial Number>
     ```
 
-    ***Note:*** If you only need to update the BMC password, you just need to supply the BMC MAC Address and BMC Password
+    > **Note**: If you only need to update the BMC password, you just need to supply the BMC MAC Address and BMC Password
 
 4. To add a new machine to the expected machines DB:
 

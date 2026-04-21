@@ -34,13 +34,18 @@ path = "src/main.rs"
 # DO NOT PUT DEPENDENCIES OTHER THAN LOCAL DEPS HERE, THEY SHOULD ALL HAVE 'path =' IN THEM.
 bmc-vendor = { path = "../bmc-vendor" }
 bmc-explorer = { path = "../bmc-explorer" }
+bms-dsx-exchange = { path = "../bms-dsx-exchange" }
 config-version = { path = "../config-version", features = ["sqlx"] }
 carbide-host-support = { path = "../host-support", default-features = false }
 carbide-network = { path = "../network", features = ["sqlx"] }
 carbide-secrets = { path = "../secrets" }
 carbide-version = { path = "../version" }
+carbide-firmware = { path = "../firmware" }
 carbide-health-report = { path = "../health-report" }
 carbide-ipxe-renderer = { path = "../ipxe-renderer" }
+carbide-ipmi = { path = "../ipmi" }
+carbide-redfish = { path = "../redfish" }
+carbide-site-explorer = { path = "../site-explorer" }
 dns-record = { path = "../dns-record" }
 libnmxm = { path = "../libnmxm" }
 logfmt = { path = "../logfmt" }
@@ -110,7 +115,6 @@ mac_address = { workspace = true }
 md5 = { workspace = true }
 num-bigint-dig = { workspace = true }
 num_cpus = { workspace = true }
-nv-redfish = { workspace = true, features = ["bmc-http", "oem-hpe"] }
 oauth2 = { default-features = false, workspace = true }
 oid-registry = { workspace = true }
 opentelemetry = { workspace = true, features = ["logs"] }
@@ -205,11 +209,13 @@ rcgen = { workspace = true }
 carbide-macros = { path = "../macros" }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
 carbide-prost-builder = { path = "../prost-builder" }
+carbide-redfish = { path = "../redfish", features = [ "test-support" ] }
 prometheus-text-parser = { path = "../prometheus-text-parser" }
 prost = { workspace = true }
 tower-test = { workspace = true }
 hyper = { features = ["client", "http1"], workspace = true }
 http = { workspace = true }
+mockito = { workspace = true }
 once_cell = { workspace = true }
 
 [lints]

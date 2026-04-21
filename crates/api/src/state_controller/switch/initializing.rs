@@ -201,7 +201,7 @@ async fn handle_wait_for_os_machine_interface(
                 ..Default::default()
             };
             let (slot_number, tray_index) =
-                crate::site_explorer::fetch_slot_and_tray(rms_client.as_ref(), request).await;
+                carbide_site_explorer::fetch_slot_and_tray(rms_client.as_ref(), request).await;
             let mut update_txn = ctx.services.db_pool.begin().await?;
             if let Err(e) = db::switch::update_slot_and_tray(
                 &mut update_txn,

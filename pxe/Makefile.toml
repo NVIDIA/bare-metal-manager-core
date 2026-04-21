@@ -33,14 +33,14 @@ FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem" }
 # - using flint tool (BlueField-3 only):
 # `flint -d /dev/mst/mt41692_pciconf0 qbfb`
 #
-DOCA_VERSION = "3.2.2"
-BFB_BUILD = "125"
-BFB_RELEASE = "26.02"
+DOCA_VERSION = "3.2.0"
+BFB_BUILD = "113"
+BFB_RELEASE = "25.10"
 # DPU OS Ubuntu 22.04
 BFB_URL = "https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04"
 BFB_NAME = "bf-bundle-${DOCA_VERSION}-${BFB_BUILD}_${BFB_RELEASE}_ubuntu-22.04_prod.bfb"
 # DOCA HBN Version
-DOCA_HBN_VERSION = "3.2.2"
+DOCA_HBN_VERSION = "3.2.0"
 DOCA_HBN_URL = "nvcr.io/nvidia/doca/doca_hbn:${DOCA_HBN_VERSION}-doca${DOCA_VERSION}"
 DOCA_HBN_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/doca/doca_hbn/${DOCA_HBN_VERSION}/files"
 
@@ -832,23 +832,21 @@ dependencies = [
   "bfbtools-download",
   "bfb-extract",
   "bfb-extract-efi-sa",
-  #"download-docker-containers",  # save doca_hbn.tar to /tmp/bfb-dump/initramfs-tmp
-  #"bfb-hbn-pull",                # replacement for "download-docker-containers"
-  #"bfb-hbn-export",              # replacement for "download-docker-containers"
+  "bfb-hbn-pull",
+  "bfb-hbn-export",
   "bfb-extract-ifconfig",
   "bfb-add-scout-to-bfb-ci",
   "bfb-add-debs-to-bfb",
   "bfb-add-nvinit-setup-to-bfb",
   "bfb-add-prod-forge-root-ca-to-bfb",
-  "download-hbn-installer-to-bfb-sa",                                      # put doca_container_configs.zip in /tmp
   "mkdir-hbn-folder-in-bfb",
-  "unzip-hbn-folder-in-bfb",
+  "download-hbn-installer-to-bfb",
   "mv-hbn-configs-to-bfb",
   "mv-hbn-scripts-to-bfb",
   "cleanup-hbn-scripts",
   { name = "build-forge-dpu-deb-local", path = "${REPO_ROOT}/bluefield" },
   "cp-forge-dpu-package-to-bfb",
-  "bfb-copy-efi",
+  "bfb-copy-efi-sa",
   "bfb-remove-extracted-efi",
   "replace-bfpxe-script",
   "bfb-rebuild-rootfs",
@@ -961,7 +959,7 @@ cwd = "/tmp/bfb-dump"
 [tasks.bfb-extract-efi-sa]
 category = "iPXE Kernel"
 description = "Extract the BFB initramfs using fakeroot"
-script = ["gzip -d < /tmp/bfb-dump/dump-initramfs-v0 | fakeroot cpio -id"]
+script = ["gzip -d < /tmp/bfb-dump/dump-initramfs-v0 | fakeroot -s /tmp/bfb-dump/fakeroot.env cpio -id"]
 cwd = "${BUILD_LOCATION}"
 
 [tasks.bfb-extract-efi]
@@ -1111,7 +1109,7 @@ cwd = "${BUILD_LOCATION}/doca_container_configs"
 category = "iPXE Kernel"
 description = "Make the HBN script target directory to the BFB"
 command = "mkdir"
-args = ["-p", "${BUILD_LOCATION}/doca_container_configs"]
+args = ["${BUILD_LOCATION}/doca_container_configs"]
 
 [tasks.unzip-hbn-folder-in-bfb]
 category = "iPXE Kernel"
@@ -1214,6 +1212,22 @@ Label: Ubuntu
 Architecture: amd64" > Release
 '''
 
+
+[tasks.bfb-copy-efi-sa]
+category = "iPXE Kernel"
+description = "Copy the BFB efi kernel on aarch64 gitlab runner"
+script = '''
+  # Check that efi kernel is compressed
+  efi_kernel="/tmp/bfb-dump/dump-image-v0"
+  if file -b "$efi_kernel" | grep -q 'LZMA compressed data'; then
+    xz --format=lzma -d "$efi_kernel" -c > carbide.efi
+  else
+    cp "$efi_kernel" carbide.efi
+  fi
+'''
+cwd = "static/blobs/internal/aarch64"
+
+
 [tasks.bfb-copy-efi]
 category = "iPXE Kernel"
 description = "Copy the BFB efi kernel on aarch64 gitlab runner"
@@ -1252,7 +1266,13 @@ script = '''
     find . -print0 | cpio --null -o --format=newc | pigz -1 > ../dump-initramfs-v0
   else
     echo "Rebuilding BFB with best compression (pigz parallel)"
-    find . -print0 | cpio --null -o --format=newc | pigz -9 > ../dump-initramfs-v0
+    if [ -n "${SA_ENABLEMENT}" ]; then
+      FAKEROOT_STATE="/tmp/bfb-dump/fakeroot.env"
+      find . -print0 | fakeroot -i "$FAKEROOT_STATE" -s "$FAKEROOT_STATE" \
+      cpio --null -o --format=newc | pigz -9 > ../dump-initramfs-v0
+    else
+      find . -print0 | cpio --null -o --format=newc | pigz -9 > ../dump-initramfs-v0
+    fi
   fi
 '''
 cwd = "${BUILD_LOCATION}"

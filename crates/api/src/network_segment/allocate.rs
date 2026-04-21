@@ -191,10 +191,14 @@ impl PrefixAllocator {
             allocation_strategy: AllocationStrategy::Dynamic,
         };
 
+        // Segments created by VPC prefix allocation are fully formed (prefixes, VPC ID,
+        // gateway, etc.) and don't need the state controller to provision them. Starting
+        // in Ready avoids the race where the instance allocator tries to use the segment
+        // before the state controller transitions it from Provisioning.
         let mut segment = db::network_segment::persist(
             ns,
             txn,
-            model::network_segment::NetworkSegmentControllerState::Provisioning,
+            model::network_segment::NetworkSegmentControllerState::Ready,
         )
         .await?;
 
@@ -204,6 +208,49 @@ impl PrefixAllocator {
         }
 
         Ok((segment.id, prefix))
+    }
+
+    /// Allocates a new linknet prefix from this VPC prefix and adds it to an existing
+    /// network segment. Used for dual-stack: the first prefix creates the segment via
+    /// `allocate_network_segment()`, and subsequent prefixes (e.g. the IPv6 counterpart)
+    /// are added to the same segment via this method.
+    pub async fn allocate_linknet_for_segment(
+        &self,
+        txn: &mut PgConnection,
+        segment_id: NetworkSegmentId,
+        requested_prefix: Option<IpNetwork>,
+    ) -> CarbideResult<IpNetwork> {
+        let prefix = if let Some(requested_prefix) = requested_prefix {
+            self.validate_desired_prefix(txn, requested_prefix).await?;
+            requested_prefix
+        } else {
+            self.next_free_prefix(txn).await?
+        };
+
+        // IPv6 gateways are None (uses Router Advertisements).
+        let gateway = if prefix.is_ipv4() {
+            Some(prefix.network())
+        } else {
+            None
+        };
+
+        let mut new_prefixes = db::network_prefix::create_for(
+            txn,
+            &segment_id,
+            &[NewNetworkPrefix {
+                prefix,
+                gateway,
+                num_reserved: 0,
+            }],
+        )
+        .await?;
+
+        for np in &mut new_prefixes {
+            db::network_prefix::set_vpc_prefix(np, txn, &self.vpc_prefix_id, &self.vpc_prefix)
+                .await?;
+        }
+
+        Ok(prefix)
     }
 
     pub async fn next_free_prefix(&self, txn: &mut PgConnection) -> CarbideResult<IpNetwork> {

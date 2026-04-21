@@ -17,9 +17,11 @@
 
 use std::net::IpAddr;
 
+use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use chrono::prelude::*;
 use config_version::{ConfigVersion, Versioned};
+use health_report::{HealthReport, HealthReportApplyMode};
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
 use model::rack::RackFirmwareUpgradeStatus;
@@ -114,6 +116,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         rack_id: new_switch.rack_id.clone(),
         slot_number: new_switch.slot_number,
         tray_index: new_switch.tray_index,
+        health_reports: Default::default(),
     })
 }
 
@@ -533,4 +536,79 @@ pub async fn find_bmc_info_by_switch_ids(
         .fetch_all(db)
         .await
         .map_err(|err| DatabaseError::new("switch::find_bmc_info_by_switch_ids", err))
+}
+
+/// A switch resolved by its BMC MAC address, along with the rack it belongs
+/// to. Used by the Component Manager state controller wrapper to build a
+/// rack-level `MaintenanceScope` for the switches it's been asked to act on.
+#[derive(Debug, sqlx::FromRow)]
+pub struct SwitchIdByBmcMac {
+    pub bmc_mac_address: MacAddress,
+    pub id: SwitchId,
+    pub rack_id: Option<RackId>,
+}
+
+/// Resolve BMC MAC addresses to `SwitchId`s + `rack_id`s.
+pub async fn find_ids_by_bmc_macs(
+    db: impl crate::db_read::DbReader<'_>,
+    macs: &[MacAddress],
+) -> DatabaseResult<Vec<SwitchIdByBmcMac>> {
+    let sql = r#"
+        SELECT s.bmc_mac_address, s.id, s.rack_id
+        FROM switches s
+        WHERE s.bmc_mac_address = ANY($1)
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(macs)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("switch::find_ids_by_bmc_macs", err))
+}
+
+/// RMS identity for a switch: the switch ID (used as the RMS node_id),
+/// the BMC MAC address, and the rack_id.
+#[derive(Debug, sqlx::FromRow)]
+pub struct SwitchRmsIdentity {
+    pub id: String,
+    pub bmc_mac_address: MacAddress,
+    pub rack_id: Option<RackId>,
+}
+
+/// Look up RMS identities (node_id, rack_id) for switches by their
+/// BMC MAC addresses.
+pub async fn find_rms_identities_by_macs(
+    db: impl crate::db_read::DbReader<'_>,
+    macs: &[MacAddress],
+) -> DatabaseResult<Vec<SwitchRmsIdentity>> {
+    let sql = r#"
+        SELECT s.id::text, s.bmc_mac_address, s.rack_id
+        FROM switches s
+        WHERE s.bmc_mac_address = ANY($1)
+    "#;
+
+    sqlx::query_as(sql)
+        .bind(macs)
+        .fetch_all(db)
+        .await
+        .map_err(|err| DatabaseError::new("switch::find_rms_identities_by_macs", err))
+}
+
+pub async fn insert_health_report(
+    txn: &mut PgConnection,
+    switch_id: &SwitchId,
+    mode: HealthReportApplyMode,
+    health_report: &HealthReport,
+) -> Result<(), DatabaseError> {
+    crate::health_report::insert_health_report(txn, "switches", switch_id, mode, health_report)
+        .await
+}
+
+pub async fn remove_health_report(
+    txn: &mut PgConnection,
+    switch_id: &SwitchId,
+    mode: HealthReportApplyMode,
+    source: &str,
+) -> Result<(), DatabaseError> {
+    crate::health_report::remove_health_report(txn, "switches", switch_id, mode, source).await
 }

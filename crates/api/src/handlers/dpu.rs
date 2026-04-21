@@ -247,7 +247,7 @@ pub(crate) async fn get_managed_host_network_config_inner(
                     .fnn
                     .as_ref()
                     .map(|f| {
-                        let Some(profile_type) = vpc.routing_profile_type.map(|t| t.to_string()) else {
+                        let Some(profile_type) = vpc.routing_profile_type else {
                             return Err(CarbideError::Internal{ message: "tenant routing profile type not found in tenant record".to_string()});
                         };
 
@@ -1176,7 +1176,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                 return Err(CarbideError::InvalidArgument("A restart has to be triggered for all DPUs together. Only host_id is accepted for restart operation.".to_string()).into());
             }
 
-            if snapshot.dpu_snapshots.is_empty() {
+            if snapshot.is_zero_dpu() {
                 return Err(CarbideError::InvalidArgument(
                     "Machine has no DPUs, cannot trigger DPU reprovisioning.".to_string(),
                 )

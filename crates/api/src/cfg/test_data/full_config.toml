@@ -195,26 +195,26 @@ OperatingModes_ChooseOperatingMode = "MaximumPerformance"
 DevicesandIOPorts_IOMMU = "Disabled"
 OperatingModes_ChooseOperatingMode = "MinimalPower"
 
-[rack_types.NVL72]
-[rack_types.NVL72.compute]
+[rack_profiles.NVL72]
+[rack_profiles.NVL72.rack_capabilities.compute]
 name = "GB200"
 count = 18
 vendor = "NVIDIA"
 
-[rack_types.NVL72.switch]
+[rack_profiles.NVL72.rack_capabilities.switch]
 count = 9
 
-[rack_types.NVL72.power_shelf]
+[rack_profiles.NVL72.rack_capabilities.power_shelf]
 count = 8
 
-[rack_types.NVL36]
-[rack_types.NVL36.compute]
+[rack_profiles.NVL36]
+[rack_profiles.NVL36.rack_capabilities.compute]
 count = 9
 
-[rack_types.NVL36.switch]
+[rack_profiles.NVL36.rack_capabilities.switch]
 count = 9
 
-[rack_types.NVL36.power_shelf]
+[rack_profiles.NVL36.rack_capabilities.power_shelf]
 count = 2
 
 [mlx-config-profiles.test-profile]

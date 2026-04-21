@@ -57,7 +57,7 @@ pub async fn replace_all(args: Args, api_client: &ApiClient) -> CarbideCliResult
             .into_iter()
             .map(|rack| rpc_forge::ExpectedRack {
                 rack_id: Some(rack.rack_id),
-                rack_type: rack.rack_type,
+                rack_profile_id: Some(rack.rack_profile_id),
                 metadata: rack.metadata,
             })
             .collect(),

@@ -19,7 +19,6 @@ pub mod api_logs;
 pub mod level_filter;
 pub mod log_limiter;
 pub mod metrics_endpoint;
-pub mod metrics_utils;
 pub mod service_health_metrics;
 pub mod setup;
 pub mod sqlx_query_tracing;

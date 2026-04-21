@@ -135,17 +135,29 @@ service Forge {
   rpc GetManagedHostNetworkConfig(ManagedHostNetworkConfigRequest) returns (ManagedHostNetworkConfigResponse);
   rpc RecordDpuNetworkStatus(DpuNetworkStatus) returns (google.protobuf.Empty);
   // Lists all overrides that have been placed on a Machine health status
-  rpc ListHealthReportOverrides(common.MachineId) returns (ListHealthReportOverrideResponse);
+  rpc ListHealthReportOverrides(common.MachineId) returns (ListHealthReportResponse);
   // Adds a new override for a Machines health status
   rpc InsertHealthReportOverride(InsertHealthReportOverrideRequest) returns (google.protobuf.Empty);
   // Removes a health report override
   rpc RemoveHealthReportOverride(RemoveHealthReportOverrideRequest) returns (google.protobuf.Empty);
   // Lists all overrides that have been placed on a Rack health status
-  rpc ListRackHealthReportOverrides(ListRackHealthReportOverridesRequest) returns (ListHealthReportOverrideResponse);
+  rpc ListRackHealthReportOverrides(ListRackHealthReportOverridesRequest) returns (ListHealthReportResponse);
   // Adds a new health report override for a Rack
   rpc InsertRackHealthReportOverride(InsertRackHealthReportOverrideRequest) returns (google.protobuf.Empty);
   // Removes a health report override for a Rack
   rpc RemoveRackHealthReportOverride(RemoveRackHealthReportOverrideRequest) returns (google.protobuf.Empty);
+  // Lists all health report sources for a Switch
+  rpc ListSwitchHealthReports(ListSwitchHealthReportsRequest) returns (ListHealthReportResponse);
+  // Adds a health report source for a Switch
+  rpc InsertSwitchHealthReport(InsertSwitchHealthReportRequest) returns (google.protobuf.Empty);
+  // Removes a health report source for a Switch
+  rpc RemoveSwitchHealthReport(RemoveSwitchHealthReportRequest) returns (google.protobuf.Empty);
+  // Lists all health report sources for a Power Shelf
+  rpc ListPowerShelfHealthReports(ListPowerShelfHealthReportsRequest) returns (ListHealthReportResponse);
+  // Adds a health report source for a Power Shelf
+  rpc InsertPowerShelfHealthReport(InsertPowerShelfHealthReportRequest) returns (google.protobuf.Empty);
+  // Removes a health report source for a Power Shelf
+  rpc RemovePowerShelfHealthReport(RemovePowerShelfHealthReportRequest) returns (google.protobuf.Empty);
   rpc DpuAgentUpgradeCheck(DpuAgentUpgradeCheckRequest) returns (DpuAgentUpgradeCheckResponse);
   rpc DpuAgentUpgradePolicyAction(DpuAgentUpgradePolicyRequest) returns (DpuAgentUpgradePolicyResponse);
   // Looks up a DNS record for DNS names assigned by Forge
@@ -315,6 +327,8 @@ service Forge {
   // TODO: Remove when manual upgrade feature is removed
   // Mark host as having completed manual firmware upgrade
   rpc MarkManualFirmwareUpgradeComplete(common.MachineId) returns (google.protobuf.Empty);
+  // Report the result of a scout-based firmware upgrade
+  rpc ReportScoutFirmwareUpgradeStatus(ScoutFirmwareUpgradeStatusRequest) returns (google.protobuf.Empty);
 
   rpc GetDpuInfoList(GetDpuInfoListRequest) returns (GetDpuInfoListResponse);
 
@@ -675,7 +689,7 @@ service Forge {
   // Deprecated: Use FindRackIds
   rpc GetRack(GetRackRequest) returns (GetRackResponse);
   rpc DeleteRack(DeleteRackRequest) returns (google.protobuf.Empty);
-  rpc GetRackCapabilities(GetRackCapabilitiesRequest) returns (GetRackCapabilitiesResponse);
+  rpc GetRackProfile(GetRackProfileRequest) returns (GetRackProfileResponse);
 
   //
   // Compute Allocations
@@ -738,10 +752,10 @@ service Forge {
   // SPIFFE Machine Identity APIs
   // Signs a JWT-SVID token for machine identity
   rpc SignMachineIdentity(MachineIdentityRequest) returns (MachineIdentityResponse);
-  // Get, set, or delete per-org identity configuration (issuer, audiences, TTL, signing key)
-  rpc GetIdentityConfiguration(GetIdentityConfigRequest) returns (IdentityConfigResponse);
-  rpc SetIdentityConfiguration(IdentityConfigRequest) returns (IdentityConfigResponse);
-  rpc DeleteIdentityConfiguration(GetIdentityConfigRequest) returns (google.protobuf.Empty);
+  // Get, set, or delete per-org tenant identity configuration (issuer, audiences, TTL, signing key)
+  rpc GetTenantIdentityConfiguration(GetTenantIdentityConfigRequest) returns (TenantIdentityConfigResponse);
+  rpc SetTenantIdentityConfiguration(SetTenantIdentityConfigRequest) returns (TenantIdentityConfigResponse);
+  rpc DeleteTenantIdentityConfiguration(GetTenantIdentityConfigRequest) returns (google.protobuf.Empty);
   // Token delegation: get, set, or delete per-org token exchange config
   rpc GetTokenDelegation(GetTokenDelegationRequest) returns (TokenDelegationResponse);
   rpc SetTokenDelegation(TokenDelegationRequest) returns (TokenDelegationResponse);
@@ -924,15 +938,15 @@ message MachineIdentityResponse {
   string access_token = 1;
   string issued_token_type = 2;
   string token_type = 3;
-  string expires_in = 4;
+  uint32 expires_in_sec = 4;
 }
 
-// Identity configuration (per-org)
-message GetIdentityConfigRequest {
+// Tenant identity configuration (per-org machine identity signing)
+message GetTenantIdentityConfigRequest {
   string organization_id = 1;
 }
 
-message IdentityConfig {
+message TenantIdentityConfig {
   bool enabled = 1;
   // JWT `iss` / OIDC issuer string: `https://` or `http://` URL (trust domain = host),
   // `spiffe://<trust-domain>/...` (scheme ASCII case-insensitive), or bare DNS hostname / IP.
@@ -945,14 +959,14 @@ message IdentityConfig {
   bool rotate_key = 7;
 }
 
-message IdentityConfigRequest {
+message SetTenantIdentityConfigRequest {
   string organization_id = 1;
-  IdentityConfig config = 2;
+  TenantIdentityConfig config = 2;
 }
 
-message IdentityConfigResponse {
+message TenantIdentityConfigResponse {
   string organization_id = 1;
-  IdentityConfig config = 2;
+  TenantIdentityConfig config = 2;
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp updated_at = 9;
   string key_id = 10;
@@ -1015,8 +1029,7 @@ message OpenIdConfiguration {
   // OAuth-style access token (JWT bearer) only; no OIDC `id_token` is issued.
   repeated string response_types_supported = 3;
   repeated string subject_types_supported = 4;
-  // Always empty: OIDC ID tokens are not supported. Verifiers use `jwks_uri` / `spiffe_jwks_uri`
-  // and GetJWKS `jwks` (`keys[].alg`) for machine-identity JWT bearer signature verification.
+  // Verifiers use `jwks_uri` / `spiffe_jwks_uri` and the GetJWKS `jwks` JSON (`keys[].alg`) for JWT verification.
   repeated string id_token_signing_alg_values_supported = 5;
   // SPIFFE trust-domain style JWKS URL: `{issuer}/.well-known/spiffe/jwks.json` (GetJWKS with Spiffe kind).
   string spiffe_jwks_uri = 7;
@@ -1396,6 +1409,9 @@ message Vpc {
   // This will only be populated if the VNI was explicitly
   // requested during creation of the VPC.
   optional uint32 vni = 15;
+
+  // The resolved routing profile type applied to this VPC.
+  optional string routing_profile_type = 16;
 }
 
 message VpcCreationRequest {
@@ -1426,12 +1442,14 @@ message VpcCreationRequest {
   // marked for auto-assignment; otherwise, the request will be rejected.
   optional uint32 vni = 15;
 
+  reserved 16;
+
   // Desired routing profile type for this VPC.
-  // The requested type must be equal to or less than
+  // The access tier for the requested type must be as broad or broader than
   // type of the tenant.
   // For example, an internal tenant can request internal or external VPCs,
   // but an external tenant can only request external VPCs.
-  optional RoutingProfileType routing_profile_type = 16;  
+  optional string routing_profile_type = 17;  
 }
 
 enum VpcVirtualizationType {
@@ -1796,6 +1814,9 @@ message PowerShelfStatus {
   optional string health_status = 5;
   // The controller state machine state (e.g. "initializing", "ready", "error")
   optional string controller_state = 6;
+
+  health.HealthReport health = 7;
+  repeated HealthSourceOrigin health_sources = 8;
 }
 
 // Describe a PowerShelf configuration and status
@@ -1822,6 +1843,8 @@ message PowerShelf {
 
   // The rack that this powershelf is associated with
   optional common.RackId rack_id = 10;
+
+  reserved 11, 12;
 }
 
 message PowerShelfList {
@@ -1945,6 +1968,9 @@ message SwitchStatus {
   optional string health_status = 5;
   // The controller state machine state (e.g. "initializing", "ready", "error")
   optional string controller_state = 6;
+
+  health.HealthReport health = 7;
+  repeated HealthSourceOrigin health_sources = 8;
 }
 
 message PlacementInRack {
@@ -1977,6 +2003,8 @@ message Switch {
   // The rack that this switch is associated with
   optional common.RackId rack_id = 10;
   optional PlacementInRack placement_in_rack = 11;
+
+  reserved 12, 13;
 }
 
 message SwitchList {
@@ -2085,8 +2113,8 @@ message LinkedExpectedSwitch {
 message ExpectedRack {
   // The rack identifier. Same rack_id referenced by expected machines, switches, and power shelves.
   optional common.RackId rack_id = 1;
-  // The rack type name. Determines expected counts of compute trays, switches, and power shelves.
-  string rack_type = 2;
+  // The rack profile ID. Determines expected counts of compute trays, switches, and power shelves.
+  common.RackProfileId rack_profile_id = 2;
   // Metadata that will be associated with the rack.
   Metadata metadata = 3;
 }
@@ -2737,7 +2765,8 @@ message InstanceInterfaceConfig {
   oneof network_details {
     common.NetworkSegmentId segment_id = 5;
     // In case of vpc_prefix_id, carbide should allocate a network segment
-    // and continue IP allocation.
+    // and continue IP allocation. This field is address-family agnostic —
+    // it can be an IPv4 or IPv6 VPC prefix.
     common.VpcPrefixId vpc_prefix_id = 6;
   }
 
@@ -2766,10 +2795,21 @@ message InstanceInterfaceConfig {
   // for this network interface.
   optional uint32 virtual_function_id = 9;
 
-  // Explicit _host_ IP address requested for the interface.
-  // Only allowed when VPC prefix is used.
-  // Must match VPC prefix defined for the interface.
+  // Explicit _host_ IP address requested for the interface (for vpc_prefix_id).
   optional string ip_address = 10;
+
+  // Optional IPv6 configuration for dual-stack interfaces. When set alongside
+  // vpc_prefix_id (field 6), both prefixes are allocated to a single network segment.
+  optional InstanceInterfaceIpv6Config ipv6_interface_config = 11;
+}
+
+// IPv6 configuration for a dual-stack instance interface.
+message InstanceInterfaceIpv6Config {
+  // The IPv6 VPC prefix to allocate from. The primary vpc_prefix_id creates
+  // the segment, and this prefix is added to it.
+  common.VpcPrefixId vpc_prefix_id = 1;
+  // Explicit host IPv6 address requested for this interface.
+  optional string ip_address = 2;
 }
 
 // The configuration that a customer desires for an instances IB interface
@@ -3136,9 +3176,9 @@ message Machine {
   // For DPUs, it returns the individual DPU health
   health.HealthReport health = 27;
 
-  // Informs whether any overrides (identified by a specific source name and mode) are applied
-  // to health
-  repeated HealthOverrideOrigin health_overrides = 29;
+  // Health report sources (identified by a specific source name and mode) that are applied
+  // to the aggregate health of this machine
+  repeated HealthSourceOrigin health_sources = 29;
 
   optional bool firmware_autoupdate = 28;
 
@@ -3274,9 +3314,9 @@ message MachineInventorySoftwareComponent {
   string url = 3;
 }
 
-// A health override that is applied to a Host
-message HealthOverrideOrigin {
-  OverrideMode mode = 1;
+// Summary of a health report source: its mode and source identifier.
+message HealthSourceOrigin {
+  HealthReportApplyMode mode = 1;
   string source = 2;
 }
 
@@ -3927,6 +3967,9 @@ message FlatInterfaceConfig {
   // MTU size
   optional uint32 mtu = 18;
 
+  // IPv6 configuration for dual-stack FNN interfaces.
+  optional FlatInterfaceIpv6Config ipv6_interface_config = 19;
+
   // The details of the network security group associated with
   // either the instance or its parent VPC.
   // Currently, source would either be INSTANCE or VPC.
@@ -3939,6 +3982,18 @@ message FlatInterfaceConfig {
 
   // A UUID used to associate a network status with an interface config.
   optional common.UUID internal_uuid = 108;
+}
+
+// IPv6 configuration for a dual-stack FNN interface, sent from the API to
+// the DPU agent as part of FlatInterfaceConfig.
+message FlatInterfaceIpv6Config {
+  // Host IPv6 address (e.g. "2001:db8::1").
+  string ip = 1;
+  // Interface-specific prefix allocation (e.g. "2001:db8::/127").
+  string interface_prefix = 2;
+  // SVI IP for L2 FNN segments — the DPU's IPv6 gateway address on the VLAN.
+  // Only set for L2 segments (can_stretch = true).
+  optional string svi_ip = 3;
 }
 
 message FlatInterfaceNetworkSecurityGroupConfig {
@@ -4405,7 +4460,7 @@ message OptionalHealthReport {
   optional health.HealthReport report = 1;
 }
 
-enum OverrideMode {
+enum HealthReportApplyMode {
   // Keep the existing health reports, and merge them with this health report.
   // If 2 reports report the same failures based on `id`s on `target`s
   // - the classifications of both alerts will be merged
@@ -4416,21 +4471,21 @@ enum OverrideMode {
   Replace = 1;
 }
 
-message HealthReportOverride {
+message HealthReportEntry {
   health.HealthReport report = 1;
-  OverrideMode mode = 2;
+  HealthReportApplyMode mode = 2;
 }
 
 message InsertHealthReportOverrideRequest {
   common.MachineId machine_id = 1;
-  HealthReportOverride override = 2;
+  HealthReportEntry health_report_entry = 2;
 }
 
 // Request to insert a health report override for a Rack.
 // Same as InsertHealthReportOverrideRequest but with rack_id instead of machine_id.
 message InsertRackHealthReportOverrideRequest {
   common.RackId rack_id = 1;
-  HealthReportOverride override = 2;
+  HealthReportEntry health_report_entry = 2;
 }
 
 // Request to remove a health report override for a Rack.
@@ -4445,8 +4500,42 @@ message ListRackHealthReportOverridesRequest {
   optional common.RackId rack_id = 1;
 }
 
-message ListHealthReportOverrideResponse {
-  repeated HealthReportOverride overrides = 1;
+// Request to insert a health report source for a Switch.
+message InsertSwitchHealthReportRequest {
+  common.SwitchId switch_id = 1;
+  HealthReportEntry health_report_entry = 2;
+}
+
+// Request to remove a health report source for a Switch.
+message RemoveSwitchHealthReportRequest {
+  common.SwitchId switch_id = 1;
+  string source = 2;
+}
+
+// Request to list health report sources for a Switch.
+message ListSwitchHealthReportsRequest {
+  optional common.SwitchId switch_id = 1;
+}
+
+// Request to insert a health report source for a Power Shelf.
+message InsertPowerShelfHealthReportRequest {
+  common.PowerShelfId power_shelf_id = 1;
+  HealthReportEntry health_report_entry = 2;
+}
+
+// Request to remove a health report source for a Power Shelf.
+message RemovePowerShelfHealthReportRequest {
+  common.PowerShelfId power_shelf_id = 1;
+  string source = 2;
+}
+
+// Request to list health report sources for a Power Shelf.
+message ListPowerShelfHealthReportsRequest {
+  optional common.PowerShelfId power_shelf_id = 1;
+}
+
+message ListHealthReportResponse {
+  repeated HealthReportEntry health_report_entries = 1;
 }
 
 message RemoveHealthReportOverrideRequest {
@@ -4519,14 +4608,16 @@ message Tenant {
   Metadata metadata = 2;
   // this string is used to verify that the client has the most updated "view" of a keyset when attempting to modify it
   string version = 3;
-  optional RoutingProfileType routing_profile_type = 4;
+  reserved 4;
+  optional string routing_profile_type = 5;
 }
 
 message CreateTenantRequest {
   // this organization ID must be globally unique
   string organization_id = 1;
   Metadata metadata = 2;
-  optional RoutingProfileType routing_profile_type = 3;
+  reserved 3;
+  optional string routing_profile_type = 4;
 }
 message CreateTenantResponse {
   Tenant tenant = 1;
@@ -4540,8 +4631,10 @@ message UpdateTenantRequest {
   // otherwise it will return a concurrency related error.
   optional string if_version_match = 3;
 
+  reserved 4;
+  
   // Updating will only be allowed if the tenant has no active VPCs
-  optional RoutingProfileType routing_profile_type = 4;
+  optional string routing_profile_type = 5;
 }
 message UpdateTenantResponse {
   // the updated tenant after modification
@@ -4712,6 +4805,7 @@ enum ConfigSetting {
   CREATE_MACHINES = 1;
   BMC_PROXY = 2;
   TRACING_ENABLED = 3;
+  SITE_EXPLORER_ENABLED = 4;
 }
 
 message FindIpAddressRequest {
@@ -5091,6 +5185,35 @@ message ExpectedHostNic {
   optional string fixed_ip = 3;
   optional string fixed_mask = 4;
   optional string fixed_gateway = 5;
+  // When true, this flags the given NIC as the host's primary (boot)
+  // interface (used in cases of zero DPU).
+  //
+  // Up to one NIC per ExpectedMachine may be marked primary, if set at
+  // all. Propagates to `machine_interfaces.primary_interface` during DHCP
+  // when this NIC is first discovered.
+  //
+  // Some day this could be even possibly used to say "this dumb NIC
+  // *is* the primary interface, even though I know I have a DPU."
+  optional bool primary = 6;
+}
+
+// Per-host DPU operating mode. Ultimately replaces the site-wide
+// `force_dpu_nic_mode` config flag, so site operators can mix DPU-mode,
+// NIC-mode, and no-DPU hosts within a single site.
+//
+// - DPU_MODE: The default. Attached DPUs are managed by NICo (DPU upgrades,
+//   overlay networking, etc).
+// - NIC_MODE: DPUs are present physically but operate as plain NICs. Site
+//   explorer skips DPU ingest; the host is tracked as if it had no DPUs.
+// - NO_DPU: no DPU hardware at all -- a plain host NIC on the underlay.
+//
+// Unset and `DPU_MODE_UNSPECIFIED` both mean "use the site default," which
+// is DPU_MODE unless the site-wide `force_dpu_nic_mode` config flag is on.
+enum DpuMode {
+  DPU_MODE_UNSPECIFIED = 0;
+  DPU_MODE = 1;
+  NIC_MODE = 2;
+  NO_DPU = 3;
 }
 
 message ExpectedMachine {
@@ -5116,6 +5239,10 @@ message ExpectedMachine {
   // When true, site-explorer skips BMC password rotation and stores the
   // factory-default credentials in Vault as-is.
   optional bool bmc_retain_credentials = 15;
+  // Per-host DPU operating mode. See `DpuMode` above. Unset means "site
+  // default" -- the site-wide `force_dpu_nic_mode` config flag still applies
+  // when no per-host override is set, so existing deployments keep working.
+  optional DpuMode dpu_mode = 16;
 }
 
 message ExpectedMachineRequest {
@@ -5171,6 +5298,16 @@ message MachineRebootCompletedResponse {
 message MachineRebootCompletedRequest {
   common.MachineId machine_id = 1;
 }
+
+message ScoutFirmwareUpgradeStatusRequest {
+  common.MachineId machine_id = 1;
+  bool success = 2;
+  int32 exit_code = 3;
+  string stdout = 4;
+  string stderr = 5;
+  string error = 6;
+}
+
 // enum MachineValidationState {
 //     Started = 0;
 //     InProgress = 1;
@@ -6388,10 +6525,20 @@ message Rack {
   google.protobuf.Timestamp created = 9;
   google.protobuf.Timestamp updated = 10;
   google.protobuf.Timestamp deleted = 11;
-  health.HealthReport health = 12;
-  repeated HealthOverrideOrigin health_overrides = 13;
+  reserved 12, 13;
   Metadata metadata = 14;
   string version = 15;
+  RackConfig config = 16;
+  RackStatus status = 17;
+}
+
+message RackConfig {
+
+}
+
+message RackStatus {
+  health.HealthReport health = 7;
+  repeated HealthSourceOrigin health_sources = 8;
 }
 
 message RackStateHistoriesRequest {
@@ -6443,22 +6590,26 @@ message RackCapabilityPowerShelf {
 }
 
 message RackCapabilitiesSet {
+  RackCapabilityCompute compute = 1;
+  RackCapabilitySwitch switch = 2;
+  RackCapabilityPowerShelf power_shelf = 3;
+}
+
+message RackProfile {
   common.RackHardwareType rack_hardware_type = 1;
   RackHardwareTopology rack_hardware_topology = 2;
   RackHardwareClass rack_hardware_class = 3;
-  RackCapabilityCompute compute = 4;
-  RackCapabilitySwitch switch = 5;
-  RackCapabilityPowerShelf power_shelf = 6;
+  RackCapabilitiesSet capabilities = 4;
 }
 
-message GetRackCapabilitiesRequest {
+message GetRackProfileRequest {
   common.RackId rack_id = 1;
 }
 
-message GetRackCapabilitiesResponse {
+message GetRackProfileResponse {
   common.RackId rack_id = 1;
-  string rack_type = 2;
-  RackCapabilitiesSet capabilities = 3;
+  common.RackProfileId rack_profile_id = 2;
+  RackProfile profile = 3;
 }
 
 // put some sample rack manager commands in for now
@@ -7116,15 +7267,6 @@ message ScoutStreamError {
 // with troubleshooting and debugging.
 enum ScoutStreamErrorStatus {
   SCOUT_STREAM_ERROR_STATUS_INTERNAL = 0;
-}
-
-
-enum RoutingProfileType {
-  ROUTING_PROFILE_TYPE_EXTERNAL            = 0; // Default to least privileged
-  ROUTING_PROFILE_TYPE_ADMIN               = 1;
-  ROUTING_PROFILE_TYPE_INTERNAL            = 2;
-  ROUTING_PROFILE_TYPE_PRIVILEGED_INTERNAL = 3;
-  ROUTING_PROFILE_TYPE_MAINTENANCE         = 4;
 }
 
 message RoutingProfile {

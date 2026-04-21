@@ -47,3 +47,10 @@ Selector labels
 app.kubernetes.io/name: {{ include "carbide-fmds.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Server Port
+*/}}
+{{- define "carbide-fmds.serverPort" -}}
+{{- default 50052 .Values.serverPort -}}
+{{- end -}}

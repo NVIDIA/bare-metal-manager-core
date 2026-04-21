@@ -467,3 +467,137 @@ fn validate_patch_all_fields() {
         _ => panic!("expected Patch variant"),
     }
 }
+
+// parse_add_without_dpu_mode ensures the flag is optional and defaults to
+// unset; downstream, unset is treated as "use site default" (as in, use
+// the site-wide `force_dpu_nic_mode` flag).
+#[test]
+fn parse_add_without_dpu_mode() {
+    let cmd = Cmd::try_parse_from([
+        "expected-machine",
+        "add",
+        "--bmc-mac-address",
+        "1a:2b:3c:4d:5e:6f",
+        "--bmc-username",
+        "admin",
+        "--bmc-password",
+        "secret",
+        "--chassis-serial-number",
+        "SN12345",
+    ])
+    .expect("should parse without --dpu-mode");
+
+    match cmd {
+        Cmd::Add(args) => {
+            assert!(args.dpu_mode.is_none(), "--dpu-mode should be optional");
+        }
+        _ => panic!("expected Add variant"),
+    }
+}
+
+// parse_add_with_dpu_mode_nic ensures `--dpu-mode nic-mode`
+// parses to the NicMode variant.
+#[test]
+fn parse_add_with_dpu_mode_nic() {
+    let cmd = Cmd::try_parse_from([
+        "expected-machine",
+        "add",
+        "--bmc-mac-address",
+        "1a:2b:3c:4d:5e:6f",
+        "--bmc-username",
+        "admin",
+        "--bmc-password",
+        "secret",
+        "--chassis-serial-number",
+        "SN12345",
+        "--dpu-mode",
+        "nic-mode",
+    ])
+    .expect("should parse nic-mode");
+
+    match cmd {
+        Cmd::Add(args) => {
+            assert!(matches!(args.dpu_mode, Some(rpc::forge::DpuMode::NicMode)));
+        }
+        _ => panic!("expected Add variant"),
+    }
+}
+
+// parse_add_with_dpu_mode_no_dpu ensures `--dpu-mode no-dpu` parses
+// correctly (host with zero DPU hardware at all).
+#[test]
+fn parse_add_with_dpu_mode_no_dpu() {
+    let cmd = Cmd::try_parse_from([
+        "expected-machine",
+        "add",
+        "--bmc-mac-address",
+        "1a:2b:3c:4d:5e:6f",
+        "--bmc-username",
+        "admin",
+        "--bmc-password",
+        "secret",
+        "--chassis-serial-number",
+        "SN12345",
+        "--dpu-mode",
+        "no-dpu",
+    ])
+    .expect("should parse no-dpu");
+
+    match cmd {
+        Cmd::Add(args) => {
+            assert!(matches!(args.dpu_mode, Some(rpc::forge::DpuMode::NoDpu)));
+        }
+        _ => panic!("expected Add variant"),
+    }
+}
+
+// parse_add_with_dpu_mode_dpu ensures `--dpu-mode dpu-mode` parses.
+#[test]
+fn parse_add_with_dpu_mode_dpu() {
+    let cmd = Cmd::try_parse_from([
+        "expected-machine",
+        "add",
+        "--bmc-mac-address",
+        "1a:2b:3c:4d:5e:6f",
+        "--bmc-username",
+        "admin",
+        "--bmc-password",
+        "secret",
+        "--chassis-serial-number",
+        "SN12345",
+        "--dpu-mode",
+        "dpu-mode",
+    ])
+    .expect("should parse dpu-mode");
+
+    match cmd {
+        Cmd::Add(args) => {
+            assert!(matches!(args.dpu_mode, Some(rpc::forge::DpuMode::DpuMode)));
+        }
+        _ => panic!("expected Add variant"),
+    }
+}
+
+// parse_add_rejects_invalid_dpu_mode ensures clap rejects values that
+// don't match the enum.
+#[test]
+fn parse_add_rejects_invalid_dpu_mode() {
+    let result = Cmd::try_parse_from([
+        "expected-machine",
+        "add",
+        "--bmc-mac-address",
+        "1a:2b:3c:4d:5e:6f",
+        "--bmc-username",
+        "admin",
+        "--bmc-password",
+        "secret",
+        "--chassis-serial-number",
+        "SN12345",
+        "--dpu-mode",
+        "garbage",
+    ]);
+    assert!(
+        result.is_err(),
+        "clap should reject --dpu-mode with an invalid value"
+    );
+}

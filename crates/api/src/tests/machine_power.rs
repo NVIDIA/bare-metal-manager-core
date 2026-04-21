@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use carbide_redfish::libredfish::RedfishClientPool;
 use db::managed_host::load_snapshot;
 use db::{self};
 use model::machine::LoadSnapshotOptions;
@@ -23,7 +24,6 @@ use rpc::forge::{
     MaintenanceOperation, MaintenanceRequest, PowerOptionRequest, PowerOptionUpdateRequest,
 };
 
-use crate::redfish::RedfishClientPool;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host, create_test_env_with_overrides,
 };

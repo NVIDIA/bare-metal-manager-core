@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-pub mod capabilities;
 mod delete;
 mod list;
 pub mod metadata;
+pub mod profile;
 mod show;
 
 #[cfg(test)]
@@ -38,6 +38,6 @@ pub enum Cmd {
     Delete(delete::Args),
     #[clap(subcommand, about = "Edit Metadata associated with a Rack")]
     Metadata(metadata::Args),
-    #[clap(subcommand, about = "Rack capabilities")]
-    Capabilities(capabilities::Args),
+    #[clap(subcommand, about = "Rack profile")]
+    Profile(profile::Args),
 }

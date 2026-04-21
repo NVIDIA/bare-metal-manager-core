@@ -197,6 +197,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
             device_instance: 0u32,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
 
@@ -296,6 +297,7 @@ async fn test_managed_host_network_config_with_extension_services(pool: sqlx::Pg
             device_instance: 0u32,
             virtual_function_id: None,
             ip_address: None,
+            ipv6_interface_config: None,
         }],
     };
 

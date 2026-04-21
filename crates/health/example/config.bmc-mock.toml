@@ -31,9 +31,6 @@ enabled = false
 enabled = true
 minimum_alerts_per_report = 2
 
-[processors.health_report]
-level = "warning"
-
 [processors.rack_leak]
 leaking_tray_threshold = 1
 

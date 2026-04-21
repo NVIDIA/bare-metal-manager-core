@@ -37,15 +37,16 @@ pub async fn add_expected_rack(
         .try_into()
         .map_err(CarbideError::from)?;
 
-    if api.runtime_config.rack_types.get(&rack.rack_type).is_none() {
+    if api
+        .runtime_config
+        .rack_profiles
+        .get(rack.rack_profile_id.as_str())
+        .is_none()
+    {
         return Err(CarbideError::InvalidArgument(format!(
-            "Unknown rack_type: {}. Must be one of: {:?}",
-            rack.rack_type,
-            api.runtime_config
-                .rack_types
-                .rack_types
-                .keys()
-                .collect::<Vec<_>>()
+            "Unknown rack_profile_id: {}. Must be one of: {:?}",
+            rack.rack_profile_id,
+            api.runtime_config.rack_profiles.keys().collect::<Vec<_>>()
         ))
         .into());
     }
@@ -64,15 +65,16 @@ pub async fn add_expected_rack(
         .into());
     }
 
-    if api.runtime_config.rack_types.get(&rack.rack_type).is_none() {
+    if api
+        .runtime_config
+        .rack_profiles
+        .get(rack.rack_profile_id.as_str())
+        .is_none()
+    {
         return Err(CarbideError::InvalidArgument(format!(
-            "Unknown rack_type: {}. Must be one of: {:?}",
-            rack.rack_type,
-            api.runtime_config
-                .rack_types
-                .rack_types
-                .keys()
-                .collect::<Vec<_>>()
+            "Unknown rack_profile_id: {}. Must be one of: {:?}",
+            rack.rack_profile_id,
+            api.runtime_config.rack_profiles.keys().collect::<Vec<_>>()
         ))
         .into());
     }
@@ -100,7 +102,7 @@ pub async fn delete_expected_rack(
     Ok(Response::new(()))
 }
 
-/// update_expected_rack updates an existing expected rack's rack_type and metadata.
+/// update_expected_rack updates an existing expected rack's rack_profile_id and metadata.
 pub async fn update_expected_rack(
     api: &Api,
     request: Request<rpc::ExpectedRack>,
@@ -110,15 +112,16 @@ pub async fn update_expected_rack(
         .try_into()
         .map_err(CarbideError::from)?;
 
-    if api.runtime_config.rack_types.get(&rack.rack_type).is_none() {
+    if api
+        .runtime_config
+        .rack_profiles
+        .get(rack.rack_profile_id.as_str())
+        .is_none()
+    {
         return Err(CarbideError::InvalidArgument(format!(
-            "Unknown rack_type: {}. Must be one of: {:?}",
-            rack.rack_type,
-            api.runtime_config
-                .rack_types
-                .rack_types
-                .keys()
-                .collect::<Vec<_>>()
+            "Unknown rack_profile_id: {}. Must be one of: {:?}",
+            rack.rack_profile_id,
+            api.runtime_config.rack_profiles.keys().collect::<Vec<_>>()
         ))
         .into());
     }
@@ -192,10 +195,15 @@ pub async fn replace_all_expected_racks(
     for expected_rack in req.expected_racks {
         let rack: ExpectedRack = expected_rack.try_into().map_err(CarbideError::from)?;
 
-        if api.runtime_config.rack_types.get(&rack.rack_type).is_none() {
+        if api
+            .runtime_config
+            .rack_profiles
+            .get(rack.rack_profile_id.as_str())
+            .is_none()
+        {
             return Err(CarbideError::InvalidArgument(format!(
-                "Unknown rack_type: {}",
-                rack.rack_type
+                "Unknown rack_profile_id: {}",
+                rack.rack_profile_id
             ))
             .into());
         }

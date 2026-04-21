@@ -26,10 +26,10 @@ use component_manager::component_manager::ComponentManager;
 use component_manager::error::ComponentManagerError;
 use component_manager::nv_switch_manager::SwitchEndpoint;
 use component_manager::power_shelf_manager::{PowerShelfEndpoint, PowerShelfVendor};
-use component_manager::types::{NvSwitchComponent, PowerAction, PowerShelfComponent};
 use db::{self, WithTransaction};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
+use model::component_manager::{NvSwitchComponent, PowerAction, PowerShelfComponent};
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
@@ -287,8 +287,8 @@ fn ps_mac_to_id_str(mac: &MacAddress, mac_to_id: &HashMap<MacAddress, PowerShelf
         .unwrap_or_else(|| mac.to_string())
 }
 
-fn map_fw_state(state: component_manager::types::FirmwareState) -> i32 {
-    use component_manager::types::FirmwareState;
+fn map_fw_state(state: model::component_manager::FirmwareState) -> i32 {
+    use model::component_manager::FirmwareState;
     match state {
         FirmwareState::Unknown => rpc::FirmwareUpdateState::FwStateUnknown as i32,
         FirmwareState::Queued => rpc::FirmwareUpdateState::FwStateQueued as i32,
@@ -861,7 +861,7 @@ pub(crate) async fn list_component_firmware_versions(
 
 #[cfg(test)]
 mod tests {
-    use component_manager::types::FirmwareState;
+    use model::component_manager::FirmwareState;
     use tonic::Code;
 
     use super::*;

@@ -28,7 +28,7 @@ use carbide_uuid::machine::MachineId;
 use chrono::Utc;
 use db::work_lock_manager::WorkLockManagerHandle;
 use db::{self, DatabaseError};
-use health_report::OverrideMode;
+use health_report::HealthReportApplyMode;
 use metrics::{
     AppliedChange, FabricMetrics, IbFabricMonitorMetrics, UfmOperation, UfmOperationStatus,
 };
@@ -43,10 +43,10 @@ use sqlx::{PgConnection, PgPool};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
+use utils::periodic_timer::PeriodicTimer;
 
 use crate::cfg::file::{CarbideConfig, IbFabricDefinition};
 use crate::ib::{GetPartitionOptions, IBFabricManager, IBFabricManagerType};
-use crate::periodic_timer::PeriodicTimer;
 use crate::{CarbideError, CarbideResult};
 
 /// `IbFabricMonitor` monitors the health of all connected InfiniBand fabrics in periodic intervals
@@ -699,15 +699,13 @@ async fn record_machine_infiniband_status_observation(
         .map(|instance| &instance.config.infiniband);
     let mut expected_pkeys = HashMap::new();
 
-    let mut use_admin_network = false;
-    for dpu in mh_snapshot.dpu_snapshots.iter() {
-        use_admin_network |= dpu.network_config.use_admin_network.unwrap_or(true);
-    }
-    // If we are on the tenant network, then the pkey configuration is the instances
-    // network configuration.
-    // If not - e.g. during Instance termination - there are no pkeys expected on any
-    // interface
-    let use_tenant_network = !use_admin_network;
+    // If we are on the tenant network, then the pkey configuration is the
+    // instances network configuration.
+    //
+    // If not (e.g. during instance termination, OR any zero-DPU host where
+    // no tenant overlay exists in the first place), then there are no pkeys
+    // expected on any interface.
+    let use_tenant_network = !mh_snapshot.use_admin_network();
     if use_tenant_network && let Some(expected_ib_config) = expected_ib_config {
         for iface in expected_ib_config.ib_interfaces.iter() {
             let Some(guid) = iface.guid.as_ref() else {
@@ -995,7 +993,7 @@ async fn clear_ib_cleanup_alert(
     db::machine::remove_health_report_override(
         &mut conn,
         machine_id,
-        OverrideMode::Merge,
+        HealthReportApplyMode::Merge,
         "ib-cleanup-validation",
     )
     .await

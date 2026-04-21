@@ -148,6 +148,12 @@ carbide_nvlink_partition_monitor_nmxm_changes_applied_total{operation="update",s
 # HELP carbide_reserved_ips_count The total number of reserved ips in the site
 # TYPE carbide_reserved_ips_count gauge
 carbide_reserved_ips_count{fresh="true",name="TEST_SEGMENT",prefix="192.0.2.0/24",type="admin"} 1
+# HELP carbide_site_explorer_create_machines Whether site-explorer machine creation is enabled (1) or disabled (0)
+# TYPE carbide_site_explorer_create_machines gauge
+carbide_site_explorer_create_machines 1
+# HELP carbide_site_explorer_enabled Whether site-explorer is enabled (1) or paused (0)
+# TYPE carbide_site_explorer_enabled gauge
+carbide_site_explorer_enabled 1
 # HELP carbide_total_ips_count The total number of ips in the site
 # TYPE carbide_total_ips_count gauge
 carbide_total_ips_count{fresh="true",name="TEST_SEGMENT",prefix="192.0.2.0/24",type="admin"} 256

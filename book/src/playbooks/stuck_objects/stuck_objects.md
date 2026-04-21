@@ -31,7 +31,8 @@ A rule of thumb for locating the source of the problem is:
 - If the states that are shown on the site and via the Cloud API are different,
   reason 1) will apply. This indicates a communication issue in the
   paths between Forge Cloud Backend, Forge Site Agent and Forge Site
-  Controller. **TODO: Document steps to diagnose and remediate these issues**
+  Controller.  
+  <!-- TODO: Document steps to diagnose and remediate these issues -->
 - If the states match, then the state on the site isn't advanced as required.
 
 The next chapters will describe on how to lookup the state of an object on

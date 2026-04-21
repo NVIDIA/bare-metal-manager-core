@@ -17,20 +17,20 @@
 
 //! Handler for RackState::Maintenance.
 
-use carbide_uuid::rack::RackId;
+use carbide_uuid::rack::{RackId, RackProfileId};
 use db::{
     host_machine_update as db_host_machine_update, machine as db_machine,
     machine_topology as db_machine_topology, rack as db_rack, rack_firmware as db_rack_firmware,
     switch as db_switch,
 };
 use model::rack::{
-    FirmwareUpgradeDeviceStatus, FirmwareUpgradeState, Rack, RackConfig, RackFirmwareUpgradeState,
+    FirmwareUpgradeDeviceStatus, FirmwareUpgradeState, Rack, RackFirmwareUpgradeState,
     RackFirmwareUpgradeStatus, RackMaintenanceState, RackPowerState, RackState,
     RackValidationState,
 };
 
 use crate::rack::firmware_update::{
-    build_firmware_update_batches, firmware_type_for_capabilities, load_rack_firmware_inventory,
+    build_firmware_update_batches, firmware_type_for_profile, load_rack_firmware_inventory,
     submit_firmware_update_batches,
 };
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
@@ -375,7 +375,7 @@ async fn rms_get_firmware_upgrade_status(
 pub async fn handle_maintenance(
     id: &RackId,
     state: &mut Rack,
-    config: &RackConfig,
+    rack_profile_id: Option<&RackProfileId>,
     maintenance_state: &RackMaintenanceState,
     ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
 ) -> Result<StateHandlerOutcome<RackState>, StateHandlerError> {
@@ -384,13 +384,13 @@ pub async fn handle_maintenance(
             rack_firmware_upgrade,
         } => match rack_firmware_upgrade {
             FirmwareUpgradeState::Start => {
-                let Some(capabilities) = super::resolve_capabilities(id, config, ctx) else {
+                let Some(profile) = super::resolve_profile(id, rack_profile_id, ctx) else {
                     return Ok(skip_firmware_upgrade_outcome(
                         id,
-                        "rack type is missing or unknown",
+                        "rack profile is missing or unknown",
                     ));
                 };
-                let Some(rack_hardware_type) = capabilities.rack_hardware_type.as_ref() else {
+                let Some(rack_hardware_type) = profile.rack_hardware_type.as_ref() else {
                     return Ok(skip_firmware_upgrade_outcome(
                         id,
                         "rack capabilities do not define rack_hardware_type",
@@ -437,7 +437,7 @@ pub async fn handle_maintenance(
                         error
                     ))
                 })?;
-                let firmware_type = firmware_type_for_capabilities(capabilities);
+                let firmware_type = firmware_type_for_profile(profile);
                 let batches = match build_firmware_update_batches(
                     id,
                     &default_firmware,

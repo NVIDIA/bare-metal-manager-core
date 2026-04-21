@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "carbide-fmds.fullname" . }}
+  labels:
+    {{- include "carbide-fmds.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "carbide-fmds.selectorLabels" . | nindent 4 }}
+    {{- with .Values.serviceDaemonSet.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+  ports:
+    - protocol: TCP
+      port: {{ include "carbide-fmds.serverPort" . | int }}
+      targetPort: {{ include "carbide-fmds.serverPort" . | int }}
