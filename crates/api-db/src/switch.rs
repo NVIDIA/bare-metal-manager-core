@@ -302,7 +302,7 @@ pub async fn update_firmware_upgrade_status(
 pub async fn update_nvos_update_status(
     txn: &mut PgConnection,
     switch_id: SwitchId,
-    status: Option<&model::switch::RackNvosUpdateStatus>,
+    status: Option<&model::switch::SwitchNvosUpdateStatus>,
 ) -> DatabaseResult<()> {
     let query = "UPDATE switches SET nvos_update_status = $1 WHERE id = $2 RETURNING id";
     sqlx::query_as::<_, SwitchId>(query)

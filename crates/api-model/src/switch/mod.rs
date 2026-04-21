@@ -116,7 +116,8 @@ pub struct SwitchReprovisionRequest {
 }
 
 pub use crate::rack::{
-    RackFirmwareUpgradeState, RackFirmwareUpgradeStatus, RackNvosUpdateState, RackNvosUpdateStatus,
+    RackFirmwareUpgradeState, RackFirmwareUpgradeStatus, SwitchNvosUpdateState,
+    SwitchNvosUpdateStatus,
 };
 
 #[derive(Debug, Clone)]
@@ -142,7 +143,7 @@ pub struct Switch {
     pub firmware_upgrade_status: Option<RackFirmwareUpgradeStatus>,
 
     /// NVOS update status set by the rack state machine.
-    pub nvos_update_status: Option<RackNvosUpdateStatus>,
+    pub nvos_update_status: Option<SwitchNvosUpdateStatus>,
 
     /// The rack that this switch is associated with.
     pub rack_id: Option<RackId>,
@@ -168,7 +169,7 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             row.try_get("switch_reprovisioning_requested").ok();
         let firmware_upgrade_status: Option<sqlx::types::Json<RackFirmwareUpgradeStatus>> =
             row.try_get("firmware_upgrade_status").ok();
-        let nvos_update_status: Option<sqlx::types::Json<RackNvosUpdateStatus>> =
+        let nvos_update_status: Option<sqlx::types::Json<SwitchNvosUpdateStatus>> =
             row.try_get("nvos_update_status").ok();
 
         // DB column is still named "health_report_overrides" for backward compatibility.

@@ -117,17 +117,6 @@ pub struct ResolvedNvosArtifact {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NvosUpdateSwitchInfo {
-    pub node_id: String,
-    pub mac: String,
-    pub bmc_ip: String,
-    pub nvos_mac: Option<String>,
-    pub nvos_ip: String,
-    pub nvos_username: String,
-    pub nvos_password: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NvosUpdateSwitchStatus {
     #[serde(default)]
     pub node_id: String,
@@ -214,16 +203,16 @@ pub enum RackFirmwareUpgradeState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RackNvosUpdateStatus {
+pub struct SwitchNvosUpdateStatus {
     pub task_id: String,
     pub firmware_id: String,
     pub image_filename: String,
-    pub status: RackNvosUpdateState,
+    pub status: SwitchNvosUpdateState,
     pub started_at: Option<DateTime<Utc>>,
     pub ended_at: Option<DateTime<Utc>>,
 }
 
-impl RackNvosUpdateStatus {
+impl SwitchNvosUpdateStatus {
     pub fn is_in_progress(&self) -> bool {
         self.ended_at.is_none()
     }
@@ -231,7 +220,7 @@ impl RackNvosUpdateStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum RackNvosUpdateState {
+pub enum SwitchNvosUpdateState {
     Started,
     InProgress,
     Completed,

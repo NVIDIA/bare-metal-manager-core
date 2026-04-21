@@ -28,8 +28,8 @@ use model::rack::{
     FirmwareUpgradeDeviceInfo, FirmwareUpgradeDeviceStatus, FirmwareUpgradeState, NvosUpdateJob,
     NvosUpdateState, NvosUpdateSwitchStatus, MaintenanceActivity, MaintenanceScope, Rack,
     RackFirmwareUpgradeState,
-    RackFirmwareUpgradeStatus, RackMaintenanceState, RackNvosUpdateState, RackNvosUpdateStatus,
-    RackPowerState, RackState, RackValidationState, ResolvedNvosArtifact,
+    RackFirmwareUpgradeStatus, RackMaintenanceState, RackPowerState, RackState,
+    RackValidationState, ResolvedNvosArtifact, SwitchNvosUpdateState, SwitchNvosUpdateStatus,
 };
 use model::rack_firmware::{RackFirmware, RackFirmwareSearchFilter};
 use model::rack_type::RackHardwareType;
@@ -1291,19 +1291,19 @@ pub async fn handle_maintenance(
                 let job = rms_get_nvos_update_status(rms_client, current_job).await?;
                 let mut txn = ctx.services.db_pool.begin().await?;
 
-                let build_status = |switch: &NvosUpdateSwitchStatus| -> RackNvosUpdateStatus {
+                let build_status = |switch: &NvosUpdateSwitchStatus| -> SwitchNvosUpdateStatus {
                     let status = match switch.status.as_str() {
-                        "completed" => RackNvosUpdateState::Completed,
-                        "failed" => RackNvosUpdateState::Failed {
+                        "completed" => SwitchNvosUpdateState::Completed,
+                        "failed" => SwitchNvosUpdateState::Failed {
                             cause: switch.error_message.clone().unwrap_or_else(|| {
                                 format!("RMS reported NVOS failure for {}", switch.mac)
                             }),
                         },
-                        "in_progress" => RackNvosUpdateState::InProgress,
-                        _ => RackNvosUpdateState::Started,
+                        "in_progress" => SwitchNvosUpdateState::InProgress,
+                        _ => SwitchNvosUpdateState::Started,
                     };
 
-                    RackNvosUpdateStatus {
+                    SwitchNvosUpdateStatus {
                         task_id: switch
                             .job_id
                             .clone()
