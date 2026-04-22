@@ -3308,7 +3308,7 @@ pub(crate) fn log_request_data_redacted(s: impl AsRef<str>) {
 
 /// Logs the Machine ID in the current tracing span
 pub(crate) fn log_machine_id(machine_id: &MachineId) {
-    tracing::Span::current().record("forge.machine_id", machine_id.to_string());
+    tracing::Span::current().record("forge.machine_id", tracing::field::display(machine_id));
 }
 
 pub(crate) fn log_tenant_organization_id(organization_id: &str) {
