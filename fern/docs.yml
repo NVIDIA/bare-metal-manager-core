@@ -3,8 +3,13 @@
 
 instances:
   - url: https://nvidia-ncx-infra-controller.docs.buildwithfern.com/ncx-infra-controller
+    custom-domain: https://docs.nvidia.com/infra-controller
+    title: NVIDIA NCX Infra Controller Documentation
 
 title: NVIDIA NCX Infra Controller
+
+metadata:
+  canonical-host: "docs.nvidia.com/infra-controller"
 
 ai-search:
   location:
