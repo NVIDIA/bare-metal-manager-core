@@ -36,12 +36,6 @@ log_file = "/tmp/mat.log"
 # assign new addresses to this interface via `ip address add`.
 interface = "cni0"
 
-# Set this to false if you want machine-a-tron to make real DHCP requests over
-# UDP to the configured DHCP relays. If set to true, it will use the carbide API
-# to simulate DHCP requests.
-#
-# use_dhcp_api = true
-
 # Set use_pxe_api to true if you want to avoid running a PXE server and instead
 # have machine-a-tron use the carbide API to simulate PXE requests.
 # pxe_server_host and pxe_server_port can be omitted if use_pxe_api=true.
@@ -64,18 +58,11 @@ pxe_server_port = "8080"
 #
 bmc_mock_port = 2000
 
-# Set this to "sudo" or "doas" if you're not running this as root. This allows
-# the DHCP mocks to bind to interfaces in the assigned IP range. Must be
-# configured to run without a password.
-#
-# sudo_command = "/usr/bin/sudo" # default: not set, will require root
-
 [machines.config]
 host_count = 3
 vpc_count = 10
 dpu_per_host_count = 1
 subnets_per_vpc = 2
-boot_delay = 10
 dpu_reboot_delay = 20  # in units of seconds
 host_reboot_delay = 20 # in units of seconds
 

@@ -12,7 +12,6 @@ data:
     carbide_api_url = "https://carbide-api.forge-system.svc.cluster.local:1079"
     interface = "NOTUSED"
     tui_enabled = false
-    use_dhcp_api = true
     use_pxe_api = true
     bmc_mock_host_tar = "/opt/machine-a-tron/dell_poweredge_r750.tar.gz"
     bmc_mock_dpu_tar = "/opt/machine-a-tron/nvidia_dpu.tar.gz"
@@ -26,7 +25,6 @@ data:
     [machines.config]
     host_count = 10
     dpu_per_host_count = 2
-    boot_delay = 10
     dpu_reboot_delay = 1 # in units of seconds
     host_reboot_delay = 1 # in units of seconds
     vpc_count = 0
