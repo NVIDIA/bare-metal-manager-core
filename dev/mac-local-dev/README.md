@@ -80,6 +80,7 @@ The script:
   does not exist.
 - Wires up TLS using the locally-generated certs from `dev/certs/localhost/`
   (the same CA that `run-carbide-api.sh` configures the server to trust).
+- certs provided are compatible with access to localhost or host.docker.internal (from Docker or Colima).
 - Can be run from any directory.
 
 ### Global flags
