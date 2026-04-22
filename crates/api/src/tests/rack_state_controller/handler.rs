@@ -18,7 +18,10 @@
 use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use carbide_uuid::rack::{RackId, RackProfileId};
 use db::db_read::DbReader;
-use db::{ObjectColumnFilter, expected_rack as db_expected_rack, rack as db_rack};
+use db::{
+    ObjectColumnFilter, expected_rack as db_expected_rack, rack as db_rack, switch as db_switch,
+};
+use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use librms::protos::rack_manager as rms;
 use model::expected_machine::ExpectedMachineData;
 use model::expected_rack::ExpectedRack;
@@ -31,6 +34,7 @@ use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
     RackHardwareClass, RackHardwareType, RackProfile, RackProfileConfig,
 };
+use model::switch::{NewSwitch, SwitchConfig};
 use serde_json::json;
 
 use crate::state_controller::db_write_batch::DbWriteBatch;
@@ -41,7 +45,7 @@ use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerOutcome,
 };
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
-use crate::tests::common::api_fixtures::site_explorer::new_host;
+use crate::tests::common::api_fixtures::site_explorer::{create_expected_switches, new_host};
 use crate::tests::common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_test_env_with_overrides, get_config,
 };
@@ -273,6 +277,73 @@ async fn create_two_compute_rack(
     .await?;
 
     Ok((rack_id, host_a, host_b))
+}
+
+async fn attach_switch_with_nvos_credentials(
+    env: &TestEnv,
+    rack_id: &RackId,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut txn = env.pool.begin().await?;
+    let expected_switch = create_expected_switches(txn.as_mut())
+        .await
+        .into_iter()
+        .next()
+        .ok_or("expected at least one switch fixture")?;
+
+    let switch_id = model::switch::switch_id::from_hardware_info(
+        &expected_switch.serial_number,
+        "NVIDIA",
+        "Switch",
+        carbide_uuid::switch::SwitchIdSource::ProductBoardChassisSerial,
+        carbide_uuid::switch::SwitchType::NvLink,
+    )?;
+
+    let new_switch = NewSwitch {
+        id: switch_id,
+        config: SwitchConfig {
+            name: expected_switch.metadata.name.clone(),
+            enable_nmxc: false,
+            fabric_manager_config: None,
+        },
+        bmc_mac_address: Some(expected_switch.bmc_mac_address),
+        metadata: None,
+        rack_id: Some(rack_id.clone()),
+        slot_number: Some(0),
+        tray_index: Some(0),
+    };
+    db_switch::create(txn.as_mut(), &new_switch).await?;
+    txn.commit().await?;
+
+    env.api
+        .credential_manager
+        .set_credentials(
+            &CredentialKey::BmcCredentials {
+                credential_type: BmcCredentialType::BmcRoot {
+                    bmc_mac_address: expected_switch.bmc_mac_address,
+                },
+            },
+            &Credentials::UsernamePassword {
+                username: "root".to_string(),
+                password: "notforprod".to_string(),
+            },
+        )
+        .await
+        .map_err(|error| eyre::eyre!("failed to set switch BMC credentials: {}", error))?;
+    env.api
+        .credential_manager
+        .set_credentials(
+            &CredentialKey::SwitchNvosAdmin {
+                bmc_mac_address: expected_switch.bmc_mac_address,
+            },
+            &Credentials::UsernamePassword {
+                username: "nvos-admin".to_string(),
+                password: "nvos-pass".to_string(),
+            },
+        )
+        .await
+        .map_err(|error| eyre::eyre!("failed to set switch NVOS credentials: {}", error))?;
+
+    Ok(())
 }
 
 pub(crate) fn new_rack_id() -> RackId {
@@ -1841,6 +1912,7 @@ async fn test_nvos_update_start_transitions_to_wait_for_complete(
     )
     .await?;
     drop(txn);
+    attach_switch_with_nvos_credentials(&env, &rack_id).await?;
 
     create_default_nvos_rack_firmware(&pool, "fw-nvos-default").await;
     env.rms_sim
