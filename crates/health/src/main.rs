@@ -15,10 +15,6 @@
  * limitations under the License.
  */
 
-// Redfish models have a very high recursion (Root->Chassis->Storage->Drive->Metric->etc)
-// This param is required to make it compile while using nv-redfish
-#![recursion_limit = "256"]
-
 use carbide_health::{Config, HealthError};
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;

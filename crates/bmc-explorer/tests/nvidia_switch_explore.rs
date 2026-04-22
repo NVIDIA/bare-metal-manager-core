@@ -14,8 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#![recursion_limit = "256"]
-
 mod common;
 
 use bmc_explorer::nv_generate_exploration_report;

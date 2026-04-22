@@ -56,7 +56,21 @@ tonic = { workspace = true }
 tonic-prost = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
-nv-redfish = { workspace = true }
+nv-redfish = { workspace = true, features = [
+  "bmc-http",
+  "chassis",
+  "computer-systems",
+  "event-service",
+  "log-services",
+  "managers",
+  "memory",
+  "power-supplies",
+  "processors",
+  "sensors",
+  "storages",
+  "update-service",
+  "resource-status",
+] }
 rand = { workspace = true }
 url = { workspace = true }
 

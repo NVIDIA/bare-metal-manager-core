@@ -10,9 +10,6 @@
  * its affiliates is strictly prohibited.
  */
 
-// Needed because of using nv-redfish that has deep structures.
-#![recursion_limit = "256"]
-
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;

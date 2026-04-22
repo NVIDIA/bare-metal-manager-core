@@ -33,7 +33,18 @@ carbide-api-model = { path = "../api-model", default-features = false }
 itertools = { workspace = true }
 mac_address = { workspace = true }
 nv-redfish = { workspace = true, features = [
-    "std-redfish",
+    "assembly",
+    "bios",
+    "boot-options",
+    "chassis",
+    "computer-systems",
+    "ethernet-interfaces",
+    "host-interfaces",
+    "network-adapters",
+    "network-device-functions",
+    "managers",
+    "pcie-devices",
+    "secure-boot",
     "oem-nvidia-bluefield",
     "oem-nvidia-baseboard",
     "oem-dell-attributes",

@@ -15,10 +15,6 @@
  * limitations under the License.
  */
 
-// Needed for nv-redfish that requires deep recursion for Redfish
-// object type tree.
-#![recursion_limit = "256"]
-
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fmt::Display;
