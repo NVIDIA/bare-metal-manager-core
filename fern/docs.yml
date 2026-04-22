@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 instances:
-  - url: https://ncx-infra-controller.docs.buildwithfern.com/ncx-infra-controller
+  - url: https://nvidia-ncx-infra-controller.docs.buildwithfern.com/ncx-infra-controller
 
 title: NVIDIA NCX Infra Controller
 
