@@ -21,18 +21,27 @@ use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
 use forge_secrets::credentials::Credentials;
+pub use nv_redfish::bmc_http::reqwest::BmcError;
 use nv_redfish::bmc_http::reqwest::{
-    Client as NvRedfishReqwestClient, ClientParams as NvRedfishReqwestClientParams,
+    Client as RedfishReqwestClient, ClientParams as RedfishReqwestClientParams,
 };
 use nv_redfish::bmc_http::{BmcCredentials, CacheSettings, HttpBmc};
+use nv_redfish::oem::hpe::ilo_service_ext::ManagerType as HpeManagerType;
+use nv_redfish::{Error as NvError, ServiceRoot as NvServiceRoot};
 use reqwest::header::HeaderMap;
 use utils::HostPortPair;
 
-pub type NvRedfishBmc = HttpBmc<NvRedfishReqwestClient>;
+pub type RedfishBmc = HttpBmc<RedfishReqwestClient>;
+pub type ServiceRoot = NvServiceRoot<RedfishBmc>;
+pub type Error = NvError<RedfishBmc>;
+
+pub fn new_pool(proxy_address: Arc<ArcSwap<Option<HostPortPair>>>) -> Arc<NvRedfishClientPool> {
+    NvRedfishClientPool::new(proxy_address).into()
+}
 
 pub struct NvRedfishClientPool {
     proxy_address: Arc<ArcSwap<Option<HostPortPair>>>,
-    cache: Arc<Mutex<HashMap<PoolKey, Arc<NvRedfishBmc>>>>,
+    cache: Arc<Mutex<HashMap<PoolKey, Arc<ServiceRoot>>>>,
 }
 
 #[derive(Hash, PartialEq, Eq)]
@@ -50,11 +59,49 @@ impl NvRedfishClientPool {
         }
     }
 
-    pub fn cached_nv_redfish_bmc(
+    pub async fn service_root(
         &self,
         bmc_address: SocketAddr,
         credentials: Credentials,
-    ) -> Option<Arc<NvRedfishBmc>> {
+    ) -> Result<Arc<ServiceRoot>, Error> {
+        if let Some(sevice_root) = self.cached_root(bmc_address, credentials.clone()) {
+            Ok(sevice_root)
+        } else {
+            let bmc = self.create_bmc(bmc_address, credentials.clone(), false)?;
+            let service_root = ServiceRoot::new(bmc).await?;
+            let service_root = if service_root.vendor()
+                == Some(nv_redfish::service_root::Vendor::new("HPE"))
+                && let Some(HpeManagerType::Ilo(version)) = service_root
+                    .oem_hpe_ilo_service_ext()
+                    .ok()
+                    .as_ref()
+                    .and_then(|v| v.as_ref())
+                    .and_then(|v| v.manager_type())
+                && version < 7
+            {
+                // Handle HPE BMC that closing connection right after
+                // response. In this case, we add Connection: Close
+                // HTTP header to prevent trying to reuse this
+                // connection. Otherwise, race condition may happen
+                // when reqwest thinks that connection is alive but it
+                // is about to close by server. Reusing such
+                // connections causes errors.
+                let bmc = self.create_bmc(bmc_address, credentials.clone(), true)?;
+                service_root.replace_bmc(bmc.clone())
+            } else {
+                service_root
+            };
+            let service_root = Arc::new(service_root);
+            self.update_cache(bmc_address, credentials, service_root.clone());
+            Ok(service_root)
+        }
+    }
+
+    pub fn cached_root(
+        &self,
+        bmc_address: SocketAddr,
+        credentials: Credentials,
+    ) -> Option<Arc<ServiceRoot>> {
         let proxy_address = self.proxy_address.load();
         let key = PoolKey {
             proxy_address: proxy_address.clone(),
@@ -68,11 +115,11 @@ impl NvRedfishClientPool {
             .cloned()
     }
 
-    pub fn update_cache(
+    fn update_cache(
         &self,
         bmc_address: SocketAddr,
         credentials: Credentials,
-        bmc: Arc<NvRedfishBmc>,
+        root: Arc<ServiceRoot>,
     ) {
         let proxy_address = self.proxy_address.load();
         let key = PoolKey {
@@ -84,15 +131,15 @@ impl NvRedfishClientPool {
             .cache
             .lock()
             .expect("nv-redish client cache mutex poisoned");
-        cache.insert(key, bmc);
+        cache.insert(key, root);
     }
 
-    pub fn create_nv_redfish_bmc(
+    fn create_bmc(
         &self,
         bmc_address: SocketAddr,
         Credentials::UsernamePassword { username, password }: Credentials,
         connection_close: bool,
-    ) -> Result<Arc<NvRedfishBmc>, reqwest::Error> {
+    ) -> Result<Arc<RedfishBmc>, Error> {
         let proxy_address = self.proxy_address.load();
         let bmc_url = match proxy_address.as_ref() {
             // No override
@@ -120,10 +167,11 @@ impl NvRedfishClientPool {
             );
         }
 
-        let client = NvRedfishReqwestClient::with_params(
-            NvRedfishReqwestClientParams::new().accept_invalid_certs(true),
-        )?;
-        Ok(Arc::new(NvRedfishBmc::with_custom_headers(
+        let client = RedfishReqwestClient::with_params(
+            RedfishReqwestClientParams::new().accept_invalid_certs(true),
+        )
+        .map_err(|err| Error::Bmc(err.into()))?;
+        Ok(Arc::new(RedfishBmc::with_custom_headers(
             client,
             bmc_url,
             BmcCredentials::new(username, password),

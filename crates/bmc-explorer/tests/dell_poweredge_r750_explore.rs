@@ -23,8 +23,8 @@ use tokio::test;
 
 #[test]
 async fn explore_dell_poweredge_r750() {
-    let h = test_support::dell_poweredge_r750_bmc();
-    let report = nv_generate_exploration_report(h.bmc, &common::explorer_config())
+    let h = test_support::dell_poweredge_r750_bmc().await;
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
         .await
         .unwrap();
 

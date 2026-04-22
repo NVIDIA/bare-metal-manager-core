@@ -84,11 +84,35 @@ use model::rack::Rack;
 pub use switch_creator::SwitchCreator;
 pub mod config;
 pub mod errors;
+use std::sync::atomic::AtomicBool;
 
+use carbide_ipmi::IPMITool;
+use carbide_redfish::libredfish::RedfishClientPool;
+use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use errors::{SiteExplorerError, SiteExplorerResult};
 
 use self::metrics::{PairingBlockerReason, exploration_error_to_metric_label};
+use crate::config::SiteExplorerExploreMode;
 use crate::explored_endpoint_index::ExploredEndpointIndex;
+
+pub fn new_bmc_explorer(
+    redfish_client_pool: Arc<dyn RedfishClientPool>,
+    nv_redfish_client_pool: Arc<NvRedfishClientPool>,
+    ipmi_tool: Arc<dyn IPMITool>,
+    credential_manager: Arc<dyn CredentialManager>,
+    rotate_switch_nvos_credentials: Arc<AtomicBool>,
+    mode: SiteExplorerExploreMode,
+) -> Arc<BmcEndpointExplorer> {
+    BmcEndpointExplorer::new(
+        redfish_client_pool,
+        nv_redfish_client_pool,
+        ipmi_tool,
+        credential_manager,
+        rotate_switch_nvos_credentials,
+        mode,
+    )
+    .into()
+}
 
 /// Ensures a rack row exists for the given `rack_id`.
 ///

@@ -52,12 +52,6 @@ use nv_redfish::resource::ResourceNameRef;
 use nv_redfish::service_root::{Product, Vendor};
 use nv_redfish::{Bmc, Resource, ServiceRoot};
 
-pub async fn explore_root<B: Bmc>(bmc: Arc<B>) -> Result<ServiceRoot<B>, Error<B>> {
-    nv_redfish::ServiceRoot::new(bmc)
-        .await
-        .map_err(Error::nv_redfish("service_root"))
-}
-
 #[derive(PartialEq, Eq)]
 pub enum ErrorClass {
     HttpNotFound,
@@ -72,17 +66,7 @@ pub struct Config<'a, B: Bmc> {
 }
 
 pub async fn nv_generate_exploration_report<B: Bmc>(
-    bmc: Arc<B>,
-    config: &Config<'_, B>,
-) -> Result<EndpointExplorationReport, Error<B>> {
-    let root = ServiceRoot::new(bmc)
-        .await
-        .map_err(Error::nv_redfish("service_root"))?;
-    nv_generate_exploration_report_from_root(root, config).await
-}
-
-pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
-    mut root: ServiceRoot<B>,
+    mut root: Arc<ServiceRoot<B>>,
     config: &Config<'_, B>,
 ) -> Result<EndpointExplorationReport, Error<B>> {
     let chassis_explore_config = chassis::Config {
@@ -107,7 +91,7 @@ pub async fn nv_generate_exploration_report_from_root<B: Bmc>(
     let explored_inventories = ExploredInventories::explore(&root).await?;
 
     if explored_chassis.is_bluefield2() {
-        root = root.restrict_expand();
+        root = root.as_ref().clone().restrict_expand().into();
     }
 
     let mut systems_iter = root

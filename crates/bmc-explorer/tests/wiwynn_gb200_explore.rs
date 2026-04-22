@@ -23,8 +23,8 @@ use tokio::test;
 
 #[test]
 async fn explore_wiwynn_gb200() {
-    let h = test_support::wiwynn_gb200_bmc();
-    let report = nv_generate_exploration_report(h.bmc, &common::explorer_config())
+    let h = test_support::wiwynn_gb200_bmc().await;
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
         .await
         .unwrap();
 

@@ -23,8 +23,8 @@ use tokio::test;
 
 #[test]
 async fn explore_nvidia_switch() {
-    let h = test_support::nvidia_switch_nd5200_ld_bmc();
-    let report = nv_generate_exploration_report(h.bmc, &common::explorer_config())
+    let h = test_support::nvidia_switch_nd5200_ld_bmc().await;
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
         .await
         .unwrap();
 

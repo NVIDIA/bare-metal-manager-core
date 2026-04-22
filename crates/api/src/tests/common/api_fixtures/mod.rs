@@ -29,9 +29,8 @@ use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use carbide_ipmi::IPMITool;
 use carbide_redfish::libredfish::test_support::RedfishSim;
-use carbide_redfish::nv_redfish::NvRedfishClientPool;
+use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
-use carbide_site_explorer::{BmcEndpointExplorer, SiteExplorer};
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
@@ -1478,15 +1477,15 @@ pub async fn create_test_env_with_overrides(
     };
 
     let bmc_proxy = Arc::new(ArcSwap::new(None.into()));
-    let bmc_explorer = Arc::new(BmcEndpointExplorer::new(
+    let bmc_explorer = carbide_site_explorer::new_bmc_explorer(
         redfish_sim.clone(),
-        Arc::new(NvRedfishClientPool::new(bmc_proxy)),
+        carbide_redfish::nv_redfish::new_pool(bmc_proxy),
         carbide_ipmi::test_support(),
         composite_manager.clone(),
         Arc::new(std::sync::atomic::AtomicBool::new(false)),
         // Tests use MockEndpointExplorer. So this doesn't affect anything.
         SiteExplorerExploreMode::NvRedfish,
-    ));
+    );
 
     let reachability_params = ReachabilityParams {
         dpu_wait_time: Duration::seconds(0),

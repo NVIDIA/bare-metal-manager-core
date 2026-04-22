@@ -23,8 +23,8 @@ use tokio::test;
 
 #[test]
 async fn explore_bluefield3_baseline() {
-    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default());
-    let report = nv_generate_exploration_report(h.bmc, &common::explorer_config())
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default()).await;
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
         .await
         .unwrap();
 
@@ -54,8 +54,8 @@ async fn explore_bluefield3_without_system_eth_interfaces() {
         exposes_oob_eth: false,
         ..Default::default()
     };
-    let h = test_support::dell_poweredge_r750_bluefield3_bmc(settings);
-    let report = nv_generate_exploration_report(h.bmc, &common::explorer_config())
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(settings).await;
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
         .await
         .unwrap();
     assert_eq!(report.endpoint_type, EndpointType::Bmc);
@@ -73,10 +73,11 @@ async fn explore_bluefield3_without_system_eth_interfaces() {
 async fn explore_bluefield3_retries_transient_404_on_system_eth_interfaces() {
     let settings = DpuSettings::default();
 
-    let h = test_support::dell_poweredge_r750_bluefield3_bmc(settings.clone());
-    let baseline = nv_generate_exploration_report(h.bmc.clone(), &common::explorer_config())
-        .await
-        .unwrap();
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(settings.clone()).await;
+    let baseline =
+        nv_generate_exploration_report(h.service_root.clone(), &common::explorer_config())
+            .await
+            .unwrap();
 
     h.state.injected_bugs.update_args(bmc_mock::bug::Args {
         http_error: Some(bmc_mock::bug::HttpErrorRule {
@@ -88,7 +89,7 @@ async fn explore_bluefield3_retries_transient_404_on_system_eth_interfaces() {
         ..Default::default()
     });
 
-    let report = nv_generate_exploration_report(h.bmc, &common::explorer_config())
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
         .await
         .unwrap();
 
@@ -99,7 +100,7 @@ async fn explore_bluefield3_retries_transient_404_on_system_eth_interfaces() {
 
 #[test]
 async fn explore_bluefield3_permanent_404_on_system_eth_interfaces_fails_without_hanging() {
-    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default());
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default()).await;
 
     h.state.injected_bugs.update_args(bmc_mock::bug::Args {
         http_error: Some(bmc_mock::bug::HttpErrorRule {
@@ -113,7 +114,7 @@ async fn explore_bluefield3_permanent_404_on_system_eth_interfaces_fails_without
 
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        nv_generate_exploration_report(h.bmc, &common::explorer_config()),
+        nv_generate_exploration_report(h.service_root, &common::explorer_config()),
     )
     .await;
 
@@ -126,8 +127,8 @@ async fn explore_bluefield3_permanent_404_on_system_eth_interfaces_fails_without
 
 #[test]
 async fn explore_bluefield3_skips_erot_chassis() {
-    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default());
-    let report = nv_generate_exploration_report(h.bmc, &common::explorer_config())
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default()).await;
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
         .await
         .unwrap();
 
@@ -145,7 +146,7 @@ async fn explore_bluefield3_skips_erot_chassis() {
 
 #[test]
 async fn explore_bluefield3_succeeds_when_erot_hangs() {
-    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default());
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default()).await;
 
     h.state.injected_bugs.update_args(bmc_mock::bug::Args {
         long_response: Some(bmc_mock::bug::LongResponse {
@@ -157,7 +158,7 @@ async fn explore_bluefield3_succeeds_when_erot_hangs() {
 
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        nv_generate_exploration_report(h.bmc, &common::explorer_config()),
+        nv_generate_exploration_report(h.service_root, &common::explorer_config()),
     )
     .await;
 
@@ -175,7 +176,7 @@ async fn explore_bluefield3_succeeds_when_erot_hangs() {
 
 #[test]
 async fn explore_bluefield3_succeeds_when_erot_returns_error() {
-    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default());
+    let h = test_support::dell_poweredge_r750_bluefield3_bmc(DpuSettings::default()).await;
 
     h.state.injected_bugs.update_args(bmc_mock::bug::Args {
         http_error: Some(bmc_mock::bug::HttpErrorRule {
@@ -187,7 +188,7 @@ async fn explore_bluefield3_succeeds_when_erot_returns_error() {
         ..Default::default()
     });
 
-    let report = nv_generate_exploration_report(h.bmc, &common::explorer_config())
+    let report = nv_generate_exploration_report(h.service_root, &common::explorer_config())
         .await
         .expect("exploration must succeed even when ERoT returns 500");
 

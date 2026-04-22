@@ -2546,7 +2546,6 @@ dependencies = [
  "libredfish",
  "librms",
  "mac_address",
- "nv-redfish",
  "opentelemetry",
  "rand 0.9.2",
  "regex",
