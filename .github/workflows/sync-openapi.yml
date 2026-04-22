@@ -13,8 +13,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.OPENAPI_SYNC_TOKEN }}
+      # Action pinned to v2 commit; requires fern-api/sync-openapi to be part of the allow-list.
       - name: Update API with Fern
-        uses: fern-api/sync-openapi@v2
+        uses: fern-api/sync-openapi@8e936a4bac8ad11d698d7114f3074fa3397398ea
         with:
           update_from_source: true
           token: ${{ secrets.OPENAPI_SYNC_TOKEN }}
