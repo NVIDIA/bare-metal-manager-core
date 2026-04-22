@@ -181,26 +181,12 @@ FROM expected_machines em
 /// are orphans (already ingested before the `expected_machines` entry was
 /// removed).
 pub async fn find_all_unexpected(txn: impl DbReader<'_>) -> DatabaseResult<Vec<UnexpectedMachine>> {
+    #[derive(FromRow)]
     struct UnexpectedRow {
         address: IpAddr,
         bmc_mac_address: MacAddress,
-        report: EndpointExplorationReport,
+        exploration_report: sqlx::types::Json<EndpointExplorationReport>,
         machine_id: Option<MachineId>,
-    }
-
-    impl<'r> FromRow<'r, sqlx::postgres::PgRow> for UnexpectedRow {
-        fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
-            use sqlx::Row;
-
-            let report: sqlx::types::Json<EndpointExplorationReport> =
-                row.try_get("exploration_report")?;
-            Ok(UnexpectedRow {
-                address: row.try_get("address")?,
-                bmc_mac_address: row.try_get("bmc_mac_address")?,
-                report: report.0,
-                machine_id: row.try_get("machine_id")?,
-            })
-        }
     }
 
     let sql = r#"
@@ -229,7 +215,9 @@ ORDER BY ee.address
     Ok(rows
         .into_iter()
         .filter(|row| {
-            !row.report.is_dpu() && !row.report.is_power_shelf() && !row.report.is_switch()
+            !row.exploration_report.0.is_dpu()
+                && !row.exploration_report.0.is_power_shelf()
+                && !row.exploration_report.0.is_switch()
         })
         .map(|row| UnexpectedMachine {
             address: row.address,
