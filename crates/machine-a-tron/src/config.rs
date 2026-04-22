@@ -73,7 +73,6 @@ pub struct MachineConfig {
     pub vpc_count: u32,
     pub subnets_per_vpc: u32,
     pub dpu_per_host_count: u32,
-    pub boot_delay: u32,
     pub dpu_reboot_delay: u64,  // in units of seconds
     pub host_reboot_delay: u64, // in units of seconds
     #[serde(
@@ -189,9 +188,6 @@ pub struct MachineATronConfig {
     #[serde(default = "default_true")]
     pub tui_enabled: bool,
 
-    #[serde(default = "default_true")]
-    pub use_dhcp_api: bool,
-    pub dhcp_server_address: Option<String>,
     #[serde(default = "default_bmc_mock_port")]
     pub bmc_mock_port: u16,
 
@@ -217,7 +213,6 @@ pub struct MachineATronConfig {
     pub use_pxe_api: bool,
     pub pxe_server_host: Option<String>,
     pub pxe_server_port: Option<String>,
-    pub sudo_command: Option<String>,
     /// Set this to a hostname or IP If you want machine-a-tron to register its BMC-mock as the bmc_proxy host (this will be combined with bmc_mock_port.)
     pub configure_carbide_bmc_proxy_host: Option<String>,
 
@@ -472,8 +467,6 @@ carbide_api_url = "https://carbide-api.forge:443"
 log_file = "mat.log"
 interface = "br-77cbb29de011"
 tui_enabled = true
-use_dhcp_api = true
-dhcp_server_address = "192.168.176.5"
 pxe_server_host = "192.168.176.7"
 pxe_server_port = "8080"
 bmc_mock_port = 1266
@@ -485,7 +478,6 @@ configure_carbide_bmc_proxy_host = "192.168.1.20"
 [machines.config]
 host_count = 10
 dpu_per_host_count = 2
-boot_delay = 1
 dpu_reboot_delay = 1 # in units of seconds
 host_reboot_delay = 1 # in units of seconds
 vpc_count = 0

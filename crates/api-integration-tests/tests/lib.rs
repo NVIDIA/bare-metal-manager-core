@@ -870,7 +870,6 @@ where
                 hw_type,
                 host_count,
                 dpu_per_host_count,
-                boot_delay: 1,
                 dpu_reboot_delay: 1,
                 host_reboot_delay: 1,
                 template_dir: test_env
@@ -899,11 +898,8 @@ where
         pxe_server_host: None,
         pxe_server_port: None,
         bmc_mock_port: 0, // unused, we're using dynamic ports on localhost
-        dhcp_server_address: None,
         interface: String::from("UNUSED"), // unused, we're using dynamic ports on localhost
         tui_enabled: false,
-        sudo_command: None,
-        use_dhcp_api: true,
         use_single_bmc_mock: false, // unused, we're constructing machines ourselves
         configure_carbide_bmc_proxy_host: None,
         persist_dir: None,
