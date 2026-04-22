@@ -1,6 +1,6 @@
 # What is NICo?
 
-NICo (NCX Infra Controller) is an open source microservice for site-local, zero-trust bare-metal lifecycle management. It automates hardware discovery, firmware validation, DPU provisioning, network isolation, and tenant sanitization — enabling NVIDIA Cloud Partners (NCPs) and infrastructure operators to stand up and operate GB200/GB300-class AI infrastructure at scale.
+NICo (NCX Infra Controller) is an open source suite of microservices for site-local, zero-trust bare-metal lifecycle management. It automates hardware discovery, firmware validation, DPU provisioning, network isolation, and tenant sanitization — enabling NVIDIA Cloud Partners (NCPs) and infrastructure operators to stand up and operate GB200/GB300-class AI infrastructure at scale.
 
 NICo is open source under the Apache 2.0 license.
 
@@ -23,13 +23,18 @@ Each managed host is a **BlueField DPU + host server pair**. The DPU acts as the
 
 NICo's core responsibilities:
 
+- Provision and manage DPU OS, firmware, and HBN configuration
 - Maintain hardware inventory of all managed hosts
 - Automate discovery, validation, and attestation via Redfish (out-of-band)
-- Provision and manage DPU OS, firmware, and HBN configuration
+- Monitor hardware health continuously and react to health state changes
 - Manage host firmware (UEFI, BMC) and enforce security lockdown
 - Allocate IP addresses, configure BGP routing, and manage DNS
 - Enforce network isolation across Ethernet, InfiniBand, and NVLink planes
 - Orchestrate host provisioning (PXE/iPXE), tenant release, and sanitization
+
+## Architecture overview
+
+![NICo architecture diagram](../static/nico_arch_diagram.png)
 
 ## Where NICo fits
 
