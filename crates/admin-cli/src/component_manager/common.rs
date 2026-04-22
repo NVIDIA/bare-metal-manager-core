@@ -20,6 +20,8 @@ use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::switch::SwitchId;
 use clap::{Args as ClapArgs, Subcommand, ValueEnum};
 
+const MAX_FAILURE_DETAILS: usize = 10;
+
 #[derive(Copy, Clone, Debug, ValueEnum)]
 #[clap(rename_all = "kebab_case")]
 pub enum NvSwitchComponentArg {
@@ -173,6 +175,53 @@ pub fn component_result_failed(result: Option<&rpc::forge::ComponentResult>) -> 
     result
         .map(|r| r.status != rpc::forge::ComponentManagerStatusCode::Success as i32)
         .unwrap_or(true)
+}
+
+pub fn component_failure_count_and_summary<'a>(
+    results: impl IntoIterator<Item = Option<&'a rpc::forge::ComponentResult>>,
+) -> (usize, String) {
+    let mut failures = 0;
+    let mut details = Vec::new();
+
+    for result in results {
+        if !component_result_failed(result) {
+            continue;
+        }
+
+        failures += 1;
+        if details.len() < MAX_FAILURE_DETAILS {
+            details.push(component_failure_detail(result));
+        }
+    }
+
+    if details.is_empty() {
+        return (failures, String::new());
+    }
+
+    let mut summary = format!(": {}", details.join("; "));
+    let omitted = failures.saturating_sub(details.len());
+    if omitted > 0 {
+        summary.push_str(&format!("; ... and {omitted} more"));
+    }
+
+    (failures, summary)
+}
+
+fn component_failure_detail(result: Option<&rpc::forge::ComponentResult>) -> String {
+    let Some(result) = result else {
+        return "unknown=missing-result".to_string();
+    };
+
+    let component_id = display_or_dash(&result.component_id);
+    let status = component_result_status_name(result.status);
+    if result.error.is_empty() {
+        format!("{component_id}={status}({})", result.status)
+    } else {
+        format!(
+            "{component_id}={status}({}): {}",
+            result.status, result.error
+        )
+    }
 }
 
 pub fn component_result_fields(

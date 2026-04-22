@@ -76,15 +76,16 @@ pub async fn get_status(
         table.printstd();
     }
 
-    let failures = response
-        .statuses
-        .iter()
-        .filter(|status| common::component_result_failed(status.result.as_ref()))
-        .count();
+    let (failures, failure_summary) = common::component_failure_count_and_summary(
+        response
+            .statuses
+            .iter()
+            .map(|status| status.result.as_ref()),
+    );
 
     if failures > 0 {
         return Err(CarbideCliError::GenericError(format!(
-            "{failures} component firmware status result(s) failed"
+            "{failures} component firmware status result(s) failed{failure_summary}"
         )));
     }
 

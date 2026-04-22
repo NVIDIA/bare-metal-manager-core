@@ -69,15 +69,13 @@ pub async fn list_versions(
         table.printstd();
     }
 
-    let failures = response
-        .devices
-        .iter()
-        .filter(|device| common::component_result_failed(device.result.as_ref()))
-        .count();
+    let (failures, failure_summary) = common::component_failure_count_and_summary(
+        response.devices.iter().map(|device| device.result.as_ref()),
+    );
 
     if failures > 0 {
         return Err(CarbideCliError::GenericError(format!(
-            "{failures} component firmware version result(s) failed"
+            "{failures} component firmware version result(s) failed{failure_summary}"
         )));
     }
 

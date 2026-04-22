@@ -29,9 +29,15 @@ pub enum Cmd {
     #[clap(about = "Queue component firmware updates")]
     UpdateFirmware(update_firmware::Args),
 
-    #[clap(about = "Get component firmware update status")]
-    Status(status::Args),
+    #[clap(
+        about = "Get component firmware update status",
+        visible_alias = "status"
+    )]
+    GetFirmwareUpdateStatus(status::Args),
 
-    #[clap(about = "List available component firmware versions")]
-    Versions(versions::Args),
+    #[clap(
+        about = "List available component firmware versions",
+        visible_alias = "versions"
+    )]
+    GetFirmwareVersions(versions::Args),
 }

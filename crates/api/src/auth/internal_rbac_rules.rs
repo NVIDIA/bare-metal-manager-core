@@ -1097,7 +1097,9 @@ mod rbac_rule_tests {
     #[test]
     fn all_requests_listed() -> Result<(), eyre::Report> {
         let mut messages = vec![];
-        let proto = File::open("../rpc/proto/forge.proto")?;
+        let proto = File::open(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../rpc/proto/forge.proto"),
+        )?;
         let reader = BufReader::new(proto);
         for line in reader.lines() {
             let line = line?;

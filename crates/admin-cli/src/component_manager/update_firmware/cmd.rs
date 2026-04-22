@@ -60,15 +60,12 @@ pub async fn update_firmware(
         table.printstd();
     }
 
-    let failures = response
-        .results
-        .iter()
-        .filter(|result| common::component_result_failed(Some(result)))
-        .count();
+    let (failures, failure_summary) =
+        common::component_failure_count_and_summary(response.results.iter().map(Some));
 
     if failures > 0 {
         return Err(CarbideCliError::GenericError(format!(
-            "{failures} component firmware update request(s) failed"
+            "{failures} component firmware update request(s) failed{failure_summary}"
         )));
     }
 
