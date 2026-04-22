@@ -23,6 +23,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::filter::EnvFilter;
 
+use crate::logging::setup::dep_log_filter;
 use crate::tests::common;
 
 #[crate::sqlx_test]
@@ -46,24 +47,31 @@ async fn test_dynamic_log_filter(db_pool: sqlx::PgPool) -> eyre::Result<()> {
     let base = env.api.log_filter_string();
     assert_eq!(local, base, "Startup log filter does not match RUST_LOG");
 
-    // 2. set_log_filter changes it correctly
+    // 2. Apply default dep log levels (as in fn setup_logging(...))
+    let local = dep_log_filter(local.clone().into());
+
+    // 3. set_log_filter changes it correctly
     let req = rpc::forge::SetDynamicConfigRequest {
         setting: rpc::forge::ConfigSetting::LogFilter.into(),
-        value: "trace".to_string(),
+        value: "debug".to_string(),
         expiry: Some("500ms".to_string()),
     };
     env.api.set_dynamic_config(tonic::Request::new(req)).await?;
     let current = env.api.log_filter_string();
-    // it should be something like: "trace until 2024-03-27 18:20:33.723829221 UTC"
+    // it should be something like: "...,debug until 2024-03-27 18:20:33.723829221 UTC"
     assert!(
-        current.starts_with("trace until "),
+        current.contains("debug until "),
         "set_log_filter did not update log to expected"
     );
 
-    // 3. After 'expiry' it automatically reverts
+    // 4. After 'expiry' it automatically reverts
     tokio::time::sleep(Duration::from_secs(1)).await;
     let base = env.api.log_filter_string();
-    assert_eq!(local, base, "Expiry task did not revert log filter");
+    assert_eq!(
+        local.to_string(),
+        base,
+        "Expiry task did not revert log filter"
+    );
 
     cancel_token.cancel();
     join_set.join_all().await;
