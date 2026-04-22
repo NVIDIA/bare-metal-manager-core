@@ -257,7 +257,8 @@ pub(crate) async fn update(
     };
 
     let name = metadata.name;
-    let resp = db::nvl_logical_partition::update(&partition, name, &mut txn)
+    let description = metadata.description;
+    let resp = db::nvl_logical_partition::update(&partition, name, description, &mut txn)
         .await
         .map(|_| rpc::NvLinkLogicalPartitionUpdateResult {})
         .map(Response::new)?;
