@@ -146,7 +146,6 @@ export VAULT_KV_MOUNT_LOCATION="secrets"
 export VAULT_PKI_MOUNT_LOCATION="certs"
 export VAULT_PKI_ROLE_NAME="role"
 export VAULT_TOKEN="$(cat "$TOKEN_FILE")"
-export VAULT_CACERT="$REPO_ROOT/dev/certs/localhost/ca.crt"
 
 # -----------------------------------------------------------------------------
 # Firmware directory (carbide expects this)
