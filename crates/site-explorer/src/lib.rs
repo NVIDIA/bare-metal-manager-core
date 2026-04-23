@@ -2185,17 +2185,17 @@ impl SiteExplorer {
             }
         };
 
-        // If the last exploration failed, the stored `systems` data may be stale —
-        // a host that is actually off can itself be the cause of BMC errors, so we
-        // refresh the power state via a single live Redfish call instead of
-        // trusting the cached value. `None` means we have no trustworthy reading;
-        // we fall back to the cached state for remediation decisions only and
-        // defer ingestion to a later run.
+        // The cached `systems[].power_state` may be stale when this endpoint was
+        // not refreshed in the current iteration, so prefer a live Redfish power
+        // state check for uningested hosts. The exceptions are auth/lockout and
+        // unreachable failures, where another live read is either unsafe or very
+        // unlikely to help. `None` means we have no trustworthy reading; we fall
+        // back to the cached state for remediation decisions only and defer
+        // ingestion to a later run.
         let fresh_power_state: Option<PowerState> =
             match host_endpoint.report.last_exploration_error.as_ref() {
-                None => Some(system.power_state),
                 Some(err) if err.is_unauthorized() || err.is_unreachable() => None,
-                Some(_) => match interface.as_ref() {
+                _ => match interface.as_ref() {
                     Some(interface) => self
                         .endpoint_explorer
                         .redfish_get_power_state(bmc_target_addr, interface)
