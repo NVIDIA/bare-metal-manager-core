@@ -109,6 +109,7 @@ async fn test_managed_host_network_config_errors_when_sitewide_bgp_password_miss
     // Create a DPU without advancing to the point where the fixture fetches network config.
     // We'll fetch config next to validate the failure case.
     let host_config = env.managed_host_config();
+    api_fixtures::site_explorer::register_expected_machine(&env, &host_config, None).await;
 
     let mock_explored_host = MockExploredHost::new(&env, host_config)
         .discover_dhcp_dpu_bmc(0, |_, _| Ok(()))

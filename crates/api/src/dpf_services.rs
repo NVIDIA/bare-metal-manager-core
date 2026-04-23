@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 
 use carbide_dpf::sdk::build_dpu_interfaces_vec;
-use carbide_dpf::types::{DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME};
+use carbide_dpf::types::{DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, FMDS_SERVICE_NAME};
 use carbide_dpf::{
     ConfigPortsServiceType, ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition,
     ServiceInterface, ServiceNAD, ServiceNADResourceType,
@@ -57,9 +57,17 @@ pub const DHCP_SERVER_SERVICE_MTU: i64 = 1500;
 // DPU Agent Service Definitions
 pub const DPU_AGENT_SERVICE_NAME: &str = "carbide-dpu-agent";
 pub const DPU_AGENT_SERVICE_HELM_NAME: &str = "carbide-dpu-agent";
-pub const DPU_AGENT_SERVICE_HELM_VERSION: &str = "0.4.0";
+pub const DPU_AGENT_SERVICE_HELM_VERSION: &str = "0.9.0";
 pub const DPU_AGENT_SERVICE_IMAGE_NAME: &str = "forge-dpu-agent";
-pub const DPU_AGENT_SERVICE_IMAGE_TAG: &str = "v0.3-arm64-multistage";
+pub const DPU_AGENT_SERVICE_IMAGE_TAG: &str = "v0.5-arm64-multistage";
+
+/// FMDS Agent Service Definitions
+pub const FMDS_SERVICE_HELM_NAME: &str = "carbide-fmds";
+pub const FMDS_SERVICE_HELM_VERSION: &str = "0.1.0";
+pub const FMDS_SERVICE_IMAGE_NAME: &str = "carbide-fmds";
+pub const FMDS_SERVICE_NAD_NAME: &str = "mybrsfc-fmds";
+pub const FMDS_SERVICE_IMAGE_TAG: &str = "v0.1-arm64-distroless";
+pub const FMDS_SERVICE_MTU: i64 = 1500;
 
 fn doca_hbn_service_interfaces() -> Vec<ServiceInterface> {
     dpu_service_interfaces(DOCA_HBN_SERVICE_NAME, DOCA_HBN_SERVICE_NETWORK)
@@ -211,7 +219,6 @@ pub fn otelcol_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition 
     svc
 }
 
-// TODO: wire into setup.rs when carbide services are deployed to DPUs
 /// Forge DPU Agent service definition.
 pub fn dpu_agent_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
     ServiceDefinition {
@@ -230,6 +237,15 @@ pub fn dpu_agent_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinitio
         })),
 
         service_daemon_set_annotations: Some(BTreeMap::new()),
+
+        config_values: Some(serde_json::json!({
+            "dhcp_server": {
+                "service_name": "{{ (index .Services \"carbide-dhcp-server\").Name }}"
+            },
+            "carbide_fmds": {
+                "service_name": "{{ (index .Services \"carbide-fmds\").Name }}"
+            }
+        })),
 
         ..ServiceDefinition::new(
             DPU_AGENT_SERVICE_NAME,
@@ -283,6 +299,41 @@ pub fn dpu_otel_agent_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefi
         "forge-dpu-otel-agent",
         "0.1.0",
     )
+}
+
+/// FMDS Service
+pub fn fmds_service(reg: &CarbideServiceRegistryConfig) -> ServiceDefinition {
+    ServiceDefinition {
+        helm_values: Some(serde_json::json!({
+            "image": {
+                "repository": format!("{}/{}", reg.carbide_image_registry,
+                    FMDS_SERVICE_IMAGE_NAME),
+                "tag": FMDS_SERVICE_IMAGE_TAG,
+            }
+        })),
+
+        interfaces: vec![ServiceInterface {
+            name: "f_pf0hpf_if".to_string(),
+            network: FMDS_SERVICE_NAD_NAME.to_string(),
+        }],
+
+        service_daemon_set_annotations: Some(BTreeMap::new()),
+
+        service_nad: Some(ServiceNAD {
+            name: FMDS_SERVICE_NAD_NAME.to_string(),
+            bridge: Some("br-sfc".to_string()),
+            resource_type: ServiceNADResourceType::Sf,
+            ipam: Some(false),
+            mtu: Some(FMDS_SERVICE_MTU),
+        }),
+
+        ..ServiceDefinition::new(
+            FMDS_SERVICE_NAME,
+            &reg.carbide_helm_registry,
+            FMDS_SERVICE_HELM_NAME,
+            FMDS_SERVICE_HELM_VERSION,
+        )
+    }
 }
 
 #[cfg(test)]

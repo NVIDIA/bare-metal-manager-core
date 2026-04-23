@@ -30,6 +30,7 @@ use sqlx::postgres::PgRow;
 use sqlx::{FromRow, PgConnection, Row};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
+use utils::test_support::test_meter::TestMeter;
 
 use crate::state_controller::config::IterationConfig;
 use crate::state_controller::controller::{self, Enqueuer, QueuedObject, StateController};
@@ -42,7 +43,6 @@ use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerContextObjects, StateHandlerError,
     StateHandlerOutcome,
 };
-use crate::tests::common::test_meter::TestMeter;
 
 #[crate::sqlx_test]
 async fn test_start_iteration(pool: sqlx::PgPool) -> eyre::Result<()> {

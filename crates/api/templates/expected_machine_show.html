@@ -2,19 +2,7 @@
 
 {% block title %}Expected Machines{% endblock %}
 
-{% block content %}
-{% if active_filter == "all" %}
-<div id="json"><a href="/admin/expected-machine-definition.json">JSON</a></div>
-{% endif %}
-<h1>Expected Machines - {{ active_filter|capitalize }}</h1>
-
-<form id="filter-container" action="" method="get">
-	<label title="All expected machines"><input type="radio" name="filter" value="all" {% if active_filter == "all" %}checked="checked"{% endif %}>All ({{ all_count }})</label>
-	<label title="Success"><input type="radio" name="filter" value="completed" {% if active_filter == "completed" %}checked="checked"{% endif %}>Completed ({{ completed_count }})</label>
-	<label title="Has not sent DHCP"><input type="radio" name="filter" value="unseen" {% if active_filter == "unseen" %}checked="checked"{% endif %}>Unseen ({{ unseen_count }})</label>
-	<label title="Not Redfish explored yet"><input type="radio" name="filter" value="unexplored" {% if active_filter == "unexplored" %}checked="checked"{% endif %}>Unexplored ({{ unexplored_count }})</label>
-	<label title="Not paired with managed host yet"><input type="radio" name="filter" value="unlinked" {% if active_filter == "unlinked" %}checked="checked"{% endif %}>Unlinked ({{ unlinked_count }})</label>
-</form>
+{% macro expected_machines_table(machines) %}
 <table class="sortable overview">
 	<thead>
 	<tr>
@@ -58,18 +46,99 @@
 		</tr>
 	</tfoot>
 </table>
+{% endmacro %}
+
+{% block content %}
+<div id="json" {% if active_tab != "all" %}style="display:none;"{% endif %}>
+	<a href="/admin/expected-machine-definition.json">JSON</a>
+</div>
+<h1>Expected Machines</h1>
+
+<!-- Tab Navigation -->
+<div class="tab-nav">
+	<button class="tab-button {% if active_tab == "all" %}active{% endif %}" data-tab="all" title="All expected machines">All ({{ all_count }})</button>
+	<button class="tab-button {% if active_tab == "completed" %}active{% endif %}" data-tab="completed" title="Success">Completed ({{ completed_count }})</button>
+	<button class="tab-button {% if active_tab == "unseen" %}active{% endif %}" data-tab="unseen" title="Has not sent DHCP">Unseen ({{ unseen_count }})</button>
+	<button class="tab-button {% if active_tab == "unexplored" %}active{% endif %}" data-tab="unexplored" title="Not Redfish explored yet">Unexplored ({{ unexplored_count }})</button>
+	<button class="tab-button {% if active_tab == "unlinked" %}active{% endif %}" data-tab="unlinked" title="Not paired with managed host yet">Unlinked ({{ unlinked_count }})</button>
+	<button class="tab-button {% if active_tab == "unexpected" %}active{% endif %}" data-tab="unexpected" title="Explored BMCs not listed in expected_machines">Unexpected ({{ unexpected_count }})</button>
+	<div class="tab-indicator"></div>
+</div>
+
+<div class="tab-content {% if active_tab == "all" %}active{% endif %}" id="tab-all">
+	{% call expected_machines_table(all_machines) %}
+</div>
+
+<div class="tab-content {% if active_tab == "completed" %}active{% endif %}" id="tab-completed">
+	{% call expected_machines_table(completed_machines) %}
+</div>
+
+<div class="tab-content {% if active_tab == "unseen" %}active{% endif %}" id="tab-unseen">
+	{% call expected_machines_table(unseen_machines) %}
+</div>
+
+<div class="tab-content {% if active_tab == "unexplored" %}active{% endif %}" id="tab-unexplored">
+	{% call expected_machines_table(unexplored_machines) %}
+</div>
+
+<div class="tab-content {% if active_tab == "unlinked" %}active{% endif %}" id="tab-unlinked">
+	{% call expected_machines_table(unlinked_machines) %}
+</div>
+
+<div class="tab-content {% if active_tab == "unexpected" %}active{% endif %}" id="tab-unexpected">
+	<table class="sortable overview">
+		<thead>
+			<tr>
+				<th>Interface MAC address</th>
+				<th>Explored Endpoint</th>
+				<th>Managed Host</th>
+			</tr>
+		</thead>
+		<tbody>
+			{% for ep in unexpected_machines %}
+			<tr>
+				<td>{{ ep.bmc_mac }}</td>
+				<td><a href="/admin/explored-endpoint/{{ ep.address }}">{{ ep.address }}</a></td>
+				{% if ep.machine_id.is_empty() %}
+					<td class="cell-error" title="Site Explorer will not ingest this endpoint until it is added to expected_machines">Not ingested (gated)</td>
+				{% else %}
+					<td class="cell-error" title="Orphan: ingested, then its expected_machines entry was removed. Site Explorer still maintains it but would not re-ingest if force-deleted.">{{ ep.machine_id|machine_id_link|safe }}</td>
+				{% endif %}
+			</tr>
+			{% endfor %}
+		</tbody>
+		<tfoot>
+			<tr>
+				<th>{{ unexpected_machines.len() }} item{% if unexpected_machines.len() != 1 %}s{% endif %}</th>
+				<th></th>
+				<th></th>
+			</tr>
+		</tfoot>
+	</table>
+</div>
 
 {% endblock %}
 
 {% block script %}
 document.addEventListener('DOMContentLoaded', function() {
-	const form = document.getElementById('filter-container');
-	const radioButtons = form.querySelectorAll('input[type="radio"]');
+	const jsonContainer = document.getElementById('json');
+	const tabNav = document.querySelector('.tab-nav');
+	if (!jsonContainer || !tabNav) return;
 
-	radioButtons.forEach(function(radioButton) {
-		radioButton.addEventListener('change', function() {
-			form.submit();
-		});
+	function syncJsonVisibility(tab) {
+		jsonContainer.style.display = tab === 'all' ? '' : 'none';
+	}
+
+	const initialButton = tabNav.querySelector('.tab-button.active');
+	if (initialButton) {
+		syncJsonVisibility(initialButton.getAttribute('data-tab'));
+	}
+
+	tabNav.addEventListener('click', function(e) {
+		const button = e.target.closest('.tab-button');
+		if (!button || !tabNav.contains(button)) return;
+		syncJsonVisibility(button.getAttribute('data-tab'));
 	});
 });
 {% endblock %}
+

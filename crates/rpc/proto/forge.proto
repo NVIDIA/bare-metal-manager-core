@@ -397,6 +397,12 @@ service Forge {
   rpc DeleteAllExpectedMachines(google.protobuf.Empty) returns (google.protobuf.Empty);
   // Expected machines connected to Explored Endpoints and Machines
   rpc GetAllExpectedMachinesLinked(google.protobuf.Empty) returns (LinkedExpectedMachineList);
+  // Explored host BMC endpoints whose MAC is not listed in any of
+  // expected_machines, expected_power_shelf, or expected_switch. Entries with
+  // non-null `machine_id` are orphans (ingested before the expected entry
+  // was removed); the rest are hosts Site Explorer refuses to ingest until
+  // they are added to the expected_machines table.
+  rpc GetAllUnexpectedMachines(google.protobuf.Empty) returns (UnexpectedMachineList);
   // Batch create expected machines
   rpc CreateExpectedMachines(BatchExpectedMachineOperationRequest) returns (BatchExpectedMachineOperationResponse);
   // Batch update expected machines
@@ -622,6 +628,9 @@ service Forge {
 
   // On demand Machine-Validation
   rpc OnDemandMachineValidation(MachineValidationOnDemandRequest) returns (MachineValidationOnDemandResponse);
+
+  // On-demand rack maintenance (full rack or partial)
+  rpc OnDemandRackMaintenance(RackMaintenanceOnDemandRequest) returns (RackMaintenanceOnDemandResponse);
 
   // TPM CA certs Management
   //rpc TpmDeleteCaCert(TpmCaCertDetails) returns (google.protobuf.Empty);
@@ -5292,6 +5301,16 @@ message LinkedExpectedMachine {
   optional common.UUID expected_machine_id = 6;
 }
 
+message UnexpectedMachineList {
+  repeated UnexpectedMachine unexpected_machines = 1;
+}
+
+message UnexpectedMachine {
+  string address = 1;
+  string bmc_mac_address = 2;
+  optional common.MachineId machine_id = 3;
+}
+
 message BatchExpectedMachineOperationRequest {
   // The list of expected machines to create or update
   ExpectedMachineList expected_machines = 1;
@@ -5473,6 +5492,48 @@ message MachineValidationOnDemandRequest {
 
 message MachineValidationOnDemandResponse {
   common.UUID validation_id = 1;
+}
+
+message FirmwareUpgradeActivity {
+  // Target firmware version. When empty, RMS uses its default/latest version.
+  string firmware_version = 1;
+  // Firmware components to update (e.g. "BMC", "CPLD", "BIOS").
+  // When empty, all components are updated.
+  repeated string components = 2;
+}
+
+message ConfigureNmxClusterActivity {
+  // Per-activity configuration (extend as needed).
+}
+
+message PowerSequenceActivity {
+  // Per-activity configuration (extend as needed).
+}
+
+// A single maintenance activity with its per-activity configuration.
+// The oneof discriminant identifies the activity type.
+message MaintenanceActivityConfig {
+  oneof activity {
+    FirmwareUpgradeActivity firmware_upgrade = 1;
+    ConfigureNmxClusterActivity configure_nmx_cluster = 2;
+    PowerSequenceActivity power_sequence = 3;
+  }
+}
+
+// On-demand rack maintenance – supports full-rack or partial (subset of
+// machines, switches, power shelves).  When all device-id lists are empty
+// the full rack is maintained.
+message RackMaintenanceOnDemandRequest {
+  common.RackId rack_id = 1;
+  repeated string machine_ids = 2;
+  repeated string switch_ids = 3;
+  repeated string power_shelf_ids = 4;
+  // Which maintenance activities to run. Empty means all activities.
+  repeated MaintenanceActivityConfig activities = 5;
+}
+
+message RackMaintenanceOnDemandResponse {
+  // RackMaintenanceOnDemandResponse 
 }
 
 message AdminPowerControlRequest {

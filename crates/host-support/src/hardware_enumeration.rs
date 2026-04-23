@@ -374,11 +374,12 @@ fn get_cpu_info(
 }
 
 pub fn enumerate_hardware() -> Result<rpc_discovery::DiscoveryInfo, HardwareEnumerationError> {
-    enumerate_hardware_inner("/proc/cpuinfo")
+    enumerate_hardware_inner("/proc/cpuinfo", "/proc/meminfo")
 }
 
 fn enumerate_hardware_inner(
     cpu_info_path: &str,
+    mem_info_path: &str,
 ) -> Result<rpc_discovery::DiscoveryInfo, HardwareEnumerationError> {
     let context = libudev::Context::new()?;
 
@@ -810,23 +811,13 @@ fn enumerate_hardware_inner(
             }
         }
         Err(err) => {
-            warn!("Could not discover host memory using smbios device, using /proc/meminfo: {err}");
-            let mut mem = 0u32;
-            let meminfo = std::fs::read_to_string("/proc/meminfo").map_err(|e| {
-                HardwareEnumerationError::GenericError(format!("Err reading /proc/meminfo: {e}"))
+            warn!(
+                "Could not discover host memory using smbios device, using {mem_info_path}: {err}"
+            );
+            let meminfo = std::fs::read_to_string(mem_info_path).map_err(|e| {
+                HardwareEnumerationError::GenericError(format!("Err reading {mem_info_path}: {e}"))
             })?;
-            for line in meminfo.lines() {
-                // line is "MemTotal:       32572708 kB"
-                if line.starts_with("MemTotal:") {
-                    mem = line
-                        .split_ascii_whitespace()
-                        .nth(1)
-                        .unwrap_or("0")
-                        .parse()
-                        .unwrap_or_default();
-                    break;
-                }
-            }
+            let mem = parse_memtotal_kb(&meminfo);
 
             memory_devices.push(MemoryDevice {
                 size_mb: Some(mem / 1024),
@@ -873,6 +864,9 @@ fn enumerate_hardware_inner(
 /// Path where the host's `/proc/cpuinfo` is bind-mounted inside the init container.
 const INIT_CPU_INFO_PATH: &str = "/host-cpu-info";
 
+/// Path where the host's `/proc/meminfo` is bind-mounted inside the init container.
+const INIT_MEM_INFO_PATH: &str = "/host-mem-info";
+
 /// Enumerate hardware and save the result as JSON to [`HW_CACHE_PATH`].
 ///
 /// Used by the init container to snapshot host hardware info so the containerized agent can
@@ -882,7 +876,7 @@ const INIT_CPU_INFO_PATH: &str = "/host-cpu-info";
 /// bind-mounts the host's `/proc/cpuinfo`.
 pub fn enumerate_and_save_hardware()
 -> Result<rpc_discovery::DiscoveryInfo, HardwareEnumerationError> {
-    let info = enumerate_hardware_inner(INIT_CPU_INFO_PATH)?;
+    let info = enumerate_hardware_inner(INIT_CPU_INFO_PATH, INIT_MEM_INFO_PATH)?;
     save_hardware_to(&info, HW_CACHE_PATH)?;
     Ok(info)
 }
@@ -921,6 +915,23 @@ fn load_hardware_from(
             "Failed to parse hardware cache from {path}: {e}"
         ))
     })
+}
+
+/// Parse `MemTotal` from `/proc/meminfo` content, returning the value in kB.
+/// Returns 0 if the line is absent or unparseable.
+fn parse_memtotal_kb(meminfo: &str) -> u32 {
+    for line in meminfo.lines() {
+        // line format: "MemTotal:       32572708 kB"
+        if line.starts_with("MemTotal:") {
+            return line
+                .split_ascii_whitespace()
+                .nth(1)
+                .unwrap_or("0")
+                .parse()
+                .unwrap_or_default();
+        }
+    }
+    0
 }
 
 #[cfg(test)]
@@ -992,5 +1003,66 @@ mod tests {
         assert_eq!(loaded.block_devices.len(), 1);
         assert_eq!(loaded.block_devices[0].model, "test-disk");
         assert_eq!(loaded.block_devices[0].serial, "SN123");
+    }
+
+    #[test]
+    fn test_init_container_paths_match_daemonset_mounts() {
+        assert_eq!(INIT_CPU_INFO_PATH, "/host-cpu-info");
+        assert_eq!(INIT_MEM_INFO_PATH, "/host-mem-info");
+        assert_eq!(HW_CACHE_PATH, "/data/hw_output.json");
+    }
+
+    #[test]
+    fn test_parse_memtotal_kb_typical() {
+        let meminfo = "MemTotal:       32572708 kB\nMemFree:        16000000 kB\n";
+        assert_eq!(parse_memtotal_kb(meminfo), 32572708);
+    }
+
+    #[test]
+    fn test_parse_memtotal_kb_missing_returns_zero() {
+        let meminfo = "MemFree:        16000000 kB\nSwapTotal:      0 kB\n";
+        assert_eq!(parse_memtotal_kb(meminfo), 0);
+    }
+
+    #[test]
+    fn test_parse_memtotal_kb_empty_returns_zero() {
+        assert_eq!(parse_memtotal_kb(""), 0);
+    }
+
+    #[test]
+    fn test_parse_memtotal_kb_malformed_value_returns_zero() {
+        let meminfo = "MemTotal:       not_a_number kB\n";
+        assert_eq!(parse_memtotal_kb(meminfo), 0);
+    }
+
+    #[test]
+    fn test_parse_memtotal_kb_realistic_meminfo() {
+        let meminfo = "\
+HugePages_Total: 0
+MemTotal:        8192000 kB
+MemFree:         4096000 kB
+Buffers:          512000 kB
+";
+        assert_eq!(parse_memtotal_kb(meminfo), 8192000);
+    }
+
+    #[test]
+    fn test_enumerate_and_save_writes_readable_cache() {
+        use std::fs;
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let cache_path = tmp_dir.path().join("hw_output.json");
+        let cache_path_str = cache_path.to_str().unwrap();
+
+        let info = minimal_discovery_info();
+        save_hardware_to(&info, cache_path_str).unwrap();
+
+        let loaded = load_hardware_from(cache_path_str).unwrap();
+        assert_eq!(loaded.machine_type, info.machine_type);
+
+        let raw = fs::read_to_string(cache_path_str).unwrap();
+        assert!(
+            raw.contains("machine_type"),
+            "cache should be JSON with known field"
+        );
     }
 }

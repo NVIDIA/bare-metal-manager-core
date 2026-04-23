@@ -24,7 +24,10 @@ use carbide_uuid::power_shelf::{PowerShelfId, PowerShelfIdSource, PowerShelfType
 use carbide_uuid::rack::{RackId, RackProfileId};
 use carbide_uuid::switch::SwitchId;
 use db::machine_interface::find_by_mac_address;
-use db::{DatabaseError, power_shelf as db_power_shelf, rack as db_rack, switch as db_switch};
+use db::{
+    DatabaseError, expected_machine as db_expected_machine, power_shelf as db_power_shelf,
+    rack as db_rack, switch as db_switch,
+};
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, Credentials};
 use futures_util::FutureExt;
 use health_report::HealthReport;
@@ -1174,16 +1177,31 @@ impl<'a> MockExploredHost<'a> {
     }
 }
 
-pub async fn register_expected_machine(env: &'_ TestEnv, config: &ManagedHostConfig) {
-    let Some(data) = config.expected_machine_data.as_ref() else {
+pub async fn register_expected_machine(
+    env: &'_ TestEnv,
+    config: &ManagedHostConfig,
+    default_dpf_enabled: Option<bool>,
+) {
+    // Tests may intentionally pre-create an expected-machine row; avoid inserting duplicates.
+    if db_expected_machine::find_by_bmc_mac_address(&env.pool, config.bmc_mac_address)
+        .await
+        .expect("Expect expected machine lookup by BMC MAC to succeed")
+        .is_some()
+    {
         return;
-    };
+    }
 
-    let mut data = data.clone();
+    // Always register an expected_machines entry so fixture-created hosts can flow
+    // through site-explorer ingestion. Site-explorer now enforces that only hosts listed
+    // in `expected_machines` are turned into Managed Hosts.
+    let mut data = config.expected_machine_data.clone().unwrap_or_default();
     // Fill data from ManagedHostConfig
     // TODO: Disambiguate chassis and product serial number
     // We seem to set the product serial number here
     data.serial_number = config.serial.clone();
+    if data.dpf_enabled.is_none() {
+        data.dpf_enabled = default_dpf_enabled;
+    }
 
     let em = ExpectedMachine {
         id: Some(uuid::Uuid::new_v4()),
@@ -1218,7 +1236,7 @@ pub async fn new_mock_host(
     }
 
     // Create an expected-machine record for the new machine
-    register_expected_machine(env, &config).await;
+    register_expected_machine(env, &config, None).await;
 
     // Set BMC credentials in vault
     for bmc_mac_address in vec![config.bmc_mac_address]
@@ -1323,6 +1341,7 @@ pub async fn new_host_with_machine_validation(
 ) -> eyre::Result<ManagedHostStateSnapshot> {
     let managed_host =
         ManagedHostConfig::with_dpus((0..dpu_count).map(|_| DpuConfig::default()).collect());
+    register_expected_machine(env, &managed_host, None).await;
     let mut mock_explored_host = MockExploredHost::new(env, managed_host);
 
     // Run BMC DHCP. DPUs first...
@@ -1388,6 +1407,7 @@ pub async fn new_host_with_machine_validation(
 }
 
 pub async fn new_dpu(env: &TestEnv, config: ManagedHostConfig) -> eyre::Result<MachineId> {
+    register_expected_machine(env, &config, None).await;
     let mut mock_explored_host = MockExploredHost::new(env, config);
 
     mock_explored_host = mock_explored_host
@@ -1422,6 +1442,7 @@ pub async fn new_dpu_in_network_install(
     env: &TestEnv,
     config: ManagedHostConfig,
 ) -> eyre::Result<TestManagedHost> {
+    register_expected_machine(env, &config, None).await;
     let mut mock_explored_host = MockExploredHost::new(env, config);
 
     mock_explored_host = mock_explored_host
@@ -1664,7 +1685,7 @@ pub async fn new_mock_host_with_dpf(
     }
 
     // Create an expected-machine record for the new machine
-    register_expected_machine(env, &config).await;
+    register_expected_machine(env, &config, Some(true)).await;
 
     // Set BMC credentials in vault
     for bmc_mac_address in vec![config.bmc_mac_address]

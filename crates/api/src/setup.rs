@@ -21,7 +21,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use carbide_firmware::FirmwareDownloader;
 use carbide_ipmi::IPMITool;
+use carbide_preingestion_manager::PreingestionManager;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
 use carbide_site_explorer::{BmcEndpointExplorer, SiteExplorer};
@@ -57,7 +59,6 @@ use crate::cfg::file::{CarbideConfig, ListenMode};
 use crate::dpa::handler::{DpaInfo, start_dpa_handler};
 use crate::dynamic_settings::DynamicSettings;
 use crate::errors::CarbideError;
-use crate::firmware_downloader::FirmwareDownloader;
 use crate::handlers::machine_validation::apply_config_on_startup;
 use crate::ib::{self, IBFabricManager};
 use crate::ib_fabric_monitor::IbFabricMonitor;
@@ -72,7 +73,6 @@ use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
 use crate::mqtt_state_change_hook::hook::MqttStateChangeHook;
 use crate::nvl_partition_monitor::NvlPartitionMonitor;
 use crate::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
-use crate::preingestion_manager::PreingestionManager;
 use crate::rack::bms_client::BmsDsxExchangeHandle;
 use crate::scout_stream::ConnectionRegistry;
 use crate::state_controller::common_services::CommonStateHandlerServices;
@@ -418,6 +418,7 @@ pub async fn start_api(
             crate::dpf_services::dhcp_server_service(&reg),
             crate::dpf_services::doca_hbn_service(&reg),
             crate::dpf_services::dpu_agent_service(&reg),
+            crate::dpf_services::fmds_service(&reg),
         ];
 
         let bfcfg_template = if carbide_config.dpf.bfcfg_enabled {
@@ -826,6 +827,22 @@ pub async fn initialize_and_start_controllers(
         site_config: carbide_config.clone(),
         dpa_info,
         rms_client: rms_client.clone(),
+        switch_system_image_rms_client: carbide_config
+            .rms
+            .api_url
+            .as_deref()
+            .filter(|url| !url.is_empty())
+            .map(|url| {
+                let rms_client_config = librms::client_config::RmsClientConfig::new(
+                    carbide_config.rms.root_ca_path.clone(),
+                    carbide_config.rms.client_cert.clone(),
+                    carbide_config.rms.client_key.clone(),
+                    carbide_config.rms.enforce_tls,
+                );
+                let rms_api_config = librms::client::RmsApiConfig::new(url, &rms_client_config);
+                Arc::new(librms::RackManagerApi::new(&rms_api_config))
+                    as Arc<dyn crate::rack::rms_client::SwitchSystemImageRmsClient>
+            }),
         credential_manager: credential_manager.clone(),
     });
 

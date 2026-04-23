@@ -22,6 +22,7 @@ use db::rack as db_rack;
 use model::rack::{FirmwareUpgradeState, Rack, RackConfig, RackMaintenanceState, RackState};
 
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
+use crate::state_controller::rack::maintenance::first_maintenance_state;
 use crate::state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
@@ -49,6 +50,7 @@ pub async fn handle_ready(
             id
         );
         state.config.reprovision_requested = false;
+        state.config.maintenance_requested = None;
         let mut txn = ctx.services.db_pool.begin().await?;
         db_rack::update(txn.as_mut(), id, &state.config).await?;
         return Ok(StateHandlerOutcome::transition(RackState::Maintenance {
@@ -59,5 +61,43 @@ pub async fn handle_ready(
         .with_txn(txn));
     }
 
-    Ok(StateHandlerOutcome::do_nothing())
+    if let Some(scope) = &config.maintenance_requested {
+        let activities_desc = if scope.activities.is_empty() {
+            "all".to_string()
+        } else {
+            scope
+                .activities
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        if scope.is_full_rack() {
+            tracing::info!(
+                "Rack {} on-demand maintenance requested (full rack, activities: [{}]), transitioning to Maintenance",
+                id,
+                activities_desc,
+            );
+        } else {
+            tracing::info!(
+                "Rack {} on-demand maintenance requested (partial: {} machines, {} switches, {} power shelves, activities: [{}]), transitioning to Maintenance",
+                id,
+                scope.machine_ids.len(),
+                scope.switch_ids.len(),
+                scope.power_shelf_ids.len(),
+                activities_desc,
+            );
+        }
+        // Leave maintenance_requested set; the maintenance handler reads the
+        // scope to decide which activities to run and clears it on Completed.
+        let txn = ctx.services.db_pool.begin().await?;
+        return Ok(StateHandlerOutcome::transition(RackState::Maintenance {
+            maintenance_state: first_maintenance_state(scope),
+        })
+        .with_txn(txn));
+    }
+
+    Ok(StateHandlerOutcome::wait(
+        "rack is ready, no maintenance requested".into(),
+    ))
 }

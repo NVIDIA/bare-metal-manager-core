@@ -118,6 +118,15 @@ pub enum EndpointMetadata {
     Switch(SwitchData),
 }
 
+impl EndpointMetadata {
+    pub fn serial_number(&self) -> Option<&str> {
+        match self {
+            EndpointMetadata::Machine(machine) => machine.machine_serial.as_deref(),
+            EndpointMetadata::Switch(switch) => Some(switch.serial.as_str()),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct MachineData {
     pub machine_id: MachineId,

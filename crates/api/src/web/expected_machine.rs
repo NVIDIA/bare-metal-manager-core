@@ -31,16 +31,22 @@ use crate::web::filters;
 #[derive(Template)]
 #[template(path = "expected_machine_show.html")]
 struct ExpectedMachines {
-    machines: Vec<ExpectedMachineRow>,
-    active_filter: String,
+    all_machines: Vec<ExpectedMachineRow>,
+    completed_machines: Vec<ExpectedMachineRow>,
+    unseen_machines: Vec<ExpectedMachineRow>,
+    unexplored_machines: Vec<ExpectedMachineRow>,
+    unlinked_machines: Vec<ExpectedMachineRow>,
+    unexpected_machines: Vec<UnexpectedMachineRow>,
     all_count: usize,
     completed_count: usize,
     unseen_count: usize,
     unexplored_count: usize,
     unlinked_count: usize,
+    unexpected_count: usize,
+    active_tab: String,
 }
 
-#[derive(Ord, PartialOrd, Eq, PartialEq, serde::Serialize)]
+#[derive(Clone, Ord, PartialOrd, Eq, PartialEq, serde::Serialize)]
 struct ExpectedMachineRow {
     bmc_mac_address: String,
     interface_id: String,
@@ -61,11 +67,99 @@ impl From<rpc::forge::LinkedExpectedMachine> for ExpectedMachineRow {
     }
 }
 
+/// Row in the Unexpected tab: an explored host BMC endpoint whose MAC address is
+/// not listed in any of `expected_machines`, `expected_power_shelf`, or
+/// `expected_switch`.
+#[derive(Ord, PartialOrd, Eq, PartialEq, serde::Serialize)]
+struct UnexpectedMachineRow {
+    address: String,
+    bmc_mac: String,
+    machine_id: String,
+}
+
+impl From<rpc::forge::UnexpectedMachine> for UnexpectedMachineRow {
+    fn from(m: rpc::forge::UnexpectedMachine) -> UnexpectedMachineRow {
+        UnexpectedMachineRow {
+            address: m.address,
+            bmc_mac: m.bmc_mac_address,
+            machine_id: m.machine_id.map(|id| id.to_string()).unwrap_or_default(),
+        }
+    }
+}
+
+const TABS: &[&str] = &[
+    "all",
+    "completed",
+    "unseen",
+    "unexplored",
+    "unlinked",
+    "unexpected",
+];
+
+struct ExpectedMachineTabs {
+    all_machines: Vec<ExpectedMachineRow>,
+    completed_machines: Vec<ExpectedMachineRow>,
+    unseen_machines: Vec<ExpectedMachineRow>,
+    unexplored_machines: Vec<ExpectedMachineRow>,
+    unlinked_machines: Vec<ExpectedMachineRow>,
+}
+
+impl ExpectedMachineTabs {
+    fn from_linked(machines: Vec<rpc::forge::LinkedExpectedMachine>) -> Self {
+        let mut all_machines: Vec<ExpectedMachineRow> = Vec::with_capacity(machines.len());
+        let mut completed_machines: Vec<ExpectedMachineRow> = Vec::new();
+        let mut unseen_machines: Vec<ExpectedMachineRow> = Vec::new();
+        let mut unexplored_machines: Vec<ExpectedMachineRow> = Vec::new();
+        let mut unlinked_machines: Vec<ExpectedMachineRow> = Vec::new();
+
+        for em in machines {
+            let no_dhcp = em.interface_id.is_none();
+            let is_unexplored = em.explored_endpoint_address.is_none();
+            let is_unlinked = em.machine_id.is_none();
+            let row: ExpectedMachineRow = em.into();
+
+            all_machines.push(row.clone());
+            if !is_unlinked && !is_unexplored {
+                completed_machines.push(row.clone());
+            }
+            if no_dhcp {
+                unseen_machines.push(row.clone());
+            }
+            if is_unexplored {
+                unexplored_machines.push(row.clone());
+            }
+            if is_unlinked {
+                unlinked_machines.push(row);
+            }
+        }
+
+        all_machines.sort_unstable();
+        completed_machines.sort_unstable();
+        unseen_machines.sort_unstable();
+        unexplored_machines.sort_unstable();
+        unlinked_machines.sort_unstable();
+
+        Self {
+            all_machines,
+            completed_machines,
+            unseen_machines,
+            unexplored_machines,
+            unlinked_machines,
+        }
+    }
+}
+
 pub async fn show_all_html(
     AxumState(api): AxumState<Arc<Api>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> Response {
-    let filter = params.get("filter").cloned().unwrap_or("all".to_string());
+    let active_tab = params
+        .get("tab")
+        .cloned()
+        .unwrap_or_else(|| "all".to_string());
+    if !TABS.contains(&active_tab.as_str()) {
+        return (StatusCode::BAD_REQUEST, "Unknown tab").into_response();
+    }
 
     let result = match api
         .get_all_expected_machines_linked(tonic::Request::new(()))
@@ -83,61 +177,50 @@ pub async fn show_all_html(
         }
     };
 
-    let mut display = Vec::new();
-    let all_count = result.expected_machines.len();
-    let mut unseen_count = 0;
-    let mut unexplored_count = 0;
-    let mut unlinked_count = 0;
-    for em in result.expected_machines.into_iter() {
-        let no_dhcp = em.interface_id.is_none(); // no interface means it didn't DHCP
-        let is_unexplored = em.explored_endpoint_address.is_none();
-        let is_unlinked = em.machine_id.is_none();
-        if no_dhcp {
-            unseen_count += 1;
+    let expected_tabs = ExpectedMachineTabs::from_linked(result.expected_machines);
+    let all_count = expected_tabs.all_machines.len();
+    let completed_count = expected_tabs.completed_machines.len();
+    let unseen_count = expected_tabs.unseen_machines.len();
+    let unexplored_count = expected_tabs.unexplored_machines.len();
+    let unlinked_count = expected_tabs.unlinked_machines.len();
+
+    let unexpected_response = match api
+        .get_all_unexpected_machines(tonic::Request::new(()))
+        .await
+        .map(|response| response.into_inner())
+    {
+        Ok(list) => list,
+        Err(err) => {
+            tracing::error!(%err, "get_all_unexpected_machines");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error loading unexpected machines from carbide-api",
+            )
+                .into_response();
         }
-        if is_unexplored {
-            unexplored_count += 1;
-        }
-        if is_unlinked {
-            unlinked_count += 1;
-        }
-        match filter.as_str() {
-            "all" => {}
-            "completed" => {
-                if is_unlinked || is_unexplored {
-                    continue;
-                }
-            }
-            "unseen" => {
-                if !no_dhcp {
-                    continue;
-                }
-            }
-            "unexplored" => {
-                if !is_unexplored {
-                    continue;
-                }
-            }
-            "unlinked" => {
-                if !is_unlinked {
-                    continue;
-                }
-            }
-            _ => {
-                return (StatusCode::BAD_REQUEST, "Unknown filter").into_response();
-            }
-        }
-        display.push(em.into());
-    }
-    display.sort_unstable(); // by first field in struct, which is BMC MAC address
+    };
+    let mut unexpected_machines: Vec<UnexpectedMachineRow> = unexpected_response
+        .unexpected_machines
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    unexpected_machines.sort_unstable();
+    let unexpected_count = unexpected_machines.len();
+
     let tmpl = ExpectedMachines {
+        all_machines: expected_tabs.all_machines,
+        completed_machines: expected_tabs.completed_machines,
+        unseen_machines: expected_tabs.unseen_machines,
+        unexplored_machines: expected_tabs.unexplored_machines,
+        unlinked_machines: expected_tabs.unlinked_machines,
+        unexpected_machines,
         all_count,
-        completed_count: all_count - unlinked_count,
+        completed_count,
         unseen_count,
         unexplored_count,
         unlinked_count,
-        machines: display,
-        active_filter: filter,
+        unexpected_count,
+        active_tab,
     };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }

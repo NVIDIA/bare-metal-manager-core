@@ -130,10 +130,10 @@ mod tests {
     use chrono::Utc;
     use config_version::ConfigVersion;
     use prometheus_text_parser::ParsedPrometheusMetrics;
+    use utils::test_support::test_meter::TestMeter;
 
     use super::*;
     use crate::machine_validation::metrics::MachineValidationMetrics;
-    use crate::tests::common::test_meter::TestMeter;
 
     #[test]
     fn test_metrics_collector() {

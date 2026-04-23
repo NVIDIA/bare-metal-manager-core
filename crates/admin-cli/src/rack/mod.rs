@@ -17,6 +17,7 @@
 
 mod delete;
 mod list;
+mod maintenance;
 pub mod metadata;
 pub mod profile;
 mod show;
@@ -40,4 +41,6 @@ pub enum Cmd {
     Metadata(metadata::Args),
     #[clap(subcommand, about = "Rack profile")]
     Profile(profile::Args),
+    #[clap(subcommand, about = "On-demand rack maintenance")]
+    Maintenance(maintenance::Args),
 }

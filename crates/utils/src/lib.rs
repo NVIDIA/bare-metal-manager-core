@@ -27,6 +27,8 @@ pub mod metrics;
 pub mod models;
 pub mod periodic_timer;
 pub mod sku;
+#[cfg(feature = "test-support")]
+pub mod test_support;
 
 pub use host_port_pair::{HostPortPair, HostPortParseError};
 pub use managed_host_display::{ManagedHostMetadata, ManagedHostOutput, get_managed_host_output};

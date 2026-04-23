@@ -340,6 +340,26 @@ impl From<LinkedExpectedMachine> for rpc::forge::LinkedExpectedMachine {
     }
 }
 
+/// A host BMC endpoint that was explored by Site Explorer but is not listed
+/// in any of the `expected_machines`, `expected_power_shelf`, or
+/// `expected_switch` tables. DPUs, power shelves, and switches are filtered
+/// out of this list; it only contains host BMCs.
+pub struct UnexpectedMachine {
+    pub address: IpAddr,
+    pub bmc_mac_address: MacAddress,
+    pub machine_id: Option<MachineId>,
+}
+
+impl From<UnexpectedMachine> for rpc::forge::UnexpectedMachine {
+    fn from(m: UnexpectedMachine) -> rpc::forge::UnexpectedMachine {
+        rpc::forge::UnexpectedMachine {
+            address: m.address.to_string(),
+            bmc_mac_address: m.bmc_mac_address.to_string(),
+            machine_id: m.machine_id,
+        }
+    }
+}
+
 /// Parses gRPC `ExpectedMachine` into persisted model data, including optional `bmc_ip_address`
 /// (empty or unset proto field becomes `None`; invalid strings fail conversion).
 impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {

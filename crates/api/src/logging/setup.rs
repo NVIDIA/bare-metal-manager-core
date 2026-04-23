@@ -54,25 +54,20 @@ pub struct Metrics {
 }
 
 pub fn dep_log_filter(env_filter: EnvFilter) -> EnvFilter {
-    [
-        "sqlxmq::runner=warn",
-        "sqlx::query=warn",
-        "sqlx::extract_query_data=warn",
-        "rustify=off",
-        "hyper=error",
-        "rustls=warn",
-        "tokio_util::codec=warn",
-        "vaultrs=error",
-        "h2=warn",
-    ]
-    .iter()
-    .fold(env_filter, |f, filter_str| {
-        f.add_directive(
-            filter_str
-                .parse()
-                .unwrap_or_else(|err| panic!("{filter_str} must be parsed; error: {err}")),
-        )
-    })
+    const DEPS: &str = "sqlxmq::runner=warn,sqlx::query=warn,\
+        sqlx::extract_query_data=warn,rustify=off,hyper=error,\
+        rustls=warn,tokio_util::codec=warn,vaultrs=error,h2=warn";
+
+    let user = env_filter.to_string();
+    let combined = if user.is_empty() {
+        DEPS.to_string()
+    } else {
+        format!("{DEPS},{user}")
+    };
+
+    EnvFilter::builder()
+        .parse(&combined)
+        .unwrap_or_else(|err| panic!("could not reparse combined filter '{combined}': {err}"))
 }
 
 pub fn setup_logging(
@@ -391,5 +386,88 @@ mod tests {
                 assert!(!encoded.contains(r#"mygauge{error="ErrC",state="mystate"} 1"#));
             }
         }
+    }
+
+    /// Install `dep_log_filter(user_directives)` as the thread-local subscriber
+    /// for the duration of `f`, so `tracing::enabled!` calls inside reflect the
+    /// effective filter.
+    fn with_filter<R>(user_directives: &str, f: impl FnOnce() -> R) -> R {
+        use tracing_subscriber::prelude::*;
+
+        let user = EnvFilter::builder().parse(user_directives).unwrap();
+        let subscriber = tracing_subscriber::registry().with(dep_log_filter(user));
+        tracing::subscriber::with_default(subscriber, f)
+    }
+
+    #[test]
+    fn user_directives_override_defaults() {
+        with_filter("info,vaultrs=debug,rustify=trace", || {
+            assert!(
+                tracing::enabled!(target: "vaultrs", tracing::Level::DEBUG),
+                "user's vaultrs=debug should win over the dep cap"
+            );
+            assert!(
+                tracing::enabled!(target: "rustify", tracing::Level::TRACE),
+                "user's rustify=trace should win over rustify=off"
+            );
+            // Unspecified dep target still capped at error.
+            assert!(
+                !tracing::enabled!(target: "hyper", tracing::Level::INFO),
+                "hyper should still be capped at error by dep default"
+            );
+        });
+    }
+
+    #[test]
+    fn bare_default_does_not_override_dep_defaults() {
+        // RUST_LOG=info; user only sets a default, no per-target directives.
+        with_filter("info", || {
+            // User's default applies to unrelated targets.
+            assert!(tracing::enabled!(target: "carbide", tracing::Level::INFO));
+            assert!(!tracing::enabled!(target: "carbide", tracing::Level::DEBUG));
+            // Dep caps still apply where the user didn't override.
+            assert!(!tracing::enabled!(target: "hyper", tracing::Level::INFO));
+            assert!(tracing::enabled!(target: "hyper", tracing::Level::ERROR));
+            assert!(!tracing::enabled!(target: "vaultrs", tracing::Level::INFO));
+            assert!(tracing::enabled!(target: "vaultrs", tracing::Level::ERROR));
+        });
+    }
+
+    #[test]
+    fn user_target_overrides_default_without_touching_others() {
+        // RUST_LOG=info,carbide=debug; raises one target; deps stay capped.
+        with_filter("info,carbide=debug", || {
+            assert!(tracing::enabled!(target: "carbide", tracing::Level::DEBUG));
+            // Unrelated target still at the INFO default.
+            assert!(tracing::enabled!(target: "other", tracing::Level::INFO));
+            assert!(!tracing::enabled!(target: "other", tracing::Level::DEBUG));
+            // Dep caps unaffected.
+            assert!(!tracing::enabled!(target: "hyper", tracing::Level::INFO));
+        });
+    }
+
+    #[test]
+    fn unmentioned_dep_default_stays_when_user_raises_another() {
+        // User raises vaultrs but says nothing about hyper, hyper stays default.
+        with_filter("info,vaultrs=trace", || {
+            assert!(tracing::enabled!(target: "vaultrs", tracing::Level::TRACE));
+            assert!(!tracing::enabled!(target: "hyper", tracing::Level::INFO));
+            assert!(tracing::enabled!(target: "hyper", tracing::Level::ERROR));
+        });
+    }
+
+    #[test]
+    fn regression_debug_default_directive_survives_dep_filter() {
+        // Make sure with_default_directive is not ignored
+        let initial = EnvFilter::builder()
+            .with_default_directive(LevelFilter::DEBUG.into())
+            .parse("")
+            .unwrap();
+
+        let subscriber = tracing_subscriber::registry().with(dep_log_filter(initial));
+        tracing::subscriber::with_default(subscriber, || {
+            assert!(tracing::enabled!(target: "carbide", tracing::Level::DEBUG));
+            assert!(!tracing::enabled!(target: "carbide", tracing::Level::TRACE));
+        });
     }
 }

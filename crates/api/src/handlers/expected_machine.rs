@@ -274,6 +274,26 @@ pub(crate) async fn get_linked(
     Ok(tonic::Response::new(list))
 }
 
+/// Lists host BMC endpoints that Site Explorer has explored but whose MAC is
+/// not listed in any of `expected_machines`, `expected_power_shelf`, or
+/// `expected_switch`. DPUs, power shelves, and switches are filtered out so the
+/// response only contains actual host BMCs.
+///
+/// An entry with a non-null `machine_id` is an orphan: the host was ingested
+/// before its `expected_machines` row was removed.
+pub(crate) async fn get_all_unexpected_machines(
+    api: &Api,
+    request: tonic::Request<()>,
+) -> Result<tonic::Response<rpc::UnexpectedMachineList>, tonic::Status> {
+    log_request_data(&request);
+
+    let out = db::expected_machine::find_all_unexpected(&api.database_connection).await?;
+    let list = rpc::UnexpectedMachineList {
+        unexpected_machines: out.into_iter().map(Into::into).collect(),
+    };
+    Ok(tonic::Response::new(list))
+}
+
 /// Deletes every expected machine row.
 pub(crate) async fn delete_all(
     api: &Api,

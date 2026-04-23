@@ -25,6 +25,7 @@ use std::sync::atomic::AtomicBool;
 use bmc_vendor::BMCVendor;
 use carbide_authn::config::{AllowedCertCriteria, TrustConfig};
 use carbide_firmware::FirmwareConfig;
+use carbide_preingestion_manager::PreingestionManagerConfig;
 use carbide_site_explorer::config::SiteExplorerConfig;
 use chrono::Duration;
 use duration_str::{deserialize_duration, deserialize_duration_chrono};
@@ -50,7 +51,6 @@ use utils::config::{
     as_duration, as_std_duration, deserialize_arc_atomic_bool, serialize_arc_atomic_bool,
 };
 
-use crate::preingestion_manager::PreingestionManagerConfig;
 use crate::state_controller::config::IterationConfig;
 
 const MAX_IB_PARTITION_PER_TENANT: i32 = 31;

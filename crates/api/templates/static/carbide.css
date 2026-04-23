@@ -896,10 +896,22 @@ td.cell-error {
   font-weight: 500;
 }
 
+td.cell-error a,
+td.cell-error a:hover {
+  color: inherit;
+  text-decoration: underline;
+}
+
 td.cell-warning {
   background-color: rgba(237, 137, 54, 0.1);
   color: var(--warning);
   font-weight: 500;
+}
+
+td.cell-warning a,
+td.cell-warning a:hover {
+  color: inherit;
+  text-decoration: underline;
 }
 
 /* ------------------------------------------------------------------------

@@ -136,7 +136,7 @@ fn get_default_nvconfig() -> DpuFlavorNvconfig {
     let parameters = vec![
         "PF_BAR2_ENABLE=0".to_string(),
         "PER_PF_NUM_SF=1".to_string(),
-        "PF_TOTAL_SF=20".to_string(),
+        "PF_TOTAL_SF=30".to_string(),
         "PF_SF_BAR_SIZE=10".to_string(),
         "NUM_PF_MSIX_VALID=0".to_string(),
         "PF_NUM_PF_MSIX_VALID=1".to_string(),

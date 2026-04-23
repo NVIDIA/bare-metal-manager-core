@@ -29,7 +29,7 @@ use component_manager::power_shelf_manager::{PowerShelfEndpoint, PowerShelfVendo
 use db::{self, WithTransaction};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
-use model::component_manager::{NvSwitchComponent, PowerAction, PowerShelfComponent};
+use model::component_manager::{PowerAction, PowerShelfComponent};
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_request_data};
@@ -117,14 +117,27 @@ fn map_power_action(raw: i32) -> Result<PowerAction, Status> {
     }
 }
 
-fn map_nv_switch_components(raw: &[i32]) -> Result<Vec<NvSwitchComponent>, Status> {
+fn map_compute_tray_component_names(raw: &[i32]) -> Result<Vec<String>, Status> {
+    raw.iter()
+        .filter(|&&v| v != rpc::ComputeTrayComponent::Unknown as i32)
+        .map(|&v| match rpc::ComputeTrayComponent::try_from(v) {
+            Ok(rpc::ComputeTrayComponent::Bmc) => Ok("BMC".to_string()),
+            Ok(rpc::ComputeTrayComponent::Bios) => Ok("BIOS".to_string()),
+            _ => Err(Status::invalid_argument(format!(
+                "unknown compute tray component: {v}"
+            ))),
+        })
+        .collect()
+}
+
+fn map_nv_switch_component_names(raw: &[i32]) -> Result<Vec<String>, Status> {
     raw.iter()
         .filter(|&&v| v != rpc::NvSwitchComponent::Unknown as i32)
         .map(|&v| match rpc::NvSwitchComponent::try_from(v) {
-            Ok(rpc::NvSwitchComponent::Bmc) => Ok(NvSwitchComponent::Bmc),
-            Ok(rpc::NvSwitchComponent::Cpld) => Ok(NvSwitchComponent::Cpld),
-            Ok(rpc::NvSwitchComponent::Bios) => Ok(NvSwitchComponent::Bios),
-            Ok(rpc::NvSwitchComponent::Nvos) => Ok(NvSwitchComponent::Nvos),
+            Ok(rpc::NvSwitchComponent::Bmc) => Ok("BMC".to_string()),
+            Ok(rpc::NvSwitchComponent::Cpld) => Ok("CPLD".to_string()),
+            Ok(rpc::NvSwitchComponent::Bios) => Ok("BIOS".to_string()),
+            Ok(rpc::NvSwitchComponent::Nvos) => Ok("NVOS".to_string()),
             _ => Err(Status::invalid_argument(format!(
                 "unknown NV-Switch component: {v}"
             ))),
@@ -569,43 +582,70 @@ pub(crate) async fn update_component_firmware(
         .target
         .ok_or_else(|| Status::invalid_argument("target is required"))?;
 
-    let results = match target {
+    let mut rack_machine_ids: Vec<String> = Vec::new();
+    let mut rack_switch_ids: Vec<String> = Vec::new();
+    let mut rack_id: Option<carbide_uuid::rack::RackId> = None;
+    let mut power_shelf_results: Option<Vec<rpc::ComponentResult>> = None;
+    let mut component_names: Vec<String> = Vec::new();
+
+    match target {
         rpc::update_component_firmware_request::Target::Switches(t) => {
             let list = t
                 .switch_ids
                 .ok_or_else(|| Status::invalid_argument("switch_ids is required"))?;
-            let components = map_nv_switch_components(&t.components)?;
-            let endpoints = resolve_switch_endpoints(api, &list.ids).await?;
+            if list.ids.is_empty() {
+                return Err(Status::invalid_argument("switch_ids must not be empty"));
+            }
 
-            let mut results: Vec<_> = endpoints
-                .unresolved
-                .iter()
-                .map(|id| {
-                    error_result(
-                        &id.to_string(),
-                        "could not resolve endpoint for switch".into(),
-                    )
-                })
-                .collect();
+            component_names = map_nv_switch_component_names(&t.components)?;
 
-            let backend_results = cm
-                .nv_switch
-                .queue_firmware_updates(
-                    &endpoints.resolved.endpoints,
-                    &req.target_version,
-                    &components,
-                )
+            let mut txn = api
+                .database_connection
+                .begin()
                 .await
-                .map_err(component_manager_error_to_status)?;
-            results.extend(backend_results.into_iter().map(|r| {
-                let id = switch_mac_to_id_str(&r.bmc_mac, &endpoints.resolved.mac_to_id);
-                if r.success {
-                    success_result(&id)
-                } else {
-                    error_result(&id, r.error.unwrap_or_default())
-                }
-            }));
-            results
+                .map_err(|e| Status::internal(format!("failed to begin transaction: {e}")))?;
+            let switch = db::switch::find_by_id(&mut txn, &list.ids[0])
+                .await
+                .map_err(|e| Status::internal(format!("failed to look up switch: {e}")))?
+                .ok_or_else(|| Status::not_found(format!("switch {} not found", list.ids[0])))?;
+            drop(txn);
+
+            rack_id = Some(switch.rack_id.ok_or_else(|| {
+                Status::failed_precondition(format!(
+                    "switch {} is not associated with a rack",
+                    list.ids[0]
+                ))
+            })?);
+            rack_switch_ids = list.ids.iter().map(|id| id.to_string()).collect();
+        }
+        rpc::update_component_firmware_request::Target::ComputeTrays(t) => {
+            let list = t
+                .machine_ids
+                .ok_or_else(|| Status::invalid_argument("machine_ids is required"))?;
+            if list.machine_ids.is_empty() {
+                return Err(Status::invalid_argument("machine_ids must not be empty"));
+            }
+
+            component_names = map_compute_tray_component_names(&t.components)?;
+
+            let machine = db::machine::find_one(
+                api.db_reader().as_mut(),
+                &list.machine_ids[0],
+                Default::default(),
+            )
+            .await
+            .map_err(|e| Status::internal(format!("failed to look up machine: {e}")))?
+            .ok_or_else(|| {
+                Status::not_found(format!("machine {} not found", list.machine_ids[0]))
+            })?;
+
+            rack_id = Some(machine.rack_id.ok_or_else(|| {
+                Status::failed_precondition(format!(
+                    "machine {} is not associated with a rack",
+                    list.machine_ids[0]
+                ))
+            })?);
+            rack_machine_ids = list.machine_ids.iter().map(|id| id.to_string()).collect();
         }
         rpc::update_component_firmware_request::Target::PowerShelves(t) => {
             let list = t
@@ -642,14 +682,42 @@ pub(crate) async fn update_component_firmware(
                     error_result(&id, r.error.unwrap_or_default())
                 }
             }));
-            results
+            power_shelf_results = Some(results);
         }
-        rpc::update_component_firmware_request::Target::ComputeTrays(_) => {
-            return Err(Status::unimplemented(
-                "compute tray firmware updates are not yet supported",
-            ));
-        }
-    };
+    }
+
+    if let Some(results) = power_shelf_results {
+        return Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
+            results,
+        }));
+    }
+
+    let rack_id = rack_id.ok_or_else(|| {
+        Status::invalid_argument("no machines or switches specified for firmware upgrade")
+    })?;
+
+    let maintenance_req = Request::new(rpc::RackMaintenanceOnDemandRequest {
+        rack_id: Some(rack_id),
+        machine_ids: rack_machine_ids.clone(),
+        switch_ids: rack_switch_ids.clone(),
+        power_shelf_ids: vec![],
+        activities: vec![rpc::MaintenanceActivityConfig {
+            activity: Some(rpc::maintenance_activity_config::Activity::FirmwareUpgrade(
+                rpc::FirmwareUpgradeActivity {
+                    firmware_version: req.target_version,
+                    components: component_names,
+                },
+            )),
+        }],
+    });
+
+    crate::handlers::rack::on_demand_rack_maintenance(api, maintenance_req).await?;
+
+    let results: Vec<_> = rack_machine_ids
+        .iter()
+        .chain(rack_switch_ids.iter())
+        .map(|id| success_result(id))
+        .collect();
 
     Ok(Response::new(rpc::UpdateComponentFirmwareResponse {
         results,

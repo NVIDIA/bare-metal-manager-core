@@ -15,12 +15,17 @@
  * limitations under the License.
  */
 use std::collections::{BTreeMap, HashMap};
+use std::net::IpAddr;
 
+use carbide_uuid::machine::MachineId;
 use carbide_uuid::rack::RackId;
 use itertools::Itertools;
 use mac_address::MacAddress;
-use model::expected_machine::{ExpectedMachine, ExpectedMachineRequest, LinkedExpectedMachine};
-use sqlx::PgConnection;
+use model::expected_machine::{
+    ExpectedMachine, ExpectedMachineRequest, LinkedExpectedMachine, UnexpectedMachine,
+};
+use model::site_explorer::EndpointExplorationReport;
+use sqlx::{FromRow, PgConnection};
 use uuid::Uuid;
 
 use crate::db_read::DbReader;
@@ -167,6 +172,59 @@ FROM expected_machines em
         .fetch_all(txn)
         .await
         .map_err(|err| DatabaseError::query(sql, err))
+}
+
+/// Returns host BMC endpoints that Site Explorer has explored but whose MAC is
+/// not listed in any of `expected_machines`, `expected_power_shelves`, or
+/// `expected_switches`. DPUs, power shelves, and switches are filtered out so
+/// the result only contains actual host BMCs. Rows with `machine_id = Some`
+/// are orphans (already ingested before the `expected_machines` entry was
+/// removed).
+pub async fn find_all_unexpected(txn: impl DbReader<'_>) -> DatabaseResult<Vec<UnexpectedMachine>> {
+    #[derive(FromRow)]
+    struct UnexpectedRow {
+        address: IpAddr,
+        bmc_mac_address: MacAddress,
+        exploration_report: sqlx::types::Json<EndpointExplorationReport>,
+        machine_id: Option<MachineId>,
+    }
+
+    let sql = r#"
+SELECT
+    ee.address,
+    mi.mac_address AS bmc_mac_address,
+    ee.exploration_report,
+    mt.machine_id
+FROM explored_endpoints ee
+    LEFT JOIN machine_interface_addresses mia ON ee.address = mia.address
+    LEFT JOIN machine_interfaces mi ON mia.interface_id = mi.id
+    LEFT JOIN machine_topologies mt ON host(ee.address) = mt.topology->'bmc_info'->>'ip'
+WHERE mi.mac_address IS NOT NULL
+  AND ee.exploration_report->>'EndpointType' = 'Bmc'
+  AND mi.mac_address NOT IN (SELECT bmc_mac_address FROM expected_machines)
+  AND mi.mac_address NOT IN (SELECT bmc_mac_address FROM expected_power_shelves)
+  AND mi.mac_address NOT IN (SELECT bmc_mac_address FROM expected_switches)
+ORDER BY ee.address
+    "#;
+
+    let rows: Vec<UnexpectedRow> = sqlx::query_as(sql)
+        .fetch_all(txn)
+        .await
+        .map_err(|err| DatabaseError::query(sql, err))?;
+
+    Ok(rows
+        .into_iter()
+        .filter(|row| {
+            !row.exploration_report.0.is_dpu()
+                && !row.exploration_report.0.is_power_shelf()
+                && !row.exploration_report.0.is_switch()
+        })
+        .map(|row| UnexpectedMachine {
+            address: row.address,
+            bmc_mac_address: row.bmc_mac_address,
+            machine_id: row.machine_id,
+        })
+        .collect())
 }
 
 pub async fn update_bmc_credentials<'a>(

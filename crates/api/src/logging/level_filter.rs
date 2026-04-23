@@ -16,6 +16,7 @@
  */
 
 use std::fmt;
+use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use chrono::{DateTime, Utc};
@@ -99,8 +100,9 @@ impl ActiveLevel {
         let current = dep_log_filter(EnvFilter::builder().parse(filter)?);
         self.expiry.store(until.into());
         if let Some(handle) = self.reload_handle.as_ref() {
-            handle.reload(current)?;
+            handle.reload(current.clone())?;
         }
+        self.current.store(Arc::new(current.to_string()));
         Ok(())
     }
 

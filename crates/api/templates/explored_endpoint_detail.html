@@ -482,49 +482,8 @@
 </div>
 
 <script>
-// tab switching with a sliding indicator
+
 document.addEventListener('DOMContentLoaded', function() {
-	const nav = document.querySelector('.tab-nav');
-	const indicator = document.querySelector('.tab-indicator');
-	const contents = document.querySelectorAll('.tab-content');
-
-	function moveIndicator(button) {
-		if (!indicator || !button) return;
-		indicator.style.width = button.offsetWidth + 'px';
-		indicator.style.transform = `translateX(${button.offsetLeft}px)`;
-	}
-
-	function setActive(button) {
-		const currentBtn = nav.querySelector('.tab-button.active');
-		if (currentBtn) currentBtn.classList.remove('active');
-		button.classList.add('active');
-
-		const currentContent = document.querySelector('.tab-content.active');
-		if (currentContent) currentContent.classList.remove('active');
-		const targetId = 'tab-' + button.getAttribute('data-tab');
-		const nextContent = document.getElementById(targetId);
-		if (nextContent) nextContent.classList.add('active');
-
-		moveIndicator(button);
-	}
-
-	// Initialize on first or existing active button
-	const initial = nav.querySelector('.tab-button.active') || nav.querySelector('.tab-button');
-	if (initial) moveIndicator(initial);
-
-	// Event delegation for all tab buttons
-	nav.addEventListener('click', function(e) {
-		const button = e.target.closest('.tab-button');
-		if (!button || !nav.contains(button)) return;
-		setActive(button);
-	});
-
-	// Keep indicator aligned on resize
-	window.addEventListener('resize', function() {
-		moveIndicator(nav.querySelector('.tab-button.active'));
-	});
-
-	// Set up Logs link
 	const bmcIp = "{{ endpoint.address }}";
 	document.getElementById('logs-link').href = buildGrafanaLogsUrl(bmcIp);
 });

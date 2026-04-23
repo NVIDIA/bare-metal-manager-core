@@ -105,7 +105,11 @@ impl MachineCreator {
 
     /// Creates a `Machine` objects for an identified `ManagedHost` with initial states
     ///
-    /// Returns `true` if new `Machine` objects have been created or `false` otherwise
+    /// Returns `true` if new `Machine` objects have been created or `false` otherwise.
+    ///
+    /// Refuses to create a Managed Host when `expected_machine` is `None`: only hosts
+    /// listed in the `expected_machines` table are allowed to become Managed Hosts.
+    /// Already ingested hosts are not affected.
     pub async fn create_managed_host(
         &self,
         explored_host: &ExploredManagedHost,
@@ -113,27 +117,32 @@ impl MachineCreator {
         expected_machine: Option<&ExpectedMachine>,
         pool: &PgPool,
     ) -> SiteExplorerResult<bool> {
-        let machine_data = expected_machine.map(|em| &em.data);
+        let Some(expected_machine) = expected_machine else {
+            tracing::warn!(
+                host_bmc_ip = %explored_host.host_bmc_ip,
+                    "Refusing to create managed host, expected machines entry not found"
+            );
+            return Ok(false);
+        };
+        let machine_data = Some(&expected_machine.data);
         let mut managed_host = ManagedHost::init(explored_host);
 
-        let bmc_credentials = if let Some(expected) = expected_machine
-            && expected.data.rack_id.is_some()
-            && self.rms_client.is_some()
-        {
-            let key = CredentialKey::BmcCredentials {
-                credential_type: BmcCredentialType::BmcRoot {
-                    bmc_mac_address: expected.bmc_mac_address,
-                },
-            };
-            match self.credential_manager.get_credentials(&key).await {
-                Ok(Some(Credentials::UsernamePassword { username, password })) => {
-                    Some((username, password))
+        let bmc_credentials =
+            if expected_machine.data.rack_id.is_some() && self.rms_client.is_some() {
+                let key = CredentialKey::BmcCredentials {
+                    credential_type: BmcCredentialType::BmcRoot {
+                        bmc_mac_address: expected_machine.bmc_mac_address,
+                    },
+                };
+                match self.credential_manager.get_credentials(&key).await {
+                    Ok(Some(Credentials::UsernamePassword { username, password })) => {
+                        Some((username, password))
+                    }
+                    _ => None,
                 }
-                _ => None,
-            }
-        } else {
-            None
-        };
+            } else {
+                None
+            };
 
         let mut txn = Transaction::begin(pool).await?;
 
@@ -214,8 +223,8 @@ impl MachineCreator {
 
         txn.commit().await?;
 
-        if let Some(expected) = expected_machine
-            && let (Some(rack_id), Some(rms_client)) = (&expected.data.rack_id, &self.rms_client)
+        if let (Some(rack_id), Some(rms_client)) =
+            (&expected_machine.data.rack_id, &self.rms_client)
         {
             let request = librms::protos::rack_manager::GetDeviceInfoByDeviceListRequest {
                 nodes: Some(librms::protos::rack_manager::NodeSet {
@@ -226,7 +235,7 @@ impl MachineCreator {
                         bmc_endpoint: Some(librms::protos::rack_manager::BmcEndpoint {
                             interface: Some(librms::protos::rack_manager::NetworkInterface {
                                 ip_address: explored_host.host_bmc_ip.to_string(),
-                                mac_address: expected.bmc_mac_address.to_string(),
+                                mac_address: expected_machine.bmc_mac_address.to_string(),
                             }),
                             port: 443,
                             credentials: bmc_credentials.map(|(username, password)| {

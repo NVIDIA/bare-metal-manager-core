@@ -47,6 +47,10 @@ Indicates that the power status of a host as reported by the BMC is **not** on.
 
 Indicates that the serial number on a host does not match the serial number in the Expected Machine manifest.
 
+### `OrphanManagedHost`
+
+Indicates that an already-ingested Managed Host's BMC MAC is no longer listed in the `expected_machines` table. Carbide continues to maintain the host, but the host will **not** be re-ingested if it is force-deleted. Clear the alert by either re-adding the entry to `expected_machines` or force-deleting the Managed Host. The alert is informational and does not block tenant allocations.
+
 ## Hardware/BMC health probe identifiers
 
 `carbide-hardware-health` currently reports sensor-based hardware health with a single probe ID:

@@ -193,7 +193,7 @@ impl HttpClient for AxumRouterHttpClient {
         Err(Error::NotSupported("DELETE is not supported yet"))
     }
 
-    async fn sse<T: Sized + for<'a> serde::Deserialize<'a> + Send + 'static>(
+    async fn sse<T: Send + Sized + for<'a> serde::Deserialize<'a>>(
         &self,
         _url: Url,
         _credentials: &BmcCredentials,

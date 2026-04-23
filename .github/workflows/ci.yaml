@@ -730,7 +730,7 @@ jobs:
         uses: NVIDIA/dsx-github-actions/.github/actions/trufflehog-scan@9a9ce3a7770a8b53d2726afa920be3276bc3ddd7
         with:
           extra-args: '--results=verified,unknown --only-verified'
-          post-pr-comment: 'true'
+          post-pr-comment: 'false'
           fail-on-findings: 'true'
 
   security-codeql-scan:

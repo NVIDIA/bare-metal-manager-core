@@ -24,7 +24,7 @@ use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
-use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot};
+use carbide_firmware::{FirmwareConfig, FirmwareConfigSnapshot, FirmwareDownloader};
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Duration, Utc};
 use config_version::{ConfigVersion, Versioned};
@@ -88,7 +88,6 @@ use crate::cfg::file::{
     BomValidationConfig, CarbideConfig, MachineValidationConfig, PowerManagerOptions, TimePeriod,
 };
 use crate::dpf::DpfOperations;
-use crate::firmware_downloader::FirmwareDownloader;
 use crate::redfish::{
     self, host_power_control, host_power_control_with_location, set_host_uefi_password,
 };
@@ -2117,6 +2116,17 @@ impl StateHandler for MachineStateHandler {
                 instance_state: InstanceState::Ready,
             } => {
                 // We can't touch a machine which is in Assigned/Ready state. A tenant owns it.
+                PowerHandlingOutcome::new(None, true, None)
+            }
+            ManagedHostState::HostReprovision { .. }
+            | ManagedHostState::Assigned {
+                instance_state: InstanceState::HostReprovision { .. },
+            } => {
+                // During host reprovisioning (firmware updates), the state controller
+                // manages power directly (ForceOff → ACPowercycle → On). The power
+                // manager must not interfere, otherwise it may power the host back on
+                // between ForceOff and ACPowercycle, causing AuxPowerReset to fail
+                // with ChassisPowerStateOffRequired.
                 PowerHandlingOutcome::new(None, true, None)
             }
             _ => {
@@ -6687,6 +6697,34 @@ impl HostUpgradeState {
                 Ok(StateHandlerOutcome::do_nothing())
             }
             HostReprovisionState::FailedFirmwareUpgrade { report_time, .. } => {
+                // A special case in Rackfirmware upgrade to handle FailedFirmwareUpgrade
+                // Accept a freshly-issued Host Reprovision request that arrives while we are
+                // sitting in FailedFirmwareUpgrade. `trigger_host_reprovisioning_request`
+                // overwrites `host_reprovisioning_requested` with `started_at = None`, so a
+                // `None` here (after a previous failure) indicates a brand-new user request.
+                // Mirror the ManagedHostState::Ready handling: route rack-level requests to
+                // WaitingForRackFirmwareUpgrade, otherwise restart the host upgrade flow from
+                // CheckingFirmwareV2 (retry_count reset to 0) and merge the host-fw health
+                // report alert.
+                if state
+                    .host_snapshot
+                    .host_reprovision_requested
+                    .as_ref()
+                    .is_some_and(|req| req.started_at.is_none())
+                    && is_rack_level_reprovisioning(state)
+                {
+                    tracing::info!(
+                        %machine_id,
+                        "Rack-level firmware upgrade requested in FailedFirmwareUpgrade — entering WaitingForRackFirmwareUpgrade",
+                    );
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::HostReprovision {
+                            retry_count: 1,
+                            reprovision_state: HostReprovisionState::WaitingForRackFirmwareUpgrade,
+                        },
+                    ));
+                }
+
                 let can_retry = retry_count < MAX_FIRMWARE_UPGRADE_RETRIES;
                 let waited_enough = Utc::now()
                     .signed_duration_since(report_time.unwrap_or(Utc::now()))
@@ -9625,6 +9663,24 @@ async fn set_host_boot_order(
 ) -> Result<SetBootOrderOutcome, StateHandlerError> {
     match set_boot_order_info.set_boot_order_state {
         SetBootOrderState::SetBootOrder => {
+            if mh_snapshot.dpu_snapshots.is_empty() {
+                // MachineState::SetBootOrder is a NO-OP for the Zero-DPU case
+                if ctx
+                    .services
+                    .site_config
+                    .force_dpu_nic_mode
+                    .load(Ordering::Relaxed)
+                {
+                    redfish_client
+                        .boot_first(Boot::UefiHttp)
+                        .await
+                        .map_err(|e| StateHandlerError::RedfishError {
+                            operation: "boot_first",
+                            error: e,
+                        })?;
+                    return Ok(SetBootOrderOutcome::Done);
+                }
+            }
             // Resolve the boot NIC MAC the same way `CheckHostConfig` does,
             // supporting hosts with DPU(s) and zero DPUs alike.
             let boot_interface_mac = mh_snapshot.boot_interface_mac().ok_or_else(|| {

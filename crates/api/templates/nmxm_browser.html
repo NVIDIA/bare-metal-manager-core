@@ -14,7 +14,7 @@ For valid path, please refer to the <a href="https://docs.nvidia.com/networking-
 <form id="nmxm_console" method="GET" action="/admin/nmxm-browser">
 	<div>
 		<label for="path_input">Path to query:</label>
-		<input type=text size="80" id="path_input" name="path" placeholder="/nmx/v1/services" value="{{ path }}" />
+		<input type=text size="80" id="path_input" name="path" value="{% if path.is_empty() %}/nmx/v1/services{% else %}{{ path }}{% endif %}" />
 	</div>
 	<input type="submit" value="Start query">
 </form>

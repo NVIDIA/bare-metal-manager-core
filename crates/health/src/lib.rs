@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-#![recursion_limit = "256"]
-
 use std::sync::Arc;
 use std::time::Duration;
 

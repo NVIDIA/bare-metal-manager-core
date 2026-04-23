@@ -44,6 +44,35 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: forge-dpu-agent-init
+          securityContext:
+            privileged: true
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          args:
+            - hardware
+            - "--agent-platform-type=init-container"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: RUST_BACKTRACE
+              value: "full"
+            - name: RUST_LIB_BACKTRACE
+              value: "0"
+            - name: RUST_LOG
+              value: "info"
+          volumeMounts:
+            - name: hw-cache
+              mountPath: /data
+            - name: sys
+              mountPath: /sys
+            - name: dev
+              mountPath: /dev
+            - name: run-udev
+              mountPath: /run/udev
+            - name: proc-cpu-info
+              mountPath: /host-cpu-info
+            - name: proc-mem-info
+              mountPath: /host-mem-info
       containers:
         - name: forge-dpu-agent
           securityContext:
@@ -53,7 +82,8 @@ spec:
             - run
             - "--hbn-config-mode=nvue-rest"
             - "--agent-platform-type=containerized"
-            - "--discovery-info-file={{ .Values.discovery.hardware_file }}"
+            - "--dhcp-grpc-server={{ .Values.dhcp_server.service_name }}.dpf-operator-system.svc.cluster.local:10079"
+            - "--fmds-grpc-server={{ .Values.fmds.service_name }}.dpf-operator-system.svc.cluster.local:50052"
             {{- if not (empty .Values.dhcp_server.interface_prepend) }}
             - "--dhcp-server-interface-prepend={{ .Values.dhcp_server.interface_prepend }}"
             {{ end }}
@@ -103,11 +133,31 @@ spec:
           volumeMounts:
             - name: forge-certs
               mountPath: /opt/forge
+            - name: hw-cache
+              mountPath: /data
+              readOnly: true
       volumes:
         - name: forge-certs
           hostPath:
             path: /opt/forge
             type: DirectoryOrCreate
+        - name: hw-cache
+          emptyDir: {}
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: dev
+          hostPath:
+            path: /dev
+        - name: run-udev
+          hostPath:
+            path: /run/udev
+        - name: proc-cpu-info
+          hostPath:
+            path: /proc/cpuinfo
+        - name: proc-mem-info
+          hostPath:
+            path: /proc/meminfo
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}

@@ -97,8 +97,8 @@ impl PrometheusSink {
         if let Some(machine_id) = context.machine_id() {
             labels.push((Cow::Borrowed("machine_id"), machine_id.to_string()));
         }
-        if let Some(serial) = context.switch_serial() {
-            labels.push((Cow::Borrowed("switch_serial"), serial.to_string()));
+        if let Some(serial) = context.serial_number() {
+            labels.push((Cow::Borrowed("serial_number"), serial.to_string()));
         }
 
         labels

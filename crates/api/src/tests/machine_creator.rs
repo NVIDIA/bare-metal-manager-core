@@ -26,6 +26,7 @@ use carbide_site_explorer::errors::SiteExplorerError;
 use carbide_uuid::machine::MachineId;
 use itertools::Itertools;
 use mac_address::MacAddress;
+use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     DpuDiscoveringState, DpuInitState, InstallDpuOsState, ManagedHostState, SetSecureBootState,
@@ -111,11 +112,17 @@ async fn test_site_explorer_reject_zero_dpu_hosts(
         dpus: vec![],
     };
 
+    let expected_machine = ExpectedMachine {
+        id: Some(uuid::Uuid::new_v4()),
+        bmc_mac_address: host_bmc_mac,
+        data: ExpectedMachineData::default(),
+    };
+
     let Err(SiteExplorerError::NoDpusInMachine(_)) = machine_creator
         .create_managed_host(
             &exploration_report,
             &mut EndpointExplorationReport::default(),
-            None,
+            Some(&expected_machine),
             &env.pool,
         )
         .await
@@ -228,12 +235,18 @@ async fn test_site_explorer_creates_managed_host(
         }],
     };
 
+    let expected_machine = ExpectedMachine {
+        id: Some(uuid::Uuid::new_v4()),
+        bmc_mac_address: mock_host.bmc_mac_address,
+        data: ExpectedMachineData::default(),
+    };
+
     assert!(
         machine_creator
             .create_managed_host(
                 &exploration_report,
                 &mut EndpointExplorationReport::default(),
-                None,
+                Some(&expected_machine),
                 &env.pool,
             )
             .await?
@@ -331,7 +344,7 @@ async fn test_site_explorer_creates_managed_host(
             .create_managed_host(
                 &exploration_report,
                 &mut EndpointExplorationReport::default(),
-                None,
+                Some(&expected_machine),
                 &env.pool,
             )
             .await?
@@ -691,12 +704,18 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
         dpus: explored_dpus.clone(),
     };
 
+    let expected_machine = ExpectedMachine {
+        id: Some(uuid::Uuid::new_v4()),
+        bmc_mac_address: mock_host.bmc_mac_address,
+        data: ExpectedMachineData::default(),
+    };
+
     assert!(
         machine_creator
             .create_managed_host(
                 &exploration_report,
                 &mut EndpointExplorationReport::default(),
-                None,
+                Some(&expected_machine),
                 &env.pool,
             )
             .await?
@@ -708,7 +727,7 @@ async fn test_site_explorer_creates_multi_dpu_managed_host(
             .create_managed_host(
                 &exploration_report,
                 &mut EndpointExplorationReport::default(),
-                None,
+                Some(&expected_machine),
                 &env.pool,
             )
             .await?
@@ -976,12 +995,18 @@ async fn test_mi_attach_dpu_if_mi_exists_during_machine_creation(
     assert!(mi[0].machine_id.is_none());
     txn.rollback().await?;
 
+    let expected_machine = ExpectedMachine {
+        id: Some(uuid::Uuid::new_v4()),
+        bmc_mac_address: mock_host.bmc_mac_address,
+        data: ExpectedMachineData::default(),
+    };
+
     assert!(
         machine_creator
             .create_managed_host(
                 &exploration_report,
                 &mut EndpointExplorationReport::default(),
-                None,
+                Some(&expected_machine),
                 &env.pool
             )
             .await?
@@ -1080,12 +1105,18 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
     assert!(mi.is_empty());
     txn.rollback().await?;
 
+    let expected_machine = ExpectedMachine {
+        id: Some(uuid::Uuid::new_v4()),
+        bmc_mac_address: mock_host.bmc_mac_address,
+        data: ExpectedMachineData::default(),
+    };
+
     assert!(
         machine_creator
             .create_managed_host(
                 &exploration_report,
                 &mut EndpointExplorationReport::default(),
-                None,
+                Some(&expected_machine),
                 &env.pool,
             )
             .await?
@@ -1128,7 +1159,7 @@ async fn test_mi_attach_dpu_if_mi_created_after_machine_creation(
             .create_managed_host(
                 &exploration_report,
                 &mut EndpointExplorationReport::default(),
-                None,
+                Some(&expected_machine),
                 &env.pool,
             )
             .await?
@@ -1433,6 +1464,79 @@ async fn test_site_explorer_creates_managed_host_with_dpf_enabled(
     for machine in machines {
         assert!(machine.dpf.enabled);
     }
+
+    Ok(())
+}
+
+/// `create_managed_host` must refuse to create a Managed Host when no
+/// `expected_machines` entry is supplied.
+#[crate::sqlx_test]
+async fn test_site_explorer_reject_unexpected_host(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool).await;
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        explorations_per_run: 2,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        create_power_shelves: Arc::new(true.into()),
+        explore_power_shelves_from_static_ip: Arc::new(true.into()),
+        power_shelves_created_per_run: 1,
+        create_switches: Arc::new(true.into()),
+        switches_created_per_run: 1,
+        ..Default::default()
+    };
+    let machine_creator = MachineCreator::new(
+        env.pool.clone(),
+        explorer_config,
+        env.common_pools.clone(),
+        None,
+        env.test_credential_manager.clone(),
+    );
+
+    let mock_dpu = DpuConfig::default();
+    let mut dpu_report: EndpointExplorationReport = mock_dpu.clone().into();
+    dpu_report.generate_machine_id(false)?;
+    let dpu_report = Arc::new(dpu_report);
+
+    let exploration_report = ExploredManagedHost {
+        host_bmc_ip: IpAddr::from_str("192.0.1.1")?,
+        dpus: vec![ExploredDpu {
+            bmc_ip: IpAddr::from_str("192.0.1.2")?,
+            host_pf_mac_address: Some(mock_dpu.host_mac_address),
+            report: dpu_report,
+        }],
+    };
+
+    assert!(
+        !machine_creator
+            .create_managed_host(
+                &exploration_report,
+                &mut EndpointExplorationReport::default(),
+                None,
+                &env.pool,
+            )
+            .await?
+    );
+
+    let machines = db::machine::find(
+        &env.pool,
+        db::ObjectFilter::All,
+        MachineSearchConfig {
+            include_predicted_host: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        machines.len(),
+        0,
+        "expected no Machine rows for an unexpected host, got {machines:#?}"
+    );
 
     Ok(())
 }

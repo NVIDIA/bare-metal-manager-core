@@ -105,10 +105,9 @@ mod tests {
     use std::time::Duration;
 
     use prometheus_text_parser::ParsedPrometheusMetrics;
+    use utils::test_support::test_meter::TestMeter;
 
     use super::*;
-    use crate::preingestion_manager::metrics::PreingestionMetrics;
-    use crate::tests::common::test_meter::TestMeter;
 
     #[test]
     fn test_metrics_collector() {

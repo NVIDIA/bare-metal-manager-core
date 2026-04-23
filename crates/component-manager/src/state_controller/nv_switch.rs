@@ -183,7 +183,10 @@ impl NvSwitchManager for StateControllerNvSwitch {
         };
         self.write_scope(
             endpoints,
-            MaintenanceActivity::FirmwareUpgrade { firmware_version },
+            MaintenanceActivity::FirmwareUpgrade {
+                firmware_version,
+                components: vec![],
+            },
         )
         .await
     }
@@ -343,7 +346,9 @@ mod tests {
             .expect("scope");
         assert_eq!(scope.switch_ids, vec![sw1]);
         match &scope.activities[0] {
-            MaintenanceActivity::FirmwareUpgrade { firmware_version } => {
+            MaintenanceActivity::FirmwareUpgrade {
+                firmware_version, ..
+            } => {
                 assert_eq!(firmware_version.as_deref(), Some("nvos-3.0"));
             }
             other => panic!("expected FirmwareUpgrade activity, got {other:?}"),

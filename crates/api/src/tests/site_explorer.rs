@@ -49,6 +49,7 @@ use rpc::site_explorer::{
 };
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use tonic::Request;
+use utils::test_support::test_meter::TestMeter;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures;
@@ -61,7 +62,6 @@ use crate::tests::common::api_fixtures::network_segment::{
 };
 use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
 use crate::tests::common::rpc_builder::DhcpDiscovery;
-use crate::tests::common::test_meter::TestMeter;
 
 #[derive(Clone, Debug)]
 struct FakeMachine {
@@ -1790,6 +1790,7 @@ async fn test_site_explorer_fixtures_singledpu(
     let env = common::api_fixtures::create_test_env(pool).await;
 
     let mock_host = ManagedHostConfig::default();
+    api_fixtures::site_explorer::register_expected_machine(&env, &mock_host, None).await;
     let mock_explored_host = MockExploredHost::new(&env, mock_host);
 
     let snapshot: ManagedHostStateSnapshot = mock_explored_host
@@ -1861,6 +1862,7 @@ async fn test_site_explorer_fixtures_multidpu(
         dpus: vec![DpuConfig::default(), DpuConfig::default()],
         ..Default::default()
     };
+    api_fixtures::site_explorer::register_expected_machine(&env, &mock_host, None).await;
     let mock_explored_host = MockExploredHost::new(&env, mock_host);
 
     let snapshot: ManagedHostStateSnapshot = mock_explored_host
@@ -1958,6 +1960,7 @@ async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
         dpus: vec![],
         ..Default::default()
     };
+    api_fixtures::site_explorer::register_expected_machine(&env, &mock_host, None).await;
     let mock_explored_host = MockExploredHost::new(&env, mock_host);
 
     let snapshot: ManagedHostStateSnapshot = mock_explored_host
@@ -2047,6 +2050,7 @@ async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
         dpus: vec![],
         ..Default::default()
     };
+    api_fixtures::site_explorer::register_expected_machine(&env, &mock_host, None).await;
     let mock_explored_host = MockExploredHost::new(&env, mock_host);
 
     let snapshot: ManagedHostStateSnapshot = mock_explored_host
@@ -4829,6 +4833,71 @@ async fn test_site_explorer_auto_corrects_nic_mode_per_expected_machine(
     assert!(
         calls.iter().any(|(_, mode)| *mode == NicMode::Nic),
         "expected at least one set_nic_mode(Nic) call triggered by the operator's NicMode declaration; calls so far: {calls:?}"
+    );
+
+    Ok(())
+}
+
+/// A Managed Host whose `expected_machines` row is later removed becomes an
+/// orphan: `audit_exploration_results` emits an `OrphanManagedHost` health
+/// alert on the host's Machine. Re-adding the entry clears the alert on the
+/// next iteration.
+#[crate::sqlx_test]
+async fn test_orphan_managed_host_alert_emitted(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+    let host_config = ManagedHostConfig::default();
+    let host_bmc_mac = host_config.bmc_mac_address;
+    let chassis_serial = host_config.serial.clone();
+    let mh = common::api_fixtures::create_managed_host_with_config(&env, host_config).await;
+
+    // Orphan the host by deleting its expected_machines entry.
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::delete_by_mac(&mut txn, host_bmc_mac).await?;
+    txn.commit().await?;
+
+    // Run an iteration: audit_exploration_results should emit the orphan alert.
+    env.run_site_explorer_iteration().await;
+    let alerts = env
+        .find_machine(mh.id)
+        .await
+        .remove(0)
+        .health
+        .unwrap()
+        .alerts;
+    assert!(
+        alerts.iter().any(|a| a.id == "OrphanManagedHost"),
+        "expected OrphanManagedHost alert, got: {alerts:#?}"
+    );
+
+    // Re-add the expected_machines entry — the alert should clear next iteration.
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: host_bmc_mac,
+            data: ExpectedMachineData {
+                serial_number: chassis_serial,
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.run_site_explorer_iteration().await;
+    let alerts = env
+        .find_machine(mh.id)
+        .await
+        .remove(0)
+        .health
+        .unwrap()
+        .alerts;
+    assert!(
+        !alerts.iter().any(|a| a.id == "OrphanManagedHost"),
+        "expected no OrphanManagedHost alert after re-adding expected_machines, got: {alerts:#?}"
     );
 
     Ok(())

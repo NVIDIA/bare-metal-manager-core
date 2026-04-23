@@ -1,4 +1,3 @@
-use std::path::Path;
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
@@ -24,7 +23,7 @@ use ::rpc::forge_tls_client::ForgeClientConfig;
 use ::rpc::machine_discovery::DpuData;
 use carbide_host_support::agent_config::AgentConfig;
 use carbide_host_support::hardware_enumeration::{
-    HW_CACHE_PATH, enumerate_and_save_hardware, enumerate_hardware, load_hardware_from_cache,
+    enumerate_and_save_hardware, enumerate_hardware, load_hardware_from_cache,
 };
 use carbide_host_support::registration::register_machine;
 pub use command_line::{AgentCommand, AgentPlatformType, Options, RunOptions, WriteTarget};
@@ -130,25 +129,12 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
                 tracing::warn!("Upgrades disabled. Dev only");
             }
 
-            // For Containerized mode, fall back to the hardware cache written by the init
-            // container if no explicit discovery file was provided.
-            let hw_cache_path = Path::new(HW_CACHE_PATH);
-            let discovery_info_file = match &options.agent_platform_type {
-                AgentPlatformType::Containerized => Some(
-                    options
-                        .discovery_info_file
-                        .as_deref()
-                        .unwrap_or(hw_cache_path),
-                ),
-                _ => options.discovery_info_file.as_deref(),
-            };
-
             let Registration {
                 machine_id,
                 factory_mac_address,
             } = match options.override_machine_id {
                 // Normal case
-                None => register(&agent, discovery_info_file)
+                None => register(&agent, &options.agent_platform_type)
                     .await
                     .wrap_err("registration error")?,
                 // Dev / test override
@@ -213,7 +199,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
         // One-off network monitor check.
         // dumps JSON-formatted peer DPU network reachability and latency status
         Some(AgentCommand::Network(options)) => {
-            let machine_id = register(&agent, None)
+            let machine_id = register(&agent, &AgentPlatformType::DpuOs)
                 .await
                 .wrap_err("network check machine registration error")?
                 .machine_id;
@@ -252,7 +238,7 @@ pub async fn start(cmdline: command_line::Options) -> eyre::Result<()> {
             // host_machine_id files, we need to make a registration call to
             // get the machine_id, and a carbide api request to get the
             // host_machine_id.
-            let Registration { machine_id, .. } = register(&agent, None)
+            let Registration { machine_id, .. } = register(&agent, &AgentPlatformType::DpuOs)
                 .await
                 .wrap_err("registration error")?;
 
@@ -468,15 +454,15 @@ impl HBNDeviceNames {
 }
 
 /// Discover hardware, register DPU with carbide-api, and return machine id.
-/// If discovery_info_file is set, we'll load the rpc::DiscoveryInfo message
-/// from that instead of trying to probe hardware ourselves.
 async fn register(
     agent: &AgentConfig,
-    discovery_info_file: Option<&Path>,
+    platform_type: &AgentPlatformType,
 ) -> Result<Registration, eyre::Report> {
-    let mut hardware_info = match discovery_info_file {
-        Some(discovery_info_file) => load_discovery_info_file(discovery_info_file).await,
-        None => enumerate_hardware().wrap_err("enumerate_hardware failed"),
+    let mut hardware_info = match platform_type {
+        AgentPlatformType::Containerized => {
+            load_hardware_from_cache().wrap_err("load_hardware_from_cache failed")
+        }
+        _ => enumerate_hardware().wrap_err("enumerate_hardware failed"),
     }?;
 
     // Pretend to be a bluefield DPU for local dev.
@@ -519,12 +505,6 @@ async fn register(
         machine_id,
         factory_mac_address,
     })
-}
-
-async fn load_discovery_info_file(discovery_info_file: &Path) -> eyre::Result<DiscoveryInfo> {
-    let contents = tokio::fs::read_to_string(discovery_info_file).await?;
-    let discovery_info = serde_json::from_str(&contents)?;
-    Ok(discovery_info)
 }
 
 pub fn pretty_cmd(c: &Command) -> String {

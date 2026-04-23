@@ -295,6 +295,10 @@ impl InternalRBACRules {
             "GetAllExpectedMachinesLinked",
             vec![ForgeAdminCLI, SiteAgent, Rla],
         );
+        x.perm(
+            "GetAllUnexpectedMachines",
+            vec![ForgeAdminCLI, SiteAgent, Rla],
+        );
         x.perm("AttestQuote", vec![Anonymous]);
         x.perm("SignMachineIdentity", vec![Agent]);
         x.perm(
@@ -452,6 +456,7 @@ impl InternalRBACRules {
         x.perm("MachineSetup", vec![ForgeAdminCLI]);
         x.perm("SetDpuFirstBootOrder", vec![ForgeAdminCLI]);
         x.perm("OnDemandMachineValidation", vec![ForgeAdminCLI]);
+        x.perm("OnDemandRackMaintenance", vec![ForgeAdminCLI]);
         x.perm("TpmAddCaCert", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TpmShowCaCerts", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("TpmShowUnmatchedEkCerts", vec![ForgeAdminCLI, SiteAgent]);

@@ -320,16 +320,10 @@ pub struct RunOptions {
     #[clap(
         long,
         default_value = "dpu-os",
-        help = "Set the platform type. Specify \"dpu-os\" or \"containerized\".",
+        help = "Set the platform type. Specify \"dpu-os\", \"containerized\", or \"init-container\".",
         env = "AGENT_PLATFORM_TYPE"
     )]
     pub agent_platform_type: AgentPlatformType,
-    #[clap(
-        help = "Load discovery info from the specified file, rather than trying to probe hardware ourselves. This should be a JSON-serialized DiscoveryInfo message.",
-        env = "DISCOVERY_INFO_FILE"
-    )]
-    pub discovery_info_file: Option<PathBuf>,
-
     #[clap(
         long,
         help = "Prepend this string to interface names before sending them to the DHCP server",
@@ -395,7 +389,7 @@ impl FromStr for AgentPlatformType {
         match s {
             "dpu-os" => Ok(DpuOs),
             "containerized" => Ok(Containerized),
-            "init" => Ok(ContainerInitializer),
+            "init-container" => Ok(ContainerInitializer),
             unknown_type => Err(eyre::eyre!("Unknown platform type \"{unknown_type}\"")),
         }
     }
@@ -411,7 +405,7 @@ pub struct HardwareOptions {
     #[clap(
         long,
         default_value = "dpu-os",
-        help = "Set the platform type. Specify \"dpu-os\", \"containerized\", or \"init\".",
+        help = "Set the platform type. Specify \"dpu-os\", \"containerized\", or \"init-container\".",
         env = "AGENT_PLATFORM_TYPE"
     )]
     pub agent_platform_type: AgentPlatformType,
@@ -472,7 +466,7 @@ mod tests {
             AgentPlatformType::Containerized
         ));
         assert!(matches!(
-            "init".parse::<AgentPlatformType>().unwrap(),
+            "init-container".parse::<AgentPlatformType>().unwrap(),
             AgentPlatformType::ContainerInitializer
         ));
     }
