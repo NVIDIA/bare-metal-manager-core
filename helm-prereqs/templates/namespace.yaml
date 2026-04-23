@@ -1,0 +1,10 @@
+## =============================================================================
+## forge-system namespace — created with managed label
+## =============================================================================
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  labels:
+    carbide.nvidia.com/managed: "true"

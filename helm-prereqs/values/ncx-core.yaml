@@ -1,0 +1,251 @@
+## =============================================================================
+## ncx-core.yaml — values for: helm upgrade --install carbide ./helm
+##
+## Image registry and tag are injected at install time via --set flags:
+##   --set global.image.repository=<your-registry>/nvmetal-carbide
+##   --set global.image.tag=<tag>
+## In setup.sh these come from NCX_IMAGE_REGISTRY and NCX_CORE_IMAGE_TAG.
+## =============================================================================
+
+global:
+  image:
+    repository: ""    # set via --set global.image.repository (NCX_IMAGE_REGISTRY env var)
+    tag: ""           # set via --set global.image.tag (NCX_CORE_IMAGE_TAG env var)
+    pullPolicy: IfNotPresent
+
+  imagePullSecrets:
+    - name: nvcr-carbide-dev
+
+  ## SPIFFE cert settings — vault-forge-issuer is configured by carbide-prereqs
+  certificate:
+    duration: 720h0m0s
+    renewBefore: 360h0m0s
+    privateKey:
+      algorithm: ECDSA
+      size: 384
+    issuerRef:
+      kind: ClusterIssuer
+      name: vault-forge-issuer
+      group: cert-manager.io
+
+  spiffe:
+    trustDomain: forge.local
+
+## ---------------------------------------------------------------------------
+## carbide-api — site-specific config and hostname
+##
+## hostname: external hostname for the carbide-api service (DNS / load-balancer
+##           entry point). Used for TLS SAN and API URL generation.
+##
+## siteConfig: TOML block consumed by carbide-api at startup. Every field
+##   below must be present (or explicitly commented out) so operators know
+##   what is available. Replace placeholder values with real site data.
+## ---------------------------------------------------------------------------
+carbide-api:
+  hostname: "api-examplesite.example.com"   # EXAMPLE - replace with your site's carbide-api hostname
+
+  ## MetalLB VIP for the carbide-api LoadBalancer service.
+  ## Must be an IP within your external IPAddressPool (values/metallb-config.yaml).
+  ## This IP must resolve from your external DNS to the hostname above.
+  externalService:
+    enabled: true    # must be explicitly enabled - defaults to false in chart
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "10.180.126.177"  # EXAMPLE - carbide-api external VIP
+
+  siteConfig:
+    enabled: true
+    carbideApiSiteConfig: |
+      # -----------------------------------------------------------------------
+      # Site identity
+      # -----------------------------------------------------------------------
+      sitename = "examplesite"                       # EXAMPLE - replace with your short site identifier
+      initial_domain_name = "examplesite.example.com" # EXAMPLE - replace with your base DNS domain
+      attestation_enabled = false                # enable TPM/DPU attestation
+      max_concurrent_machine_updates = 20        # cap parallel firmware/config pushes
+      vpc_peering_policy = "exclusive"           # "exclusive" | "shared"
+
+      # -----------------------------------------------------------------------
+      # DHCP servers reachable from this site (empty list = no external DHCP)
+      # -----------------------------------------------------------------------
+      dhcp_servers = ["10.180.126.160"]          # EXAMPLE — replace with your MetalLB VIP for DHCP service
+
+      # -----------------------------------------------------------------------
+      # BGP route servers (leave empty if not using BGP)
+      # -----------------------------------------------------------------------
+      route_servers = []
+      enable_route_servers = false
+      # route_servers = ["10.0.0.1", "10.0.0.2"]
+      # enable_route_servers = true
+
+      # -----------------------------------------------------------------------
+      # site_fabric_prefixes: prefixes that ARE part of the site fabric and
+      #   should be reachable between instances.
+      # deny_prefixes: prefixes that instances must NOT reach (OOB, control
+      #   plane, management networks, etc.).
+      # -----------------------------------------------------------------------
+      site_fabric_prefixes = ["10.180.62.72/29"]   # EXAMPLE — replace with your fabric CIDRs
+
+      deny_prefixes = [                             # EXAMPLE — replace with your deny list
+        "10.180.62.64/29",    # EXAMPLE — admin/OOB network
+        "10.180.248.32/28",   # EXAMPLE — management network
+        "10.180.248.64/28",   # EXAMPLE — underlay TOR network
+      ]
+
+      # -----------------------------------------------------------------------
+      # Site explorer — periodic background scan of site inventory
+      # -----------------------------------------------------------------------
+      [site_explorer]
+      run_interval = "30s"
+
+      # -----------------------------------------------------------------------
+      # Host health monitoring
+      # Uncomment to override default behaviour.
+      # -----------------------------------------------------------------------
+      # [host_health]
+      # hardware_health_reports = "MonitorOnly"   # "MonitorOnly" | "Enforce"
+
+      # -----------------------------------------------------------------------
+      # IP / integer pools — carbide-api allocates from these ranges
+      #
+      # lo-ip:    loopback IPs assigned to bare-metal hosts
+      # vlan-id:  VLAN IDs for tenant networks
+      # vni:      VXLAN Network Identifiers
+      # vpc-vni:  VPC-level VNIs (set end=0 to disable)
+      # -----------------------------------------------------------------------
+      [pools.lo-ip]
+      type = "ipv4"
+      ranges = [{ start = "10.180.62.84", end = "10.180.62.86" }]  # EXAMPLE — replace with your loopback pool
+
+      [pools.vlan-id]
+      type = "integer"
+      ranges = [{ start = "100", end = "501" }]
+
+      [pools.vni]
+      type = "integer"
+      ranges = [{ start = "1024500", end = "1024800" }]
+
+      [pools.vpc-vni]
+      type = "integer"
+      ranges = [{ start = "0", end = "100" }]
+
+      # -----------------------------------------------------------------------
+      # Networks — define named L3 segments visible to carbide-api.
+      #
+      # type:          "admin" (OOB/management) | "underlay" (data-plane)
+      # prefix:        CIDR of the network
+      # gateway:       first-hop gateway IP
+      # mtu:           MTU (9000 for jumbo, 1500 for standard)
+      # reserve_first: number of IPs at the start of the prefix to skip
+      #                (gateway + infrastructure IPs)
+      #
+      # Add one [networks.<name>] block per L3 segment at your site.
+      # The name is arbitrary but must be unique within this config.
+      # -----------------------------------------------------------------------
+      [networks.admin]                             # EXAMPLE — your OOB/management network
+      type = "admin"
+      prefix = "10.180.62.64/29"    # EXAMPLE — replace with your admin CIDR
+      gateway = "10.180.62.65"      # EXAMPLE — replace with your admin gateway
+      mtu = 9000
+      reserve_first = 5
+
+      [networks.RNO1-M04-D04-IPMITOR-01]           # EXAMPLE — rename to your underlay segment name
+      type = "underlay"
+      prefix = "10.180.248.64/28"   # EXAMPLE — replace with your underlay CIDR
+      gateway = "10.180.248.65"     # EXAMPLE — replace with your underlay gateway
+      mtu = 1500
+      reserve_first = 5
+      # Add additional [networks.<name>] blocks here for each underlay segment at your site.
+
+      # -----------------------------------------------------------------------
+      # InfiniBand (leave enabled=false if no IB fabric at this site)
+      # -----------------------------------------------------------------------
+      [ib_config]
+      enabled = false
+
+      [ib_fabric_monitor]
+      enabled = false
+
+      # -----------------------------------------------------------------------
+      # Firmware management
+      # -----------------------------------------------------------------------
+      [firmware_global]
+      autoupdate = false
+      no_reset_retries = true
+
+      # -----------------------------------------------------------------------
+      # Machine state controller
+      # failure_retry_time: how long to wait before retrying a failed machine op
+      # -----------------------------------------------------------------------
+      [machine_state_controller]
+      failure_retry_time = "90m"
+
+## ---------------------------------------------------------------------------
+## Service VIP assignments - MetalLB loadBalancerIPs
+##
+## Each NCX Core service that exposes a LoadBalancer needs a specific IP from
+## your MetalLB pool. Without these, MetalLB assigns IPs randomly from the
+## pool on each install - making DHCP relay, DNS, PXE, and API hostname DNS
+## records impossible to pre-configure.
+##
+## Rules:
+##   - IPs must be within a range defined in values/metallb-config.yaml
+##   - Internal pool (cluster-facing): DHCP, PXE, SSH console, NTP, DNS
+##   - External pool (client-facing):  carbide-api
+##   - Each IP must be unique across all services
+##   - The carbide-api IP must resolve from external DNS to the hostname above
+##
+## These values mirror the kustomization patches that forged applies via
+## site-controller. Without them the services come up with unpredictable IPs.
+## ---------------------------------------------------------------------------
+
+carbide-dhcp:
+  externalService:
+    enabled: true    # must be explicitly enabled - defaults to false in chart
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "10.180.126.160"  # EXAMPLE - DHCP VIP (internal pool)
+
+carbide-dns:
+  externalService:
+    enabled: true    # must be explicitly enabled - defaults to false in chart
+    ## DNS uses perPodAnnotations because each replica gets its own VIP.
+    ## The chart creates separate UDP + TCP services per pod and uses
+    ## metallb.universe.tf/allow-shared-ip so both share the same IP.
+    perPodAnnotations:
+      - metallb.universe.tf/loadBalancerIPs: "10.180.126.180"  # EXAMPLE - DNS instance-0 VIP (external pool)
+      - metallb.universe.tf/loadBalancerIPs: "10.180.126.179"  # EXAMPLE - DNS instance-1 VIP (external pool)
+
+carbide-pxe:
+  externalService:
+    enabled: true    # must be explicitly enabled - defaults to false in chart
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "10.180.126.162"  # EXAMPLE - PXE VIP (internal pool)
+
+carbide-ssh-console-rs:
+  externalService:
+    enabled: true    # must be explicitly enabled - defaults to false in chart
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "10.180.126.164"  # EXAMPLE - SSH console VIP (internal pool)
+
+carbide-ntp:
+  externalService:
+    enabled: true    # must be explicitly enabled - defaults to false in chart
+    ## NTP uses perPodAnnotations - one VIP per replica so clients can reach
+    ## each NTP instance at a stable IP regardless of pod scheduling.
+    perPodAnnotations:
+      - metallb.universe.tf/loadBalancerIPs: "10.180.126.165"  # EXAMPLE - NTP instance-0 VIP (internal pool)
+      - metallb.universe.tf/loadBalancerIPs: "10.180.126.166"  # EXAMPLE - NTP instance-1 VIP (internal pool)
+      - metallb.universe.tf/loadBalancerIPs: "10.180.126.167"  # EXAMPLE - NTP instance-2 VIP (internal pool)
+
+## ---------------------------------------------------------------------------
+## carbide-dsx-exchange-consumer - disabled until binary is included in image
+## ---------------------------------------------------------------------------
+carbide-dsx-exchange-consumer:
+  enabled: false
+
+## ---------------------------------------------------------------------------
+## unbound - disabled by default (enable if you need recursive DNS)
+## ---------------------------------------------------------------------------
+unbound:
+  enabled: false
+  # imagePullSecrets:
+  #   - name: nvcr-nvidian-nvforge

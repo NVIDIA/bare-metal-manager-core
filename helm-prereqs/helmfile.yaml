@@ -1,0 +1,152 @@
+# =============================================================================
+# helm-prereqs/helmfile.yaml
+# Full cluster operator + carbide-prereqs orchestration.
+#
+# Usage (via setup.sh — do not call helmfile directly):
+#   ./setup.sh
+#
+# Direct helmfile usage (individual releases):
+#   helmfile sync -l name=cert-manager
+#   helmfile sync -l name=vault
+#   helmfile destroy
+#
+# Requires: helmfile, helm, kubectl, jq, ssh-keygen
+#
+# Required env:
+#   REGISTRY_PULL_SECRET — registry pull secret / API key
+#
+# Hook/ordering notes:
+#   - All multi-release sequencing is done in setup.sh (helmfile sync -l name=X
+#     called in order), NOT via helmfile hooks or needs.
+#   - helmfile v1.4 postSync hooks do NOT block dependent releases — avoid
+#     using postSync hooks for cross-release sequencing.
+#   - carbide-prereqs release uses preSync/postSync hooks for local setup that
+#     doesn't need cross-release ordering guarantees.
+# =============================================================================
+
+repositories:
+  - name: jetstack
+    url: https://charts.jetstack.io
+  - name: hashicorp
+    url: https://helm.releases.hashicorp.com
+  - name: external-secrets
+    url: https://charts.external-secrets.io
+  - name: postgres-operator
+    url: https://opensource.zalando.com/postgres-operator/charts/postgres-operator
+  - name: metallb
+    url: https://metallb.github.io/metallb
+
+releases:
+  # ---------------------------------------------------------------------------
+  # MetalLB — LoadBalancer service provider (BGP or L2 mode).
+  # Installed early (no TLS/PKI dependency). Must be up before NCX Core deploys
+  # LoadBalancer services (carbide-api, dhcp, dns, pxe, ssh-console-rs).
+  #
+  # Site-specific config (IPAddressPool, BGPPeer, BGPAdvertisement) is in
+  # values/metallb-config.yaml and is applied by setup.sh after this installs.
+  # ---------------------------------------------------------------------------
+  - name: metallb
+    namespace: metallb-system
+    createNamespace: true
+    chart: metallb/metallb
+    version: "0.14.5"
+    wait: true
+    timeout: 600
+    values:
+      - operators/values/metallb.yaml
+
+  # ---------------------------------------------------------------------------
+  # Zalando postgres-operator — manages forge-pg-cluster HA Patroni cluster.
+  # Installed before cert-manager (no TLS dependency). Must be up before
+  # carbide-prereqs so the postgresql.acid.zalan.do CRD exists when the chart
+  # creates the postgresql resource.
+  # ---------------------------------------------------------------------------
+  - name: postgres-operator
+    namespace: postgres
+    createNamespace: true
+    chart: postgres-operator/postgres-operator
+    version: "1.10.1"
+    wait: true
+    timeout: 600
+    values:
+      - operators/values/postgres-operator.yaml
+
+  # ---------------------------------------------------------------------------
+  # cert-manager — certificate issuance and ClusterIssuers
+  # No hooks: Prometheus CRDs and vault TLS bootstrap are done by setup.sh
+  # phases 2b and 2c after this release installs.
+  # ---------------------------------------------------------------------------
+  - name: cert-manager
+    namespace: cert-manager
+    createNamespace: true
+    chart: jetstack/cert-manager
+    version: "v1.17.1"
+    wait: true
+    timeout: 600
+    values:
+      - operators/values/cert-manager.yaml
+
+  # ---------------------------------------------------------------------------
+  # HashiCorp Vault — HA Raft, 3 pods, TLS on 8200/8201
+  # No hooks: vault TLS bootstrap (site-root CA + certs) is done by setup.sh
+  # phase 2c before this release. IP SAN patch + init/unseal done by setup.sh
+  # phases 3b and 4 after this release.
+  # ---------------------------------------------------------------------------
+  - name: vault
+    namespace: vault
+    createNamespace: true
+    chart: hashicorp/vault
+    version: "0.25.0"
+    wait: true
+    timeout: 600
+    values:
+      - operators/values/vault.yaml
+
+  # ---------------------------------------------------------------------------
+  # External Secrets Operator — syncs site-root CA → forge-roots
+  # No hooks: installed by setup.sh phase 5 after vault is unsealed.
+  # ---------------------------------------------------------------------------
+  - name: external-secrets
+    namespace: external-secrets
+    createNamespace: true
+    chart: external-secrets/external-secrets
+    version: "0.14.3"
+    wait: true
+    timeout: 600
+    values:
+      - operators/values/external-secrets.yaml
+
+  # ---------------------------------------------------------------------------
+  # carbide-prereqs — local Helm chart (this directory)
+  # Installed by setup.sh phase 6 after vault + external-secrets are ready.
+  #
+  # values/carbide-prereqs-dynamic.yaml.gotmpl: rendered at sync time — reads
+  #   vault ClusterIP and root token live from the cluster via exec.
+  #
+  # forge-system namespace Helm ownership is set by unseal_vault.sh before this runs.
+  # ssh-host-key is generated inline by Helm (_helpers.tpl genPrivateKey "ed25519").
+  # postSync hook: labels forge-system for ESO selection, waits for forge-roots.
+  # ---------------------------------------------------------------------------
+  - name: carbide-prereqs
+    chart: "."
+    namespace: forge-system
+    createNamespace: true
+    wait: true
+    timeout: 600
+    values:
+      - values.yaml
+      - values/carbide-prereqs-dynamic.yaml.gotmpl
+    hooks:
+      - events: ["postSync"]
+        command: "bash"
+        args:
+          - -c
+          - |
+            set -euo pipefail
+            kubectl label namespace forge-system \
+                carbide.nvidia.com/managed=true --overwrite
+            kubectl annotate externalsecret forge-roots-eso -n forge-system \
+                force-sync="$(date +%s)" --overwrite 2>/dev/null || true
+            echo "Waiting for forge-roots secret to be synced by ESO..."
+            until kubectl get secret forge-roots -n forge-system &>/dev/null; do sleep 3; done
+            echo "forge-roots ready"

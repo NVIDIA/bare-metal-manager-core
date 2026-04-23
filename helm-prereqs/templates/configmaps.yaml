@@ -1,0 +1,24 @@
+## =============================================================================
+## ConfigMaps for Vault connection info and database config
+## Referenced by carbide-api Deployment envFrom.
+## =============================================================================
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-cluster-info
+  namespace: {{ .Values.namespace }}
+data:
+  VAULT_SERVICE: {{ .Values.vault.address | quote }}
+  FORGE_VAULT_MOUNT: {{ .Values.vault.kvMount | quote }}
+  FORGE_VAULT_PKI_MOUNT: {{ .Values.vault.pkiMount | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: forge-system-carbide-database-config
+  namespace: {{ .Values.namespace }}
+data:
+  DB_HOST: {{ .Values.postgresql.host | quote }}
+  DB_PORT: "5432"
+  DB_NAME: "forge_system_carbide"

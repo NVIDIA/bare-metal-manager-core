@@ -1,0 +1,82 @@
+# =============================================================================
+# ncx-rest.yaml — values for: helm upgrade --install carbide-rest <chart>
+#
+# Image registry and tag are injected at install time via --set flags:
+#   --set global.image.repository=<your-registry>
+#   --set global.image.tag=<tag>
+# In setup.sh these come from NCX_IMAGE_REGISTRY and NCX_IMAGE_TAG.
+# =============================================================================
+
+global:
+  image:
+    repository: ""    # set via --set global.image.repository (NCX_IMAGE_REGISTRY env var)
+    tag: ""           # set via --set global.image.tag (NCX_IMAGE_TAG env var)
+    pullPolicy: IfNotPresent
+
+carbide-rest-api:
+  replicaCount: 3
+  nodePort:
+    enabled: true
+    port: 30388
+  config:
+    keycloak:
+      enabled: true
+      baseURL: "http://keycloak.carbide-rest:8082"
+      externalBaseURL: "http://keycloak.carbide-rest:8082"
+      realm: "carbide"
+      clientID: "carbide-rest"
+      serviceAccount: true
+
+carbide-rest-cert-manager:
+  replicaCount: 3
+
+carbide-rest-site-manager:
+  replicaCount: 3
+
+carbide-rest-workflow:
+  cloudWorker:
+    replicaCount: 3
+  siteWorker:
+    replicaCount: 3
+
+# Site-agent config — v1.0.4 binary reads DB config from env vars.
+# NCX postgres uses the 'forge' user and 'elektratest' database.
+# CLUSTER_ID and TEMPORAL_SUBSCRIBE_* are set via --set in setup.sh
+# using the NCX_SITE_UUID variable (default: a1b2c3d4-e5f6-4000-8000-000000000001).
+carbide-rest-site-agent:
+  replicaCount: 3
+  bootstrap:
+    enabled: true
+    siteManager:
+      address: "carbide-rest-site-manager.carbide-rest:8100"
+  certificate:
+    # Service identifier must match "elektra-site-agent" for carbide-api's SiteAgent RBAC role.
+    # The base path /forge-system/sa/ is one of carbide-api's recognized spiffe_service_base_paths.
+    uris:
+      - "spiffe://forge.local/forge-system/sa/elektra-site-agent"
+  envConfig:
+    # DEV ONLY — these values match the dev postgres instance deployed by setup.sh.
+    # DB_USER and DB_PASSWORD are injected from the db-creds Secret (secrets.dbCreds).
+    DB_ADDR: "postgres.postgres.svc.cluster.local"
+    DB_DATABASE: "elektratest"
+    DB_PORT: "5432"
+    ESA_PORT: "8080"
+    METRICS_PORT: "2112"
+    DEV_MODE: "true"
+    ENABLE_DEBUG: "true"
+    ENABLE_TLS: "true"
+    # mTLS to carbide-api (CARBIDE_SEC_OPT=2). Cert issued from vault-forge-issuer
+    # so carbide-api trusts it (same Vault PKI CA as carbide-api's own cert).
+    CARBIDE_ADDRESS: "carbide-api.forge-system.svc.cluster.local:1079"
+    CARBIDE_SEC_OPT: "2"
+    CLUSTER_ID: "a1b2c3d4-e5f6-4000-8000-000000000001"
+    TEMPORAL_HOST: "temporal-frontend.temporal"
+    TEMPORAL_PORT: "7233"
+    TEMPORAL_SERVER: "interservice.server.temporal.local"
+    TEMPORAL_PUBLISH_NAMESPACE: "site"
+    TEMPORAL_PUBLISH_QUEUE: "site"
+    TEMPORAL_SUBSCRIBE_NAMESPACE: "a1b2c3d4-e5f6-4000-8000-000000000001"
+    TEMPORAL_SUBSCRIBE_QUEUE: "site"
+    TEMPORAL_INVENTORY_SCHEDULE: "@every 3m"
+    TEMPORAL_CERT_PATH: "/etc/temporal-certs"
+    TEMPORAL_CERT: "temporal-client-site-agent-certs"

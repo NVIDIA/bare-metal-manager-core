@@ -1,0 +1,166 @@
+# =============================================================================
+# metallb-config.yaml — MetalLB site configuration
+#
+# Applied by setup.sh Phase 1c after MetalLB is installed.
+#
+# IMPORTANT: Replace all placeholder values with your site's real config before
+# running setup.sh. The values below are worked examples — do NOT use them
+# for your site without updating every field marked EXAMPLE.
+#
+# Fields you MUST change per site:
+#   IPAddressPool.spec.addresses   — your VIP CIDRs
+#   BGPPeer.spec.myASN             — your cluster-side ASN
+#   BGPPeer.spec.peerASN           — TOR router ASN per node (unique per node)
+#   BGPPeer.spec.peerAddress       — TOR switch IP reachable from that node
+#   BGPPeer.spec.nodeSelectors     — actual node hostnames in your cluster
+#   BGPAdvertisement.metadata.name — rename to match your site
+#
+# Advertisement mode — choose ONE:
+#   BGP (production): keep IPAddressPool + BGPPeer + BGPAdvertisement sections
+#   L2  (dev/test):   comment out BGPPeer + BGPAdvertisement, uncomment L2Advertisement
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# IP Address Pools
+#
+# Define one pool per logical VIP segment. NCX Core LoadBalancer services
+# (carbide-api, DHCP, DNS, PXE, SSH console) are allocated IPs from these pools.
+#
+# Typical production setup: separate internal and external pools so that
+# management traffic (carbide-api) can be routed differently from data-plane VIPs.
+#
+# addresses: list of CIDRs or ranges:
+#   CIDR format:  "10.x.x.160/28"       (16 addresses: .160 – .175)
+#   Range format: "10.x.x.10-10.x.x.20" (11 addresses)
+#
+# EXAMPLE: internal pool = 10.180.126.160/28, external = 10.180.126.176/28
+# Replace with your site's VIP CIDRs.
+# ---------------------------------------------------------------------------
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: vip-pool-internal    # ← rename to vip-pool-int-<yoursite>
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.180.126.160/28      # EXAMPLE — replace with your internal VIP CIDR
+
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: vip-pool-external    # ← rename to vip-pool-ext-<yoursite>
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.180.126.176/28      # EXAMPLE — replace with your external VIP CIDR
+
+---
+# ---------------------------------------------------------------------------
+# BGP Peers
+#
+# One BGPPeer per (worker node, TOR router) pair.
+# Each node peers with the TOR switch it is physically connected to.
+# The MetalLB FRR speaker on that node establishes a BGP session with its TOR
+# and announces the VIP routes so traffic is routed to the right node.
+#
+# myASN:       cluster-side ASN — same for all nodes on this site.
+#              Allocated by your network team per cluster/rack.
+# peerASN:     router-side ASN — typically unique per TOR port / node.
+# peerAddress: TOR switch IP reachable from this node (usually OOB/mgmt subnet).
+# nodeSelectors: restricts this peer to the specific node by its hostname label.
+#   Run: kubectl get nodes -o wide   to list hostnames.
+#
+# EXAMPLE:
+#   myASN = 4244766850 (cluster ASN, allocated by your network team)
+#   3 worker nodes, each with its own TOR port and peerASN
+#
+# Add or remove BGPPeer blocks to match your node count.
+# ---------------------------------------------------------------------------
+apiVersion: metallb.io/v1beta2
+kind: BGPPeer
+metadata:
+  name: rno1-m04-d04-cpu-1-bgp-peer    # EXAMPLE — rename to <node>-bgp-peer
+  namespace: metallb-system
+spec:
+  myASN: 4244766850      # EXAMPLE — replace with your cluster ASN
+  peerASN: 4244766851    # EXAMPLE — replace with TOR ASN for this node
+  peerAddress: 10.180.248.80    # EXAMPLE — replace with TOR switch IP for this node
+  nodeSelectors:
+    - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+            - rno1-m04-d04-cpu-1    # EXAMPLE — replace with your node hostname
+
+---
+apiVersion: metallb.io/v1beta2
+kind: BGPPeer
+metadata:
+  name: rno1-m04-d04-cpu-2-bgp-peer    # EXAMPLE — rename to <node>-bgp-peer
+  namespace: metallb-system
+spec:
+  myASN: 4244766850      # same cluster ASN
+  peerASN: 4244766852    # EXAMPLE — unique per node
+  peerAddress: 10.180.248.82    # EXAMPLE — replace with TOR switch IP for this node
+  nodeSelectors:
+    - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+            - rno1-m04-d04-cpu-2    # EXAMPLE — replace with your node hostname
+
+---
+apiVersion: metallb.io/v1beta2
+kind: BGPPeer
+metadata:
+  name: rno1-m04-d04-cpu-3-bgp-peer    # EXAMPLE — rename to <node>-bgp-peer
+  namespace: metallb-system
+spec:
+  myASN: 4244766850      # same cluster ASN
+  peerASN: 4244766853    # EXAMPLE — unique per node
+  peerAddress: 10.180.248.84    # EXAMPLE — replace with TOR switch IP for this node
+  nodeSelectors:
+    - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+            - rno1-m04-d04-cpu-3    # EXAMPLE — replace with your node hostname
+---
+# ---------------------------------------------------------------------------
+# BGP Advertisement
+#
+# Empty spec = advertise ALL IPAddressPools to ALL BGPPeers automatically.
+# This is the standard production configuration — no filtering needed when
+# all nodes peer with the same set of routers and all VIPs should be reachable
+# from both TOR switches.
+#
+# To restrict which pools are sent to which peers, add:
+#   spec:
+#     ipAddressPools: [vip-pool-internal]
+#     peers: [rno1-m04-d04-cpu-1-bgp-peer]
+#
+# Rename the advertisement to match your site (e.g. "prod-us-east", "lab-rno1").
+# ---------------------------------------------------------------------------
+apiVersion: metallb.io/v1beta1
+kind: BGPAdvertisement
+metadata:
+  name: my-site          # EXAMPLE — rename to your site name
+  namespace: metallb-system
+
+# ---------------------------------------------------------------------------
+# L2 Advertisement — alternative to BGP for dev/test environments.
+#
+# Use this instead of BGPPeer + BGPAdvertisement when BGP routing is not
+# available (e.g. local dev clusters, Kind, or flat-network environments).
+# Comment out all BGPPeer and BGPAdvertisement sections above and uncomment:
+# ---------------------------------------------------------------------------
+# apiVersion: metallb.io/v1beta1
+# kind: L2Advertisement
+# metadata:
+#   name: l2-advertisement
+#   namespace: metallb-system
+# spec:
+#   ipAddressPools:
+#     - vip-pool-internal
+#     - vip-pool-external

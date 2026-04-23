@@ -1,0 +1,160 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-realm
+  labels:
+    app: keycloak
+data:
+  carbide-realm.json: |
+    {
+      "realm": "carbide",
+      "enabled": true,
+      "displayName": "NCX Infra Controller",
+      "sslRequired": "none",
+      "registrationAllowed": false,
+      "loginWithEmailAllowed": true,
+      "duplicateEmailsAllowed": false,
+      "resetPasswordAllowed": true,
+      "editUsernameAllowed": false,
+      "bruteForceProtected": true,
+      "roles": {
+        "realm": [
+          {
+            "name": "ncx:FORGE_PROVIDER_ADMIN",
+            "description": "NCX Provider Administrator"
+          },
+          {
+            "name": "ncx:FORGE_TENANT_ADMIN",
+            "description": "NCX Tenant Administrator"
+          },
+          {
+            "name": "ncx:FORGE_PROVIDER_VIEWER",
+            "description": "NCX Provider Viewer"
+          },
+          {
+            "name": "admin",
+            "description": "Administrator role"
+          },
+          {
+            "name": "user",
+            "description": "Regular user role"
+          }
+        ],
+        "client": {
+          "carbide-rest": [
+            {
+              "name": "api-access",
+              "description": "Access to NCX REST API"
+            }
+          ]
+        }
+      },
+      "clients": [
+        {
+          "clientId": "carbide-rest",
+          "name": "NCX REST API",
+          "enabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": "carbide-local-secret",
+          "redirectUris": ["*"],
+          "webOrigins": ["*"],
+          "publicClient": false,
+          "protocol": "openid-connect",
+          "directAccessGrantsEnabled": true,
+          "serviceAccountsEnabled": true,
+          "authorizationServicesEnabled": false,
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "fullScopeAllowed": true,
+          "defaultClientScopes": [
+            "web-origins", "acr", "profile", "roles", "email"
+          ],
+          "optionalClientScopes": [
+            "address", "phone", "offline_access", "microprofile-jwt"
+          ],
+          "protocolMappers": [
+            {
+              "name": "audience",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-audience-mapper",
+              "consentRequired": false,
+              "config": {
+                "included.client.audience": "carbide-rest",
+                "id.token.claim": "true",
+                "access.token.claim": "true"
+              }
+            },
+            {
+              "name": "oidc_id",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-attribute-mapper",
+              "consentRequired": false,
+              "config": {
+                "user.attribute": "oidc_id",
+                "claim.name": "oidc_id",
+                "jsonType.label": "String",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        },
+        {
+          "clientId": "ncx-service",
+          "name": "NCX Service Account",
+          "enabled": true,
+          "clientAuthenticatorType": "client-secret",
+          "secret": "carbide-local-secret",
+          "publicClient": false,
+          "protocol": "openid-connect",
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": true,
+          "standardFlowEnabled": false,
+          "implicitFlowEnabled": false,
+          "fullScopeAllowed": true,
+          "defaultClientScopes": ["email", "profile", "roles"],
+          "attributes": {
+            "access.token.lifespan": "1800",
+            "client.session.idle.timeout": "1800",
+            "client.session.max.lifespan": "1800"
+          },
+          "protocolMappers": [
+            {
+              "name": "oidc_id",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-usermodel-attribute-mapper",
+              "consentRequired": false,
+              "config": {
+                "user.attribute": "oidc_id",
+                "claim.name": "oidc_id",
+                "jsonType.label": "String",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true"
+              }
+            }
+          ]
+        }
+      ],
+      "users": [
+        {
+          "username": "service-account-ncx-service",
+          "enabled": true,
+          "serviceAccountClientId": "ncx-service",
+          "realmRoles": [
+            "ncx:FORGE_PROVIDER_ADMIN",
+            "ncx:FORGE_TENANT_ADMIN"
+          ],
+          "clientRoles": {
+            "carbide-rest": ["api-access"]
+          }
+        }
+      ],
+      "defaultDefaultClientScopes": [
+        "role_list", "profile", "email", "roles", "web-origins", "acr"
+      ],
+      "defaultOptionalClientScopes": [
+        "offline_access", "address", "phone", "microprofile-jwt"
+      ]
+    }
