@@ -17,7 +17,9 @@
 #
 set -euo pipefail
 
-# Generate openssl.cfg for v3 extensions
+# Generate openssl.cnf for v3 extensions.
+# IP SANs cover both Docker Desktop (192.168.65.254) and Colima (192.168.5.2)
+# so the cert works regardless of container runtime if needed.
 cat > openssl.cnf <<EOF
 [ req ]
 distinguished_name = req_distinguished_name
@@ -46,12 +48,12 @@ keyUsage = digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth, clientAuth
 subjectAltName = @alt_names
 
-# host.docker.internal and 192.168.65.254 are docker 'magic' name/ip to communicate with host on macOS.
 [ alt_names ]
 DNS.1 = localhost
 DNS.2 = host.docker.internal
 IP.1 = 127.0.0.1
 IP.2 = 192.168.65.254
+IP.3 = 192.168.5.2
 EOF
 
 # Generate CA key and self-signed certificate
