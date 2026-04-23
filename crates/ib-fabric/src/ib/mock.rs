@@ -25,7 +25,7 @@ use model::ib::{
 
 use super::iface::{Filter, GetPartitionOptions, IBFabricRawResponse};
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
-use crate::CarbideError;
+use crate::errors::IbError;
 
 pub struct MockIBFabric {
     state: Arc<Mutex<State>>,
@@ -45,7 +45,7 @@ struct State {
 #[async_trait]
 impl IBFabric for MockIBFabric {
     /// Get fabric configuration
-    async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError> {
+    async fn get_fabric_config(&self) -> Result<IBFabricConfig, IbError> {
         Ok(IBFabricConfig {
             subnet_prefix: "0xfe80000000000000".to_string(),
             m_key: "0x10".to_string(),
@@ -59,9 +59,9 @@ impl IBFabric for MockIBFabric {
     async fn get_ib_networks(
         &self,
         options: GetPartitionOptions,
-    ) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
+    ) -> Result<HashMap<u16, IBNetwork>, IbError> {
         if options.include_guids_data && options.include_qos_conf {
-            return Err(CarbideError::internal("Returning qos_conf and guids_data is not supported: https://nvbugspro.nvidia.com/bug/5409095".to_string()));
+            return Err(IbError::internal("Returning qos_conf and guids_data is not supported: https://nvbugspro.nvidia.com/bug/5409095".to_string()));
         };
         assert!(
             options.include_qos_conf || options.include_guids_data,
@@ -71,7 +71,7 @@ impl IBFabric for MockIBFabric {
         let state = self
             .state
             .lock()
-            .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
+            .map_err(|_| IbError::IBFabricError("state lock".to_string()))?;
 
         let mut results = HashMap::new();
         for (&pkey, subnet) in &state.subnets {
@@ -97,7 +97,7 @@ impl IBFabric for MockIBFabric {
         &self,
         pkey: u16,
         options: GetPartitionOptions,
-    ) -> Result<IBNetwork, CarbideError> {
+    ) -> Result<IBNetwork, IbError> {
         assert!(
             options.include_qos_conf,
             "include_qos_conf must be to set to match the real/rest path"
@@ -106,11 +106,11 @@ impl IBFabric for MockIBFabric {
         let state = self
             .state
             .lock()
-            .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
+            .map_err(|_| IbError::IBFabricError("state lock".to_string()))?;
 
         let mut ib = match state.subnets.get(&pkey) {
             None => {
-                return Err(CarbideError::NotFoundError {
+                return Err(IbError::NotFoundError {
                     kind: "ufm_path",
                     id: format!("/resources/pkeys/0x{pkey:x}"),
                 });
@@ -131,11 +131,7 @@ impl IBFabric for MockIBFabric {
         Ok(ib)
     }
 
-    async fn bind_ib_ports(
-        &self,
-        mut ib: IBNetwork,
-        ports: Vec<String>,
-    ) -> Result<(), CarbideError> {
+    async fn bind_ib_ports(&self, mut ib: IBNetwork, ports: Vec<String>) -> Result<(), IbError> {
         println!(
             "bind_ib_ports(pkey: 0x{:x}, ports: {})",
             ib.pkey,
@@ -153,11 +149,11 @@ impl IBFabric for MockIBFabric {
         let mut state = self
             .state
             .lock()
-            .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
+            .map_err(|_| IbError::IBFabricError("state lock".to_string()))?;
 
         for port in &ports {
             if !state.ports.contains_key(port) {
-                return Err(CarbideError::IBFabricError(format!(
+                return Err(IbError::IBFabricError(format!(
                     "Port with GUID {port} is not found"
                 )));
             }
@@ -179,11 +175,11 @@ impl IBFabric for MockIBFabric {
         &self,
         pkey: u16,
         qos_conf: &IBQosConf,
-    ) -> Result<(), CarbideError> {
+    ) -> Result<(), IbError> {
         let mut state = self
             .state
             .lock()
-            .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
+            .map_err(|_| IbError::IBFabricError("state lock".to_string()))?;
 
         match state.subnets.get_mut(&pkey) {
             Some(ib) => {
@@ -191,18 +187,16 @@ impl IBFabric for MockIBFabric {
                 ib.qos_conf = Some(qos_conf.clone());
                 Ok(())
             }
-            None => Err(CarbideError::IBFabricError(
-                "ib subnet not found".to_string(),
-            )),
+            None => Err(IbError::IBFabricError("ib subnet not found".to_string())),
         }
     }
 
     /// Find IBPort
-    async fn find_ib_port(&self, filter: Option<Filter>) -> Result<Vec<IBPort>, CarbideError> {
+    async fn find_ib_port(&self, filter: Option<Filter>) -> Result<Vec<IBPort>, IbError> {
         let state = self
             .state
             .lock()
-            .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
+            .map_err(|_| IbError::IBFabricError("state lock".to_string()))?;
 
         let ports = state.ports.values().cloned().collect();
 
@@ -223,7 +217,7 @@ impl IBFabric for MockIBFabric {
     }
 
     /// Delete IBPort
-    async fn unbind_ib_ports(&self, pkey: u16, ids: Vec<String>) -> Result<(), CarbideError> {
+    async fn unbind_ib_ports(&self, pkey: u16, ids: Vec<String>) -> Result<(), IbError> {
         println!(
             "bind_ib_ports(pkey: 0x{:x}, ports: {})",
             pkey,
@@ -232,11 +226,11 @@ impl IBFabric for MockIBFabric {
         let mut state = self
             .state
             .lock()
-            .map_err(|_| CarbideError::IBFabricError("state lock".to_string()))?;
+            .map_err(|_| IbError::IBFabricError("state lock".to_string()))?;
 
         for id in &ids {
             if !state.ports.contains_key(id) {
-                return Err(CarbideError::IBFabricError(format!(
+                return Err(IbError::IBFabricError(format!(
                     "Port with GUID {id} is not found"
                 )));
             }
@@ -264,7 +258,7 @@ impl IBFabric for MockIBFabric {
     }
 
     /// Returns IB fabric related versions
-    async fn versions(&self) -> Result<IBFabricVersions, CarbideError> {
+    async fn versions(&self) -> Result<IBFabricVersions, IbError> {
         let ufm_version = "mock_ufm_1.0".to_string();
 
         Ok(IBFabricVersions { ufm_version })
@@ -272,8 +266,8 @@ impl IBFabric for MockIBFabric {
 
     /// Make a raw HTTP GET request to the Fabric Manager using the given path,
     /// and return the response body.
-    async fn raw_get(&self, _path: &str) -> Result<IBFabricRawResponse, CarbideError> {
-        Err(CarbideError::NotImplemented)
+    async fn raw_get(&self, _path: &str) -> Result<IBFabricRawResponse, IbError> {
+        Err(IbError::NotImplemented)
     }
 }
 

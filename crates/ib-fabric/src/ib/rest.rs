@@ -30,7 +30,7 @@ use super::ufmclient::{
     UFMCert, UFMConfig, UFMError, Ufm,
 };
 use super::{IBFabric, IBFabricConfig, IBFabricVersions};
-use crate::CarbideError;
+use crate::errors::IbError;
 
 pub struct RestIBFabric {
     ufm: Ufm,
@@ -39,7 +39,7 @@ pub struct RestIBFabric {
 const DEFAULT_INDEX0: bool = true;
 const DEFAULT_MEMBERSHIP: PortMembership = PortMembership::Full;
 
-pub fn new_client(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, CarbideError> {
+pub fn new_client(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, IbError> {
     // Detect authentification method
     // 'user token' or 'client authentification'
     // 'client authentification' method is choosen in case empty 'auth' string or valid path in 'auth'
@@ -73,7 +73,7 @@ pub fn new_client(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, CarbideEr
         cert,
     };
 
-    let ufm = ufmclient::new_client(conf).map_err(CarbideError::from)?;
+    let ufm = ufmclient::new_client(conf).map_err(IbError::from)?;
 
     Ok(Arc::new(RestIBFabric { ufm }))
 }
@@ -81,19 +81,19 @@ pub fn new_client(addr: &str, auth: &str) -> Result<Arc<dyn IBFabric>, CarbideEr
 #[async_trait]
 impl IBFabric for RestIBFabric {
     /// Get fabric configuration
-    async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError> {
+    async fn get_fabric_config(&self) -> Result<IBFabricConfig, IbError> {
         self.ufm
             .get_sm_config()
             .await
             .map(IBFabricConfig::from)
-            .map_err(CarbideError::from)
+            .map_err(IbError::from)
     }
 
     /// Get all IB Networks
     async fn get_ib_networks(
         &self,
         options: GetPartitionOptions,
-    ) -> Result<HashMap<u16, IBNetwork>, CarbideError> {
+    ) -> Result<HashMap<u16, IBNetwork>, IbError> {
         let partitions = self
             .ufm
             .list_partitions(ufmclient::GetPartitionOptions {
@@ -117,7 +117,7 @@ impl IBFabric for RestIBFabric {
         &self,
         pkey: u16,
         options: GetPartitionOptions,
-    ) -> Result<IBNetwork, CarbideError> {
+    ) -> Result<IBNetwork, IbError> {
         let pkey = PartitionKey::try_from(pkey)?;
 
         let partition = self
@@ -135,11 +135,7 @@ impl IBFabric for RestIBFabric {
     }
 
     /// Create IBPort
-    async fn bind_ib_ports(
-        &self,
-        ibnetwork: IBNetwork,
-        ports: Vec<String>,
-    ) -> Result<(), CarbideError> {
+    async fn bind_ib_ports(&self, ibnetwork: IBNetwork, ports: Vec<String>) -> Result<(), IbError> {
         let partition = Partition::try_from(ibnetwork)?;
         let ports = ports.iter().map(PortConfig::from).collect();
 
@@ -154,7 +150,7 @@ impl IBFabric for RestIBFabric {
         &self,
         pkey: u16,
         qos_conf: &IBQosConf,
-    ) -> Result<(), CarbideError> {
+    ) -> Result<(), IbError> {
         let qos = PartitionQoS::try_from(qos_conf)?;
         let pkey = PartitionKey::try_from(pkey)?;
 
@@ -165,14 +161,14 @@ impl IBFabric for RestIBFabric {
     }
 
     /// Delete IBPort
-    async fn unbind_ib_ports(&self, pkey: u16, ids: Vec<String>) -> Result<(), CarbideError> {
+    async fn unbind_ib_ports(&self, pkey: u16, ids: Vec<String>) -> Result<(), IbError> {
         let pkey = PartitionKey::try_from(pkey)?;
 
         self.ufm.unbind_ports(pkey, ids).await.map_err(Into::into)
     }
 
     /// Find IBPort
-    async fn find_ib_port(&self, filter: Option<Filter>) -> Result<Vec<IBPort>, CarbideError> {
+    async fn find_ib_port(&self, filter: Option<Filter>) -> Result<Vec<IBPort>, IbError> {
         let filter = filter.map(ufmclient::Filter::try_from).transpose()?;
         self.ufm
             .list_port(filter)
@@ -182,7 +178,7 @@ impl IBFabric for RestIBFabric {
     }
 
     /// Returns IB fabric related versions
-    async fn versions(&self) -> Result<IBFabricVersions, CarbideError> {
+    async fn versions(&self) -> Result<IBFabricVersions, IbError> {
         let ufm_version = self.ufm.version().await?;
 
         Ok(IBFabricVersions { ufm_version })
@@ -190,7 +186,7 @@ impl IBFabric for RestIBFabric {
 
     /// Make a raw HTTP GET request to the Fabric Manager using the given path,
     /// and return the response body.
-    async fn raw_get(&self, path: &str) -> Result<IBFabricRawResponse, CarbideError> {
+    async fn raw_get(&self, path: &str) -> Result<IBFabricRawResponse, IbError> {
         let response = match self.ufm.raw_get(path).await {
             Ok((body, details)) => IBFabricRawResponse {
                 body,
@@ -212,7 +208,7 @@ impl IBFabric for RestIBFabric {
     }
 }
 
-impl From<UFMError> for CarbideError {
+impl From<UFMError> for IbError {
     fn from(e: UFMError) -> Self {
         match e {
             // This is required to let the IB partition handler move on into the final deletion state
@@ -221,11 +217,11 @@ impl From<UFMError> for CarbideError {
                 status_code: _,
                 body: _,
                 headers: _,
-            } => CarbideError::NotFoundError {
+            } => IbError::NotFoundError {
                 kind: "ufm_path",
                 id: path,
             },
-            _ => CarbideError::IBFabricError(e.to_string()),
+            _ => IbError::IBFabricError(e.to_string()),
         }
     }
 }
@@ -243,14 +239,14 @@ impl From<SmConfig> for IBFabricConfig {
 }
 
 impl TryFrom<PartitionQoS> for IBQosConf {
-    type Error = CarbideError;
+    type Error = IbError;
     fn try_from(qos: PartitionQoS) -> Result<Self, Self::Error> {
         IBQosConf::try_from(&qos)
     }
 }
 
 impl TryFrom<&PartitionQoS> for IBQosConf {
-    type Error = CarbideError;
+    type Error = IbError;
     fn try_from(qos: &PartitionQoS) -> Result<Self, Self::Error> {
         let rate_limit_value = if qos.rate_limit == (qos.rate_limit as i32) as f32 {
             qos.rate_limit as i32
@@ -258,7 +254,7 @@ impl TryFrom<&PartitionQoS> for IBQosConf {
             // It is special case for SDR as 2.5
             2
         } else {
-            return Err(CarbideError::InvalidArgument(format!(
+            return Err(IbError::InvalidArgument(format!(
                 "{0} is an invalid rate limit",
                 qos.rate_limit
             )));
@@ -272,14 +268,14 @@ impl TryFrom<&PartitionQoS> for IBQosConf {
 }
 
 impl TryFrom<Partition> for IBNetwork {
-    type Error = CarbideError;
+    type Error = IbError;
     fn try_from(p: Partition) -> Result<Self, Self::Error> {
         IBNetwork::try_from(&p)
     }
 }
 
 impl TryFrom<&Partition> for IBNetwork {
-    type Error = CarbideError;
+    type Error = IbError;
     fn try_from(p: &Partition) -> Result<Self, Self::Error> {
         Ok(IBNetwork {
             name: p.name.clone(),
@@ -296,7 +292,7 @@ impl TryFrom<&Partition> for IBNetwork {
 }
 
 impl TryFrom<Filter> for ufmclient::Filter {
-    type Error = CarbideError;
+    type Error = IbError;
     fn try_from(filter: Filter) -> Result<Self, Self::Error> {
         Ok(Self {
             guids: filter.guids.clone(),
@@ -310,14 +306,14 @@ impl TryFrom<Filter> for ufmclient::Filter {
 }
 
 impl TryFrom<IBQosConf> for PartitionQoS {
-    type Error = CarbideError;
+    type Error = IbError;
     fn try_from(qos: IBQosConf) -> Result<Self, Self::Error> {
         PartitionQoS::try_from(&qos)
     }
 }
 
 impl TryFrom<&IBQosConf> for PartitionQoS {
-    type Error = CarbideError;
+    type Error = IbError;
     fn try_from(qos: &IBQosConf) -> Result<Self, Self::Error> {
         let rate_limit_value = if qos.rate_limit == IBRateLimit(2) {
             // It is special case for SDR as 2.5
@@ -334,19 +330,19 @@ impl TryFrom<&IBQosConf> for PartitionQoS {
 }
 
 impl TryFrom<IBNetwork> for Partition {
-    type Error = CarbideError;
+    type Error = IbError;
     fn try_from(p: IBNetwork) -> Result<Self, Self::Error> {
         Partition::try_from(&p)
     }
 }
 
 impl TryFrom<&IBNetwork> for Partition {
-    type Error = CarbideError;
+    type Error = IbError;
     fn try_from(p: &IBNetwork) -> Result<Self, Self::Error> {
         Ok(Partition {
             name: p.name.clone(),
             pkey: PartitionKey::try_from(p.pkey)
-                .map_err(|_| CarbideError::IBFabricError("invalid pkey".to_string()))?,
+                .map_err(|_| IbError::IBFabricError("invalid pkey".to_string()))?,
             ipoib: p.ipoib,
             qos: p.qos_conf.as_ref().map(|qos| qos.try_into()).transpose()?,
             guids: Default::default(),
@@ -424,6 +420,8 @@ impl From<PortMembership> for IBPortMembership {
 
 #[cfg(test)]
 mod tests {
+    use model::errors::ModelError;
+
     use super::*;
 
     #[test]
@@ -464,7 +462,10 @@ mod tests {
         };
         let result = IBNetwork::try_from(value);
         assert!(result.is_err());
-        assert!(matches!(result, Err(CarbideError::InvalidArgument(_))));
+        assert!(matches!(
+            result,
+            Err(IbError::ModelError(ModelError::InvalidArgument(_)))
+        ));
 
         // Invalid Partition (service level)
         let value = Partition {
@@ -481,7 +482,10 @@ mod tests {
         };
         let result = IBNetwork::try_from(value);
         assert!(result.is_err());
-        assert!(matches!(result, Err(CarbideError::InvalidArgument(_))));
+        assert!(matches!(
+            result,
+            Err(IbError::ModelError(ModelError::InvalidArgument(_)))
+        ));
 
         // Invalid Partition (rate limit)
         let value = Partition {
@@ -498,7 +502,10 @@ mod tests {
         };
         let result = IBNetwork::try_from(value);
         assert!(result.is_err());
-        assert!(matches!(result, Err(CarbideError::InvalidArgument(_))));
+        assert!(matches!(
+            result,
+            Err(IbError::ModelError(ModelError::InvalidArgument(_)))
+        ));
 
         // Check special (rate limit as 2(2.5))
         let expected_partition = Partition {
@@ -681,7 +688,7 @@ mod tests {
 
         // No filter by state
         let result_ports: Result<Vec<Port>, UFMError> = Ok(ports.clone());
-        let result: Result<Vec<IBPort>, CarbideError> = result_ports
+        let result: Result<Vec<IBPort>, IbError> = result_ports
             .map(|p| p.iter().map(IBPort::from).collect())
             .map_err(Into::into);
         assert!(result.is_ok());
@@ -690,7 +697,7 @@ mod tests {
 
         // Filter devices in Active state
         let result_ports: Result<Vec<Port>, UFMError> = Ok(ports);
-        let result: Result<Vec<IBPort>, CarbideError> = result_ports
+        let result: Result<Vec<IBPort>, IbError> = result_ports
             .map(|p| {
                 p.iter()
                     .map(IBPort::from)

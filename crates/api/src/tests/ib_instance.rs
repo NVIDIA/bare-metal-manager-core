@@ -17,6 +17,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use carbide_ib_fabric::config::IBFabricConfig;
+use carbide_ib_fabric::ib::{Filter, IBFabric, IBFabricManager};
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::machine::MachineId;
 use common::api_fixtures::ib_partition::{DEFAULT_TENANT, create_ib_partition};
@@ -30,8 +32,6 @@ use rpc::forge::{IbPartitionStatus, TenantState};
 use tonic::Request;
 
 use crate::api::Api;
-use crate::cfg::file::IBFabricConfig;
-use crate::ib::{Filter, IBFabric, IBFabricManager};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 
@@ -55,8 +55,8 @@ async fn test_create_instance_with_ib_config(pool: sqlx::PgPool) {
     let mut config = common::api_fixtures::get_config();
     config.ib_config = Some(IBFabricConfig {
         enabled: true,
-        mtu: crate::ib::IBMtu(2),
-        rate_limit: crate::ib::IBRateLimit(10),
+        mtu: carbide_ib_fabric::ib::IBMtu(2),
+        rate_limit: carbide_ib_fabric::ib::IBRateLimit(10),
         max_partition_per_tenant: 16,
         ..Default::default()
     });
@@ -472,8 +472,8 @@ async fn test_can_not_create_instance_for_inactive_ib_device(pool: sqlx::PgPool)
     let mut config = common::api_fixtures::get_config();
     config.ib_config = Some(IBFabricConfig {
         enabled: true,
-        mtu: crate::ib::IBMtu(2),
-        rate_limit: crate::ib::IBRateLimit(100),
+        mtu: carbide_ib_fabric::ib::IBMtu(2),
+        rate_limit: carbide_ib_fabric::ib::IBRateLimit(100),
         max_partition_per_tenant: 8,
         ..Default::default()
     });
@@ -609,8 +609,8 @@ async fn test_update_instance_ib_config(pool: sqlx::PgPool) {
     let mut config = common::api_fixtures::get_config();
     config.ib_config = Some(IBFabricConfig {
         enabled: true,
-        mtu: crate::ib::IBMtu(2),
-        rate_limit: crate::ib::IBRateLimit(10),
+        mtu: carbide_ib_fabric::ib::IBMtu(2),
+        rate_limit: carbide_ib_fabric::ib::IBRateLimit(10),
         max_partition_per_tenant: 16,
         ..Default::default()
     });
@@ -1110,8 +1110,8 @@ async fn test_count_instances_referencing_partition(pool: sqlx::PgPool) {
     let mut config = common::api_fixtures::get_config();
     config.ib_config = Some(IBFabricConfig {
         enabled: true,
-        mtu: crate::ib::IBMtu(2),
-        rate_limit: crate::ib::IBRateLimit(10),
+        mtu: carbide_ib_fabric::ib::IBMtu(2),
+        rate_limit: carbide_ib_fabric::ib::IBRateLimit(10),
         max_partition_per_tenant: 16,
         ..Default::default()
     });
@@ -1230,8 +1230,8 @@ async fn test_postpone_partition_deletion_while_instances_reference_it(pool: sql
     let mut config = common::api_fixtures::get_config();
     config.ib_config = Some(IBFabricConfig {
         enabled: true,
-        mtu: crate::ib::IBMtu(2),
-        rate_limit: crate::ib::IBRateLimit(10),
+        mtu: carbide_ib_fabric::ib::IBMtu(2),
+        rate_limit: carbide_ib_fabric::ib::IBRateLimit(10),
         max_partition_per_tenant: 16,
         ..Default::default()
     });
@@ -1415,8 +1415,8 @@ async fn test_count_instances_multi_partition_multi_interface(pool: sqlx::PgPool
     let mut config = common::api_fixtures::get_config();
     config.ib_config = Some(IBFabricConfig {
         enabled: true,
-        mtu: crate::ib::IBMtu(2),
-        rate_limit: crate::ib::IBRateLimit(10),
+        mtu: carbide_ib_fabric::ib::IBMtu(2),
+        rate_limit: carbide_ib_fabric::ib::IBRateLimit(10),
         max_partition_per_tenant: 16,
         ..Default::default()
     });
@@ -1607,8 +1607,8 @@ async fn test_delete_ib_partition_rejected_with_active_instances(pool: sqlx::PgP
     let mut config = common::api_fixtures::get_config();
     config.ib_config = Some(IBFabricConfig {
         enabled: true,
-        mtu: crate::ib::IBMtu(2),
-        rate_limit: crate::ib::IBRateLimit(10),
+        mtu: carbide_ib_fabric::ib::IBMtu(2),
+        rate_limit: carbide_ib_fabric::ib::IBRateLimit(10),
         max_partition_per_tenant: 16,
         ..Default::default()
     });

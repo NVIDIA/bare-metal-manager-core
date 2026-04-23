@@ -14,12 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use carbide_ib_fabric::errors::IbError;
+use carbide_ib_fabric::ib::{GetPartitionOptions, IBFabricManagerConfig};
 use carbide_uuid::infiniband::IBPartitionId;
 use model::ib::{DEFAULT_IB_FABRIC_NAME, IBQosConf};
 use model::ib_partition::{IBPartition, IBPartitionControllerState, IBPartitionStatus};
 
-use crate::CarbideError;
-use crate::ib::{GetPartitionOptions, IBFabricManagerConfig};
 use crate::state_controller::ib_partition::context::IBPartitionStateHandlerContextObjects;
 use crate::state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
@@ -88,7 +88,7 @@ impl StateHandler for IBPartitionStateHandler {
                         if let Err(e) = res {
                             match e {
                                 // The IBPartition maybe deleted during controller cycle.
-                                CarbideError::NotFoundError { .. } => {
+                                IbError::NotFoundError { .. } => {
                                     // Before deleting, check if any instances still reference
                                     // this partition. This prevents deleting a partition that
                                     // instances still depend on, which would cause errors when
@@ -236,7 +236,7 @@ impl StateHandler for IBPartitionStateHandler {
                                 match e {
                                     // The Partition maybe still empty as it will be only created
                                     // when at least one port associated with the Partition.
-                                    CarbideError::NotFoundError { .. } => {
+                                    IbError::NotFoundError { .. } => {
                                         Ok(StateHandlerOutcome::do_nothing())
                                     }
                                     _ => Err(StateHandlerError::IBFabricError {

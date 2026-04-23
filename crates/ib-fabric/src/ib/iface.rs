@@ -21,7 +21,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use model::ib::{IBNetwork, IBPort, IBPortState, IBQosConf};
 
-use crate::CarbideError;
+use crate::errors::IbError;
 use crate::ib::IBFabricManagerConfig;
 
 #[derive(Default)]
@@ -83,7 +83,7 @@ impl Default for IBFabricConfig {
 
 #[async_trait]
 pub trait IBFabricManager: Send + Sync {
-    async fn new_client(&self, fabric_name: &str) -> Result<Arc<dyn IBFabric>, CarbideError>;
+    async fn new_client(&self, fabric_name: &str) -> Result<Arc<dyn IBFabric>, IbError>;
     fn get_config(&self) -> IBFabricManagerConfig;
 }
 
@@ -98,45 +98,41 @@ pub struct GetPartitionOptions {
 #[async_trait]
 pub trait IBFabric: Send + Sync {
     /// Get fabric configuration
-    async fn get_fabric_config(&self) -> Result<IBFabricConfig, CarbideError>;
+    async fn get_fabric_config(&self) -> Result<IBFabricConfig, IbError>;
 
     /// Update an IB Partitions QoS configuration
     async fn update_partition_qos_conf(
         &self,
         pkey: u16,
         qos_conf: &IBQosConf,
-    ) -> Result<(), CarbideError>;
+    ) -> Result<(), IbError>;
 
     /// Get all IB Networks
     async fn get_ib_networks(
         &self,
         options: GetPartitionOptions,
-    ) -> Result<HashMap<u16, IBNetwork>, CarbideError>;
+    ) -> Result<HashMap<u16, IBNetwork>, IbError>;
 
     /// Get IBNetwork by ID
     async fn get_ib_network(
         &self,
         pkey: u16,
         options: GetPartitionOptions,
-    ) -> Result<IBNetwork, CarbideError>;
+    ) -> Result<IBNetwork, IbError>;
 
     /// Create IBPort
-    async fn bind_ib_ports(
-        &self,
-        ibnetwork: IBNetwork,
-        ports: Vec<String>,
-    ) -> Result<(), CarbideError>;
+    async fn bind_ib_ports(&self, ibnetwork: IBNetwork, ports: Vec<String>) -> Result<(), IbError>;
 
     /// Delete IBPort
-    async fn unbind_ib_ports(&self, pkey: u16, id: Vec<String>) -> Result<(), CarbideError>;
+    async fn unbind_ib_ports(&self, pkey: u16, id: Vec<String>) -> Result<(), IbError>;
 
     /// Find IBPort
-    async fn find_ib_port(&self, filter: Option<Filter>) -> Result<Vec<IBPort>, CarbideError>;
+    async fn find_ib_port(&self, filter: Option<Filter>) -> Result<Vec<IBPort>, IbError>;
 
     /// Returns IB fabric related versions
-    async fn versions(&self) -> Result<IBFabricVersions, CarbideError>;
+    async fn versions(&self) -> Result<IBFabricVersions, IbError>;
 
     /// Make a raw HTTP GET request to the Fabric Manager using the given path,
     /// and return the response body.
-    async fn raw_get(&self, path: &str) -> Result<IBFabricRawResponse, CarbideError>;
+    async fn raw_get(&self, path: &str) -> Result<IBFabricRawResponse, IbError>;
 }

@@ -17,13 +17,13 @@
 
 use std::collections::{HashMap, HashSet};
 
+use carbide_ib_fabric::config::IBFabricConfig;
+use carbide_ib_fabric::ib::{GetPartitionOptions, IBFabric, IBMtu, IBRateLimit, IBServiceLevel};
 use carbide_uuid::machine::MachineId;
 use common::api_fixtures::create_managed_host;
 use model::ib::{IBNetwork, IBQosConf};
 use model::ib_partition::PartitionKey;
 
-use crate::cfg::file::IBFabricConfig;
-use crate::ib::{GetPartitionOptions, IBFabric, IBMtu, IBRateLimit, IBServiceLevel};
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::tests::common::api_fixtures::ib_partition::{DEFAULT_TENANT, create_ib_partition};
@@ -33,8 +33,8 @@ async fn monitor_ib_status_and_fix_incorrect_pkey_associations(pool: sqlx::PgPoo
     let mut config = common::api_fixtures::get_config();
     config.ib_config = Some(IBFabricConfig {
         enabled: true,
-        mtu: crate::ib::IBMtu(2),
-        rate_limit: crate::ib::IBRateLimit(10),
+        mtu: carbide_ib_fabric::ib::IBMtu(2),
+        rate_limit: carbide_ib_fabric::ib::IBRateLimit(10),
         max_partition_per_tenant: 16,
         ..Default::default()
     });

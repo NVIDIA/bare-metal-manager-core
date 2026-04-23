@@ -46,8 +46,6 @@ mod dynamic_settings;
 mod errors;
 mod ethernet_virtualization;
 mod handlers;
-mod ib;
-mod ib_fabric_monitor;
 mod instance;
 mod ipxe;
 mod listener;

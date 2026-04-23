@@ -24,6 +24,8 @@ use ::rpc::forge::forge_server::Forge;
 use ::rpc::forge::{
     AdminForceDeleteMachineRequest, IbPartitionStatus, InstancesByIdsRequest, TenantState,
 };
+use carbide_ib_fabric::config::IBFabricConfig;
+use carbide_ib_fabric::ib::{self, IBFabricManager};
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::machine::{MachineId, MachineType};
 use common::api_fixtures::dpu::create_dpu_machine;
@@ -45,8 +47,6 @@ use tonic::Request;
 
 use crate::api::Api;
 use crate::attestation as attest;
-use crate::cfg::file::IBFabricConfig;
-use crate::ib::{self, IBFabricManager};
 use crate::tests::common;
 
 async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {

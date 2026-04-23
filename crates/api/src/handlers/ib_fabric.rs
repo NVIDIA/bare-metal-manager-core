@@ -18,6 +18,7 @@
 use ::rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
+use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 
 pub(crate) fn find_ids(
@@ -44,9 +45,16 @@ pub(crate) async fn ufm_browse(
 
     let request = request.into_inner();
 
-    let fabric = api.ib_fabric_manager.new_client(&request.fabric_id).await?;
+    let fabric = api
+        .ib_fabric_manager
+        .new_client(&request.fabric_id)
+        .await
+        .map_err(CarbideError::from)?;
 
-    let response = fabric.raw_get(&request.path).await?;
+    let response = fabric
+        .raw_get(&request.path)
+        .await
+        .map_err(CarbideError::from)?;
 
     Ok(tonic::Response::new(::rpc::forge::UfmBrowseResponse {
         body: response.body,

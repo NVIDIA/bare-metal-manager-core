@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use carbide_ib_fabric::config::IBFabricConfig;
 use carbide_uuid::infiniband::IBPartitionId;
 use db::db_read::PgPoolReader;
 use db::{self, ObjectColumnFilter};
@@ -29,7 +30,6 @@ use tonic::Request;
 
 use crate::api::Api;
 use crate::api::rpc::IbPartitionConfig;
-use crate::cfg::file::IBFabricConfig;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env};
 

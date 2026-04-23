@@ -42,6 +42,7 @@ carbide-secrets = { path = "../secrets" }
 carbide-version = { path = "../version" }
 carbide-firmware = { path = "../firmware" }
 carbide-health-report = { path = "../health-report" }
+carbide-ib-fabric = { path = "../ib-fabric" }
 carbide-ipxe-renderer = { path = "../ipxe-renderer" }
 carbide-ipmi = { path = "../ipmi" }
 carbide-redfish = { path = "../redfish" }
@@ -216,6 +217,7 @@ carbide-nvlink-manager = { path = "../nvlink-manager", features = [ "test-suppor
 carbide-redfish = { path = "../redfish", features = [ "test-support" ] }
 carbide-utils = { path = "../utils", features = ["test-support"] }
 state-controller = { path = "../state-controller", features = ["test-support"] }
+carbide-ib-fabric = { path = "../ib-fabric", features = ["test-support"] }
 prometheus-text-parser = { path = "../prometheus-text-parser" }
 prost = { workspace = true }
 tower-test = { workspace = true }
