@@ -122,6 +122,20 @@ cluster_apps_enabled = true
 sdn_partitions_enabled = true
 interfaces_enabled = true
 
+# NVUE gNMI streaming collector (switches only, disabled by default).
+# Subscribes to gNMI SAMPLE paths and pushes metrics through the DataSink
+# pipeline. PrometheusSink serves the /metrics endpoint; OtlpSink (when
+# configured separately) pushes to an OTel Collector.
+[collectors.nvue.gnmi]
+gnmi_port = 9339
+sample_interval = "5m"
+request_timeout = "30s"
+
+[collectors.nvue.gnmi.paths]
+components_enabled = true
+interfaces_enabled = true
+leak_sensors_enabled = true
+
 # ==============================================================================
 # Processors
 # ==============================================================================

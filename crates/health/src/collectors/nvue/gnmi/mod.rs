@@ -15,6 +15,18 @@
  * limitations under the License.
  */
 
-pub(crate) mod gnmi;
-pub(in crate::collectors) mod rest;
-pub(crate) mod tls;
+pub(crate) mod client;
+pub(crate) mod sample_processor;
+pub(crate) mod subscriber;
+
+// prost generates ExtensionId::EidUnset / EidExperimental from gnmi_ext.proto,
+// where the proto convention prefixes every value with the enum abbreviation.
+// clippy flags the shared "Eid" prefix but we can't control generated code.
+#[allow(clippy::enum_variant_names)]
+pub mod proto {
+    #[allow(clippy::enum_variant_names)]
+    pub mod gnmi_ext {
+        tonic::include_proto!("gnmi_ext");
+    }
+    tonic::include_proto!("gnmi");
+}
