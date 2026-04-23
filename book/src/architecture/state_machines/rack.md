@@ -106,12 +106,16 @@ message MaintenanceActivityConfig {
   }
 }
 
+message RackMaintenanceScope {
+  repeated string machine_ids = 1;
+  repeated string switch_ids = 2;
+  repeated string power_shelf_ids = 3;
+  repeated MaintenanceActivityConfig activities = 4;  // empty = all
+}
+
 message RackMaintenanceOnDemandRequest {
   common.RackId rack_id = 1;
-  repeated string machine_ids = 2;
-  repeated string switch_ids = 3;
-  repeated string power_shelf_ids = 4;
-  repeated MaintenanceActivityConfig activities = 5;  // empty = all
+  RackMaintenanceScope scope = 2;  // unset/empty = full rack, all activities
 }
 
 message RackMaintenanceOnDemandResponse {}

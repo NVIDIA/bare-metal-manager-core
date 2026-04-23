@@ -698,17 +698,19 @@ pub(crate) async fn update_component_firmware(
 
     let maintenance_req = Request::new(rpc::RackMaintenanceOnDemandRequest {
         rack_id: Some(rack_id),
-        machine_ids: rack_machine_ids.clone(),
-        switch_ids: rack_switch_ids.clone(),
-        power_shelf_ids: vec![],
-        activities: vec![rpc::MaintenanceActivityConfig {
-            activity: Some(rpc::maintenance_activity_config::Activity::FirmwareUpgrade(
-                rpc::FirmwareUpgradeActivity {
-                    firmware_version: req.target_version,
-                    components: component_names,
-                },
-            )),
-        }],
+        scope: Some(rpc::RackMaintenanceScope {
+            machine_ids: rack_machine_ids.clone(),
+            switch_ids: rack_switch_ids.clone(),
+            power_shelf_ids: vec![],
+            activities: vec![rpc::MaintenanceActivityConfig {
+                activity: Some(rpc::maintenance_activity_config::Activity::FirmwareUpgrade(
+                    rpc::FirmwareUpgradeActivity {
+                        firmware_version: req.target_version,
+                        components: component_names,
+                    },
+                )),
+            }],
+        }),
     });
 
     crate::handlers::rack::on_demand_rack_maintenance(api, maintenance_req).await?;

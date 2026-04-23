@@ -5536,16 +5536,24 @@ message MaintenanceActivityConfig {
   }
 }
 
+// Scope of an on-demand rack maintenance request: which devices to include
+// and which activities to run. When all three device-id lists are empty the
+// full rack is maintained. When the activities list is empty all activities
+// are run.
+message RackMaintenanceScope {
+  repeated string machine_ids = 1;
+  repeated string switch_ids = 2;
+  repeated string power_shelf_ids = 3;
+  // Which maintenance activities to run. Empty means all activities.
+  repeated MaintenanceActivityConfig activities = 4;
+}
+
 // On-demand rack maintenance – supports full-rack or partial (subset of
-// machines, switches, power shelves).  When all device-id lists are empty
-// the full rack is maintained.
+// machines, switches, power shelves).  When `scope` is unset, or all of its
+// device-id lists are empty, the full rack is maintained.
 message RackMaintenanceOnDemandRequest {
   common.RackId rack_id = 1;
-  repeated string machine_ids = 2;
-  repeated string switch_ids = 3;
-  repeated string power_shelf_ids = 4;
-  // Which maintenance activities to run. Empty means all activities.
-  repeated MaintenanceActivityConfig activities = 5;
+  RackMaintenanceScope scope = 2;
 }
 
 message RackMaintenanceOnDemandResponse {

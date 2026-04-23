@@ -1548,10 +1548,12 @@ impl ApiClient {
     ) -> CarbideCliResult<rpc::RackMaintenanceOnDemandResponse> {
         let request = rpc::RackMaintenanceOnDemandRequest {
             rack_id: Some(rack_id),
-            machine_ids,
-            switch_ids,
-            power_shelf_ids,
-            activities,
+            scope: Some(rpc::RackMaintenanceScope {
+                machine_ids,
+                switch_ids,
+                power_shelf_ids,
+                activities,
+            }),
         };
         Ok(self.0.on_demand_rack_maintenance(request).await?)
     }
