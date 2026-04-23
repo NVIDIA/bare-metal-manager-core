@@ -50,8 +50,8 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use utils::periodic_timer::PeriodicTimer;
 
-use crate::preingestion_manager::errors::{PreingestionManagerError, PreingestionManagerResult};
-use crate::preingestion_manager::metrics::PreingestionMetrics;
+use crate::errors::{PreingestionManagerError, PreingestionManagerResult};
+use crate::metrics::PreingestionMetrics;
 
 const NOT_FOUND: u16 = 404;
 

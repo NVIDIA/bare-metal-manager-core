@@ -111,6 +111,7 @@ pub async fn create(txn: &mut PgConnection, new_switch: &NewSwitch) -> DatabaseR
         controller_state_outcome: None,
         switch_reprovisioning_requested: None,
         firmware_upgrade_status: None,
+        nvos_update_status: None,
         metadata,
         version,
         rack_id: new_switch.rack_id.clone(),
@@ -295,6 +296,21 @@ pub async fn update_firmware_upgrade_status(
         .fetch_optional(txn)
         .await
         .map_err(|e| DatabaseError::new("update_firmware_upgrade_status", e))?;
+    Ok(())
+}
+
+pub async fn update_nvos_update_status(
+    txn: &mut PgConnection,
+    switch_id: SwitchId,
+    status: Option<&model::switch::SwitchNvosUpdateStatus>,
+) -> DatabaseResult<()> {
+    let query = "UPDATE switches SET nvos_update_status = $1 WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, SwitchId>(query)
+        .bind(status.map(|s| sqlx::types::Json(s.clone())))
+        .bind(switch_id)
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::new("update_nvos_update_status", e))?;
     Ok(())
 }
 

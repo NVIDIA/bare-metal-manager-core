@@ -116,7 +116,6 @@ mod switch_metadata;
 mod switch_state_controller;
 mod tenant_keyset_find;
 mod tenants;
-mod test_meter;
 mod tpm_ca;
 mod vpc;
 mod vpc_find;

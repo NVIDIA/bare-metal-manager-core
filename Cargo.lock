@@ -1375,6 +1375,7 @@ dependencies = [
  "carbide-macros",
  "carbide-measured-boot",
  "carbide-network",
+ "carbide-preingestion-manager",
  "carbide-prost-builder",
  "carbide-redfish",
  "carbide-rpc",
@@ -2330,6 +2331,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "carbide-preingestion-manager"
+version = "0.0.1"
+dependencies = [
+ "bmc-vendor",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-firmware",
+ "carbide-redfish",
+ "carbide-secrets",
+ "carbide-site-explorer",
+ "carbide-ssh",
+ "carbide-utils",
+ "chrono",
+ "futures-util",
+ "libredfish",
+ "opentelemetry",
+ "prometheus-text-parser",
+ "sqlx",
+ "thiserror 2.0.17",
+ "time",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "version-compare 0.2.1",
+]
+
+[[package]]
 name = "carbide-prost-builder"
 version = "0.1.0"
 dependencies = [
@@ -2696,7 +2724,10 @@ dependencies = [
  "ipnetwork",
  "itertools 0.14.0",
  "opentelemetry",
+ "opentelemetry-prometheus",
+ "opentelemetry_sdk",
  "prettytable-rs",
+ "prometheus",
  "serde",
  "serde_json",
  "serde_yaml",

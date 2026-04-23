@@ -29,6 +29,11 @@ name = "utils"
 
 [features]
 sqlx = ["carbide-network/sqlx", "dep:sqlx"]
+test-support = [
+  "dep:opentelemetry_sdk",
+  "dep:prometheus",
+  "dep:opentelemetry-prometheus"
+]
 
 [dependencies]
 byte-unit = { workspace = true }
@@ -60,6 +65,9 @@ sqlx = { workspace = true, features = [
 tonic = { workspace = true }
 humantime = { workspace = true }
 opentelemetry = { workspace = true }
+opentelemetry-prometheus = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+prometheus = { workspace = true, optional = true }
 
 # [local-dependencies]
 config-version = { path = "../config-version" }

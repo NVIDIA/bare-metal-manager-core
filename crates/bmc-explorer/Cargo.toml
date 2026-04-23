@@ -44,6 +44,8 @@ nv-redfish = { workspace = true, features = [
     "network-device-functions",
     "managers",
     "pcie-devices",
+    "power-supplies",
+    "update-service",
     "secure-boot",
     "oem-nvidia-bluefield",
     "oem-nvidia-baseboard",

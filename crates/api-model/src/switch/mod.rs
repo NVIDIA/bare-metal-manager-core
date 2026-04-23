@@ -115,7 +115,10 @@ pub struct SwitchReprovisionRequest {
     pub initiator: String,
 }
 
-pub use crate::rack::{RackFirmwareUpgradeState, RackFirmwareUpgradeStatus};
+pub use crate::rack::{
+    RackFirmwareUpgradeState, RackFirmwareUpgradeStatus, SwitchNvosUpdateState,
+    SwitchNvosUpdateStatus,
+};
 
 #[derive(Debug, Clone)]
 pub struct Switch {
@@ -138,6 +141,9 @@ pub struct Switch {
 
     /// Firmware upgrade status during ReProvisioning, set by the rack state machine.
     pub firmware_upgrade_status: Option<RackFirmwareUpgradeStatus>,
+
+    /// NVOS update status set by the rack state machine.
+    pub nvos_update_status: Option<SwitchNvosUpdateStatus>,
 
     /// The rack that this switch is associated with.
     pub rack_id: Option<RackId>,
@@ -163,6 +169,8 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             row.try_get("switch_reprovisioning_requested").ok();
         let firmware_upgrade_status: Option<sqlx::types::Json<RackFirmwareUpgradeStatus>> =
             row.try_get("firmware_upgrade_status").ok();
+        let nvos_update_status: Option<sqlx::types::Json<SwitchNvosUpdateStatus>> =
+            row.try_get("nvos_update_status").ok();
 
         // DB column is still named "health_report_overrides" for backward compatibility.
         let health_reports: HealthReportSources = row
@@ -188,6 +196,7 @@ impl<'r> FromRow<'r, PgRow> for Switch {
             controller_state_outcome: controller_state_outcome.map(|o| o.0),
             switch_reprovisioning_requested: switch_reprovisioning_requested.map(|j| j.0),
             firmware_upgrade_status: firmware_upgrade_status.map(|j| j.0),
+            nvos_update_status: nvos_update_status.map(|j| j.0),
             metadata,
             version: row.try_get("version")?,
             rack_id: row.try_get("rack_id").ok().flatten(),
@@ -469,6 +478,7 @@ mod tests {
             }),
             switch_reprovisioning_requested: None,
             firmware_upgrade_status: None,
+            nvos_update_status: None,
             metadata: Metadata::default(),
             version: ConfigVersion::initial(),
             rack_id: None,
@@ -510,6 +520,7 @@ mod tests {
             }),
             switch_reprovisioning_requested: None,
             firmware_upgrade_status: None,
+            nvos_update_status: None,
             metadata: Metadata::default(),
             version: ConfigVersion::initial(),
             rack_id: None,

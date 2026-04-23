@@ -20,7 +20,7 @@ use config_version::ConfigVersion;
 use health_report::{HealthReport, HealthReportApplyMode};
 use model::controller_outcome::PersistentStateHandlerOutcome;
 use model::metadata::Metadata;
-use model::rack::{FirmwareUpgradeJob, Rack, RackConfig, RackState};
+use model::rack::{FirmwareUpgradeJob, NvosUpdateJob, Rack, RackConfig, RackState};
 use sqlx::PgConnection;
 
 use crate::db_read::DbReader;
@@ -180,6 +180,21 @@ pub async fn update_firmware_upgrade_job(
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("update_firmware_upgrade_job", e))?;
+    Ok(())
+}
+
+pub async fn update_nvos_update_job(
+    txn: &mut PgConnection,
+    rack_id: &RackId,
+    job: Option<&NvosUpdateJob>,
+) -> DatabaseResult<()> {
+    let query = "UPDATE racks SET nvos_update_job = $1, updated = NOW() WHERE id = $2 RETURNING id";
+    sqlx::query_as::<_, (RackId,)>(query)
+        .bind(job.map(sqlx::types::Json))
+        .bind(rack_id)
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::new("update_nvos_update_job", e))?;
     Ok(())
 }
 

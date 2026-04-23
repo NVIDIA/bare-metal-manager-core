@@ -90,6 +90,50 @@ fn create_valid_rack_firmware_json(id: &str) -> String {
     .to_string()
 }
 
+fn create_valid_rack_firmware_json_with_switch_system_image(id: &str) -> String {
+    serde_json::json!({
+        "Id": id,
+        "Name": "Test Rack Firmware Config With NVOS",
+        "Description": "A test configuration for rack firmware with switch system image",
+        "BoardSKUs": [
+            {
+                "SKUID": "sku-001",
+                "Name": "Compute Tray",
+                "Type": "ComputeTray",
+                "Components": {
+                    "Firmware": [
+                        {
+                            "Component": "BIOS",
+                            "Bundle": "bios-bundle-v1.0",
+                            "Version": "1.0.0",
+                            "Locations": [
+                                {
+                                    "Location": "artifactory.example.com/bios/v1.0.0",
+                                    "LocationType": "Artifactory",
+                                    "Type": "Firmware"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        ],
+        "SwitchSystemImages": [
+            {
+                "DeviceType": "Switch Tray",
+                "Component": "NVOS",
+                "Version": "25.02.2553",
+                "Type": "Prod",
+                "PackageName": "GB200NVL72_NVOS",
+                "Location": "https://urm.nvidia.com/artifactory/sw-nbu-sws-nvos-generic-local/release/25.02.2553/amd64/prod/nvos-amd64-25.02.2553.bin",
+                "LocationType": "HTTPS",
+                "Required": true
+            }
+        ]
+    })
+    .to_string()
+}
+
 // ============================================================================
 // CREATE TESTS
 // ============================================================================
@@ -133,6 +177,164 @@ async fn test_create_rack_firmware(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     assert_eq!(board_skus.len(), 2);
     assert_eq!(board_skus[0]["sku_id"], "sku-001");
     assert_eq!(board_skus[1]["sku_id"], "sku-002");
+
+    Ok(())
+}
+
+#[crate::sqlx_test()]
+async fn test_create_rack_firmware_with_switch_system_image(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let firmware_id = "test-firmware-nvos-001";
+    let config_json = create_valid_rack_firmware_json_with_switch_system_image(firmware_id);
+
+    let request = tonic::Request::new(RackFirmwareCreateRequest {
+        rack_hardware_type: Some(rpc::common::RackHardwareType {
+            value: "any".to_string(),
+        }),
+        config_json,
+        artifactory_token: "test-token-123".to_string(),
+    });
+
+    let response = env.api.create_rack_firmware(request).await?;
+    let firmware = response.into_inner();
+
+    assert_eq!(firmware.id, firmware_id);
+
+    let db_firmware = db::rack_firmware::find_by_id(&env.pool, firmware_id).await?;
+    let parsed = db_firmware.parsed_components.unwrap();
+    let switch_system_images = parsed["switch_system_images"].as_array().unwrap();
+    assert_eq!(switch_system_images.len(), 1);
+    assert_eq!(switch_system_images[0]["device_type"], "Switch Tray");
+    assert_eq!(switch_system_images[0]["component"], "NVOS");
+    assert_eq!(switch_system_images[0]["version"], "25.02.2553");
+    assert_eq!(switch_system_images[0]["firmware_type"], "prod");
+    assert_eq!(switch_system_images[0]["package_name"], "GB200NVL72_NVOS");
+    assert_eq!(
+        switch_system_images[0]["image_filename"],
+        "nvos-amd64-25.02.2553.bin"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test()]
+async fn test_create_rack_firmware_rejects_switch_system_image_without_location(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let firmware_id = "invalid-firmware-nvos-missing-location";
+    let config_json = serde_json::json!({
+        "Id": firmware_id,
+        "BoardSKUs": [],
+        "SwitchSystemImages": [
+            {
+                "DeviceType": "Switch Tray",
+                "Component": "NVOS",
+                "Version": "25.02.2553",
+                "Type": "Prod",
+                "PackageName": "GB200NVL72_NVOS",
+                "LocationType": "HTTPS",
+                "Required": true
+            }
+        ]
+    })
+    .to_string();
+
+    let request = tonic::Request::new(RackFirmwareCreateRequest {
+        rack_hardware_type: Some(rpc::common::RackHardwareType {
+            value: "any".to_string(),
+        }),
+        config_json,
+        artifactory_token: "test-token-123".to_string(),
+    });
+
+    let err = env.api.create_rack_firmware(request).await.unwrap_err();
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(err.message().contains("Location is required"));
+
+    Ok(())
+}
+
+#[crate::sqlx_test()]
+async fn test_create_rack_firmware_rejects_switch_system_image_with_wrong_device_type(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let firmware_id = "invalid-firmware-nvos-device-type";
+    let config_json = serde_json::json!({
+        "Id": firmware_id,
+        "BoardSKUs": [],
+        "SwitchSystemImages": [
+            {
+                "DeviceType": "Compute Node",
+                "Component": "NVOS",
+                "Version": "25.02.2553",
+                "Type": "Prod",
+                "PackageName": "GB200NVL72_NVOS",
+                "Location": "https://urm.nvidia.com/artifactory/sw-nbu-sws-nvos-generic-local/release/25.02.2553/amd64/prod/nvos-amd64-25.02.2553.bin",
+                "LocationType": "HTTPS",
+                "Required": true
+            }
+        ]
+    })
+    .to_string();
+
+    let request = tonic::Request::new(RackFirmwareCreateRequest {
+        rack_hardware_type: Some(rpc::common::RackHardwareType {
+            value: "any".to_string(),
+        }),
+        config_json,
+        artifactory_token: "test-token-123".to_string(),
+    });
+
+    let err = env.api.create_rack_firmware(request).await.unwrap_err();
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(err.message().contains("DeviceType must be 'Switch Tray'"));
+
+    Ok(())
+}
+
+#[crate::sqlx_test()]
+async fn test_create_rack_firmware_rejects_switch_system_image_with_wrong_component(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let firmware_id = "invalid-firmware-nvos-component";
+    let config_json = serde_json::json!({
+        "Id": firmware_id,
+        "BoardSKUs": [],
+        "SwitchSystemImages": [
+            {
+                "DeviceType": "Switch Tray",
+                "Component": "SDK",
+                "Version": "25.02.2553",
+                "Type": "Prod",
+                "PackageName": "GB200NVL72_NVOS",
+                "Location": "https://urm.nvidia.com/artifactory/sw-nbu-sws-nvos-generic-local/release/25.02.2553/amd64/prod/nvos-amd64-25.02.2553.bin",
+                "LocationType": "HTTPS",
+                "Required": true
+            }
+        ]
+    })
+    .to_string();
+
+    let request = tonic::Request::new(RackFirmwareCreateRequest {
+        rack_hardware_type: Some(rpc::common::RackHardwareType {
+            value: "any".to_string(),
+        }),
+        config_json,
+        artifactory_token: "test-token-123".to_string(),
+    });
+
+    let err = env.api.create_rack_firmware(request).await.unwrap_err();
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(err.message().contains("Component must be 'NVOS'"));
 
     Ok(())
 }

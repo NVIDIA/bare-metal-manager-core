@@ -2118,6 +2118,17 @@ impl StateHandler for MachineStateHandler {
                 // We can't touch a machine which is in Assigned/Ready state. A tenant owns it.
                 PowerHandlingOutcome::new(None, true, None)
             }
+            ManagedHostState::HostReprovision { .. }
+            | ManagedHostState::Assigned {
+                instance_state: InstanceState::HostReprovision { .. },
+            } => {
+                // During host reprovisioning (firmware updates), the state controller
+                // manages power directly (ForceOff → ACPowercycle → On). The power
+                // manager must not interfere, otherwise it may power the host back on
+                // between ForceOff and ACPowercycle, causing AuxPowerReset to fail
+                // with ChassisPowerStateOffRequired.
+                PowerHandlingOutcome::new(None, true, None)
+            }
             _ => {
                 if self.power_options_config.enabled {
                     power::handle_power(mh_snapshot, ctx, &self.power_options_config).await?

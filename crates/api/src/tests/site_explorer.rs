@@ -49,6 +49,7 @@ use rpc::site_explorer::{
 };
 use rpc::{DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use tonic::Request;
+use utils::test_support::test_meter::TestMeter;
 
 use crate::tests::common;
 use crate::tests::common::api_fixtures;
@@ -61,7 +62,6 @@ use crate::tests::common::api_fixtures::network_segment::{
 };
 use crate::tests::common::api_fixtures::site_explorer::MockExploredHost;
 use crate::tests::common::rpc_builder::DhcpDiscovery;
-use crate::tests::common::test_meter::TestMeter;
 
 #[derive(Clone, Debug)]
 struct FakeMachine {

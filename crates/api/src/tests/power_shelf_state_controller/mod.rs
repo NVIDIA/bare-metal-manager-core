@@ -122,6 +122,7 @@ async fn test_power_shelf_deletion_with_state_controller(
         site_config: env.config.clone(),
         dpa_info: None,
         rms_client: None,
+        switch_system_image_rms_client: None,
         credential_manager: Arc::new(TestCredentialManager::default()),
     });
 

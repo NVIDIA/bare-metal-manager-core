@@ -189,13 +189,14 @@ pub async fn mark_as_deleted(
 pub async fn update(
     partition: &LogicalPartition,
     name: String,
+    description: String,
     txn: &mut PgConnection,
 ) -> Result<NvLinkLogicalPartitionId, DatabaseError> {
     let query = "UPDATE nvlink_logical_partitions SET name=$1, description=$2, updated=NOW() WHERE id=$3::uuid RETURNING id";
 
     let partition: NvLinkLogicalPartitionId = sqlx::query_as(query)
         .bind(name)
-        .bind(&partition.description)
+        .bind(&description)
         .bind(partition.id)
         .fetch_one(txn)
         .await

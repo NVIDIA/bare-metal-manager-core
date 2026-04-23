@@ -115,7 +115,6 @@ pub async fn host_power_control_with_location(
                 .power(SystemPowerControl::ForceOff)
                 .await
                 .map_err(CarbideError::RedfishError)?;
-            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         }
         redfish_client
             .power(action)

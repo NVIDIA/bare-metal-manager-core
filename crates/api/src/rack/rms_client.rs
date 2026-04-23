@@ -15,15 +15,48 @@
  * limitations under the License.
  */
 
+use librms::protos::rack_manager as rms;
+
+#[async_trait::async_trait]
+pub trait SwitchSystemImageRmsClient: Send + Sync {
+    async fn update_switch_system_image(
+        &self,
+        cmd: rms::UpdateSwitchSystemImageRequest,
+    ) -> Result<rms::UpdateSwitchSystemImageResponse, tonic::Status>;
+
+    async fn get_switch_system_image_job_status(
+        &self,
+        cmd: rms::GetSwitchSystemImageJobStatusRequest,
+    ) -> Result<rms::GetSwitchSystemImageJobStatusResponse, tonic::Status>;
+}
+
+#[async_trait::async_trait]
+impl SwitchSystemImageRmsClient for librms::RackManagerApi {
+    async fn update_switch_system_image(
+        &self,
+        cmd: rms::UpdateSwitchSystemImageRequest,
+    ) -> Result<rms::UpdateSwitchSystemImageResponse, tonic::Status> {
+        self.client.update_switch_system_image(cmd).await
+    }
+
+    async fn get_switch_system_image_job_status(
+        &self,
+        cmd: rms::GetSwitchSystemImageJobStatusRequest,
+    ) -> Result<rms::GetSwitchSystemImageJobStatusResponse, tonic::Status> {
+        self.client.get_switch_system_image_job_status(cmd).await
+    }
+}
+
 #[cfg(test)]
 pub mod test_support {
     use std::collections::{HashMap, VecDeque};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    use librms::protos::rack_manager as rms;
     use librms::{RackManagerError, RmsApi};
     use tokio::sync::Mutex;
+
+    use super::{SwitchSystemImageRmsClient, rms};
 
     /// RMS simulation for testing, similar to RedfishSim
     pub struct RmsSim {
@@ -34,6 +67,13 @@ pub mod test_support {
         queued_firmware_responses: Arc<Mutex<VecDeque<rms::UpdateFirmwareByDeviceListResponse>>>,
         firmware_job_statuses: Arc<Mutex<HashMap<String, rms::GetFirmwareJobStatusResponse>>>,
         firmware_job_errors: Arc<Mutex<HashMap<String, String>>>,
+        submitted_switch_system_image_requests:
+            Arc<Mutex<Vec<rms::UpdateSwitchSystemImageRequest>>>,
+        queued_switch_system_image_responses:
+            Arc<Mutex<VecDeque<rms::UpdateSwitchSystemImageResponse>>>,
+        switch_system_image_job_statuses:
+            Arc<Mutex<HashMap<String, rms::GetSwitchSystemImageJobStatusResponse>>>,
+        switch_system_image_job_errors: Arc<Mutex<HashMap<String, String>>>,
     }
 
     impl Default for RmsSim {
@@ -46,6 +86,10 @@ pub mod test_support {
                 queued_firmware_responses: Arc::new(Mutex::new(VecDeque::new())),
                 firmware_job_statuses: Arc::new(Mutex::new(HashMap::new())),
                 firmware_job_errors: Arc::new(Mutex::new(HashMap::new())),
+                submitted_switch_system_image_requests: Arc::new(Mutex::new(Vec::new())),
+                queued_switch_system_image_responses: Arc::new(Mutex::new(VecDeque::new())),
+                switch_system_image_job_statuses: Arc::new(Mutex::new(HashMap::new())),
+                switch_system_image_job_errors: Arc::new(Mutex::new(HashMap::new())),
             }
         }
     }
@@ -61,6 +105,36 @@ pub mod test_support {
                 queued_firmware_responses: self.queued_firmware_responses.clone(),
                 firmware_job_statuses: self.firmware_job_statuses.clone(),
                 firmware_job_errors: self.firmware_job_errors.clone(),
+                submitted_switch_system_image_requests: self
+                    .submitted_switch_system_image_requests
+                    .clone(),
+                queued_switch_system_image_responses: self
+                    .queued_switch_system_image_responses
+                    .clone(),
+                switch_system_image_job_statuses: self.switch_system_image_job_statuses.clone(),
+                switch_system_image_job_errors: self.switch_system_image_job_errors.clone(),
+            }))
+        }
+
+        pub fn as_switch_system_image_rms_client(
+            &self,
+        ) -> Option<Arc<dyn SwitchSystemImageRmsClient>> {
+            Some(Arc::new(MockRmsClient {
+                fail_add_node: self.fail_add_node.clone(),
+                fail_inventory_get: self.fail_inventory_get.clone(),
+                registered_nodes: self.registered_nodes.clone(),
+                submitted_firmware_requests: self.submitted_firmware_requests.clone(),
+                queued_firmware_responses: self.queued_firmware_responses.clone(),
+                firmware_job_statuses: self.firmware_job_statuses.clone(),
+                firmware_job_errors: self.firmware_job_errors.clone(),
+                submitted_switch_system_image_requests: self
+                    .submitted_switch_system_image_requests
+                    .clone(),
+                queued_switch_system_image_responses: self
+                    .queued_switch_system_image_responses
+                    .clone(),
+                switch_system_image_job_statuses: self.switch_system_image_job_statuses.clone(),
+                switch_system_image_job_errors: self.switch_system_image_job_errors.clone(),
             }))
         }
 
@@ -111,6 +185,46 @@ pub mod test_support {
         ) -> Vec<rms::UpdateFirmwareByDeviceListRequest> {
             self.submitted_firmware_requests.lock().await.clone()
         }
+
+        pub async fn queue_update_switch_system_image_response(
+            &self,
+            response: rms::UpdateSwitchSystemImageResponse,
+        ) {
+            self.queued_switch_system_image_responses
+                .lock()
+                .await
+                .push_back(response);
+        }
+
+        pub async fn set_switch_system_image_job_status(
+            &self,
+            response: rms::GetSwitchSystemImageJobStatusResponse,
+        ) {
+            self.switch_system_image_job_statuses
+                .lock()
+                .await
+                .insert(response.job_id.clone(), response);
+        }
+
+        pub async fn set_switch_system_image_job_error(
+            &self,
+            job_id: impl Into<String>,
+            message: impl Into<String>,
+        ) {
+            self.switch_system_image_job_errors
+                .lock()
+                .await
+                .insert(job_id.into(), message.into());
+        }
+
+        pub async fn submitted_switch_system_image_requests(
+            &self,
+        ) -> Vec<rms::UpdateSwitchSystemImageRequest> {
+            self.submitted_switch_system_image_requests
+                .lock()
+                .await
+                .clone()
+        }
     }
 
     #[derive(Debug, Clone)]
@@ -122,6 +236,13 @@ pub mod test_support {
         queued_firmware_responses: Arc<Mutex<VecDeque<rms::UpdateFirmwareByDeviceListResponse>>>,
         firmware_job_statuses: Arc<Mutex<HashMap<String, rms::GetFirmwareJobStatusResponse>>>,
         firmware_job_errors: Arc<Mutex<HashMap<String, String>>>,
+        submitted_switch_system_image_requests:
+            Arc<Mutex<Vec<rms::UpdateSwitchSystemImageRequest>>>,
+        queued_switch_system_image_responses:
+            Arc<Mutex<VecDeque<rms::UpdateSwitchSystemImageResponse>>>,
+        switch_system_image_job_statuses:
+            Arc<Mutex<HashMap<String, rms::GetSwitchSystemImageJobStatusResponse>>>,
+        switch_system_image_job_errors: Arc<Mutex<HashMap<String, String>>>,
     }
 
     #[async_trait::async_trait]
@@ -348,6 +469,54 @@ pub mod test_support {
                     job_id: cmd.job_id,
                     state_description: "mock firmware job not found".to_string(),
                     error_message: "mock firmware job not found".to_string(),
+                    ..Default::default()
+                }))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl SwitchSystemImageRmsClient for MockRmsClient {
+        async fn update_switch_system_image(
+            &self,
+            cmd: rms::UpdateSwitchSystemImageRequest,
+        ) -> Result<rms::UpdateSwitchSystemImageResponse, tonic::Status> {
+            self.submitted_switch_system_image_requests
+                .lock()
+                .await
+                .push(cmd);
+            Ok(self
+                .queued_switch_system_image_responses
+                .lock()
+                .await
+                .pop_front()
+                .unwrap_or_default())
+        }
+
+        async fn get_switch_system_image_job_status(
+            &self,
+            cmd: rms::GetSwitchSystemImageJobStatusRequest,
+        ) -> Result<rms::GetSwitchSystemImageJobStatusResponse, tonic::Status> {
+            if let Some(message) = self
+                .switch_system_image_job_errors
+                .lock()
+                .await
+                .get(&cmd.job_id)
+                .cloned()
+            {
+                return Err(tonic::Status::unavailable(message));
+            }
+
+            Ok(self
+                .switch_system_image_job_statuses
+                .lock()
+                .await
+                .get(&cmd.job_id)
+                .cloned()
+                .unwrap_or(rms::GetSwitchSystemImageJobStatusResponse {
+                    status: rms::ReturnCode::Failure as i32,
+                    job_id: cmd.job_id,
+                    message: "mock switch system image job not found".to_string(),
+                    error_message: "mock switch system image job not found".to_string(),
                     ..Default::default()
                 }))
         }

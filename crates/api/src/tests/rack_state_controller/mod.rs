@@ -27,7 +27,8 @@ use model::expected_machine::ExpectedMachineData;
 use model::machine::ManagedHostState;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::{
-    FirmwareUpgradeState, Rack, RackConfig, RackMaintenanceState, RackState, RackValidationState,
+    FirmwareUpgradeState, NvosUpdateState, Rack, RackConfig, RackMaintenanceState, RackState,
+    RackValidationState, ResolvedNvosArtifact,
 };
 use rpc::forge::StateHistoryRecord;
 use rpc::forge::forge_server::Forge;
@@ -95,6 +96,18 @@ impl StateHandler for TestRackStateHandler {
             },
             RackState::Maintenance { maintenance_state } => match maintenance_state {
                 RackMaintenanceState::FirmwareUpgrade { .. } => RackState::Maintenance {
+                    maintenance_state: RackMaintenanceState::NVOSUpdate {
+                        nvos_update: NvosUpdateState::Start {
+                            artifact: ResolvedNvosArtifact {
+                                firmware_id: "test-firmware".to_string(),
+                                image_filename: "test-nvos.bin".to_string(),
+                                local_file_path: "/tmp/test-nvos.bin".to_string(),
+                                version: Some("test-version".to_string()),
+                            },
+                        },
+                    },
+                },
+                RackMaintenanceState::NVOSUpdate { .. } => RackState::Maintenance {
                     maintenance_state: RackMaintenanceState::ConfigureNmxCluster,
                 },
                 RackMaintenanceState::ConfigureNmxCluster => RackState::Maintenance {
@@ -249,15 +262,11 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
 
     // Iterations 3-5: FirmwareUpgrade -> Completed.
     //
-    // No default rack firmware is seeded for this test rack, so the new
-    // FirmwareUpgrade(Start) path skips flashing and advances directly into the
-    // remaining maintenance steps:
-    //   iter 3: FirmwareUpgrade(Start) -> ConfigureNmxCluster
-    //   iter 4: ConfigureNmxCluster -> PowerSequence(PoweringOn)
-    //   iter 5: PowerSequence(PoweringOn) -> Completed
-    controller.run_single_iteration().await; // FirmwareUpgrade(Start) -> ConfigureNmxCluster
-    controller.run_single_iteration().await; // ConfigureNmxCluster -> PowerSequence(PoweringOn)
-    controller.run_single_iteration().await; // PowerSequence(PoweringOn) -> Completed
+    // The test handler uses a simplified maintenance sequence:
+    // FirmwareUpgrade -> NVOSUpdate -> ConfigureNmxCluster -> Completed.
+    controller.run_single_iteration().await; // FirmwareUpgrade(Start) -> NVOSUpdate(Start)
+    controller.run_single_iteration().await; // NVOSUpdate(Start) -> ConfigureNmxCluster
+    controller.run_single_iteration().await; // ConfigureNmxCluster -> Completed
 
     let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
     assert!(

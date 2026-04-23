@@ -86,6 +86,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::{CancellationToken, DropGuard};
 use tonic::Request;
 use tracing_subscriber::EnvFilter;
+use utils::test_support::test_meter::TestMeter;
 
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
@@ -140,7 +141,6 @@ use crate::tests::common::api_fixtures::network_segment::{
 };
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 use crate::tests::common::test_certificates::TestCertificateProvider;
-use crate::tests::common::test_meter::TestMeter;
 
 pub mod dpu;
 pub mod endpoint_explorer;
@@ -378,6 +378,7 @@ impl TestEnv {
             site_config: self.config.clone(),
             dpa_info: None,
             rms_client: self.rms_sim.as_rms_client(),
+            switch_system_image_rms_client: self.rms_sim.as_switch_system_image_rms_client(),
             credential_manager: self.test_credential_manager.clone(),
         }
     }
@@ -1572,6 +1573,7 @@ pub async fn create_test_env_with_overrides(
         site_config: config.clone(),
         dpa_info: None,
         rms_client: rms_sim.as_rms_client(),
+        switch_system_image_rms_client: rms_sim.as_switch_system_image_rms_client(),
         credential_manager: credential_manager.clone(),
     });
 

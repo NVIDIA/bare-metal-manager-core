@@ -74,7 +74,7 @@ fn test_metrics_collector() {
         ),
     ]);
 
-    let test_meter = crate::tests::common::test_meter::TestMeter::default();
+    let test_meter = utils::test_support::test_meter::TestMeter::default();
     let metric_holder = Arc::new(MetricHolder::new(test_meter.meter(), Duration::MAX));
     metric_holder.update_metrics(metrics);
     assert_eq!(
