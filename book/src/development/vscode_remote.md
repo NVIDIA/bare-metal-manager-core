@@ -158,7 +158,7 @@ json config file:
   owned by `root`, which can prevent working on them from your regular desktop.
   You might need to reset ownership when going back to your regular environment:
   ```
-  sudio chown -R yourAlias carbide/*
+  sudo chown -R yourAlias carbide/*
   ```
 - The same applies for using git inside the container as root. It will make
   files in `.git` be owned by `root`

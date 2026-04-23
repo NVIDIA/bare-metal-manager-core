@@ -10,7 +10,7 @@ automatically recover.
 
 ## Important note
 
-*This this is not a site-provider facing workflow, since force-deleting a machine
+*This is not a site-provider facing workflow, since force-deleting a machine
 does skip any cleanup on the machine and leaves it in an undefined state where the tenants OS could be still running.
 force-deleting machines is purely an operational tool. The operator which executed the
 command needs to make sure that either no tenant image is running anymore, or take additional steps
@@ -19,7 +19,7 @@ Site providers would get a safe version of this workflow later on that moves the
 
 ## Force-Deletion Steps
 
-The following steps can be used to force-delete knowledge about a a NICo host:
+The following steps can be used to force-delete knowledge about a NICo host:
 
 ### 1. Obtain access to `carbide-admin-cli`
 
@@ -40,7 +40,7 @@ Example:
 /opt/carbide/carbide-admin-cli -c https://127.0.0.1:1079 machine force-delete --machine="60cef902-9779-4666-8362-c9bb4b37184f"
 ```
 
-### 3. Use the returned BMP IP/port and machine-id to reboot the host
+### 3. Use the returned BMC IP/port and machine-id to reboot the host
 
 See [Rebooting a machine](machine_reboot.md).
 Supply the BMC IP and port of the managed host, as well as its `machine_id`

@@ -17,7 +17,7 @@ A VPC has a `network_virtualization_type` that determines how the platform imple
 - `FNN`: The production networking model
 - `ETHERNET_VIRTUALIZER`: A legacy, deprecated, and not officially supported model. It may still appear in existing objects or older workflows, but it should not be treated as the target model for production planning.
 
-> **Important**: If no virtualization type is supplied when a VPC is created, the API currently defaults the VPC to `ETHERNET_VIRTUALIZER`. This default should be understood as compatibility behavior, not as a production recommendation. The `FNN` option should always be sepcified for VPCs on a production site.
+> **Important**: If no virtualization type is supplied when a VPC is created, the API currently defaults the VPC to `ETHERNET_VIRTUALIZER`. This default should be understood as compatibility behavior, not as a production recommendation. The `FNN` option should always be specified for VPCs on a production site.
 
 ### Routing Profile Type
 

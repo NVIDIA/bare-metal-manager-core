@@ -30,7 +30,7 @@ Here is an overview of the requirements, which will be detailed in the following
 
 ### Overlay Options
 
-* **Option 1 - Dual-stacked Ipv4/EVPN sessions with TOR**
+* **Option 1 - Dual-stacked IPv4/EVPN sessions with TOR**
   * Configure peering as follows:
     * TORs should be configured to accept EVPN sessions with the DPUs in addition to the existing IPv4 sessions.
     * At a minimum, spines should be configured for EVPN sessions with the TORs. Ideally, all tiers of the network should be configured with EVPN sessions.
