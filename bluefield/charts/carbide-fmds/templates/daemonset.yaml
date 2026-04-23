@@ -50,7 +50,7 @@ spec:
           args:
             - "--grpc-address=$(POD_IP):50052"
           command:
-            - /bin/sh
+            - /busybox/sh
             - -c
             - |
               echo "Waiting for forge certificates in /opt/forge ..."

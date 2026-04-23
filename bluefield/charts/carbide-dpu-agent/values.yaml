@@ -15,7 +15,9 @@ image:
   pullPolicy: IfNotPresent
   tag: ""
 imagePullSecrets: []
-podSecurityContext: {}
+podSecurityContext:
+  runAsUser: 0
+  runAsGroup: 0
 securityContext:
   capabilities:
     add:

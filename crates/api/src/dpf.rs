@@ -176,8 +176,8 @@ impl ResourceLabeler for CarbideDPFLabeler {
 
     fn node_context_labels(&self, info: &DpuNodeInfo) -> BTreeMap<String, String> {
         BTreeMap::from([(
-            "carbide.nvidia.com/host-machine-id".to_string(),
-            info.host_machine_id.clone(),
+            "carbide.nvidia.com/host-bmc-ip".to_string(),
+            info.host_bmc_ip.clone(),
         )])
     }
 

@@ -46,7 +46,14 @@ impl Default for ServiceRegistryConfig {
 pub fn dts_service(reg: &ServiceRegistryConfig) -> ServiceDefinition {
     ServiceDefinition {
         helm_values: Some(serde_json::json!({
-            "exposedPorts": { "ports": { "httpserverport": true } }
+            "exposedPorts": { "ports": { "httpserverport": true } },
+            "serviceDaemonSet": {
+                "resources": {
+                    "requests": { "memory": "320Mi", "cpu": "200m" },
+                    "limits":   { "memory": "320Mi", "cpu": "1" }
+                }
+            }
+
         })),
         config_ports: Some(vec![ServiceConfigPort {
             name: "httpserverport".to_string(),

@@ -82,8 +82,8 @@ spec:
             - run
             - "--hbn-config-mode=nvue-rest"
             - "--agent-platform-type=containerized"
-            - "--dhcp-grpc-server={{ .Values.dhcp_server.service_name }}.dpf-operator-system.svc.cluster.local:10079"
-            - "--fmds-grpc-server={{ .Values.fmds.service_name }}.dpf-operator-system.svc.cluster.local:50052"
+            - "--dhcp-grpc-server=carbide-dpf-cluster-{{ .Values.dhcp_server.service_name }}.dpf-operator-system.svc.cluster.local:10079"
+            - "--fmds-grpc-server=carbide-dpf-cluster-{{ .Values.fmds.service_name }}.dpf-operator-system.svc.cluster.local:50052"
             {{- if not (empty .Values.dhcp_server.interface_prepend) }}
             - "--dhcp-server-interface-prepend={{ .Values.dhcp_server.interface_prepend }}"
             {{ end }}
