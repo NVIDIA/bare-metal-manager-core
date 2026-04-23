@@ -72,10 +72,10 @@ navbar-links:
 products:
   - display-name: NCX Infra Controller
     slug: /
-    path: ./docs/index.yml
+    path: ../docs/index.yml
     versions:
       - display-name: dev
-        path: ./docs/index.yml
+        path: ../docs/index.yml
 
 redirects:
   - source: "/ncx-infra-controller/index.html"

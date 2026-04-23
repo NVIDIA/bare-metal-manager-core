@@ -69,6 +69,8 @@ navigation:
           path: manuals/networking_requirements.md
         - page: Building NICo Containers
           path: manuals/building_nico_containers.md
+        - page: Cargo via Docker on macOS
+          path: manuals/cargo-via-docker-macos.md
         - page: Ingesting Hosts
           path: manuals/ingesting_machines.md
         - page: Updating Expected Hosts Manifest
