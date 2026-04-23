@@ -24,6 +24,24 @@ use clap::Parser;
 pub struct Args {
     #[clap(help = "Switch ID or name to show details for (leave empty for all)")]
     pub identifier: Option<String>,
+
+    #[clap(
+        short,
+        long,
+        action,
+        help = "Show BMC/NVOS MAC details in summary",
+        conflicts_with = "identifier"
+    )]
+    pub ips: bool,
+
+    #[clap(
+        short,
+        long,
+        action,
+        help = "Show serial, power, and health details in summary",
+        conflicts_with = "identifier"
+    )]
+    pub more: bool,
 }
 
 impl Args {

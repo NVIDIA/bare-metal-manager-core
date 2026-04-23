@@ -19,17 +19,36 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use carbide_uuid::switch::SwitchId;
-use prettytable::{Table, row};
-use rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use prettytable::{Cell, Row, Table};
+use rpc::admin_cli::{CarbideCliError, CarbideCliResult, OutputFormat};
 use rpc::forge::{LinkedExpectedSwitch, MachineInterface, Switch};
 use serde::Serialize;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
+use crate::{async_write, async_write_table_as_csv};
 
 const UNKNOWN: &str = "Unknown";
 
+#[derive(Default, Serialize)]
+struct ManagedSwitchOutputWrapper {
+    options: ManagedSwitchOutputOptions,
+    managed_switch_output: ManagedSwitchOutput,
+}
+
 #[derive(Serialize)]
+struct ManagedSwitchList<'a> {
+    managed_switches: &'a [ManagedSwitchOutput],
+}
+
+#[derive(Default, Clone, Copy, Serialize)]
+struct ManagedSwitchOutputOptions {
+    show_ips: bool,
+    more_details: bool,
+    single_switch_detail_view: bool,
+}
+
+#[derive(Default, Serialize)]
 struct ManagedSwitchOutput {
     switch_id: Option<String>,
     name: String,
@@ -190,186 +209,212 @@ fn build_managed_switch_outputs(
     outputs
 }
 
-fn show_detail_view(m: &ManagedSwitchOutput) -> CarbideCliResult<()> {
+impl From<ManagedSwitchOutputWrapper> for Row {
+    fn from(src: ManagedSwitchOutputWrapper) -> Self {
+        let value = src.managed_switch_output;
+
+        let is_unhealthy = value
+            .health_status
+            .as_deref()
+            .map(|s| !s.eq_ignore_ascii_case("OK") && !s.eq_ignore_ascii_case("Healthy"))
+            .unwrap_or(false);
+
+        let bmc_mac = if value.bmc_mac.is_empty() {
+            UNKNOWN.to_string()
+        } else {
+            value.bmc_mac
+        };
+
+        let nvos_mac = if value.nvos_mac_addresses.is_empty() {
+            UNKNOWN.to_string()
+        } else {
+            value.nvos_mac_addresses.join("\n")
+        };
+
+        let serial = if value.serial_number.is_empty() {
+            UNKNOWN.to_string()
+        } else {
+            value.serial_number
+        };
+
+        let mut row_data = vec![
+            String::from(if is_unhealthy { "U" } else { "H" }),
+            value.switch_id.unwrap_or_else(|| UNKNOWN.to_string()),
+            value.name,
+            value.controller_state,
+        ];
+
+        if src.options.show_ips {
+            row_data.extend_from_slice(&[bmc_mac, nvos_mac]);
+        }
+
+        if src.options.more_details {
+            row_data.extend_from_slice(&[
+                serial,
+                value.power_state.unwrap_or_else(|| UNKNOWN.to_string()),
+                value.health_status.unwrap_or_else(|| UNKNOWN.to_string()),
+            ]);
+        }
+
+        Row::new(row_data.into_iter().map(|x| Cell::new(&x)).collect())
+    }
+}
+
+fn convert_managed_switches_to_nice_output(
+    managed_switches: Vec<ManagedSwitchOutput>,
+    options: ManagedSwitchOutputOptions,
+) -> Box<Table> {
+    let managed_switches_wrapper = managed_switches
+        .into_iter()
+        .map(|x| ManagedSwitchOutputWrapper {
+            options,
+            managed_switch_output: x,
+        })
+        .collect::<Vec<ManagedSwitchOutputWrapper>>();
+
+    let mut table = Table::new();
+
+    let mut headers = vec!["", "Switch ID", "Name", "State"];
+
+    if options.show_ips {
+        headers.extend_from_slice(&["BMC MAC", "NVOS MAC"]);
+    }
+
+    if options.more_details {
+        headers.extend_from_slice(&["Serial", "Power", "Health"]);
+    }
+
+    // TODO additional discovery work needed for remaining information
+    table.set_titles(Row::new(
+        headers.into_iter().map(Cell::new).collect::<Vec<Cell>>(),
+    ));
+
+    for managed_switch in managed_switches_wrapper {
+        table.add_row(managed_switch.into());
+    }
+
+    table.into()
+}
+
+async fn show_managed_switches(
+    managed_switches: Vec<ManagedSwitchOutput>,
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
+    output_format: OutputFormat,
+    output_options: ManagedSwitchOutputOptions,
+) -> CarbideCliResult<()> {
+    match output_format {
+        OutputFormat::Json => {
+            if output_options.single_switch_detail_view {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        managed_switches.first().ok_or(CarbideCliError::Empty)?
+                    )?
+                )
+            } else {
+                let wrapped = ManagedSwitchList {
+                    managed_switches: &managed_switches,
+                };
+                println!("{}", serde_json::to_string_pretty(&wrapped)?)
+            }
+        }
+        OutputFormat::Yaml => {
+            if output_options.single_switch_detail_view {
+                println!(
+                    "{}",
+                    serde_yaml::to_string(managed_switches.first().ok_or(CarbideCliError::Empty)?)?
+                )
+            } else {
+                let wrapped = ManagedSwitchList {
+                    managed_switches: &managed_switches,
+                };
+                println!("{}", serde_yaml::to_string(&wrapped)?)
+            }
+        }
+        OutputFormat::Csv => {
+            let result = convert_managed_switches_to_nice_output(managed_switches, output_options);
+            async_write_table_as_csv!(output_file, result)?;
+        }
+        _ => {
+            if output_options.single_switch_detail_view {
+                show_managed_switch_details_view(
+                    managed_switches
+                        .into_iter()
+                        .next()
+                        .ok_or(CarbideCliError::Empty)?,
+                )?;
+            } else {
+                let result =
+                    convert_managed_switches_to_nice_output(managed_switches, output_options);
+                async_write!(output_file, "{}", result)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn show_managed_switch_details_view(m: ManagedSwitchOutput) -> CarbideCliResult<()> {
     let width = 27;
     let mut lines = String::new();
 
-    writeln!(&mut lines, "{:<width$}: {}", "Name", m.name)?;
+    writeln!(&mut lines, "Name        : {}", m.name)?;
     writeln!(
         &mut lines,
-        "{:<width$}: {}",
-        "Switch ID",
+        "Switch ID   : {}",
         m.switch_id.as_deref().unwrap_or(UNKNOWN)
     )?;
-    writeln!(
-        &mut lines,
-        "{:<width$}: {}",
-        "Controller State", m.controller_state
-    )?;
-    writeln!(
-        &mut lines,
-        "{:<width$}: {}",
-        "Serial Number",
-        if m.serial_number.is_empty() {
-            UNKNOWN
-        } else {
-            &m.serial_number
-        }
-    )?;
-
-    writeln!(&mut lines, "\nBMC:\n{}", "-".repeat(40))?;
-    writeln!(
-        &mut lines,
-        "{:<width$}: {}",
-        "  IP",
-        m.bmc_ip.as_deref().unwrap_or(UNKNOWN)
-    )?;
-    writeln!(
-        &mut lines,
-        "{:<width$}: {}",
-        "  MAC",
-        if m.bmc_mac.is_empty() {
-            UNKNOWN
-        } else {
-            &m.bmc_mac
-        }
-    )?;
-
-    writeln!(&mut lines, "\nNVOS:\n{}", "-".repeat(40))?;
-    writeln!(
-        &mut lines,
-        "{:<width$}: {}",
-        "  MAC Addresses",
-        if m.nvos_mac_addresses.is_empty() {
-            "N/A".to_string()
-        } else {
-            m.nvos_mac_addresses.join(", ")
-        }
-    )?;
-
-    writeln!(&mut lines, "\nStatus:\n{}", "-".repeat(40))?;
-    writeln!(
-        &mut lines,
-        "{:<width$}: {}",
-        "  Power State",
-        m.power_state.as_deref().unwrap_or(UNKNOWN)
-    )?;
-    writeln!(
-        &mut lines,
-        "{:<width$}: {}",
-        "  Health",
-        m.health_status.as_deref().unwrap_or(UNKNOWN)
-    )?;
+    writeln!(&mut lines, "State       : {}", m.controller_state)?;
     if let Some(ref reason) = m.state_reason {
-        writeln!(&mut lines, "{:<width$}: {}", "  State Reason", reason)?;
+        writeln!(&mut lines, "    Reason  : {}", reason)?;
     }
 
-    writeln!(&mut lines, "\nInventory:\n{}", "-".repeat(40))?;
     writeln!(
         &mut lines,
-        "{:<width$}: {}",
-        "  Expected Switch ID",
-        m.expected_switch_id.as_deref().unwrap_or("N/A")
+        "\nSwitch:\n----------------------------------------"
     )?;
-    writeln!(
-        &mut lines,
-        "{:<width$}: {}",
-        "  Explored Endpoint",
-        m.explored_endpoint.as_deref().unwrap_or("N/A")
-    )?;
-    writeln!(
-        &mut lines,
-        "{:<width$}: {}",
-        "  Rack ID",
-        m.rack_id.as_deref().unwrap_or("N/A")
-    )?;
-    writeln!(
-        &mut lines,
-        "{:<width$}: {}",
-        "  Slot Number",
-        m.slot_number
-            .map(|v| v.to_string())
-            .as_deref()
-            .unwrap_or(UNKNOWN)
-    )?;
-    writeln!(
-        &mut lines,
-        "{:<width$}: {}",
-        "  Tray Index",
-        m.tray_index
-            .map(|v| v.to_string())
-            .as_deref()
-            .unwrap_or(UNKNOWN)
-    )?;
+
+    let data = vec![
+        ("  Serial Number", non_empty(m.serial_number)),
+        ("  Slot Number", m.slot_number.map(|n| n.to_string())),
+        ("  Tray Index", m.tray_index.map(|n| n.to_string())),
+        ("  Power State", m.power_state),
+        ("  Health", m.health_status),
+        (
+            "  NVOS MAC Addresses",
+            non_empty(m.nvos_mac_addresses.join(", ")),
+        ),
+        ("  BMC", Some(String::new())),
+        ("    IP", m.bmc_ip),
+        ("    MAC", non_empty(m.bmc_mac)),
+        ("  Inventory", Some(String::new())),
+        ("    Expected Switch ID", m.expected_switch_id),
+        ("    Explored Endpoint", m.explored_endpoint),
+        ("    Rack ID", m.rack_id),
+    ];
+
+    for (key, value) in data {
+        if matches!(&value, Some(x) if x.is_empty()) {
+            writeln!(&mut lines, "{key:<width$}")?;
+        } else {
+            writeln!(
+                &mut lines,
+                "{:<width$}: {}",
+                key,
+                value.unwrap_or(UNKNOWN.to_string())
+            )?;
+        }
+    }
 
     println!("{lines}");
     Ok(())
 }
 
-fn show_table_view(outputs: &[ManagedSwitchOutput]) {
-    let mut table = Table::new();
-    table.set_titles(row![
-        "Switch ID",
-        "Name",
-        "Serial",
-        "BMC MAC",
-        "NVOS MAC",
-        "Power",
-        "Health",
-        "State"
-    ]);
-
-    for m in outputs {
-        table.add_row(row![
-            m.switch_id.as_deref().unwrap_or("N/A"),
-            m.name,
-            if m.serial_number.is_empty() {
-                "N/A"
-            } else {
-                &m.serial_number
-            },
-            if m.bmc_mac.is_empty() {
-                "N/A"
-            } else {
-                &m.bmc_mac
-            },
-            if m.nvos_mac_addresses.is_empty() {
-                "N/A".to_string()
-            } else {
-                m.nvos_mac_addresses.join(", ")
-            },
-            m.power_state.as_deref().unwrap_or("N/A"),
-            m.health_status.as_deref().unwrap_or("N/A"),
-            m.controller_state,
-        ]);
-    }
-
-    table.printstd();
-}
-
-fn show_csv(outputs: &[ManagedSwitchOutput]) {
-    println!(
-        "Switch ID,Name,Serial Number,BMC MAC,NVOS MAC,BMC IP,Power State,Health,State,Expected Switch ID,Rack ID"
-    );
-    for m in outputs {
-        println!(
-            "{},{},{},{},{},{},{},{},{},{},{}",
-            m.switch_id.as_deref().unwrap_or(""),
-            m.name,
-            m.serial_number,
-            m.bmc_mac,
-            m.nvos_mac_addresses.join(";"),
-            m.bmc_ip.as_deref().unwrap_or(""),
-            m.power_state.as_deref().unwrap_or(""),
-            m.health_status.as_deref().unwrap_or(""),
-            m.controller_state,
-            m.expected_switch_id.as_deref().unwrap_or(""),
-            m.rack_id.as_deref().unwrap_or(""),
-        );
-    }
+fn non_empty(s: String) -> Option<String> {
+    if s.is_empty() { None } else { Some(s) }
 }
 
 pub async fn handle_show(
+    output_file: &mut Box<dyn tokio::io::AsyncWrite + Unpin>,
     args: Args,
     output_format: OutputFormat,
     api_client: &ApiClient,
@@ -389,43 +434,11 @@ pub async fn handle_show(
 
     let outputs = build_managed_switch_outputs(switches, linked, &nvos_mac_map);
 
-    match output_format {
-        OutputFormat::Json => {
-            if is_single {
-                if let Some(first) = outputs.first() {
-                    println!("{}", serde_json::to_string_pretty(first)?);
-                }
-            } else {
-                println!("{}", serde_json::to_string_pretty(&outputs)?);
-            }
-        }
-        OutputFormat::Yaml => {
-            if is_single {
-                if let Some(first) = outputs.first() {
-                    println!("{}", serde_yaml::to_string(first)?);
-                }
-            } else {
-                println!("{}", serde_yaml::to_string(&outputs)?);
-            }
-        }
-        OutputFormat::Csv => {
-            show_csv(&outputs);
-        }
-        _ => {
-            if is_single {
-                if let Some(first) = outputs.first() {
-                    show_detail_view(first)?;
-                } else {
-                    println!("No managed switch found.");
-                }
-            } else if outputs.is_empty() {
-                println!("No managed switches found.");
-            } else {
-                println!("Managed Switches ({}):", outputs.len());
-                show_table_view(&outputs);
-            }
-        }
-    }
+    let output_options = ManagedSwitchOutputOptions {
+        show_ips: args.ips,
+        more_details: args.more,
+        single_switch_detail_view: is_single,
+    };
 
-    Ok(())
+    show_managed_switches(outputs, output_file, output_format, output_options).await
 }
