@@ -49,6 +49,13 @@ impl From<Args> for rpc::forge::ListComponentFirmwareVersionsRequest {
                     ),
                 ),
             },
+            DeviceTargetArgs::Rack(target) => Self {
+                target: Some(
+                    rpc::forge::list_component_firmware_versions_request::Target::RackIds(
+                        target.into(),
+                    ),
+                ),
+            },
         }
     }
 }

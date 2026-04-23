@@ -49,6 +49,13 @@ impl From<Args> for rpc::forge::GetComponentFirmwareStatusRequest {
                     ),
                 ),
             },
+            DeviceTargetArgs::Rack(target) => Self {
+                target: Some(
+                    rpc::forge::get_component_firmware_status_request::Target::RackIds(
+                        target.into(),
+                    ),
+                ),
+            },
         }
     }
 }

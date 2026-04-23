@@ -17,6 +17,7 @@
 
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::power_shelf::PowerShelfId;
+use carbide_uuid::rack::RackId;
 use carbide_uuid::switch::SwitchId;
 use clap::{Args as ClapArgs, Subcommand, ValueEnum};
 
@@ -134,6 +135,26 @@ impl From<MachineTargetArgs> for rpc::common::MachineIdList {
     }
 }
 
+#[derive(ClapArgs, Debug)]
+pub struct RackTargetArgs {
+    #[clap(
+        long = "rack-id",
+        required = true,
+        num_args = 1..,
+        value_delimiter = ',',
+        help = "Rack IDs to target"
+    )]
+    pub rack_ids: Vec<RackId>,
+}
+
+impl From<RackTargetArgs> for rpc::forge::RackIdList {
+    fn from(args: RackTargetArgs) -> Self {
+        Self {
+            rack_ids: args.rack_ids,
+        }
+    }
+}
+
 #[derive(Subcommand, Debug)]
 pub enum DeviceTargetArgs {
     #[clap(about = "Target NVLink switches")]
@@ -144,6 +165,9 @@ pub enum DeviceTargetArgs {
 
     #[clap(about = "Target compute trays")]
     ComputeTray(MachineTargetArgs),
+
+    #[clap(about = "Target racks")]
+    Rack(RackTargetArgs),
 }
 
 pub fn component_result_status_name(status: i32) -> &'static str {

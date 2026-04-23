@@ -19,7 +19,7 @@ use clap::{Args as ClapArgs, Parser, Subcommand};
 
 use crate::component_manager::common::{
     ComputeTrayComponentArg, MachineTargetArgs, NvSwitchComponentArg, PowerShelfComponentArg,
-    PowerShelfTargetArgs, SwitchTargetArgs,
+    PowerShelfTargetArgs, RackTargetArgs, SwitchTargetArgs,
 };
 
 #[derive(Parser, Debug)]
@@ -38,6 +38,9 @@ pub enum Target {
 
     #[clap(about = "Queue firmware on compute trays")]
     ComputeTray(ComputeTrayArgs),
+
+    #[clap(about = "Queue firmware on all eligible devices in racks")]
+    Rack(RackArgs),
 }
 
 #[derive(ClapArgs, Debug)]
@@ -91,6 +94,15 @@ pub struct ComputeTrayArgs {
     pub components: Vec<ComputeTrayComponentArg>,
 }
 
+#[derive(ClapArgs, Debug)]
+pub struct RackArgs {
+    #[clap(flatten)]
+    pub ids: RackTargetArgs,
+
+    #[clap(long = "target-version", help = "Firmware target version")]
+    pub target_version: String,
+}
+
 impl From<Args> for rpc::forge::UpdateComponentFirmwareRequest {
     fn from(args: Args) -> Self {
         match args.target {
@@ -141,6 +153,16 @@ impl From<Args> for rpc::forge::UpdateComponentFirmwareRequest {
                                     rpc::forge::ComputeTrayComponent::from(component) as i32
                                 })
                                 .collect(),
+                        },
+                    ),
+                ),
+            },
+            Target::Rack(target) => Self {
+                target_version: target.target_version,
+                target: Some(
+                    rpc::forge::update_component_firmware_request::Target::Racks(
+                        rpc::forge::UpdateRackFirmwareTarget {
+                            rack_ids: Some(target.ids.into()),
                         },
                     ),
                 ),
