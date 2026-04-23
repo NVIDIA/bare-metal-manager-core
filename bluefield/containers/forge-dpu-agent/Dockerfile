@@ -14,15 +14,32 @@ ARG DISTROLESS_DEBUG_TAG=${DEBUG_DISTROLESS:+"dev"} # 'dev' provides a busybox s
 
 # Stage 1
 
-# Get libudev1 for arm64
 FROM --platform=linux/arm64 debian:bookworm-slim AS builder
-RUN apt-get update && apt-get install -y libudev1
+
+# Get libraries and install MFT (provides flint for DPU firmware enumeration)
+RUN apt-get update && apt-get install -y \
+     libudev1 \
+     bash \
+     curl
+COPY mft-4.35.0-159-aarch64-deb /tmp/mft
+RUN dpkg -i /tmp/mft/DEBS/mft_4.35.0-159_arm64.deb && rm -rf /tmp/mft
+
+# Setup directory to collect all shared libraries
+RUN mkdir -p /deps && \
+    cp $(ldd /bin/bash | grep "=> /" | awk '{print $3}') /deps/
 
 # Stage 2
 FROM --platform=linux/arm64 ${IMG}:${TAG}-${DISTROLESS_DEBUG_TAG}
 
-# Copy the library from builder and forge-dpu-agent
+# Copy bash binary, libraries, mft, and curl from builder
 COPY --from=builder /lib/aarch64-linux-gnu/libudev.so.1 /lib/aarch64-linux-gnu/libudev.so.1
-COPY target/aarch64-unknown-linux-gnu/release/forge-dpu-agent /usr/bin/forge-dpu-agent
+COPY --from=builder --chmod=755 /bin/bash /bin/bash
+COPY --from=builder --chmod=755 /usr/bin/flint /usr/bin/flint
+COPY --from=builder /deps/* /lib/
+COPY --from=builder --chmod=755 /usr/bin/curl /usr/bin/curl
+COPY --from=builder /usr/lib/aarch64-linux-gnu/libcurl.so.4 /lib/aarch64-linux-gnu/libcurl.so.4
+
+# Copy forge-dpu-agent and set entry point
+COPY --chmod=755 target/aarch64-unknown-linux-gnu/release/forge-dpu-agent /usr/bin/forge-dpu-agent
 
 ENTRYPOINT ["/usr/bin/forge-dpu-agent"]

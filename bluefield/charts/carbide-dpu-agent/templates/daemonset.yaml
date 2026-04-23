@@ -60,6 +60,8 @@ spec:
               value: "0"
             - name: RUST_LOG
               value: "info"
+            - name: IGNORE_MGMT_VRF
+              value: 1
           volumeMounts:
             - name: hw-cache
               mountPath: /data
@@ -80,10 +82,10 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           args:
             - run
-            - "--hbn-config-mode=nvue-rest"
+            - "nvue-rest"
             - "--agent-platform-type=containerized"
-            - "--dhcp-grpc-server=carbide-dpf-cluster-{{ .Values.dhcp_server.service_name }}.dpf-operator-system.svc.cluster.local:10079"
-            - "--fmds-grpc-server=carbide-dpf-cluster-{{ .Values.fmds.service_name }}.dpf-operator-system.svc.cluster.local:50052"
+            - "--dhcp-grpc-server=https://carbide-dpf-cluster-{{ .Values.dhcp_server.service_name }}.dpf-operator-system.svc.cluster.local:10079"
+            - "--fmds-grpc-server=https://carbide-dpf-cluster-{{ .Values.fmds.service_name }}.dpf-operator-system.svc.cluster.local:50052"
             {{- if not (empty .Values.dhcp_server.interface_prepend) }}
             - "--dhcp-server-interface-prepend={{ .Values.dhcp_server.interface_prepend }}"
             {{ end }}
@@ -119,12 +121,9 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: NVUE_HTTPS_ADDRESS
-              value: {{ .Values.hbn.nvue_https_address }}
+              value: https://carbide-dpf-cluster-{{ .Values.hbn.nvue_https_address }}.dpf-operator-system.svc.cluster.local:8765
             - name: NVUE_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.hbn.nvue_credentials_secret_name }}
-                  key: {{ .Values.hbn.nvue_username_key }}
+              value: "carbide"
             - name: NVUE_PASSWORD
               valueFrom:
                 secretKeyRef:

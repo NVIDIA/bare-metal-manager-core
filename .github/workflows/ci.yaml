@@ -985,11 +985,29 @@ jobs:
       load: false
     secrets: inherit
 
+  download-mft-aarch64:
+    needs:
+      - prepare
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    runs-on: linux-arm64-cpu4
+    steps:
+      - name: Download and extract MFT package
+        run: |
+          wget https://www.mellanox.com/downloads/MFT/mft-4.35.0-159-aarch64-deb.tgz
+          tar -zxvf mft-4.35.0-159-aarch64-deb.tgz
+          rm mft-4.35.0-159-aarch64-deb.tgz
+      - name: Upload MFT as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mft-aarch64-deb-${{ github.run_id }}
+          path: mft-4.35.0-159-aarch64-deb/
+
   build-bluefield-forge-dpu-agent:
     needs:
       - prepare
       - build-bluefield-binaries
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-bluefield-binaries.result == 'success' }}
+      - download-mft-aarch64
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-bluefield-binaries.result == 'success' && needs.download-mft-aarch64.result == 'success' }}
     uses: ./.github/workflows/docker-build.yml
     with:
       dockerfile_path: bluefield/containers/forge-dpu-agent/Dockerfile
