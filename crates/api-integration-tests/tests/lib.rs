@@ -259,7 +259,7 @@ fn generate_core_metric_docs(metrics_endpoints: &[SocketAddr]) {
 
 pub(crate) const METRIC_DOC_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../book/src/manuals/metrics/core_metrics.md"
+    "/../../docs/manuals/metrics/core_metrics.md"
 );
 
 /// Run integration tests with machine-a-tron, asserting on metrics. This has to run as its own

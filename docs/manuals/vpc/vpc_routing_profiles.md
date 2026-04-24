@@ -21,20 +21,29 @@ A VPC has a `network_virtualization_type` that determines how the platform imple
 
 ### Routing Profile Type
 
-A VPC also has a `routing_profile_type`, which determines the routing policy class associated with that VPC. Supported profile types include the following:
+A VPC also has a `routing_profile_type`, which determines the routing policy class associated with that VPC.
 
-- `EXTERNAL`
-- `INTERNAL`
-- `MAINTENANCE`
-- `PRIVILEGED_INTERNAL`
+Routing profile names are free-form strings, not a fixed enumeration. The names `EXTERNAL`, `INTERNAL`, `MAINTENANCE`, and `PRIVILEGED_INTERNAL` are conventional and commonly used, but they are not reserved or hardcoded by the API. Any name is accepted, provided it is defined as a key in `fnn.routing_profiles` in the API server configuration.
 
-This setting determines which routing behavior the VPC is expected to follow.
+The API validates all supplied profile names against the configured profiles. Supplying an unknown name returns a `NOT_FOUND` error.
+
+The resolved `routing_profile_type` is returned on the `Vpc` resource in API responses, reflecting the profile selected at creation time, whether supplied explicitly in the creation request or inherited from the tenant.
+
+> **REST API note**: The REST API reserves three profile names for VPC creation: `external`, `internal`, and `privileged-internal`. These are the only values the REST API accepts for the `routingProfile` field; any other value is rejected. They are translated to their uppercase equivalents (`EXTERNAL`, `INTERNAL`, `PRIVILEGED_INTERNAL`) before being forwarded to the API server. Sites that serve REST API clients must define all three reserved names in `fnn.routing_profiles`. Additional profiles may be defined and used through the gRPC interface.
 
 ### API Server Routing Profiles
 
 The API server must define the available routing profiles under the `fnn.routing_profiles` section of the configuration file.
 
-Each entry is keyed by the routing profile name and contains the site-specific routing behavior associated with that profile. This includes whether the profile is treated as internal or external and which route-policy settings apply.
+Each entry is keyed by the routing profile name and contains the site-specific routing behavior associated with that profile. This includes whether the profile is treated as internal or external, which route-policy settings apply, and the profile's `access_tier` value.
+
+The `access_tier` field governs privilege enforcement between tenants and VPCs. Lower values represent broader (less-restricted) access; higher values represent narrower (more-restricted) access. A VPC cannot be created with a profile whose `access_tier` is lower than the tenant's profile `access_tier`. Every profile intended for production use must have an `access_tier` assigned.
+
+The `default_tenant_routing_profile_type` field in the top-level server configuration controls which profile is assigned to new tenants when FNN is enabled and no profile is supplied at creation time. It defaults to `EXTERNAL` if not set:
+
+```toml
+default_tenant_routing_profile_type = "EXTERNAL"
+```
 
 ## Relationship between network_virtualization_type and routing_profile_type
 
@@ -52,7 +61,7 @@ When a VPC is created, the API determines the routing profile as follows:
 2. If the request does not include `routing_profile_type`, the API uses the tenant’s `routing_profile_type`.
 3. The API then looks for a routing profile with the same name in `fnn.routing_profiles`.
 
-The API also enforces privilege boundaries. A VPC cannot request a routing profile that is more privileged than the tenant’s allowed routing profile. For example, a tenant that is limited to `EXTERNAL` cannot create an `INTERNAL` VPC.
+The API also enforces access boundaries using the `access_tier` values defined in `fnn.routing_profiles`. A VPC cannot request a routing profile whose `access_tier` is lower than the tenant’s profile `access_tier`. Lower `access_tier` values represent broader access; higher values represent narrower access. For example, if `EXTERNAL` has `access_tier = 2` and `INTERNAL` has `access_tier = 1`, a tenant assigned `EXTERNAL` cannot create a VPC with profile `INTERNAL` because `1 < 2`. A tenant assigned `INTERNAL` can, however, create a VPC with profile `EXTERNAL`.
 
 ## Why Routing Profile Configuration Is Required in Production
 
@@ -71,6 +80,7 @@ A representative TOML example is shown below:
 
 [fnn.routing_profiles.EXTERNAL]
 internal = false
+access_tier = 2
 route_target_imports = []
 route_targets_on_exports = []
 leak_default_route_from_underlay = false
@@ -78,6 +88,7 @@ leak_tenant_host_routes_to_underlay = false
 
 [fnn.routing_profiles.INTERNAL]
 internal = true
+access_tier = 1
 route_target_imports = []
 route_targets_on_exports = []
 leak_default_route_from_underlay = false
@@ -91,6 +102,7 @@ If the site needs to support additional routing profile types, they should also 
 
 [fnn.routing_profiles.EXTERNAL]
 internal = false
+access_tier = 3
 route_target_imports = []
 route_targets_on_exports = []
 leak_default_route_from_underlay = false
@@ -98,6 +110,7 @@ leak_tenant_host_routes_to_underlay = false
 
 [fnn.routing_profiles.INTERNAL]
 internal = true
+access_tier = 2
 route_target_imports = []
 route_targets_on_exports = []
 leak_default_route_from_underlay = false
@@ -105,6 +118,7 @@ leak_tenant_host_routes_to_underlay = false
 
 [fnn.routing_profiles.MAINTENANCE]
 internal = true
+access_tier = 1
 route_target_imports = []
 route_targets_on_exports = []
 leak_default_route_from_underlay = false
@@ -112,13 +126,14 @@ leak_tenant_host_routes_to_underlay = false
 
 [fnn.routing_profiles.PRIVILEGED_INTERNAL]
 internal = true
+access_tier = 0
 route_target_imports = []
 route_targets_on_exports = []
 leak_default_route_from_underlay = false
 leak_tenant_host_routes_to_underlay = false
 ```
 
-The exact route-target values and leak settings are site-specific, but the profile names must exist and must match the API values exactly.
+The exact route-target values, leak settings, and `access_tier` values are site-specific, but the profile names must exist and must match the API values exactly. The `access_tier` values must be assigned consistently across all profiles to reflect the intended access hierarchy.
 
 ## How Tenant Routing Profiles Affect VPC Creation
 
@@ -148,7 +163,7 @@ If the tenant has active VPCs, those VPCs must be deleted before the tenant prof
 
 ### Using the admin-cli
 
-The REST API currently creates tenants with a default routing-profile of `EXTERNAL`.
+When FNN is enabled, the API server assigns newly created tenants a default routing profile. This default is controlled by the `default_tenant_routing_profile_type` field in the API server configuration, and defaults to `EXTERNAL` if not set.
 
 For deployments where this is insufficient, the gRPC admin-cli supports tenant profile updates through the `tenant update` command.
 
@@ -161,18 +176,13 @@ admin-cli tenant update <tenant-org> -p <profile>
 **Examples**
 
 ```
-admin-cli tenant update example-org -p external
-admin-cli tenant update example-org -p internal
-admin-cli tenant update example-org -p privileged-internal
-admin-cli tenant update example-org -p maintenance
+admin-cli tenant update example-org -p EXTERNAL
+admin-cli tenant update example-org -p INTERNAL
+admin-cli tenant update example-org -p PRIVILEGED_INTERNAL
+admin-cli tenant update example-org -p MAINTENANCE
 ```
 
-The following are supported CLI values:
-
-- `external`
-- `internal`
-- `privileged-internal`
-- `maintenance`
+The `-p` flag accepts any string. The supplied value must exactly match a key defined in `fnn.routing_profiles` in the API server configuration. The API validates the name and returns `NOT_FOUND` if the profile does not exist in the configuration.
 
 This is the recommended workflow for changing a tenant's routing profile using the admin-cli:
 
@@ -185,13 +195,13 @@ This is the recommended workflow for changing a tenant's routing profile using t
 3. Apply the update:
 
    ```
-   admin-cli tenant update <tenant-org> -p internal
+   admin-cli tenant update <tenant-org> -p INTERNAL
    ```
 
 The CLI also supports an optional version-match flag:
 
 ```
-admin-cli tenant update <tenant-org> -p internal -v <current-version>
+admin-cli tenant update <tenant-org> -p INTERNAL -v <current-version>
 ```
 
 This flag is optional. It is not a verbosity setting, but is used for optimistic concurrency checking and causes the update to be rejected if the tenant record has changed since it was last reviewed.
@@ -207,7 +217,7 @@ This means the tenant routing profile should be treated as a planning decision r
 Consider the following example error returned during VPC creation:
 
 ```
-routing_profile_type not found: EXTERNAL
+RoutingProfile not found: EXTERNAL
 ```
 
 This error should be interpreted as a routing profile lookup failure during VPC creation.
@@ -236,6 +246,7 @@ A minimal TOML example is shown below:
 
 [fnn.routing_profiles.EXTERNAL]
 internal = false
+access_tier = 2
 route_target_imports = []
 route_targets_on_exports = []
 leak_default_route_from_underlay = false
