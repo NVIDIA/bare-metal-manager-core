@@ -22,7 +22,15 @@ RUN apt-get update && apt-get install -y \
      bash \
      curl
 COPY mft-4.35.0-159-aarch64-deb /tmp/mft
-RUN dpkg -i /tmp/mft/DEBS/mft_4.35.0-159_arm64.deb && rm -rf /tmp/mft
+
+# Working flint extraction
+COPY mstflint_arm64.deb /tmp/mstflint.deb
+RUN mkdir -p /extract && dpkg-deb -x /tmp/mstflint.deb /extract
+RUN mkdir -p /deps && \
+    # Locate the binary (usually in /usr/bin/ inside the extraction folder)
+    BINARY_PATH=$(find /extract -name flint -o -name mstflint | head -n 1) && \
+    # Use ldd to find dependencies, but point it to the libraries in the extraction folder if needed
+    ldd $BINARY_PATH | grep "=> /" | awk '{print $3}' | xargs -I '{}' cp -v '{}' /deps/
 
 # Setup directory to collect all shared libraries
 RUN mkdir -p /deps && \
@@ -34,7 +42,7 @@ FROM --platform=linux/arm64 ${IMG}:${TAG}-${DISTROLESS_DEBUG_TAG}
 # Copy bash binary, libraries, mft, and curl from builder
 COPY --from=builder /lib/aarch64-linux-gnu/libudev.so.1 /lib/aarch64-linux-gnu/libudev.so.1
 COPY --from=builder --chmod=755 /bin/bash /bin/bash
-COPY --from=builder --chmod=755 /usr/bin/flint /usr/bin/flint
+COPY --from=builder --chmod=755 /extract/usr/bin/ /usr/bin/
 COPY --from=builder /deps/* /lib/
 COPY --from=builder --chmod=755 /usr/bin/curl /usr/bin/curl
 COPY --from=builder /usr/lib/aarch64-linux-gnu/libcurl.so.4 /lib/aarch64-linux-gnu/libcurl.so.4
