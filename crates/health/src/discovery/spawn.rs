@@ -24,7 +24,7 @@ use crate::collectors::{
     BackoffConfig, Collector, CollectorStartContext, FirmwareCollector, FirmwareCollectorConfig,
     LogsCollector, LogsCollectorConfig, NmxtCollector, NmxtCollectorConfig, NvueRestCollector,
     NvueRestCollectorConfig, SensorCollector, SensorCollectorConfig, SseLogCollector,
-    SseLogCollectorConfig, StreamingCollectorStartContext,
+    SseLogCollectorConfig, StreamingCollectorStartContext, spawn_gnmi_collector,
 };
 use crate::config::{Configurable, LogCollectionMode};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata};
@@ -287,6 +287,35 @@ pub(super) async fn spawn_collectors_for_endpoint(
                     "Could not start NVUE REST collector for: {:?}",
                     endpoint.addr
                 )
+            }
+        }
+    }
+
+    if let Configurable::Enabled(nvue_cfg) = &ctx.nvue_config
+        && let Configurable::Enabled(gnmi_cfg) = &nvue_cfg.gnmi
+        && !ctx.collectors.contains(CollectorKind::NvueGnmi, &key)
+        && matches!(endpoint.metadata, Some(EndpointMetadata::Switch(_)))
+    {
+        let collector_registry = Arc::new(
+            ctx.metrics_manager
+                .create_collector_registry(format!("nvue_gnmi_collector_{key}"), metrics_prefix)?,
+        );
+        match spawn_gnmi_collector(endpoint, gnmi_cfg, collector_registry, data_sink.clone()) {
+            Ok(handle) => {
+                ctx.collectors
+                    .insert(CollectorKind::NvueGnmi, key.clone(), handle);
+                tracing::info!(
+                    endpoint_key = %key,
+                    total_nvue_gnmi_collectors = ctx.collectors.len(CollectorKind::NvueGnmi),
+                    "Started NVUE gNMI streaming collection for switch endpoint"
+                );
+            }
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    endpoint_key = %key,
+                    "Could not start NVUE gNMI collector for switch"
+                );
             }
         }
     }
