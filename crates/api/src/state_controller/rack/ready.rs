@@ -22,7 +22,9 @@ use db::rack as db_rack;
 use model::rack::{FirmwareUpgradeState, Rack, RackConfig, RackMaintenanceState, RackState};
 
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
-use crate::state_controller::rack::maintenance::first_maintenance_state;
+use crate::state_controller::rack::maintenance::{
+    clear_expired_firmware_upgrade_job, first_maintenance_state,
+};
 use crate::state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
@@ -95,6 +97,10 @@ pub async fn handle_ready(
             maintenance_state: first_maintenance_state(scope),
         })
         .with_txn(txn));
+    }
+
+    if let Some(outcome) = clear_expired_firmware_upgrade_job(id, state, ctx).await? {
+        return Ok(outcome);
     }
 
     Ok(StateHandlerOutcome::wait(
