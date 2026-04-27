@@ -254,7 +254,7 @@ pub(crate) async fn persist_validation_result(
     .await?;
 
     db::machine_validation_result::create(validation_result, &mut txn).await?;
-    txn.commit().await.unwrap();
+    txn.commit().await?;
     Ok(tonic::Response::new(()))
 }
 
@@ -525,7 +525,7 @@ pub(crate) async fn remove_machine_validation_external_config(
     let mut txn = api.txn_begin().await?;
 
     let _ = db::machine_validation_config::remove_config(&mut txn, &req.name).await?;
-    txn.commit().await.unwrap();
+    txn.commit().await?;
 
     Ok(tonic::Response::new(()))
 }
