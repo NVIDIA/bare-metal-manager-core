@@ -451,7 +451,7 @@ struct MachineDetail<'a> {
     ib_interfaces: Vec<MachineIbInterfaceDisplay>,
     inventory: Vec<MachineInventorySoftwareComponent>,
     health: health_report::HealthReport,
-    health_overrides: Vec<String>,
+    health_sources: Vec<String>,
     bmc_info: Option<rpc::forge::BmcInfo>,
     discovery_info_json: String,
     metadata_detail: super::MetadataDetail,
@@ -686,7 +686,7 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
                         .unwrap_or_else(health_report::HealthReport::malformed_report)
                 })
                 .unwrap_or_else(health_report::HealthReport::missing_report),
-            health_overrides: m.health_sources.iter().map(|o| o.source.clone()).collect(),
+            health_sources: m.health_sources.iter().map(|o| o.source.clone()).collect(),
             discovery_info_json,
             capabilities_json: m
                 .capabilities

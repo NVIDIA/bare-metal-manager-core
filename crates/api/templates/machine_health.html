@@ -9,7 +9,7 @@
 {{ aggregate_health|safe }}
 
 {% if !overrides.is_empty() %}
-<h2>Active Health Overrides</h2>
+<h2>Active Health Reports</h2>
 <table class="sortable overview">
 	<thead>
 		<tr>
@@ -46,7 +46,7 @@
 </table>
 {% endif %}
 
-<h2>Health Override Management</h2>
+<h2>Health Report Management</h2>
 <table class="detailsview">
 	<tr>
 		<th>Quick Templates</th>
@@ -71,13 +71,13 @@
 		</td>
 	</tr>
 	<tr>
-		<th>Override Configuration</th>
+		<th>Health Report</th>
 		<td>
 			<p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.5rem;">
 				Required fields: <strong>id</strong> and <strong>message</strong>. Target is optional.
 			</p>
 			<textarea id="override" rows="16" style="width: 100%; font-family: 'Consolas', 'Monaco', monospace; margin-bottom: 1rem;"></textarea>
-			<button id="submit_add">Submit Override</button>
+			<button id="submit_add">Submit Health Report</button>
 		</td>
 	</tr>
 </table>
