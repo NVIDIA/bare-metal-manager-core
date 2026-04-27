@@ -77,12 +77,19 @@ impl StateHandler for DpaInterfaceStateHandler {
 
         let dpa_info = ctx.services.dpa_info.clone().unwrap();
 
+        // DPAs follow the host-level `use_admin_network`.
+        let host_use_admin_network = db::machine::get_host_use_admin_network_for_dpa_interface(
+            &ctx.services.db_pool,
+            &state.id,
+        )
+        .await?;
+
         match controller_state {
             DpaInterfaceControllerState::Provisioning => {
                 // New DPA objects start off in the Provisioning state.
                 // They stay in that state until the first time the machine
                 // starts a transition from Ready to Assigned state.
-                if state.use_admin_network() {
+                if host_use_admin_network {
                     return Ok(StateHandlerOutcome::do_nothing());
                 }
 
@@ -102,7 +109,7 @@ impl StateHandler for DpaInterfaceStateHandler {
                     .clone()
                     .ok_or_else(|| StateHandlerError::GenericError(eyre!("Missing mqtt_client")))?;
 
-                if !state.use_admin_network() {
+                if !host_use_admin_network {
                     let new_state = DpaInterfaceControllerState::Unlocking;
                     tracing::info!(state = ?new_state, "Dpa Interface state transition");
 
@@ -249,7 +256,7 @@ impl StateHandler for DpaInterfaceStateHandler {
                     .clone()
                     .ok_or_else(|| StateHandlerError::GenericError(eyre!("Missing mqtt_client")))?;
 
-                if state.use_admin_network() {
+                if host_use_admin_network {
                     let new_state = DpaInterfaceControllerState::WaitingForResetVNI;
                     tracing::info!(state = ?new_state, "Dpa Interface state transition");
                     let txn = send_set_vni_command(
@@ -331,7 +338,7 @@ async fn do_heartbeat<'a>(
     if let Some(next_hb_time) = state.last_hb_time.checked_add_signed(hb_interval)
         && chrono::Utc::now() >= next_hb_time
     {
-        send_hb = true; // heartbeat interval elapsed since the last heartbeat 
+        send_hb = true; // heartbeat interval elapsed since the last heartbeat
     }
 
     if !state.managed_host_network_config_version_synced() {
