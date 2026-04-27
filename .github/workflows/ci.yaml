@@ -905,6 +905,43 @@ jobs:
           ngc-path: 0837451325059433/carbide-dev
           ngc-duplicate: fail
 
+  build-validate-helm-prereqs-chart:
+    needs:
+      - prepare
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate Helm prereqs chart
+        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
+        with:
+          chart-path: helm-prereqs
+          lint: 'true'
+          template: 'true'
+
+  build-push-helm-prereqs-chart:
+    needs:
+      - prepare
+      - build-validate-helm-prereqs-chart
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-validate-helm-prereqs-chart.result == 'success' && !contains(github.ref, 'pull-request/') }}
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Package and push Helm prereqs chart to NGC
+        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        with:
+          chart-path: helm-prereqs
+          chart-version: ${{ needs.prepare.outputs.helm_version }}
+          app-version: ${{ needs.prepare.outputs.version }}
+          lint: 'false'
+          ngc-key: ${{ secrets.NVCR_TOKEN }}
+          ngc-path: 0837451325059433/carbide-dev
+          ngc-duplicate: fail
+
   # ============================================================================
   # BUILD STAGE - Bluefield Images
   # ============================================================================
@@ -1213,6 +1250,8 @@ jobs:
       - build-powerdns-container
       - build-validate-helm-chart
       - build-push-helm-chart
+      - build-validate-helm-prereqs-chart
+      - build-push-helm-prereqs-chart
       - build-release-artifacts-x86-host
       - build-release-artifacts-arm-host
       - build-bluefield-binaries
@@ -1315,6 +1354,8 @@ jobs:
       - build-powerdns-container
       - build-validate-helm-chart
       - build-push-helm-chart
+      - build-validate-helm-prereqs-chart
+      - build-push-helm-prereqs-chart
       - build-release-artifacts-x86-host
       - build-release-artifacts-arm-host
       - build-bluefield-binaries

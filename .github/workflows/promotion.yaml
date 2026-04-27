@@ -32,9 +32,23 @@ jobs:
     runs-on: linux-amd64-cpu4
     outputs:
       version: ${{ inputs.version }}
+      helm_version: ${{ steps.version.outputs.helm_version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Calculate Helm chart version
+        id: version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          HELM_VERSION_BASE="${VERSION#v}"
+          HELM_VERSION="$(echo "${HELM_VERSION_BASE}" | sed 's/\(.*\)-/\1./')"
+
+          echo "helm_version=${HELM_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Promoting chart version ${HELM_VERSION} from release ${VERSION}"
 
       - name: Login to NVCR
         uses: ./.github/actions/docker-auth
@@ -98,6 +112,8 @@ jobs:
           echo "  - nvmetal-carbide"
           echo "  - carbide-release-artifacts-aarch64"
           echo "  - carbide-release-artifacts-x86_64"
+          echo "Helm charts to be promoted:"
+          echo "  - carbide-prereqs"
 
 
   # ============================================================================
@@ -156,3 +172,26 @@ jobs:
       SOURCE_PASSWORD: ${{ secrets.NVCR_TOKEN }}
       DEST_USERNAME: ${{ secrets.NVCR_PROD_USERNAME }}
       DEST_PASSWORD: ${{ secrets.NVCR_PROD_TOKEN }}
+
+  # ============================================================================
+  # Publish - Helm prereqs chart (carbide-prereqs)
+  # ============================================================================
+  promote-helm-prereqs-chart:
+    needs:
+      - prepare
+      - approve-promotion
+    runs-on: linux-amd64-cpu4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Package and push Helm prereqs chart to production NGC
+        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
+        with:
+          chart-path: helm-prereqs
+          chart-version: ${{ needs.prepare.outputs.helm_version }}
+          app-version: ${{ needs.prepare.outputs.version }}
+          lint: 'false'
+          ngc-key: ${{ secrets.NVCR_PROD_TOKEN }}
+          ngc-path: 0837451325059433/carbide
+          ngc-duplicate: fail

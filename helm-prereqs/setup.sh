@@ -22,11 +22,20 @@
 #   export NCX_REPO=/path/to/ncx-repo   # override NCX repo path discovery
 #   (default: looks for sibling dirs 'ncx' or 'ncx-infra-controller-rest'
 #    next to carbide-helm; customer is prompted if neither is found)
+#   export CARBIDE_PREREQS_CHART=<chart-ref>
+#   (default: "."; set to a published NGC Helm chart reference to consume the
+#    packaged carbide-prereqs chart instead of the local chart directory)
+#   export CARBIDE_PREREQS_CHART_VERSION=<chart-version>
+#   (optional; pin the packaged carbide-prereqs chart version)
 # =============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
+
+CARBIDE_PREREQS_CHART="${CARBIDE_PREREQS_CHART:-.}"
+export CARBIDE_PREREQS_CHART
+export CARBIDE_PREREQS_CHART_VERSION="${CARBIDE_PREREQS_CHART_VERSION:-}"
 
 AUTO_YES=false
 while getopts "y" _opt; do
@@ -237,11 +246,18 @@ echo "=== [2/6] cert-manager + Vault TLS bootstrap ==="
 helmfile sync -l name=cert-manager
 
 kubectl create namespace "${VAULT_NS}" 2>/dev/null || true
-helm template carbide-prereqs . \
-    --namespace forge-system \
-    --set imagePullSecrets.ngcCarbidePull="${REGISTRY_PULL_SECRET}" \
-    --show-only templates/site-root-certificate.yaml \
-    --show-only templates/vault-tls-certs.yaml \
+_CARBIDE_PREREQS_TEMPLATE_ARGS=(
+    --namespace forge-system
+    --set "imagePullSecrets.ngcCarbidePull=${REGISTRY_PULL_SECRET}"
+    --show-only templates/site-root-certificate.yaml
+    --show-only templates/vault-tls-certs.yaml
+)
+if [[ -n "${CARBIDE_PREREQS_CHART_VERSION}" ]]; then
+    _CARBIDE_PREREQS_TEMPLATE_ARGS+=(--version "${CARBIDE_PREREQS_CHART_VERSION}")
+fi
+
+helm template carbide-prereqs "${CARBIDE_PREREQS_CHART}" \
+    "${_CARBIDE_PREREQS_TEMPLATE_ARGS[@]}" \
     | kubectl apply --server-side --field-manager=helm -f -
 
 kubectl wait --for=condition=Ready certificate/site-root \

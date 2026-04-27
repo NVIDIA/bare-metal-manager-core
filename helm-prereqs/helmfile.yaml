@@ -117,7 +117,7 @@ releases:
       - operators/values/external-secrets.yaml
 
   # ---------------------------------------------------------------------------
-  # carbide-prereqs — local Helm chart (this directory)
+  # carbide-prereqs — local Helm chart by default, or CARBIDE_PREREQS_CHART.
   # Installed by setup.sh phase 6 after vault + external-secrets are ready.
   #
   # values/carbide-prereqs-dynamic.yaml.gotmpl: rendered at sync time — reads
@@ -128,7 +128,8 @@ releases:
   # postSync hook: labels forge-system for ESO selection, waits for forge-roots.
   # ---------------------------------------------------------------------------
   - name: carbide-prereqs
-    chart: "."
+    chart: '{{ env "CARBIDE_PREREQS_CHART" | default "." }}'
+    version: '{{ env "CARBIDE_PREREQS_CHART_VERSION" | default "" }}'
     namespace: forge-system
     createNamespace: true
     wait: true
@@ -137,7 +138,7 @@ releases:
       - values.yaml
       - values/carbide-prereqs-dynamic.yaml.gotmpl
     hooks:
-      - events: ["postSync"]
+      - events: ["postsync"]
         command: "bash"
         args:
           - -c

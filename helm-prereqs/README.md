@@ -309,6 +309,8 @@ If everything passes, `preflight.sh` prints one line and exits. If issues are fo
 | `KUBECONFIG` | **Yes** | Path to your cluster kubeconfig. |
 | `NCX_REPO` | No | Path to a local clone of `ncx-infra-controller-rest` ([github.com/NVIDIA/ncx-infra-controller-rest](https://github.com/NVIDIA/ncx-infra-controller-rest)). Auto-detected from sibling directories; `preflight.sh` offers to clone it if not found. |
 | `NCX_SITE_UUID` | No | Stable UUID for this site. Defaults to `a1b2c3d4-e5f6-4000-8000-000000000001`. |
+| `CARBIDE_PREREQS_CHART` | No | Helm chart reference for the `carbide-prereqs` release. Defaults to `.` for local development. Set this to a published NGC chart reference to install the packaged chart while still using local scripts and values. |
+| `CARBIDE_PREREQS_CHART_VERSION` | No | Optional version pin for `CARBIDE_PREREQS_CHART`. Use this when installing a published chart from NGC. |
 
 Obtain an NGC API key at [ngc.nvidia.com](https://ngc.nvidia.com) → **API Keys** → **Generate Personal Key**.
 
@@ -354,6 +356,30 @@ cd helm-prereqs
 ```
 
 To tear everything down, see [Teardown](#7-teardown).
+
+### Optional: consume the published NGC chart
+
+By default, `setup.sh` installs `carbide-prereqs` from the local `helm-prereqs/`
+directory. To validate the packaged chart that CI publishes to NGC, add the NGC
+Helm repository and set `CARBIDE_PREREQS_CHART` before running `setup.sh`:
+
+```bash
+echo "${REGISTRY_PULL_SECRET}" | helm repo add \
+  --username '$oauthtoken' \
+  --password-stdin \
+  carbide-dev \
+  https://helm.ngc.nvidia.com/0837451325059433/carbide-dev
+
+helm repo update carbide-dev
+
+export CARBIDE_PREREQS_CHART=carbide-dev/carbide-prereqs
+export CARBIDE_PREREQS_CHART_VERSION=<chart-version>
+./setup.sh -y
+```
+
+The local checkout is still required for `setup.sh`, `preflight.sh`, site values,
+and operator manifests. `CARBIDE_PREREQS_CHART` only changes the chart source for
+the `carbide-prereqs` Helm release and the early Vault TLS bootstrap render.
 
 ---
 
