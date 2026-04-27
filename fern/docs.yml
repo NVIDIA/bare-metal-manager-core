@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 instances:
-  - url: https://nvidia-ncx-infra-controller.docs.buildwithfern.com/ncx-infra-controller
-    custom-domain: https://docs.nvidia.com/infra-controller
+  - url: nvidia-ncx-infra-controller.docs.buildwithfern.com/infra-controller
+    custom-domain: docs.nvidia.com/infra-controller
 
 title: NVIDIA NCX Infra Controller
 
@@ -78,10 +78,10 @@ products:
         path: ../docs/index.yml
 
 redirects:
-  - source: "/ncx-infra-controller/index.html"
-    destination: "/ncx-infra-controller/"
-  - source: "/ncx-infra-controller/dev/index.html"
-    destination: "/ncx-infra-controller/dev/"
+  - source: "/infra-controller/index.html"
+    destination: "/infra-controller/"
+  - source: "/infra-controller/dev/index.html"
+    destination: "/infra-controller/dev/"
 
 experimental:
   mdx-components:
