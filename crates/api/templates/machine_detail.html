@@ -86,10 +86,10 @@
 		<td>{{ health.alerts|health_alert_classifications_fmt|safe }}</td>
 	</tr>
 	<tr>
-		<th>Health Overrides</th>
+		<th>Health Reports</th>
 		<td>
 			<a href="/admin/machine/{{ id }}/health">
-				{{ health_overrides|join("\n")|linebreaksbr|safe }}
+				{{ health_sources|join("\n")|linebreaksbr|safe }}
 			</a>
 		</td>
 	</tr>
@@ -121,7 +121,7 @@
 		<th>Maintenance Action</th>
 		<td>
 			<p>
-				<i>Maintenance mode is replaced by Health Overrides. Consider using a <a href="/admin/machine/{{ id }}/health">Health Override</a> instead of entering Maintenance Mode.</i>
+				<i>Maintenance mode is replaced by Health Reports. Consider using a <a href="/admin/machine/{{ id }}/health">Health Report</a> instead of entering Maintenance Mode.</i>
 			</p>
 			<form id="maintenance_action" method="POST" action="/admin/machine/{{ id }}/maintenance">
 				{% if maintenance_reference.is_empty() %}

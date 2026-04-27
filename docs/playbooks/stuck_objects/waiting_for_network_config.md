@@ -1,7 +1,7 @@
 # `WaitingForNetworkConfig` and DPU health
 
 Whenever the configuration of a ManagedHost changes (Instance gets created,
-Instance gets deleted, Provisioning), Forge requires the `forge-dpu-agent` to
+Instance gets deleted, Provisioning), NICo requires the `forge-dpu-agent` to
 acknowledge that the desired DPU configuration is applied and that the DPU and
 services running on it (like `HBN`) are in a healthy state.
 
@@ -12,7 +12,7 @@ This feedback mechanism works in the following fashion:
    The configuration includes Version numbers, which increase whenever the
    configuration changes.
 2. `forge-dpu-agent` reports the version numbers of the currently applied
-   configurations back to Carbide using the `RecordDpuNetworkStatus` API.
+   configurations back to NICo using the `RecordDpuNetworkStatus` API.
    This report also includes the DPUs health in the form of a `HealthReport`.
 
 If the DPU has not recently reported that it is up, healthy and that the latest
@@ -147,8 +147,7 @@ Search strings for DPU can be:
 **Note that the query using the MachineId will only work if the DPU once had been fully ingested
 and is aware of its Machine ID. Otherwise only searches by `host_name` will work.**
 
-In case the DPU problem affects log forwarding, DPU logs need to be checked
-directly on the DPU.
+In case the DPU problem affects log forwarding, DPU logs need to be checked directly on the DPU.
 
 #### Checking logs on the DPU:
 
@@ -220,7 +219,7 @@ show `doca-hbn` container), and to search for associated logs.
 
 ### `DhcpRelay`/`DhcpServer`
 
-Indicates that the DHCP Relay or Server that Forge deploys on the DPU in order
+Indicates that the DHCP Relay or Server that NICo deploys on the DPU in order
 to respond to the DHCP requests from the Host are not running as intended.
 In these conditions, the Host would not be able to boot since nothing would respond
 to the DHCP request.

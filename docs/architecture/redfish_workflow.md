@@ -9,7 +9,7 @@ For the overall NICo architecture and component responsibilities, see [Overview 
 ```
 DHCP Request (BMC)
   → NICo DHCP (Kea hook)
-    → Carbide Core (gRPC discover_dhcp)
+    → NICo Core (gRPC discover_dhcp)
       → Site Explorer probes Redfish endpoint
         → Authenticates, collects inventory
           → Pairs DPUs to hosts via serial number matching
@@ -28,13 +28,13 @@ DHCP Request (BMC)
 
 ## 1. DHCP Discovery
 
-When a BMC on the underlay network sends a DHCP request, the NICo DHCP server (a Kea hook plugin) captures it and forwards the discovery information to Carbide Core.
+When a BMC on the underlay network sends a DHCP request, the NICo DHCP server (a Kea hook plugin) captures it and forwards the discovery information to NICo Core.
 
 The Kea hook is implemented as a Rust library with C FFI bindings. When a DHCP packet arrives, the hook:
 
 1. Extracts the MAC address, vendor class string, relay address, circuit ID, and remote ID from the DHCP packet
 2. Builds a `Discovery` struct with these fields
-3. Sends a gRPC `discover_dhcp()` request to Carbide Core with the MAC and vendor string
+3. Sends a gRPC `discover_dhcp()` request to NICo Core with the MAC and vendor string
 4. Receives back a `Machine` response containing the network configuration (IP address, gateway, etc.) to return to the BMC
 
 The vendor class string is parsed to identify the BMC type and capabilities. DHCP entries are tracked in the database by MAC address and associated with machine interfaces.
@@ -145,7 +145,7 @@ The power control operation supports multiple reset types: `On`, `ForceOff`, `Gr
 After PXE boot, the DPU:
 1. Fetches `carbide.efi` from the NICo PXE server over HTTP
 2. Receives cloud-init configuration with its `machine_id` and NICo API endpoint
-3. Installs and starts the DPU agent (`dpu-agent`), which connects back to Carbide Core via gRPC
+3. Installs and starts the DPU agent (`dpu-agent`), which connects back to NICo Core via gRPC
 
 **Key files:**
 - `crates/api/src/ipxe.rs` — iPXE instruction generation per architecture
@@ -250,7 +250,7 @@ GET /redfish/v1/Chassis/{id}/Sensors/{sensor_id}
 
 Sensor types include: Temperature (Cel), Rotational/Fan (RPM), Power (W), and Current (A).
 
-All sensor data is exported as Prometheus metrics on the `/metrics` endpoint (port 9009) and fed into Carbide Core via `RecordHardwareHealthReport` for health aggregation.
+All sensor data is exported as Prometheus metrics on the `/metrics` endpoint (port 9009) and fed into NICo Core via `RecordHardwareHealthReport` for health aggregation.
 
 **Key files:**
 - `crates/health/src/firmware_collector.rs` — `FirmwareCollector` using nv-redfish

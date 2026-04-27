@@ -4,7 +4,7 @@
 
 NICo integrates a variety of tools to continuously assess and report the health of any host under its management. It also allows site operators to configure and extend the set of health checks via runtime configurations and extension APIs.
 
-The health information that is obtained by these tools is rolled up within Carbide-Core into an "aggregated host health".
+The health information that is obtained by these tools is rolled up within NICo Core into an "aggregated host health".
 The aggregated host health information is used for multiple purposes:
 1. For NICo internal decision making - e.g. "is this host usable as a bare metal instance by a tenant" and "is the host allowed to transition between 2 states".
 2. The aggregated host health information is made available to NICo API users. Site administrators can use the information to assess host health and external fleet health automation systems can use it to trigger remediation workflows.
@@ -267,7 +267,7 @@ ranges or by interpreting the `health_ok` values provided by BMCs.
 
 ### BMC inventory monitoring
 
-The Site Explorer process within Carbide Core periodically queries all Host and DPU BMCs in order to record certain BMC properties (e.g. components within a host and firmware versions).
+The Site Explorer process within NICo Core periodically queries all Host and DPU BMCs in order to record certain BMC properties (e.g. components within a host and firmware versions).
 
 In certain conditions the scraping process will place a health alert on the host:
 - If the host BMC is not reachable

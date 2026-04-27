@@ -17,7 +17,7 @@ The following steps can be used to reboot a machine:
 
 ### 1. Obtain access to `carbide-admin-cli`
 
-See [carbide-admin-cli access on a Forge cluster](forge_admin_cli.md).
+See [carbide-admin-cli access on a NICo deployment](forge_admin_cli.md).
 
 ### 2. Execute the `carbide-admin-cli machine reboot` command
 
@@ -25,12 +25,12 @@ See [carbide-admin-cli access on a Forge cluster](forge_admin_cli.md).
 It always will require the machine's BMC IP and port to be specified.
 
 BMC credentials can either be explicitly passed, or the `--machine-id` parameter
-can be used to let the forge site-controller read the last known credentials
+can be used to let the NICo site controller read the last known credentials
 for the machine.
 
 Rebooting a machine will also always reset its boot order. The machine
 will PXE boot, and thereby will be able to retrieve new boot instructions from
-the Forge site controller.
+the NICo site controller.
 
 **Example:**
 

@@ -1,6 +1,6 @@
 # Switch State Diagram
 
-This document describes the Finite State Machine (FSM) for Switches in Carbide: lifecycle from creation through configuration, validation, ready, optional reprovisioning, and deletion.
+This document describes the Finite State Machine (FSM) for Switches in NICo: lifecycle from creation through configuration, validation, ready, optional reprovisioning, and deletion.
 
 ## High-Level Overview
 
@@ -51,7 +51,7 @@ Deleting --> [*] : final delete
 
 | State | Description |
 |-------|-------------|
-| **Created** | Switch record exists in Carbide; awaiting first controller tick. |
+| **Created** | Switch record exists in NICo; awaiting first controller tick. |
 | **Initializing** | Controller waits for expected switch NVOS MAC associations. Sub-state: `WaitForOsMachineInterface`. |
 | **Configuring** | Switch is being configured (rotate OS password). Sub-state: `RotateOsPassword`. |
 | **Validating** | Switch is being validated. Sub-state: `ValidationComplete`. |

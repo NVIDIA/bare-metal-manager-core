@@ -9,7 +9,7 @@ Each host managed by NICo must have a SKU associated with it before it can be ma
 
 {/* TODO: did we actually implement this? */}
 
-Hardware configurations or SKUs are generated from existing machines by an admin and uploaded to forge via the CLI.
+Hardware configurations or SKUs are generated from existing machines by an admin and uploaded to NICo via the CLI.
 SKUs can be downloaded for modification or use with other sites.
 
 Machines that are assigned a SKU are automatically validated during ingestion based on their discovery information.
@@ -48,7 +48,7 @@ NICo maintains a version of the SKU schema used when a SKU is created.  This ens
 
 ### Configuration
 
-SKU validation is enabled or disabled for an entire site at once, using the forge configuration file.
+SKU validation is enabled or disabled for an entire site at once, using the NICo configuration file.
 The block that defines it is called `bom_validation`:
 
 ```toml
@@ -103,7 +103,7 @@ Where:
 
  - `<vendor>` is the first word of the "chassis" "vendor" field, e.g. `dell` or `lenovo`
  - `<model>` is the unique ending to the "chassis" "model" field, e.g. `r750` or `sr670v2`
- - `<node_type>` is one of the following types of node that are deployed in forge:
+ - `<node_type>` is one of the following types of node that are deployed in NICo:
     - `gpu`
     - `cpu`
     - `storage`
@@ -270,7 +270,7 @@ carbide-admin-cli sku unassign <machineid>
 ```
 
 ### Replacing an existing SKU
-If a SKU has a set of components that do not work for a set of machines (either due to bugs, or Carbide software updates) updating machines by unassigning and assigning a SKU would be challenging.  Replacing the components of a SKU can be done with the `sku replace` command.  This will force all machines to go through verification when no instance is allocated to the machine (all machines are verified when an instance is released).
+If a SKU has a set of components that do not work for a set of machines (either due to bugs, or NICo software updates) updating machines by unassigning and assigning a SKU would be challenging.  Replacing the components of a SKU can be done with the `sku replace` command.  This will force all machines to go through verification when no instance is allocated to the machine (all machines are verified when an instance is released).
 
 ```sh
 carbide-admin-cli sku replace <filename> [--id <sku_name>]

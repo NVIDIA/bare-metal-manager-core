@@ -137,7 +137,7 @@ pub struct ManagedHostOutput {
     pub host_last_reboot_time: Option<String>,
     pub host_last_reboot_requested_time_and_mode: Option<String>,
     pub health: health_report::HealthReport,
-    pub health_overrides: Vec<String>,
+    pub health_sources: Vec<String>,
     pub dpus: Vec<ManagedHostAttachedDpu>,
     pub exploration_report: Option<EndpointExplorationReport>,
     pub failure_details: Option<String>,
@@ -187,7 +187,7 @@ impl From<Machine> for ManagedHostOutput {
                     .unwrap_or_else(health_report::HealthReport::malformed_report)
             })
             .unwrap_or_else(health_report::HealthReport::missing_report);
-        let health_overrides = machine
+        let health_sources = machine
             .health_sources
             .into_iter()
             .map(|o| o.source)
@@ -251,7 +251,7 @@ impl From<Machine> for ManagedHostOutput {
             slot_number: machine.placement_in_rack.and_then(|p| p.slot_number),
             tray_index: machine.placement_in_rack.and_then(|p| p.tray_index),
             health,
-            health_overrides,
+            health_sources,
             ..Default::default()
         }
     }

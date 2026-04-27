@@ -2286,11 +2286,11 @@ pub async fn simulate_hardware_health_report(
         .unwrap();
 }
 
-/// Send a health report override
-pub async fn send_health_report_override(
+/// Send a health report entry
+pub async fn send_health_report_entry(
     env: &TestEnv,
     machine_id: &MachineId,
-    r#override: (HealthReport, HealthReportApplyMode),
+    entry: (HealthReport, HealthReportApplyMode),
 ) {
     use rpc::forge::forge_server::Forge;
     use tonic::Request;
@@ -2299,16 +2299,16 @@ pub async fn send_health_report_override(
         .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
             machine_id: Some(*machine_id),
             health_report_entry: Some(HealthReportEntry {
-                report: Some(r#override.0.into()),
-                mode: r#override.1 as i32,
+                report: Some(entry.0.into()),
+                mode: entry.1 as i32,
             }),
         }))
         .await
         .unwrap();
 }
 
-/// Remove a health report override
-pub async fn remove_health_report_override(env: &TestEnv, machine_id: &MachineId, source: String) {
+/// Remove a health report entry
+pub async fn remove_health_report_entry(env: &TestEnv, machine_id: &MachineId, source: String) {
     use rpc::forge::forge_server::Forge;
     use tonic::Request;
     let _ = env

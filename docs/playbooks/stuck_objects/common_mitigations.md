@@ -5,7 +5,7 @@ that show up. Many issues will require a unique mitigation that is tailored
 to the root cause of the object being stuck.
 
 Therefore operators are required to understand the requirements for state transitions
-and how Forge system components work together. The previous sections of this
+and how NICo system components work together. The previous sections of this
 runbook should help with this.
 
 However there exists a few common requirements for state transitions, and repeated
@@ -42,27 +42,27 @@ The following issues might prevent this call from happening:
 #### 4.1.2 Feedback from forge-dpu-agent
 
 Whenever the configuration of a ManagedHost changes (Instance gets created,
-Instance gets deleted, Provisioning), Forge requires the `forge-dpu-agent` to
+Instance gets deleted, Provisioning), NICo requires the `forge-dpu-agent` to
 acknowledge that the desired DPU configuration is applied and that the DPU and
 services running on it (like `HBN`) are in a healthy state.
 
 This often happens within a state called `WaitingForNetworkConfig`. For details
 about this see [WaitingForNetworkConfig](waiting_for_network_config.md).
 
-## Optional Step 5: Mitigation by deleting the object using the Forge Web UI or API
+## Optional Step 5: Mitigation by deleting the object using the API
 
 In order to fix the problem of instance or subnet stuck in provisioning,
 it often seems appealing to just delete the object and retry.
 
 **This mitigation will however only work if the object has not even
-been created on the Forge Site and if the source of the creation problem is
-within the scope of the Forge Cloud Backend.**
+been created on the NICo site and if the source of the creation problem is
+within the scope of the cloud backend.**
 
 If the object was already created on the site and is stuck in a certain
 provisioning state there, then the deletion attempt will not help getting
 the object unstuck. The lifecycle of any object is fully linear
 with no shortcuts. If the object isn't getting `Ready` it will also never
-be deleted. The object lifecycle is implemented this way in Forge in order to
+be deleted. The object lifecycle is implemented this way in NICo in order to
 avoid any important object creation or deletion steps accidentally being skipped due to
 skipping states.
 

@@ -189,7 +189,7 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
         hardware_info.dmi_data.as_ref().unwrap().product_name
     );
     assert_eq!(row.machine_id, machine_id.to_string());
-    assert!(!row.health_overrides.is_empty());
+    assert!(!row.health_sources.is_empty());
     assert!(row.health_probe_alerts.is_empty());
     assert!(!row.host_admin_ip.is_empty());
     assert_eq!(
