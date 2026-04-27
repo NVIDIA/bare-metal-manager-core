@@ -1,3 +1,4 @@
+{{- if .Values.vault.configJob.enabled }}
 ## =============================================================================
 ## Vault PKI Configuration Job (post-install hook)
 ## Uses only tools built into hashicorp/vault image (busybox wget/sed/grep).
@@ -262,3 +263,4 @@ spec:
                 --type=merge \
                 -p "{\"stringData\":{\"VAULT_ROLE_ID\":\"${_ROLE_ID}\",\"VAULT_SECRET_ID\":\"${_SECRET_ID}\"}}"
               echo "carbide-vault-approle-tokens patched with real AppRole credentials"
+{{- end }}

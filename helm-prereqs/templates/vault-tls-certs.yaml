@@ -1,3 +1,4 @@
+{{- if .Values.vault.tls.create }}
 ## =============================================================================
 ## Vault TLS bootstrap — breaks the chicken-and-egg problem
 ##
@@ -97,3 +98,4 @@ spec:
     name: site-issuer
     kind: ClusterIssuer
     group: cert-manager.io
+{{- end }}

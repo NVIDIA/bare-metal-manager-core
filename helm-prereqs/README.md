@@ -355,6 +355,72 @@ cd helm-prereqs
 
 To tear everything down, see [Teardown](#7-teardown).
 
+### GitOps Support
+
+The default values preserve `setup.sh` behavior. For ArgoCD, explicitly choose
+which provider-owned resources this chart should render. This lets a platform
+repo bring its own storage, database, Vault server, Vault token Secret, and
+secret sync backend while still reusing the Carbide configmaps, PKI wiring, and
+application prerequisites.
+
+Example for a cluster that already has a database credential Secret and does
+not want this chart to install Zalando PostgreSQL or ESO resources:
+
+```yaml
+postgresql:
+  enabled: false
+  # Renders DB_HOST. DB_NAME remains fixed at forge_system_carbide.
+  host: dsx-shared-pg-cluster-rw.cnpg-shared.svc.cluster.local
+
+externalSecrets:
+  enabled: false
+
+vault:
+  address: http://vault.vault.svc.cluster.local:8200
+  tokenSecret:
+    create: false
+  approleSecret:
+    create: false
+  configJob:
+    enabled: false
+  tls:
+    create: false
+
+certManager:
+  siteRoot:
+    create: false
+  vaultAuthServiceAccount:
+    create: false
+  vaultIssuer:
+    create: false
+
+sshHostKey:
+  create: false
+```
+
+In this mode, the caller must ensure the disabled dependencies already exist
+with the fixed names consumed by the Carbide chart, such as `ssh-host-key`,
+`forge-roots`, `carbide-vault-token`, `carbide-vault-approle-tokens`, and DB
+credentials for `forge_system_carbide`.
+
+Dependency notes:
+
+| Toggle | If disabled, provide |
+|---|---|
+| `vault.tokenSecret.create` | `forge-system/carbide-vault-token` with key `token` |
+| `vault.approleSecret.create` | `forge-system/carbide-vault-approle-tokens` with populated `VAULT_ROLE_ID` and `VAULT_SECRET_ID`, unless `vault.configJob.enabled=true` will patch an existing Secret |
+| `vault.configJob.enabled` | Preconfigured Vault PKI, Kubernetes auth, and populated AppRole credentials |
+| `certManager.vaultAuthServiceAccount.create` | `cert-manager/vault-forgeca-issuer-token` if `certManager.vaultIssuer.create=true` |
+| `certManager.siteRoot.create` | `cert-manager/site-root` if `externalSecrets.enabled=true` or Vault TLS bootstrap still depends on it |
+| `vault.tls.create` | Vault TLS materials expected by the Vault deployment, including `forgeca-vault-client` and `vault-raft-tls` |
+| `sshHostKey.create` | `forge-system/ssh-host-key` |
+| `azureSSOClientSecretSecret.create` | `forge-system/azure-sso-carbide-web-client-secret` if Azure SSO is enabled |
+
+When using `setup.sh`, `helmfile` supplies `vault.token` dynamically from the
+`vaultroottoken` Secret. Direct Helm users should either set `vault.token` when
+`vault.tokenSecret.create=true`, or pre-create `carbide-vault-token` and set
+`vault.tokenSecret.create=false`.
+
 ---
 
 ## 3. What gets deployed

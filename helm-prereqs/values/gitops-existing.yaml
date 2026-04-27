@@ -1,0 +1,36 @@
+## Example values for ArgoCD/GitOps consumers that provide cluster services
+## outside of this chart. Keep setup.sh on the default standalone values.
+
+postgresql:
+  enabled: false
+  ## Renders DB_HOST in forge-system-carbide-database-config.
+  ## DB_NAME intentionally stays fixed at forge_system_carbide.
+  host: dsx-shared-pg-cluster-rw.cnpg-shared.svc.cluster.local
+
+externalSecrets:
+  enabled: false
+
+vault:
+  address: http://vault.vault.svc.cluster.local:8200
+  tokenSecret:
+    create: false
+  approleSecret:
+    create: false
+  configJob:
+    enabled: false
+  tls:
+    create: false
+
+certManager:
+  siteRoot:
+    create: false
+  vaultAuthServiceAccount:
+    create: false
+  vaultIssuer:
+    create: false
+
+sshHostKey:
+  create: false
+
+azureSSOClientSecretSecret:
+  create: false

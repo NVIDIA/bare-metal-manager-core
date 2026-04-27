@@ -1,3 +1,4 @@
+{{- if .Values.certManager.vaultIssuer.create }}
 ## =============================================================================
 ## Vault-backed ClusterIssuer for Forge PKI
 ## Issues certificates via Vault PKI engine (forgeca/sign/forge-cluster).
@@ -26,3 +27,4 @@ spec:
         secretRef:
           name: vault-forgeca-issuer-token
           key: token
+{{- end }}

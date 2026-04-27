@@ -31,9 +31,39 @@ clusterApiServer: ""
 ## ---------------------------------------------------------------------------
 vault:
   address: "https://vault.vault.svc.cluster.local:8200"
+  ## setup.sh/helmfile supplies this dynamically from vaultroottoken.
+  ## Direct Helm users should set this when tokenSecret.create=true, or
+  ## pre-create forge-system/carbide-vault-token and set tokenSecret.create=false.
+  token: ""
+  tokenSecret:
+    create: true
+  approleSecret:
+    create: true
+  configJob:
+    enabled: true
+  tls:
+    create: true
   pkiMount: "forgeca"
   pkiRole: "forge-cluster"
   kvMount: "secrets"
+
+certManager:
+  siteRoot:
+    create: true
+  vaultAuthServiceAccount:
+    create: true
+  vaultIssuer:
+    create: true
+
+externalSecrets:
+  enabled: true
+
+sshHostKey:
+  create: true
+
+azureSSOClientSecret: ""
+azureSSOClientSecretSecret:
+  create: true
 
 ## ---------------------------------------------------------------------------
 ## Image pull secrets — NGC API keys

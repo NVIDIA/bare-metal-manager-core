@@ -1,3 +1,4 @@
+{{- if .Values.certManager.siteRoot.create }}
 ## =============================================================================
 ## Self-signed bootstrap → site-root CA
 ##
@@ -43,3 +44,4 @@ spec:
   issuerRef:
     name: selfsigned-bootstrap
     kind: ClusterIssuer
+{{- end }}
