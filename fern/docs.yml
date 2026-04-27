@@ -78,10 +78,10 @@ products:
         path: ../docs/index.yml
 
 redirects:
-  - source: "/ncx-infra-controller/index.html"
-    destination: "/ncx-infra-controller/"
-  - source: "/ncx-infra-controller/dev/index.html"
-    destination: "/ncx-infra-controller/dev/"
+  - source: "/infra-controller/index.html"
+    destination: "/infra-controller/"
+  - source: "/infra-controller/dev/index.html"
+    destination: "/infra-controller/dev/"
 
 experimental:
   mdx-components:
