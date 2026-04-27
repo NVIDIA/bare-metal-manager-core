@@ -734,6 +734,19 @@ impl WithTransaction for PgPool {
     }
 }
 
+pub trait TransactionVending {
+    fn txn_begin(&self) -> impl Future<Output = Result<Transaction<'_>, DatabaseError>>;
+}
+
+impl TransactionVending for PgPool {
+    #[track_caller]
+    // This returns an `impl Future` instead of being async, so that we can use #[track_caller],
+    // which is unsupported with async fn's.
+    fn txn_begin(&self) -> impl Future<Output = Result<Transaction<'_>, DatabaseError>> {
+        Transaction::begin(self)
+    }
+}
+
 #[cfg(test)]
 #[ctor::ctor]
 fn setup_test_logging() {

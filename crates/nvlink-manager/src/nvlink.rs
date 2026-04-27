@@ -20,7 +20,7 @@ use db::DatabaseError;
 use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
 use libnmxm::{Nmxm, NmxmApiError};
 
-use crate::handlers::credential::DEFAULT_NMX_M_NAME;
+use crate::DEFAULT_NMX_M_NAME;
 
 #[allow(dead_code)]
 #[derive(thiserror::Error, Debug)]
@@ -100,7 +100,7 @@ impl<C: CredentialReader + 'static> NmxmClientPool for NmxmClientPoolImpl<C> {
     }
 }
 
-#[cfg(test)]
+#[cfg(feature = "test-support")]
 pub mod test_support {
     use std::sync::{Arc, Mutex};
 

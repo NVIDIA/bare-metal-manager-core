@@ -69,7 +69,7 @@ async fn create_compute_allocation(
 async fn allocate_instance(
     env: &TestEnv,
     host: &TestManagedHost,
-    instance_type_id: &str,
+    instance_type_id: Option<&str>,
     segment_id: NetworkSegmentId,
 ) -> Result<tonic::Response<rpc::forge::Instance>, tonic::Status> {
     // Attempt instance allocation for this case.
@@ -78,7 +78,7 @@ async fn allocate_instance(
         .allocate_instance(Request::new(rpc::forge::InstanceAllocationRequest {
             instance_id: None,
             machine_id: Some(host.id),
-            instance_type_id: Some(instance_type_id.to_string()),
+            instance_type_id: instance_type_id.map(str::to_string),
             config: Some(rpc::forge::InstanceConfig {
                 tenant: Some(rpc::forge::TenantConfig {
                     tenant_organization_id: TENANT_ORG.to_string(),
@@ -274,7 +274,7 @@ async fn test_create_instance_no_allocations(
 
     // Try allocation with no existing limits.
     // Expected pass/fail depends on mode.
-    let result = allocate_instance(&env, &host, &instance_type_id, segment_id).await;
+    let result = allocate_instance(&env, &host, Some(instance_type_id.as_str()), segment_id).await;
     if should_pass {
         result.unwrap();
     } else {
@@ -305,6 +305,98 @@ async fn test_create_instance_no_allocations_always(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     test_create_instance_no_allocations(pool, ComputeAllocationEnforcement::Always, false).await
+}
+
+async fn test_create_instance_without_instance_type_id_no_allocations(
+    pool: sqlx::PgPool,
+    enforcement: ComputeAllocationEnforcement,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Build env with selected enforcement mode.
+    // Expect success because omitted instance type IDs skip allocation enforcement.
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            ..Default::default()
+        }
+        .with_compute_allocation_enforcement(enforcement),
+    )
+    .await;
+
+    let instance_type_id = get_instance_type_fixture_id(&env).await;
+    // Create tenant for allocation FK checks.
+    // Expect success in isolated test DB.
+    env.api
+        .create_tenant(Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: TENANT_ORG.to_string(),
+            routing_profile_type: None,
+            metadata: Some(metadata("compute-allocation-test-tenant")),
+        }))
+        .await
+        .unwrap();
+
+    let host = create_managed_host(&env).await;
+    // Bind host to this instance type.
+    // Expect success for a fresh host.
+    env.api
+        .associate_machines_with_instance_type(Request::new(
+            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+                instance_type_id: instance_type_id.clone(),
+                machine_ids: vec![host.id.to_string()],
+            },
+        ))
+        .await
+        .unwrap();
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    // Allocate without sending instance_type_id.
+    // Expect success even in enforcing modes.
+    let instance = allocate_instance(&env, &host, None, segment_id)
+        .await
+        .unwrap()
+        .into_inner();
+
+    // Verify the immediate response.
+    // Expect no explicit instance type on the created instance.
+    assert!(instance.instance_type_id.is_none());
+
+    // Read the instance back from the API.
+    // Expect no explicit instance type to be persisted.
+    let persisted = env
+        .api
+        .find_instances_by_ids(Request::new(rpc::forge::InstancesByIdsRequest {
+            instance_ids: vec![instance.id.unwrap()],
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .instances
+        .pop()
+        .unwrap();
+    assert!(persisted.instance_type_id.is_none());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_create_instance_no_allocations_without_instance_type_id_enforce_if_present(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    test_create_instance_without_instance_type_id_no_allocations(
+        pool,
+        ComputeAllocationEnforcement::EnforceIfPresent,
+    )
+    .await
+}
+
+#[crate::sqlx_test]
+async fn test_create_instance_no_allocations_without_instance_type_id_always(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    test_create_instance_without_instance_type_id_no_allocations(
+        pool,
+        ComputeAllocationEnforcement::Always,
+    )
+    .await
 }
 
 async fn test_create_instance_with_enough_allocations(
@@ -355,7 +447,7 @@ async fn test_create_instance_with_enough_allocations(
 
     // Allocate one instance against limit 1.
     // Expect success in all enforcement modes.
-    allocate_instance(&env, &host, &instance_type_id, segment_id)
+    allocate_instance(&env, &host, Some(instance_type_id.as_str()), segment_id)
         .await
         .unwrap();
 
@@ -448,13 +540,14 @@ async fn test_create_instance_with_insufficient_allocations(
 
     // First allocation consumes full limit.
     // Expect success.
-    allocate_instance(&env, &host_1, &instance_type_id, segment_id)
+    allocate_instance(&env, &host_1, Some(instance_type_id.as_str()), segment_id)
         .await
         .unwrap();
 
     // Second allocation exceeds limit=1.
     // Outcome depends on enforcement mode.
-    let second = allocate_instance(&env, &host_2, &instance_type_id, segment_id).await;
+    let second =
+        allocate_instance(&env, &host_2, Some(instance_type_id.as_str()), segment_id).await;
     if second_should_pass {
         second.unwrap();
     } else {
@@ -497,6 +590,110 @@ async fn test_create_instance_insufficient_allocations_always(
         pool,
         ComputeAllocationEnforcement::Always,
         false,
+    )
+    .await
+}
+
+async fn test_create_instance_without_instance_type_id_skips_insufficient_allocations(
+    pool: sqlx::PgPool,
+    enforcement: ComputeAllocationEnforcement,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Build env with selected enforcement mode.
+    // Expect omitted instance type IDs to bypass allocation enforcement.
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides {
+            ..Default::default()
+        }
+        .with_compute_allocation_enforcement(enforcement),
+    )
+    .await;
+
+    let instance_type_id = get_instance_type_fixture_id(&env).await;
+    // Create tenant for allocation FK checks.
+    // Expect success in isolated test DB.
+    env.api
+        .create_tenant(Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: TENANT_ORG.to_string(),
+            routing_profile_type: None,
+            metadata: Some(metadata("compute-allocation-test-tenant")),
+        }))
+        .await
+        .unwrap();
+
+    let host_1 = create_managed_host(&env).await;
+    let host_2 = create_managed_host(&env).await;
+    // Bind both hosts to the same instance type.
+    // Expect success for fresh hosts.
+    env.api
+        .associate_machines_with_instance_type(Request::new(
+            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+                instance_type_id: instance_type_id.clone(),
+                machine_ids: vec![host_1.id.to_string(), host_2.id.to_string()],
+            },
+        ))
+        .await
+        .unwrap();
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let alloc_name = format!("alloc-insufficient-omit-type-{}", Uuid::new_v4());
+    // Seed one allocation for this tenant/type.
+    // Expect success with valid tenant/type.
+    let _allocation = create_compute_allocation(&env, &instance_type_id, 1, &alloc_name).await;
+
+    // Consume the single allocation using an explicit instance type ID.
+    // Expect success.
+    allocate_instance(&env, &host_1, Some(instance_type_id.as_str()), segment_id)
+        .await
+        .unwrap();
+
+    // Allocate without sending instance_type_id after the limit is exhausted.
+    // Expect success because omitted instance type IDs skip enforcement.
+    let instance = allocate_instance(&env, &host_2, None, segment_id)
+        .await
+        .unwrap()
+        .into_inner();
+
+    // Verify the immediate response.
+    // Expect no explicit instance type on the created instance.
+    assert!(instance.instance_type_id.is_none());
+
+    // Read the instance back from the API.
+    // Expect no explicit instance type to be persisted.
+    let persisted = env
+        .api
+        .find_instances_by_ids(Request::new(rpc::forge::InstancesByIdsRequest {
+            instance_ids: vec![instance.id.unwrap()],
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .instances
+        .pop()
+        .unwrap();
+    assert!(persisted.instance_type_id.is_none());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_create_instance_insufficient_allocations_without_instance_type_id_enforce_if_present(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    test_create_instance_without_instance_type_id_skips_insufficient_allocations(
+        pool,
+        ComputeAllocationEnforcement::EnforceIfPresent,
+    )
+    .await
+}
+
+#[crate::sqlx_test]
+async fn test_create_instance_insufficient_allocations_without_instance_type_id_always(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    test_create_instance_without_instance_type_id_skips_insufficient_allocations(
+        pool,
+        ComputeAllocationEnforcement::Always,
     )
     .await
 }
@@ -614,7 +811,7 @@ async fn test_delete_allocation_when_instances_present_and_sufficient_remain_pas
 
     // Create one active instance before delete.
     // Expect success with cap=2.
-    allocate_instance(&env, &host_1, &instance_type_id, segment_id)
+    allocate_instance(&env, &host_1, Some(instance_type_id.as_str()), segment_id)
         .await
         .unwrap();
 
@@ -675,7 +872,7 @@ async fn test_delete_allocation_when_instances_present_and_insufficient_remain_f
 
     // Create one active instance before delete.
     // Expect success with cap=1.
-    allocate_instance(&env, &host, &instance_type_id, segment_id)
+    allocate_instance(&env, &host, Some(instance_type_id.as_str()), segment_id)
         .await
         .unwrap();
 
@@ -750,7 +947,7 @@ async fn test_update_allocation_reduce_when_sufficient_remains_passes(
 
     // Create one active instance first.
     // Expect success with cap=2.
-    allocate_instance(&env, &host_1, &instance_type_id, segment_id)
+    allocate_instance(&env, &host_1, Some(instance_type_id.as_str()), segment_id)
         .await
         .unwrap();
 
@@ -816,7 +1013,7 @@ async fn test_update_allocation_reduce_when_insufficient_remains_fails(
 
     // Create one active instance first.
     // Expect success with cap=1.
-    allocate_instance(&env, &host, &instance_type_id, segment_id)
+    allocate_instance(&env, &host, Some(instance_type_id.as_str()), segment_id)
         .await
         .unwrap();
 

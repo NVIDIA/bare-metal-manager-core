@@ -20,6 +20,7 @@ use std::io::Write;
 
 use ::rpc::errors::RpcDataConversionError;
 use ::rpc::forge as rpc;
+use carbide_nvlink_manager::DEFAULT_NMX_M_NAME;
 use forge_secrets::credentials::{
     BgpCredentialType, BmcCredentialType, CredentialKey, CredentialType, Credentials,
 };
@@ -35,8 +36,6 @@ use crate::handlers::utils::convert_and_log_machine_id;
 
 /// Default Username for the admin BMC account.
 const DEFAULT_FORGE_ADMIN_BMC_USERNAME: &str = "root";
-
-pub const DEFAULT_NMX_M_NAME: &str = "forge-nmx-m";
 
 /// The maximum size that will be accepted in the underlying BGP config
 /// on the DPU.  This was directly verified by checking the maximum accepted

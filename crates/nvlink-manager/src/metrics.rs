@@ -25,7 +25,7 @@ use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Histogram, Meter};
 use serde::Serialize;
 
-use crate::nvl_partition_monitor::NmxmPartitionOperationType;
+use crate::NmxmPartitionOperationType;
 
 /// Metrics that are gathered in a single nvl partition monitor run
 #[derive(Clone, Debug)]

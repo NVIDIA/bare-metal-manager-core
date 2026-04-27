@@ -272,6 +272,11 @@ pub fn dpu_agent_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
                 "nvue_credentials_secret_name": "hbn-user-password",
                 "nvue_password_key": "password",
             },
+            "imagePullSecrets": [
+                {
+                    "name": "dpf-pull-secret"
+                }
+            ]
         })),
 
         service_daemon_set_annotations: Some(BTreeMap::new()),
@@ -305,7 +310,12 @@ pub fn dhcp_server_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
             "image": {
                 "repository": cfg.docker_repo_url,
                 "tag": cfg.docker_image_tag,
-            }
+            },
+            "imagePullSecrets": [
+                {
+                    "name": "dpf-pull-secret"
+                }
+            ]
         })),
 
         interfaces: dhcp_server_service_interfaces(),
@@ -336,7 +346,12 @@ pub fn fmds_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
             "image": {
                 "repository": cfg.docker_repo_url,
                 "tag": cfg.docker_image_tag,
-            }
+            },
+            "imagePullSecrets": [
+                {
+                    "name": "dpf-pull-secret"
+                }
+            ]
         })),
 
         interfaces: fmds_service_interfaces(),
@@ -368,7 +383,12 @@ pub fn otel_service(cfg: &DpfServiceConfig) -> ServiceDefinition {
             "image": {
                 "repository": cfg.docker_repo_url,
                 "tag": cfg.docker_image_tag,
-            }
+            },
+            "imagePullSecrets": [
+                {
+                    "name": "dpf-pull-secret"
+                }
+            ]
         })),
         config_ports: Some(vec![ServiceConfigPort {
             name: "prometheus".to_string(),

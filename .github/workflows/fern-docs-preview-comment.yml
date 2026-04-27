@@ -89,9 +89,12 @@ jobs:
           HEAD_REF: ${{ steps.metadata.outputs.head_ref }}
         working-directory: ./fern
         run: |
-          OUTPUT=$(fern generate --docs --preview --id "$HEAD_REF" 2>&1)
+          # Preview --id becomes part of the hostname; '/' and other chars are invalid.
+          PREVIEW_ID=$(echo "${HEAD_REF:-preview}" | sed 's/[^a-zA-Z0-9._-]/-/g; s/-\{2,\}/-/g; s/^-//; s/-$//')
+          OUTPUT=$(fern generate --docs --preview --force --id "$PREVIEW_ID" 2>&1)
           echo "$OUTPUT"
-          URL=$(echo "$OUTPUT" | grep -oP 'Published docs to \K.*(?= \()')
+          # Fern prints "[docs]: Published docs to <url>" (older CLIs sometimes added " (…)" after the URL).
+          URL=$(echo "$OUTPUT" | grep -oE 'Published docs to https?://[^[:space:]()]+' | head -1 | sed 's/^Published docs to //')
           if [ -z "$URL" ]; then
             echo "::error::Failed to generate preview URL. See fern output above."
             exit 1

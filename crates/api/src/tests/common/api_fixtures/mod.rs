@@ -28,6 +28,10 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use carbide_ipmi::IPMITool;
+use carbide_nvlink_manager::NvlPartitionMonitor;
+use carbide_nvlink_manager::config::NvLinkConfig;
+use carbide_nvlink_manager::nvlink::NmxmClientPool;
+use carbide_nvlink_manager::nvlink::test_support::NmxmSimClient;
 use carbide_redfish::libredfish::test_support::RedfishSim;
 use carbide_site_explorer::SiteExplorer;
 use carbide_site_explorer::config::{SiteExplorerConfig, SiteExplorerExploreMode};
@@ -95,10 +99,9 @@ use crate::cfg::file::{
     IBFabricConfig, IbFabricDefinition, IbPartitionStateControllerConfig, ListenMode,
     MachineStateControllerConfig, MachineUpdater, MachineValidationConfig,
     MeasuredBootMetricsCollectorConfig, MqttAuthConfig, NetworkSecurityGroupConfig,
-    NetworkSegmentStateControllerConfig, NvLinkConfig, PowerManagerOptions,
-    PowerShelfStateControllerConfig, RackStateControllerConfig, SpdmConfig,
-    SpdmStateControllerConfig, StateControllerConfig, SwitchStateControllerConfig, VmaasConfig,
-    VpcPeeringPolicy, default_max_find_by_ids,
+    NetworkSegmentStateControllerConfig, PowerManagerOptions, PowerShelfStateControllerConfig,
+    RackStateControllerConfig, SpdmConfig, SpdmStateControllerConfig, StateControllerConfig,
+    SwitchStateControllerConfig, VmaasConfig, VpcPeeringPolicy, default_max_find_by_ids,
 };
 use crate::dpf::DpfOperations;
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
@@ -106,9 +109,6 @@ use crate::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
 use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
-use crate::nvl_partition_monitor::NvlPartitionMonitor;
-use crate::nvlink::NmxmClientPool;
-use crate::nvlink::test_support::NmxmSimClient;
 use crate::rack::rms_client::test_support::RmsSim;
 use crate::scout_stream;
 use crate::state_controller::common_services::CommonStateHandlerServices;

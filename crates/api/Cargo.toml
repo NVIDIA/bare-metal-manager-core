@@ -47,6 +47,7 @@ carbide-ipmi = { path = "../ipmi" }
 carbide-redfish = { path = "../redfish" }
 carbide-site-explorer = { path = "../site-explorer" }
 carbide-preingestion-manager = { path = "../preingestion-manager" }
+carbide-nvlink-manager = { path = "../nvlink-manager" }
 dns-record = { path = "../dns-record" }
 libnmxm = { path = "../libnmxm" }
 logfmt = { path = "../logfmt" }
@@ -211,6 +212,7 @@ rcgen = { workspace = true }
 carbide-macros = { path = "../macros" }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
 carbide-prost-builder = { path = "../prost-builder" }
+carbide-nvlink-manager = { path = "../nvlink-manager", features = [ "test-support" ] }
 carbide-redfish = { path = "../redfish", features = [ "test-support" ] }
 carbide-utils = { path = "../utils", features = ["test-support"] }
 state-controller = { path = "../state-controller", features = ["test-support"] }

@@ -2930,8 +2930,8 @@ async fn test_allocate_with_instance_type_id(
 
     assert_eq!(good_id, instance.instance_type_id.unwrap());
 
-    // Try that one more time, but this time with no type id
-    // to see if we inherit it from the machine.
+    // Try that one more time, but this time with no type id.
+    // The request should succeed, but we should not persist an explicit instance type.
     let instance = env
         .api
         .allocate_instance(
@@ -2952,7 +2952,25 @@ async fn test_allocate_with_instance_type_id(
         .unwrap()
         .into_inner();
 
-    assert_eq!(good_id, instance.instance_type_id.unwrap());
+    // Verify the immediate response.
+    // Expect no explicit instance type on the created instance.
+    assert!(instance.instance_type_id.is_none());
+
+    // Read the instance back from the API.
+    // Expect no explicit instance type to have been persisted.
+    let persisted = env
+        .api
+        .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+            instance_ids: vec![instance.id.unwrap()],
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .instances
+        .pop()
+        .unwrap();
+
+    assert!(persisted.instance_type_id.is_none());
 
     Ok(())
 }

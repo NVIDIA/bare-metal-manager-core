@@ -30,6 +30,7 @@ use ::rpc::protos::dns::{
     UpdateDomainRequest,
 };
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
+use carbide_nvlink_manager::nvlink::NmxmClientPool;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_site_explorer::EndpointExplorer;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
@@ -42,7 +43,7 @@ use librms::RmsApi;
 use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::resource_pool::common::CommonPools;
-use sqlx::{PgPool, PgTransaction};
+use sqlx::PgTransaction;
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status, Streaming};
 
@@ -54,7 +55,6 @@ use crate::dynamic_settings::DynamicSettings;
 use crate::ethernet_virtualization::EthVirtData;
 use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
-use crate::nvlink::NmxmClientPool;
 use crate::rack::bms_client::BmsDsxExchangeHandle;
 use crate::scout_stream::ConnectionRegistry;
 use crate::state_controller::controller::Enqueuer;
@@ -3324,19 +3324,6 @@ pub(crate) fn truncate(mut s: String, len: usize) -> String {
         s.replace_range(len - 2..len, "..");
     }
     s
-}
-
-pub trait TransactionVending {
-    fn txn_begin(&self) -> impl Future<Output = Result<db::Transaction<'_>, DatabaseError>>;
-}
-
-impl TransactionVending for PgPool {
-    #[track_caller]
-    // This returns an `impl Future` instead of being async, so that we can use #[track_caller],
-    // which is unsupported with async fn's.
-    fn txn_begin(&self) -> impl Future<Output = Result<db::Transaction<'_>, DatabaseError>> {
-        db::Transaction::begin(self)
-    }
 }
 
 impl Api {

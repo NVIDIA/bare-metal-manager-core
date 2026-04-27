@@ -14,6 +14,8 @@ jobs:
         with:
           token: ${{ secrets.FERN_OPENAPI_SYNC_TOKEN }}
       # Action pinned to v2 commit; requires fern-api/sync-openapi to be part of the allow-list.
+      - name: Delete remote branch if exists
+        run: git push origin --delete fern/update-api || true
       - name: Update API with Fern
         uses: fern-api/sync-openapi@8e936a4bac8ad11d698d7114f3074fa3397398ea
         with:

@@ -14,6 +14,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+pub mod config;
+mod errors;
+mod metrics;
+pub mod nvlink;
+
 use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
@@ -22,13 +28,15 @@ use std::time::Duration;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkLogicalPartitionId, NvLinkPartitionId};
 use chrono::Utc;
+use config::NvLinkConfig;
 use config_version::Versioned;
 use db::machine::find_machine_ids;
 use db::managed_host::load_by_machine_ids;
 use db::nvl_logical_partition::IdColumn as LpIdColumn;
 use db::nvl_partition::IdColumn;
 use db::work_lock_manager::WorkLockManagerHandle;
-use db::{self, ObjectColumnFilter, machine};
+use db::{self, ObjectColumnFilter, TransactionVending, machine};
+use errors::{NvLinkManagerError, NvLinkManagerResult};
 use metrics::{AppliedChange, NmxmPartitionOperationStatus, NvlPartitionMonitorMetrics};
 use model::hardware_info::{MachineNvLinkInfo, NvLinkGpu};
 use model::instance::status::SyncState;
@@ -44,12 +52,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use utils::periodic_timer::PeriodicTimer;
 
-use crate::api::TransactionVending;
-use crate::cfg::file::NvLinkConfig;
 use crate::nvlink::NmxmClientPool;
-use crate::{CarbideError, CarbideResult};
 
-mod metrics;
+pub const DEFAULT_NMX_M_NAME: &str = "forge-nmx-m";
 
 #[derive(Debug, Clone)]
 struct NmxmPartitionOperation {
@@ -371,9 +376,9 @@ impl PartitionProcessingContext {
         &mut self,
         ctx: &GpuProcessingContext,
         gpus_to_keep: Vec<String>,
-    ) -> CarbideResult<()> {
+    ) -> NvLinkManagerResult<()> {
         let Some(logical_partition_id) = ctx.logical_partition_id else {
-            return Err(CarbideError::internal(
+            return Err(NvLinkManagerError::internal(
                 "Logical partition ID is required for GPU removal".to_string(),
             ));
         };
@@ -443,7 +448,7 @@ impl PartitionProcessingContext {
         partition_nmx_m_id: &str,
         gpu_nmx_m_id: &str,
         gpus_to_keep: Vec<String>,
-    ) -> CarbideResult<()> {
+    ) -> NvLinkManagerResult<()> {
         if gpus_to_keep.is_empty() {
             let operation = NmxmPartitionOperation {
                 domain_uuid: None,
@@ -506,9 +511,9 @@ impl PartitionProcessingContext {
     fn handle_gpu_addition_new_partition(
         &mut self,
         ctx: &GpuProcessingContext,
-    ) -> CarbideResult<()> {
+    ) -> NvLinkManagerResult<()> {
         let Some(logical_partition_id) = ctx.logical_partition_id else {
-            return Err(CarbideError::internal(
+            return Err(NvLinkManagerError::internal(
                 "Logical partition ID is required for GPU addition to new partition".to_string(),
             ));
         };
@@ -542,9 +547,9 @@ impl PartitionProcessingContext {
         &mut self,
         ctx: &GpuProcessingContext,
         partition: &NvlPartition,
-    ) -> CarbideResult<()> {
+    ) -> NvLinkManagerResult<()> {
         let Some(logical_partition_id) = ctx.logical_partition_id else {
-            return Err(CarbideError::internal(
+            return Err(NvLinkManagerError::internal(
                 "Logical partition ID is required for GPU addition to existing partition"
                     .to_string(),
             ));
@@ -562,7 +567,7 @@ impl PartitionProcessingContext {
                         .collect();
                 }
                 libnmxm::nmxm_model::PartitionMembers::InnerStructs(_) => {
-                    return Err(CarbideError::internal(
+                    return Err(NvLinkManagerError::internal(
                         "Partition members are location-based, expected GPU-ID-based".to_string(),
                     ));
                 }
@@ -571,7 +576,7 @@ impl PartitionProcessingContext {
                 }
             }
         } else {
-            return Err(CarbideError::internal(
+            return Err(NvLinkManagerError::internal(
                 "NMX-M partition not found for GPU addition to existing partition".to_string(),
             ));
         }
@@ -683,7 +688,7 @@ impl NvlPartitionMonitor {
         }
     }
 
-    pub async fn run_single_iteration(&self) -> CarbideResult<usize> {
+    pub async fn run_single_iteration(&self) -> NvLinkManagerResult<usize> {
         let mut metrics = NvlPartitionMonitorMetrics::new();
         let span_id: String = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
         let check_nvl_partition_span = tracing::span!(
@@ -714,7 +719,7 @@ impl NvlPartitionMonitor {
     async fn run_single_iteration_inner(
         &self,
         metrics: &mut NvlPartitionMonitorMetrics,
-    ) -> CarbideResult<usize> {
+    ) -> NvLinkManagerResult<usize> {
         let _lock = match self
             .work_lock_manager_handle
             .try_acquire_lock(Self::ITERATION_WORK_KEY.into())
@@ -739,7 +744,7 @@ impl NvlPartitionMonitor {
             .await
             .map_err(|e| {
                 metrics.nmxm.connect_error = "Failed to create NMXM client".to_string();
-                CarbideError::internal(format!("Failed to create NMXM client: {e}"))
+                NvLinkManagerError::internal(format!("Failed to create NMXM client: {e}"))
             })?;
 
         // Gather instances and NMX-M GPU info from DB, and partitions list from NMX-M.
@@ -762,12 +767,12 @@ impl NvlPartitionMonitor {
 
         let nmx_m_partitions = nmxm_client.get_partitions_list().await.map_err(|e| {
             metrics.nmxm.connect_error = "Failed to get NMXM partitions list".to_string();
-            CarbideError::internal(format!("Failed to get NMXM partitions list: {e}"))
+            NvLinkManagerError::internal(format!("Failed to get NMXM partitions list: {e}"))
         })?;
 
         let nmx_m_gpus = nmxm_client.get_gpu(None).await.map_err(|e| {
             metrics.nmxm.connect_error = "Failed to get NMXM gpu list".to_string();
-            CarbideError::internal(format!("Failed to get NMXM gpu list: {e}"))
+            NvLinkManagerError::internal(format!("Failed to get NMXM gpu list: {e}"))
         })?;
 
         // Validate machine_nvlink_info is consistent with nmx-m get_gpu information.
@@ -834,7 +839,7 @@ impl NvlPartitionMonitor {
         let nmx_m_partitions = nmxm_client.get_partitions_list().await.map_err(|e| {
             metrics.nmxm.connect_error =
                 "Failed to get NMXM partitions list when updating db".to_string();
-            CarbideError::internal(format!("Failed to get NMXM partitions list: {e}"))
+            NvLinkManagerError::internal(format!("Failed to get NMXM partitions list: {e}"))
         })?;
 
         // Update db.
@@ -863,7 +868,7 @@ impl NvlPartitionMonitor {
         db_nvl_partitions: Vec<NvlPartition>,
         nmx_m_partitions: &[libnmxm::nmxm_model::Partition],
         metrics: &mut NvlPartitionMonitorMetrics,
-    ) -> CarbideResult<(
+    ) -> NvLinkManagerResult<(
         HashMap<MachineId, Option<MachineNvLinkInfo>>,
         Vec<NvlPartition>,
     )> {
@@ -1019,7 +1024,7 @@ impl NvlPartitionMonitor {
         partition_ctx: &mut PartitionProcessingContext,
         mh_snapshots: HashMap<MachineId, ManagedHostStateSnapshot>,
         metrics: &mut NvlPartitionMonitorMetrics,
-    ) -> CarbideResult<HashMap<MachineId, MachineNvLinkStatusObservation>> {
+    ) -> NvLinkManagerResult<HashMap<MachineId, MachineNvLinkStatusObservation>> {
         let mut machine_gpu_statuses = HashMap::new();
 
         for mh in mh_snapshots.values() {
@@ -1334,7 +1339,7 @@ impl NvlPartitionMonitor {
         &self,
         mh: &ManagedHostStateSnapshot,
         partition_ctx: &mut PartitionProcessingContext,
-    ) -> CarbideResult<()> {
+    ) -> NvLinkManagerResult<()> {
         // If not in admin-network mode, skip processing. GPUs should stay
         // attached to tenant partitions, but zero-DPU hosts are always
         // considered admin network (since they don't have a DPU to put them
@@ -1405,9 +1410,9 @@ impl NvlPartitionMonitor {
     async fn record_nvlink_status_observation(
         &self,
         observations: HashMap<MachineId, MachineNvLinkStatusObservation>,
-    ) -> CarbideResult<()> {
+    ) -> NvLinkManagerResult<()> {
         let mut obs_txn = self.db_pool.begin().await.map_err(|e| {
-            CarbideError::internal(format!(
+            NvLinkManagerError::internal(format!(
                 "Failed to create transaction for nvlink status observation: {e}"
             ))
         })?;
@@ -1416,7 +1421,7 @@ impl NvlPartitionMonitor {
                 .await?;
         }
         obs_txn.commit().await.map_err(|e| {
-            CarbideError::internal(format!(
+            NvLinkManagerError::internal(format!(
                 "Failed to commit transaction for nvlink status observation: {e}"
             ))
         })?;
@@ -1426,12 +1431,14 @@ impl NvlPartitionMonitor {
     async fn execute_nmx_m_operations(
         &self,
         nmx_m_operations: HashMap<NvLinkLogicalPartitionId, Vec<NmxmPartitionOperation>>,
-    ) -> CarbideResult<HashMap<NvLinkLogicalPartitionId, Vec<NmxmPartitionOperation>>> {
+    ) -> NvLinkManagerResult<HashMap<NvLinkLogicalPartitionId, Vec<NmxmPartitionOperation>>> {
         let nmxm_client = self
             .nmxm_client_pool
             .create_client(&self.config.nmx_m_endpoint, None)
             .await
-            .map_err(|e| CarbideError::internal(format!("Failed to create NMXM client: {e}")))?;
+            .map_err(|e| {
+                NvLinkManagerError::internal(format!("Failed to create NMXM client: {e}"))
+            })?;
 
         let mut pending_operations: HashMap<NvLinkLogicalPartitionId, Vec<NmxmPartitionOperation>> =
             HashMap::new();
@@ -1547,7 +1554,7 @@ impl NvlPartitionMonitor {
                             .delete_partition(nmx_m_partition_id.clone())
                             .await
                             .map_err(|e| {
-                                CarbideError::internal(format!(
+                                NvLinkManagerError::internal(format!(
                                     "Failed to delete default partition: {e}"
                                 ))
                             })?;
@@ -1651,7 +1658,7 @@ impl NvlPartitionMonitor {
         &self,
         pending_nmx_m_operations: HashMap<NvLinkLogicalPartitionId, Vec<NmxmPartitionOperation>>,
         metrics: &mut NvlPartitionMonitorMetrics,
-    ) -> CarbideResult<HashMap<NvLinkLogicalPartitionId, Vec<NmxmPartitionOperation>>> {
+    ) -> NvLinkManagerResult<HashMap<NvLinkLogicalPartitionId, Vec<NmxmPartitionOperation>>> {
         let nmxm_client = self
             .nmxm_client_pool
             .create_client(&self.config.nmx_m_endpoint, None)
@@ -1659,7 +1666,7 @@ impl NvlPartitionMonitor {
             .map_err(|e| {
                 metrics.nmxm.connect_error =
                     "Failed to create NMXM client while polling for completion".to_string();
-                CarbideError::internal(format!("Failed to create NMXM client: {e}"))
+                NvLinkManagerError::internal(format!("Failed to create NMXM client: {e}"))
             })?;
 
         let timeout_duration = self.config.nmx_m_operation_timeout;
@@ -1692,7 +1699,7 @@ impl NvlPartitionMonitor {
                         .map_err(|e| {
                             metrics.nmxm.connect_error =
                                 "Failed to get operation from NMXM".to_string();
-                            CarbideError::internal(format!(
+                            NvLinkManagerError::internal(format!(
                                 "Failed to get operation from NMXM: {e}"
                             ))
                         })?;
@@ -1836,7 +1843,7 @@ impl NvlPartitionMonitor {
         completed_nmx_m_operations: HashMap<NvLinkLogicalPartitionId, Vec<NmxmPartitionOperation>>,
         db_nvl_logical_partitions: &[LogicalPartition],
         nmx_m_partitions: &[libnmxm::nmxm_model::Partition],
-    ) -> CarbideResult<()> {
+    ) -> NvLinkManagerResult<()> {
         for (logical_partition_id, operations) in completed_nmx_m_operations {
             for mut operation in operations {
                 // operation type will change to Pending after it has been enqueued. Restore the original operation type
@@ -1909,7 +1916,7 @@ impl NvlPartitionMonitor {
     async fn load_mnnvl_managed_host_snapshots(
         &self,
         txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
+    ) -> NvLinkManagerResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
         let mnvvl_machine_ids = find_machine_ids(
             txn.as_mut(),
             MachineSearchConfig {
@@ -1929,7 +1936,7 @@ impl NvlPartitionMonitor {
             },
         )
         .await
-        .map_err(CarbideError::from)
+        .map_err(NvLinkManagerError::from)
     }
 }
 

@@ -24,10 +24,12 @@ use common::api_fixtures::instance::{
     default_os_config, default_tenant_config, single_interface_network_config,
 };
 use common::api_fixtures::{
-    TestEnv, create_managed_host, create_test_env, populate_network_security_groups,
+    TestEnv, TestEnvOverrides, create_managed_host, create_test_env,
+    create_test_env_with_overrides, get_instance_type_fixture_id, populate_network_security_groups,
 };
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
+use crate::cfg::file::ComputeAllocationEnforcement;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestManagedHost;
 
@@ -240,6 +242,158 @@ async fn test_batch_allocate_instances_with_same_nsg(_: PgPoolOptions, options: 
         .into_inner();
 
     assert_eq!(response.instances.len(), 2);
+}
+
+/// Allocate a batch where every request omits instance_type_id.
+/// Expect the batch to succeed even when enforcement is set to Always.
+#[crate::sqlx_test]
+async fn test_batch_allocate_instances_without_instance_type_id_skips_allocation_enforcement(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::default()
+            .with_compute_allocation_enforcement(ComputeAllocationEnforcement::Always),
+    )
+    .await;
+
+    let instance_type_id = get_instance_type_fixture_id(&env).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh1 = create_managed_host(&env).await;
+    let mh2 = create_managed_host(&env).await;
+
+    // Bind both hosts to the same instance type.
+    // Expect success for fresh hosts.
+    env.api
+        .associate_machines_with_instance_type(tonic::Request::new(
+            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+                instance_type_id: instance_type_id.clone(),
+                machine_ids: vec![mh1.host().id.to_string(), mh2.host().id.to_string()],
+            },
+        ))
+        .await
+        .unwrap();
+
+    // Build requests that omit instance_type_id.
+    // Expect both requests to bypass allocation enforcement.
+    let response = env
+        .api
+        .allocate_instances(tonic::Request::new(
+            rpc::forge::BatchInstanceAllocationRequest {
+                instance_requests: vec![
+                    build_test_instance_allocation_request(&env, &mh1, segment_id),
+                    build_test_instance_allocation_request(&env, &mh2, segment_id),
+                ],
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+
+    // Verify the immediate response.
+    // Expect no explicit instance type on either returned instance.
+    assert_eq!(response.instances.len(), 2);
+    assert!(
+        response
+            .instances
+            .iter()
+            .all(|instance| instance.instance_type_id.is_none())
+    );
+
+    let instance_ids = response
+        .instances
+        .iter()
+        .map(|instance| instance.id.unwrap())
+        .collect::<Vec<_>>();
+
+    // Read the instances back from the API.
+    // Expect no explicit instance types to be persisted.
+    let persisted = env
+        .api
+        .find_instances_by_ids(tonic::Request::new(rpc::forge::InstancesByIdsRequest {
+            instance_ids,
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .instances;
+
+    assert_eq!(persisted.len(), 2);
+    assert!(
+        persisted
+            .iter()
+            .all(|instance| instance.instance_type_id.is_none())
+    );
+}
+
+/// Send a mixed batch where one request sends instance_type_id and one omits it.
+/// Expect the typed request to enforce limits and roll back the entire batch.
+#[crate::sqlx_test]
+async fn test_batch_allocate_instances_mixed_instance_type_id_rolls_back_on_enforced_request(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::default()
+            .with_compute_allocation_enforcement(ComputeAllocationEnforcement::Always),
+    )
+    .await;
+
+    let instance_type_id = get_instance_type_fixture_id(&env).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let mh1 = create_managed_host(&env).await;
+    let mh2 = create_managed_host(&env).await;
+
+    // Bind both hosts to the same instance type.
+    // Expect success for fresh hosts.
+    env.api
+        .associate_machines_with_instance_type(tonic::Request::new(
+            rpc::forge::AssociateMachinesWithInstanceTypeRequest {
+                instance_type_id: instance_type_id.clone(),
+                machine_ids: vec![mh1.host().id.to_string(), mh2.host().id.to_string()],
+            },
+        ))
+        .await
+        .unwrap();
+
+    // Build a mixed batch with one enforced request and one omitted instance_type_id.
+    // Expect the typed request to fail under Always with no allocations configured.
+    let mut req1 = build_test_instance_allocation_request(&env, &mh1, segment_id);
+    req1.instance_type_id = Some(instance_type_id);
+
+    let req2 = build_test_instance_allocation_request(&env, &mh2, segment_id);
+
+    let err = env
+        .api
+        .allocate_instances(tonic::Request::new(
+            rpc::forge::BatchInstanceAllocationRequest {
+                instance_requests: vec![req1, req2],
+            },
+        ))
+        .await
+        .unwrap_err();
+
+    assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+
+    // Verify the failed batch rolled back both instance creations.
+    // Expect no persisted instances on either host.
+    let mut txn = env.db_txn().await;
+    for host_id in [mh1.host().id, mh2.host().id] {
+        let snapshot = db::managed_host::load_snapshot(
+            txn.as_mut(),
+            &host_id,
+            model::machine::LoadSnapshotOptions::default(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert!(snapshot.instance.is_none());
+    }
 }
 
 // Helper function to build a test instance allocation request

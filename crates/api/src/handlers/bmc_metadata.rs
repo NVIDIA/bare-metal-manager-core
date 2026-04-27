@@ -15,11 +15,12 @@
  * limitations under the License.
  */
 use ::rpc::forge as rpc;
+use db::TransactionVending;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialReader, Credentials};
 use sqlx::PgPool;
 
 use crate::CarbideError;
-use crate::api::{Api, TransactionVending, log_request_data};
+use crate::api::{Api, log_request_data};
 use crate::handlers::bmc_endpoint_explorer::validate_and_complete_bmc_endpoint_request;
 
 pub(crate) async fn get(

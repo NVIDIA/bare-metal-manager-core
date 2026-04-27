@@ -23,6 +23,8 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use carbide_firmware::FirmwareDownloader;
 use carbide_ipmi::IPMITool;
+use carbide_nvlink_manager::NvlPartitionMonitor;
+use carbide_nvlink_manager::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
 use carbide_preingestion_manager::PreingestionManager;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::nv_redfish::NvRedfishClientPool;
@@ -71,8 +73,6 @@ use crate::logging::service_health_metrics::{
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
 use crate::mqtt_state_change_hook::hook::MqttStateChangeHook;
-use crate::nvl_partition_monitor::NvlPartitionMonitor;
-use crate::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
 use crate::rack::bms_client::BmsDsxExchangeHandle;
 use crate::scout_stream::ConnectionRegistry;
 use crate::state_controller::common_services::CommonStateHandlerServices;

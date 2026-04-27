@@ -749,7 +749,7 @@ pub async fn batch_persist<'a>(
                             vals.os_phone_home_enabled, vals.name, vals.description, 
                             vals.labels::json, vals.config_version, vals.hostname, 
                             vals.network_security_group_id, true,
-                            m.instance_type_id, vals.extension_services_config::json, 
+                            vals.instance_type_id, vals.extension_services_config::json, 
                             vals.extension_services_config_version, vals.nvlink_config::json, 
                             vals.nvlink_config_version
                     FROM (VALUES ";

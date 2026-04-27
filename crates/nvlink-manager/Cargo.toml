@@ -1,0 +1,44 @@
+[package]
+name = "carbide-nvlink-manager"
+version = "0.0.1"
+edition.workspace = true
+description = "Carbide NVLink Manager"
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "carbide_nvlink_manager"
+
+[features]
+default = []
+test-support = []
+
+[dependencies]
+carbide-api-db = { path = "../api-db" }
+carbide-api-model = { path = "../api-model" }
+carbide-rpc = { path = "../rpc" } # TODO: it is only for Errors, can be improved. 
+carbide-secrets = { path = "../secrets" }
+carbide-utils = { path = "../utils" }
+carbide-uuid = { path = "../uuid" }
+config-version = { path = "../config-version" }
+libnmxm = { path = "../libnmxm" }
+
+# these are alphabetized
+async-trait = { workspace = true }
+chrono = { workspace = true }
+duration-str = { workspace = true }
+eyre = { workspace = true }
+http = { workspace = true }
+opentelemetry = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true, features = ["postgres"] }
+rand = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+uuid = { features = ["v4", "serde"], workspace = true }
+
+[lints]
+workspace = true
