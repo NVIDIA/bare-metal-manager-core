@@ -90,11 +90,6 @@ pub fn nvlink_config_synced(
     let Some(observation) = observation.as_ref() else {
         return Err(NvLinkConfigNotSyncedReason("Due to missing NvLink status observation, it can't be verified whether the NvLink config is applied to NMX-M".to_string()));
     };
-    if config.gpu_configs.len() != observation.nvlink_gpus.len() {
-        return Err(NvLinkConfigNotSyncedReason(
-            "the number of configured GPUs does not match the number of observed GPUs".to_string(),
-        ));
-    }
 
     for gpu_config in config.gpu_configs.iter() {
         let Some(gpu_observation) = observation
