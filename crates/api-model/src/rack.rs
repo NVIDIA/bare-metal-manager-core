@@ -71,8 +71,6 @@ pub struct FirmwareUpgradeJob {
 }
 
 impl FirmwareUpgradeJob {
-    const RETENTION_HOURS: i64 = 48;
-
     pub fn all_devices(&self) -> impl Iterator<Item = &FirmwareUpgradeDeviceStatus> {
         self.machines
             .iter()
@@ -85,31 +83,6 @@ impl FirmwareUpgradeJob {
             .iter_mut()
             .chain(self.switches.iter_mut())
             .chain(self.power_shelves.iter_mut())
-    }
-
-    pub fn is_persistence_expired_at(&self, now: DateTime<Utc>) -> bool {
-        let terminal_at = self.completed_at.or_else(|| {
-            self.status
-                .as_deref()
-                .map(str::to_ascii_lowercase)
-                .filter(|status| {
-                    matches!(
-                        status.as_str(),
-                        "completed"
-                            | "success"
-                            | "done"
-                            | "failed"
-                            | "error"
-                            | "cancelled"
-                            | "canceled"
-                    )
-                })
-                .and(self.started_at)
-        });
-
-        terminal_at.is_some_and(|terminal_at| {
-            now.signed_duration_since(terminal_at) >= chrono::Duration::hours(Self::RETENTION_HOURS)
-        })
     }
 }
 
@@ -819,28 +792,6 @@ mod tests {
     use carbide_uuid::switch::{SwitchIdSource, SwitchType};
 
     use super::*;
-
-    #[test]
-    fn firmware_upgrade_job_expires_after_retention_window() {
-        let now = Utc::now();
-        let job = FirmwareUpgradeJob {
-            completed_at: Some(now - chrono::Duration::hours(48)),
-            ..Default::default()
-        };
-
-        assert!(job.is_persistence_expired_at(now));
-    }
-
-    #[test]
-    fn firmware_upgrade_job_is_retained_before_retention_window() {
-        let now = Utc::now();
-        let job = FirmwareUpgradeJob {
-            completed_at: Some(now - chrono::Duration::hours(47)),
-            ..Default::default()
-        };
-
-        assert!(!job.is_persistence_expired_at(now));
-    }
 
     // ── MaintenanceScope ────────────────────────────────────────────────
 

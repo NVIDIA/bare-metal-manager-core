@@ -21,16 +21,14 @@ use carbide_uuid::rack::RackId;
 use model::rack::{Rack, RackConfig, RackState};
 
 use crate::state_controller::rack::context::RackStateHandlerContextObjects;
-use crate::state_controller::rack::maintenance::{
-    clear_expired_firmware_upgrade_job, first_maintenance_state,
-};
+use crate::state_controller::rack::maintenance::first_maintenance_state;
 use crate::state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 
 pub async fn handle_error(
     id: &RackId,
-    state: &mut Rack,
+    _state: &mut Rack,
     config: &RackConfig,
     cause: &str,
     ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
@@ -67,10 +65,6 @@ pub async fn handle_error(
             maintenance_state: first_maintenance_state(scope),
         })
         .with_txn(txn));
-    }
-
-    if let Some(outcome) = clear_expired_firmware_upgrade_job(id, state, ctx).await? {
-        return Ok(outcome);
     }
 
     tracing::error!("Rack {} is in error state: {}", id, cause);

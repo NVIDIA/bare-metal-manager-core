@@ -124,9 +124,23 @@ fn rack_requested_firmware_version(rack: &model::rack::Rack) -> Option<String> {
         .iter()
         .find_map(|activity| match activity {
             MaintenanceActivity::FirmwareUpgrade {
-                firmware_version, ..
-            } => Some(firmware_version.clone().unwrap_or_default()),
+                firmware_version: Some(firmware_version),
+                ..
+            } if !firmware_version.is_empty() => Some(firmware_version.clone()),
             _ => None,
+        })
+}
+
+fn rack_firmware_upgrade_requested(rack: &model::rack::Rack) -> bool {
+    rack.config
+        .maintenance_requested
+        .as_ref()
+        .is_some_and(|scope| {
+            scope.activities.is_empty()
+                || scope
+                    .activities
+                    .iter()
+                    .any(|activity| matches!(activity, MaintenanceActivity::FirmwareUpgrade { .. }))
         })
 }
 
@@ -185,24 +199,21 @@ fn firmware_job_state(job: &FirmwareUpgradeJob) -> i32 {
 
 fn rack_firmware_status(rack: &model::rack::Rack) -> rpc::FirmwareUpdateStatus {
     let requested_version = rack_requested_firmware_version(rack);
-    let retained_job = rack
-        .firmware_upgrade_job
-        .as_ref()
-        .filter(|job| !job.is_persistence_expired_at(chrono::Utc::now()));
-    let state = if let Some(job) = retained_job {
+    let firmware_upgrade_requested = rack_firmware_upgrade_requested(rack);
+    let job = rack.firmware_upgrade_job.as_ref();
+    let state = if let Some(job) = job {
         firmware_job_state(job)
-    } else if requested_version.is_some() {
+    } else if firmware_upgrade_requested {
         rpc::FirmwareUpdateState::FwStateQueued as i32
     } else {
         rpc::FirmwareUpdateState::FwStateUnknown as i32
     };
     let target_version = requested_version
-        .clone()
-        .or_else(|| retained_job.and_then(|job| job.firmware_id.clone()))
+        .or_else(|| job.and_then(|job| job.firmware_id.clone()))
         .unwrap_or_default();
-    let updated_at = retained_job
+    let updated_at = job
         .and_then(|job| job.completed_at.or(job.started_at))
-        .or_else(|| requested_version.as_ref().map(|_| rack.updated))
+        .or_else(|| firmware_upgrade_requested.then_some(rack.updated))
         .map(Into::into);
 
     rpc::FirmwareUpdateStatus {
@@ -1483,23 +1494,48 @@ mod tests {
     }
 
     #[test]
-    fn rack_firmware_status_ignores_expired_job() {
+    fn rack_firmware_status_default_request_uses_job_firmware_id() {
         let job = FirmwareUpgradeJob {
-            firmware_id: Some("fw-1".to_string()),
-            status: Some("completed".to_string()),
-            completed_at: Some(chrono::Utc::now() - chrono::Duration::hours(49)),
+            firmware_id: Some("fw-default".to_string()),
+            status: Some("in_progress".to_string()),
+            started_at: Some(chrono::Utc::now()),
             ..Default::default()
         };
-        let rack = test_rack_with_job(Some(job));
+        let mut rack = test_rack_with_job(Some(job));
+        rack.config.maintenance_requested = Some(model::rack::MaintenanceScope {
+            activities: vec![MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: None,
+                components: vec![],
+            }],
+            ..Default::default()
+        });
 
         let status = rack_firmware_status(&rack);
 
         assert_eq!(
             status.state,
-            rpc::FirmwareUpdateState::FwStateUnknown as i32
+            rpc::FirmwareUpdateState::FwStateInProgress as i32
         );
+        assert_eq!(status.target_version, "fw-default");
+        assert!(status.updated_at.is_some());
+    }
+
+    #[test]
+    fn rack_firmware_status_default_request_without_job_is_queued() {
+        let mut rack = test_rack_with_job(None);
+        rack.config.maintenance_requested = Some(model::rack::MaintenanceScope {
+            activities: vec![MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: None,
+                components: vec![],
+            }],
+            ..Default::default()
+        });
+
+        let status = rack_firmware_status(&rack);
+
+        assert_eq!(status.state, rpc::FirmwareUpdateState::FwStateQueued as i32);
         assert!(status.target_version.is_empty());
-        assert!(status.updated_at.is_none());
+        assert!(status.updated_at.is_some());
     }
 
     #[test]

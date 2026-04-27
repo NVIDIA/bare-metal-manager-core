@@ -314,30 +314,6 @@ async fn clear_maintenance_requested_on_error(
     Ok(outcome.with_txn(txn))
 }
 
-pub(crate) async fn clear_expired_firmware_upgrade_job(
-    rack_id: &RackId,
-    state: &mut Rack,
-    ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
-) -> Result<Option<StateHandlerOutcome<RackState>>, StateHandlerError> {
-    let Some(job) = state.firmware_upgrade_job.as_ref() else {
-        return Ok(None);
-    };
-    if !job.is_persistence_expired_at(chrono::Utc::now()) {
-        return Ok(None);
-    }
-
-    tracing::info!(
-        rack_id = %rack_id,
-        "Clearing retained rack firmware upgrade job after 48 hours"
-    );
-    state.firmware_upgrade_job = None;
-    let mut txn = ctx.services.db_pool.begin().await?;
-    db_rack::update_firmware_upgrade_job(txn.as_mut(), rack_id, None).await?;
-    Ok(Some(
-        StateHandlerOutcome::wait("expired firmware upgrade job cleared".into()).with_txn(txn),
-    ))
-}
-
 /// Returns the next maintenance sub-state after firmware upgrade, skipping
 /// activities not requested in the scope.
 fn next_state_after_firmware(scope: &MaintenanceScope) -> RackMaintenanceState {
