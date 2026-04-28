@@ -724,7 +724,7 @@ async fn get_machine_analysis(
 /// 2. **Carbide-API Logs**: API server logs from Loki (filtered by `k8s_container_name`)
 /// 3. **DPU Agent Logs**: DPU agent service logs from Loki (filtered by `systemd_unit` and `host_machine_id`)
 /// 4. **Health Alerts**: Historical health alerts for the machine within the specified time range
-/// 5. **Health Alert Overrides**: Current alert overrides configured for the machine
+/// 5. **Health Report Entries**: Current health report entries configured for the machine
 /// 6. **Site Controller Details**: BMC/Redfish exploration data including:
 ///    - BMC IP and MAC addresses
 ///    - Systems, Managers, and Chassis information
@@ -755,7 +755,7 @@ async fn get_machine_analysis(
 /// - `carbide_api_logs.txt` - API server logs
 /// - `dpu_agent_logs_<machine_id>.txt` - DPU agent service logs
 /// - `health_alerts.json` - Health alerts history
-/// - `health_alert_overrides.json` - Active alert overrides
+/// - `health_alert_overrides.json` - Active health report entries
 /// - `site_controller_details.json` - BMC/Redfish exploration data
 /// - `machine_info.json` - Machine state and validation data
 /// - `metadata.txt` - Summary and Grafana links
@@ -882,10 +882,10 @@ pub async fn handle_debug_bundle(
         .unwrap_or(0);
     println!("   Alerts: {} records collected", alert_count);
 
-    println!("\nFetching health alert overrides...");
+    println!("\nFetching health report entries...");
     let alert_entries = get_alert_entries(api_client, &debug_bundle.host_id).await?;
     println!(
-        "   Overrides: {} overrides collected",
+        "   Entries: {} entries collected",
         alert_entries.health_report_entries.len()
     );
 
@@ -919,7 +919,7 @@ pub async fn handle_debug_bundle(
             .unwrap_or(0)
     );
     println!(
-        "   Health Alert Overrides: {} overrides",
+        "   Health Report Entries: {} entries",
         alert_entries.health_report_entries.len()
     );
     println!("   Site Controller Details: Collected");
@@ -929,7 +929,7 @@ pub async fn handle_debug_bundle(
         host_logs.len() + carbide_api_logs.len() + dpu_agent_logs.len()
     );
 
-    // Create ZIP file with logs, health alerts, health alert overrides, site controller details, and machine info
+    // Create ZIP file with logs, health alerts, health report entries, site controller details, and machine info
     println!("\nCreating ZIP file...");
     create_debug_bundle_zip(
         &debug_bundle,
@@ -1056,7 +1056,7 @@ async fn get_alert_entries(
         CarbideCliError::GenericError(format!("Invalid machine ID '{}': {}", host_id, e))
     })?;
 
-    // Call API to get current overrides
+    // Call API to get current health report entries
     let response = api_client
         .0
         .list_health_report_overrides(machine_id)
@@ -1414,7 +1414,7 @@ impl<'a> ZipBundleCreator<'a> {
 
         println!("ZIP created: {filepath}");
         println!(
-            "Files: host_logs_{}.txt ({} logs), carbide_api_logs.txt ({} logs), dpu_agent_logs_{}.txt ({} logs), health_alerts.json ({} records), health_alert_overrides.json ({} overrides), site_controller_details.json, machine_info.json, metadata.txt",
+            "Files: host_logs_{}.txt ({} logs), carbide_api_logs.txt ({} logs), dpu_agent_logs_{}.txt ({} logs), health_alerts.json ({} records), health_alert_overrides.json ({} entries), site_controller_details.json, machine_info.json, metadata.txt",
             self.config.host_id,
             host_logs.len(),
             carbide_logs.len(),
@@ -1569,7 +1569,7 @@ impl<'a> ZipBundleCreator<'a> {
 
         // Write pretty-formatted JSON to ZIP
         let json_string = serde_json::to_string_pretty(&json_output).map_err(|e| {
-            CarbideCliError::GenericError(format!("Failed to serialize overrides to JSON: {e}"))
+            CarbideCliError::GenericError(format!("Failed to serialize entries to JSON: {e}"))
         })?;
 
         write!(zip, "{}", json_string)?;
@@ -1873,11 +1873,11 @@ impl<'a> ZipBundleCreator<'a> {
         writeln!(zip, "  Total Alerts: {}", total_alerts)?;
         writeln!(zip)?;
 
-        // Add Health Alert Overrides Info
-        writeln!(zip, "Health Alert Overrides:")?;
+        // Add Health Report Entries Info
+        writeln!(zip, "Health Report Entries:")?;
         writeln!(
             zip,
-            "  Total Overrides: {}",
+            "  Total Entries: {}",
             alert_entries.health_report_entries.len()
         )?;
         let active_entries = alert_entries

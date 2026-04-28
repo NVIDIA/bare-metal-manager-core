@@ -911,24 +911,30 @@ pub async fn update_dpu_agent_health_report(
     update_health_report(txn, machine_id, "dpu_agent_health_report", health_report).await
 }
 
-pub async fn update_hardware_health_report(
-    txn: &mut PgConnection,
-    machine_id: &MachineId,
-    health_report: &HealthReport,
-) -> Result<(), DatabaseError> {
-    update_health_report(txn, machine_id, "hardware_health_report", health_report).await
-}
-
 pub async fn update_machine_validation_health_report(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
-    update_health_report(
+    if health_report.alerts.is_empty() {
+        return crate::health_report::remove_health_report(
+            txn,
+            "machines",
+            machine_id,
+            HealthReportApplyMode::Merge,
+            HealthReport::MACHINE_VALIDATION_SOURCE,
+        )
+        .await;
+    }
+
+    let mut health_report = health_report.clone();
+    health_report.source = HealthReport::MACHINE_VALIDATION_SOURCE.to_string();
+    crate::health_report::insert_health_report(
         txn,
+        "machines",
         machine_id,
-        "machine_validation_health_report",
-        health_report,
+        HealthReportApplyMode::Merge,
+        &health_report,
     )
     .await
 }
@@ -952,11 +958,25 @@ pub async fn update_sku_validation_health_report(
     machine_id: &MachineId,
     health_report: &HealthReport,
 ) -> Result<(), DatabaseError> {
-    update_health_report(
+    if health_report.alerts.is_empty() {
+        return crate::health_report::remove_health_report(
+            txn,
+            "machines",
+            machine_id,
+            HealthReportApplyMode::Merge,
+            HealthReport::SKU_VALIDATION_SOURCE,
+        )
+        .await;
+    }
+
+    let mut health_report = health_report.clone();
+    health_report.source = HealthReport::SKU_VALIDATION_SOURCE.to_string();
+    crate::health_report::insert_health_report(
         txn,
+        "machines",
         machine_id,
-        "sku_validation_health_report",
-        health_report,
+        HealthReportApplyMode::Merge,
+        &health_report,
     )
     .await
 }

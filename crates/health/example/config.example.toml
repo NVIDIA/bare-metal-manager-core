@@ -69,7 +69,7 @@ endpoint = "http://localhost:4317"
 batch_size = 512
 flush_interval = "2s"
 
-[sinks.health_override]
+[sinks.health_report]
 root_ca = "/var/run/secrets/spiffe.io/ca.crt"
 client_cert = "/var/run/secrets/spiffe.io/tls.crt"
 client_key = "/var/run/secrets/spiffe.io/tls.key"

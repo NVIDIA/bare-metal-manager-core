@@ -33,14 +33,14 @@ FORGE_CA_PATH = { value = "${REPO_ROOT}/dev/forge_prodroot.pem" }
 # - using flint tool (BlueField-3 only):
 # `flint -d /dev/mst/mt41692_pciconf0 qbfb`
 #
-DOCA_VERSION = "3.2.0"
-BFB_BUILD = "113"
-BFB_RELEASE = "25.10"
+DOCA_VERSION = "3.2.2"
+BFB_BUILD = "125"
+BFB_RELEASE = "26.02"
 # DPU OS Ubuntu 22.04
 BFB_URL = "https://content.mellanox.com/BlueField/BFBs/Ubuntu22.04"
 BFB_NAME = "bf-bundle-${DOCA_VERSION}-${BFB_BUILD}_${BFB_RELEASE}_ubuntu-22.04_prod.bfb"
 # DOCA HBN Version
-DOCA_HBN_VERSION = "3.2.0"
+DOCA_HBN_VERSION = "3.2.2"
 DOCA_HBN_URL = "nvcr.io/nvidia/doca/doca_hbn:${DOCA_HBN_VERSION}-doca${DOCA_VERSION}"
 DOCA_HBN_CONFIG_URL = "https://api.ngc.nvidia.com/v2/resources/org/nvidia/team/doca/doca_hbn/${DOCA_HBN_VERSION}/files"
 
@@ -1109,7 +1109,7 @@ cwd = "${BUILD_LOCATION}/doca_container_configs"
 category = "iPXE Kernel"
 description = "Make the HBN script target directory to the BFB"
 command = "mkdir"
-args = ["${BUILD_LOCATION}/doca_container_configs"]
+args = ["-p", "${BUILD_LOCATION}/doca_container_configs"]
 
 [tasks.unzip-hbn-folder-in-bfb]
 category = "iPXE Kernel"

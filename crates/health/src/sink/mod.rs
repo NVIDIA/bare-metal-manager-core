@@ -16,17 +16,17 @@
  */
 
 mod composite;
+mod dedup_queue;
 #[cfg(not(feature = "bench-hooks"))]
 pub(crate) mod event_mapper;
 #[cfg(feature = "bench-hooks")]
 pub mod event_mapper;
 mod events;
-mod health_override;
+mod health_report;
 mod log_file;
 pub(crate) mod otlp;
-mod override_queue;
 mod prometheus;
-mod rack_health_override;
+mod rack_health_report;
 mod tracing;
 
 pub use composite::CompositeDataSink;
@@ -34,10 +34,10 @@ pub use events::{
     Classification, CollectorEvent, EventContext, FirmwareInfo, HealthReport, HealthReportAlert,
     HealthReportSuccess, LogRecord, Probe, ReportSource, SensorHealthContext, SensorHealthData,
 };
-pub use health_override::HealthOverrideSink;
+pub use health_report::HealthReportSink;
 pub use log_file::LogFileSink;
 pub use prometheus::PrometheusSink;
-pub use rack_health_override::RackHealthOverrideSink;
+pub use rack_health_report::RackHealthReportSink;
 pub use tracing::TracingSink;
 
 #[cfg(not(feature = "bench-hooks"))]

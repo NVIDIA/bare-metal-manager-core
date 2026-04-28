@@ -835,8 +835,10 @@ jobs:
 
       # PostgreSQL is required because sqlx proc macros (sqlx::query!) connect to
       # a local database at compile time to validate SQL queries and return types.
+      # Durability settings are disabled for speed in CI/DC.
       - name: Start PostgreSQL
         run: |
+          printf 'fsync = off\nsynchronous_commit = off\nfull_page_writes = off\n' | tee -a /etc/postgresql/*/main/postgresql.conf
           /etc/init.d/postgresql start
           sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;"
           createdb root

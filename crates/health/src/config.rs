@@ -127,12 +127,13 @@ pub struct SinksConfig {
     /// Prometheus sink: stores metric events in Prometheus exporter format.
     pub prometheus: Configurable<PrometheusSinkConfig>,
 
-    /// Health override sink: sends health override events to Carbide API.
-    #[serde(alias = "carbide_override")]
-    pub health_override: Configurable<HealthOverrideSinkConfig>,
+    /// Health report sink: sends health report events to Carbide API.
+    #[serde(alias = "carbide_override", alias = "health_override")]
+    pub health_report: Configurable<HealthReportSinkConfig>,
 
-    /// Rack health override sink: sends rack-level health overrides to Carbide API.
-    pub rack_health_override: Configurable<RackHealthOverrideSinkConfig>,
+    /// Rack health report sink: sends rack-level health reports to Carbide API.
+    #[serde(alias = "rack_health_override")]
+    pub rack_health_report: Configurable<RackHealthReportSinkConfig>,
 
     /// Log file sink: writes log events as JSONL to rotating files on disk.
     pub log_file: Configurable<LogFileSinkConfig>,
@@ -146,8 +147,8 @@ impl Default for SinksConfig {
         Self {
             tracing: Configurable::Disabled,
             prometheus: Configurable::Enabled(PrometheusSinkConfig::default()),
-            health_override: Configurable::Enabled(HealthOverrideSinkConfig::default()),
-            rack_health_override: Configurable::Enabled(RackHealthOverrideSinkConfig::default()),
+            health_report: Configurable::Enabled(HealthReportSinkConfig::default()),
+            rack_health_report: Configurable::Enabled(RackHealthReportSinkConfig::default()),
             log_file: Configurable::Disabled,
             otlp: Configurable::Disabled,
         }
@@ -229,7 +230,7 @@ impl Default for CarbideApiConnectionConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct HealthOverrideSinkConfig {
+pub struct HealthReportSinkConfig {
     #[serde(flatten)]
     pub connection: CarbideApiConnectionConfig,
 
@@ -237,7 +238,7 @@ pub struct HealthOverrideSinkConfig {
     pub workers: usize,
 }
 
-impl Default for HealthOverrideSinkConfig {
+impl Default for HealthReportSinkConfig {
     fn default() -> Self {
         Self {
             connection: CarbideApiConnectionConfig::default(),
@@ -248,7 +249,7 @@ impl Default for HealthOverrideSinkConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct RackHealthOverrideSinkConfig {
+pub struct RackHealthReportSinkConfig {
     #[serde(flatten)]
     pub connection: CarbideApiConnectionConfig,
 
@@ -256,7 +257,7 @@ pub struct RackHealthOverrideSinkConfig {
     pub workers: usize,
 }
 
-impl Default for RackHealthOverrideSinkConfig {
+impl Default for RackHealthReportSinkConfig {
     fn default() -> Self {
         Self {
             connection: CarbideApiConnectionConfig::default(),
@@ -643,10 +644,10 @@ impl Config {
             );
         }
 
-        if let Configurable::Enabled(health_override) = &self.sinks.health_override
-            && health_override.workers == 0
+        if let Configurable::Enabled(health_report) = &self.sinks.health_report
+            && health_report.workers == 0
         {
-            return Err("sinks.health_override.workers must be greater than 0".to_string());
+            return Err("sinks.health_report.workers must be greater than 0".to_string());
         }
 
         if let Configurable::Enabled(logs) = &self.collectors.logs {
@@ -750,14 +751,14 @@ mod tests {
             panic!("carbide api empty for sources")
         }
 
-        if let Configurable::Enabled(ref health_override) = config.sinks.health_override {
+        if let Configurable::Enabled(ref health_report) = config.sinks.health_report {
             assert_eq!(
-                health_override.connection.root_ca,
+                health_report.connection.root_ca,
                 "/var/run/secrets/spiffe.io/ca.crt"
             );
-            assert_eq!(health_override.workers, 8);
+            assert_eq!(health_report.workers, 8);
         } else {
-            panic!("health override sink is disabled")
+            panic!("health report sink is disabled")
         }
 
         if let Configurable::Enabled(ref rate_limit) = config.rate_limit {
@@ -830,7 +831,7 @@ password = "pass"
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [collectors.sensors]
@@ -855,7 +856,7 @@ cache_size = 50
             .expect("failed to parse");
 
         assert!(!config.endpoint_sources.carbide_api.is_enabled());
-        assert!(!config.sinks.health_override.is_enabled());
+        assert!(!config.sinks.health_report.is_enabled());
 
         assert_eq!(config.endpoint_sources.static_bmc_endpoints.len(), 1);
         assert_eq!(
@@ -922,13 +923,13 @@ cache_size = 50
 
         config.processors.leak_detection =
             Configurable::Enabled(LeakDetectionProcessorConfig::default());
-        config.sinks.health_override = Configurable::Enabled(HealthOverrideSinkConfig {
+        config.sinks.health_report = Configurable::Enabled(HealthReportSinkConfig {
             workers: 0,
-            ..HealthOverrideSinkConfig::default()
+            ..HealthReportSinkConfig::default()
         });
         assert!(config.validate().is_err());
 
-        config.sinks.health_override = Configurable::Enabled(HealthOverrideSinkConfig::default());
+        config.sinks.health_report = Configurable::Enabled(HealthReportSinkConfig::default());
 
         config.collectors.logs = Configurable::Enabled(LogsCollectorConfig {
             mode: LogCollectionMode::Periodic,
@@ -994,7 +995,7 @@ cache_size = 50
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [collectors.nvue.rest]
@@ -1035,7 +1036,7 @@ request_timeout = "45s"
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [collectors.nvue]
@@ -1057,7 +1058,7 @@ enabled = false
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [collectors.nvue.rest]
@@ -1082,7 +1083,7 @@ poll_interval = "1m"
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [collectors.nvue.rest]
@@ -1121,7 +1122,7 @@ interfaces_enabled = false
 [endpoint_sources.carbide_api]
 enabled = false
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
 [[endpoint_sources.static_bmc_endpoints]]
@@ -1178,10 +1179,10 @@ switch_serial = "SN-SW-001"
                 .as_deref(),
             Some("SN-SWITCH-001")
         );
-        if let Configurable::Enabled(ref health_override) = config.sinks.health_override {
-            assert_eq!(health_override.workers, 8);
+        if let Configurable::Enabled(ref health_report) = config.sinks.health_report {
+            assert_eq!(health_report.workers, 8);
         } else {
-            panic!("health override sink is disabled");
+            panic!("health report sink is disabled");
         }
     }
 

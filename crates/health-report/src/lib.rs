@@ -56,6 +56,7 @@ impl Default for HealthReport {
 }
 
 impl HealthReport {
+    pub const MACHINE_VALIDATION_SOURCE: &str = "machine-validation";
     pub const SKU_VALIDATION_SOURCE: &str = "sku-validation";
     pub const QUARANTINE_SOURCE: &str = "quarantine";
 
@@ -191,20 +192,6 @@ impl HealthReport {
             observed_at: Some(chrono::Utc::now()),
             successes: vec![],
             alerts: vec![HealthProbeAlert::sku_mismatch(mismatches)],
-            triggered_by: None,
-        }
-    }
-
-    /// Returns a health report which indicates that a machine failed SKU validation
-    pub fn sku_validation_success() -> Self {
-        Self {
-            source: Self::SKU_VALIDATION_SOURCE.to_string(),
-            observed_at: Some(chrono::Utc::now()),
-            successes: vec![HealthProbeSuccess {
-                id: HealthProbeId::sku_validation(),
-                target: None,
-            }],
-            alerts: vec![],
             triggered_by: None,
         }
     }
@@ -576,9 +563,7 @@ impl HealthProbeId {
         HealthProbeId("MalformedReport".to_string())
     }
 
-    /// The ID used by SKU validation for sending health reports
-    ///
-    /// Used by the state machine when SKU validation completes.
+    /// The ID used by SKU validation alerts.
     pub fn sku_validation() -> Self {
         HealthProbeId("SkuValidation".to_string())
     }

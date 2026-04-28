@@ -47,8 +47,6 @@ spec:
       initContainers:
         - name: wait-for-certs
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          args:
-            - "--grpc-address=$(POD_IP):50052"
           command:
             - /busybox/sh
             - -c

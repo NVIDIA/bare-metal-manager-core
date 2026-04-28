@@ -6,6 +6,7 @@ metadata:
     {{- include "carbide-dhcp-server.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
+  internalTrafficPolicy: Local
   selector:
     {{- include "carbide-dhcp-server.selectorLabels" . | nindent 4 }}
     {{- with .Values.serviceDaemonSet.labels }}

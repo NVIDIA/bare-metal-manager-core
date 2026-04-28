@@ -19,27 +19,27 @@ use std::sync::Arc;
 
 use carbide_uuid::rack::RackId;
 
-use super::override_queue::OverrideQueue;
+use super::dedup_queue::DedupQueue;
 use super::{CollectorEvent, DataSink, EventContext, HealthReport, ReportSource};
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
-use crate::config::RackHealthOverrideSinkConfig;
+use crate::config::RackHealthReportSinkConfig;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct RackOverrideKey {
+struct RackHealthReportKey {
     id: RackId,
     source: ReportSource,
 }
 
-pub struct RackHealthOverrideSink {
-    queue: Arc<OverrideQueue<RackOverrideKey, Arc<HealthReport>>>,
+pub struct RackHealthReportSink {
+    queue: Arc<DedupQueue<RackHealthReportKey, Arc<HealthReport>>>,
 }
 
-impl RackHealthOverrideSink {
-    pub fn new(config: &RackHealthOverrideSinkConfig) -> Result<Self, HealthError> {
+impl RackHealthReportSink {
+    pub fn new(config: &RackHealthReportSinkConfig) -> Result<Self, HealthError> {
         let handle = tokio::runtime::Handle::try_current().map_err(|error| {
             HealthError::GenericError(format!(
-                "rack health override sink requires active Tokio runtime: {error}"
+                "rack health report sink requires active Tokio runtime: {error}"
             ))
         })?;
 
@@ -50,8 +50,8 @@ impl RackHealthOverrideSink {
             &config.connection.api_url,
         ));
 
-        let queue: Arc<OverrideQueue<RackOverrideKey, Arc<HealthReport>>> =
-            Arc::new(OverrideQueue::new());
+        let queue: Arc<DedupQueue<RackHealthReportKey, Arc<HealthReport>>> =
+            Arc::new(DedupQueue::new());
 
         for worker_id in 0..config.workers {
             let worker_client = Arc::clone(&client);
@@ -70,7 +70,7 @@ impl RackHealthOverrideSink {
                                     ?error,
                                     worker_id,
                                     rack_id = %key.id,
-                                    "Failed to submit rack health override report"
+                                    "Failed to submit rack health report"
                                 );
                             }
                         }
@@ -79,7 +79,7 @@ impl RackHealthOverrideSink {
                                 ?error,
                                 worker_id,
                                 rack_id = %key.id,
-                                "Failed to convert rack health override report"
+                                "Failed to convert rack health report"
                             );
                         }
                     }
@@ -91,9 +91,9 @@ impl RackHealthOverrideSink {
     }
 }
 
-impl DataSink for RackHealthOverrideSink {
+impl DataSink for RackHealthReportSink {
     fn sink_type(&self) -> &'static str {
-        "rack_health_override_sink"
+        "rack_health_report_sink"
     }
 
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
@@ -113,7 +113,7 @@ impl DataSink for RackHealthOverrideSink {
             return;
         };
 
-        let key = RackOverrideKey {
+        let key = RackHealthReportKey {
             id: rack_id.clone(),
             source: report.source,
         };

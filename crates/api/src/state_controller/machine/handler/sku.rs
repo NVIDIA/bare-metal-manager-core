@@ -57,18 +57,7 @@ async fn clear_sku_validation_report(
     txn: &mut PgConnection,
     mh_snapshot: &ManagedHostStateSnapshot,
 ) -> Result<(), StateHandlerError> {
-    let mut health_report = HealthReport::empty(HealthReport::SKU_VALIDATION_SOURCE.to_string());
-
-    health_report.successes = mh_snapshot
-        .host_snapshot
-        .sku_validation_health_report
-        .as_ref()
-        .map(|hr| {
-            let mut s = hr.successes.clone();
-            s.truncate(10);
-            s
-        })
-        .unwrap_or_default();
+    let health_report = HealthReport::empty(HealthReport::SKU_VALIDATION_SOURCE.to_string());
 
     Ok(db::machine::update_sku_validation_health_report(
         txn,
@@ -568,15 +557,7 @@ pub(crate) async fn handle_bom_validation_state(
                 }
 
                 if diffs.is_empty() {
-                    let health_report = HealthReport::sku_validation_success();
-
-                    db::machine::update_sku_validation_health_report(
-                        &mut txn,
-                        &mh_snapshot.host_snapshot.id,
-                        &health_report,
-                    )
-                    .await?;
-
+                    clear_sku_validation_report(&mut txn, mh_snapshot).await?;
                     advance_to_machine_validating(txn, mh_snapshot).await
                 } else if should_allow_allocation_on_validation_failure(host_handler_params) {
                     tracing::info!(

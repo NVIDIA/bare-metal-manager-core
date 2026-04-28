@@ -19,15 +19,15 @@ use std::sync::Arc;
 
 use prometheus::Counter;
 
+use super::dedup_queue::DedupQueue;
 use super::event_mapper::RedfishEventMapper;
-use super::override_queue::OverrideQueue;
 use super::{CollectorEvent, DataSink, EventContext};
 use crate::HealthError;
 use crate::config::OtlpSinkConfig;
 use crate::metrics::MetricsManager;
 use crate::otlp::drain::OtlpDrainTask;
 
-pub(crate) type OtlpQueue = OverrideQueue<String, (EventContext, CollectorEvent)>;
+pub(crate) type OtlpQueue = DedupQueue<String, (EventContext, CollectorEvent)>;
 
 #[cfg(not(feature = "bench-hooks"))]
 pub(crate) struct OtlpSink {
@@ -63,7 +63,7 @@ impl OtlpSink {
             HealthError::GenericError(format!("otlp sink requires active tokio runtime: {e}"))
         })?;
 
-        let queue: Arc<OtlpQueue> = Arc::new(OverrideQueue::new());
+        let queue: Arc<OtlpQueue> = Arc::new(DedupQueue::new());
 
         let replaced_total = Counter::new(
             format!("{prefix}_otlp_sink_replaced_total"),
@@ -93,7 +93,7 @@ impl OtlpSink {
 impl OtlpSink {
     pub fn new_for_bench(mapper: Arc<dyn RedfishEventMapper>) -> Self {
         Self {
-            queue: Arc::new(OverrideQueue::new()),
+            queue: Arc::new(DedupQueue::new()),
             replaced_total: Counter::new("bench_replaced", "bench").unwrap(),
             mapper,
         }

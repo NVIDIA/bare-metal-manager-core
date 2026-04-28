@@ -24,8 +24,8 @@ use std::sync::Arc;
 use carbide_health::endpoint::{BmcAddr, EndpointMetadata, MachineData};
 use carbide_health::metrics::MetricsManager;
 use carbide_health::sink::{
-    Classification, CollectorEvent, CompositeDataSink, DataSink, EventContext, HealthOverrideSink,
-    HealthReport, LogRecord, PrometheusSink, ReportSource, SensorHealthData,
+    Classification, CollectorEvent, CompositeDataSink, DataSink, EventContext, HealthReport,
+    HealthReportSink, LogRecord, PrometheusSink, ReportSource, SensorHealthData,
 };
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use health_report::HealthReport as CarbideHealthReport;
@@ -194,17 +194,17 @@ fn health_report_with_alerts(alert_count: usize) -> HealthReport {
     report
 }
 
-struct HealthOverrideBenchState {
-    sink: HealthOverrideSink,
+struct HealthReportBenchState {
+    sink: HealthReportSink,
     context: EventContext,
     distinct_contexts: Vec<EventContext>,
     sensor_event: CollectorEvent,
     leak_event: CollectorEvent,
 }
 
-impl HealthOverrideBenchState {
+impl HealthReportBenchState {
     fn new() -> Self {
-        let sink = HealthOverrideSink::new_for_bench().expect("bench sink should initialize");
+        let sink = HealthReportSink::new_for_bench().expect("bench sink should initialize");
         let context = event_context();
         let distinct_contexts = MACHINE_IDS
             .into_iter()
@@ -233,12 +233,12 @@ impl HealthOverrideBenchState {
     }
 }
 
-fn filled_health_override_sink(
+fn filled_health_report_sink(
     contexts: &[EventContext],
     event: &CollectorEvent,
     leak_event: &CollectorEvent,
-) -> HealthOverrideSink {
-    let sink = HealthOverrideSink::new_for_bench().expect("bench sink should initialize");
+) -> HealthReportSink {
+    let sink = HealthReportSink::new_for_bench().expect("bench sink should initialize");
     for context in contexts {
         sink.handle_event(context, event);
         sink.handle_event(context, leak_event);
@@ -246,7 +246,7 @@ fn filled_health_override_sink(
     sink
 }
 
-fn drain_pending(sink: &HealthOverrideSink) -> usize {
+fn drain_pending(sink: &HealthReportSink) -> usize {
     let mut drained = 0;
     while sink.pop_pending_for_bench().is_some() {
         drained += 1;
@@ -254,7 +254,7 @@ fn drain_pending(sink: &HealthOverrideSink) -> usize {
     drained
 }
 
-fn drain_and_convert_pending(sink: &HealthOverrideSink) -> usize {
+fn drain_and_convert_pending(sink: &HealthReportSink) -> usize {
     let mut drained = 0;
     while let Some((_machine_id, report)) = sink.pop_pending_for_bench() {
         let converted: CarbideHealthReport = report
@@ -267,12 +267,12 @@ fn drain_and_convert_pending(sink: &HealthOverrideSink) -> usize {
     drained
 }
 
-fn bench_health_override_sink(c: &mut Criterion) {
-    let mut group = c.benchmark_group("sink_health_override");
+fn bench_health_report_sink(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sink_health_report");
     let batch_size = 20_000usize;
     group.throughput(Throughput::Elements(batch_size as u64));
 
-    let state = HealthOverrideBenchState::new();
+    let state = HealthReportBenchState::new();
 
     group.bench_with_input(BenchmarkId::new("enqueue", "report"), &state, |b, state| {
         b.iter(|| {
@@ -287,7 +287,7 @@ fn bench_health_override_sink(c: &mut Criterion) {
     group.bench_with_input(BenchmarkId::new("drain", "report"), &state, |b, state| {
         b.iter_batched(
             || {
-                filled_health_override_sink(
+                filled_health_report_sink(
                     &state.distinct_contexts,
                     &state.sensor_event,
                     &state.leak_event,
@@ -306,7 +306,7 @@ fn bench_health_override_sink(c: &mut Criterion) {
         |b, state| {
             b.iter_batched(
                 || {
-                    filled_health_override_sink(
+                    filled_health_report_sink(
                         &state.distinct_contexts,
                         &state.sensor_event,
                         &state.leak_event,
@@ -445,7 +445,7 @@ criterion_group!(
     benches,
     bench_prometheus_sink,
     bench_composite_sink,
-    bench_health_override_sink,
+    bench_health_report_sink,
     bench_otlp_sink,
     bench_queue_key_construction,
 );

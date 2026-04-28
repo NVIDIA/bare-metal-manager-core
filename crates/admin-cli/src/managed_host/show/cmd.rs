@@ -356,7 +356,7 @@ fn show_managed_host_details_view(m: utils::ManagedHostOutput) -> CarbideCliResu
             "    Probe Alerts",
             Some(format_health_alerts(&m.health.alerts, width)),
         ),
-        ("    Overrides", Some(m.health_sources.join(","))),
+        ("    Health Reports", Some(m.health_sources.join(","))),
     ];
     data.append(&mut health_details);
 
