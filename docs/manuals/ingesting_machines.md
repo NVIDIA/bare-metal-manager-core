@@ -97,11 +97,9 @@ Each entry supports additional optional fields:
 
 - **`host_lifecycle_profile`** (object): Per-host profile for settings that affect
   state-machine progression. Future per-host knobs should be added here.
-  - **`disable_lockdown`** (bool, default `false`): When `true`, the ingestion state machine
-    skips re-enabling BMC/BIOS lockdown after UEFI/platform configuration completes. This is
-    useful for automation workflows that need lockdown persistently disabled. Lockdown is still
-    temporarily disabled during BIOS setup regardless of this flag; the flag only controls
-    whether it is **re-enabled** afterward.
+  - **`disable_lockdown`** (bool, default `false`): When `true`, the state machine
+    does not lockdown the host during lifecycle management. This is useful for automation
+    workflows that need lockdown persistently disabled.
 
   ```json
   {

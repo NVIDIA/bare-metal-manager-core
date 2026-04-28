@@ -182,7 +182,8 @@ async fn convert_and_print_into_nice_table(
                 .unwrap_or(expected_machine.dpf_enabled)
                 .to_string(),
             expected_machine
-                .disable_lockdown
+                .host_lifecycle_profile
+                .and_then(|hlp| hlp.disable_lockdown)
                 .unwrap_or_default()
                 .to_string(),
         ]);

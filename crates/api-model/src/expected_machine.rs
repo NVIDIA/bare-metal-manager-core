@@ -221,9 +221,8 @@ pub struct ExpectedMachineData {
 /// (plain `bool` fields) at machine discovery time.
 #[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct HostLifecycleProfile {
-    /// If true, do not lock down the server while ingesting the managed host
-    /// into a Ready state within the state machine. If unset or false, preserve
-    /// the default behavior of locking down the server after configuring the BIOS.
+    /// If true, do not lock down the server as part of lifecycle management within the state machine.
+    /// If unset or false, preserve the default behavior of locking down the server after configuring the BIOS.
     #[serde(default)]
     pub disable_lockdown: Option<bool>,
 }
@@ -341,10 +340,12 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
                 DpuMode::DpuMode => None,
                 other => Some(rpc::forge::DpuMode::from(other) as i32),
             },
-            disable_lockdown: expected_machine
-                .data
-                .host_lifecycle_profile
-                .disable_lockdown,
+            host_lifecycle_profile: Some(rpc::forge::HostLifecycleProfile {
+                disable_lockdown: expected_machine
+                    .data
+                    .host_lifecycle_profile
+                    .disable_lockdown,
+            }),
         }
     }
 }
@@ -426,9 +427,12 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
                 .map(|i| rpc::forge::DpuMode::try_from(i).unwrap_or_default())
                 .map(DpuMode::from)
                 .unwrap_or_default(),
-            host_lifecycle_profile: HostLifecycleProfile {
-                disable_lockdown: em.disable_lockdown,
-            },
+            host_lifecycle_profile: em
+                .host_lifecycle_profile
+                .map(|hlp| HostLifecycleProfile {
+                    disable_lockdown: hlp.disable_lockdown,
+                })
+                .unwrap_or_default(),
         })
     }
 }
@@ -551,7 +555,9 @@ mod tests {
             bmc_username: "root".into(),
             bmc_password: "pass".into(),
             chassis_serial_number: "SN-1".into(),
-            disable_lockdown,
+            host_lifecycle_profile: disable_lockdown.map(|dl| rpc::forge::HostLifecycleProfile {
+                disable_lockdown: Some(dl),
+            }),
             ..Default::default()
         }
     }
@@ -568,7 +574,10 @@ mod tests {
             data,
         };
         let back: rpc::forge::ExpectedMachine = em.into();
-        assert_eq!(back.disable_lockdown, Some(true));
+        assert_eq!(
+            back.host_lifecycle_profile.unwrap().disable_lockdown,
+            Some(true)
+        );
     }
 
     #[test]
@@ -583,7 +592,10 @@ mod tests {
             data,
         };
         let back: rpc::forge::ExpectedMachine = em.into();
-        assert_eq!(back.disable_lockdown, Some(false));
+        assert_eq!(
+            back.host_lifecycle_profile.unwrap().disable_lockdown,
+            Some(false)
+        );
     }
 
     #[test]
@@ -598,7 +610,7 @@ mod tests {
             data,
         };
         let back: rpc::forge::ExpectedMachine = em.into();
-        assert_eq!(back.disable_lockdown, None);
+        assert_eq!(back.host_lifecycle_profile.unwrap().disable_lockdown, None);
     }
 
     #[test]

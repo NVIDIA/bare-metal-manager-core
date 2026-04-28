@@ -157,7 +157,7 @@ pub struct Args {
     #[clap(
         long = "disable-lockdown",
         value_name = "DISABLE_LOCKDOWN",
-        help = "If true, do not lock down the server while ingesting the managed host into a Ready state within the state machine. If unset or false, preserve the default behavior of locking down the server after configuring the BIOS."
+        help = "If true, do not lock down the server as part of licecycle management within the state machine. If unset or false, preserve the default behavior of locking down the server after configuring the BIOS."
     )]
     pub disable_lockdown: Option<bool>,
 }
