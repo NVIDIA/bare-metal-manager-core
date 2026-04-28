@@ -117,28 +117,32 @@ Details about the NICo state handling implementation can be found [here](state_h
 
 ### Site Explorer
 
-Site Explorer is a process within NICo Core that continuously monitors the state of all BMCs that are detected within the underlay network. The process acts as a "crawler". It continuously tries to perform redfish requests against all IPs on the underlay network that were provided by NICo Core and records information that NICo is required to manage the hosts in a follow-up. The information collected by NICo is
+Site Explorer is a background module within the `carbide-api` binary that continuously monitors the state of all BMCs detected on the underlay network. Its implementation lives in the separate `crates/site-explorer` crate to keep the `crates/api` crate smaller, but it is still started and run as part of NICo Core.
+
+The process acts as a "crawler". It continuously tries to perform Redfish requests against all IPs on the underlay network that were provided by NICo Core and records information that NICo needs to manage hosts later. The information collected by NICo includes:
 - Serial Numbers
 - Certain inventory data, e.g. the amount, type and serial numbers of DPUs
 - Power State
 - Configuration data, e.g. boot order, lockdown mode
 - Firmware versions
 
-NICo users can inspect the data that site explorer discovers using the `FindExploredEndpoints` APIs as well as using the NICo Debug Web UI.
+NICo users can inspect the data that Site Explorer discovers using the `FindExploredEndpoints` APIs as well as using the NICo Debug Web UI.
 
 Site Explorer requires an "Expected Machines" manifest to be deployed. Expected Machines describes the set of Machines that is expected to be managed by the NICo instance - it encodes BMC MAC addresses, hardware default passwords and other details of these Machines. The manifest can be updated using a set of APIs, e.g. `ReplaceAllExpectedMachines`.
 
-Beyond the basic BMC data collection, NICo also performs the following tasks:
-1. It matches hosts with associated DPUs based on the redfish reports of both components - e.g. both the host and DPU need to reference the same DPU serial number.
+Beyond the basic BMC data collection, Site Explorer also performs the following tasks:
+1. It matches hosts with associated DPUs based on the Redfish reports of both components - e.g. both the host and DPU need to reference the same DPU serial number.
 2. It kickstarts the ingestion process of the host once the host is in an "ingestable" state (all components are found and have up to date firmware versions).
 
-Site Explorer emits metrics with the prefix `forge_endpoint_` and `forge_site_explorer_`.
+Site Explorer emits metrics with the prefix `carbide_endpoint_exploration_` and `carbide_site_explorer_`.
 
 ### Preingestion Manager
 
-Preingestion Manager is a component which updates the firmware of hosts that are below the minimum required firmware version that is required to be ingestable. Usually firmware updates to hosts are deployed within the main machine lifecycle, as managed by the ManagedHost state machine.
+Preingestion Manager is a background module within the `carbide-api` binary. Its implementation lives in the separate `crates/preingestion-manager` crate to keep the `crates/api` crate smaller, but it is still started and run as part of NICo Core.
 
-In some rare cases - e.g. with very old host or DPU BMCs - the host ingestion process can't be started yet - e.g. because the BMC does not provide the necessary information to map the host to DPUs. In this case the firmware needs to be updated before ingestion, and preingestion manager performs this task.
+Preingestion Manager updates hosts that are below the minimum firmware version required for ingestion. Usually firmware updates to hosts are deployed within the main machine lifecycle, as managed by the ManagedHost state machine.
+
+In some rare cases - e.g. with very old host or DPU BMCs - the host ingestion process can't be started yet because the BMC does not provide the necessary information to map the host to DPUs. In this case the firmware needs to be updated before ingestion, and Preingestion Manager performs this task. It also drives pre-ingestion reset flows and DPU BFB recovery/copy flows that must complete before normal ingestion can proceed.
 
 ### Machine Update Manager
 
@@ -170,9 +174,11 @@ InfiniBand Fabric Monitor is an optional component. It only needs to be enabled 
 
 IB Fabric Monitor emits metrics with prefix `forge_ib_monitor_`.
 
-### NVLink Monitor
+### NVLink Manager
 
-In development. The NVLink monitor will have similar responsibilities as IBFabricMonitor, but is used for monitoring and configuring NVLink. It will therefore interact with NMX APIs.
+NVLink Manager is a background module within the `carbide-api` binary. Its implementation lives in the separate `crates/nvlink-manager` crate to keep the `crates/api` crate smaller, but it is still started and run as part of NICo Core.
+
+Its `NvlPartitionMonitor` reconciles NVLink logical partition desired state with the state reported by NMX-M. In each run, it loads MNNVL-capable machines and NVLink partition records from the database, queries NMX-M for GPU and partition state, records `MachineNvLinkStatusObservation` data, and creates, updates, or removes NMX-M partitions as needed.
 
 ## Dependency services
 

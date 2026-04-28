@@ -1,29 +1,26 @@
 # Codebase overview
 
-bluefield/ - `dpu-agent` and other tools running on the DPU
+The repository is organized as a Rust workspace plus deployment, documentation, and development support directories.
 
-book/ - architecture of the NICo book.  aka "the book"
+`bluefield/` - `dpu-agent` and other tools running on the DPU.
 
-- admin/ - `carbide-admin-cli`: A command line client for the carbide API server
-- api/ - NICo primary entrypoint for GRPC API calls. This component receives all the GRPC calls
-- scout/ - `forge-scout`. A binary that runs on NCX Infra Controller (NICo) managed hosts and DPUs and executes various parts workflows on behalf of the site controller
+`crates/` - source code for the Rust crates that make up NICo. Important crates include:
 
-dev/ - a catch all directory for things that are not code related but are used to support the project.  e.g. Dockerfiles, kubernetes yaml, etc.
+- `admin-cli/` - `carbide-admin-cli`, a command line client for the carbide API server.
+- `api/` - the `carbide-api` binary and NICo primary entrypoint for gRPC/API calls. It wires together and starts the core background modules and state controllers.
+- `site-explorer/` - Site Explorer implementation. This code is compiled into and run by the `carbide-api` binary.
+- `preingestion-manager/` - Preingestion Manager implementation. This code is compiled into and run by the `carbide-api` binary.
+- `nvlink-manager/` - NVLink Manager / `NvlPartitionMonitor` implementation. This code is compiled into and run by the `carbide-api` binary.
+- `scout/` - `forge-scout`, a binary that runs on NICo managed hosts and DPUs and executes workflows on behalf of the site controller.
+- `dhcp/` - Kea DHCP integration. It intercepts `DHCPDISCOVER`s from DHCP relays and forwards the information to `carbide-api`.
+- `dhcp-server/` - DHCP server written in Rust. This server runs on the DPU and serves host DHCP requests.
+- `dns/` - DNS resolution for assets in the NICo database.
+- `log-parser/` - service which parses SSH console logs and generates health alerts based on them.
+- `pxe/` - `forge-pxe`, a web service which provides iPXE and cloud-init data to machines.
+- `rpc/` - protobuf definitions and a Rust library for marshalling data between gRPC and native Rust types.
 
-dhcp/ - kea dhcp plugin.  NICo uses ISC Kea for a dhcp event loop.  This code intercepts `DHCPDISCOVER`s from dhcp-relays and passes the info to carbide-api
+`dev/` - support files that are not product code, such as Dockerfiles, Kubernetes YAML, and local development helpers.
 
-dhcp-server/ - DHCP Server written in Rust. This server runs on the DPU and serves Host DHCP requests
+`docs/` - product documentation used by the documentation site.
 
-dns/ - provides DNS resolution for assets in the NICo database
-
-include/ - contains additional makefiles that are used by `cargo make` - as specified in `Makefile.toml`.
-
-log-parser/ - Service which parses SSH console logs and generates health alerts based on them
-
-pxe/ - forge-pxe is a web service which provides iPXE and cloud-init data to
-machines
-
-rpc/ - protobuf definitions and a rust library which handles marshalling
-data from/to GRPC to native rust types
-
-crates/ - contains the source code for the various crates that make up the NICo project
+`include/` - additional makefiles used by `cargo make`, as specified in `Makefile.toml`.

@@ -80,8 +80,8 @@ With an authenticated session, Site Explorer queries a comprehensive set of Redf
 Serial numbers are trimmed of whitespace. If `system.serial_number` is missing, the chassis serial number is used as a fallback.
 
 **Key files:**
-- `crates/api/src/site_explorer/redfish.rs` — `RedfishClient`: `probe_redfish_endpoint()`, `create_redfish_client()`, inventory queries
-- `crates/api/src/site_explorer/bmc_endpoint_explorer.rs` — `BmcEndpointExplorer` orchestrates credential lookup and exploration
+- `crates/site-explorer/src/redfish.rs` — `RedfishClient`: `probe_redfish_endpoint()`, `create_redfish_client()`, inventory queries
+- `crates/site-explorer/src/bmc_endpoint_explorer.rs` — `BmcEndpointExplorer` orchestrates credential lookup and exploration
 - `crates/api-model/src/bmc_info.rs` — `BmcInfo` model (IP, port, MAC, firmware version)
 
 ## 3. DPU-Host Pairing
@@ -116,7 +116,7 @@ Before accepting a pairing, NICo validates:
 Once all DPUs are matched and validated, the host enters an "ingestable" state and Site Explorer kickstarts the ingestion process via the ManagedHost state machine.
 
 **Key file:**
-- `crates/api/src/site_explorer/mod.rs` — `identify_managed_hosts()` with the complete pairing algorithm
+- `crates/site-explorer/src/lib.rs`: `identify_managed_hosts()` with the complete pairing algorithm
 
 ## 4. DPU Provisioning
 
@@ -194,8 +194,8 @@ Body: {"ResetType": "GracefulRestart"}
 Power cycles are rate-limited to avoid excessive reboots (checked via `time_since_redfish_powercycle` against `config.reset_rate_limit`).
 
 **Key files:**
-- `crates/api/src/site_explorer/redfish.rs` — `set_boot_order_dpu_first()`, `redfish_powercycle()`
-- `crates/api/src/site_explorer/bmc_endpoint_explorer.rs` — Orchestrates boot order with credential lookup
+- `crates/site-explorer/src/redfish.rs` — `set_boot_order_dpu_first()`, `redfish_powercycle()`
+- `crates/site-explorer/src/bmc_endpoint_explorer.rs` — Orchestrates boot order with credential lookup
 
 ## 6. Ongoing Monitoring
 
@@ -259,12 +259,12 @@ All sensor data is exported as Prometheus metrics on the `/metrics` endpoint (po
 
 ## Redfish Libraries
 
-NICo uses two Redfish client libraries concurrently. **nv-redfish** is replacing **libredfish** over time.
+NICo uses two Redfish client libraries concurrently. **nv-redfish** is replacing **libredfish** over time. Versions are pinned in the workspace dependencies in `Cargo.toml`.
 
 | Library | Version | Language | Used For | Location in Code |
 |---|---|---|---|---|
-| [libredfish](https://github.com/NVIDIA/libredfish) | 0.39.3 | Rust | Site Explorer: discovery, boot config, power control, BIOS, account management | `crates/api/src/site_explorer/` |
-| [nv-redfish](https://github.com/NVIDIA/nv-redfish) | 0.1.4 | Rust | Health monitoring: firmware inventory collection | `crates/health/src/` |
+| [libredfish](https://github.com/NVIDIA/libredfish) | v0.43.11 | Rust | Site Explorer: discovery, boot config, power control, BIOS, account management | `crates/site-explorer/`, via `crates/redfish/` |
+| [nv-redfish](https://github.com/NVIDIA/nv-redfish) | 0.7.1 | Rust | Site Explorer exploration and hardware health inventory collection | `crates/site-explorer/`, `crates/redfish/`, `crates/health/src/` |
 
 **libredfish** provides a `Redfish` trait with vendor-specific implementations (Dell, HPE, Lenovo, Supermicro, NVIDIA DPU/GB200/GH200/Viking). It handles the full breadth of BMC operations.
 
