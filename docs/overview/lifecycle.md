@@ -1,10 +1,10 @@
 # Day 0 / Day 1 / Day 2 Lifecycle
 
-NICo organizes bare-metal lifecycle management into three operational phases. Understanding this model is the foundation for planning a NICo deployment and knowing which NICo capabilities apply at each stage.
+NICo organizes bare-metal lifecycle management into three phases: Day 0 (bringup), Day 1 (configuration), and Day 2 (operations).
 
 ## Day 0 — Discovery, Validation, and Ingestion
 
-Day 0 covers everything from hardware arriving in the rack to a host being declared ready for tenant use. The goal is a fully automated, zero-touch path from cable-connected to provisioning-ready.
+Day 0 covers everything from hardware arriving in the rack to a host being declared ready for tenant use. The design goal is zero-touch: once a host is racked and cabled, NICo handles discovery through provisioning-ready.
 
 **Hardware discovery**
 NICo discovers hardware via Redfish over the OOB (out-of-band) network. The site controller's crawler probes BMC endpoints, collects full hardware inventory (CPU, GPU, NIC, DPU, storage), and links each DPU to its host server via LLDP and serial number matching. No manual inventory entry is required.

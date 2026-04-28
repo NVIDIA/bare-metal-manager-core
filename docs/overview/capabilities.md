@@ -2,7 +2,7 @@
 
 ## Hardware Readiness and Validation
 
-NICo automates the full hardware onboarding pipeline before any host is made available to tenants:
+NICo automates hardware onboarding before any host is made available to tenants:
 
 - **Auto-discovery via Redfish** — BMCs are discovered over the OOB network; DPUs and hosts are linked automatically via LLDP and serial number matching.
 - **SKU validation** — confirms that each machine has the expected hardware components and flags incomplete or misconfigured hosts.
@@ -11,7 +11,7 @@ NICo automates the full hardware onboarding pipeline before any host is made ava
 
 ## DPU Lifecycle Management
 
-NICo fully manages the BlueField DPU throughout its lifecycle:
+NICo manages the BlueField DPU throughout its lifecycle:
 
 - Installs the DPU OS and provisions HBN (Host-Based Networking with Containerized Cumulus, configured via NVUE)
 - Manages all DPU firmware components: BMC, NIC, UEFI, ATF
@@ -57,7 +57,7 @@ NICo maintains a consistent hardware baseline across the fleet on an ongoing bas
 - **JWT authentication** — integrates with Keycloak and compatible IAM solutions
 - **Any OS** — any operating system installable via iPXE is supported; NICo imposes no OS requirements
 - **BYO monitoring** — Prometheus metrics export; integrates with Grafana, Loki, and OpenTelemetry-compatible stacks
-- **Kubernetes-native** — deploys on any NVIDIA partner-certified, security-hardened Kubernetes environment
+- **Kubernetes-native** — deploys on any conformant Kubernetes v1.30+ environment
 - **Broad hardware support** — NVIDIA L40/L40S PCIe, HGX/DGX A100/H100/B200, GB200 NVL72, CPU-only x86 and Grace systems
 
 ## GB200 NVL72 and Rack-Scale Capabilities

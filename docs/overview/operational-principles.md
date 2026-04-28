@@ -1,6 +1,6 @@
 # Operational Principles
 
-NICo is designed around five foundational principles. These principles inform every architectural decision — from how hardware is monitored to how tenant isolation is enforced.
+NICo is designed around five foundational principles that shape its architecture and operational model.
 
 ## The machine is untrustworthy
 
@@ -12,7 +12,7 @@ NICo does not require any agents, daemons, or specific configurations inside the
 
 ## After being racked, machines must become ready for use with no human intervention
 
-Discovery, validation, firmware alignment, DPU provisioning, and attestation are fully automated. A newly racked and cabled host should proceed from first power-on to provisioning-ready without requiring a single manual step. Human intervention during bringup is a signal that automation coverage needs to be extended.
+Once racked, cabled, and powered on, NICo automates the full path from discovery to provisioning-ready — validation, firmware alignment, DPU provisioning, and attestation — without manual steps.
 
 ## All monitoring of the machine must be done using out-of-band methods
 
