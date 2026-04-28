@@ -28,9 +28,32 @@ NICo's core responsibilities:
 - Automate discovery, validation, and attestation via Redfish (out-of-band)
 - Monitor hardware health continuously and react to health state changes
 - Manage host firmware (UEFI, BMC) and enforce security lockdown
+- Manage BMC and UEFI credentials per device via Redfish
 - Allocate IP addresses, configure BGP routing, and manage DNS
 - Enforce network isolation across Ethernet, InfiniBand, and NVLink planes
 - Orchestrate host provisioning (PXE/iPXE), tenant release, and sanitization
+
+## Components and Services
+
+NICo is deployed as a set of core services running on the site controller Kubernetes cluster:
+
+- **NICo Core (gRPC API)** — the central control plane. All components and external systems query and drive state through it. Exposes a gRPC API for internal component communication and a REST API for operator and ISV integration.
+- **DHCP** — provides IP addresses to all underlay devices: Host BMCs, DPU BMCs, DPU OOB interfaces, and host overlay addresses.
+- **PXE** — delivers OS images to managed hosts at boot time via iPXE. Hosts boot from PXE by default; a local bootable device is used if present. Stateless configurations can pin hosts to a specific image.
+- **Hardware Health** — pulls health and configuration telemetry from each DPU agent and reports state back to NICo Core.
+- **SSH Console** — provides virtual serial console access and logging over SSH. Console output from each host is streamed to the logging system, queryable via Grafana and `logcli`.
+- **DNS** — provides domain name resolution using two services: `nico-dns` handles queries from the site controller and managed nodes; `unbound` provides recursive DNS to managed machines and instances.
+
+Together these services are referred to as the **Site Controller**.
+
+### Supporting Services
+
+- **Site Agent** — maintains a northbound Temporal connection to NICo REST to sync data and delegate gRPC requests to NICo Core. Enables NICo REST to be deployed centrally in cloud while NICo Core runs on-site.
+- **Admin CLI** — provides an admin-level command-line interface into NICo Core via the gRPC API.
+
+### NICo REST
+
+NICo REST is a collection of microservices that expose NICo's capabilities as a REST API — the primary interface for operators and ISVs. It can be deployed co-located with the site controller or centrally in cloud, with one or more Site Agents connecting from the datacenter. Multiple site controllers in different datacenters can connect to a single NICo REST deployment through their respective Site Agents.
 
 ## Architecture overview
 
