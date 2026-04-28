@@ -1113,8 +1113,8 @@ details > *:not(summary) {
   color: var(--text-muted);
 }
 
-/* Health override actions - JSON details and remove button layout */
-.health-override-actions {
+/* Health report actions - JSON details and remove button layout */
+.health-report-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1123,18 +1123,18 @@ details > *:not(summary) {
   min-height: 1.5rem;
 }
 
-.health-override-actions details {
+.health-report-actions details {
   flex: 1;
   min-width: 120px;
   align-self: center;
 }
 
-.health-override-actions summary {
+.health-report-actions summary {
   margin: 0;
   line-height: 1.5rem;
 }
 
-.health-override-actions button {
+.health-report-actions button {
   flex-shrink: 0;
 }
 

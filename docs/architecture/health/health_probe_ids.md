@@ -49,7 +49,7 @@ Indicates that the serial number on a host does not match the serial number in t
 
 ### `OrphanManagedHost`
 
-Indicates that an already-ingested Managed Host's BMC MAC is no longer listed in the `expected_machines` table. Carbide continues to maintain the host, but the host will **not** be re-ingested if it is force-deleted. Clear the alert by either re-adding the entry to `expected_machines` or force-deleting the Managed Host. The alert is informational and does not block tenant allocations.
+Indicates that an already-ingested Managed Host's BMC MAC is no longer listed in the `expected_machines` table. NICo continues to maintain the host, but the host will **not** be re-ingested if it is force-deleted. Clear the alert by either re-adding the entry to `expected_machines` or force-deleting the Managed Host. The alert is informational and does not block tenant allocations.
 
 ## Hardware/BMC health probe identifiers
 
@@ -84,7 +84,7 @@ Indicates that a BGP session with a top-of-rack (TOR) switch could not be establ
 
 ### `BgpPeeringRouteServer`
 
-Indicates that a BGP session with the route server that is part of the part of the Carbide control plane could not be established by a host/DPU.
+Indicates that a BGP session with the route server that is part of the NICo control plane could not be established by a host/DPU.
 
 ### `BgpStats`
 
@@ -104,7 +104,7 @@ Indicates issues regarding the start of the DHCP server on the DPU
 
 ### `HeartbeatTimeout`
 
-Indicates that there was no communication between `dpu-agent` and `carbide-core` for a certain amount of time.
+Indicates that there was no communication between `dpu-agent` and NICo core for a certain amount of time.
 This condition usually implies that the DPU won't be able to apply any configuration changes.
 
 ### `StaleAgentVersion`

@@ -28,7 +28,7 @@ use tonic::Request;
 
 use crate::tests::common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_managed_host, create_test_env_with_overrides, get_config,
-    network_configured_with_health, remove_health_report_override, send_health_report_override,
+    network_configured_with_health, remove_health_report_entry, send_health_report_entry,
     simulate_hardware_health_report,
 };
 
@@ -304,7 +304,7 @@ async fn test_machine_health_aggregation(
         vec![],
         vec![("Fan", Some("TestFan"), "Reason")],
     );
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (r#override, HealthReportApplyMode::Merge),
@@ -361,7 +361,7 @@ async fn test_machine_health_aggregation(
 
     // Replace the machine's health report entirely with a blank report.
     let r#override = hr("replace-host-report", vec![], vec![]);
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (r#override.clone(), HealthReportApplyMode::Replace),
@@ -415,7 +415,7 @@ async fn test_machine_health_aggregation(
     check_reports_equal("aggregate-host-health", aggregate_health, r#override);
 
     // Remove the blank report override
-    remove_health_report_override(&env, &host_machine_id, "replace-host-report".to_string()).await;
+    remove_health_report_entry(&env, &host_machine_id, "replace-host-report".to_string()).await;
     let aggregate_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
         .await
         .unwrap();
@@ -444,7 +444,7 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     );
     health1.observed_at = Some(chrono::Utc::now());
     health1.alerts[0].in_alert_since = Some(chrono::Utc::now());
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (health1.clone(), HealthReportApplyMode::Replace),
@@ -460,7 +460,7 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     let mut health1_newdate = health1.clone();
     health1_newdate.observed_at = Some(chrono::Utc::now() + chrono::Duration::minutes(5));
     health1.alerts[0].in_alert_since = Some(chrono::Utc::now() + chrono::Duration::minutes(3));
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (health1_newdate.clone(), HealthReportApplyMode::Replace),
@@ -478,7 +478,7 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
             ("Fan", Some("TestFan2"), "Other Reason"),
         ],
     );
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (health2.clone(), HealthReportApplyMode::Replace),
@@ -491,7 +491,7 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     env.run_machine_state_controller_iteration().await;
 
     let health3 = hr("test-report-3", vec![], vec![]);
-    remove_health_report_override(&env, &host_machine_id, "test-report-1".to_string()).await;
+    remove_health_report_entry(&env, &host_machine_id, "test-report-1".to_string()).await;
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
 
@@ -526,7 +526,7 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
             vec![],
             vec![(&format!("Fan {i}"), None, "Reason")],
         );
-        send_health_report_override(
+        send_health_report_entry(
             &env,
             &host_machine_id,
             (health.clone(), HealthReportApplyMode::Replace),
@@ -680,7 +680,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
         vec![],
         vec![("Fan", Some("TestFan"), "Reason")],
     );
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (r#override, HealthReportApplyMode::Merge),
@@ -694,7 +694,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
             ("Fan", Some("TestFan2"), "Other Reason"),
         ],
     );
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (health2.clone(), HealthReportApplyMode::Replace),
@@ -929,7 +929,7 @@ async fn insert_health_and_process(
     machine_id: &::carbide_uuid::machine::MachineId,
     health: health_report::HealthReport,
 ) {
-    send_health_report_override(env, machine_id, (health, HealthReportApplyMode::Replace)).await;
+    send_health_report_entry(env, machine_id, (health, HealthReportApplyMode::Replace)).await;
     env.run_machine_state_controller_iteration().await;
 }
 
@@ -960,7 +960,7 @@ async fn test_tenant_reported_issue_health_override_template(
     };
 
     // Apply the override
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (tenant_issue_override.clone(), HealthReportApplyMode::Merge),
@@ -1038,7 +1038,7 @@ async fn test_request_repair_health_override_template(
     };
 
     // Apply the override
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (
@@ -1133,14 +1133,14 @@ async fn test_tenant_reported_issue_and_request_repair_combined(
     };
 
     // Apply both overrides
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (tenant_issue_override, HealthReportApplyMode::Merge),
     )
     .await;
 
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (repair_request_override, HealthReportApplyMode::Merge),

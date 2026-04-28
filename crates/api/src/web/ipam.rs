@@ -564,7 +564,12 @@ pub async fn overlay_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
                     .as_ref()
                     .map(|m| m.name.clone())
                     .unwrap_or_default(),
-                vni: vpc.vni.map(|v| v.to_string()).unwrap_or_default(),
+                vni: vpc
+                    .status
+                    .as_ref()
+                    .and_then(|status| status.vni)
+                    .map(|vni| vni.to_string())
+                    .unwrap_or_default(),
                 tenant: vpc.tenant_organization_id,
                 prefixes,
             }
@@ -686,7 +691,11 @@ pub async fn overlay_prefix_html(
                         .as_ref()
                         .map(|m| m.name.clone())
                         .unwrap_or_default(),
-                    vpc.vni.map(|v| v.to_string()).unwrap_or_default(),
+                    vpc.status
+                        .as_ref()
+                        .and_then(|status| status.vni)
+                        .map(|vni| vni.to_string())
+                        .unwrap_or_default(),
                 )
             }
             _ => (String::new(), String::new()),

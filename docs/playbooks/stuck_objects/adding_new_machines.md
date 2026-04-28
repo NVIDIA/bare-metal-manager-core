@@ -1,6 +1,6 @@
 # Adding New Machines to an Existing Site
 
-This guide is intended to cover some of the basic things you should check to get a machine into a basic state where it can be discovered by Forge auto-ingestion.
+This guide is intended to cover some of the basic things you should check to get a machine into a basic state where it can be discovered by NICo auto-ingestion.
 
 Some of the configuration items that should be considered which could potentially cause issues:
 
@@ -221,14 +221,14 @@ To check the current Bluefield firmware versions installed on a DPU:
 
 ### Updating the Bluefield Firmware Versions
 
-***Note:*** If discovery is failing due to the firmware revision being too low, confirm with Forge Dev team what version you should update to before proceeding
+***Note:*** If discovery is failing due to the firmware revision being too low, confirm with the NICo dev team what version you should update to before proceeding
 
 DPU Firmware versions can be downloaded from the following locations:
 
 - BF2: [BF2 BMC Firmware release](https://confluence.nvidia.com/display/SW/BF2+BMC+Firmware+release)
 - BF3: [BF3 BMC Firmware release](https://confluence.nvidia.com/display/SW/BF3+BMC+Firmware+release)
 
-For the examples below, we are installing FW version 24.01-5, but confirm this with Forge Development team for your specific install before proceeding
+For the examples below, we are installing FW version 24.01-5, but confirm this with the development team for your specific install before proceeding
 
 1. Download the relevant packages for your DPU type:
 
@@ -318,7 +318,7 @@ For the examples below, we are installing FW version 24.01-5, but confirm this w
 
 ## DPU ARM OS: Checking Secure Boot Status
 
-To successfully boot from the Forge BFB image, the DPU ARM OS needs to have Secure Boot disabled and configured for HTTP PXE boot.
+To successfully boot from the NICo BFB image, the DPU ARM OS needs to have Secure Boot disabled and configured for HTTP PXE boot.
 
 ### Check current secure boot settings
 

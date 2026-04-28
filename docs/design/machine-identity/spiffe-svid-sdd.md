@@ -24,15 +24,15 @@ The purpose of this document is to articulate the design of the software system,
 
 | Term/Acronym | Definition |
 | :---- | :---- |
-| Carbide | NVIDIA bare-metal life-cycle management system (project name: Bare metal manager) |
+| NICo | NVIDIA bare-metal life-cycle management system (project name: Bare metal manager) |
 | SDD | Software Design Document |
 | API | Application Programming Interface |
-| Tenant | A Carbide client/org/account that provisions/manages BM nodes through Carbide APIs. |
+| Tenant | A NICo client/org/account that provisions/manages BM nodes through NICo APIs. |
 | DPU | Data Processing Unit \- aka SmartNIC |
-| Carbide API server | A gRPC server deployed as part of Carbide site controller |
+| NICo API server | A gRPC server deployed as part of the NICo site controller |
 | Vault | Secrets management system (OSS version: openbao) |
-| Carbide REST server | An HTTP REST-based API server that manages/proxies multiple site controllers |
-| Carbide site controller | Carbide control plane services running on a local K8S cluster |
+| NICo REST server | An HTTP REST-based API server that manages/proxies multiple site controllers |
+| NICo site controller | NICo control plane services running on a local K8S cluster |
 | JWT | JSON Web Token |
 | SPIFFE | [SPIFFE](https://spiffe.io/) is an industry standard that provides strongly attested, cryptographic identities to workloads across a wide variety of platforms. |
 | SPIRE | A specific open source software implementation of SPIFFE standard |
@@ -45,11 +45,11 @@ The purpose of this document is to articulate the design of the software system,
 
 ## **1.3 Scope**
 
-This SDD covers the design for Carbide issuing SPIFFE compliant JWTs to nodes it manages. This includes the initial configuration, run-time and operational flows.
+This SDD covers the design for NICo issuing SPIFFE compliant JWTs to nodes it manages. This includes the initial configuration, run-time and operational flows.
 
 ### **1.3.1​ Assumptions, Constraints, Dependencies**
 
-* Must implement SPIFFE SVIDs as Carbide node identity
+* Must implement SPIFFE SVIDs as NICo node identity
 * Must rotate and expire SVIDs  
 * Must provide configurable audience in SVIDs  
 * Must enable delegating node identity signing  
@@ -60,19 +60,19 @@ This SDD covers the design for Carbide issuing SPIFFE compliant JWTs to nodes it
 
 ## **2.1 High-Level Architecture**
 
-From a high level, the goal for Carbide is to issue a JWT-SVID identity to the requesting nodes under Carbide’s management. A Carbide managed node will be part of a tenant (aka org), and the issued JWT-SVID embodies both tenant and machine identity that complies with the SPIFFE format.
+From a high level, the goal for NICo is to issue a JWT-SVID identity to the requesting nodes under NICo’s management. A NICo managed node will be part of a tenant (aka org), and the issued JWT-SVID embodies both tenant and machine identity that complies with the SPIFFE format.
 
 ![](carbide-spiffe-jwt-svid-flow.svg)
 
 *Figure-1 High-level architecture and flow diagram*
 
-1. The bare metal (BM) tenant process makes HTTP requests to the Carbide meta-data service (IMDS) over a link-local address(169.254.169.254). IMDS is running inside the DPU as part of the Carbide DPU agent.   
-2. IMDS in turn makes an mTLS authenticated request to the Carbide site controller gRPC server to sign a SPIFFE compliant node identity token (JWT-SVID).  
+1. The bare metal (BM) tenant process makes HTTP requests to the NICo meta-data service (IMDS) over a link-local address(169.254.169.254). IMDS is running inside the DPU as part of the NICo DPU agent.   
+2. IMDS in turn makes an mTLS authenticated request to the NICo site controller gRPC server to sign a SPIFFE compliant node identity token (JWT-SVID).  
    a. Pull keys and machine and org metadata from the database, decrypt private key and sign JWT-SVID. The token is returned to Host’s tenant process (implicit, not shown in the diagram).
 3. The tenant process subsequently makes a request to a service (say OpenBao/Vault) with the JWT-SVID token passed in the authentication header.  
-   a. The server-x using the prefetched public keys from Carbide will validate JWT-SVID
+   a. The server-x using the prefetched public keys from NICo will validate JWT-SVID
 
-An additional requirement for Carbide is to delegate the issuance of a JWT-SVID to an external system. The solution is to offer a callback API for Carbide tenants to intercept the signing request, validate the Carbide node identity, and issue new tenant specific JWT-SVID token (Figure-2). The delegation model offers tenants flexibility to customize their machine SVIDs.
+An additional requirement for NICo is to delegate the issuance of a JWT-SVID to an external system. The solution is to offer a callback API for NICo tenants to intercept the signing request, validate the NICo node identity, and issue new tenant specific JWT-SVID token (Figure-2). The delegation model offers tenants flexibility to customize their machine SVIDs.
 
 ![](carbide-spiffe-svid-token-exchange-flow.svg)
 
@@ -84,11 +84,11 @@ The system is composed of the following major components:
 
 | Component | Description |
 | :---- | :---- |
-| Meta-data service (IMDS) | A service part of Carbide DPU agent running inside DPU, listening on port 80 (def) |
-| Carbide API (gRPC) server | Site controller Carbide control plane API server  |
-| Carbide REST | Carbide REST API server, an aggregator service that controls multiple site controllers |
-| Database (Postgres) | Store Carbide node-lifecycle and accounting data  |
-| Token Exchange Server | Optional \- hosted by tenants to exchange Carbide node JWT-SVIDs with tenant-customized workload JWT-SVIDs. Follows token exchange API model defined in [RFC-8693](https://datatracker.ietf.org/doc/html/rfc8693) |
+| Meta-data service (IMDS) | A service part of the NICo DPU agent running inside DPU, listening on port 80 (def) |
+| NICo API (gRPC) server | Site controller NICo control plane API server  |
+| NICo REST | NICo REST API server, an aggregator service that controls multiple site controllers |
+| Database (Postgres) | Store NICo node-lifecycle and accounting data  |
+| Token Exchange Server | Optional \- hosted by tenants to exchange NICo node JWT-SVIDs with tenant-customized workload JWT-SVIDs. Follows token exchange API model defined in [RFC-8693](https://datatracker.ietf.org/doc/html/rfc8693) |
 
 # **3\. Detailed Design**
 
@@ -96,7 +96,7 @@ There are three different flows associated with implementing this feature:
 
 1. *Per-tenant signing key provisioning*: Describes how a new signing key associated with a tenant is provisioned, and optionally the token delegation/exchange flows.  
 2. *SPIFFE key bundle discovery*: Discusses how the signing public keys are distributed to interested parties (verifiers)  
-3. *JWT-SVID node identity request flow*: The run time flow used by tenant applications to fetch JWT-SVIDs from Carbide.
+3. *JWT-SVID node identity request flow*: The run time flow used by tenant applications to fetch JWT-SVIDs from NICo.
 
 Each of these flows are discussed below.
 
@@ -139,11 +139,11 @@ SetTenantIdentityConfiguration (PUT identity/config)
 
 ## **3.2 Per-tenant SPIFFE Key Bundle Discovery**
 
-[SPIFFE bundles](https://spiffe.io/docs/latest/spiffe-specs/spiffe_trust_domain_and_bundle/#4-spiffe-bundle-format) are represented as an [RFC 7517](https://tools.ietf.org/html/rfc7517) compliant JWK Set. Carbide exposes the signing public keys through Carbide-rest OIDC discovery and JWKS endpoints. Services that require JWT-SVID verification pull public keys to verify token signature. Review sequence diagrams Figure-4 and 5 for more details.
+[SPIFFE bundles](https://spiffe.io/docs/latest/spiffe-specs/spiffe_trust_domain_and_bundle/#4-spiffe-bundle-format) are represented as an [RFC 7517](https://tools.ietf.org/html/rfc7517) compliant JWK Set. NICo exposes the signing public keys through Carbide-rest OIDC discovery and JWKS endpoints. Services that require JWT-SVID verification pull public keys to verify token signature. Review sequence diagrams Figure-4 and 5 for more details.
 
 ```
 ┌────────┐       ┌───────────────┐       ┌─────────────┐       ┌──────────┐      
-│ Client │       │ Carbide-rest  │       │ Carbide API │       │ Database │      
+│ Client │       │ Carbide-rest  │       │  NICo API   │       │ Database │      
 │(e.g LL)│       │   (REST)      │       │   (gRPC)    │       │(Postgres)│      
 └───┬────┘       └──────┬────────┘       └──────┬──────┘       └────┬─────┘      
     │                   │                       │                   │                    
@@ -186,7 +186,7 @@ SetTenantIdentityConfiguration (PUT identity/config)
 
 ```
 ┌────────┐       ┌───────────────┐       ┌─────────────┐       ┌──────────┐       
-│ Client │       │ Carbide-rest  │       │ Carbide API │       │ Database │       
+│ Client │       │ Carbide-rest  │       │  NICo API   │       │ Database │       
 │        │       │   (REST)      │       │   (gRPC)    │       │(Postgres)│       
 └───┬────┘       └──────┬────────┘       └──────┬──────┘       └────┬─────┘       
     │                   │                       │                   │                    
@@ -245,11 +245,11 @@ This is the core part of this SDD – issuing JWT-SVID based node identity token
       │
       │ GET http://169.254.169.254:80/v1/meta-data/identity?aud=openbao
       ▼
-[ DPU Carbide IMDS ]
+[ DPU NICo IMDS ]
       │
       │ SignMachineIdentity(..)
       ▼
-[ Carbide API Server ]
+[ NICo API Server ]
       │
       │ Validates the request (and attest)
       ▼
@@ -262,20 +262,20 @@ JWT-SVID issued to workload/tenant
       │
       │ GET http://169.254.169.254:80/v1/meta-data/identity?aud=openbao
       ▼
-[ DPU Carbide IMDS ]
+[ DPU NICo IMDS ]
       │
       │ SignMachineIdentity(..)
       ▼
-[ Carbide API Server ]
+[ NICo API Server ]
       │
       │ Attest requesting machine and issue a scoped machine JWT-SVID
       ▼
 [ Tenant Token Exchange Server Callback API ]
       │
-      │ - Validates Carbide JWT-SVID signature using SPIFFE bundle
+      │ - Validates NICo JWT-SVID signature using SPIFFE bundle
       │ - Verifies iss, audience, TTL and additional lookups/checks
       ▼
-Carbide Tenant issue JWT-SVID to tenant workload, routed back through Carbide
+NICo Tenant issue JWT-SVID to tenant workload, routed back through NICo
 ```
 *Figure-7 Node Identity request flow with token exchange delegation*
 
@@ -298,12 +298,12 @@ A new table will be created to store tenant signing key pairs and optional token
 | `VARCHAR(512)` | `token_endpoint` | Token exchange endpoint URL (optional; from PUT identity/token-delegation) |
 | `token_delegation_auth_method_t` (ENUM) | `auth_method` | none, client_secret_basic. (optional) |
 | `TEXT` | `encrypted_auth_method_config` | Encrypted blob of method-specific fields. For example: to store client_id and client_secret. (optional) |
-| `VARCHAR(255)` | `subject_token_audience` | Audience to include in Carbide JWT-SVID sent to exchange. (optional) |
+| `VARCHAR(255)` | `subject_token_audience` | Audience to include in NICo JWT-SVID sent to exchange. (optional) |
 | `TIMESTAMPTZ` | `token_delegation_created_at` | When token delegation was first configured. (optional) |
 
 ### **3.4.2 Configuration**
 
-The JWT spec and vault related configs are passed to the Carbide API server during startup through `site_config.toml` config file. 
+The JWT spec and vault related configs are passed to the NICo API server during startup through `site_config.toml` config file. 
 
 ```bash
 # In site config file (e.g., site_config.toml)
@@ -361,11 +361,11 @@ When the `[machine_identity]` section exists but is incomplete or invalid, the f
 
 The subject format complies with the SPIFFE ID specification. The `iss` claim comes from the org's identity config `issuer`. The SPIFFE prefix for `sub` comes from the stored `subjectPrefix` (explicit or defaulted from `issuer` as above), combined with the workload path when issuing tokens.
 
-**Carbide JWT-SPIFFE (passed to Tenant Layer):**
+**NICo JWT-SPIFFE (passed to Tenant Layer):**
 
 ```json
 {
-  "sub": "spiffe://{carbide-domain}/{org-id}/machine-121",
+  "sub": "spiffe://{nico-domain}/{org-id}/machine-121",
   "iss": "https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}",
   "aud": [
     "tenant-layer-exchange-token-service"
@@ -381,10 +381,10 @@ The subject format complies with the SPIFFE ID specification. The `iss` claim co
 }
 ```
 
-The Carbide issues two types of JWT-SVIDs. Though they both are similar in structure and signed by the same key, the purpose and some fields are different.
+NICo issues two types of JWT-SVIDs. Though they both are similar in structure and signed by the same key, the purpose and some fields are different.
 
-1. If token delegation is registered, Carbide issues a JWT-SVID **subject token** with `aud` set to `subject_token_audience`, with **`exp`, `iat`, and `nbf` derived from the org identity config `tokenTtlSec`** (the same per-org field as direct issuance; constrained by site `token_ttl_min_sec` / `token_ttl_max_sec`). Workload audiences from the caller are carried in `request_meta_data.aud` (see example above). That subject token is sent to the org’s registered `token_endpoint` in an RFC 8693 token exchange. **The JSON token response eventually returned to the workload (`access_token`, `expires_in`, etc.) is whatever the tenant token endpoint returns**—`expires_in` there is not required to match `tokenTtlSec`.
-2. If no delegation is registered, Carbide issues a JWT-SVID directly to the workload (IMDS / `SignMachineIdentity`). Here `aud` is set from the caller’s requested audiences (validated against `allowedAudiences` / `defaultAudience`), and **token lifetime is `tokenTtlSec`** (`exp` / `iat` / `nbf`).
+1. If token delegation is registered, NICo issues a JWT-SVID **subject token** with `aud` set to `subject_token_audience`, with **`exp`, `iat`, and `nbf` derived from the org identity config `tokenTtlSec`** (the same per-org field as direct issuance; constrained by site `token_ttl_min_sec` / `token_ttl_max_sec`). Workload audiences from the caller are carried in `request_meta_data.aud` (see example above). That subject token is sent to the org’s registered `token_endpoint` in an RFC 8693 token exchange. **The JSON token response eventually returned to the workload (`access_token`, `expires_in`, etc.) is whatever the tenant token endpoint returns**—`expires_in` there is not required to match `tokenTtlSec`.
+2. If no delegation is registered, NICo issues a JWT-SVID directly to the workload (IMDS / `SignMachineIdentity`). Here `aud` is set from the caller’s requested audiences (validated against `allowedAudiences` / `defaultAudience`), and **token lifetime is `tokenTtlSec`** (`exp` / `iat` / `nbf`).
 
 **SPIFFE JWT-SVID Issued by Token Exchange Server:**
 
@@ -449,15 +449,15 @@ Content-Length: ...
 eyJhbGciOiJSUzI1NiIs...
 ```
 
-#### **3.5.1.2 Carbide Identity APIs**
+#### **3.5.1.2 NICo Identity APIs**
 
 ##### **Org Identity Configuration APIs**
 
-These APIs manage per-org identity configuration that controls how Carbide issues JWT-SVIDs for machines in that org. Admins use them to enable or disable the feature per org, and to set the issuer URI, allowed audiences, token TTL, and SPIFFE subject prefix. The configuration applies to all JWT-SVID tokens issued for the org's machines (via IMDS or token exchange). GET retrieves the current config, PUT creates or replaces it, and DELETE removes it (org no longer has machine identity).
+These APIs manage per-org identity configuration that controls how NICo issues JWT-SVIDs for machines in that org. Admins use them to enable or disable the feature per org, and to set the issuer URI, allowed audiences, token TTL, and SPIFFE subject prefix. The configuration applies to all JWT-SVID tokens issued for the org's machines (via IMDS or token exchange). GET retrieves the current config, PUT creates or replaces it, and DELETE removes it (org no longer has machine identity).
 
-**Carbide-rest config defaults:** Carbide-rest may still supply per-site defaults for `issuer`, `tokenTtlSec`, and related fields when a REST client omits them before calling the downstream gRPC `SetTenantIdentityConfiguration`. **`subjectPrefix` is optional in both REST and gRPC:** the Carbide API (site controller) derives a default SPIFFE prefix when it is unset or empty — `spiffe://<trust-domain-from-issuer>` — where the trust domain is taken from `issuer` (HTTPS URL host, `spiffe://…` URI trust domain segment, or bare DNS hostname per implementation). When the client **does** send `subjectPrefix`, it must be a `spiffe://` URI whose trust domain matches the trust domain derived from `issuer`, with path segments and encoding rules enforced by the API (see validation below). If Carbide-rest cannot satisfy required fields (e.g. `issuer`) and the client omits them, PUT may return **400 Bad Request** so the caller can supply values explicitly.
+**Carbide-rest config defaults:** Carbide-rest may still supply per-site defaults for `issuer`, `tokenTtlSec`, and related fields when a REST client omits them before calling the downstream gRPC `SetTenantIdentityConfiguration`. **`subjectPrefix` is optional in both REST and gRPC:** the NICo API (site controller) derives a default SPIFFE prefix when it is unset or empty — `spiffe://<trust-domain-from-issuer>` — where the trust domain is taken from `issuer` (HTTPS URL host, `spiffe://…` URI trust domain segment, or bare DNS hostname per implementation). When the client **does** send `subjectPrefix`, it must be a `spiffe://` URI whose trust domain matches the trust domain derived from `issuer`, with path segments and encoding rules enforced by the API (see validation below). If Carbide-rest cannot satisfy required fields (e.g. `issuer`) and the client omits them, PUT may return **400 Bad Request** so the caller can supply values explicitly.
 
-**Per-org key generation on PUT:** When PUT creates identity config for an org for the first time, Carbide generates a new per-org signing key pair using the global `algorithm`, encrypts the private key with the Vault master key, and stores it in `tenant_identity_config` DB table. On subsequent PUTs (updates), the key is not regenerated unless `rotateKey` is `true`. On DELETE, the identity config and the org's signing key are removed.
+**Per-org key generation on PUT:** When PUT creates identity config for an org for the first time, NICo generates a new per-org signing key pair using the global `algorithm`, encrypts the private key with the Vault master key, and stores it in `tenant_identity_config` DB table. On subsequent PUTs (updates), the key is not regenerated unless `rotateKey` is `true`. On DELETE, the identity config and the org's signing key are removed.
 
 **PUT when global is disabled:** If the global `enabled` setting in site config is `false`, PUT returns `503 Service Unavailable` with a message indicating that machine identity must be enabled at the site level first. This enforces the deployment order: global config must be enabled before per-org config can be created or updated.
 
@@ -488,7 +488,7 @@ PUT https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/identity/confi
 | :---- | :--- | :------- | :---------- |
 | `orgId` | string | Yes | Org identifier |
 | `enabled` | boolean | No | Enable JWT-SVID for this org. Default `true` when unset. |
-| `issuer` | string | No | Issuer URI that appears in Carbide JWT-SVID. Optional in REST/JSON; required in gRPC `SetTenantIdentityConfiguration`. |
+| `issuer` | string | No | Issuer URI that appears in NICo JWT-SVID. Optional in REST/JSON; required in gRPC `SetTenantIdentityConfiguration`. |
 | `defaultAudience` | string | Yes | Default audience. Must be in `allowedAudiences` when provided. |
 | `allowedAudiences` | string[] | No | Permitted audiences. Optional; when empty or omitted, all audiences are allowed (permissive mode). When non-empty, only audiences in the list are allowed. |
 | `tokenTtlSec` | number | No | Token TTL in seconds (300–86400). Optional in REST/JSON; required in gRPC `SetTenantIdentityConfiguration`. |
@@ -519,17 +519,17 @@ Response:
 | :------------- | :---------- |
 | `keyId` | Key identifier for the org's signing key; matches the JWKS `kid` used for JWT verification. |
 
-#### **Carbide Token Exchange Server Registration APIs**
+#### **NICo Token Exchange Server Registration APIs**
 
-These APIs let Carbide tenants register a token exchange callback endpoint (RFC 8693). When delegation is enabled, Carbide issues a short-lived JWT-SVID to the tenant's exchange service, which validates it and returns a tenant-specific JWT-SVID or access token. This gives tenants control over token structure, lifecycle, and claims, especially when they have more context than Carbide (e.g., VM identity, application role) and need to issue tenant-customized tokens for workloads.
+These APIs let NICo tenants register a token exchange callback endpoint (RFC 8693). When delegation is enabled, NICo issues a short-lived JWT-SVID to the tenant's exchange service, which validates it and returns a tenant-specific JWT-SVID or access token. This gives tenants control over token structure, lifecycle, and claims, especially when they have more context than NICo (e.g., VM identity, application role) and need to issue tenant-customized tokens for workloads.
 
 **Interaction with global and per-org settings:**
 
 | Setting | Scope | Effect on token delegation |
 | :------ | :---- | :------------------------- |
 | `enabled` | Global | Master switch. If false, PUT token-delegation is rejected (same as identity/config). |
-| `token_endpoint_http_proxy` | Global | Outbound calls from Carbide to the tenant's token endpoint use this proxy (SSRF mitigation). |
-| Identity config (issuer, audiences, **`tokenTtlSec`**) | Per-org (with global defaults) | The subject JWT sent to the exchange server is signed using the org's effective identity config. Its **`exp` − `iat` equals `tokenTtlSec`** (same knob as directly issued tokens). The **outbound** token response `expires_in` comes from the tenant STS, not from Carbide. |
+| `token_endpoint_http_proxy` | Global | Outbound calls from NICo to the tenant's token endpoint use this proxy (SSRF mitigation). |
+| Identity config (issuer, audiences, **`tokenTtlSec`**) | Per-org (with global defaults) | The subject JWT sent to the exchange server is signed using the org's effective identity config. Its **`exp` − `iat` equals `tokenTtlSec`** (same knob as directly issued tokens). The **outbound** token response `expires_in` comes from the tenant STS, not from NICo. |
 | Token delegation config | Per-org | Each org registers its own `tokenEndpoint`, `subjectTokenAudience`, and auth method via oneof (`clientSecretBasic`, etc.). |
 
 **PUT token-delegation prerequisites:** Same as PUT identity/config, global `enabled` must be `true` and global config must be complete. If not, PUT returns `503 Service Unavailable`. Token delegation also requires org identity config to exist (the JWT sent to the exchange is built from it); if the org has no identity config, PUT token-delegation returns `404` or `503`.
@@ -610,9 +610,9 @@ Content-Length: ...
  }
 ```
 
-`expires_in` (and the lifetime of `access_token`) is defined by the tenant token endpoint; it is **not** necessarily equal to Carbide’s **`tokenTtlSec`** (which applies to the Carbide-signed **subject** JWT only).
+`expires_in` (and the lifetime of `access_token`) is defined by the tenant token endpoint; it is **not** necessarily equal to NICo’s **`tokenTtlSec`** (which applies to the NICo-signed **subject** JWT only).
 
-The exchange service serves an [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693) token exchange endpoint for swapping Carbide-issued JWT-SVIDs with a tenant-specific issuer SVID or access token.
+The exchange service serves an [RFC 8693](https://datatracker.ietf.org/doc/html/rfc8693) token exchange endpoint for swapping NICo-issued JWT-SVIDs with a tenant-specific issuer SVID or access token.
 
 #### **3.5.1.4 SPIFFE JWKS Endpoint**
 
@@ -635,7 +635,7 @@ https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/.well-known/jwks.j
 
 #### **3.5.1.5 OIDC Discovery URL**
 
-Discovery reuses common OpenID Provider field names where helpful, but **Carbide does not issue OIDC `id_token`s**—only **JWT bearer** access tokens (machine identity). Verifiers should use `jwks_uri` (or `spiffe_jwks_uri` for SPIFFE-style `use`) and the **`alg`** (and `kid`) on keys from GetJWKS; `id_token_signing_alg_values_supported` stays empty.
+Discovery reuses common OpenID Provider field names where helpful, but **NICo does not issue OIDC `id_token`s**—only **JWT bearer** access tokens (machine identity). Verifiers should use `jwks_uri` (or `spiffe_jwks_uri` for SPIFFE-style `use`) and the **`alg`** (and `kid`) on keys from GetJWKS; `id_token_signing_alg_values_supported` stays empty.
 
 ```bash
 GET
@@ -889,7 +889,7 @@ Use standard gRPC `Status` codes, aligned with REST:
 
 ## **4.1 Security**
 
-1. All internal API gRPC calls to the Carbide API server use (existing) mTLS for authn/z and transport security. A future release also relies on attestation features.     
+1. All internal API gRPC calls to the NICo API server use (existing) mTLS for authn/z and transport security. A future release also relies on attestation features.     
 2. Carbide-rest is served over HTTPS and supports SSO integration  
 3. The IMDS service is exposed over link-local and is exposed only to the node instance. Short-lived tokens (configurable TTL) limit the replay window. Adding Metadata: true HTTP header to the requests to limit SSRF attacks. In order to ensure that requests are directly intended for IMDS and prevent unintended or unwanted redirection of requests, requests:  
   * Must contain the header `Metadata: true`  
@@ -897,6 +897,6 @@ Use standard gRPC `Status` codes, aligned with REST:
 
   Any request that doesn't meet both of these requirements is rejected by the service. 
 
-4. Requests to IMDS are limited to 3 requests per second. Requests exceeding this threshold will be rejected with 429 responses. This prevents DoS on DPU-agent and Carbide API server due to frequent IMDS calls.  
+4. Requests to IMDS are limited to 3 requests per second. Requests exceeding this threshold will be rejected with 429 responses. This prevents DoS on DPU-agent and NICo API server due to frequent IMDS calls.  
 5. Input validation: The input such as machine id will be validated using the database before issuing the token.  
 6. HTTPS and optional HTTP proxy support for route token exchange call to limit SSRF attacks on internal systems. 

@@ -2,19 +2,19 @@
 
 bluefield/ - `dpu-agent` and other tools running on the DPU
 
-book/ - architecture of forge book.  aka "the book"
+book/ - architecture of the NICo book.  aka "the book"
 
 - admin/ - `carbide-admin-cli`: A command line client for the carbide API server
-- api/ - forge primary entrypoint for GRPC API calls. This component receives all the GRPC calls
+- api/ - NICo primary entrypoint for GRPC API calls. This component receives all the GRPC calls
 - scout/ - `forge-scout`. A binary that runs on NCX Infra Controller (NICo) managed hosts and DPUs and executes various parts workflows on behalf of the site controller
 
-dev/ - a catch all directory for things that are not code related but are used to support forge.  e.g. Dockerfiles, kubernetes yaml, etc.
+dev/ - a catch all directory for things that are not code related but are used to support the project.  e.g. Dockerfiles, kubernetes yaml, etc.
 
-dhcp/ - kea dhcp plugin.  Forge uses ISC Kea for a dhcp event loop.  This code intercepts `DHCPDISCOVER`s from dhcp-relays and passes the info to carbide-api
+dhcp/ - kea dhcp plugin.  NICo uses ISC Kea for a dhcp event loop.  This code intercepts `DHCPDISCOVER`s from dhcp-relays and passes the info to carbide-api
 
 dhcp-server/ - DHCP Server written in Rust. This server runs on the DPU and serves Host DHCP requests
 
-dns/ - provides DNS resolution for assets in forge database
+dns/ - provides DNS resolution for assets in the NICo database
 
 include/ - contains additional makefiles that are used by `cargo make` - as specified in `Makefile.toml`.
 

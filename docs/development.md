@@ -79,7 +79,7 @@ environment.
    more information on setting it up. Once you clone the `ncx-infra-controller-core` repo, you need to run `direnv allow` the first time you cd into your local copy.
    Running `direnv allow` exports the necessary environmental variables while in the repo and cleans up when not in the repo.
 
-   There are preset environment variables that are used throughout the repo. `${REPO_ROOT}` represents the top of the forge repo tree.
+   There are preset environment variables that are used throughout the repo. `${REPO_ROOT}` represents the top of the repo.
 
    For a list of preset environment variables, look in:
    `${REPO_ROOT}/.envrc`
@@ -173,7 +173,7 @@ Test!
 
 `cargo test`
 
-If the tests don't pass ask in Slack #swngc-forge-dev.
+If the tests don't pass ask in Slack #ncx-infra-controller.
 
 Cleanup, otherwise docker-compose won't work later:
 
@@ -194,7 +194,7 @@ The DPU has an ARM core. To build software that runs there such as `forge-dpu-ag
 Here's how I did it.
 
 One time build:
- - copy / edit the Docker file from https://gitlab-master.nvidia.com/grahamk/carbide/-/blob/trunk/dev/docker/Dockerfile.build-container-arm into `myarm/Dockerfile`.
+ - copy / edit the Docker file from the repo into `myarm/Dockerfile`.
  - delete these lines:
 ```
  RUN /root/.cargo/bin/cargo install cargo-cache cargo-make mdbook@0.4.52 mdbook-plantuml@0.8.0 mdbook-mermaid@0.16.2 sccache && /root/.cargo/bin/cargo cache -r registry-index,registry-sources
@@ -202,17 +202,17 @@ One time build:
  RUN cd /usr/local/bin && curl -fL https://getcli.jfrog.io | sh
 ```
  - `docker build -t myarm myarm` # give it a cooler name
- - `docker run -it -v /home/user/src/carbide:/carbide myarm /bin/bash`
+ - `docker run -it -v /home/user/src/ncx-infra-controller-core:/ncx-infra-controller-core myarm /bin/bash`
 
 Daily usage:
  - `docker start <container id or name>`
  - `docker attach <container id or name>`
 
-Now that you're in the container go into `/carbide` and work normally (`cargo build --release`). The binary rust produces will be aarch64. You can `scp` it to a DPU and run it.
+Now that you're in the container go into `/ncx-infra-controller-core` and work normally (`cargo build --release`). The binary rust produces will be aarch64. You can `scp` it to a DPU and run it.
 
 The build may hang the first time. I don't know why. Ctrl-C and try again. You may want to `docker commit` after it succeeds to update the image.
 
-Remember to `strip` before you scp so that scp goes faster. scp to DPU example (`nvinit` first): `scp -v -J grahamk@155.130.12.194 /home/graham/src/carbide/target/release/forge-dpu-agent ubuntu@10.180.198.23:.`
+Remember to `strip` before you scp so that scp goes faster. scp to DPU example (`nvinit` first): `scp -v /path/to/target/release/forge-dpu-agent ubuntu@<DPU_OOB_IP>:.`
 
 ## Next steps
 

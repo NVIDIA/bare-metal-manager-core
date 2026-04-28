@@ -30,7 +30,7 @@ use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host, create_managed_host_with_config,
-    create_test_env_with_overrides, get_config, send_health_report_override,
+    create_test_env_with_overrides, get_config, send_health_report_entry,
 };
 
 fn leak_alert_report(source: &str) -> HealthReport {
@@ -355,7 +355,7 @@ async fn test_host_replace_overrides_rack_alerts(
     let host_machine_id = mh.id;
 
     let host_replace = empty_healthy_report("sre-override");
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (host_replace, HealthReportApplyMode::Replace),
@@ -424,7 +424,7 @@ async fn test_host_replace_takes_full_precedence_over_rack_replace(
     let host_machine_id = mh.id;
 
     let host_replace = empty_healthy_report("sre-override");
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (host_replace, HealthReportApplyMode::Replace),

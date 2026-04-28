@@ -50,7 +50,7 @@ Ensure that a default route is provided to the overlay. Options for providing th
 
 ## Services and Integration
 
-* **OOB DHCP Relay**: The OOB network should be configured with a DHCP relay to forward DHCP requests of BMCs to the Carbide DHCP service IP.
+* **OOB DHCP Relay**: The OOB network should be configured with a DHCP relay to forward DHCP requests of BMCs to the NICo DHCP service IP.
 
 ## Hardware/Physical
 
@@ -60,7 +60,7 @@ Ensure that a default route is provided to the overlay. Options for providing th
 
 ## Autonomous System Number (ASN) Allocations
 
-* **Unique ASN per DPU**: Every DPU will be assigned a unique ASN from a pool of ASNs given to Carbide. In multi-DPU hosts, each DPU will have its own unique ASN.
+* **Unique ASN per DPU**: Every DPU will be assigned a unique ASN from a pool of ASNs given to NICo. In multi-DPU hosts, each DPU will have its own unique ASN.
 * **32-bit ASNs**: The use of 32-bit ASNs is required to ensure a sufficient number of unique numbers are available.
 * **Architecture**: The [RFC 7938](https://datatracker.ietf.org/doc/html/rfc7938) guidelines should be followed for data center routing to prevent path hunting and loops.
 * **Route-Servers (Optional)**: A specific ASN is needed for the BGP Route Servers (typically shared across the redundant route-server set).

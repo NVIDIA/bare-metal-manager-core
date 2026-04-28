@@ -8,10 +8,10 @@ This file contains a list of metrics exported by NCX Infra Controller (NICo). Th
 <tr><td>carbide_api_db_queries_total</td><td>counter</td><td>The amount of database queries that occurred inside a span</td></tr>
 <tr><td>carbide_api_db_span_query_time_milliseconds</td><td>histogram</td><td>Total time the request spent inside a span on database transactions</td></tr>
 <tr><td>carbide_api_grpc_server_duration_milliseconds</td><td>histogram</td><td>Processing time for a request on the carbide API server</td></tr>
-<tr><td>carbide_api_ready</td><td>gauge</td><td>Whether the Forge Site Controller API is running</td></tr>
+<tr><td>carbide_api_ready</td><td>gauge</td><td>Whether the NICo API is running</td></tr>
 <tr><td>carbide_api_tls_connection_attempted_total</td><td>counter</td><td>The amount of tls connections that were attempted</td></tr>
 <tr><td>carbide_api_tls_connection_success_total</td><td>counter</td><td>The amount of tls connections that were successful</td></tr>
-<tr><td>carbide_api_tracing_spans_open</td><td>gauge</td><td>Whether the Forge Site Controller API is running</td></tr>
+<tr><td>carbide_api_tracing_spans_open</td><td>gauge</td><td>Whether the NICo API is running</td></tr>
 <tr><td>carbide_api_vault_request_duration_milliseconds</td><td>histogram</td><td>the duration of outbound vault requests, in milliseconds</td></tr>
 <tr><td>carbide_api_vault_requests_attempted_total</td><td>counter</td><td>The amount of tls connections that were attempted</td></tr>
 <tr><td>carbide_api_vault_requests_failed_total</td><td>counter</td><td>The amount of tcp connections that were failures</td></tr>
@@ -22,7 +22,7 @@ This file contains a list of metrics exported by NCX Infra Controller (NICo). Th
 <tr><td>carbide_concurrent_machine_updates_available</td><td>gauge</td><td>The number of machines in the system that we will update concurrently.</td></tr>
 <tr><td>carbide_db_pool_idle_conns</td><td>gauge</td><td>The amount of idle connections in the carbide database pool</td></tr>
 <tr><td>carbide_db_pool_total_conns</td><td>gauge</td><td>The amount of total (active + idle) connections in the carbide database pool</td></tr>
-<tr><td>carbide_dpu_agent_version_count</td><td>gauge</td><td>The amount of Forge DPU agents which have reported a certain version.</td></tr>
+<tr><td>carbide_dpu_agent_version_count</td><td>gauge</td><td>The amount of DPU agents which have reported a certain version.</td></tr>
 <tr><td>carbide_dpu_firmware_version_count</td><td>gauge</td><td>The amount of DPUs which have reported a certain firmware version.</td></tr>
 <tr><td>carbide_dpus_healthy_count</td><td>gauge</td><td>The total number of DPUs in the system that have reported healthy in the last report. Healthy does not imply up - the report from the DPU might be outdated.</td></tr>
 <tr><td>carbide_dpus_up_count</td><td>gauge</td><td>The total number of DPUs in the system that are up. Up means we have received a health report less than 5 minutes ago.</td></tr>
@@ -33,14 +33,14 @@ This file contains a list of metrics exported by NCX Infra Controller (NICo). Th
 <tr><td>carbide_endpoint_exploration_machines_explored_overall_count</td><td>gauge</td><td>The total number of machines explored by machine type</td></tr>
 <tr><td>carbide_endpoint_exploration_success_count</td><td>gauge</td><td>The amount of endpoint explorations that have been successful</td></tr>
 <tr><td>carbide_endpoint_explorations_count</td><td>gauge</td><td>The amount of endpoint explorations that have been attempted</td></tr>
-<tr><td>carbide_gpus_in_use_count</td><td>gauge</td><td>The total number of GPUs that are actively used by tenants in instances in the Forge site</td></tr>
-<tr><td>carbide_gpus_total_count</td><td>gauge</td><td>The total number of GPUs available in the Forge site</td></tr>
-<tr><td>carbide_gpus_usable_count</td><td>gauge</td><td>The remaining number of GPUs in the Forge site which are available for immediate instance creation</td></tr>
+<tr><td>carbide_gpus_in_use_count</td><td>gauge</td><td>The total number of GPUs that are actively used by tenants in instances in the NICo deployment</td></tr>
+<tr><td>carbide_gpus_total_count</td><td>gauge</td><td>The total number of GPUs available in the NICo deployment</td></tr>
+<tr><td>carbide_gpus_usable_count</td><td>gauge</td><td>The remaining number of GPUs in the NICo deployment which are available for immediate instance creation</td></tr>
 <tr><td>carbide_hosts_by_sku_count</td><td>gauge</td><td>The amount of hosts by SKU and device type (&#x27;unknown&#x27; for hosts without SKU)</td></tr>
 <tr><td>carbide_hosts_health_overrides_count</td><td>gauge</td><td>The amount of health overrides that are configured in the site</td></tr>
 <tr><td>carbide_hosts_health_status_count</td><td>gauge</td><td>The total number of Managed Hosts in the system that have reported either a healthy or not healthy status - based on the presence of health probe alerts</td></tr>
-<tr><td>carbide_hosts_in_use_count</td><td>gauge</td><td>The total number of hosts that are actively used by tenants as instances in the Forge site</td></tr>
-<tr><td>carbide_hosts_usable_count</td><td>gauge</td><td>The remaining number of hosts in the Forge site which are available for immediate instance creation</td></tr>
+<tr><td>carbide_hosts_in_use_count</td><td>gauge</td><td>The total number of hosts that are actively used by tenants as instances in the NICo deployment</td></tr>
+<tr><td>carbide_hosts_usable_count</td><td>gauge</td><td>The remaining number of hosts in the NICo deployment which are available for immediate instance creation</td></tr>
 <tr><td>carbide_hosts_with_bios_password_set</td><td>gauge</td><td>The total number of Hosts in the system that have their BIOS password set.</td></tr>
 <tr><td>carbide_ib_partitions_enqueuer_iteration_latency_milliseconds</td><td>histogram</td><td>The overall time it took to enqueue state handling tasks for all carbide_ib_partitions in the system</td></tr>
 <tr><td>carbide_ib_partitions_iteration_latency_milliseconds</td><td>histogram</td><td>The elapsed time in the last state processor iteration to handle objects of type carbide_ib_partitions</td></tr>
