@@ -3378,12 +3378,27 @@ async fn test_network_details_migration(
         Some(rpc::forge::instance_interface_config::NetworkDetails::VpcPrefixId(vpc_prefix_id))
     );
 
-    // Run the migration
+    // Run the data migration inline (was 20250505194055_network_segment_id_to_network_details.sql,
+    // now squashed — kept here because this test validates the transform logic).
     let mut conn = env.pool.acquire().await.unwrap();
-    sqlx::query(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../api-db/migrations/20250505194055_network_segment_id_to_network_details.sql"
-    )))
+    sqlx::query(
+        "UPDATE instances i
+            SET network_config=jsonb_set(
+                network_config,
+                '{interfaces}',
+                (
+                    select jsonb_agg(ba.value) from (
+                        SELECT
+                            jsonb_set(ifc_ttable.value,'{network_details}',
+                            coalesce(
+                                ifc_ttable.value->>'network_details',
+                                concat('{\"NetworkSegment\": \"', ifc_ttable.value->>'network_segment_id' ,'\"}'))::jsonb
+                            ) as value
+                        FROM jsonb_array_elements(i.network_config #>'{interfaces}') as ifc_ttable
+                   ) as ba
+                )
+            );",
+    )
     .execute(conn.as_mut())
     .await
     .unwrap();

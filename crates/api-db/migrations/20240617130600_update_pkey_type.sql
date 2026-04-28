@@ -1,1 +1,0 @@
-ALTER TABLE ib_partitions ALTER COLUMN pkey TYPE INT4;

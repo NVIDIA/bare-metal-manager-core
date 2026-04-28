@@ -31,6 +31,7 @@ name = "api_test_helper"
 async-trait = { workspace = true }
 bmc-mock = { path = "../bmc-mock" }
 carbide-api = { path = "../api", default-features = false }
+carbide-api-db = { path = "../api-db" }
 carbide-version = { path = "../version" }
 carbide-rpc = { path = "../rpc" }
 carbide-machine-a-tron = { path = "../machine-a-tron" }

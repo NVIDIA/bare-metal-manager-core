@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::{env, path};
 
+use db;
 use eyre::Report;
 use forge_secrets::credentials::{CredentialKey, CredentialType, CredentialWriter, Credentials};
 use forge_secrets::{CredentialConfig, VaultConfig, create_credential_manager};
@@ -236,11 +237,8 @@ pub async fn start_api_server(
     // which can also only be initialized once. What a mess.
     // Error is: "attempted to set a logger after the logging system was already initialized"
 
-    #[allow(clippy::large_stack_arrays)] // It should be fixed in sqlx.
-    let m = sqlx::migrate!("../api-db/migrations");
-
     // Dependencies: Postgres, Vault and a Redfish BMC
-    m.run(&db_pool).await?;
+    db::migrations::migrate(&db_pool).await?;
 
     populate_initial_vault_secrets(&credential_config, &metrics).await?;
 
