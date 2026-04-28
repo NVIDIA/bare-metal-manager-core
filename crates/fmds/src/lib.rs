@@ -17,6 +17,7 @@
 
 pub mod cfg;
 pub mod grpc_server;
+pub mod nic_init;
 pub mod phone_home;
 pub mod rest_server;
 pub mod state;

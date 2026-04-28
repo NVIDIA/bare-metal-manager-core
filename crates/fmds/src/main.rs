@@ -20,6 +20,7 @@ use std::sync::Arc;
 use clap::Parser;
 use fmds::cfg::Options;
 use fmds::grpc_server::FmdsGrpcServer;
+use fmds::nic_init;
 use fmds::rest_server::get_fmds_router;
 use fmds::state::FmdsState;
 use forge_tls::client_config::ClientCert;
@@ -39,6 +40,9 @@ async fn main() -> eyre::Result<()> {
         version = carbide_version::version!(),
         "Starting carbide-fmds"
     );
+
+    let interface_cidr: ipnetwork::IpNetwork = options.interface_cidr.parse()?;
+    nic_init::assign_address(&options.interface_name, interface_cidr).await?;
 
     // Build ForgeClientConfig for phone_home if cert paths are provided
     let forge_client_config = match (&options.root_ca, &options.client_cert, &options.client_key) {

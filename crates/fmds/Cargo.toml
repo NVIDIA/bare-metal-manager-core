@@ -43,8 +43,12 @@ axum = { workspace = true, features = ["macros"] }
 axum-server = { workspace = true }
 clap = { workspace = true }
 eyre = { workspace = true }
+futures-util = { workspace = true }
 governor = { workspace = true }
+ipnetwork = { workspace = true }
+netlink-packet-route = { workspace = true }
 nonzero_ext = { workspace = true }
+rtnetlink = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
 tonic-prost = { workspace = true }

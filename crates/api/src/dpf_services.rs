@@ -32,7 +32,8 @@ use crate::cfg::file::DpfServiceConfig;
 /// Default DOCA helm registry (DPUServiceTemplate source.repoURL).
 pub const DEFAULT_DOCA_HELM_REGISTRY: &str = "https://helm.ngc.nvidia.com/nvidia/doca";
 
-pub const DEFAULT_CARBIDE_HELM_REGISTRY: &str = "https://nvcr.io/0837451325059433/carbide-dev";
+pub const DEFAULT_CARBIDE_HELM_REGISTRY: &str =
+    "https://helm.ngc.nvidia.com/0837451325059433/carbide-dev";
 
 /// Default DOCA container image registry prefix.
 pub const DEFAULT_DOCA_IMAGE_REGISTRY: &str = "nvcr.io/nvidia/doca";
