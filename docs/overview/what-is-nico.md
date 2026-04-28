@@ -59,7 +59,7 @@ NICo REST is a collection of microservices that expose NICo's capabilities as a 
 
 ![NICo architecture diagram](../static/nico_arch_diagram.png)
 
-NICo is deployed as a Kubernetes cluster co-located in the datacenter it manages — the **Site Controller**. The cluster requires a minimum of three nodes for high availability. All NICo control plane services run on this cluster and communicate over gRPC.
+NICo is deployed as a suite of microservices on a Kubernetes cluster co-located in the datacenter it manages. This suite of microservices forms the control plane, known as the **Site Controller**. The Kubernetes cluster requires a minimum of three nodes for high availability, and all NICo control plane services communicate over gRPC.
 
 ### NICo Core as the single source of truth
 
