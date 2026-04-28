@@ -1988,4 +1988,41 @@ pub mod tests {
 
         Ok(())
     }
+
+    #[crate::sqlx_test]
+    async fn test_delete_sku_in_use_reports_correct_machine_count(
+        pool: sqlx::PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use rpc::forge::SkuIdList;
+        use rpc::forge::forge_server::Forge;
+
+        let env = create_test_env(pool.clone()).await;
+        let (machine_id_1, _dpu1) = create_managed_host(&env).await.into();
+        let (machine_id_2, _dpu2) = create_managed_host(&env).await.into();
+
+        let sku_id = {
+            let mut txn = pool.begin().await?;
+            let sku = db::sku::generate_sku_from_machine(txn.as_mut(), &machine_id_1).await?;
+            db::sku::create(&mut txn, &sku).await?;
+            db::machine::assign_sku(&mut txn, &machine_id_1, &sku.id).await?;
+            db::machine::assign_sku(&mut txn, &machine_id_2, &sku.id).await?;
+            txn.commit().await?;
+            sku.id
+        };
+
+        let err = env
+            .api
+            .delete_sku(tonic::Request::new(SkuIdList { ids: vec![sku_id] }))
+            .await
+            .expect_err("expected delete of in-use SKU to fail");
+
+        assert_eq!(err.code(), tonic::Code::InvalidArgument);
+        assert!(
+            err.message().contains("in use by 2 machines"),
+            "expected error to report 2 machines but got: {}",
+            err.message()
+        );
+
+        Ok(())
+    }
 }

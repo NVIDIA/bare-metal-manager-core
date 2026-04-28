@@ -70,13 +70,13 @@ pub(crate) async fn delete(api: &Api, request: Request<SkuIdList>) -> Result<Res
 
     let machine_ids =
         db::machine::find_machine_ids_by_sku_ids(&mut txn, std::slice::from_ref(&sku.id)).await?;
-    if machine_ids
+    let machines_using_sku = machine_ids
         .get(&sku.id)
-        .is_some_and(|machine_ids| !machine_ids.is_empty())
-    {
+        .map(|machine_ids| machine_ids.len())
+        .unwrap_or(0);
+    if machines_using_sku > 0 {
         return Err(CarbideError::InvalidArgument(format!(
-            "The SKUs are in use by {} machines",
-            machine_ids.len()
+            "The SKU is in use by {machines_using_sku} machines"
         ))
         .into());
     }
