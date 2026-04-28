@@ -56,6 +56,7 @@ impl Default for HealthReport {
 }
 
 impl HealthReport {
+    pub const DPU_AGENT_SOURCE: &str = "forge-dpu-agent";
     pub const MACHINE_VALIDATION_SOURCE: &str = "machine-validation";
     pub const SITE_EXPLORER_SOURCE: &str = "site-explorer";
     pub const SKU_VALIDATION_SOURCE: &str = "sku-validation";

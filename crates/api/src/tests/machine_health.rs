@@ -32,66 +32,60 @@ use crate::tests::common::api_fixtures::{
     simulate_hardware_health_report,
 };
 
-/// Tests whether health reports can be stored if their timestamp is newer or equal
-/// to the last received report - and are dropped otherwise.
+/// Tests whether DPU agent health reports are stored as a standard health source.
 #[crate::sqlx_test]
 async fn test_update_dpu_agent_health_report(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
-    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     // Start with a clean slate
-    sqlx::query("UPDATE machines SET dpu_agent_health_report=NULL where id=$1")
-        .bind(dpu_machine_id.to_string())
-        .execute(&env.pool)
-        .await?;
+    let mut txn = env.pool.begin().await?;
+    db::machine::remove_health_report_override(
+        &mut txn,
+        &dpu_machine_id,
+        HealthReportApplyMode::Merge,
+        health_report::HealthReport::DPU_AGENT_SOURCE,
+    )
+    .await?;
+    txn.commit().await?;
 
     let mut health = hr("dpu-agent", vec![], vec![("Failure1", None, "Failure1")]);
-    // Start with a health report without timestamp. That update should also work
-    health.observed_at = None;
-    println!("Doing initial update");
+    health.observed_at = Some("2025-03-19T18:22:01+00:00".parse()?);
     let mut txn = env.pool.begin().await?;
     update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health).await?;
     txn.commit().await?;
 
-    let mut time: chrono::DateTime<chrono::Utc> = "2025-03-19T18:22:02+00:00".parse()?;
+    check_reports_equal(
+        "forge-dpu-agent",
+        load_snapshot(&env, &host_machine_id).await?.dpu_snapshots[0]
+            .dpu_agent_health_report()
+            .cloned()
+            .unwrap(),
+        health,
+    );
 
-    // Updating time to go forward should allow updates. Go for a total of 1s in updates
-    for _ in 0..51 {
-        time += chrono::Duration::milliseconds(20);
-        health.observed_at = Some(time);
-        println!("Health: {}, {}", time, time.to_rfc3339());
-        println!("{}", serde_json::to_string_pretty(&health).unwrap());
-
-        let mut txn = env.pool.begin().await?;
-        update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health).await?;
-        txn.commit().await?;
-    }
-
-    // Updating at the same time is allowed
-    println!("Update same time");
+    let mut newer_health = hr("dpu-agent", vec![], vec![("Failure2", None, "Failure2")]);
+    newer_health.observed_at = Some("2025-03-19T18:22:03+00:00".parse()?);
     let mut txn = env.pool.begin().await?;
-    update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health).await?;
+    update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &newer_health).await?;
     txn.commit().await?;
 
-    // Updating time to go backwards should not allow updates. Go for a total of 1s in updates
+    let mut older_health = hr("dpu-agent", vec![], vec![("Failure3", None, "Failure3")]);
+    older_health.observed_at = Some("2025-03-19T18:22:02+00:00".parse()?);
+    let mut txn = env.pool.begin().await?;
+    update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &older_health).await?;
+    txn.commit().await?;
 
-    println!("Go backwards in time");
-    for _ in 0..51 {
-        time -= chrono::Duration::milliseconds(20);
-        health.observed_at = Some(time);
-        println!("Health: {}, {}", time, time.to_rfc3339());
-        println!("{}", serde_json::to_string_pretty(&health).unwrap());
-
-        let mut txn = env.pool.begin().await?;
-        assert!(
-            update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health)
-                .await
-                .is_err()
-        );
-        txn.commit().await?;
-    }
+    check_reports_equal(
+        "forge-dpu-agent",
+        load_snapshot(&env, &host_machine_id).await?.dpu_snapshots[0]
+            .dpu_agent_health_report()
+            .cloned()
+            .unwrap(),
+        older_health,
+    );
 
     Ok(())
 }
@@ -108,8 +102,8 @@ async fn test_machine_health_reporting(
     check_reports_equal(
         "forge-dpu-agent",
         load_snapshot(&env, &host_machine_id).await?.dpu_snapshots[0]
-            .dpu_agent_health_report
-            .clone()
+            .dpu_agent_health_report()
+            .cloned()
             .unwrap(),
         health_report::HealthReport::empty("".to_string()),
     );
@@ -154,8 +148,8 @@ async fn test_machine_health_reporting(
     check_reports_equal(
         "forge-dpu-agent",
         load_snapshot(&env, &host_machine_id).await?.dpu_snapshots[0]
-            .dpu_agent_health_report
-            .clone()
+            .dpu_agent_health_report()
+            .cloned()
             .unwrap(),
         dpu_health.clone(),
     );
