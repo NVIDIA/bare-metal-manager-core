@@ -122,6 +122,33 @@ pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 5;
 #[cfg(test)]
 pub const MAX_FIRMWARE_UPGRADE_RETRIES: u32 = 2; // Faster for tests
 
+// Compute the API-side deadline for a scout firmware upgrade from scout's
+// timeout envelope: fixed script download timeout, script execution timeout,
+// one artifact download timeout per file artifact, and report/slack time.
+// Saturating arithmetic prevents overflow from malformed configs, and the
+// final cap prevents the API from waiting indefinitely for an absurd task.
+fn scout_firmware_upgrade_deadline(
+    started_at: DateTime<Utc>,
+    execution_timeout_seconds: u32,
+    artifact_download_timeout_seconds: u32,
+    file_artifact_count: usize,
+) -> DateTime<Utc> {
+    // Must match crates/scout/src/firmware_upgrade.rs::SCRIPT_DOWNLOAD_TIMEOUT.
+    const SCRIPT_DOWNLOAD_TIMEOUT_SECONDS: i64 = 30;
+    const DEADLINE_SLACK: Duration = Duration::minutes(30);
+    const MAX_DEADLINE_DURATION_SECONDS: i64 = 5 * 60 * 60;
+
+    let artifact_download_seconds = i64::from(artifact_download_timeout_seconds)
+        .saturating_mul(i64::try_from(file_artifact_count).unwrap_or(i64::MAX));
+    let deadline_seconds = SCRIPT_DOWNLOAD_TIMEOUT_SECONDS
+        .saturating_add(i64::from(execution_timeout_seconds))
+        .saturating_add(artifact_download_seconds)
+        .saturating_add(DEADLINE_SLACK.num_seconds())
+        .min(MAX_DEADLINE_DURATION_SECONDS);
+
+    started_at + Duration::seconds(deadline_seconds)
+}
+
 /// Reachability params to check if DPU is up or not.
 #[derive(Copy, Clone, Debug)]
 pub struct ReachabilityParams {
@@ -7087,7 +7114,10 @@ impl HostUpgradeState {
                         format!("{PXE_URL}/public/firmware/{relative}")
                     };
 
+                    let upgrade_task_id = uuid::Uuid::new_v4().to_string();
+                    let file_artifact_count = to_install.files.len();
                     let task = serde_json::json!({
+                        "upgrade_task_id": &upgrade_task_id,
                         "component_type": firmware_type.to_string(),
                         "target_version": to_install.version,
                         "script": {
@@ -7104,18 +7134,18 @@ impl HostUpgradeState {
                         }).collect::<Vec<_>>(),
                     });
 
-                    // Scout respects its own execution/download timeouts; slack covers clock
-                    // skew and the round-trip for the report RPC to reach us.
-                    const DEADLINE_SLACK: chrono::TimeDelta = chrono::TimeDelta::minutes(30);
+                    // Scout uses a fixed timeout for the script download and applies the artifact
+                    // download timeout per file
                     let started_at = Utc::now();
-                    let deadline = started_at
-                        + chrono::TimeDelta::seconds(
-                            i64::from(scout_config.execution_timeout_seconds)
-                                + i64::from(scout_config.artifact_download_timeout_seconds),
-                        )
-                        + DEADLINE_SLACK;
+                    let deadline = scout_firmware_upgrade_deadline(
+                        started_at,
+                        scout_config.execution_timeout_seconds,
+                        scout_config.artifact_download_timeout_seconds,
+                        file_artifact_count,
+                    );
                     return Ok(StateHandlerOutcome::transition(scenario.actual_new_state(
                         HostReprovisionState::WaitingForScoutUpgrade {
+                            upgrade_task_id,
                             component_type: firmware_type,
                             target_version: to_install.version,
                             started_at,
@@ -10504,6 +10534,31 @@ mod tests {
     use std::str::FromStr;
 
     use super::*;
+
+    #[test]
+    fn scout_firmware_upgrade_deadline_accounts_for_each_artifact() {
+        let started_at = chrono::DateTime::<Utc>::from_str("2026-04-28T00:00:00Z").unwrap();
+
+        let deadline = scout_firmware_upgrade_deadline(started_at, 300, 120, 3);
+
+        assert_eq!(
+            deadline,
+            started_at
+                + Duration::seconds(30)
+                + Duration::seconds(300)
+                + Duration::seconds(120 * 3)
+                + Duration::minutes(30)
+        );
+    }
+
+    #[test]
+    fn scout_firmware_upgrade_deadline_is_capped() {
+        let started_at = chrono::DateTime::<Utc>::from_str("2026-04-28T00:00:00Z").unwrap();
+
+        let deadline = scout_firmware_upgrade_deadline(started_at, u32::MAX, u32::MAX, usize::MAX);
+
+        assert_eq!(deadline, started_at + Duration::hours(5));
+    }
 
     /// Verify that `oem_manager_profiles` from the site config is forwarded to `machine_setup`.
     ///

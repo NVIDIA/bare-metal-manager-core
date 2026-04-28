@@ -30,6 +30,7 @@ const DOWNLOAD_MAX_RETRIES: u32 = 3;
 // carbide-api via ForgeAgentControl when Action::FirmwareUpgrade is set.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FirmwareUpgradeTask {
+    pub upgrade_task_id: String,
     pub component_type: String,
     pub target_version: String,
     pub script: FileArtifact,
@@ -316,6 +317,7 @@ mod tests {
         .await;
 
         let task = FirmwareUpgradeTask {
+            upgrade_task_id: "test-upgrade-task-id".into(),
             component_type: "cpld".into(),
             target_version: "1.2.3".into(),
             script: script_artifact(&base, "/scripts/upgrade.sh", script),
@@ -345,6 +347,7 @@ mod tests {
         let base = start_file_server(vec![("/scripts/fail.sh", script)]).await;
 
         let task = FirmwareUpgradeTask {
+            upgrade_task_id: "test-upgrade-task-id".into(),
             component_type: "bios".into(),
             target_version: "2.0.0".into(),
             script: script_artifact(&base, "/scripts/fail.sh", script),
@@ -366,6 +369,7 @@ mod tests {
         let base = start_file_server(vec![("/scripts/slow.sh", script)]).await;
 
         let task = FirmwareUpgradeTask {
+            upgrade_task_id: "test-upgrade-task-id".into(),
             component_type: "cpld".into(),
             target_version: "1.0.0".into(),
             script: script_artifact(&base, "/scripts/slow.sh", script),
@@ -387,6 +391,7 @@ mod tests {
         let base = start_file_server(vec![("/scripts/env.sh", script)]).await;
 
         let task = FirmwareUpgradeTask {
+            upgrade_task_id: "test-upgrade-task-id".into(),
             component_type: "cpldmb".into(),
             target_version: "3.4.5".into(),
             script: script_artifact(&base, "/scripts/env.sh", script),
@@ -408,6 +413,7 @@ mod tests {
         let base = start_file_server(vec![]).await;
 
         let task = FirmwareUpgradeTask {
+            upgrade_task_id: "test-upgrade-task-id".into(),
             component_type: "cpld".into(),
             target_version: "1.0.0".into(),
             script: FileArtifact {
@@ -435,6 +441,7 @@ mod tests {
         .await;
 
         let task = FirmwareUpgradeTask {
+            upgrade_task_id: "test-upgrade-task-id".into(),
             component_type: "cpld".into(),
             target_version: "1.0.0".into(),
             script: script_artifact(&base, "/scripts/upgrade.sh", script),
@@ -458,6 +465,7 @@ mod tests {
         let base = start_file_server(vec![("/scripts/upgrade.sh", script)]).await;
 
         let task = FirmwareUpgradeTask {
+            upgrade_task_id: "test-upgrade-task-id".into(),
             component_type: "cpld".into(),
             target_version: "1.0.0".into(),
             script: FileArtifact {
@@ -478,6 +486,7 @@ mod tests {
     #[tokio::test]
     async fn test_task_json_ser_deser_roundtrip() {
         let task = FirmwareUpgradeTask {
+            upgrade_task_id: "roundtrip-upgrade-task-id".into(),
             component_type: "cpld".into(),
             target_version: "1.2.3".into(),
             script: FileArtifact {
@@ -496,6 +505,7 @@ mod tests {
         let parsed: FirmwareUpgradeTask = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed.component_type, "cpld");
+        assert_eq!(parsed.upgrade_task_id, "roundtrip-upgrade-task-id");
         assert_eq!(parsed.target_version, "1.2.3");
         assert_eq!(parsed.script.url, "http://example.com/script.sh");
         assert_eq!(parsed.script.sha256, "scripthash");

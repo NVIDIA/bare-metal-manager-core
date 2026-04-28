@@ -1737,6 +1737,7 @@ pub enum HostReprovisionState {
     },
     WaitingForRackFirmwareUpgrade,
     WaitingForScoutUpgrade {
+        upgrade_task_id: String,
         component_type: FirmwareComponentType,
         target_version: String,
         started_at: DateTime<Utc>,

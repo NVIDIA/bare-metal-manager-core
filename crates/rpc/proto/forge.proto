@@ -5366,6 +5366,7 @@ message ScoutFirmwareUpgradeStatusRequest {
   string stdout = 4;
   string stderr = 5;
   string error = 6;
+  string upgrade_task_id = 7;
 }
 
 // enum MachineValidationState {
