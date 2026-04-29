@@ -27,7 +27,6 @@ use std::time::Duration;
 
 use carbide_firmware::FirmwareDownloader;
 use carbide_redfish::libredfish::{RedfishClientCreationError, RedfishClientPool};
-use carbide_site_explorer::EndpointExplorer;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use chrono::{DateTime, Utc};
 pub use config::PreingestionManagerConfig;
@@ -44,9 +43,9 @@ use model::site_explorer::{
 };
 use opentelemetry::metrics::Meter;
 use sqlx::PgPool;
-use tokio::fs::File;
-use tokio::io::AsyncBufReadExt;
-use tokio::sync::Semaphore;
+use tokio::fs::{self, File};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -69,6 +68,10 @@ const BFB_INSTALLATION_MIN_WAIT_MINS: i64 = 10;
 /// Timeout for waiting for DPU to report valid firmware after BFB installation.
 const BFB_INSTALLATION_TIMEOUT_MINS: i64 = 45;
 
+const UNIFIED_PREINGESTION_BFB_PATH: &str =
+    "/forge-boot-artifacts/blobs/internal/aarch64/preingestion_unified_update.bfb";
+const PREINGESTION_BFB_PATH: &str = "/forge-boot-artifacts/blobs/internal/aarch64/preingestion.bfb";
+
 pub struct PreingestionManager {
     static_info: Arc<PreingestionManagerStatic>,
     metric_holder: Arc<metrics::MetricHolder>,
@@ -84,7 +87,7 @@ struct PreingestionManagerStatic {
     upgrade_script_state: Arc<UpdateScriptManager>,
     credential_reader: Option<Arc<dyn CredentialReader>>,
     work_lock_manager_handle: WorkLockManagerHandle,
-    endpoint_explorer: Arc<dyn EndpointExplorer>,
+    bfb_rshim_copier: Arc<BfbRshimCopier>,
     bfb_copy_state: Arc<BfbCopyManager>,
     bfb_copy_limiter: Arc<Semaphore>,
 }
@@ -105,13 +108,14 @@ impl PreingestionManager {
         upload_limiter: Option<Arc<Semaphore>>,
         credential_reader: Option<Arc<dyn CredentialReader>>,
         work_lock_manager_handle: WorkLockManagerHandle,
-        endpoint_explorer: Arc<dyn EndpointExplorer>,
     ) -> PreingestionManager {
         let hold_period = config
             .run_interval
             .saturating_add(std::time::Duration::from_secs(60));
 
         let metric_holder = Arc::new(metrics::MetricHolder::new(meter, hold_period));
+
+        let bfb_rshim_copier = Arc::new(BfbRshimCopier::new(credential_reader.clone()));
 
         PreingestionManager {
             static_info: Arc::new(PreingestionManagerStatic {
@@ -121,7 +125,7 @@ impl PreingestionManager {
                 upgrade_script_state: Default::default(),
                 credential_reader,
                 work_lock_manager_handle,
-                endpoint_explorer,
+                bfb_rshim_copier,
                 bfb_copy_state: Default::default(),
                 bfb_copy_limiter: Arc::new(Semaphore::new(config.max_concurrent_bfb_copies)),
                 config,
@@ -1899,7 +1903,7 @@ impl PreingestionManagerStatic {
             BfbPlatformPowercyclePhase::WaitingForDpuBmc => {
                 let dpu_addr = std::net::SocketAddr::new(address, 443);
                 match self
-                    .endpoint_explorer
+                    .redfish_client_pool
                     .probe_redfish_endpoint(dpu_addr)
                     .await
                 {
@@ -1972,6 +1976,11 @@ impl PreingestionManagerStatic {
         };
 
         let is_bf2 = endpoint.report.identify_dpu() == Some(model::DpuModel::BlueField2);
+        let bmc_credential_key = CredentialKey::BmcCredentials {
+            credential_type: BmcCredentialType::BmcRoot {
+                bmc_mac_address: interface.mac_address,
+            },
+        };
 
         db.with_txn(|txn| {
             db::explored_endpoints::set_preingestion_bfb_copy_in_progress(address, host_bmc_ip, txn)
@@ -1982,7 +1991,7 @@ impl PreingestionManagerStatic {
         self.bfb_copy_state.started(address.to_string());
 
         let bfb_copy_state = self.bfb_copy_state.clone();
-        let endpoint_explorer = self.endpoint_explorer.clone();
+        let bfb_rshim_copier = self.bfb_rshim_copier.clone();
         let bmc_addr = std::net::SocketAddr::new(address, 22);
 
         tokio::spawn(async move {
@@ -1990,8 +1999,8 @@ impl PreingestionManagerStatic {
 
             tracing::info!(%address, is_bf2, "starting BFB copy to DPU rshim");
 
-            let result = endpoint_explorer
-                .copy_bfb_to_dpu_rshim(bmc_addr, &interface, is_bf2)
+            let result = bfb_rshim_copier
+                .copy_bfb_to_dpu_rshim(bmc_addr, &bmc_credential_key, is_bf2)
                 .await;
 
             match result {
@@ -2203,6 +2212,233 @@ impl PreingestionManagerStatic {
                 false
             }
         }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+enum BfbRshimCopyError {
+    #[error("Missing credential {key}: {cause}")]
+    MissingCredentials { key: String, cause: String },
+    #[error("Secrets engine error occurred: {cause}")]
+    SecretsEngineError { cause: String },
+    #[error("Error: {details}")]
+    Other { details: String },
+}
+
+struct BfbRshimCopier {
+    credential_reader: Option<Arc<dyn CredentialReader>>,
+    bfb_file_lock: Arc<Mutex<()>>,
+}
+
+impl BfbRshimCopier {
+    fn new(credential_reader: Option<Arc<dyn CredentialReader>>) -> Self {
+        Self {
+            credential_reader,
+            bfb_file_lock: Arc::new(Mutex::new(())),
+        }
+    }
+
+    fn valid_bmc_password(credentials: &Credentials) -> bool {
+        let (_, password) = match credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        !password.is_empty()
+    }
+
+    async fn get_bmc_root_credentials(
+        &self,
+        credential_key: &CredentialKey,
+    ) -> Result<Credentials, BfbRshimCopyError> {
+        let Some(credential_reader) = &self.credential_reader else {
+            return Err(BfbRshimCopyError::MissingCredentials {
+                key: credential_key.to_key_str().to_string(),
+                cause: "credential reader is not configured".to_string(),
+            });
+        };
+
+        match credential_reader.get_credentials(credential_key).await {
+            Ok(Some(credentials)) => {
+                if !Self::valid_bmc_password(&credentials) {
+                    return Err(BfbRshimCopyError::Other {
+                        details: format!(
+                            "vault does not have a valid password entry at {}",
+                            credential_key.to_key_str()
+                        ),
+                    });
+                }
+
+                Ok(credentials)
+            }
+            Ok(None) => Err(BfbRshimCopyError::MissingCredentials {
+                key: credential_key.to_key_str().to_string(),
+                cause: "No credentials exists".to_string(),
+            }),
+            Err(err) => Err(BfbRshimCopyError::SecretsEngineError {
+                cause: err.to_string(),
+            }),
+        }
+    }
+
+    async fn is_rshim_enabled(
+        &self,
+        bmc_ip_address: std::net::SocketAddr,
+        credentials: Credentials,
+    ) -> Result<bool, BfbRshimCopyError> {
+        let (username, password) = match credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        forge_ssh::ssh::is_rshim_enabled(bmc_ip_address, username, password)
+            .await
+            .map_err(|err| BfbRshimCopyError::Other {
+                details: format!("failed query RSHIM status on on {bmc_ip_address}: {err}"),
+            })
+    }
+
+    async fn enable_rshim(
+        &self,
+        bmc_ip_address: std::net::SocketAddr,
+        credentials: Credentials,
+    ) -> Result<(), BfbRshimCopyError> {
+        let (username, password) = match credentials {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        forge_ssh::ssh::enable_rshim(bmc_ip_address, username, password)
+            .await
+            .map_err(|err| BfbRshimCopyError::Other {
+                details: format!("failed enable RSHIM on {bmc_ip_address}: {err}"),
+            })
+    }
+
+    async fn check_and_enable_rshim(
+        &self,
+        bmc_ip_address: std::net::SocketAddr,
+        credentials: &Credentials,
+    ) -> Result<(), BfbRshimCopyError> {
+        let mut i = 0;
+        while i < 3 {
+            if !self
+                .is_rshim_enabled(bmc_ip_address, credentials.clone())
+                .await?
+            {
+                tracing::warn!("RSHIM is not enabled on {bmc_ip_address}");
+                self.enable_rshim(bmc_ip_address, credentials.clone())
+                    .await?;
+
+                // Sleep for 10 seconds before checking again
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                i += 1;
+            } else {
+                return Ok(());
+            }
+        }
+
+        Err(BfbRshimCopyError::Other {
+            details: format!("could not enable RSHIM on {bmc_ip_address}"),
+        })
+    }
+
+    async fn create_unified_preingestion_bfb(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<(), BfbRshimCopyError> {
+        let _lock = self.bfb_file_lock.lock().await;
+
+        if fs::metadata(UNIFIED_PREINGESTION_BFB_PATH).await.is_err() {
+            tracing::info!("Writing {UNIFIED_PREINGESTION_BFB_PATH}");
+            let bf_cfg_contents = format!(
+                "BMC_USER=\"{username}\"\nBMC_PASSWORD=\"{password}\"\nBMC_REBOOT=\"yes\"\nCEC_REBOOT=\"yes\"\n"
+            );
+
+            let mut preingestion_bfb = File::open(PREINGESTION_BFB_PATH).await.map_err(|err| {
+                BfbRshimCopyError::Other {
+                    details: format!("failed to open {PREINGESTION_BFB_PATH}: {err}"),
+                }
+            })?;
+
+            let mut unified_bfb =
+                File::create(UNIFIED_PREINGESTION_BFB_PATH)
+                    .await
+                    .map_err(|err| BfbRshimCopyError::Other {
+                        details: format!("failed to create {UNIFIED_PREINGESTION_BFB_PATH}: {err}"),
+                    })?;
+
+            let mut buffer = vec![0; 1024 * 1024].into_boxed_slice(); // 1 MB buffer
+
+            tracing::info!("Writing BFB to {UNIFIED_PREINGESTION_BFB_PATH}");
+            loop {
+                let n = preingestion_bfb.read(&mut buffer).await.map_err(|err| {
+                    BfbRshimCopyError::Other {
+                        details: format!("failed to read BFB: {err}"),
+                    }
+                })?;
+
+                if n == 0 {
+                    break;
+                }
+
+                unified_bfb.write_all(&buffer[..n]).await.map_err(|err| {
+                    BfbRshimCopyError::Other {
+                        details: format!(
+                            "failed to write BFB to {UNIFIED_PREINGESTION_BFB_PATH}: {err}"
+                        ),
+                    }
+                })?;
+            }
+
+            tracing::info!("Writing bf.cfg to {UNIFIED_PREINGESTION_BFB_PATH}");
+
+            unified_bfb
+                .write_all(bf_cfg_contents.as_bytes())
+                .await
+                .map_err(|err| BfbRshimCopyError::Other {
+                    details: format!("failed to write bf.cfg: {err}"),
+                })?;
+
+            unified_bfb
+                .sync_all()
+                .await
+                .map_err(|err| BfbRshimCopyError::Other {
+                    details: format!("failed to flush {UNIFIED_PREINGESTION_BFB_PATH}: {err}"),
+                })?;
+        }
+
+        Ok(())
+    }
+
+    async fn copy_bfb_to_dpu_rshim(
+        &self,
+        bmc_ip_address: std::net::SocketAddr,
+        credential_key: &CredentialKey,
+        is_bf2: bool,
+    ) -> Result<(), BfbRshimCopyError> {
+        let credentials = self.get_bmc_root_credentials(credential_key).await?;
+        let (username, password) = match credentials.clone() {
+            Credentials::UsernamePassword { username, password } => (username, password),
+        };
+
+        self.create_unified_preingestion_bfb(&username, &password)
+            .await?;
+
+        self.check_and_enable_rshim(bmc_ip_address, &credentials)
+            .await?;
+
+        forge_ssh::ssh::copy_bfb_to_bmc_rshim(
+            bmc_ip_address,
+            username,
+            password,
+            UNIFIED_PREINGESTION_BFB_PATH.to_string(),
+            is_bf2,
+        )
+        .await
+        .map_err(|err| BfbRshimCopyError::Other {
+            details: format!(
+                "failed to copy BFB from {UNIFIED_PREINGESTION_BFB_PATH} to BMC RSHIM on {bmc_ip_address}: {err}"
+            ),
+        })
     }
 }
 

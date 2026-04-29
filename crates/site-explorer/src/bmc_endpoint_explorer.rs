@@ -31,10 +31,6 @@ use model::expected_entity::{BmcCredentialsData, ExpectedEntity};
 use model::expected_switch::ExpectedSwitch;
 use model::machine::MachineInterfaceSnapshot;
 use model::site_explorer::{EndpointExplorationError, EndpointExplorationReport, LockdownStatus};
-use tokio::fs::{self, File};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::Mutex;
-use tokio::time::{Duration, sleep};
 
 use super::EndpointExplorer;
 use super::config::SiteExplorerExploreMode;
@@ -42,16 +38,11 @@ use super::credentials::{CredentialClient, get_bmc_root_credential_key};
 use super::metrics::SiteExplorationMetrics;
 use super::redfish::RedfishClient;
 
-const UNIFIED_PREINGESTION_BFB_PATH: &str =
-    "/forge-boot-artifacts/blobs/internal/aarch64/preingestion_unified_update.bfb";
-const PREINGESTION_BFB_PATH: &str = "/forge-boot-artifacts/blobs/internal/aarch64/preingestion.bfb";
-
 /// An `EndpointExplorer` which uses redfish APIs to query the endpoint
 pub struct BmcEndpointExplorer {
     redfish_client: RedfishClient,
     ipmi_tool: Arc<dyn IPMITool>,
     credential_client: CredentialClient,
-    mutex: Arc<Mutex<()>>,
     rotate_switch_nvos_credentials: Arc<AtomicBool>,
     mode: SiteExplorerExploreMode,
 }
@@ -69,7 +60,6 @@ impl BmcEndpointExplorer {
             redfish_client: RedfishClient::new(redfish_client_pool, nv_redfish_client_pool),
             ipmi_tool,
             credential_client: CredentialClient::new(credential_manager),
-            mutex: Arc::new(Mutex::new(())),
             rotate_switch_nvos_credentials,
             mode,
         }
@@ -118,15 +108,6 @@ impl BmcEndpointExplorer {
     ) -> Result<(), EndpointExplorationError> {
         self.credential_client
             .set_bmc_root_credentials(bmc_mac_address, credentials)
-            .await
-    }
-
-    pub async fn probe_redfish_endpoint(
-        &self,
-        bmc_ip_address: SocketAddr,
-    ) -> Result<RedfishVendor, EndpointExplorationError> {
-        self.redfish_client
-            .probe_redfish_endpoint(bmc_ip_address)
             .await
     }
 
@@ -420,168 +401,6 @@ impl BmcEndpointExplorer {
             .await
     }
 
-    async fn is_rshim_enabled(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-    ) -> Result<bool, EndpointExplorationError> {
-        let (username, password) = match credentials {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-        let rshim_status = forge_ssh::ssh::is_rshim_enabled(bmc_ip_address, username, password)
-            .await
-            .map_err(|err| EndpointExplorationError::Other {
-                details: format!("failed query RSHIM status on on {bmc_ip_address}: {err}"),
-            })?;
-
-        Ok(rshim_status)
-    }
-
-    async fn enable_rshim(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-    ) -> Result<(), EndpointExplorationError> {
-        let (username, password) = match credentials {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
-        forge_ssh::ssh::enable_rshim(bmc_ip_address, username, password)
-            .await
-            .map_err(|err| EndpointExplorationError::Other {
-                details: format!("failed enable RSHIM on {bmc_ip_address}: {err}"),
-            })
-    }
-
-    async fn check_and_enable_rshim(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: &Credentials,
-    ) -> Result<(), EndpointExplorationError> {
-        let mut i = 0;
-        while i < 3 {
-            if !self
-                .is_rshim_enabled(bmc_ip_address, credentials.clone())
-                .await?
-            {
-                tracing::warn!("RSHIM is not enabled on {bmc_ip_address}");
-                self.enable_rshim(bmc_ip_address, credentials.clone())
-                    .await?;
-
-                // Sleep for 10 seconds before checking again
-                sleep(Duration::from_secs(10)).await;
-                i += 1;
-            } else {
-                return Ok(());
-            }
-        }
-
-        Err(EndpointExplorationError::Other {
-            details: format!("could not enable RSHIM on {bmc_ip_address}"),
-        })
-    }
-
-    async fn create_unified_preingestion_bfb(
-        &self,
-        username: &str,
-        password: &str,
-    ) -> Result<(), EndpointExplorationError> {
-        let mutex_clone = Arc::clone(&self.mutex);
-        let _lock = mutex_clone.lock().await;
-
-        if fs::metadata(UNIFIED_PREINGESTION_BFB_PATH).await.is_err() {
-            tracing::info!("Writing {UNIFIED_PREINGESTION_BFB_PATH}");
-            let bf_cfg_contents = format!(
-                "BMC_USER=\"{username}\"\nBMC_PASSWORD=\"{password}\"\nBMC_REBOOT=\"yes\"\nCEC_REBOOT=\"yes\"\n"
-            );
-
-            let mut preingestion_bfb = File::open(PREINGESTION_BFB_PATH).await.map_err(|err| {
-                EndpointExplorationError::Other {
-                    details: format!("failed to open {PREINGESTION_BFB_PATH}: {err}"),
-                }
-            })?;
-
-            let mut unified_bfb =
-                File::create(UNIFIED_PREINGESTION_BFB_PATH)
-                    .await
-                    .map_err(|err| EndpointExplorationError::Other {
-                        details: format!("failed to create {UNIFIED_PREINGESTION_BFB_PATH}: {err}"),
-                    })?;
-
-            let mut buffer = vec![0; 1024 * 1024].into_boxed_slice(); // 1 MB buffer
-
-            tracing::info!("Writing BFB to {UNIFIED_PREINGESTION_BFB_PATH}");
-            loop {
-                let n = preingestion_bfb.read(&mut buffer).await.map_err(|err| {
-                    EndpointExplorationError::Other {
-                        details: format!("failed to read BFB: {err}"),
-                    }
-                })?;
-
-                if n == 0 {
-                    break;
-                }
-
-                unified_bfb.write_all(&buffer[..n]).await.map_err(|err| {
-                    EndpointExplorationError::Other {
-                        details: format!(
-                            "failed to write BFB to {UNIFIED_PREINGESTION_BFB_PATH}: {err}"
-                        ),
-                    }
-                })?;
-            }
-
-            tracing::info!("Writing bf.cfg to {UNIFIED_PREINGESTION_BFB_PATH}");
-
-            unified_bfb
-                .write_all(bf_cfg_contents.as_bytes())
-                .await
-                .map_err(|err| EndpointExplorationError::Other {
-                    details: format!("failed to write bf.cfg: {err}"),
-                })?;
-
-            unified_bfb
-                .sync_all()
-                .await
-                .map_err(|err| EndpointExplorationError::Other {
-                    details: format!("failed to flush {UNIFIED_PREINGESTION_BFB_PATH}: {err}"),
-                })?;
-        }
-
-        Ok(())
-    }
-
-    async fn copy_bfb_to_dpu_rshim(
-        &self,
-        bmc_ip_address: SocketAddr,
-        credentials: Credentials,
-        is_bf2: bool,
-    ) -> Result<(), EndpointExplorationError> {
-        let (username, password) = match credentials.clone() {
-            Credentials::UsernamePassword { username, password } => (username, password),
-        };
-
-        self.create_unified_preingestion_bfb(&username, &password)
-            .await?;
-
-        self.check_and_enable_rshim(bmc_ip_address, &credentials)
-            .await?;
-
-        forge_ssh::ssh::copy_bfb_to_bmc_rshim(
-            bmc_ip_address,
-            username,
-            password,
-            UNIFIED_PREINGESTION_BFB_PATH.to_string(),
-            is_bf2,
-        )
-        .await
-        .map_err(|err| EndpointExplorationError::Other {
-            details: format!(
-                "failed to copy BFB from {UNIFIED_PREINGESTION_BFB_PATH} to BMC RSHIM on {bmc_ip_address}: {err}"
-            ),
-        })
-    }
-
     async fn create_bmc_user(
         &self,
         bmc_ip_address: SocketAddr,
@@ -622,16 +441,6 @@ impl EndpointExplorer for BmcEndpointExplorer {
         self.credential_client.check_preconditions(metrics).await
     }
 
-    async fn probe_redfish_endpoint(
-        &self,
-        bmc_ip_address: SocketAddr,
-    ) -> Result<(), EndpointExplorationError> {
-        self.redfish_client
-            .probe_redfish_endpoint(bmc_ip_address)
-            .await
-            .map(|_| ())
-    }
-
     async fn have_credentials(&self, interface: &MachineInterfaceSnapshot) -> bool {
         self.get_bmc_root_credentials(interface.mac_address)
             .await
@@ -659,7 +468,7 @@ impl EndpointExplorer for BmcEndpointExplorer {
         }
 
         let bmc_mac_address = interface.mac_address;
-        let vendor = match self.probe_redfish_endpoint(bmc_ip_address).await {
+        let vendor = match self.redfish_client.get_redfish_vendor(bmc_ip_address).await {
             Ok(vendor) => vendor,
             Err(e) => {
                 tracing::error!(%bmc_ip_address, "Failed to probe Redfish service root endpoint: {e}");
@@ -1150,30 +959,6 @@ impl EndpointExplorer for BmcEndpointExplorer {
                 tracing::info!(
                     %bmc_ip_address,
                     "BMC endpoint explorer does not support clear_nvram for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
-                    bmc_mac_address,
-                );
-                Err(e)
-            }
-        }
-    }
-
-    async fn copy_bfb_to_dpu_rshim(
-        &self,
-        bmc_ip_address: SocketAddr,
-        interface: &MachineInterfaceSnapshot,
-        is_bf2: bool,
-    ) -> Result<(), EndpointExplorationError> {
-        let bmc_mac_address = interface.mac_address;
-
-        match self.get_bmc_root_credentials(bmc_mac_address).await {
-            Ok(credentials) => {
-                self.copy_bfb_to_dpu_rshim(bmc_ip_address, credentials, is_bf2)
-                    .await
-            }
-            Err(e) => {
-                tracing::info!(
-                    %bmc_ip_address,
-                    "BMC endpoint explorer does not support copy_bfb_to_dpu_rshim for endpoints that have not been authenticated: could not find an entry in vault at 'bmc/{}/root'.",
                     bmc_mac_address,
                 );
                 Err(e)

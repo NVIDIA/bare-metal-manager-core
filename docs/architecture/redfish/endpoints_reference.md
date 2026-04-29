@@ -14,7 +14,7 @@ Field importance levels:
 
 ## Service Root
 
-**Code**: `get_service_root()` in libredfish; `probe_redfish_endpoint()` in `site_explorer/redfish.rs`
+**Code**: `get_service_root()` in libredfish; `get_redfish_vendor()` in `site_explorer/redfish.rs`
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|

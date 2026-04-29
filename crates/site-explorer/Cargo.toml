@@ -22,7 +22,6 @@ carbide-ipmi = { path = "../ipmi" }
 carbide-network = { path = "../network" }
 carbide-redfish = { path = "../redfish" }
 carbide-secrets = { path = "../secrets" }
-carbide-ssh = { path = "../ssh" }
 carbide-utils = { path = "../utils" }
 carbide-uuid = { path = "../uuid" }
 config-version = { path = "../config-version" }

@@ -80,7 +80,7 @@ With an authenticated session, Site Explorer queries a comprehensive set of Redf
 Serial numbers are trimmed of whitespace. If `system.serial_number` is missing, the chassis serial number is used as a fallback.
 
 **Key files:**
-- `crates/site-explorer/src/redfish.rs` — `RedfishClient`: `probe_redfish_endpoint()`, `create_redfish_client()`, inventory queries
+- `crates/site-explorer/src/redfish.rs` — `RedfishClient`: `get_redfish_vendor()`, `create_redfish_client()`, inventory queries
 - `crates/site-explorer/src/bmc_endpoint_explorer.rs` — `BmcEndpointExplorer` orchestrates credential lookup and exploration
 - `crates/api-model/src/bmc_info.rs` — `BmcInfo` model (IP, port, MAC, firmware version)
 
