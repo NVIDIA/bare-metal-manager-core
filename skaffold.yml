@@ -31,6 +31,9 @@ build:
         infer:
           - "carbide"
           - pxe/static/*
+    - image: forge-unbound-localdev
+      docker:
+        dockerfile: dev/deployment/localdev/Dockerfile.unbound.localdev
     - image: carbide-api
       docker:
         dockerfile: dev/deployment/localdev/Dockerfile.api.localdev
@@ -104,5 +107,5 @@ deploy:
   kubeContext: k3s-dev
   kubectl:
     defaultNamespace: forge-system
-  statusCheckDeadlineSeconds: 60
+  statusCheckDeadlineSeconds: 300
   tolerateFailuresUntilDeadline: true

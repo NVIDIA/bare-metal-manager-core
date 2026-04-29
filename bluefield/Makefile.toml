@@ -18,7 +18,7 @@
 [env]
 # e.g. 2024.05.24-rc1-0-0-g786e94757
 DPU_AGENT_PKG_VERSION = { script = [
-  "echo $(git describe --tags --first-parent --always --long | cut -c 2-)",
+  "v=$(git describe --tags --first-parent --always --long | sed 's/^v//'); case \"$v\" in [0-9]*) echo \"$v\" ;; *) echo \"0+$v\" ;; esac",
 ] }
 
 [tasks.cleanup-local-pkg-files]
