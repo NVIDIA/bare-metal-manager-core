@@ -718,7 +718,7 @@ pub fn build_deployment<L: ResourceLabeler>(
             namespace: Some(namespace.to_string()),
             annotations: Some(BTreeMap::from([(
                 "svc.dpu.nvidia.com/dpudeployment-skip-chain-requestor".to_string(),
-                "true".to_string(),
+                "".to_string(),
             )])),
             ..Default::default()
         },
