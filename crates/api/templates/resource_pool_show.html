@@ -21,8 +21,8 @@
 			<td>{{ pool.name }}</td>
 			<td>{{ pool.min }}</td>
 			<td>{{ pool.max }}</td>
-			<td>{{ pool.size }}</td>
-			<td>{{ pool.allocated }}</td>
+			<td>{{ pool.total }}</td>
+			<td>{{ pool|resource_pool_allocated_fmt }}</td>
 		</tr>
 		{% endfor %}
 	</tbody>

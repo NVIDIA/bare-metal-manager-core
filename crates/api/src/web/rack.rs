@@ -32,16 +32,7 @@ use crate::api::Api;
 #[derive(Template)]
 #[template(path = "rack_show.html")]
 struct Racks {
-    racks: Vec<RackRecord>,
-}
-
-#[derive(Debug, serde::Serialize)]
-struct RackRecord {
-    id: String,
-    rack_state: String,
-    compute_trays: String,
-    power_shelves: String,
-    switches: String,
+    racks: Vec<rpc::forge::Rack>,
 }
 
 #[derive(Template)]
@@ -74,31 +65,7 @@ pub async fn show_html(state: AxumState<Arc<Api>>) -> Response {
         }
     };
 
-    let racks = racks
-        .racks
-        .into_iter()
-        .map(|rack| RackRecord {
-            id: rack.id.map(|id| id.to_string()).unwrap_or_default(),
-            rack_state: rack.rack_state,
-            compute_trays: format!(
-                "{} / {}",
-                rack.compute_trays.len(),
-                rack.expected_compute_trays.len()
-            ),
-            power_shelves: format!(
-                "{} / {}",
-                rack.power_shelves.len(),
-                rack.expected_power_shelves.len()
-            ),
-            switches: format!(
-                "{} / {}",
-                rack.switches.len(),
-                rack.expected_nvlink_switches.len()
-            ),
-        })
-        .collect();
-
-    let display = Racks { racks };
+    let display = Racks { racks: racks.racks };
     (StatusCode::OK, Html(display.render().unwrap())).into_response()
 }
 

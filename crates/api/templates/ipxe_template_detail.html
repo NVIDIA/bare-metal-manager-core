@@ -1,24 +1,24 @@
 {% extends "base.html" %}
 
-{% block title %}iPXE Template {{ name }}{% endblock %}
+{% block title %}iPXE Template {{ tmpl.name }}{% endblock %}
 
 {% block content %}
-<h1>iPXE Template: {{ name }}</h1>
+<h1>iPXE Template: {{ tmpl.name }}</h1>
 
 <table class="detailsview">
-	<tr><th>Name</th><td>{{ name }}</td></tr>
-	<tr><th>Description</th><td>{{ description }}</td></tr>
-	<tr><th>Scope</th><td>{{ scope }}</td></tr>
+	<tr><th>Name</th><td>{{ tmpl.name }}</td></tr>
+	<tr><th>Description</th><td>{{ tmpl.description }}</td></tr>
+	<tr><th>Scope</th><td>{{ tmpl.scope|ipxe_template_scope_fmt }}</td></tr>
 </table>
 
-{% if !required_params.is_empty() %}
+{% if !tmpl.required_params.is_empty() %}
 <h2>Required Parameters</h2>
 <table class="sortable overview">
 	<thead>
 		<th>Name</th>
 	</thead>
 	<tbody>
-		{% for param in required_params %}
+		{% for param in tmpl.required_params %}
 		<tr>
 			<td>{{ param }}</td>
 		</tr>
@@ -27,14 +27,14 @@
 </table>
 {% endif %}
 
-{% if !reserved_params.is_empty() %}
+{% if !tmpl.reserved_params.is_empty() %}
 <h2>Reserved Parameters</h2>
 <table class="sortable overview">
 	<thead>
 		<th>Name</th>
 	</thead>
 	<tbody>
-		{% for param in reserved_params %}
+		{% for param in tmpl.reserved_params %}
 		<tr>
 			<td>{{ param }}</td>
 		</tr>
@@ -43,14 +43,14 @@
 </table>
 {% endif %}
 
-{% if !required_artifacts.is_empty() %}
+{% if !tmpl.required_artifacts.is_empty() %}
 <h2>Required Artifacts</h2>
 <table class="sortable overview">
 	<thead>
 		<th>Name</th>
 	</thead>
 	<tbody>
-		{% for artifact in required_artifacts %}
+		{% for artifact in tmpl.required_artifacts %}
 		<tr>
 			<td>{{ artifact }}</td>
 		</tr>
@@ -60,6 +60,6 @@
 {% endif %}
 
 <h2>Template</h2>
-<textarea disabled rows="30" cols="100" style="width:100%;font-family:monospace;">{{ template_text }}</textarea>
+<textarea disabled rows="30" cols="100" style="width:100%;font-family:monospace;">{{ tmpl.template }}</textarea>
 
 {% endblock %}

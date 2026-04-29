@@ -32,11 +32,11 @@
                             <tbody>
                             {% for rack in racks %}
                             <tr>
-                                <td>{{ rack.id|rack_id_link|safe }}</td>
+                                <td>{{ rack.id|option_fmt|rack_id_link|safe }}</td>
                                 <td>{{ rack.rack_state }}</td>
-                                <td>{{ rack.compute_trays }}</td>
-                                <td>{{ rack.power_shelves }}</td>
-                                <td>{{ rack.switches }}</td>
+                                <td>{{ rack.compute_trays.len() }} / {{ rack.expected_compute_trays.len() }}</td>
+                                <td>{{ rack.power_shelves.len() }} / {{ rack.expected_power_shelves.len() }}</td>
+                                <td>{{ rack.switches.len() }} / {{ rack.expected_nvlink_switches.len() }}</td>
                             </tr>
                             {% endfor %}
                             </tbody>

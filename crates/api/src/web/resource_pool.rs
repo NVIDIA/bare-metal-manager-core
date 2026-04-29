@@ -25,41 +25,29 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
+mod filters {
+    pub fn resource_pool_allocated_fmt(
+        pool: &super::forgerpc::ResourcePool,
+    ) -> askama::Result<String> {
+        Ok(format!(
+            "{} ({:.0}%)",
+            pool.allocated,
+            pool.allocated as f64 / pool.total as f64 * 100.0
+        ))
+    }
+}
+
 use crate::api::Api;
 
 #[derive(Template)]
 #[template(path = "resource_pool_show.html")]
 struct ResourcePoolShow {
-    pools: Vec<ResourcePoolDisplay>,
-}
-
-struct ResourcePoolDisplay {
-    name: String,
-    min: String,
-    max: String,
-    size: u64,
-    allocated: String,
-}
-
-impl From<forgerpc::ResourcePool> for ResourcePoolDisplay {
-    fn from(pool: forgerpc::ResourcePool) -> Self {
-        Self {
-            name: pool.name,
-            min: pool.min,
-            max: pool.max,
-            size: pool.total,
-            allocated: format!(
-                "{} ({:.0}%)",
-                pool.allocated,
-                pool.allocated as f64 / pool.total as f64 * 100.0
-            ),
-        }
-    }
+    pools: Vec<forgerpc::ResourcePool>,
 }
 
 /// List resource pools
 pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
-    let out = match fetch_resource_pools(state).await {
+    let pools = match fetch_resource_pools(state).await {
         Ok(m) => m,
         Err(err) => {
             tracing::error!(%err, "admin_list_resource_pools");
@@ -70,10 +58,6 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
                 .into_response();
         }
     };
-    let mut pools: Vec<ResourcePoolDisplay> = Vec::new();
-    for rp in out.into_iter() {
-        pools.push(rp.into());
-    }
     let tmpl = ResourcePoolShow { pools };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }

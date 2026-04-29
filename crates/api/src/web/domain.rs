@@ -24,35 +24,13 @@ use axum::response::{Html, IntoResponse, Response};
 use hyper::http::StatusCode;
 use rpc::forge::forge_server::Forge;
 
+use super::filters;
 use crate::api::Api;
 
 #[derive(Template)]
 #[template(path = "domain_show.html")]
 struct DomainShow {
-    domains: Vec<DomainRowDisplay>,
-}
-
-struct DomainRowDisplay {
-    id: String,
-    name: String,
-    created: String,
-    updated: String,
-    deleted: String,
-}
-
-impl From<::rpc::protos::dns::Domain> for DomainRowDisplay {
-    fn from(d: ::rpc::protos::dns::Domain) -> Self {
-        Self {
-            id: d.id.unwrap_or_default().to_string(),
-            name: d.name,
-            created: d.created.unwrap_or_default().to_string(),
-            updated: d.updated.unwrap_or_default().to_string(),
-            deleted: d
-                .deleted
-                .map(|x| x.to_string())
-                .unwrap_or("Not Deleted".to_string()),
-        }
-    }
+    domains: Vec<::rpc::protos::dns::Domain>,
 }
 
 /// List domains
@@ -65,15 +43,11 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
         }
     };
 
-    let mut out = Vec::new();
-    for domain in domains.domains.into_iter() {
-        out.push(domain.into());
-    }
-
-    let tmpl = DomainShow { domains: out };
+    let tmpl = DomainShow {
+        domains: domains.domains,
+    };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
-
 pub async fn show_all_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
     let domains = match fetch_domains(state).await {
         Ok(m) => m,

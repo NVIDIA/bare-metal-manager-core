@@ -19,11 +19,11 @@
 	<tbody>
 		{% for domain in domains %}
 			<tr>
-				<td>{{ domain.id }}</td>
+				<td>{{ domain.id|option_fmt }}</td>
 				<td>{{ domain.name }}</td>
-				<td>{{ domain.created }}</td>
-				<td>{{ domain.updated }}</td>
-				<td>{{ domain.deleted }}</td>
+				<td>{{ domain.created|option_fmt }}</td>
+				<td>{{ domain.updated|option_fmt }}</td>
+				<td>{{ domain.deleted|option_fmt_or("Not Deleted") }}</td>
 			</tr>
 		{% endfor %}
 	</tbody>

@@ -30,11 +30,7 @@ use crate::api::Api;
 #[derive(Template)]
 #[template(path = "ib_fabric_show.html")]
 struct IbFabricShow {
-    fabrics: Vec<IbFabricRowDisplay>,
-}
-
-struct IbFabricRowDisplay {
-    id: String,
+    fabrics: Vec<String>,
 }
 
 /// List fabrics
@@ -51,12 +47,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
         }
     };
 
-    let tmpl = IbFabricShow {
-        fabrics: fabrics
-            .into_iter()
-            .map(|id| IbFabricRowDisplay { id })
-            .collect(),
-    };
+    let tmpl = IbFabricShow { fabrics };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 

@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use askama::Template;
@@ -25,37 +26,26 @@ use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 
+fn ipxe_template_scope_fmt(scope: &i32) -> Cow<'static, str> {
+    rpc::forge::IpxeTemplateScope::try_from(*scope)
+        .map(|scope| Cow::Owned(format!("{scope:?}")))
+        .unwrap_or(Cow::Borrowed("Unknown"))
+}
+
+mod filters {
+    pub use super::super::filters::option_fmt;
+
+    pub fn ipxe_template_scope_fmt(scope: &i32) -> askama::Result<super::Cow<'static, str>> {
+        Ok(super::ipxe_template_scope_fmt(scope))
+    }
+}
+
 use crate::api::Api;
 
 #[derive(Template)]
 #[template(path = "ipxe_template_show.html")]
 struct IpxeTemplateShow {
-    templates: Vec<IpxeTemplateRowDisplay>,
-}
-
-struct IpxeTemplateRowDisplay {
-    id: String,
-    name: String,
-    description: String,
-    scope: String,
-    required_params_count: usize,
-    required_artifacts_count: usize,
-}
-
-impl From<&forgerpc::IpxeTemplate> for IpxeTemplateRowDisplay {
-    fn from(tmpl: &forgerpc::IpxeTemplate) -> Self {
-        let scope = forgerpc::IpxeTemplateScope::try_from(tmpl.scope)
-            .map(|s| format!("{s:?}"))
-            .unwrap_or_else(|_| "Unknown".to_string());
-        Self {
-            id: tmpl.id.as_ref().map(|u| u.to_string()).unwrap_or_default(),
-            name: tmpl.name.clone(),
-            description: tmpl.description.clone(),
-            scope,
-            required_params_count: tmpl.required_params.len(),
-            required_artifacts_count: tmpl.required_artifacts.len(),
-        }
-    }
+    templates: Vec<forgerpc::IpxeTemplate>,
 }
 
 pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
@@ -71,9 +61,7 @@ pub async fn show_html(AxumState(state): AxumState<Arc<Api>>) -> Response {
         }
     };
 
-    let tmpl = IpxeTemplateShow {
-        templates: templates.iter().map(Into::into).collect(),
-    };
+    let tmpl = IpxeTemplateShow { templates };
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
 }
 
@@ -103,29 +91,12 @@ async fn fetch_templates(api: Arc<Api>) -> Result<Vec<forgerpc::IpxeTemplate>, t
 #[derive(Template)]
 #[template(path = "ipxe_template_detail.html")]
 struct IpxeTemplateDetail {
-    name: String,
-    description: String,
-    scope: String,
-    required_params: Vec<String>,
-    reserved_params: Vec<String>,
-    required_artifacts: Vec<String>,
-    template_text: String,
+    tmpl: forgerpc::IpxeTemplate,
 }
 
 impl From<forgerpc::IpxeTemplate> for IpxeTemplateDetail {
     fn from(tmpl: forgerpc::IpxeTemplate) -> Self {
-        let scope = forgerpc::IpxeTemplateScope::try_from(tmpl.scope)
-            .map(|s| format!("{s:?}"))
-            .unwrap_or_else(|_| "Unknown".to_string());
-        Self {
-            name: tmpl.name,
-            description: tmpl.description,
-            scope,
-            required_params: tmpl.required_params,
-            reserved_params: tmpl.reserved_params,
-            required_artifacts: tmpl.required_artifacts,
-            template_text: tmpl.template,
-        }
+        Self { tmpl }
     }
 }
 

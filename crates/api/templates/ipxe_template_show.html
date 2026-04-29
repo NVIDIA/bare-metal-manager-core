@@ -17,11 +17,11 @@
 	<tbody>
 		{% for tmpl in templates %}
 		<tr>
-			<td><a href="/admin/ipxe-template/{{ tmpl.id }}">{{ tmpl.name }}</a></td>
+			<td><a href="/admin/ipxe-template/{{ tmpl.id|option_fmt }}">{{ tmpl.name }}</a></td>
 			<td>{{ tmpl.description }}</td>
-			<td>{{ tmpl.scope }}</td>
-			<td>{{ tmpl.required_params_count }}</td>
-			<td>{{ tmpl.required_artifacts_count }}</td>
+			<td>{{ tmpl.scope|ipxe_template_scope_fmt }}</td>
+			<td>{{ tmpl.required_params.len() }}</td>
+			<td>{{ tmpl.required_artifacts.len() }}</td>
 		</tr>
 		{% endfor %}
 	</tbody>

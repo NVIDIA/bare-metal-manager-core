@@ -222,6 +222,13 @@ pub fn option_fmt(value: &Option<impl Display>) -> askama::Result<String> {
     })
 }
 
+pub fn option_fmt_or(value: &Option<impl Display>, default: &str) -> askama::Result<String> {
+    Ok(match value {
+        Some(value) => value.to_string(),
+        None => default.to_string(),
+    })
+}
+
 pub(crate) fn normalize_state_label(state: impl Display) -> String {
     state_and_substate_labels(state).0
 }
