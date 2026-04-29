@@ -15,9 +15,7 @@
 
 # Workflow 1 of 2 for Fern doc previews.
 #
-# Collects fern/ sources and PR metadata and uploads an artifact. Does not run
-# checkout/scripts on arbitrary fork heads: same-repo PRs only, or copy-pr-bot
-# push to pull-request/<n> after /ok-to-test (see copy-pr-bot docs / ci.yaml).
+# Collects fern/, docs/, and PR metadata and uploads an artifact.
 #
 # The companion workflow (fern-docs-preview-comment.yml) runs after this one;
 # it skips cleanly when no artifact exists (e.g. skipped fork pull_request).
@@ -28,12 +26,14 @@ on:
   pull_request:
     paths:
       - 'fern/**'
+      - 'docs/**'
       - '.github/workflows/fern-docs-preview-build.yml'
   push:
     branches:
       - 'pull-request/[0-9]+'
     paths:
       - 'fern/**'
+      - 'docs/**'
       - '.github/workflows/fern-docs-preview-build.yml'
 
 permissions:
@@ -69,11 +69,12 @@ jobs:
             git diff --name-only "origin/${DEFAULT_BRANCH}...HEAD" -- '*.md' > preview-metadata/changed_md_files 2>/dev/null || true
           fi
 
-      - name: Upload fern sources and metadata
+      - name: Upload Fern docs inputs and metadata
         uses: actions/upload-artifact@v4
         with:
           name: fern-preview
           path: |
             fern/
+            docs/
             preview-metadata/
           retention-days: 1
