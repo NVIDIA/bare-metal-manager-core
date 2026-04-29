@@ -486,10 +486,11 @@ impl SiteExplorer {
             }
 
             for system in ep.report.systems.iter() {
-                if system.power_state != PowerState::On {
+                if should_alert_power_state(system.power_state) {
                     new_health_report
                         .alerts
                         .push(health_report::HealthProbeAlert {
+                            // PoweredOff alert ID covers Off/Paused/Unknown states
                             id: "PoweredOff".parse().unwrap(),
                             target: Some(ep.address.to_string()),
                             in_alert_since: None,
@@ -624,7 +625,7 @@ impl SiteExplorer {
         // the generation of both reports is not necessarily atomic.
         // This is improvable
         // However since host information rarely changes (we never reassign MachineInterfaces),
-        // this should be ok. The most noticable effect is that ManagedHost population might be delayed a bit.
+        // this should be ok. The most noticeable effect is that ManagedHost population might be delayed a bit.
         let mut identified_hosts = self
             .identify_managed_hosts(
                 metrics,
@@ -1048,7 +1049,7 @@ impl SiteExplorer {
                                 continue;
                             }
 
-                            // TODO: we can use dpu_ep_entry.remove() insted of clone here but we need to
+                            // TODO: we can use dpu_ep_entry.remove() instead of clone here but we need to
                             // make sure that it will not affect fallback_dpu_serial_numbers logic.
                             let dpu_ep = dpu_ep_entry.get().clone();
                             dpus_explored_for_host.push(ExploredDpu {
@@ -1577,7 +1578,7 @@ impl SiteExplorer {
                                 // It's possible that we knew about this host type before but do not now, so make sure we
                                 // do not keep stale data.
                                 report.versions = HashMap::default();
-                                tracing::debug!("Can not find fimware info for: vendor: {:?}; model: {:?}", report.vendor, report.model());
+                                tracing::debug!("Can not find firmware info for: vendor: {:?}; model: {:?}", report.vendor, report.model());
                             }
 
                             // Go through the chassis entries and get what at least one of them says
@@ -1763,7 +1764,7 @@ impl SiteExplorer {
             return;
         }
 
-        // If site explorer cant log in, theres nothing we can do.
+        // If site explorer can't log in, there's nothing we can do.
         if !self
             .endpoint_explorer
             .have_credentials(endpoint.iface)
@@ -2259,7 +2260,7 @@ impl SiteExplorer {
                 );
             } else if fresh_power_state.is_some() {
                 tracing::warn!(
-                    "Site Explorer found an uningested host (bmc_ip_address: {}) that isnt on: {:#?}",
+                    "Site Explorer found an uningested host (bmc_ip_address: {}) that isn't on: {:#?}",
                     host_endpoint.address,
                     effective_power_state
                 );
@@ -2627,6 +2628,18 @@ fn pause_ingestion_and_poweron(
     false
 }
 
+/// Returns true if the power state should trigger a PoweredOff health alert.
+///
+/// We alert on `Off`, `Paused`, and `Unknown` states, but NOT on transitional
+/// states (`PoweringOn`, `PoweringOff`) because the BMC is still responding
+/// during graceful power reset (warm reboot)
+fn should_alert_power_state(power_state: PowerState) -> bool {
+    !matches!(
+        power_state,
+        PowerState::On | PowerState::PoweringOn | PowerState::PoweringOff
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use model::site_explorer::PreingestionState;
@@ -2750,5 +2763,19 @@ mod tests {
             find_host_pf_mac_address(&ep1),
             Err("Missing FirmwareInventory".to_string())
         );
+    }
+
+    #[test]
+    fn test_should_alert_power_state() {
+        // Should NOT alert on On or transitional states (PoweringOn/PoweringOff)
+        // because the BMC is still responding during graceful power reset
+        assert!(!should_alert_power_state(PowerState::On));
+        assert!(!should_alert_power_state(PowerState::PoweringOn));
+        assert!(!should_alert_power_state(PowerState::PoweringOff));
+
+        // Should alert on Off, Paused, and Unknown states
+        assert!(should_alert_power_state(PowerState::Off));
+        assert!(should_alert_power_state(PowerState::Paused));
+        assert!(should_alert_power_state(PowerState::Unknown));
     }
 }
