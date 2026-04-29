@@ -22,6 +22,8 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use carbide_firmware::FirmwareDownloader;
+use carbide_ib_fabric::IbFabricMonitor;
+use carbide_ib_fabric::ib::{self, IBFabricManager};
 use carbide_ipmi::IPMITool;
 use carbide_nvlink_manager::NvlPartitionMonitor;
 use carbide_nvlink_manager::nvlink::{NmxmClientPool, NmxmClientPoolImpl};
@@ -63,8 +65,6 @@ use crate::dpa::handler::{DpaInfo, start_dpa_handler};
 use crate::dynamic_settings::DynamicSettings;
 use crate::errors::CarbideError;
 use crate::handlers::machine_validation::apply_config_on_startup;
-use crate::ib::{self, IBFabricManager};
-use crate::ib_fabric_monitor::IbFabricMonitor;
 use crate::listener::ApiListenMode;
 use crate::logging::log_limiter::LogLimiter;
 use crate::logging::service_health_metrics::{
@@ -1025,7 +1025,7 @@ pub async fn initialize_and_start_controllers(
         },
         meter.clone(),
         ib_fabric_manager.clone(),
-        carbide_config.clone(),
+        carbide_config.host_health,
         work_lock_manager_handle.clone(),
     )
     .start(join_set, cancel_token.clone())?;

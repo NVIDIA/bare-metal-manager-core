@@ -16,9 +16,9 @@
  */
 
 use ::rpc::forge as rpc;
+use carbide_ib_fabric::config::IBFabricConfig;
 use rpc::forge_server::Forge;
 
-use crate::cfg::file::IBFabricConfig;
 use crate::tests::common::api_fixtures::{self};
 
 #[crate::sqlx_test]

@@ -30,6 +30,7 @@ use ::rpc::protos::dns::{
     UpdateDomainRequest,
 };
 use ::rpc::protos::{measured_boot as measured_boot_pb, mlx_device as mlx_device_pb};
+use carbide_ib_fabric::ib::IBFabricManager;
 use carbide_nvlink_manager::nvlink::NmxmClientPool;
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_site_explorer::EndpointExplorer;
@@ -53,7 +54,6 @@ use crate::cfg::file::CarbideConfig;
 use crate::dpf::DpfOperations;
 use crate::dynamic_settings::DynamicSettings;
 use crate::ethernet_virtualization::EthVirtData;
-use crate::ib::IBFabricManager;
 use crate::logging::log_limiter::LogLimiter;
 use crate::rack::bms_client::BmsDsxExchangeHandle;
 use crate::scout_stream::ConnectionRegistry;

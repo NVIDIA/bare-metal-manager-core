@@ -15,7 +15,8 @@
  * limitations under the License.
  */
 
-use crate::cfg::file::IBFabricConfig;
+use carbide_ib_fabric::config::IBFabricConfig;
+
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 

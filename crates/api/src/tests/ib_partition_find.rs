@@ -16,10 +16,10 @@
  */
 
 use ::rpc::forge as rpc;
+use carbide_ib_fabric::config::IBFabricConfig;
 use carbide_uuid::infiniband::IBPartitionId;
 use rpc::forge_server::Forge;
 
-use crate::cfg::file::IBFabricConfig;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::ib_partition::create_ib_partition;
 use crate::tests::common::api_fixtures::{TestEnvOverrides, create_test_env};

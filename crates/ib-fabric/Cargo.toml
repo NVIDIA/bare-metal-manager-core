@@ -1,0 +1,54 @@
+[package]
+name = "carbide-ib-fabric"
+version = "0.0.1"
+edition.workspace = true
+description = "Carbide IB fabric"
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "carbide_ib_fabric"
+
+[features]
+default = []
+test-support = []
+
+[dependencies]
+carbide-api-db = { path = "../api-db" }
+carbide-api-model = { path = "../api-model" }
+carbide-health-report = { path = "../health-report" }
+carbide-rpc = { path = "../rpc" }
+carbide-secrets = { path = "../secrets" }
+carbide-utils = { path = "../utils" }
+carbide-uuid = { path = "../uuid" }
+
+# these are alphabetized
+async-trait = { workspace = true }
+base64 = { workspace = true }
+chrono = { workspace = true }
+duration-str = { workspace = true }
+eyre = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+hyper-rustls = { workspace = true }
+hyper-timeout = { workspace = true }
+hyper-util = { workspace = true }
+opentelemetry = { workspace = true }
+rand = { workspace = true }
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+figment = { features = ["env", "test", "toml"], workspace = true }
+
+[lints]
+workspace = true

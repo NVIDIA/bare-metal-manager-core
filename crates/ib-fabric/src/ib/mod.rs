@@ -20,28 +20,27 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use forge_secrets::credentials::{CredentialKey, CredentialReader, Credentials};
+pub use iface::{
+    Filter, GetPartitionOptions, IBFabric, IBFabricConfig, IBFabricManager, IBFabricVersions,
+};
 pub use model::ib::{IBMtu, IBRateLimit, IBServiceLevel};
 
-#[cfg(test)]
-pub use self::iface::Filter;
-pub use self::iface::{
-    GetPartitionOptions, IBFabric, IBFabricConfig, IBFabricManager, IBFabricVersions,
-};
-use crate::{CarbideError, cfg};
+use crate::config;
+use crate::errors::IbError;
 
 mod disable;
 mod iface;
 mod rest;
 mod ufmclient;
 
-#[cfg(test)]
+#[cfg(feature = "test-support")]
 mod mock;
 
 #[derive(Copy, Clone, Default, PartialEq, Eq)]
 pub enum IBFabricManagerType {
     #[default]
     Disable,
-    #[cfg(test)]
+    #[cfg(feature = "test-support")]
     Mock,
     Rest,
 }
@@ -49,14 +48,14 @@ pub enum IBFabricManagerType {
 pub struct IBFabricManagerImpl {
     config: IBFabricManagerConfig,
     credential_reader: Arc<dyn CredentialReader>,
-    #[cfg(test)]
+    #[cfg(feature = "test-support")]
     mock_fabric: Arc<mock::MockIBFabric>,
     disable_fabric: Arc<dyn IBFabric>,
 }
 
 impl IBFabricManagerImpl {
     /// Gets the mocked fabric manager that is used within tests
-    #[cfg(test)]
+    #[cfg(feature = "test-support")]
     pub fn get_mock_manager(&self) -> Arc<mock::MockIBFabric> {
         self.mock_fabric.clone()
     }
@@ -82,12 +81,12 @@ impl Default for IBFabricManagerConfig {
             allow_insecure_fabric_configuration: false,
             endpoints: HashMap::default(),
             manager_type: IBFabricManagerType::default(),
-            max_partition_per_tenant: cfg::file::IBFabricConfig::default_max_partition_per_tenant(),
+            max_partition_per_tenant: config::IBFabricConfig::default_max_partition_per_tenant(),
             mtu: IBMtu::default(),
             rate_limit: IBRateLimit::default(),
             service_level: IBServiceLevel::default(),
             fabric_manager_run_interval:
-                cfg::file::IBFabricConfig::default_fabric_monitor_run_interval(),
+                config::IBFabricConfig::default_fabric_monitor_run_interval(),
         }
     }
 }
@@ -113,14 +112,15 @@ pub fn create_ib_fabric_manager(
         }
     }
 
-    #[cfg(test)]
+    #[cfg(feature = "test-support")]
     let mock_fabric = Arc::new(mock::MockIBFabric::new());
+
     let disable_fabric = Arc::new(disable::DisableIBFabric {});
 
     Ok(IBFabricManagerImpl {
         credential_reader,
         config,
-        #[cfg(test)]
+        #[cfg(feature = "test-support")]
         mock_fabric,
         disable_fabric,
     })
@@ -132,10 +132,10 @@ impl IBFabricManager for IBFabricManagerImpl {
         self.config.clone()
     }
 
-    async fn new_client(&self, fabric_name: &str) -> Result<Arc<dyn IBFabric>, CarbideError> {
+    async fn new_client(&self, fabric_name: &str) -> Result<Arc<dyn IBFabric>, IbError> {
         match self.config.manager_type {
             IBFabricManagerType::Disable => Ok(self.disable_fabric.clone()),
-            #[cfg(test)]
+            #[cfg(feature = "test-support")]
             IBFabricManagerType::Mock => Ok(self.mock_fabric.clone()),
             IBFabricManagerType::Rest => {
                 let endpoint = self
@@ -143,7 +143,7 @@ impl IBFabricManager for IBFabricManagerImpl {
                     .endpoints
                     .get(fabric_name)
                     .and_then(|fabric_endpoints| fabric_endpoints.first())
-                    .ok_or_else(|| CarbideError::NotFoundError {
+                    .ok_or_else(|| IbError::NotFoundError {
                         kind: "ib_fabric_endpoint",
                         id: fabric_name.to_string(),
                     })?;
@@ -156,12 +156,12 @@ impl IBFabricManager for IBFabricManagerImpl {
                     .get_credentials(key)
                     .await
                     .map_err(|err| {
-                        CarbideError::internal(format!(
+                        IbError::internal(format!(
                             "Cannot create UFM client: secret manager error: {err}"
                         ))
                     })?
                     .ok_or_else(|| {
-                        CarbideError::internal(format!(
+                        IbError::internal(format!(
                             "Cannot create UFM client: vault key not found or token is not set: {}",
                             key.to_key_str()
                         ))
