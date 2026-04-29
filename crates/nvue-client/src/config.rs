@@ -25,12 +25,12 @@ impl NvueConfig {
     pub fn extract_set_payload(&self) -> Option<Self> {
         if let serde_json::Value::Array(arr) = &self.config_json {
             for item in arr {
-                if let serde_json::Value::Object(map) = item {
-                    if let Some(set_value) = map.get("set") {
-                        return Some(Self {
-                            config_json: set_value.clone(),
-                        });
-                    }
+                if let serde_json::Value::Object(map) = item
+                    && let Some(set_value) = map.get("set")
+                {
+                    return Some(Self {
+                        config_json: set_value.clone(),
+                    });
                 }
             }
         }
