@@ -30,6 +30,8 @@ use db::{self, WithTransaction};
 use futures_util::FutureExt;
 use mac_address::MacAddress;
 use model::component_manager::{PowerAction, PowerShelfComponent};
+use model::firmware::DesiredFirmwareVersions;
+use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::{FirmwareUpgradeJob, MaintenanceActivity};
 use tonic::{Code, Request, Response, Status};
 
@@ -1144,9 +1146,69 @@ pub(crate) async fn list_component_firmware_versions(
                 devices,
             }))
         }
-        rpc::list_component_firmware_versions_request::Target::MachineIds(_) => Err(
-            Status::unimplemented("machine firmware versions are not supported via this RPC"),
-        ),
+        rpc::list_component_firmware_versions_request::Target::MachineIds(list) => {
+            let fw_snapshot = api.runtime_config.get_firmware_config().create_snapshot();
+
+            let machines = db::machine::find(
+                api.db_reader().as_mut(),
+                db::ObjectFilter::List(&list.machine_ids),
+                MachineSearchConfig::default(),
+            )
+            .await
+            .map_err(|e| Status::internal(format!("failed to look up machines: {e}")))?;
+
+            let bmc_ips: Vec<IpAddr> = machines
+                .iter()
+                .filter_map(|m| m.bmc_info.ip.as_ref()?.parse().ok())
+                .collect();
+
+            let endpoints = db::explored_endpoints::find_by_ips(api.db_reader().as_mut(), bmc_ips)
+                .await
+                .map_err(|e| {
+                    Status::internal(format!("failed to look up explored endpoints: {e}"))
+                })?;
+
+            let endpoint_by_ip: HashMap<IpAddr, _> =
+                endpoints.into_iter().map(|ep| (ep.address, ep)).collect();
+
+            let machine_by_id: HashMap<_, _> = machines.into_iter().map(|m| (m.id, m)).collect();
+
+            let devices = list
+                .machine_ids
+                .iter()
+                .map(|machine_id| {
+                    let id_str = machine_id.to_string();
+
+                    let versions: Vec<String> = machine_by_id
+                        .get(machine_id)
+                        .and_then(|m| m.bmc_info.ip.as_ref()?.parse::<IpAddr>().ok())
+                        .and_then(|ip| endpoint_by_ip.get(&ip))
+                        .and_then(|ep| fw_snapshot.find_fw_info_for_host(ep))
+                        .map(|fw| {
+                            DesiredFirmwareVersions::from(fw)
+                                .versions
+                                .into_values()
+                                .collect()
+                        })
+                        .unwrap_or_default();
+
+                    let result = if versions.is_empty() {
+                        error_result(&id_str, "no firmware config found for machine".into())
+                    } else {
+                        success_result(&id_str)
+                    };
+
+                    rpc::DeviceFirmwareVersions {
+                        result: Some(result),
+                        versions,
+                    }
+                })
+                .collect();
+
+            Ok(Response::new(rpc::ListComponentFirmwareVersionsResponse {
+                devices,
+            }))
+        }
         rpc::list_component_firmware_versions_request::Target::RackIds(list) => {
             if list.rack_ids.is_empty() {
                 return Err(Status::invalid_argument("rack_ids must not be empty"));
