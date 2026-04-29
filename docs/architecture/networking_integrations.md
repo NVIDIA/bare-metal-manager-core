@@ -1,6 +1,6 @@
 # Networking integrations
 
-NCX Infra Controller (NICo) integrates with various network virtualization solutions that allow the bare metal instances of tenants to communicate on isolated partitions. Any instances that are not part of the same partition are not able to participate in communication - irrespective of whether these instances are owned by the same tenant or a different tenant.
+NVIDIA Infra Controller (NICo) integrates with various network virtualization solutions that allow the bare metal instances of tenants to communicate on isolated partitions. Any instances that are not part of the same partition are not able to participate in communication - irrespective of whether these instances are owned by the same tenant or a different tenant.
 
 Networking integrations in NICo achieve this through the following patterns:
 

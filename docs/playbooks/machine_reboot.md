@@ -1,6 +1,6 @@
 # Rebooting a machine
 
-This page describes how to reboot a machine managed by NCX Infra Controller (NICo) (i.e. a managed host or DPU)
+This page describes how to reboot a machine managed by NVIDIA Infra Controller (NICo) (i.e. a managed host or DPU)
 in any potential state of its lifecycle.
 
 ## Important note

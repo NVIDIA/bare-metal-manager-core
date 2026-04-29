@@ -1,6 +1,6 @@
 # Reliable State Handling
 
-NCX Infra Controller (NICo) provides reliable state handling for a variety of resources via a mechanism called the *state controller*.
+NVIDIA Infra Controller (NICo) provides reliable state handling for a variety of resources via a mechanism called the *state controller*.
 
 "Reliable state handling" refers to the ability of resources to traverse through lifecycle states even in the case of intermittent errors (e.g. a Host BMC or a dependent service is temporarily unavailable) via automated periodic retries. It also means that state handling is deterministic and free of race conditions.
 

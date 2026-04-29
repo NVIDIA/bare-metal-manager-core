@@ -1,6 +1,6 @@
 # Development
 
-NCX Infra Controller (NICo) uses docker-compose to instantiate a development
+NVIDIA Infra Controller (NICo) uses docker-compose to instantiate a development
 environment.
 
 ## Local environment prep
@@ -76,7 +76,7 @@ environment.
 8. Install `direnv` using your package manager
 
    It would be best to install `direnv` on your host. `direnv` requires a shell hook to work.  See `man direnv` (after install) for
-   more information on setting it up. Once you clone the `ncx-infra-controller-core` repo, you need to run `direnv allow` the first time you cd into your local copy.
+   more information on setting it up. Once you clone the `infra-controller-core` repo, you need to run `direnv allow` the first time you cd into your local copy.
    Running `direnv allow` exports the necessary environmental variables while in the repo and cleans up when not in the repo.
 
    There are preset environment variables that are used throughout the repo. `${REPO_ROOT}` represents the top of the repo.
@@ -173,7 +173,7 @@ Test!
 
 `cargo test`
 
-If the tests don't pass ask in Slack #ncx-infra-controller.
+If the tests don't pass ask in Slack #infra-controller.
 
 Cleanup, otherwise docker-compose won't work later:
 
@@ -202,13 +202,13 @@ One time build:
  RUN cd /usr/local/bin && curl -fL https://getcli.jfrog.io | sh
 ```
  - `docker build -t myarm myarm` # give it a cooler name
- - `docker run -it -v /home/user/src/ncx-infra-controller-core:/ncx-infra-controller-core myarm /bin/bash`
+ - `docker run -it -v /home/user/src/infra-controller-core:/infra-controller-core myarm /bin/bash`
 
 Daily usage:
  - `docker start <container id or name>`
  - `docker attach <container id or name>`
 
-Now that you're in the container go into `/ncx-infra-controller-core` and work normally (`cargo build --release`). The binary rust produces will be aarch64. You can `scp` it to a DPU and run it.
+Now that you're in the container go into `/infra-controller-core` and work normally (`cargo build --release`). The binary rust produces will be aarch64. You can `scp` it to a DPU and run it.
 
 The build may hang the first time. I don't know why. Ctrl-C and try again. You may want to `docker commit` after it succeeds to update the image.
 

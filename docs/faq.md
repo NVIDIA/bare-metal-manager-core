@@ -1,6 +1,6 @@
 # FAQs
 
-This document contains frequently asked questions about NCX Infra Controller (NICo).
+This document contains frequently asked questions about NVIDIA Infra Controller (NICo).
 
 **Does NICo install Cumulus Linux onto ethernet switches?**
 

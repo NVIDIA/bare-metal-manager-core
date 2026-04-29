@@ -1,6 +1,6 @@
 # DPU Configuration
 
-NCX Infra Controller (NICo) is a Bare-Metal-As-A-Service (BMaaS) solution. It manages the lifecycle of hosts, including user OS installation, host cleanup, validation tests, and automated software updates. It also provides host monitoring and virtualized private networking capabilities on ethernet and InfiniBand.
+NVIDIA Infra Controller (NICo) is a Bare-Metal-As-A-Service (BMaaS) solution. It manages the lifecycle of hosts, including user OS installation, host cleanup, validation tests, and automated software updates. It also provides host monitoring and virtualized private networking capabilities on ethernet and InfiniBand.
 
 In order to enable virtual private networks (overlay networks), NICo utilizes DPUs as primary ethernet interfaces of hosts.
 

@@ -3,7 +3,7 @@
 NVIDIA [NVLink](https://www.nvidia.com/en-us/data-center/nvlink/) is a high-speed interconnect technology that allows for memory-sharing between GPUs. Sharing
 is allowed between all GPUs in an *NVLink Partition*. An *NVLink Partition* must consist of GPUs within the same *NVLink Domain*, which can be a single NVL72 rack or two NVL36 racks cabled together.
 
-NCX Infra Controller (NICo) allows you to do the following with NVLink:
+NVIDIA Infra Controller (NICo) allows you to do the following with NVLink:
 
 * Create, update, and delete NVLink Logical Partitions using the NICo REST API.
 * Provision Instances with GPUs partitioned into NVLink Domains by way of NVLink Logical Partitions without knowledge of the underlying NVLink topology.
@@ -19,13 +19,13 @@ NICo users can create NVLink Logical Partitions and plan GPU assignments using N
 
 In general, the steps are:
 
-1. The user creates a NVLink Logical Partition using the `POST /v2/org/{org}/carbide/nvlink-logical-partition` [REST API endpoint](https://nvidia.github.io/ncx-infra-controller-rest/#tag/NVLink-Logical-Partition/operation/create-nvlink-logical-partition). NICo creates an entry in the database and returns an NVLink Logical Partition ID. At this point, there is no underlying NVLink Partition associated with the NVLink Logical Partition.
+1. The user creates a NVLink Logical Partition using the `POST /v2/org/{org}/carbide/nvlink-logical-partition` [REST API endpoint](https://nvidia.github.io/infra-controller-rest/#tag/NVLink-Logical-Partition/operation/create-nvlink-logical-partition). NICo creates an entry in the database and returns an NVLink Logical Partition ID. At this point, there is no underlying NVLink Partition associated with the NVLink Logical Partition.
 
-2. When creating an Instance, the user specifies NVLink Interface configuration for each GPU by referencing their preferred NVLink Logical Partition ID in the `POST /v2/org/{org}/carbide/instance` [REST API endpoint request](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Instance/operation/create-instance).
+2. When creating an Instance, the user specifies NVLink Interface configuration for each GPU by referencing their preferred NVLink Logical Partition ID in the `POST /v2/org/{org}/carbide/instance` [REST API endpoint request](https://nvidia.github.io/infra-controller-rest/#tag/Instance/operation/create-instance).
 
    a. If this is the first Instance to be added to specified NVLink Logical Partitions, NICo Core will create and assign NVLink Partitions for them and add the Instance GPUs to the NVLink Partitions.
 
-> **Note**: To ensure that machines in the same Rack are assigned to the same NVLink Partition, an Instance Type can be created for the Rack and all Machines in the Rack assigned to the same Instance Type. Alternatively users can use the [Batch Instance creation REST API endpoint](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Instance/operation/batch-create-instances) and set `topologyOptimized` to `true`.
+> **Note**: To ensure that machines in the same Rack are assigned to the same NVLink Partition, an Instance Type can be created for the Rack and all Machines in the Rack assigned to the same Instance Type. Alternatively users can use the [Batch Instance creation REST API endpoint](https://nvidia.github.io/infra-controller-rest/#tag/Instance/operation/batch-create-instances) and set `topologyOptimized` to `true`.
 
 3. If the user does not want to specify NVLink Interfaces for each GPU when creating an Instance, they can:
 
@@ -41,7 +41,7 @@ In general, the steps are:
 
 ### Updating an Instance to change NVLink Logical Partition assignment for its GPUs
 
-If a NICo user wants to update an Instance to change NVLink Logical Partition assignment for its GPUs, they can do so by calling the `PATCH /v2/org/{org}/carbide/instance/{instance-id}` [REST API endpoint](https://nvidia.github.io/ncx-infra-controller-rest/#tag/Instance/operation/update-instance)
+If a NICo user wants to update an Instance to change NVLink Logical Partition assignment for its GPUs, they can do so by calling the `PATCH /v2/org/{org}/carbide/instance/{instance-id}` [REST API endpoint](https://nvidia.github.io/infra-controller-rest/#tag/Instance/operation/update-instance)
 
 The user can specify the NVLink Logical Partition ID for each GPU in the Instance by passing the `nvLinkInterfaces` list.
 

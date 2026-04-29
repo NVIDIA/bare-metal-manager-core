@@ -4,7 +4,7 @@ In various cases, it might be necessary to force-delete knowledge about hosts fr
 the database and to restart the discovery process for those hosts. The following are
 use-cases where force-delete can be helpful:
 
-- If a host managed by NCX Infra Controller (NICo) has entered an erroneous state from which it can not
+- If a host managed by NVIDIA Infra Controller (NICo) has entered an erroneous state from which it can not
 automatically recover.
 - If a non backward compatible software update requires the host to go through the discovery phase again.
 

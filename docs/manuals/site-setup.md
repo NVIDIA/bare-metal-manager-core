@@ -1,6 +1,6 @@
 # Site Setup Guide
 
-This page outlines the software dependencies for a Kubernetes-based install of NCX Infra Controller (NICo). It includes the *validated baseline* of software dependencies,
+This page outlines the software dependencies for a Kubernetes-based install of NVIDIA Infra Controller (NICo). It includes the *validated baseline* of software dependencies,
 as well as the *order of operations* for site bringup, including what you must configure if you already operate some of the common services yourself.
 
 **Important Notes**

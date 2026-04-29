@@ -1,6 +1,6 @@
 # Health probe IDs
 
-This page provides a list of health probes provided by NCX Infra Controller (NICo), along with their IDs.
+This page provides a list of health probes provided by NVIDIA Infra Controller (NICo), along with their IDs.
 Health reports will contain these IDs in the `alerts` section in case the associated check or validation has failed.
 
 ## Machine validation health probe identifiers

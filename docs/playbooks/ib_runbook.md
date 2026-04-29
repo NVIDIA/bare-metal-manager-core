@@ -212,7 +212,7 @@ root:/# ufm_ha_cluster status
 
 ### Installation
 
-No additional steps are required to enable Infiniband in NCX Infra Controller (NICo).
+No additional steps are required to enable Infiniband in NVIDIA Infra Controller (NICo).
 
 ### Configuration
 

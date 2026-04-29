@@ -5,7 +5,7 @@ instances:
   - url: nvidia-ncx-infra-controller.docs.buildwithfern.com/infra-controller
     custom-domain: docs.nvidia.com/infra-controller
 
-title: NVIDIA NCX Infra Controller
+title: NVIDIA Infra Controller
 
 metadata:
   canonical-host: "docs.nvidia.com/infra-controller"
@@ -67,10 +67,10 @@ css:
 navbar-links:
   - type: filled
     text: GitHub
-    href: https://github.com/NVIDIA/ncx-infra-controller-core
+    href: https://github.com/NVIDIA/infra-controller-core
 
 products:
-  - display-name: NCX Infra Controller
+  - display-name: NVIDIA Infra Controller
     slug: /
     path: ../docs/index.yml
     versions:

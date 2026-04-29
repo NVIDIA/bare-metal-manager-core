@@ -2,7 +2,7 @@
 
 ### Forge & Carbide
 
-You will see references to the name "Forge" and "Carbide". These were names for internal NVIDIA projects that were the precursors to NCX Infra Controller.  Some of the names lives on in the source and docs but references to these things are being removed over time as we try to break as little code and commands as possible.
+You may come across references to the name "Forge" and "Carbide". These were names for internal NVIDIA projects that were the precursors to NVIDIA Infra Controller. Some of the names live on in the source code, but references to these projects are being removed over time as we try to break as little code and commands as possible.
 
 ### BGP (Border Gateway Protocol)
 

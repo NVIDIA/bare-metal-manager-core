@@ -87,7 +87,7 @@ You can also use graphical interface `virt-manager`.
 The virtual machine should fail to PXE boot from IPv4 (but gets an IP address) and IPv6, and then succeed from "HTTP boot IPv4", getting both an IP address and a boot image.
 
 This should boot you into the pre-exec image. The user is `root` and password
-is specified in the [mkosi.default](https://github.com/NVIDIA/ncx-infra-controller-core/tree/main/pxe) file.
+is specified in the [mkosi.default](https://github.com/NVIDIA/infra-controller-core/tree/main/pxe) file.
 
 In order to exit out of console use `ctrl-a x`
 

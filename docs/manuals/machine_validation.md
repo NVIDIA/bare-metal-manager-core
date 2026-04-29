@@ -6,7 +6,7 @@ Host Validation
 
 **Overview**
 
-This page provides a workflow for machine validation in NCX Infra Controller (NICo).
+This page provides a workflow for machine validation in NVIDIA Infra Controller (NICo).
 
 Machine validation is a process of testing and verifying the hardware components and peripherals of a machine before handing it over to a tenant. The purpose of machine validation is to avoid disruption of tenant usage and ensure that the machine meets the expected benchmarks and performance. Machine validation involves running a series of regression tests and burn-in tests to stress the machine to its maximum capability and identify any potential issues or failures. Machine validation provides several benefits for the tenant. By performing machine validation, NICo ensures that machine is in optimal condition and ready for tenant usage. Machine validation helps to detect and resolve any hardware issues or failures before they affect the tenant's workloads
 

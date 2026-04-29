@@ -1,6 +1,6 @@
-# NCX Infra Controller (NICo) core metrics
+# NVIDIA Infra Controller (NICo) Core Metrics
 
-This file contains a list of metrics exported by NCX Infra Controller (NICo). The list is auto-generated from an integration test (`test_integration`). Metrics for workflows which are not exercised by the test are missing.
+This file contains a list of metrics exported by NVIDIA Infra Controller (NICo). The list is auto-generated from an integration test (`test_integration`). Metrics for workflows which are not exercised by the test are missing.
 
 <table>
 <tr><td>Name</td><td>Type</td><td>Description</td></tr>

@@ -2,7 +2,7 @@
 
 ## What's New
 
-The Release Instance API for NCX Infra Controller (NICo) now supports **issue reporting** and **automated repair workflows**. When releasing an instance, you can report problems to help improve system reliability.
+The Release Instance API for NVIDIA Infra Controller (NICo) now supports **issue reporting** and **automated repair workflows**. When releasing an instance, you can report problems to help improve system reliability.
 
 ### Key Features
 - **Report Issues**: Hardware, Network, Performance, or Other problems

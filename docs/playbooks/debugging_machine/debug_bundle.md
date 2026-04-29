@@ -1,6 +1,6 @@
 # Collecting Machine Diagnostic Information using carbide-admin-cli
 
-This guide describes how to use the `carbide-admin-cli` debug bundle command to collect diagnostic information for troubleshooting machines managed by NCX Infra Controller (NICo). The command creates a ZIP file containing logs, health data, and machine state information.
+This guide describes how to use the `carbide-admin-cli` debug bundle command to collect diagnostic information for troubleshooting machines managed by NVIDIA Infra Controller (NICo). The command creates a ZIP file containing logs, health data, and machine state information.
 
 ## What the Command Does
 

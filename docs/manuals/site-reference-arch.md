@@ -1,6 +1,6 @@
 # Site Reference Architecture 
 
-This page provides guidelines for hardware and configuration for NCX Infra Controller (NICo) managed sites.
+This page provides guidelines for hardware and configuration for NVIDIA Infra Controller (NICo) managed sites.
 
 ## Host Hardware Requirements
 

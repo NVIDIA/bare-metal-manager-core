@@ -1,6 +1,6 @@
 # Networking Requirements
 
-This section outlines the networking requirements for NCX Infra Controller (NICo), including the necessary infrastructure, protocols, and performance standards.
+This section outlines the networking requirements for NVIDIA Infra Controller (NICo), including the necessary infrastructure, protocols, and performance standards.
 
 Here is an overview of the requirements, which will be detailed in the following sections:
 

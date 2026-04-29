@@ -1,6 +1,6 @@
 ## Visual Studio Code Remote Docker Workflow
 
-This page describes a workflow on how to build and test NCX Infra Controller (NICo) inside a remotely
+This page describes a workflow on how to build and test NVIDIA Infra Controller (NICo) inside a remotely
 running docker container. The advantage of this workflow is that it requires no tools
 to be installed on your native Machine, but still can provide you a similar
 development feeling.
