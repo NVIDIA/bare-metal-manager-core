@@ -57,6 +57,7 @@ use super::sku::SkuStatus;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::dpa_interface::DpaInterface;
 use crate::errors::{ModelError, ModelResult};
+use crate::expected_machine::ExpectedMachineData;
 use crate::firmware::FirmwareComponentType;
 use crate::hardware_info::{HardwareInfo, MachineNvLinkInfo};
 use crate::instance::config::network::DeviceLocator;
@@ -933,6 +934,11 @@ pub struct Machine {
     /// Whether the DPF is enabled for this machine
     pub dpf: Dpf,
 
+    /// Per-host profile for state-machine-affecting settings, seeded from the
+    /// expected-machine record. Future per-host knobs that influence ingestion
+    /// or state transitions should be added here.
+    pub host_profile: HostProfile,
+
     /// Timestamp when manual firmware upgrade was marked as completed
     /// TEMPORARY: Used for workflow where manual upgrades are required before automatic ones
     /// TODO: Remove after upgrade-through-scout is complete
@@ -955,6 +961,36 @@ pub struct Dpf {
     pub enabled: bool,
     // If dpf is used for ingestion.
     pub used_for_ingestion: bool,
+}
+
+/// Per-host profile for settings that affect state-machine progression,
+/// seeded from the expected-machine record at discovery time. Add new
+/// per-host knobs here rather than creating separate JSONB columns.
+#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct HostProfile {
+    /// When `true` the ingestion state machine skips re-enabling lockdown
+    /// after BIOS/UEFI configuration.
+    pub disable_lockdown: bool,
+}
+
+impl HostProfile {
+    /// Resolve a runtime `HostProfile` from an optional expected-machine
+    /// record. When `None` (no expected-machine entry) every field falls
+    /// back to its default.
+    ///
+    /// New profile fields should be resolved here so the
+    /// expected-machine → machine conversion stays in one place.
+    pub fn from_expected_machine(data: Option<&ExpectedMachineData>) -> Self {
+        match data {
+            Some(d) => Self {
+                disable_lockdown: d
+                    .host_lifecycle_profile
+                    .disable_lockdown
+                    .unwrap_or_default(),
+            },
+            None => Self::default(),
+        }
+    }
 }
 
 impl From<Machine> for ::rpc::forge::dpf_state_response::DpfState {
@@ -3443,6 +3479,75 @@ mod tests {
         assert!(derive_use_admin_network(&[Some(false), None]));
         assert!(!derive_use_admin_network(&[Some(false)]));
         assert!(!derive_use_admin_network(&[Some(false), Some(false)]));
+    }
+
+    #[test]
+    fn host_profile_defaults_to_lockdown_enabled() {
+        let profile = HostProfile::default();
+        assert!(!profile.disable_lockdown);
+    }
+
+    #[test]
+    fn host_profile_serde_round_trip_lockdown_true() {
+        let profile = HostProfile {
+            disable_lockdown: true,
+        };
+        let json = serde_json::to_string(&profile).unwrap();
+        assert_eq!(json, r#"{"disable_lockdown":true}"#);
+        let back: HostProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, profile);
+    }
+
+    #[test]
+    fn host_profile_serde_round_trip_lockdown_false() {
+        let profile = HostProfile {
+            disable_lockdown: false,
+        };
+        let json = serde_json::to_string(&profile).unwrap();
+        assert_eq!(json, r#"{"disable_lockdown":false}"#);
+        let back: HostProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, profile);
+    }
+
+    #[test]
+    fn host_profile_deserializes_from_db_default() {
+        let db_default = r#"{"disable_lockdown": false}"#;
+        let profile: HostProfile = serde_json::from_str(db_default).unwrap();
+        assert!(!profile.disable_lockdown);
+    }
+
+    #[test]
+    fn host_profile_default_used_when_parent_field_missing() {
+        assert_eq!(
+            HostProfile::default(),
+            HostProfile {
+                disable_lockdown: false
+            }
+        );
+    }
+
+    #[test]
+    fn host_profile_from_expected_none_uses_defaults() {
+        let profile = HostProfile::from_expected_machine(None);
+        assert_eq!(profile, HostProfile::default());
+    }
+
+    #[test]
+    fn host_profile_from_expected_empty_profile_uses_defaults() {
+        let data = ExpectedMachineData::default();
+        let profile = HostProfile::from_expected_machine(Some(&data));
+        assert!(!profile.disable_lockdown);
+    }
+
+    #[test]
+    fn host_profile_from_expected_resolves_disable_lockdown() {
+        let mut data = ExpectedMachineData::default();
+
+        data.host_lifecycle_profile.disable_lockdown = Some(true);
+        assert!(HostProfile::from_expected_machine(Some(&data)).disable_lockdown);
+
+        data.host_lifecycle_profile.disable_lockdown = Some(false);
+        assert!(!HostProfile::from_expected_machine(Some(&data)).disable_lockdown);
     }
 }
 

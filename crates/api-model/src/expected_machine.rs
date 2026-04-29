@@ -205,10 +205,36 @@ pub struct ExpectedMachineData {
     /// as a plain NIC, or to `NoDpu` when there's no DPU hardware at all.
     #[serde(default)]
     pub dpu_mode: DpuMode,
+    /// Per-host profile for settings that affect state-machine progression.
+    /// Stored as a JSONB column on `expected_machines`; future state-machine
+    /// knobs should be added here rather than as new flat columns.
+    #[serde(default)]
+    pub host_lifecycle_profile: HostLifecycleProfile,
 }
 // Important : new fields for expected machine (and data) should be optional _and_ serde(default),
 // unless you want to go update all the files in each production deployment that autoload
 // the expected machines on api startup
+
+/// Per-host lifecycle profile for settings that affect state-machine progression.
+/// `Option<bool>` fields support CLI patch semantics (`None` = not specified,
+/// keep existing DB value via `COALESCE`). Converts to the runtime `HostProfile`
+/// (plain `bool` fields) at machine discovery time.
+#[derive(Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
+pub struct HostLifecycleProfile {
+    /// If true, do not lock down the server as part of lifecycle management within the state machine.
+    /// If unset or false, preserve the default behavior of locking down the server after configuring the BIOS.
+    #[serde(default)]
+    pub disable_lockdown: Option<bool>,
+}
+
+impl HostLifecycleProfile {
+    /// Returns `true` when every field is `None`, meaning the caller did not
+    /// specify any profile value. Used by the UPDATE path to send SQL `NULL`
+    /// so that `COALESCE` preserves the existing DB row.
+    pub fn is_empty(&self) -> bool {
+        self.disable_lockdown.is_none()
+    }
+}
 
 impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
     fn from_row(row: &'r PgRow) -> Result<Self, sqlx::Error> {
@@ -240,6 +266,9 @@ impl<'r> FromRow<'r, PgRow> for ExpectedMachine {
                 bmc_ip_address: row.try_get("bmc_ip_address")?,
                 bmc_retain_credentials: row.try_get("bmc_retain_credentials")?,
                 dpu_mode: row.try_get("dpu_mode")?,
+                host_lifecycle_profile: row
+                    .try_get::<sqlx::types::Json<HostLifecycleProfile>, _>("host_lifecycle_profile")
+                    .map(|j| j.0)?,
             },
         })
     }
@@ -311,6 +340,12 @@ impl From<ExpectedMachine> for rpc::forge::ExpectedMachine {
                 DpuMode::DpuMode => None,
                 other => Some(rpc::forge::DpuMode::from(other) as i32),
             },
+            host_lifecycle_profile: Some(rpc::forge::HostLifecycleProfile {
+                disable_lockdown: expected_machine
+                    .data
+                    .host_lifecycle_profile
+                    .disable_lockdown,
+            }),
         }
     }
 }
@@ -391,6 +426,12 @@ impl TryFrom<rpc::forge::ExpectedMachine> for ExpectedMachineData {
                 .dpu_mode
                 .map(|i| rpc::forge::DpuMode::try_from(i).unwrap_or_default())
                 .map(DpuMode::from)
+                .unwrap_or_default(),
+            host_lifecycle_profile: em
+                .host_lifecycle_profile
+                .map(|hlp| HostLifecycleProfile {
+                    disable_lockdown: hlp.disable_lockdown,
+                })
                 .unwrap_or_default(),
         })
     }
@@ -506,5 +547,114 @@ mod tests {
         for mode in [DpuMode::DpuMode, DpuMode::NicMode, DpuMode::NoDpu] {
             assert_eq!(DpuMode::from(rpc::forge::DpuMode::from(mode)), mode);
         }
+    }
+
+    fn make_rpc_expected_machine(disable_lockdown: Option<bool>) -> rpc::forge::ExpectedMachine {
+        rpc::forge::ExpectedMachine {
+            bmc_mac_address: "AA:BB:CC:DD:EE:FF".into(),
+            bmc_username: "root".into(),
+            bmc_password: "pass".into(),
+            chassis_serial_number: "SN-1".into(),
+            host_lifecycle_profile: disable_lockdown.map(|dl| rpc::forge::HostLifecycleProfile {
+                disable_lockdown: Some(dl),
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn disable_lockdown_true_round_trips_through_proto() {
+        let rpc_em = make_rpc_expected_machine(Some(true));
+        let data = ExpectedMachineData::try_from(rpc_em).unwrap();
+        assert_eq!(data.host_lifecycle_profile.disable_lockdown, Some(true));
+
+        let em = ExpectedMachine {
+            id: None,
+            bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
+            data,
+        };
+        let back: rpc::forge::ExpectedMachine = em.into();
+        assert_eq!(
+            back.host_lifecycle_profile.unwrap().disable_lockdown,
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn disable_lockdown_false_round_trips_through_proto() {
+        let rpc_em = make_rpc_expected_machine(Some(false));
+        let data = ExpectedMachineData::try_from(rpc_em).unwrap();
+        assert_eq!(data.host_lifecycle_profile.disable_lockdown, Some(false));
+
+        let em = ExpectedMachine {
+            id: None,
+            bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
+            data,
+        };
+        let back: rpc::forge::ExpectedMachine = em.into();
+        assert_eq!(
+            back.host_lifecycle_profile.unwrap().disable_lockdown,
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn disable_lockdown_none_round_trips_through_proto() {
+        let rpc_em = make_rpc_expected_machine(None);
+        let data = ExpectedMachineData::try_from(rpc_em).unwrap();
+        assert_eq!(data.host_lifecycle_profile.disable_lockdown, None);
+
+        let em = ExpectedMachine {
+            id: None,
+            bmc_mac_address: "AA:BB:CC:DD:EE:FF".parse().unwrap(),
+            data,
+        };
+        let back: rpc::forge::ExpectedMachine = em.into();
+        assert_eq!(back.host_lifecycle_profile.unwrap().disable_lockdown, None);
+    }
+
+    #[test]
+    fn host_lifecycle_profile_defaults_when_missing_from_json() {
+        let json = r#"{
+            "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+            "bmc_username": "root",
+            "bmc_password": "pass",
+            "serial_number": "SN-1"
+        }"#;
+        let em: ExpectedMachine = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            em.data.host_lifecycle_profile,
+            HostLifecycleProfile::default()
+        );
+        assert_eq!(em.data.host_lifecycle_profile.disable_lockdown, None);
+    }
+
+    #[test]
+    fn host_lifecycle_profile_parses_from_json_when_present() {
+        let json = r#"{
+            "bmc_mac_address": "AA:BB:CC:DD:EE:FF",
+            "bmc_username": "root",
+            "bmc_password": "pass",
+            "serial_number": "SN-1",
+            "host_lifecycle_profile": {"disable_lockdown": true}
+        }"#;
+        let em: ExpectedMachine = serde_json::from_str(json).unwrap();
+        assert_eq!(em.data.host_lifecycle_profile.disable_lockdown, Some(true));
+    }
+
+    #[test]
+    fn host_lifecycle_profile_is_empty_when_all_fields_none() {
+        let hlp = HostLifecycleProfile::default();
+        assert!(hlp.is_empty());
+
+        let hlp = HostLifecycleProfile {
+            disable_lockdown: Some(true),
+        };
+        assert!(!hlp.is_empty());
+
+        let hlp = HostLifecycleProfile {
+            disable_lockdown: Some(false),
+        };
+        assert!(!hlp.is_empty());
     }
 }

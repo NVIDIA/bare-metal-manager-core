@@ -49,6 +49,18 @@ pub struct ExpectedMachineJson {
     /// means to use the site-level `force_dpu_nic_mode` flag).
     #[serde(default)]
     pub dpu_mode: Option<rpc::forge::DpuMode>,
+    /// Per-host lifecycle profile for settings that affect state-machine progression.
+    #[serde(default)]
+    pub host_lifecycle_profile: Option<HostLifecycleProfile>,
+}
+
+/// JSON shape for `host_lifecycle_profile` nested object.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct HostLifecycleProfile {
+    /// If true, do not lock down the server as part of lifecycle management within the state machine.
+    /// If unset or false, preserve the default behavior of locking down the server after configuring the BIOS.
+    #[serde(default)]
+    pub disable_lockdown: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

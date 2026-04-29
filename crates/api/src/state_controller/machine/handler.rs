@@ -4967,6 +4967,27 @@ impl StateHandler for HostMachineStateHandler {
                 MachineState::WaitingForLockdown { lockdown_info } => {
                     match &lockdown_info.state {
                         LockdownState::SetLockdown => {
+                            if lockdown_info.mode == LockdownMode::Enable
+                                && mh_snapshot.host_snapshot.host_profile.disable_lockdown
+                            {
+                                tracing::info!(
+                                    machine_id = %host_machine_id,
+                                    "Lockdown disabled per expected-machine config, skipping lockdown enable"
+                                );
+                                return Ok(StateHandlerOutcome::transition(
+                                    ManagedHostState::BomValidating {
+                                        bom_validating_state: BomValidating::MatchingSku(
+                                            BomValidatingContext {
+                                                machine_validation_context: Some(
+                                                    "Discovery".to_string(),
+                                                ),
+                                                ..BomValidatingContext::default()
+                                            },
+                                        ),
+                                    },
+                                ));
+                            }
+
                             tracing::info!(
                                 machine_id = %host_machine_id,
                                 mode = ?lockdown_info.mode,
@@ -7214,9 +7235,9 @@ impl HostUpgradeState {
                 }
             }
         };
-        if lockdown_disabled {
+
+        if lockdown_disabled && !state.host_snapshot.host_profile.disable_lockdown {
             tracing::debug!("host firmware update: Reenabling lockdown");
-            // Already disabled, we need to reenable.
             if let Err(e) = redfish_client
                 .lockdown(libredfish::EnabledDisabled::Enabled)
                 .await
@@ -7224,31 +7245,42 @@ impl HostUpgradeState {
                 tracing::error!("Could not set lockdown for {machine_id}: {e}");
                 return Ok(StateHandlerOutcome::do_nothing());
             }
-            // Reenabling lockdown will poll lockdown status to verify settings are applied.
             match scenario {
-                HostFirmwareScenario::Ready => Ok(StateHandlerOutcome::transition(
-                    ManagedHostState::HostInit {
-                        machine_state: MachineState::WaitingForLockdown {
-                            lockdown_info: LockdownInfo {
-                                state: LockdownState::PollingLockdownStatus,
-                                mode: Enable,
+                HostFirmwareScenario::Ready => {
+                    return Ok(StateHandlerOutcome::transition(
+                        ManagedHostState::HostInit {
+                            machine_state: MachineState::WaitingForLockdown {
+                                lockdown_info: LockdownInfo {
+                                    state: LockdownState::PollingLockdownStatus,
+                                    mode: Enable,
+                                },
                             },
                         },
-                    },
-                )),
+                    ));
+                }
                 HostFirmwareScenario::Instance => {
                     handler_host_power_control(state, ctx, SystemPowerControl::ForceRestart)
                         .await?;
-                    Ok(StateHandlerOutcome::transition(scenario.complete_state()))
+                    return Ok(StateHandlerOutcome::transition(scenario.complete_state()));
                 }
             }
-        } else {
-            tracing::debug!("host firmware update: Don't need to reenable lockdown");
-            if let HostFirmwareScenario::Instance = scenario {
-                handler_host_power_control(state, ctx, SystemPowerControl::ForceRestart).await?;
-            }
-            Ok(StateHandlerOutcome::transition(scenario.complete_state()))
         }
+
+        if lockdown_disabled && state.host_snapshot.host_profile.disable_lockdown {
+            tracing::info!(
+                %machine_id,
+                "host firmware update: host is NOT locked down -- skipping lockdown re-enable per expected-machine config"
+            );
+        } else if !lockdown_disabled {
+            tracing::debug!(
+                "host firmware update: Don't need to reenable lockdown -- host is already locked down"
+            );
+        }
+
+        if let HostFirmwareScenario::Instance = scenario {
+            handler_host_power_control(state, ctx, SystemPowerControl::ForceRestart).await?;
+        }
+        Ok(StateHandlerOutcome::transition(scenario.complete_state()))
     }
 
     async fn by_script(
@@ -9818,13 +9850,20 @@ async fn handle_instance_host_platform_config(
             }
         }
         HostPlatformConfigurationState::LockHost => {
-            redfish_client
-                .lockdown_bmc(EnabledDisabled::Enabled)
-                .await
-                .map_err(|e| StateHandlerError::RedfishError {
-                    operation: "lockdown_bmc",
-                    error: e,
-                })?;
+            if mh_snapshot.host_snapshot.host_profile.disable_lockdown {
+                tracing::info!(
+                    machine_id = %mh_snapshot.host_snapshot.id,
+                    "Skipping lockdown re-enable in platform config per expected-machine config"
+                );
+            } else {
+                redfish_client
+                    .lockdown_bmc(EnabledDisabled::Enabled)
+                    .await
+                    .map_err(|e| StateHandlerError::RedfishError {
+                        operation: "lockdown_bmc",
+                        error: e,
+                    })?;
+            }
 
             InstanceState::WaitingForDpusToUp
         }

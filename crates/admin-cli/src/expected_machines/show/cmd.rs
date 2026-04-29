@@ -132,6 +132,7 @@ async fn convert_and_print_into_nice_table(
         "SKU ID",
         "Pause On Ingestion",
         "DPF Enabled",
+        "Disable Lockdown",
     ]);
 
     for expected_machine in &expected_machines.expected_machines {
@@ -179,6 +180,11 @@ async fn convert_and_print_into_nice_table(
             expected_machine
                 .is_dpf_enabled
                 .unwrap_or(expected_machine.dpf_enabled)
+                .to_string(),
+            expected_machine
+                .host_lifecycle_profile
+                .and_then(|hlp| hlp.disable_lockdown)
+                .unwrap_or_default()
                 .to_string(),
         ]);
     }

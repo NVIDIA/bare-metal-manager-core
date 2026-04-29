@@ -41,8 +41,9 @@ use model::machine::network::{
 use model::machine::nvlink::MachineNvLinkStatusObservation;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::machine::{
-    Dpf, DpuInfo, FailureDetails, Machine, MachineInterfaceSnapshot, MachineLastRebootRequested,
-    MachineLastRebootRequestedMode, ManagedHostState, ReprovisionRequest, UpgradeDecision,
+    Dpf, DpuInfo, FailureDetails, HostProfile, Machine, MachineInterfaceSnapshot,
+    MachineLastRebootRequested, MachineLastRebootRequestedMode, ManagedHostState,
+    ReprovisionRequest, UpgradeDecision,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::metadata::Metadata;
@@ -1242,6 +1243,7 @@ pub async fn create(
         Some(data) => data.dpf_enabled.unwrap_or(false), // EM entry exists
         None => true,                                    // EM entry does not exist
     };
+    let host_profile = HostProfile::from_expected_machine(expected_machine_data);
 
     // Host and DPU machines are created in same `discover_machine` call. Update same
     // state in both machines.
@@ -1275,8 +1277,8 @@ pub async fn create(
     };
 
     let query = r#"INSERT INTO machines(
-                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, rack_id, hw_sku, dpf)
-                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12, $13, $14) RETURNING id"#;
+                            id, controller_state_version, controller_state, network_config_version, network_config, machine_state_model_version, asn, version, name, description, labels, rack_id, hw_sku, dpf, host_profile)
+                            VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::json, $12, $13, $14, $15) RETURNING id"#;
     let machine_id: MachineId = sqlx::query_as(query)
         .bind(&stable_machine_id_string)
         .bind(state_version)
@@ -1295,6 +1297,7 @@ pub async fn create(
             enabled: dpf_enabled,
             used_for_ingestion: false,
         }))
+        .bind(sqlx::types::Json(&host_profile))
         .fetch_one(&mut *txn)
         .await
         .map_err(|e| DatabaseError::query(query, e))?;

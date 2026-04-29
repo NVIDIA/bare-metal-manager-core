@@ -33,7 +33,7 @@ use crate::machine::network::{MachineNetworkStatusObservation, ManagedHostNetwor
 use crate::machine::nvlink::MachineNvLinkStatusObservation;
 use crate::machine::topology::MachineTopology;
 use crate::machine::{
-    Dpf, FailureDetails, HostReprovisionRequest, Machine, MachineInterfaceSnapshot,
+    Dpf, FailureDetails, HostProfile, HostReprovisionRequest, Machine, MachineInterfaceSnapshot,
     MachineLastRebootRequested, ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use crate::metadata::Metadata;
@@ -100,6 +100,8 @@ pub struct MachineSnapshotPgJson {
     pub update_complete: bool,
     pub nvlink_info: Option<MachineNvLinkInfo>,
     pub dpf: Dpf,
+    #[serde(default)]
+    pub host_profile: HostProfile,
     #[serde(default)]
     pub rack_fw_details: Option<RackFirmwareUpgradeStatus>,
     #[serde(default)]
@@ -211,6 +213,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             update_complete: value.update_complete,
             nvlink_info: value.nvlink_info,
             dpf: value.dpf,
+            host_profile: value.host_profile,
             rack_fw_details: value.rack_fw_details,
             slot_number: value.slot_number,
             tray_index: value.tray_index,

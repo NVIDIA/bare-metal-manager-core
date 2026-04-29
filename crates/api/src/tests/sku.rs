@@ -798,6 +798,7 @@ pub mod tests {
                     bmc_ip_address: None,
                     bmc_retain_credentials: None,
                     dpu_mode: Default::default(),
+                    host_lifecycle_profile: Default::default(),
                 },
             },
         )
@@ -892,6 +893,7 @@ pub mod tests {
                     bmc_ip_address: None,
                     bmc_retain_credentials: None,
                     dpu_mode: Default::default(),
+                    host_lifecycle_profile: Default::default(),
                 },
             },
         )
@@ -961,6 +963,7 @@ pub mod tests {
                     bmc_ip_address: None,
                     bmc_retain_credentials: None,
                     dpu_mode: Default::default(),
+                    host_lifecycle_profile: Default::default(),
                 },
             },
         )
@@ -1047,6 +1050,7 @@ pub mod tests {
                     bmc_ip_address: None,
                     bmc_retain_credentials: None,
                     dpu_mode: Default::default(),
+                    host_lifecycle_profile: Default::default(),
                 },
             },
         )
@@ -1484,6 +1488,7 @@ pub mod tests {
                     bmc_ip_address: None,
                     bmc_retain_credentials: None,
                     dpu_mode: Default::default(),
+                    host_lifecycle_profile: Default::default(),
                 },
             },
         )

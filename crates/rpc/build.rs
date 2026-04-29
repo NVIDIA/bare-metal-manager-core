@@ -488,6 +488,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("MachineValidationRun", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedHostNic", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedHostNic", "#[derive(serde::Deserialize)]")
+        .type_attribute("HostLifecycleProfile", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("ExpectedMachine", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedPowerShelf", "#[derive(serde::Serialize)]")
         .type_attribute("ExpectedSwitch", "#[derive(serde::Serialize)]")

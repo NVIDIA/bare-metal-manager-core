@@ -5266,6 +5266,15 @@ enum DpuMode {
   NO_DPU = 3;
 }
 
+// Per-host lifecycle profile for settings that affect state-machine progression.
+// When the outer field is unset on ExpectedMachine, the server preserves the
+// existing DB value (patch semantics).
+message HostLifecycleProfile {
+  // If true, do not lock down the server as part of host lifecycle management. If unset or false, preserve
+  // the default behavior of locking down the server after configuring the BIOS.
+  optional bool disable_lockdown = 1;
+}
+
 message ExpectedMachine {
   string bmc_mac_address = 1;
   string bmc_username = 2;
@@ -5293,6 +5302,9 @@ message ExpectedMachine {
   // default" -- the site-wide `force_dpu_nic_mode` config flag still applies
   // when no per-host override is set, so existing deployments keep working.
   optional DpuMode dpu_mode = 16;
+  // Per-host lifecycle profile. When unset in a patch/update request, the
+  // existing DB value is preserved via COALESCE.
+  optional HostLifecycleProfile host_lifecycle_profile = 17;
 }
 
 message ExpectedMachineRequest {

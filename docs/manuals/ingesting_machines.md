@@ -91,6 +91,34 @@ Prepare an `expected_machines.json` file as follows:
 
 Only servers listed in this table will be ingested, so you must include all servers in this file.
 
+### Optional Per-Host Fields
+
+Each entry supports additional optional fields:
+
+- **`host_lifecycle_profile`** (object): Per-host profile for settings that affect
+  state-machine progression. Future per-host knobs should be added here.
+  - **`disable_lockdown`** (bool, default `false`): When `true`, the state machine
+    does not lockdown the host during lifecycle management. This is useful for automation
+    workflows that need lockdown persistently disabled.
+
+  ```json
+  {
+    "bmc_mac_address": "C4:5A:B1:C8:38:0D",
+    "bmc_username": "root",
+    "bmc_password": "default-password1",
+    "chassis_serial_number": "SERIAL-1",
+    "host_lifecycle_profile": {
+      "disable_lockdown": true
+    }
+  }
+  ```
+
+- **`dpf_enabled`** (bool): Enable/disable DPF for this host.
+- **`dpu_mode`** (`"dpu_mode"` | `"nic_mode"` | `"no_dpu"`): Per-host DPU operating mode.
+- **`bmc_retain_credentials`** (bool): Skip BMC password rotation.
+- **`default_pause_ingestion_and_poweron`** (bool): Pause ingestion and power-on for this host.
+- **`bmc_ip_address`** (string): Static BMC IP (pre-allocates a machine interface).
+
 When the file is ready, upload it to the site with the following command:
 
 ```bash

@@ -88,6 +88,7 @@ async fn test_duplicate_fail_create(pool: sqlx::PgPool) -> Result<(), Box<dyn st
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
                 dpu_mode: Default::default(),
+                host_lifecycle_profile: Default::default(),
             },
         },
     )
@@ -728,6 +729,7 @@ async fn test_add_expected_machine_dpu_serials(pool: sqlx::PgPool) {
         bmc_ip_address: None,
         bmc_retain_credentials: None,
         dpu_mode: None,
+        host_lifecycle_profile: None,
         #[allow(deprecated)]
         dpf_enabled: true,
     };

@@ -524,6 +524,7 @@ impl ApiClient {
                 bmc_ip_address: None,
                 bmc_retain_credentials: None,
                 dpu_mode: None,
+                host_lifecycle_profile: None,
             })
             .await
             .map_err(ClientApiError::InvocationError)

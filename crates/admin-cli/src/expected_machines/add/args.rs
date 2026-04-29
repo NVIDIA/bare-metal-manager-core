@@ -138,6 +138,13 @@ pub struct Args {
         help = "Per-host DPU operating mode. `dpu-mode` (default): DPUs are managed by NICo; `nic-mode`: DPU hardware present but treated as a plain NIC; `no-dpu`: no DPU hardware at all. Unset keeps the site default (site-wide `force_dpu_nic_mode` flag still applies when no per-host value is set)."
     )]
     pub dpu_mode: Option<DpuMode>,
+
+    #[clap(
+        long = "disable-lockdown",
+        value_name = "DISABLE_LOCKDOWN",
+        help = "If true, do not lock down the server as part of lifecycle management within the state machine. If unset or false, preserve the default behavior of locking down the server after configuring the BIOS."
+    )]
+    pub disable_lockdown: Option<bool>,
 }
 
 impl Args {
@@ -192,6 +199,11 @@ impl TryFrom<Args> for rpc::forge::ExpectedMachine {
             bmc_ip_address: value.bmc_ip_address.map(|ip| ip.to_string()),
             bmc_retain_credentials: value.bmc_retain_credentials,
             dpu_mode: value.dpu_mode.map(|m| m as i32),
+            host_lifecycle_profile: value.disable_lockdown.map(|dl| {
+                rpc::forge::HostLifecycleProfile {
+                    disable_lockdown: Some(dl),
+                }
+            }),
         })
     }
 }
