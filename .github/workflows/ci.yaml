@@ -1383,3 +1383,52 @@ jobs:
       notify-on-failure: true
     secrets:
       slack-bot-token: ${{ secrets.CDS_SLACK_BOT_OAUTH_TOKEN }}
+
+  # ============================================================================
+  # TEST: GHCR Publish (temporary - remove after validation)
+  # Trigger by including 'ci-test-ghcr' in commit message
+  # ============================================================================
+  test-ghcr-publish:
+    if: contains(github.event.head_commit.message, 'ci-test-ghcr')
+    runs-on: linux-amd64-cpu4
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push test container
+        run: |
+          echo "FROM alpine:latest" > /tmp/Dockerfile.test
+          docker build -t ghcr.io/nvidia/ncx-infra-controller-core/test-publish:${{ github.sha }} -f /tmp/Dockerfile.test /tmp
+          docker push ghcr.io/nvidia/ncx-infra-controller-core/test-publish:${{ github.sha }}
+
+      - name: Test Helm OCI push
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+          helm package helm/
+          helm push carbide-*.tgz oci://ghcr.io/nvidia/ncx-infra-controller-core
+
+      - name: Report results
+        run: |
+          echo "## GHCR Publish Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Container" >> $GITHUB_STEP_SUMMARY
+          echo "- Image: \`ghcr.io/nvidia/ncx-infra-controller-core/test-publish:${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Helm Chart" >> $GITHUB_STEP_SUMMARY
+          echo "- Registry: \`oci://ghcr.io/nvidia/ncx-infra-controller-core\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Check package visibility at https://github.com/orgs/NVIDIA/packages" >> $GITHUB_STEP_SUMMARY
+          echo "2. Verify default visibility (should be private)" >> $GITHUB_STEP_SUMMARY
+          echo "3. Test changing to internal visibility" >> $GITHUB_STEP_SUMMARY
+          echo "4. Test pulling from another repo / GitLab runner" >> $GITHUB_STEP_SUMMARY
