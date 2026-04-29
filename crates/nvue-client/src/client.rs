@@ -129,6 +129,12 @@ impl NvueClient {
         // Just in case the config we got was derived from an older one,
         // let's clear the rev-id from the header.
         config.remove_rev_id();
+        // The startup templates wrap the payload in a [{header:...},{set:...}] list.
+        // The REST API expects only the inner config object, so strip the wrapper.
+        let mut config = config.extract_set_payload().unwrap_or(config);
+        // pf0dpu* interfaces lack a `type` field and are rejected by the REST API;
+        // skip them for now.
+        config.remove_pf0dpu_interfaces();
         let builder = builder.json(&config);
         let request = builder.build()?;
         let _response = self.execute(request).await?;

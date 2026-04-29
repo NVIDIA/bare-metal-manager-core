@@ -19,8 +19,7 @@ FROM --platform=linux/arm64 debian:bookworm-slim AS builder
 # Get libraries and install MFT (provides flint for DPU firmware enumeration)
 RUN apt-get update && apt-get install -y \
      libudev1 \
-     bash \
-     curl
+     bash
 
 # Working flint extraction
 COPY mft-4.35.0-159-aarch64-deb/DEBS/mft_4.35.0-159_arm64.deb /tmp/mstflint.deb
@@ -38,13 +37,11 @@ RUN mkdir -p /deps && \
 # Stage 2
 FROM --platform=linux/arm64 ${IMG}:${TAG}-${DISTROLESS_DEBUG_TAG}
 
-# Copy bash binary, libraries, mft, and curl from builder
+# Copy bash binary, libraries, and mft from builder
 COPY --from=builder /lib/aarch64-linux-gnu/libudev.so.1 /lib/aarch64-linux-gnu/libudev.so.1
 COPY --from=builder --chmod=755 /bin/bash /bin/bash
 COPY --from=builder --chmod=755 /extract/usr/bin/ /usr/bin/
 COPY --from=builder /deps/* /lib/
-COPY --from=builder --chmod=755 /usr/bin/curl /usr/bin/curl
-COPY --from=builder /usr/lib/aarch64-linux-gnu/libcurl.so.4 /lib/aarch64-linux-gnu/libcurl.so.4
 
 # Copy forge-dpu-agent and set entry point
 COPY --chmod=755 target/aarch64-unknown-linux-gnu/release/forge-dpu-agent /usr/bin/forge-dpu-agent

@@ -87,6 +87,9 @@
                 action:
                   deny: {}
     system:
+      api:
+        listening-address:
+          0.0.0.0: {}
       reflexive-acl:
         enable: on
     vrf:
