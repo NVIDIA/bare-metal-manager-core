@@ -81,7 +81,7 @@ pub struct ManagedHostRowDisplay {
     pub time_in_state_above_sla: bool,
     pub state_reason: String,
     pub health_probe_alerts: Vec<health_report::HealthProbeAlert>,
-    pub health_overrides: Vec<String>,
+    pub health_sources: Vec<String>,
     pub host_admin_ip: String,
     pub host_admin_mac: String,
     pub host_bmc_ip: String,
@@ -183,7 +183,7 @@ impl From<ManagedHostStateSnapshot> for ManagedHostRowDisplay {
                 .and_then(|o| reason_to_user_string(&o.into()))
                 .unwrap_or_default(),
             health_probe_alerts: aggregate_health.alerts,
-            health_overrides: host_snapshot
+            health_sources: host_snapshot
                 .health_reports
                 .into_iter()
                 .map(|(r, _)| r.source)

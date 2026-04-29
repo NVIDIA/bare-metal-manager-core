@@ -73,6 +73,7 @@ pub mod scout_stream;
 pub mod site_explorer;
 pub mod sku;
 pub mod switch;
+mod switch_artifacts;
 pub mod tenant;
 pub mod tenant_identity_config;
 pub mod tenant_keyset;

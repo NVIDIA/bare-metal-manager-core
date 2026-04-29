@@ -19,27 +19,27 @@ use std::sync::Arc;
 
 use carbide_uuid::machine::MachineId;
 
-use super::override_queue::OverrideQueue;
+use super::dedup_queue::DedupQueue;
 use super::{CollectorEvent, DataSink, EventContext, HealthReport, ReportSource};
 use crate::HealthError;
 use crate::api_client::ApiClientWrapper;
-use crate::config::HealthOverrideSinkConfig;
+use crate::config::HealthReportSinkConfig;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct OverrideKey {
+struct HealthReportKey {
     id: MachineId,
     source: ReportSource,
 }
 
-pub struct HealthOverrideSink {
-    queue: Arc<OverrideQueue<OverrideKey, Arc<HealthReport>>>,
+pub struct HealthReportSink {
+    queue: Arc<DedupQueue<HealthReportKey, Arc<HealthReport>>>,
 }
 
-impl HealthOverrideSink {
-    pub fn new(config: &HealthOverrideSinkConfig) -> Result<Self, HealthError> {
+impl HealthReportSink {
+    pub fn new(config: &HealthReportSinkConfig) -> Result<Self, HealthError> {
         let handle = tokio::runtime::Handle::try_current().map_err(|error| {
             HealthError::GenericError(format!(
-                "health override sink requires active Tokio runtime: {error}"
+                "health report sink requires active Tokio runtime: {error}"
             ))
         })?;
 
@@ -50,8 +50,8 @@ impl HealthOverrideSink {
             &config.connection.api_url,
         ));
 
-        let queue: Arc<OverrideQueue<OverrideKey, Arc<HealthReport>>> =
-            Arc::new(OverrideQueue::new());
+        let queue: Arc<DedupQueue<HealthReportKey, Arc<HealthReport>>> =
+            Arc::new(DedupQueue::new());
 
         for worker_id in 0..config.workers {
             let worker_client = Arc::clone(&client);
@@ -65,11 +65,7 @@ impl HealthOverrideSink {
                             if let Err(error) =
                                 worker_client.submit_health_report(&key.id, converted).await
                             {
-                                tracing::warn!(
-                                    ?error,
-                                    worker_id,
-                                    "Failed to submit health override report"
-                                );
+                                tracing::warn!(?error, worker_id, "Failed to submit health report");
                             }
                         }
                         Err(error) => {
@@ -77,7 +73,7 @@ impl HealthOverrideSink {
                                 ?error,
                                 worker_id,
                                 machine_id = %key.id,
-                                "Failed to convert health override report"
+                                "Failed to convert health report"
                             );
                         }
                     }
@@ -91,7 +87,7 @@ impl HealthOverrideSink {
     #[cfg(feature = "bench-hooks")]
     pub fn new_for_bench() -> Result<Self, HealthError> {
         Ok(Self {
-            queue: Arc::new(OverrideQueue::new()),
+            queue: Arc::new(DedupQueue::new()),
         })
     }
 
@@ -101,15 +97,15 @@ impl HealthOverrideSink {
     }
 }
 
-impl DataSink for HealthOverrideSink {
+impl DataSink for HealthReportSink {
     fn sink_type(&self) -> &'static str {
-        "health_override_sink"
+        "health_report_sink"
     }
 
     fn handle_event(&self, context: &EventContext, event: &CollectorEvent) {
         if let CollectorEvent::HealthReport(report) = event {
             if let Some(machine_id) = context.machine_id() {
-                let key = OverrideKey {
+                let key = HealthReportKey {
                     id: machine_id,
                     source: report.source,
                 };
@@ -134,8 +130,8 @@ mod tests {
         value.parse().expect("valid machine id")
     }
 
-    fn key(id: MachineId, source: ReportSource) -> OverrideKey {
-        OverrideKey { id, source }
+    fn key(id: MachineId, source: ReportSource) -> HealthReportKey {
+        HealthReportKey { id, source }
     }
 
     fn report(source: ReportSource) -> Arc<HealthReport> {
@@ -149,7 +145,7 @@ mod tests {
 
     #[tokio::test]
     async fn latest_reports_are_preserved() {
-        let queue: OverrideQueue<OverrideKey, Arc<HealthReport>> = OverrideQueue::new();
+        let queue: DedupQueue<HealthReportKey, Arc<HealthReport>> = DedupQueue::new();
         let machine_a = machine_id("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0");
         let machine_b = machine_id("fm100htjsaledfasinabqqer70e2ua5ksqj4kfjii0v0a90vulps48c1h7g");
         let machine_c = machine_id("fm100htes3rn1npvbtm5qd57dkilaag7ljugl1llmm7rfuq1ov50i0rpl30");
@@ -185,7 +181,7 @@ mod tests {
 
     #[tokio::test]
     async fn reinserting_hot_key_moves_it_to_back() {
-        let queue: OverrideQueue<OverrideKey, Arc<HealthReport>> = OverrideQueue::new();
+        let queue: DedupQueue<HealthReportKey, Arc<HealthReport>> = DedupQueue::new();
         let machine_a = machine_id("fm100htjtiaehv1n5vh67tbmqq4eabcjdng40f7jupsadbedhruh6rag1l0");
         let machine_b = machine_id("fm100htjsaledfasinabqqer70e2ua5ksqj4kfjii0v0a90vulps48c1h7g");
 

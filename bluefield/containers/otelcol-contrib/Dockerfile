@@ -57,7 +57,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Collector binary
-COPY --from=builder /build/ocb-build/otelcol-contrib /usr/bin/otelcol-contrib
+COPY --from=builder --chmod=755 /build/ocb-build/otelcol-contrib /usr/bin/otelcol-contrib
 
 # Wrapper scripts
 COPY bluefield/otel/otelcol-wrapper /etc/otelcol-contrib/otelcol-wrapper

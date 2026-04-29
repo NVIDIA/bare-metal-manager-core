@@ -9,7 +9,7 @@
 			{% endif %}
 			<th>State</th>
 			<th>Health Alerts</th>
-			<th>Health Overrides #</th>
+			<th>Health Reports #</th>
 			<th>IPs</th>
 			<th>MACs</th>
 			{% if active_maintenance_filter != "maintenance" %}
@@ -44,7 +44,7 @@
 					{{ host.health_probe_alerts|health_alerts_fmt(false, false)|safe }}
 				</a>
 			</td>
-			<td><a href="/admin/machine/{{ host.machine_id }}/health">{{ host.health_overrides.len() }}</a></td>
+			<td><a href="/admin/machine/{{ host.machine_id }}/health">{{ host.health_sources.len() }}</a></td>
 			<td style="padding: 0;">
 				<table>
 					<tr><th>Host BMC</th><td><a href="/admin/explored-endpoint/{{ host.host_bmc_ip }}">{{ host.host_bmc_ip }}</a></td></tr>

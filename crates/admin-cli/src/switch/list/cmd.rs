@@ -34,6 +34,7 @@ pub async fn list_switches(
         deleted: args.deleted as i32,
         controller_state: args.controller_state,
         bmc_mac: args.bmc_mac.map(|m| m.to_string()),
+        nvos_mac: args.nvos_mac.map(|m| m.to_string()),
     };
     let response = api_client
         .get_all_switches(filter, config.page_size)

@@ -1375,6 +1375,7 @@ dependencies = [
  "carbide-macros",
  "carbide-measured-boot",
  "carbide-network",
+ "carbide-nvlink-manager",
  "carbide-preingestion-manager",
  "carbide-prost-builder",
  "carbide-redfish",
@@ -1993,12 +1994,16 @@ dependencies = [
  "carbide-version",
  "clap",
  "eyre",
+ "futures-util",
  "governor",
  "http-body-util",
  "hyper",
  "hyper-util",
+ "ipnetwork",
+ "netlink-packet-route",
  "nonzero_ext",
  "prost 0.14.1",
+ "rtnetlink",
  "tokio",
  "tonic 0.14.2",
  "tonic-prost",
@@ -2330,6 +2335,35 @@ dependencies = [
  "serde_json",
  "sqlx",
  "thiserror 2.0.17",
+]
+
+[[package]]
+name = "carbide-nvlink-manager"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-rpc",
+ "carbide-secrets",
+ "carbide-utils",
+ "carbide-uuid",
+ "chrono",
+ "config-version",
+ "duration-str",
+ "eyre",
+ "http",
+ "libnmxm",
+ "opentelemetry",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -6802,9 +6836,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53e3eefc00d5963fedb771a0280f95300c2650bfe6ca4b9280c35385361f41c3"
+checksum = "f1de41e7c7f806b9eba4ada7c56fb82ce2afd59adeb94483e90fbe1454d1c5f4"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -6818,9 +6852,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-bmc-http"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70eea8ae021e8349762ce3969a30a42c39d6e974882ee64e163aeb7dec29cda4"
+checksum = "f38d4575e06c1c7c4fd809b5e2b79840daf674987b49e9e65899519ed4421423"
 dependencies = [
  "futures-core",
  "futures-util",
@@ -6838,9 +6872,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-core"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e02c2e01f5f0350fbf773c9b95cbb25419b9c30c8819bc34223c71e9388251bc"
+checksum = "df4da47565abaaf827981d0782ad94e2625dafb27361b7b799333d2e415031c5"
 dependencies = [
  "futures-core",
  "rust_decimal",
@@ -6852,9 +6886,9 @@ dependencies = [
 
 [[package]]
 name = "nv-redfish-csdl-compiler"
-version = "0.7.0"
+version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6084a8fd9e1415503f3935e339788cf6df86f1f2ca07ba694f48a107fb4ba028"
+checksum = "d125e93cdd4b7a2e785dfe95772818fbc7cc1130f4d1160d75d02cf993eef9b9"
 dependencies = [
  "clap",
  "clap_derive",

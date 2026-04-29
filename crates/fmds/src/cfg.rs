@@ -51,6 +51,18 @@ pub struct Options {
     /// This will probably be shared with the carbide-dpu-agent.
     #[clap(long)]
     pub client_key: Option<String>,
+
+    /// Name of the interface to assign the metadata-service address to.
+    #[clap(long, env = "FMDS_INTERFACE_NAME", default_value = "f_pf0hpf_if")]
+    pub interface_name: String,
+
+    /// CIDR to assign on `interface_name` (cloud metadata-service address).
+    #[clap(
+        long,
+        env = "FMDS_INTERFACE_CIDR",
+        default_value = "169.254.169.254/30"
+    )]
+    pub interface_cidr: String,
 }
 
 impl Options {

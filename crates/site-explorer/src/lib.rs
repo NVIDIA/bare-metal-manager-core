@@ -455,9 +455,11 @@ impl SiteExplorer {
 
             let previous_health_report = machine
                 .as_ref()
-                .and_then(|machine| machine.site_explorer_health_report.as_ref());
+                .and_then(|machine| machine.site_explorer_health_report());
             let mut new_health_report: health_report::HealthReport =
-                health_report::HealthReport::empty("site-explorer".to_string());
+                health_report::HealthReport::empty(
+                    health_report::HealthReport::SITE_EXPLORER_SOURCE.to_string(),
+                );
 
             if let Some(ref e) = ep.report.last_exploration_error {
                 metrics.increment_endpoint_explorations_failures_overall_count(

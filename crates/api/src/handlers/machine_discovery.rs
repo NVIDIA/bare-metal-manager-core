@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 pub use ::rpc::forge as rpc;
+use carbide_nvlink_manager::config::NvLinkConfig;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use db::WithTransaction;
 use futures_util::FutureExt;
@@ -31,7 +32,6 @@ use model::machine::{DpuInitState, DpuInitStates, ManagedHostState};
 use tonic::{Request, Response, Status};
 
 use crate::api::{Api, log_machine_id, log_request_data};
-use crate::cfg::file::NvLinkConfig;
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::{CarbideError, CarbideResult, attestation as attest};
 

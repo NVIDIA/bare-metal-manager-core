@@ -90,7 +90,7 @@ The breakfix integration follows this automated repair cycle:
 
 ## Repair Status Labels
 
-Repair systems use machine metadata labels to communicate repair outcomes back to Forge:
+Repair systems use machine metadata labels to communicate repair outcomes back to NICo:
 
 ### Critical Label: `repair_status`
 | Value | Meaning | Result |

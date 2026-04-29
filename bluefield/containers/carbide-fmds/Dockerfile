@@ -13,6 +13,6 @@ ARG DISTROLESS_DEBUG_TAG=${DEBUG_DISTROLESS:+"dev"} # 'dev' provides a busybox s
 # NVIDIA Distroless Container
 FROM --platform=linux/arm64 ${IMG}:${TAG}-${DISTROLESS_DEBUG_TAG}
 
-COPY target/aarch64-unknown-linux-gnu/release/carbide-fmds /usr/bin/carbide-fmds
+COPY --chmod=755 target/aarch64-unknown-linux-gnu/release/carbide-fmds /usr/bin/carbide-fmds
 
 ENTRYPOINT ["/usr/bin/carbide-fmds"]

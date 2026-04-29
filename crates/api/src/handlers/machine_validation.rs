@@ -109,8 +109,7 @@ pub(crate) async fn mark_machine_validation_complete(
 
             // Update the Machine validation health report to include that the
             // validation failed
-            let mut updated_validation_health_report =
-                machine.machine_validation_health_report.clone();
+            let mut updated_validation_health_report = machine.machine_validation_health_report();
             updated_validation_health_report.observed_at = Some(chrono::Utc::now());
             updated_validation_health_report
                 .alerts
@@ -227,7 +226,7 @@ pub(crate) async fn persist_validation_result(
     }
 
     // Update the Machine validation health report based on the result
-    let mut updated_validation_health_report = machine.machine_validation_health_report.clone();
+    let mut updated_validation_health_report = machine.machine_validation_health_report();
     updated_validation_health_report.observed_at = Some(chrono::Utc::now());
     if validation_result.exit_code != 0 {
         updated_validation_health_report

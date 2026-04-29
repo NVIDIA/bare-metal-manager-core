@@ -446,10 +446,8 @@ impl MachineStateHandler {
             }
 
             // Update DPU network health Prometheus metrics
-            // TODO: This needs to be fixed for multi-dpu
             ctx.metrics.dpus_healthy += if dpu_snapshot
-                .dpu_agent_health_report
-                .as_ref()
+                .dpu_agent_health_report()
                 .map(|health| health.alerts.is_empty())
                 .unwrap_or(false)
             {
@@ -457,7 +455,7 @@ impl MachineStateHandler {
             } else {
                 0
             };
-            if let Some(report) = dpu_snapshot.dpu_agent_health_report.as_ref() {
+            if let Some(report) = dpu_snapshot.dpu_agent_health_report() {
                 for alert in report.alerts.iter() {
                     *ctx.metrics
                         .dpu_health_probe_alerts
@@ -601,7 +599,7 @@ impl MachineStateHandler {
 
         // If it's been more than 5 minutes since DPU reported status, consider it unhealthy
         for dpu_snapshot in &mh_snapshot.dpu_snapshots {
-            if let Some(dpu_health) = dpu_snapshot.dpu_agent_health_report.as_ref() {
+            if let Some(dpu_health) = dpu_snapshot.dpu_agent_health_report() {
                 if !dpu_health.alerts.is_empty() {
                     continue;
                 }
@@ -612,8 +610,8 @@ impl MachineStateHandler {
                         let message = format!("Last seen over {} ago", self.dpu_up_threshold);
                         let dpu_machine_id = &dpu_snapshot.id;
                         let health_report = health_report::HealthReport::heartbeat_timeout(
-                            "forge-dpu-agent".to_string(),
-                            "forge-dpu-agent".to_string(),
+                            health_report::HealthReport::DPU_AGENT_SOURCE.to_string(),
+                            health_report::HealthReport::DPU_AGENT_SOURCE.to_string(),
                             message,
                             true,
                             false,
@@ -4387,7 +4385,7 @@ fn managed_host_network_config_version_synced_and_dpu_healthy(dpu_snapshot: &Mac
         return false;
     }
 
-    let Some(dpu_health) = &dpu_snapshot.dpu_agent_health_report else {
+    let Some(dpu_health) = dpu_snapshot.dpu_agent_health_report() else {
         return false;
     };
 

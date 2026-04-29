@@ -724,6 +724,18 @@ pub(crate) async fn on_demand_rack_maintenance(
 
     let mut txn = api.txn_begin().await?;
     db_rack::update(&mut txn, &rack_id, &updated_config).await?;
+    if updated_config
+        .maintenance_requested
+        .as_ref()
+        .is_some_and(|scope| {
+            scope.should_run(&MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: None,
+                components: vec![],
+            })
+        })
+    {
+        db_rack::update_firmware_upgrade_job(txn.as_mut(), &rack_id, None).await?;
+    }
     txn.commit().await?;
 
     tracing::info!("On-demand maintenance scheduled for rack {}", rack_id,);

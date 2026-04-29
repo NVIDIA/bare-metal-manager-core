@@ -27,8 +27,8 @@ use model::expected_machine::ExpectedMachineData;
 use model::machine::ManagedHostState;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::{
-    FirmwareUpgradeState, NvosUpdateState, Rack, RackConfig, RackMaintenanceState, RackState,
-    RackValidationState, ResolvedNvosArtifact,
+    ConfigureNmxClusterState, FirmwareUpgradeState, NvosUpdateState, Rack, RackConfig,
+    RackMaintenanceState, RackState, RackValidationState, ResolvedNvosArtifact,
 };
 use rpc::forge::StateHistoryRecord;
 use rpc::forge::forge_server::Forge;
@@ -108,9 +108,11 @@ impl StateHandler for TestRackStateHandler {
                     },
                 },
                 RackMaintenanceState::NVOSUpdate { .. } => RackState::Maintenance {
-                    maintenance_state: RackMaintenanceState::ConfigureNmxCluster,
+                    maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
+                        configure_nmx_cluster: ConfigureNmxClusterState::Start,
+                    },
                 },
-                RackMaintenanceState::ConfigureNmxCluster => RackState::Maintenance {
+                RackMaintenanceState::ConfigureNmxCluster { .. } => RackState::Maintenance {
                     maintenance_state: RackMaintenanceState::Completed,
                 },
                 RackMaintenanceState::Completed => RackState::Validating {

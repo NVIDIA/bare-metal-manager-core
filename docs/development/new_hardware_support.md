@@ -12,8 +12,8 @@ NICo discovers and manages bare-metal hosts through their BMC (Baseboard Managem
 
 | Library | Role | Where Used |
 |---|---|---|
-| **[nv-redfish](https://github.com/NVIDIA/nv-redfish)** | Schema-driven, fast: site exploration reports, firmware inventory, sensor collection, health monitoring. **Preferred for exploration.** | Site Explorer exploration (`crates/api/src/site_explorer/`), Hardware Health (`crates/health/src/`) |
-| **[libredfish](https://github.com/NVIDIA/libredfish)** | Stateful BMC interactions: boot config, BIOS setup, power control, account/credential management, lockdown | Site Explorer state controller operations (`crates/api/src/site_explorer/`) |
+| **[nv-redfish](https://github.com/NVIDIA/nv-redfish)** | Schema-driven, fast: site exploration reports, firmware inventory, sensor collection, health monitoring. **Preferred for exploration.** | Site Explorer exploration (`crates/site-explorer/`), Hardware Health (`crates/health/src/`) |
+| **[libredfish](https://github.com/NVIDIA/libredfish)** | Stateful BMC interactions: boot config, BIOS setup, power control, account/credential management, lockdown | Site Explorer state controller operations (`crates/site-explorer/`) |
 
 Site Explorer supports both libraries for generating `EndpointExplorationReport`s, controlled by the `explore_mode` configuration setting (`SiteExplorerExploreMode`):
 

@@ -6,6 +6,7 @@ metadata:
     {{- include "carbide-fmds.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
+  internalTrafficPolicy: Local
   selector:
     {{- include "carbide-fmds.selectorLabels" . | nindent 4 }}
     {{- with .Values.serviceDaemonSet.labels }}

@@ -169,6 +169,10 @@ pub async fn find_ids(
         qb.push(" JOIN machine_interfaces mi ON mi.switch_id = s.id");
     }
 
+    if filter.nvos_mac.is_some() {
+        qb.push(" JOIN expected_switches es_nvos ON es_nvos.bmc_mac_address = s.bmc_mac_address");
+    }
+
     qb.push(" WHERE TRUE");
 
     if filter.rack_id.is_some() {
@@ -190,6 +194,12 @@ pub async fn find_ids(
     if let Some(mac) = filter.bmc_mac {
         qb.push(" AND mi.mac_address = ");
         qb.push_bind(mac);
+    }
+
+    if let Some(mac) = filter.nvos_mac {
+        qb.push(" AND ");
+        qb.push_bind(mac);
+        qb.push(" = ANY(es_nvos.nvos_mac_addresses)");
     }
 
     qb.build_query_as()

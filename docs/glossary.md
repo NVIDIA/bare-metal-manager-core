@@ -20,8 +20,8 @@ https://cloudinit.readthedocs.io/en/latest/
 
 Cloud-init is the industry standard multi-distribution method for cross-platform cloud instance initialization. During boot, cloud-init identifies the cloud it is running on and initializes the system accordingly. Cloud instances will automatically be provisioned during first boot with networking, storage, ssh keys, packages and various other system aspects already configured.
 
-Cloud-init is used by Carbide to install components that are required on top of the base OS image:
-- DPUs use a Carbide provided cloud-init file to install Carbide related components
+Cloud-init is used by NICo to install components that are required on top of the base OS image:
+- DPUs use a NICo provided cloud-init file to install NICo related components
   on top of the base DPU image that is provided by the NVIDIA networking group.
 - Customers/tenants can provide a custom cloud-init automates installation for customer OSes
 
@@ -31,7 +31,7 @@ https://en.wikipedia.org/wiki/Dynamic_Host_Configuration_Protocol
 
 The Dynamic Host Configuration Protocol (DHCP) is a network management protocol used on Internet Protocol (IP) networks for automatically assigning IP addresses and other communication parameters to devices connected to the network using a client–server architecture.
 
-Within Carbide, both DPUs and Hosts are using DHCP request to resolve their IP. The Carbide infrastructure responds to those DHCP requests, and provides a response based on known information about the host.
+Within NICo, both DPUs and Hosts are using DHCP request to resolve their IP. The NICo infrastructure responds to those DHCP requests, and provides a response based on known information about the host.
 
 ### DNS (Domain Name System)
 
@@ -46,7 +46,7 @@ DPU - A [Mellanox BlueField 2 (or 3)](https://www.nvidia.com/en-us/networking/pr
 
 ### HBN (Host Based Networking)
 
-Software networking switch running in a container on the **DPU**. Manages network routing. Runs [Cumulus Linux](https://www.nvidia.com/en-us/networking/ethernet-switching/cumulus-linux/). Carbide controls it via VPC and `forge-dpu-agent`.
+Software networking switch running in a container on the **DPU**. Manages network routing. Runs [Cumulus Linux](https://www.nvidia.com/en-us/networking/ethernet-switching/cumulus-linux/). NICo controls it via VPC and `forge-dpu-agent`.
 
 https://docs.nvidia.com/doca/sdk/pdf/doca-hbn-service.pdf
 
@@ -72,9 +72,9 @@ iPXE is an open-source implementation of the [Preboot eXecution Environment (PXE
 
 ### Leaf
 
-In the Carbide project, we call "Leaf" the device that the host (which we want to make available for tenants) plugs into.
+In the NICo project, we call "Leaf" the device that the host (which we want to make available for tenants) plugs into.
 This is typically a DPU that will make the overlay network available
-to the tenant. In future iterations of the Carbide project, the Leaf might be a specialized switch instead of a DPU.
+to the tenant. In future iterations of the NICo project, the Leaf might be a specialized switch instead of a DPU.
 
 ### Machine
 
@@ -92,8 +92,8 @@ A Kubernetes thing
 
 In computing, the Preboot eXecution Environment, PXE specification describes a standardized client–server environment that boots a software assembly, retrieved from a network, on PXE-enabled clients.
 
-In Carbide, DPUs and Hosts are using PXE after startup to install both the
-Carbide specific software images as well as the images that the tenant
+In NICo, DPUs and Hosts are using PXE after startup to install both the
+NICo specific software images as well as the images that the tenant
 wants to run.
 
 ### VLAN

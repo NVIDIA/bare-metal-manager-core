@@ -134,6 +134,62 @@ fn create_valid_rack_firmware_json_with_switch_system_image(id: &str) -> String 
     .to_string()
 }
 
+fn create_valid_rack_firmware_json_with_nvos_software(id: &str) -> String {
+    serde_json::json!({
+        "Id": id,
+        "Name": "Test Rack Firmware Config With NVOS Software",
+        "Description": "A test configuration for rack firmware with NVOS under Switch Tray software",
+        "BoardSKUs": [
+            {
+                "SKUID": "switch-sku-001",
+                "Name": "P4978-Juliet_Switch",
+                "Type": "Switch Tray",
+                "Components": {
+                    "Software": [
+                        {
+                            "Component": "NVOS",
+                            "Version": "25.02.2553",
+                            "Type": "Prod",
+                            "Locations": [
+                                {
+                                    "Name": "NVOS_Prod_AMD64",
+                                    "Location": "https://urm.nvidia.com/artifactory/sw-nbu-sws-nvos-generic-local/release/25.02.2553/amd64/prod/nvos-amd64-25.02.2553.bin",
+                                    "LocationType": "HTTPS",
+                                    "PackageName": "GB300_NVOS",
+                                    "Required": true
+                                },
+                                {
+                                    "Name": "NVOS_OpenAPI_Spec",
+                                    "Location": "https://urm.nvidia.com/artifactory/sw-nbu-sws-nvos-generic-local/release/25.02.2553/openapi.json",
+                                    "LocationType": "HTTPS",
+                                    "PackageName": "GB300_NVOS",
+                                    "Required": true
+                                }
+                            ]
+                        },
+                        {
+                            "Component": "NVOS",
+                            "Version": "25.02.2553",
+                            "Type": "Dev",
+                            "Locations": [
+                                {
+                                    "Name": "NVOS_Dev_AMD64",
+                                    "Location": "https://urm.nvidia.com/artifactory/sw-nbu-sws-nvos-generic-local/release/25.02.2553/amd64/dev/nvos-amd64-25.02.2553.bin",
+                                    "LocationType": "HTTPS",
+                                    "PackageName": "",
+                                    "Required": true
+                                }
+                            ]
+                        }
+                    ],
+                    "Firmware": []
+                }
+            }
+        ]
+    })
+    .to_string()
+}
+
 // ============================================================================
 // CREATE TESTS
 // ============================================================================
@@ -216,6 +272,53 @@ async fn test_create_rack_firmware_with_switch_system_image(
         switch_system_images[0]["image_filename"],
         "nvos-amd64-25.02.2553.bin"
     );
+
+    Ok(())
+}
+
+#[crate::sqlx_test()]
+async fn test_create_rack_firmware_derives_nvos_from_switch_tray_software(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let firmware_id = "test-firmware-nvos-software-001";
+    let config_json = create_valid_rack_firmware_json_with_nvos_software(firmware_id);
+
+    let request = tonic::Request::new(RackFirmwareCreateRequest {
+        rack_hardware_type: Some(rpc::common::RackHardwareType {
+            value: "any".to_string(),
+        }),
+        config_json,
+        artifactory_token: "test-token-123".to_string(),
+    });
+
+    let response = env.api.create_rack_firmware(request).await?;
+    let firmware = response.into_inner();
+
+    assert_eq!(firmware.id, firmware_id);
+
+    let db_firmware = db::rack_firmware::find_by_id(&env.pool, firmware_id).await?;
+    let parsed = db_firmware.parsed_components.unwrap();
+    let switch_system_images = parsed["switch_system_images"].as_array().unwrap();
+    assert_eq!(switch_system_images.len(), 2);
+
+    let prod = switch_system_images
+        .iter()
+        .find(|image| image["firmware_type"] == "prod")
+        .expect("expected prod NVOS image");
+    assert_eq!(prod["device_type"], "Switch Tray");
+    assert_eq!(prod["component"], "NVOS");
+    assert_eq!(prod["version"], "25.02.2553");
+    assert_eq!(prod["package_name"], "GB300_NVOS");
+    assert_eq!(prod["image_filename"], "nvos-amd64-25.02.2553.bin");
+
+    let dev = switch_system_images
+        .iter()
+        .find(|image| image["firmware_type"] == "dev")
+        .expect("expected dev NVOS image");
+    assert_eq!(dev["package_name"], "GB300_NVOS");
+    assert_eq!(dev["image_filename"], "nvos-amd64-25.02.2553.bin");
 
     Ok(())
 }

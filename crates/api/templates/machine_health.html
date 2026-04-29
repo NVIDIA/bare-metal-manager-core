@@ -8,8 +8,8 @@
 <!-- Main Aggregate Health Status -->
 {{ aggregate_health|safe }}
 
-{% if !overrides.is_empty() %}
-<h2>Active Health Overrides</h2>
+{% if !entries.is_empty() %}
+<h2>Active Health Reports</h2>
 <table class="sortable overview">
 	<thead>
 		<tr>
@@ -22,22 +22,22 @@
 		</tr>
 	</thead>
 	<tbody>
-		{% for override in overrides %}
+		{% for entry in entries %}
 		<tr>
-			<td>{{ override.health_report.source }}</td>
-			<td>{{ override.mode }}</td>
-			<td>{% match override.health_report.triggered_by %}{% when Some with (v) %}{{ v }}{% when None %}—{% endmatch %}</td>
-			<td>{{ override.health_report.alerts|health_alerts_fmt(false, false)|safe }}</td>
-			<td>{{ override.health_report.alerts|health_alert_classifications_fmt|safe }}</td>
+			<td>{{ entry.health_report.source }}</td>
+			<td>{{ entry.mode }}</td>
+			<td>{% match entry.health_report.triggered_by %}{% when Some with (v) %}{{ v }}{% when None %}—{% endmatch %}</td>
+			<td>{{ entry.health_report.alerts|health_alerts_fmt(false, false)|safe }}</td>
+			<td>{{ entry.health_report.alerts|health_alert_classifications_fmt|safe }}</td>
 			<td>
-				<div class="health-override-actions">
+				<div class="health-report-actions">
 					<details>
 						<summary>JSON Details</summary>
 						<div style="overflow: auto; max-height: 300px; border: 1px solid var(--border-color); border-radius: 8px; background-color: var(--bg-tertiary); margin-top: 0.5rem;">
-							<pre style="margin: 0; padding: 1rem; background-color: transparent; white-space: pre-wrap;"><code class="prettyjson">{{ override|json|safe }}</code></pre>
+							<pre style="margin: 0; padding: 1rem; background-color: transparent; white-space: pre-wrap;"><code class="prettyjson">{{ entry|json|safe }}</code></pre>
 						</div>
 					</details>
-					<button id="remove-override-{{ override.health_report.source }}" class="delete-button">Remove</button>
+					<button id="remove-health-report-{{ entry.health_report.source }}" class="delete-button">Remove</button>
 				</div>
 			</td>
 		</tr>
@@ -46,7 +46,7 @@
 </table>
 {% endif %}
 
-<h2>Health Override Management</h2>
+<h2>Health Report Management</h2>
 <table class="detailsview">
 	<tr>
 		<th>Quick Templates</th>
@@ -55,29 +55,29 @@
 				Select a template to pre-fill the configuration below:
 			</p>
 			<div class="button-group horizontal">
-				<button onclick="setOverrideTextBoxToTemplate(templateHealthReport)">Blank Template</button>
-				<button onclick="setOverrideTextBoxToTemplate(templateMergeHostUpdateMaintenance)">Host Update</button>
-				<button onclick="setOverrideTextBoxToTemplate(templateMergeInternalMaintenance)">Internal Maintenance</button>
-				<button onclick="setOverrideTextBoxToTemplate(templateStopRebootForRecovery)">Prevent Reboot</button>
-				<button onclick="setOverrideTextBoxToTemplate(templateMergeOfrMaintenance)">Out for Repair</button>
-				<button onclick="setOverrideTextBoxToTemplate(templateMergeBreakfix)">Request Repair Automation</button>
-				<button onclick="setOverrideTextBoxToTemplate(templateMergeDegradedMaintenance)">Degraded</button>
-				<button onclick="setOverrideTextBoxToTemplate(templateMergeValidationMaintenance)">Validation</button>
-				<button onclick="setOverrideTextBoxToTemplate(templateMergeSuppressExternalAlerting)">Suppress Alerts</button>
-				<button onclick="setOverrideTextBoxToTemplate(templateMergeSingleAlert)">Merge Alert</button>
-				<button onclick="setOverrideTextBoxToTemplate(templateReplaceSingleAlert)">Replace Alert</button>
-				<button onclick="setOverrideTextBoxToTemplate(templateReplaceAsHealthy)">Mark Healthy</button>
+				<button onclick="setHealthReportTextBoxToTemplate(templateHealthReport)">Blank Template</button>
+				<button onclick="setHealthReportTextBoxToTemplate(templateMergeHostUpdateMaintenance)">Host Update</button>
+				<button onclick="setHealthReportTextBoxToTemplate(templateMergeInternalMaintenance)">Internal Maintenance</button>
+				<button onclick="setHealthReportTextBoxToTemplate(templateStopRebootForRecovery)">Prevent Reboot</button>
+				<button onclick="setHealthReportTextBoxToTemplate(templateMergeOfrMaintenance)">Out for Repair</button>
+				<button onclick="setHealthReportTextBoxToTemplate(templateMergeBreakfix)">Request Repair Automation</button>
+				<button onclick="setHealthReportTextBoxToTemplate(templateMergeDegradedMaintenance)">Degraded</button>
+				<button onclick="setHealthReportTextBoxToTemplate(templateMergeValidationMaintenance)">Validation</button>
+				<button onclick="setHealthReportTextBoxToTemplate(templateMergeSuppressExternalAlerting)">Suppress Alerts</button>
+				<button onclick="setHealthReportTextBoxToTemplate(templateMergeSingleAlert)">Merge Alert</button>
+				<button onclick="setHealthReportTextBoxToTemplate(templateReplaceSingleAlert)">Replace Alert</button>
+				<button onclick="setHealthReportTextBoxToTemplate(templateReplaceAsHealthy)">Mark Healthy</button>
 			</div>
 		</td>
 	</tr>
 	<tr>
-		<th>Override Configuration</th>
+		<th>Health Report</th>
 		<td>
 			<p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 0.5rem;">
 				Required fields: <strong>id</strong> and <strong>message</strong>. Target is optional.
 			</p>
-			<textarea id="override" rows="16" style="width: 100%; font-family: 'Consolas', 'Monaco', monospace; margin-bottom: 1rem;"></textarea>
-			<button id="submit_add">Submit Override</button>
+			<textarea id="health-report" rows="16" style="width: 100%; font-family: 'Consolas', 'Monaco', monospace; margin-bottom: 1rem;"></textarea>
+			<button id="submit_add">Submit Health Report</button>
 		</td>
 	</tr>
 </table>
@@ -238,19 +238,19 @@ function add_click_listener([id, path, body]) {
 	});
 }
 
-function setOverrideTextBoxToTemplate(template) {
-	document.getElementById("override").value = JSON.stringify(template, null, 2);
+function setHealthReportTextBoxToTemplate(template) {
+	document.getElementById("health-report").value = JSON.stringify(template, null, 2);
 }
 
 document.addEventListener("DOMContentLoaded", function (event) {
-	setOverrideTextBoxToTemplate(templateHealthReport);
+	setHealthReportTextBoxToTemplate(templateHealthReport);
 	for (const item of [
-		["submit_add", "/override/add", () => document.getElementById("override").value],
+		["submit_add", "/health-report/add", () => document.getElementById("health-report").value],
 	]) {
 		add_click_listener(item);
 	}
-	{% for override in overrides %}
-	add_click_listener(["remove-override-{{ override.health_report.source }}", "/override/remove", () => JSON.stringify({source: "{{ override.health_report.source }}"})]);
+	{% for entry in entries %}
+	add_click_listener(["remove-health-report-{{ entry.health_report.source }}", "/health-report/remove", () => JSON.stringify({source: "{{ entry.health_report.source }}"})]);
 	{% endfor %}
 });
 

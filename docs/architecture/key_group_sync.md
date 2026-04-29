@@ -17,7 +17,7 @@ The key group update and synchronization mechanism in NICo REST API works as fol
         - sites being restored from backups and having outdated keygroup versions or missing keygroups
         - users triggering multiple keygroup updates in rapid succession
 7. NICo provides the ability to fully overwrite the content of a keygroup that is identified by a `(TenantOrg, GroupName)` tuple and indexed by a `Version`. It will echo the version of a keygroup as is back to the Cloud, and not change it by itself or interpret it in any way.
-8. The NICo REST API **could** expose the version number of key groups to users - however it does not have to. By exposing the version number, it can provide update APIs with `ifVersionNotMatch` semantics - which means adding the capability for UIs to fail changes to groups if a concurrent edit occurred. This prevents Forge Tenant Admins from accidentally overwriting changes that another Tenant Admin for the same org performed.
+8. The NICo REST API **could** expose the version number of key groups to users - however it does not have to. By exposing the version number, it can provide update APIs with `ifVersionNotMatch` semantics - which means adding the capability for UIs to fail changes to groups if a concurrent edit occurred. This prevents NICo Tenant Admins from accidentally overwriting changes that another Tenant Admin for the same org performed.
 
 ```mermaid
 sequenceDiagram

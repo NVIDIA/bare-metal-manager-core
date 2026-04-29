@@ -48,8 +48,8 @@ use crate::processor::{
 use crate::sharding::ShardManager;
 use crate::sink::event_mapper::{OpenBmcEventMapper, RedfishEventMapper};
 use crate::sink::{
-    CompositeDataSink, DataSink, HealthOverrideSink, LogFileSink, OtlpSink, PrometheusSink,
-    RackHealthOverrideSink, TracingSink,
+    CompositeDataSink, DataSink, HealthReportSink, LogFileSink, OtlpSink, PrometheusSink,
+    RackHealthReportSink, TracingSink,
 };
 
 #[derive(thiserror::Error, Debug)]
@@ -159,7 +159,7 @@ fn build_data_sink(
     }
 
     if config.sinks.tracing.is_enabled()
-        || config.sinks.health_override.is_enabled()
+        || config.sinks.health_report.is_enabled()
         || config.processors.leak_detection.is_enabled()
     {
         processors.push(Arc::new(HealthReportProcessor::new()));
@@ -183,12 +183,12 @@ fn build_data_sink(
         ));
     }
 
-    if let Configurable::Enabled(ref sink_cfg) = config.sinks.health_override {
-        sinks.push(Arc::new(HealthOverrideSink::new(sink_cfg)?));
+    if let Configurable::Enabled(ref sink_cfg) = config.sinks.health_report {
+        sinks.push(Arc::new(HealthReportSink::new(sink_cfg)?));
     }
 
-    if let Configurable::Enabled(ref sink_cfg) = config.sinks.rack_health_override {
-        sinks.push(Arc::new(RackHealthOverrideSink::new(sink_cfg)?));
+    if let Configurable::Enabled(ref sink_cfg) = config.sinks.rack_health_report {
+        sinks.push(Arc::new(RackHealthReportSink::new(sink_cfg)?));
     }
 
     if let Configurable::Enabled(ref otlp_cfg) = config.sinks.otlp {

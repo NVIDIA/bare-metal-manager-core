@@ -34,6 +34,7 @@ use tonic::{Request, Response, Status};
 
 use crate::api::Api;
 use crate::errors::CarbideError;
+use crate::handlers::switch_artifacts::{SwitchSystemImageArtifact, collect_switch_system_images};
 use crate::rack::firmware_update::{
     build_firmware_update_batches, load_rack_firmware_inventory, submit_firmware_update_batches,
 };
@@ -81,39 +82,6 @@ struct FirmwareLocation {
     firmware_type: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SwitchSystemImageArtifact {
-    device_type: String,
-    component: String,
-    version: String,
-    firmware_type: String,
-    package_name: String,
-    location: String,
-    location_type: String,
-    required: bool,
-    image_filename: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct RawSwitchSystemImageArtifact {
-    #[serde(rename = "DeviceType")]
-    device_type: String,
-    #[serde(rename = "Component")]
-    component: String,
-    #[serde(rename = "Version")]
-    version: String,
-    #[serde(rename = "Type")]
-    firmware_type: String,
-    #[serde(rename = "PackageName")]
-    package_name: String,
-    #[serde(rename = "Location")]
-    location: String,
-    #[serde(rename = "LocationType")]
-    location_type: String,
-    #[serde(rename = "Required", default = "default_true")]
-    required: bool,
-}
-
 // Structs for firmware lookup table
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,32 +123,6 @@ struct SwitchSystemImageLookupEntry {
     image_filename: String,
     location_type: String,
     firmware_type: String,
-}
-
-fn filename_from_location(location: &str) -> Result<String, String> {
-    location
-        .split('/')
-        .next_back()
-        .filter(|name| !name.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| format!("Location must end with a filename: {location}"))
-}
-
-fn default_true() -> bool {
-    true
-}
-
-fn format_switch_system_images_deserialize_error(error: serde_json::Error) -> String {
-    let message = error.to_string();
-
-    if let Some(field) = message
-        .strip_prefix("missing field `")
-        .and_then(|s| s.strip_suffix('`'))
-    {
-        return format!("Invalid SwitchSystemImages: {field} is required");
-    }
-
-    format!("Invalid SwitchSystemImages: {message}")
 }
 
 /// Parse rack firmware JSON to extract firmware components
@@ -339,77 +281,6 @@ fn parse_rack_firmware_json(config: &Value) -> Result<ParsedFirmwareComponents, 
     })
 }
 
-fn parse_switch_system_images(config: &Value) -> Result<Vec<SwitchSystemImageArtifact>, String> {
-    let Some(entries) = config.get("SwitchSystemImages") else {
-        return Ok(Vec::new());
-    };
-
-    let entries: Vec<RawSwitchSystemImageArtifact> = serde_json::from_value(entries.clone())
-        .map_err(format_switch_system_images_deserialize_error)?;
-
-    let mut parsed = Vec::with_capacity(entries.len());
-
-    for (idx, entry) in entries.iter().enumerate() {
-        let device_type = entry.device_type.as_str();
-        if device_type != "Switch Tray" {
-            return Err(format!(
-                "SwitchSystemImages[{idx}].DeviceType must be 'Switch Tray'"
-            ));
-        }
-
-        let component = entry.component.as_str();
-        if component != "NVOS" {
-            return Err(format!(
-                "SwitchSystemImages[{idx}].Component must be 'NVOS'"
-            ));
-        }
-
-        let version = entry.version.trim();
-        if version.is_empty() {
-            return Err(format!("SwitchSystemImages[{idx}].Version is required"));
-        }
-
-        let firmware_type = entry.firmware_type.trim();
-        if firmware_type.is_empty() {
-            return Err(format!("SwitchSystemImages[{idx}].Type is required"));
-        }
-        let firmware_type = firmware_type.to_lowercase();
-
-        let package_name = entry.package_name.trim();
-        if package_name.is_empty() {
-            return Err(format!("SwitchSystemImages[{idx}].PackageName is required"));
-        }
-
-        let location = entry.location.trim();
-        if location.is_empty() {
-            return Err(format!("SwitchSystemImages[{idx}].Location is required"));
-        }
-
-        let location_type = entry.location_type.trim();
-        if location_type.is_empty() {
-            return Err(format!(
-                "SwitchSystemImages[{idx}].LocationType is required"
-            ));
-        }
-
-        let required = entry.required;
-
-        parsed.push(SwitchSystemImageArtifact {
-            device_type: device_type.to_string(),
-            component: component.to_string(),
-            version: version.to_string(),
-            firmware_type,
-            package_name: package_name.to_string(),
-            location: location.to_string(),
-            location_type: location_type.to_string(),
-            required,
-            image_filename: filename_from_location(location)?,
-        });
-    }
-
-    Ok(parsed)
-}
-
 /// Create a new Rack firmware configuration
 pub async fn create(
     api: &Api,
@@ -463,7 +334,7 @@ pub async fn create(
     };
 
     let switch_system_images =
-        parse_switch_system_images(&config).map_err(CarbideError::InvalidArgument)?;
+        collect_switch_system_images(&config).map_err(CarbideError::InvalidArgument)?;
     if !switch_system_images.is_empty() {
         tracing::info!(
             "Parsed {} switch system images from rack firmware config {}",

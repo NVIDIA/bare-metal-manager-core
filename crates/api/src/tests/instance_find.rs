@@ -19,8 +19,11 @@ use ::rpc::forge as rpc;
 use base64::prelude::*;
 use carbide_uuid::instance::InstanceId;
 use rpc::forge_server::Forge;
+use tonic::Request;
 
-use crate::tests::common::api_fixtures::instance::default_tenant_config;
+use crate::tests::common::api_fixtures::instance::{
+    default_os_config, default_tenant_config, single_interface_network_config,
+};
 use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
 
 #[crate::sqlx_test]
@@ -56,10 +59,27 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                 .await
                 .unwrap();
 
-            mh.instance_builer(&env)
-                .single_interface_network_config(segment_id)
-                .build()
-                .await;
+            // Allocate with an explicit instance type ID so it is persisted.
+            // Expect these instances to be returned by instance_type_id filtering.
+            env.api
+                .allocate_instance(Request::new(rpc::InstanceAllocationRequest {
+                    instance_id: None,
+                    machine_id: Some(mh.id),
+                    instance_type_id: Some(instance_type_id.clone()),
+                    config: Some(rpc::InstanceConfig {
+                        tenant: Some(default_tenant_config()),
+                        os: Some(default_os_config()),
+                        network: Some(single_interface_network_config(segment_id)),
+                        infiniband: None,
+                        network_security_group_id: None,
+                        dpu_extension_services: None,
+                        nvlink: None,
+                    }),
+                    metadata: None,
+                    allow_unhealthy_machine: false,
+                }))
+                .await
+                .unwrap();
         } else {
             mh.instance_builer(&env)
                 .single_interface_network_config(segment_id)

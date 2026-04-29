@@ -1,11 +1,11 @@
 # Troubleshooting noDpuLogsWarning Alerts
 
-The Forge noDpuLogsWarning alert fires under the following conditions:
-1. Forge has been receiving logs from the DPU ARM OS within the last 30 days
+The noDpuLogsWarning alert fires under the following conditions:
+1. NICo has been receiving logs from the DPU ARM OS within the last 30 days
 2. It has not received any forge-dpu-agent.service log events within the last 10 minutes
 3. And opentelemetry-collector-prom end point running on the DPU ARM OS has been down for more than 5 minutes
 
-The format of the alert name is "\<Forge site ID\>-noDpuLogsWarning (\<Forge site ID\> \<DPU ARM OS hostname\> forge-monitoring/forge-monitoring-(\<Forge site ID\>-prometheus warning)
+The format of the alert name is "\<NICo site ID\>-noDpuLogsWarning (\<NICo site ID\> \<DPU ARM OS hostname\> forge-monitoring/forge-monitoring-(\<NICo site ID\>-prometheus warning)
 
 ## Common Causes of these alerts
 

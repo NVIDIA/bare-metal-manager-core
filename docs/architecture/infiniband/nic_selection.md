@@ -465,11 +465,9 @@ GUIDs are different. Since the PCI slots are assumed to be deterministic
 for Machines with the same hardware configuration, tenants can assume their selection
 always affects the exact same piece of hardware.
 
-### Forge Metadata Service (FMDS)
+### NICo Metadata Service (FMDS)
 
-**This will be renamed to something else (likely just NICo Metadata Service as we move from the old code name**
-
-The Forge Metadata Service (FMDS) provides the Tenant's software
+The NICo Metadata Service (FMDS) provides the Tenant's software
 running on instance the capability to identify the infiniband configuration at
 runtime. It also provides the ability to execute a configuration script
 which configures the local Infiniband interfaces for the operating mode that the
@@ -484,7 +482,7 @@ allows them to send their traffic successfully to the connected Infiniband switc
 
 To perform this job, FMDS returns the applied instance configuration -
 which is the desired `InstanceInfinibandConfig` plus the configuration data that
-Forge allocates on behalf the tenant. This would be mostly the GUIDs.
+NICo allocates on behalf the tenant. This would be mostly the GUIDs.
 
 Putting it together, the tenant machine would retrieve the following data via
 FMDS, in a format that is still TBD:

@@ -547,9 +547,7 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let dpu_machine = mh.dpu().db_machine(&mut txn).await;
     assert!(
         dpu_machine
-            .dpu_agent_health_report
-            .as_ref()
-            .as_ref()
+            .dpu_agent_health_report()
             .unwrap()
             .alerts
             .is_empty()
@@ -606,18 +604,12 @@ async fn test_dpu_heartbeat(pool: sqlx::PgPool) -> sqlx::Result<()> {
     let dpu_machine = mh.dpu().db_machine(&mut txn).await;
     assert!(
         !dpu_machine
-            .dpu_agent_health_report
-            .as_ref()
-            .as_ref()
+            .dpu_agent_health_report()
             .unwrap()
             .alerts
             .is_empty(),
         "DPU is not healthy: {:?}",
-        dpu_machine
-            .dpu_agent_health_report
-            .as_ref()
-            .as_ref()
-            .unwrap()
+        dpu_machine.dpu_agent_health_report().unwrap()
     );
 
     // The up count reflects the heartbeat timeout.

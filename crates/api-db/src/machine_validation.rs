@@ -169,7 +169,9 @@ pub async fn create_new_run(
     crate::machine::update_machine_validation_id(machine_id, id, column_name, txn).await?;
 
     // Reset machine validation health report into initial state
-    let health_report = health_report::HealthReport::empty("machine-validation".to_string());
+    let health_report = health_report::HealthReport::empty(
+        health_report::HealthReport::MACHINE_VALIDATION_SOURCE.to_string(),
+    );
     crate::machine::update_machine_validation_health_report(txn, machine_id, &health_report)
         .await?;
 

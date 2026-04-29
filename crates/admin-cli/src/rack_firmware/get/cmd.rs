@@ -15,11 +15,62 @@
  * limitations under the License.
  */
 
+use std::collections::BTreeMap;
+
 use ::rpc::admin_cli::{CarbideCliError, OutputFormat};
 use prettytable::{Cell, Row, Table, row};
+use serde::Deserialize;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
+
+#[derive(Debug, Deserialize, Default)]
+struct ParsedFirmwareLookupTable {
+    #[serde(default)]
+    devices: BTreeMap<String, BTreeMap<String, FirmwareLookupEntry>>,
+    #[serde(default)]
+    switch_system_images: BTreeMap<String, BTreeMap<String, SwitchSystemImageLookupEntry>>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct FirmwareLookupEntry {
+    #[serde(default)]
+    component: String,
+    #[serde(default)]
+    bundle: String,
+    #[serde(default)]
+    firmware_type: String,
+    #[serde(default)]
+    target: String,
+    #[serde(default)]
+    subcomponents: Vec<FirmwareSubcomponent>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct FirmwareSubcomponent {
+    #[serde(default)]
+    component: String,
+    #[serde(default)]
+    version: String,
+    #[serde(default)]
+    skuid: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct SwitchSystemImageLookupEntry {
+    #[serde(default)]
+    component: String,
+    #[serde(default)]
+    package_name: String,
+    #[serde(default)]
+    version: String,
+    #[serde(default)]
+    image_filename: String,
+    #[serde(default)]
+    location_type: String,
+    #[serde(default)]
+    firmware_type: String,
+}
 
 pub async fn get(
     opts: Args,
@@ -57,100 +108,113 @@ pub async fn get(
         table.printstd();
 
         // Display parsed firmware components.
-        if !result.parsed_components.is_empty() && result.parsed_components != "{}" {
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&result.parsed_components)
-                && let Some(devices) = parsed.get("devices").and_then(|d| d.as_object())
-            {
-                for (device_type, components) in devices {
-                    println!("\n[{}]", device_type);
-
-                    let mut component_table = Table::new();
-                    component_table.set_titles(Row::new(vec![
-                        Cell::new("Component"),
-                        Cell::new("Type"),
-                        Cell::new("Bundle"),
-                        Cell::new("Target"),
-                    ]));
-
-                    // Collect components with their subcomponents for display
-                    let mut component_subcomps: Vec<(String, &[serde_json::Value])> = Vec::new();
-
-                    if let Some(comp_map) = components.as_object() {
-                        for (_key, entry) in comp_map {
-                            let component = entry
-                                .get("component")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("-");
-                            let bundle =
-                                entry.get("bundle").and_then(|v| v.as_str()).unwrap_or("-");
-                            let fw_type = entry
-                                .get("firmware_type")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("-");
-                            let target =
-                                entry.get("target").and_then(|v| v.as_str()).unwrap_or("-");
-
-                            component_table.add_row(Row::new(vec![
-                                Cell::new(component),
-                                Cell::new(&fw_type.to_uppercase()),
-                                Cell::new(bundle),
-                                Cell::new(target),
-                            ]));
-
-                            // Collect subcomponents for later display
-                            if let Some(subcomps) =
-                                entry.get("subcomponents").and_then(|s| s.as_array())
-                                && !subcomps.is_empty()
-                            {
-                                component_subcomps.push((component.to_string(), subcomps));
-                            }
-                        }
-                    }
-
-                    component_table.printstd();
-
-                    // Print subcomponents for each component
-                    for (comp_name, subcomps) in component_subcomps {
-                        println!("\n  {} Subcomponents:", comp_name);
-
-                        let mut sub_table = Table::new();
-                        sub_table.set_titles(Row::new(vec![
-                            Cell::new("Component"),
-                            Cell::new("Version"),
-                            Cell::new("SKUID"),
-                        ]));
-
-                        for subcomp in subcomps {
-                            let sub_name = subcomp
-                                .get("component")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("-");
-                            let sub_version = subcomp
-                                .get("version")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("-");
-                            let sub_skuid =
-                                subcomp.get("skuid").and_then(|v| v.as_str()).unwrap_or("-");
-
-                            sub_table.add_row(Row::new(vec![
-                                Cell::new(sub_name),
-                                Cell::new(sub_version),
-                                Cell::new(sub_skuid),
-                            ]));
-                        }
-
-                        // Indent the table output
-                        let table_str = sub_table.to_string();
-                        for line in table_str.lines() {
-                            println!("  {}", line);
-                        }
-                    }
-                }
-            }
-        } else {
+        if should_show_not_downloaded(&result.parsed_components) {
             println!("\nFirmware Components: (not yet downloaded)");
+        } else {
+            match serde_json::from_str::<ParsedFirmwareLookupTable>(&result.parsed_components) {
+                Ok(parsed) if print_parsed_components(&parsed) => {}
+                _ => println!("\nFirmware Components: (not yet downloaded)"),
+            }
         }
     }
 
     Ok(())
+}
+
+fn should_show_not_downloaded(parsed_components: &str) -> bool {
+    parsed_components.is_empty() || parsed_components == "{}"
+}
+
+fn print_parsed_components(parsed: &ParsedFirmwareLookupTable) -> bool {
+    let mut printed = false;
+
+    for (device_type, components) in &parsed.devices {
+        printed = true;
+        println!("\n[{}]", device_type);
+
+        let mut component_table = Table::new();
+        component_table.set_titles(Row::new(vec![
+            Cell::new("Component"),
+            Cell::new("Type"),
+            Cell::new("Bundle"),
+            Cell::new("Target"),
+        ]));
+
+        let mut component_subcomps: Vec<(&str, &[FirmwareSubcomponent])> = Vec::new();
+
+        for entry in components.values() {
+            component_table.add_row(Row::new(vec![
+                Cell::new(display_value(&entry.component)),
+                Cell::new(&display_value(&entry.firmware_type).to_uppercase()),
+                Cell::new(display_value(&entry.bundle)),
+                Cell::new(display_value(&entry.target)),
+            ]));
+
+            if !entry.subcomponents.is_empty() {
+                component_subcomps.push((display_value(&entry.component), &entry.subcomponents));
+            }
+        }
+
+        component_table.printstd();
+
+        for (comp_name, subcomps) in component_subcomps {
+            println!("\n  {} Subcomponents:", comp_name);
+
+            let mut sub_table = Table::new();
+            sub_table.set_titles(Row::new(vec![
+                Cell::new("Component"),
+                Cell::new("Version"),
+                Cell::new("SKUID"),
+            ]));
+
+            for subcomp in subcomps {
+                let sub_skuid = subcomp.skuid.as_deref().unwrap_or("-");
+
+                sub_table.add_row(Row::new(vec![
+                    Cell::new(display_value(&subcomp.component)),
+                    Cell::new(display_value(&subcomp.version)),
+                    Cell::new(display_value(sub_skuid)),
+                ]));
+            }
+
+            let table_str = sub_table.to_string();
+            for line in table_str.lines() {
+                println!("  {}", line);
+            }
+        }
+    }
+
+    for (device_type, images) in &parsed.switch_system_images {
+        printed = true;
+        println!("\n[Switch System Images: {}]", device_type);
+
+        let mut image_table = Table::new();
+        image_table.set_titles(Row::new(vec![
+            Cell::new("Component"),
+            Cell::new("Type"),
+            Cell::new("Package"),
+            Cell::new("Image Filename"),
+            Cell::new("Version"),
+            Cell::new("Location Type"),
+        ]));
+
+        for entry in images.values() {
+            image_table.add_row(Row::new(vec![
+                Cell::new(display_value(&entry.component)),
+                Cell::new(&display_value(&entry.firmware_type).to_uppercase()),
+                Cell::new(display_value(&entry.package_name)),
+                Cell::new(display_value(&entry.image_filename)),
+                Cell::new(display_value(&entry.version)),
+                Cell::new(display_value(&entry.location_type)),
+            ]));
+        }
+
+        image_table.printstd();
+    }
+
+    printed
+}
+
+fn display_value(value: &str) -> &str {
+    if value.is_empty() { "-" } else { value }
 }

@@ -60,8 +60,8 @@ run_with_timeout() {
 add_db_cert() {
   tee data.json <<DOF
     {
-        "CertificateString": "$(openssl x509 -inform der -outform pem -in /mnt/lib/firmware/mellanox/boot/capsule/certs/prod/db.cer | sed -e 's/[[:space:]]*$//' -e 's/$/\\n/')",
-        "CertificateType": "PEM"
+      "CertificateString": "$(openssl x509 -inform der -outform pem -in /mnt/lib/firmware/mellanox/boot/capsule/certs/prod/db.cer | sed -e 's/[[:space:]]*$//' -e 's/$/\\n/')",
+      "CertificateType": "PEM"
     }
 DOF
   num_certs=$($CURL_CMD https://"$BMC_IP"/redfish/v1/Systems/Bluefield/SecureBoot/SecureBootDatabases/db/Certificates | jq -r '."Members@odata.count"')

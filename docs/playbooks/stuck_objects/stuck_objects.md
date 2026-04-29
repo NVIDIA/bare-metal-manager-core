@@ -15,23 +15,22 @@ advance into the next state.
 
 ## Step 1: Is it a Cloud or Site problem?
 
-The state of Forge objects is tracked and advanced in 2 different systems:
-- The Forge cloud backend, which stores the states that are shown by the
-  Forge Web UI and ngc console.
-- The actual Forge site, which manages the lifecycle of each object inside the
+The state of NICo objects is tracked and advanced in 2 different systems:
+- The cloud backend, which stores the states that are shown by the
+  NGC console and web UI.
+- The actual NICo site, which manages the lifecycle of each object inside the
   site.
 
 If the state of an object doesn't advance, there might be multiple reasons for it:
-1. The state of the object isn't advanced on the actual Forge site
-2. The request to change the state of the object is not forwarded from the Forge
-    cloud to the Forge site. Or the notification about the state changed was
-    not forwarded from the Forge Site to the cloud.
+1. The state of the object isn't advanced on the actual NICo site
+2. The request to change the state of the object is not forwarded from the
+    cloud to the NICo site. Or the notification about the state changed was
+    not forwarded from the NICo site to the cloud.
 
 A rule of thumb for locating the source of the problem is:
 - If the states that are shown on the site and via the Cloud API are different,
   reason 1) will apply. This indicates a communication issue in the
-  paths between Forge Cloud Backend, Forge Site Agent and Forge Site
-  Controller.  
+  paths between the cloud backend, site agent and NICo site controller.  
   {/* TODO: Document steps to diagnose and remediate these issues */}
 - If the states match, then the state on the site isn't advanced as required.
 
@@ -39,13 +38,13 @@ The next chapters will describe on how to lookup the state of an object on
 the actual site and how to determine what prevents the object from moving
 into the next state on the site.
 
-### 1.1 Checking the state in the Forge Web UI or API
+### 1.1 Checking the state in the web UI or API
 
-Another initial check on whether the problem is a Forge Cloud or Site problem
-is to check whether the Cloud backend could actually send the state change
-request (e.g. instance release request) to the Site.
+Another initial check on whether the problem is a cloud or site problem
+is to check whether the cloud backend could actually send the state change
+request (e.g. instance release request) to the site.
 
-The `statusHistory` field on the Forge Cloud API can be helpful for this assessment. E.g. the history for the following Subnet indicates that
+The `statusHistory` field on the cloud API can be helpful for this assessment. E.g. the history for the following Subnet indicates that
 the deletion request was sent to the site, but deletion might be stuck there:
 
 ```json
@@ -89,13 +88,13 @@ the deletion request was sent to the site, but deletion might be stuck there:
 }
 ```
 
-In this example, we can see the Forge Cloud Backend indicated it transferred
-the deletion request to the Site. In this case, we should continue the
+In this example, we can see the cloud backend indicated it transferred
+the deletion request to the site. In this case, we should continue the
 investigation by checking the site state for this subnet.
 
-If you are using the Forge Web UI, not all API details like `statusHistory`
+If you are using the web UI, not all API details like `statusHistory`
 are displayed. However we can work around this by getting
-access to the raw Forge Cloud API response.
+access to the raw cloud API response.
 A browsers developer tools can be used for this:
 - While on the page that shows the status of the object (E.g. "Virtual
   Private Clouds"), open the browser developer tools. The F12 key will open
@@ -106,19 +105,19 @@ A browsers developer tools can be used for this:
   to force a request.
 - Click the `Response` tab.
 
-You should now see the raw Forge Cloud API response, as shown in the following
+You should now see the raw cloud API response, as shown in the following
 screenshot:
 ![](../../static/playbooks/stuck_objects/browser_devtools.png)
 
 
 ## Step 2: Determine the actual state an object is in
 
-The Forge Web UI only shows a simplified state for Forge users, like
+The web UI only shows a simplified state for users, like
 - Provisioning
 - Ready
 - Deleting
 
-However Forge sites use much more fine grained states, like
+However NICo sites use much more fine grained states, like
 `Assigned/BootingWithDiscoveryImage`. The `/` in this notion separates
 the main state of an object from its substate(s). In this example, `Assigned`
 is the main state of an object and `BootingWithDiscoveryImage` is the substate.
@@ -128,7 +127,7 @@ need to determine the full state. This can be done using multiple approaches:
 
 ### 2.1 Using carbide-admin-cli
 
-You can inspect the detailed state of a objects on Forge sites using `carbide-admin-cli`. Refer to [forge-admin-cli](forge_admin_cli.md) instructions
+You can inspect the detailed state of a objects on NICo sites using `carbide-admin-cli`. Refer to [forge-admin-cli](forge_admin_cli.md) instructions
 on how to utilize it.
 
 Using carbide-admin-cli, you can inspect the state of an object e.g. with the
@@ -197,10 +196,10 @@ DELETED   : Not Deleted
 STATE     : Ready
 ```
 
-### 2.2 Using the Forge dashboard
+### 2.2 Using the NICo dashboard
 
 In order to get a first impression of whether an object might be stuck in a
-state and why, you can use the [Forge Grafana Dashboard](https://ngcobservability-grafana.thanos.nvidiangn.net/d/WzX_VErVk/forge-site?orgId=1).
+state and why, you can use the NICo Grafana Dashboard.
 
 On the Dashboard, search for the graph which shows the amount of objects
 in a certain state. E.g. for ManagedHosts/Instances, check "ManagedHost States".
@@ -214,9 +213,9 @@ state, and that operator intervention is required to make them advance state.
 
 The dashboard will not tell us which ManagedHost is exactly stuck. But if only one
 ManagedHost is in a stuck state, we can deduct that this might be the ManagedHost a
-Forge user is concerned about.
+user is concerned about.
 
-For other objects whose lifecycle is controlled by Forge - e.g. Subnets,
+For other objects whose lifecycle is controlled by NICo - e.g. Subnets,
 Network Segments or Infiniband Partitions - a similar diagram will exist.
 
 Another diagram you can look at is the "Time in state" chart that exists
@@ -243,19 +242,19 @@ would actually need to happen in order to perform a state transition.
 The best documentation for these state changes is the actual state machine
 source code, which codifies the conditions for moving out of each state. Use
 the following links to look at the state machines for objects managed by
-Forge:
-- [ManagedHost State Machine](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/api/src/state_controller/machine/handler.rs) (also used for the lifecycle of Forge instances)
-- [NetworkSegment/Subnet State Machine](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/api/src/state_controller/network_segment/handler.rs)
-- [Infiniband Partition State Machine](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/trunk/api/src/state_controller/ib_partition/handler.rs)
+NICo:
+- `crates/api/src/state_controller/machine/handler.rs` — ManagedHost State Machine (also used for the lifecycle of instances)
+- `crates/api/src/state_controller/network_segment/handler.rs` — NetworkSegment/Subnet State Machine
+- `crates/api/src/state_controller/ib_partition/handler.rs` — Infiniband Partition State Machine
 
 When looking at these files, consider that the software version deployed
-on the Forge site you are investigating might not match the latest `trunk`
+on the NICo site you are investigating might not match the latest `main`
 version of those state machines. You might then want to look at the version
 of the file which matches the version (git commit hash) of the actual site.
 
 The `handle_object_state` function in these files will be called for each
-object whose lifecycle is controlled by Forge in periodic intervals. The
-default period is 30s - but it could be changed in future Forge updates.
+object whose lifecycle is controlled by NICo in periodic intervals. The
+default period is 30s - but it could be changed in future NICo updates.
 
 This means that if the state of an object could not be advanced within one
 iteration of this function, it will automatically be retried 30s later.
@@ -291,12 +290,11 @@ is that we detected that the Host had been rebooted. It also describes that once
 the reboot is detected, we will move on into the `Assigned/SwitchToAdminNetwork`
 state.
 
-Inspecting the [`rebooted`](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/38849aed602a2ab6e19a5315b342db3d4535b143/api/src/state_controller/machine/handler.rs#L494-504)
-function further will tell us that checks that the `last_reboot_time` timestamp
+Inspecting the `rebooted` function further will tell us that checks that the `last_reboot_time` timestamp
 is more recent than the time when we entered the state. And checking even
-further for where the `last_reboot_time` is updated, [we would learn that
+further for where the `last_reboot_time` is updated, we would learn that
 it happens when `forge-scout` is started and asks the `carbide-api` server
-via the `ForgeAgentControl` API call for instructions](https://gitlab-master.nvidia.com/nvmetal/carbide/-/blob/38849aed602a2ab6e19a5315b342db3d4535b143/api/src/api.rs#L2771-2772.)
+via the `ForgeAgentControl` API call for instructions.
 
 Therefore we can determine that possible sources of the ManagedHost being stuck are:
 - The Host is never rebooted
@@ -344,13 +342,12 @@ log line about any action which affected the state of the object, search also
 for the `span_id` in this log line. It will show all log messages that have
 been emitted as part of the same RPC request or the same state handler iteration.
 
-### 3.3 Learning more about failures from the Forge Grafana Dashboard
+### 3.3 Learning more about failures from the NICo Grafana Dashboard
 
-The [Forge Grafana Dashboard](https://ngcobservability-grafana.thanos.nvidiangn.net/d/WzX_VErVk/forge-site?orgId=1)
-can also provide a quick overview of why state transitions have failed.
+The NICo Grafana Dashboard can also provide a quick overview of why state transitions have failed.
 In case the state handler of a certain object returned an error, the error type
 will also be shown in the diagram which summarizes the amount of objects in a
-certain state for each Forge site.
+certain state for each NICo site.
 
 E.g. for the following example, we can see state handling for 1 ManagedHost in state
 `assigned waitingfornetworkconfig` failing due to a `redfish_client_creation_error`.

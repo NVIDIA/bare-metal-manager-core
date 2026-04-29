@@ -40,8 +40,8 @@ enabled = true
 [sinks.prometheus]
 enabled = true
 
-[sinks.health_override]
+[sinks.health_report]
 enabled = false
 
-[sinks.rack_health_override]
+[sinks.rack_health_report]
 enabled = false

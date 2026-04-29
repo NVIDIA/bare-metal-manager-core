@@ -2106,6 +2106,8 @@ message SwitchSearchFilter {
   optional string controller_state = 3;
   // Filter by BMC MAC address via machine_interfaces
   optional string bmc_mac = 4;
+  // Filter by NVOS MAC address via expected_switches.nvos_mac_addresses
+  optional string nvos_mac = 5;
 }
 
 message SwitchesByIdsRequest {

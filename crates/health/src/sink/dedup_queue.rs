@@ -18,7 +18,7 @@
 //! Latest-wins dedup queue.
 //!
 //! Generic queue keyed by `K` that replaces the value when the same key
-//! is pushed again. Used by health override sinks (keyed by machine/rack
+//! is pushed again. Used by health report sinks (keyed by machine/rack
 //! + report source) and OtlpSink (keyed by event type identity string).
 
 use std::collections::{HashMap, VecDeque};
@@ -32,12 +32,12 @@ struct QueueState<K: Eq + Hash, V> {
     ready: VecDeque<K>,
 }
 
-pub(crate) struct OverrideQueue<K: Eq + Hash + Clone, V> {
+pub(crate) struct DedupQueue<K: Eq + Hash + Clone, V> {
     state: Mutex<QueueState<K, V>>,
     notify: Notify,
 }
 
-impl<K: Eq + Hash + Clone, V> OverrideQueue<K, V> {
+impl<K: Eq + Hash + Clone, V> DedupQueue<K, V> {
     pub fn new() -> Self {
         Self {
             state: Mutex::new(QueueState {
@@ -52,7 +52,7 @@ impl<K: Eq + Hash + Clone, V> OverrideQueue<K, V> {
     pub fn save_latest(&self, key: K, value: V) -> bool {
         let replaced;
         {
-            let mut state = self.state.lock().expect("override queue mutex poisoned");
+            let mut state = self.state.lock().expect("dedup queue mutex poisoned");
             if state.values.contains_key(&key) {
                 state.values.insert(key, value);
                 replaced = true;
@@ -76,7 +76,7 @@ impl<K: Eq + Hash + Clone, V> OverrideQueue<K, V> {
     }
 
     pub fn pop(&self) -> Option<(K, V)> {
-        let mut state = self.state.lock().expect("override queue mutex poisoned");
+        let mut state = self.state.lock().expect("dedup queue mutex poisoned");
         while let Some(key) = state.ready.pop_front() {
             if let Some(value) = state.values.remove(&key) {
                 return Some((key, value));
@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn deduplicates_by_key() {
-        let queue = OverrideQueue::<String, i32>::new();
+        let queue = DedupQueue::<String, i32>::new();
 
         queue.save_latest("a".into(), 1);
         queue.save_latest("a".into(), 2);
@@ -112,7 +112,7 @@ mod tests {
 
     #[test]
     fn different_keys_are_separate() {
-        let queue = OverrideQueue::<String, i32>::new();
+        let queue = DedupQueue::<String, i32>::new();
 
         queue.save_latest("a".into(), 1);
         queue.save_latest("b".into(), 2);
@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn preserves_fifo_order() {
-        let queue = OverrideQueue::<String, i32>::new();
+        let queue = DedupQueue::<String, i32>::new();
 
         queue.save_latest("first".into(), 1);
         queue.save_latest("second".into(), 2);
@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn update_replaces_value_but_keeps_position() {
-        let queue = OverrideQueue::<String, i32>::new();
+        let queue = DedupQueue::<String, i32>::new();
 
         queue.save_latest("a".into(), 1);
         queue.save_latest("b".into(), 2);

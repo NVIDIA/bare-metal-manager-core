@@ -40,7 +40,7 @@ use crate::auth::AuthContext;
 struct MachineHealth {
     id: MachineId,
     machine_type: MachineType,
-    overrides: Vec<HealthReportEntry>,
+    entries: Vec<HealthReportEntry>,
     aggregate_health: LabeledHealthReport,
     component_health: Vec<LabeledHealthReport>,
     history: HealthHistoryTable,
@@ -130,7 +130,7 @@ pub async fn health(
     };
 
     let request = tonic::Request::new(machine_id);
-    let mut listed_overrides = match state
+    let mut listed_entries = match state
         .list_health_report_overrides(request)
         .await
         .map(|response| response.into_inner().health_report_entries)
@@ -143,15 +143,15 @@ pub async fn health(
         }
     };
     let mut hardware_health: Option<health_report::HealthReport> = None;
-    let mut overrides = Vec::new();
-    for override_entry in listed_overrides.drain(..) {
-        let source = override_entry
+    let mut entries = Vec::new();
+    for entry in listed_entries.drain(..) {
+        let source = entry
             .report
             .as_ref()
             .map(|report| report.source.as_str())
             .unwrap_or_default();
         if HealthReportSources::is_hardware_health_override_source(source) {
-            if let Some(report) = override_entry.report {
+            if let Some(report) = entry.report {
                 let report = health_report_from_rpc_convert_invalid(report);
                 if let Some(aggregated) = hardware_health.as_mut() {
                     aggregated.merge(&report);
@@ -161,11 +161,11 @@ pub async fn health(
             }
             continue;
         }
-        overrides.push(override_entry);
+        entries.push(entry);
     }
 
     // Sort by type first and source name second.
-    overrides.sort_by(|a, b| {
+    entries.sort_by(|a, b| {
         if a.mode() == HealthReportApplyMode::Replace {
             return std::cmp::Ordering::Less;
         } else if b.mode() == HealthReportApplyMode::Replace {
@@ -177,7 +177,7 @@ pub async fn health(
             .cmp(&b.report.as_ref().map(|b| &b.source))
     });
 
-    let overrides: Vec<HealthReportEntry> = overrides
+    let entries: Vec<HealthReportEntry> = entries
         .iter()
         .map(|o| HealthReportEntry::from_rpc_convert_invalid(o.clone()))
         .collect();
@@ -216,8 +216,8 @@ pub async fn health(
         }
     }
 
-    component_health.extend(overrides.iter().map(|o| LabeledHealthReport {
-        label: format!("Override {} {}", o.mode, o.health_report.source),
+    component_health.extend(entries.iter().map(|o| LabeledHealthReport {
+        label: format!("Health Report {} {}", o.mode, o.health_report.source),
         report: Some(o.health_report.clone()),
     }));
 
@@ -237,7 +237,7 @@ pub async fn health(
             report: aggregate_health,
         },
         component_health,
-        overrides,
+        entries,
         history: HealthHistoryTable {
             records: health_records,
         },
@@ -281,7 +281,7 @@ impl TryFrom<HealthReportEntry> for ::rpc::forge::HealthReportEntry {
             "Merge" => HealthReportApplyMode::Merge,
             m => {
                 return Err(format!(
-                    "Override mode must be \"Replace\" or \"Merge\", but was \"{m}\""
+                    "Apply mode must be \"Replace\" or \"Merge\", but was \"{m}\""
                 ));
             }
         };
@@ -294,18 +294,18 @@ impl TryFrom<HealthReportEntry> for ::rpc::forge::HealthReportEntry {
 }
 
 #[derive(serde::Deserialize)]
-pub struct RemoveOverride {
+pub struct RemoveHealthReport {
     source: String,
 }
 
-pub async fn add_override(
+pub async fn add_health_report(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
     auth_context: Option<axum::Extension<AuthContext>>,
     extract::Json(payload): extract::Json<HealthReportEntry>,
 ) -> impl IntoResponse {
-    let report_override = match ::rpc::forge::HealthReportEntry::try_from(payload) {
-        Ok(report_override) => report_override,
+    let entry = match ::rpc::forge::HealthReportEntry::try_from(payload) {
+        Ok(entry) => entry,
         Err(e) => return (StatusCode::BAD_REQUEST, e),
     };
 
@@ -316,7 +316,7 @@ pub async fn add_override(
 
     let mut request = tonic::Request::new(InsertHealthReportOverrideRequest {
         machine_id: Some(machine_id),
-        health_report_entry: Some(report_override),
+        health_report_entry: Some(entry),
     });
     if let Some(axum::Extension(auth_context)) = auth_context {
         request.extensions_mut().insert(auth_context);
@@ -337,10 +337,10 @@ pub async fn add_override(
     }
 }
 
-pub async fn remove_override(
+pub async fn remove_health_report(
     AxumState(state): AxumState<Arc<Api>>,
     AxumPath(machine_id): AxumPath<String>,
-    extract::Json(payload): extract::Json<RemoveOverride>,
+    extract::Json(payload): extract::Json<RemoveHealthReport>,
 ) -> impl IntoResponse {
     let machine_id = match machine_id.parse::<MachineId>() {
         Ok(id) => id,

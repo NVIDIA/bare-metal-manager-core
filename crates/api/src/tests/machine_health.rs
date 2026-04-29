@@ -28,70 +28,64 @@ use tonic::Request;
 
 use crate::tests::common::api_fixtures::{
     TestEnv, TestEnvOverrides, create_managed_host, create_test_env_with_overrides, get_config,
-    network_configured_with_health, remove_health_report_override, send_health_report_override,
+    network_configured_with_health, remove_health_report_entry, send_health_report_entry,
     simulate_hardware_health_report,
 };
 
-/// Tests whether health reports can be stored if their timestamp is newer or equal
-/// to the last received report - and are dropped otherwise.
+/// Tests whether DPU agent health reports are stored as a standard health source.
 #[crate::sqlx_test]
 async fn test_update_dpu_agent_health_report(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let env = create_env(pool).await;
-    let (_host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
+    let (host_machine_id, dpu_machine_id) = create_managed_host(&env).await.into();
 
     // Start with a clean slate
-    sqlx::query("UPDATE machines SET dpu_agent_health_report=NULL where id=$1")
-        .bind(dpu_machine_id.to_string())
-        .execute(&env.pool)
-        .await?;
+    let mut txn = env.pool.begin().await?;
+    db::machine::remove_health_report_override(
+        &mut txn,
+        &dpu_machine_id,
+        HealthReportApplyMode::Merge,
+        health_report::HealthReport::DPU_AGENT_SOURCE,
+    )
+    .await?;
+    txn.commit().await?;
 
     let mut health = hr("dpu-agent", vec![], vec![("Failure1", None, "Failure1")]);
-    // Start with a health report without timestamp. That update should also work
-    health.observed_at = None;
-    println!("Doing initial update");
+    health.observed_at = Some("2025-03-19T18:22:01+00:00".parse()?);
     let mut txn = env.pool.begin().await?;
     update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health).await?;
     txn.commit().await?;
 
-    let mut time: chrono::DateTime<chrono::Utc> = "2025-03-19T18:22:02+00:00".parse()?;
+    check_reports_equal(
+        "forge-dpu-agent",
+        load_snapshot(&env, &host_machine_id).await?.dpu_snapshots[0]
+            .dpu_agent_health_report()
+            .cloned()
+            .unwrap(),
+        health,
+    );
 
-    // Updating time to go forward should allow updates. Go for a total of 1s in updates
-    for _ in 0..51 {
-        time += chrono::Duration::milliseconds(20);
-        health.observed_at = Some(time);
-        println!("Health: {}, {}", time, time.to_rfc3339());
-        println!("{}", serde_json::to_string_pretty(&health).unwrap());
-
-        let mut txn = env.pool.begin().await?;
-        update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health).await?;
-        txn.commit().await?;
-    }
-
-    // Updating at the same time is allowed
-    println!("Update same time");
+    let mut newer_health = hr("dpu-agent", vec![], vec![("Failure2", None, "Failure2")]);
+    newer_health.observed_at = Some("2025-03-19T18:22:03+00:00".parse()?);
     let mut txn = env.pool.begin().await?;
-    update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health).await?;
+    update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &newer_health).await?;
     txn.commit().await?;
 
-    // Updating time to go backwards should not allow updates. Go for a total of 1s in updates
+    let mut older_health = hr("dpu-agent", vec![], vec![("Failure3", None, "Failure3")]);
+    older_health.observed_at = Some("2025-03-19T18:22:02+00:00".parse()?);
+    let mut txn = env.pool.begin().await?;
+    update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &older_health).await?;
+    txn.commit().await?;
 
-    println!("Go backwards in time");
-    for _ in 0..51 {
-        time -= chrono::Duration::milliseconds(20);
-        health.observed_at = Some(time);
-        println!("Health: {}, {}", time, time.to_rfc3339());
-        println!("{}", serde_json::to_string_pretty(&health).unwrap());
-
-        let mut txn = env.pool.begin().await?;
-        assert!(
-            update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health)
-                .await
-                .is_err()
-        );
-        txn.commit().await?;
-    }
+    check_reports_equal(
+        "forge-dpu-agent",
+        load_snapshot(&env, &host_machine_id).await?.dpu_snapshots[0]
+            .dpu_agent_health_report()
+            .cloned()
+            .unwrap(),
+        older_health,
+    );
 
     Ok(())
 }
@@ -108,8 +102,8 @@ async fn test_machine_health_reporting(
     check_reports_equal(
         "forge-dpu-agent",
         load_snapshot(&env, &host_machine_id).await?.dpu_snapshots[0]
-            .dpu_agent_health_report
-            .clone()
+            .dpu_agent_health_report()
+            .cloned()
             .unwrap(),
         health_report::HealthReport::empty("".to_string()),
     );
@@ -154,8 +148,8 @@ async fn test_machine_health_reporting(
     check_reports_equal(
         "forge-dpu-agent",
         load_snapshot(&env, &host_machine_id).await?.dpu_snapshots[0]
-            .dpu_agent_health_report
-            .clone()
+            .dpu_agent_health_report()
+            .cloned()
             .unwrap(),
         dpu_health.clone(),
     );
@@ -304,7 +298,7 @@ async fn test_machine_health_aggregation(
         vec![],
         vec![("Fan", Some("TestFan"), "Reason")],
     );
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (r#override, HealthReportApplyMode::Merge),
@@ -361,7 +355,7 @@ async fn test_machine_health_aggregation(
 
     // Replace the machine's health report entirely with a blank report.
     let r#override = hr("replace-host-report", vec![], vec![]);
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (r#override.clone(), HealthReportApplyMode::Replace),
@@ -415,7 +409,7 @@ async fn test_machine_health_aggregation(
     check_reports_equal("aggregate-host-health", aggregate_health, r#override);
 
     // Remove the blank report override
-    remove_health_report_override(&env, &host_machine_id, "replace-host-report".to_string()).await;
+    remove_health_report_entry(&env, &host_machine_id, "replace-host-report".to_string()).await;
     let aggregate_health = load_health_via_find_machines_by_ids(&env, &host_machine_id)
         .await
         .unwrap();
@@ -444,7 +438,7 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     );
     health1.observed_at = Some(chrono::Utc::now());
     health1.alerts[0].in_alert_since = Some(chrono::Utc::now());
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (health1.clone(), HealthReportApplyMode::Replace),
@@ -460,7 +454,7 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     let mut health1_newdate = health1.clone();
     health1_newdate.observed_at = Some(chrono::Utc::now() + chrono::Duration::minutes(5));
     health1.alerts[0].in_alert_since = Some(chrono::Utc::now() + chrono::Duration::minutes(3));
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (health1_newdate.clone(), HealthReportApplyMode::Replace),
@@ -478,7 +472,7 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
             ("Fan", Some("TestFan2"), "Other Reason"),
         ],
     );
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (health2.clone(), HealthReportApplyMode::Replace),
@@ -491,7 +485,7 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
     env.run_machine_state_controller_iteration().await;
 
     let health3 = hr("test-report-3", vec![], vec![]);
-    remove_health_report_override(&env, &host_machine_id, "test-report-1".to_string()).await;
+    remove_health_report_entry(&env, &host_machine_id, "test-report-1".to_string()).await;
     env.run_machine_state_controller_iteration().await;
     env.run_machine_state_controller_iteration().await;
 
@@ -526,7 +520,7 @@ async fn test_machine_health_history(pool: sqlx::PgPool) -> Result<(), Box<dyn s
             vec![],
             vec![(&format!("Fan {i}"), None, "Reason")],
         );
-        send_health_report_override(
+        send_health_report_entry(
             &env,
             &host_machine_id,
             (health.clone(), HealthReportApplyMode::Replace),
@@ -680,7 +674,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
         vec![],
         vec![("Fan", Some("TestFan"), "Reason")],
     );
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (r#override, HealthReportApplyMode::Merge),
@@ -694,7 +688,7 @@ async fn test_count_unhealthy_nonupgrading_host_machines(
             ("Fan", Some("TestFan2"), "Other Reason"),
         ],
     );
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (health2.clone(), HealthReportApplyMode::Replace),
@@ -929,7 +923,7 @@ async fn insert_health_and_process(
     machine_id: &::carbide_uuid::machine::MachineId,
     health: health_report::HealthReport,
 ) {
-    send_health_report_override(env, machine_id, (health, HealthReportApplyMode::Replace)).await;
+    send_health_report_entry(env, machine_id, (health, HealthReportApplyMode::Replace)).await;
     env.run_machine_state_controller_iteration().await;
 }
 
@@ -960,7 +954,7 @@ async fn test_tenant_reported_issue_health_override_template(
     };
 
     // Apply the override
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (tenant_issue_override.clone(), HealthReportApplyMode::Merge),
@@ -1038,7 +1032,7 @@ async fn test_request_repair_health_override_template(
     };
 
     // Apply the override
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (
@@ -1133,14 +1127,14 @@ async fn test_tenant_reported_issue_and_request_repair_combined(
     };
 
     // Apply both overrides
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (tenant_issue_override, HealthReportApplyMode::Merge),
     )
     .await;
 
-    send_health_report_override(
+    send_health_report_entry(
         &env,
         &host_machine_id,
         (repair_request_override, HealthReportApplyMode::Merge),

@@ -26,9 +26,10 @@ use librms::protos::rack_manager as rms;
 use model::expected_machine::ExpectedMachineData;
 use model::expected_rack::ExpectedRack;
 use model::rack::{
-    FirmwareUpgradeDeviceStatus, FirmwareUpgradeJob, FirmwareUpgradeState, NvosUpdateState,
-    NvosUpdateSwitchStatus, Rack, RackConfig, RackFirmwareUpgradeState, RackMaintenanceState,
-    RackPowerState, RackState, RackValidationState, ResolvedNvosArtifact,
+    ConfigureNmxClusterState, FirmwareUpgradeDeviceStatus, FirmwareUpgradeJob,
+    FirmwareUpgradeState, NvosUpdateState, NvosUpdateSwitchStatus, Rack, RackConfig,
+    RackFirmwareUpgradeState, RackMaintenanceState, RackPowerState, RackState, RackValidationState,
+    ResolvedNvosArtifact,
 };
 use model::rack_type::{
     RackCapabilitiesSet, RackCapabilityCompute, RackCapabilityPowerShelf, RackCapabilitySwitch,
@@ -1115,7 +1116,9 @@ async fn test_firmware_upgrade_start_without_default_skips_to_configure_nmx_clus
                 matches!(
                     next_state,
                     RackState::Maintenance {
-                        maintenance_state: RackMaintenanceState::ConfigureNmxCluster,
+                        maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
+                            configure_nmx_cluster: ConfigureNmxClusterState::Start,
+                        },
                     }
                 ),
                 "FirmwareUpgrade(Start) should skip to ConfigureNmxCluster, got {:?}",
@@ -1194,7 +1197,9 @@ async fn test_firmware_upgrade_start_with_unavailable_default_skips_to_configure
                 matches!(
                     next_state,
                     RackState::Maintenance {
-                        maintenance_state: RackMaintenanceState::ConfigureNmxCluster,
+                        maintenance_state: RackMaintenanceState::ConfigureNmxCluster {
+                            configure_nmx_cluster: ConfigureNmxClusterState::Start,
+                        },
                     }
                 ),
                 "FirmwareUpgrade(Start) should skip to ConfigureNmxCluster when default firmware is unavailable, got {:?}",

@@ -32,4 +32,8 @@ pub struct Args {
     /// Filter by BMC MAC address
     #[clap(long)]
     pub bmc_mac: Option<MacAddress>,
+
+    /// Filter by NVOS MAC address
+    #[clap(long)]
+    pub nvos_mac: Option<MacAddress>,
 }

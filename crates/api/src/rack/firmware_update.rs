@@ -263,7 +263,7 @@ pub fn build_firmware_update_batches(
                 }),
                 firmware_targets: target_map,
                 activate,
-                force_update: true,
+                force_update: false,
                 ..Default::default()
             },
         });

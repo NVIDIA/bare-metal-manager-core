@@ -57,6 +57,7 @@ impl StateControllerIO for SwitchStateControllerIO {
                 deleted: model::DeletedFilter::Include,
                 controller_state: None,
                 bmc_mac: None,
+                ..Default::default()
             },
         )
         .await

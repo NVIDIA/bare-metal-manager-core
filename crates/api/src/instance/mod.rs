@@ -511,26 +511,18 @@ pub async fn batch_allocate_instances(
     // ==== Phase 2: Check against allocations for tenants in requests ====
 
     // To support batching, we'll need to create a unique set of (tenant, instance_type_id)
+    // Since we'll filter out any requests that didn't send instance type ID,
+    // this means we'll only ever enforce allocation limits when instance type is sent in.
+    // That's intentional and allows "targeted" instance creation to bypass allocation enforcement.
     let allocation_validations: HashMap<(&TenantOrganizationId, &InstanceTypeId), usize> = requests
         .iter()
         .filter_map(|request| {
-            let Some(instance_type_id) = request.instance_type_id.as_ref() else {
-                // # enforce_if_present:  Instance type required in creation request.
-                // # always:              Instance type required in creation request.
-                // # warn_only (default): Instance type not required in creation request.
-                return match &api.runtime_config.compute_allocation_enforcement {
-                    ComputeAllocationEnforcement::Always
-                    | ComputeAllocationEnforcement::EnforceIfPresent => {
-                        Some(Err(CarbideError::MissingArgument("instance_type_id")))
-                    }
-                    ComputeAllocationEnforcement::WarnOnly => None, // Do nothing.  We'll warn later.
-                };
-            };
-
-            Some(Ok((
-                &request.config.tenant.tenant_organization_id,
-                instance_type_id,
-            )))
+            request.instance_type_id.as_ref().map(|instance_type_id| {
+                Ok((
+                    &request.config.tenant.tenant_organization_id,
+                    instance_type_id,
+                ))
+            })
         })
         .collect::<Result<Vec<_>, CarbideError>>()?
         .into_iter()
@@ -574,9 +566,9 @@ pub async fn batch_allocate_instances(
             req_count + db::instance::find_ids(&mut txn, filter).await?.len();
 
         if new_total_instance_count > compute_allocation_total as usize {
-            // # enforce_if_present:  Instance type required in creation request.  If allocations are found for instance type ID, enforce it; otherwise, it's like no limits.
-            // # always:              Instance type required in creation request. "default deny".  Enforce allocations.  If none are found, its a constraint value of 0 (i.e., you get nothing).
-            // # warn_only (default): Instance type not required in creation request.  If sent in and allocations are found, don't enforce, but log what would have happened if they were enforced.
+            // # enforce_if_present:  Instance type not required in creation request. If sent and allocations are found for instance type ID, enforce it; otherwise, it's like no limits.
+            // # always:              Instance type not required in creation request. If sent, enforce allocations.  If none are found, its a constraint value of 0 (i.e., you get nothing / default-deny).
+            // # warn_only (default): Instance type not required in creation request. If sent in and allocations are found, don't enforce, but log what would have happened if they were enforced.
             match (
                 has_allocations,
                 &api.runtime_config.compute_allocation_enforcement,

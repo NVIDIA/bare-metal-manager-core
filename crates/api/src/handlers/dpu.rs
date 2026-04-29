@@ -837,7 +837,7 @@ pub(crate) async fn record_dpu_network_status(
         obs
     };
 
-    let any_observed_version_changed = match dpu_machine.network_status_observation {
+    let any_observed_version_changed = match dpu_machine.network_status_observation.as_ref() {
         None => true,
         Some(old_observation) => old_observation.any_observed_version_changed(&machine_obs),
     };
@@ -864,10 +864,10 @@ pub(crate) async fn record_dpu_network_status(
     .map_err(|e| CarbideError::internal(e.to_string()))?;
     // We ignore what dpu-agent sends as timestamp and time, and replace
     // it with more accurate information
-    health_report.source = "forge-dpu-agent".to_string();
+    health_report.source = health_report::HealthReport::DPU_AGENT_SOURCE.to_string();
     health_report.observed_at = Some(chrono::Utc::now());
     // Fix the in_alert times based on the previously stored report
-    health_report.update_in_alert_since(dpu_machine.dpu_agent_health_report.as_ref());
+    health_report.update_in_alert_since(dpu_machine.dpu_agent_health_report());
 
     db::machine::update_dpu_agent_health_report(&mut txn, &dpu_machine_id, &health_report).await?;
 
