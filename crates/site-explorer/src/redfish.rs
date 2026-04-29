@@ -116,7 +116,7 @@ impl RedfishClient {
             .await
     }
 
-    pub async fn probe_redfish_endpoint(
+    pub async fn get_redfish_vendor(
         &self,
         bmc_ip_address: SocketAddr,
     ) -> Result<RedfishVendor, EndpointExplorationError> {

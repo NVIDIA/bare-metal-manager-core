@@ -16,7 +16,6 @@ carbide-api-model = { path = "../api-model" }
 carbide-firmware = { path = "../firmware" }
 carbide-redfish = { path = "../redfish" }
 carbide-secrets = { path = "../secrets" }
-carbide-site-explorer = { path = "../site-explorer" }
 carbide-ssh = { path = "../ssh" }
 carbide-utils = { path = "../utils" }
 

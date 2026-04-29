@@ -20,7 +20,6 @@ use std::fs;
 use std::net::{IpAddr, Ipv4Addr};
 use std::os::unix::fs::PermissionsExt;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_preingestion_manager::PreingestionManager;
@@ -52,7 +51,6 @@ use crate::cfg::file::{CarbideConfig, FirmwareGlobal, TimePeriod};
 use crate::machine_update_manager::MachineUpdateManager;
 use crate::state_controller::machine::handler::MAX_FIRMWARE_UPGRADE_RETRIES;
 use crate::tests::common;
-use crate::tests::common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use crate::tests::common::api_fixtures::managed_host::HardwareInfoTemplate;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host_with_hardware_info_template, create_test_env,
@@ -74,7 +72,6 @@ async fn test_preingestion_bmc_upgrade(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
-        Arc::new(MockEndpointExplorer::default()),
     );
 
     let mut txn = pool.begin().await.unwrap();
@@ -265,7 +262,6 @@ async fn test_preingestion_upgrade_script(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
-        Arc::new(MockEndpointExplorer::default()),
     );
 
     let response = env
@@ -966,7 +962,6 @@ async fn test_preingestion_preupdate_powercycling(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
-        Arc::new(MockEndpointExplorer::default()),
     );
 
     let mut txn = pool.begin().await.unwrap();
@@ -2175,7 +2170,6 @@ async fn test_preingestion_time_sync_ok(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
-        Arc::new(MockEndpointExplorer::default()),
     );
 
     let mut txn = pool.begin().await.unwrap();
@@ -2227,7 +2221,6 @@ async fn test_preingestion_time_sync_reset_flow(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
-        Arc::new(MockEndpointExplorer::default()),
     );
 
     let response = env
@@ -2352,7 +2345,6 @@ async fn test_preingestion_time_sync_check_error_fails(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
-        Arc::new(MockEndpointExplorer::default()),
     );
 
     let response = env
@@ -2409,7 +2401,6 @@ async fn test_preingestion_time_sync_retry_logic(
         None,
         None,
         env.api.work_lock_manager_handle.clone(),
-        Arc::new(MockEndpointExplorer::default()),
     );
 
     let response = env

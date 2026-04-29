@@ -48,11 +48,6 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         metrics: &mut SiteExplorationMetrics,
     ) -> Result<(), EndpointExplorationError>;
 
-    async fn probe_redfish_endpoint(
-        &self,
-        bmc_ip_address: SocketAddr,
-    ) -> Result<(), EndpointExplorationError>;
-
     // redfish_reset_bmc issues a BMC reset through redfish.
     async fn redfish_reset_bmc(
         &self,
@@ -144,13 +139,6 @@ pub trait EndpointExplorer: Send + Sync + 'static {
         &self,
         bmc_ip_address: SocketAddr,
         interface: &MachineInterfaceSnapshot,
-    ) -> Result<(), EndpointExplorationError>;
-
-    async fn copy_bfb_to_dpu_rshim(
-        &self,
-        bmc_ip_address: SocketAddr,
-        interface: &MachineInterfaceSnapshot,
-        is_bf2: bool,
     ) -> Result<(), EndpointExplorationError>;
 
     async fn create_bmc_user(

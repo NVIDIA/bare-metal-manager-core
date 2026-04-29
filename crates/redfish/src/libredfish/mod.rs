@@ -22,7 +22,7 @@ pub mod error;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -70,6 +70,27 @@ pub trait RedfishClientPool: Send + Sync + 'static {
     fn credential_reader(&self) -> &dyn CredentialReader;
 
     // MARK: - Default (helper) methods
+
+    async fn probe_redfish_endpoint(
+        &self,
+        bmc_ip_address: SocketAddr,
+    ) -> Result<(), RedfishClientCreationError> {
+        let client = self
+            .create_client(
+                &bmc_ip_address.ip().to_string(),
+                Some(bmc_ip_address.port()),
+                RedfishAuth::Anonymous,
+                Some(RedfishVendor::Unknown),
+            )
+            .await?;
+
+        client
+            .get_service_root()
+            .await
+            .map_err(RedfishClientCreationError::RedfishError)?;
+
+        Ok(())
+    }
 
     async fn create_client_from_machine(
         &self,
