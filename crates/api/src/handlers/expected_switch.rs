@@ -48,7 +48,13 @@ pub async fn add_expected_switch(
         })?;
 
     if let Some(bmc_ip) = switch.bmc_ip_address {
-        preallocate_machine_interface(&mut txn, switch.bmc_mac_address, bmc_ip).await?;
+        preallocate_machine_interface(
+            &mut txn,
+            &api.metric_emitter,
+            switch.bmc_mac_address,
+            bmc_ip,
+        )
+        .await?;
     }
 
     db_expected_switch::create(&mut txn, switch)
@@ -114,7 +120,13 @@ pub async fn update_expected_switch(
         })?;
 
     if let Some(bmc_ip) = switch.bmc_ip_address {
-        update_preallocated_machine_interface(&mut txn, switch.bmc_mac_address, bmc_ip).await?;
+        update_preallocated_machine_interface(
+            &mut txn,
+            &api.metric_emitter,
+            switch.bmc_mac_address,
+            bmc_ip,
+        )
+        .await?;
     }
 
     db_expected_switch::update(&mut txn, &switch)

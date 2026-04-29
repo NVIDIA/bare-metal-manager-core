@@ -48,7 +48,13 @@ pub async fn add_expected_power_shelf(
         })?;
 
     if let Some(bmc_ip) = power_shelf.bmc_ip_address {
-        preallocate_machine_interface(&mut txn, power_shelf.bmc_mac_address, bmc_ip).await?;
+        preallocate_machine_interface(
+            &mut txn,
+            &api.metric_emitter,
+            power_shelf.bmc_mac_address,
+            bmc_ip,
+        )
+        .await?;
     }
 
     db_expected_power_shelf::create(&mut txn, power_shelf)
@@ -114,8 +120,13 @@ pub async fn update_expected_power_shelf(
         })?;
 
     if let Some(bmc_ip) = power_shelf.bmc_ip_address {
-        update_preallocated_machine_interface(&mut txn, power_shelf.bmc_mac_address, bmc_ip)
-            .await?;
+        update_preallocated_machine_interface(
+            &mut txn,
+            &api.metric_emitter,
+            power_shelf.bmc_mac_address,
+            bmc_ip,
+        )
+        .await?;
     }
 
     db_expected_power_shelf::update(&mut txn, &power_shelf)

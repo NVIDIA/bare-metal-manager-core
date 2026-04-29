@@ -253,6 +253,81 @@ async fn test_remove_nonexistent_returns_not_found(
     Ok(())
 }
 
+#[crate::sqlx_test]
+async fn test_assign_invalid_ip_emits_failure_metric(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let relay: IpAddr = FIXTURE_DHCP_RELAY_ADDRESS.parse().unwrap();
+
+    let mut txn = env.pool.begin().await?;
+    let interface = db::machine_interface::validate_existing_mac_and_create(
+        &mut txn,
+        MacAddress::from_str("aa:bb:cc:dd:ee:32").unwrap(),
+        relay,
+        None,
+    )
+    .await?;
+    txn.commit().await?;
+
+    let err = env
+        .api
+        .assign_static_address(Request::new(AssignStaticAddressRequest {
+            interface_id: Some(interface.id),
+            ip_address: "not-an-ip".to_string(),
+        }))
+        .await
+        .expect_err("assign_static_address should fail for invalid IP input");
+
+    assert_ne!(err.code(), tonic::Code::Ok);
+
+    let metrics = env
+        .test_meter
+        .parsed_metrics("carbide_static_ip_management_failures_total");
+    assert!(
+        metrics.iter().any(|(attrs, value)| {
+            attrs.contains("operation=\"assign_static_address\"")
+                && attrs.contains("reason=\"invalid_ip_address\"")
+                && value == "1"
+        }),
+        "expected assign invalid-ip failure metric, got {metrics:?}"
+    );
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_remove_missing_interface_id_emits_failure_metric(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+
+    let err = env
+        .api
+        .remove_static_address(Request::new(RemoveStaticAddressRequest {
+            interface_id: None,
+            ip_address: "192.0.2.240".to_string(),
+        }))
+        .await
+        .expect_err("remove_static_address should fail when interface_id is missing");
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+
+    let metrics = env
+        .test_meter
+        .parsed_metrics("carbide_static_ip_management_failures_total");
+    assert!(
+        metrics.iter().any(|(attrs, value)| {
+            attrs.contains("operation=\"remove_static_address\"")
+                && attrs.contains("reason=\"missing_interface_id\"")
+                && value == "1"
+        }),
+        "expected remove missing-interface failure metric, got {metrics:?}"
+    );
+
+    Ok(())
+}
+
 /// Trying to remove a DHCP-allocated address via remove-address should
 /// return NotFound -- remove-address only operates on static allocations.
 /// DHCP allocations are managed by the lease expiration flow.
@@ -786,6 +861,18 @@ async fn test_reserved_segment_rejects_unknown_mac(
     assert!(
         result.is_err(),
         "reserved segment should reject unknown MAC"
+    );
+
+    let metrics = env
+        .test_meter
+        .parsed_metrics("carbide_static_ip_management_failures_total");
+    assert!(
+        metrics.iter().any(|(attrs, value)| {
+            attrs.contains("operation=\"discover_dhcp\"")
+                && attrs.contains("reason=\"reserved_segment_no_reservation\"")
+                && value == "1"
+        }),
+        "expected reserved-segment discover failure metric, got {metrics:?}"
     );
 
     Ok(())

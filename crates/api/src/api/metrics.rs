@@ -11,15 +11,17 @@
  */
 
 use opentelemetry::KeyValue;
-use opentelemetry::metrics::{Histogram, Meter};
+use opentelemetry::metrics::{Counter, Histogram, Meter};
 use opentelemetry_sdk::metrics::{Aggregation, Instrument, InstrumentKind, Stream, View};
 
 /// Metric name for machine reboot duration histogram
 const MACHINE_REBOOT_DURATION_METRIC_NAME: &str = "carbide_machine_reboot_duration";
+const STATIC_IP_MANAGEMENT_FAILURES_METRIC_NAME: &str = "carbide_static_ip_management_failures";
 
 /// Holds all metrics related to the API service
 pub struct ApiMetricsEmitter {
     machine_reboot_duration_histogram: Histogram<u64>,
+    static_ip_management_failures_counter: Counter<u64>,
 }
 
 impl ApiMetricsEmitter {
@@ -30,8 +32,16 @@ impl ApiMetricsEmitter {
             .with_unit("s")
             .build();
 
+        let static_ip_management_failures_counter = meter
+            .u64_counter(STATIC_IP_MANAGEMENT_FAILURES_METRIC_NAME)
+            .with_description(
+                "Total number of failures while managing static IP reservations and assignments",
+            )
+            .build();
+
         Self {
             machine_reboot_duration_histogram,
+            static_ip_management_failures_counter,
         }
     }
 
@@ -68,5 +78,20 @@ impl ApiMetricsEmitter {
 
         self.machine_reboot_duration_histogram
             .record(duration_secs, &attributes);
+    }
+
+    /// Records a failure in static IP reservation/assignment management.
+    pub fn record_static_ip_management_failure(
+        &self,
+        operation: &'static str,
+        reason: &'static str,
+    ) {
+        self.static_ip_management_failures_counter.add(
+            1,
+            &[
+                KeyValue::new("operation", operation),
+                KeyValue::new("reason", reason),
+            ],
+        );
     }
 }

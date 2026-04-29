@@ -322,6 +322,13 @@ pub enum DatabaseError {
     },
     #[error("Internal error: {message}")]
     Internal { message: String },
+    #[error(
+        "segment {segment_name} configured for static DHCP leases only; no static reservation for MAC {mac_address}"
+    )]
+    ReservedSegmentNoReservation {
+        segment_name: String,
+        mac_address: MacAddress,
+    },
     #[error("Unable to parse string into IP Address: {0}")]
     AddressParseError(#[from] std::net::AddrParseError),
     #[error("Unable to parse string into IP Network: {0}")]
@@ -410,6 +417,10 @@ impl DatabaseError {
             },
             _ => false,
         }
+    }
+
+    pub fn is_reserved_segment_no_reservation(&self) -> bool {
+        matches!(self, DatabaseError::ReservedSegmentNoReservation { .. })
     }
 }
 

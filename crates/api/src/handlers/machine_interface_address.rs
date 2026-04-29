@@ -22,7 +22,16 @@ use rpc::forge as rpc;
 use tonic::{Request, Response, Status};
 
 use crate::api::Api;
+use crate::api::metrics::ApiMetricsEmitter;
 use crate::errors::CarbideError;
+
+fn record_static_ip_failure(
+    metric_emitter: &ApiMetricsEmitter,
+    operation: &'static str,
+    reason: &'static str,
+) {
+    metric_emitter.record_static_ip_management_failure(operation, reason);
+}
 
 /// Resolve the correct segment for a static IP. If the IP is within a
 /// managed network prefix, use that segment. Otherwise use the
@@ -48,12 +57,21 @@ async fn resolve_segment_for_static_ip(
 /// [`update_preallocated_machine_interface`] to follow up on an existing interface.
 pub async fn preallocate_machine_interface(
     txn: &mut sqlx::PgConnection,
+    metric_emitter: &ApiMetricsEmitter,
     bmc_mac_address: MacAddress,
     bmc_ip: std::net::IpAddr,
 ) -> Result<(), CarbideError> {
+    let operation = "preallocate_machine_interface";
+
     // Check if an interface already exists for this MAC.
-    let existing = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac_address).await?;
+    let existing = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac_address)
+        .await
+        .map_err(|e| {
+            record_static_ip_failure(metric_emitter, operation, "find_by_mac");
+            CarbideError::from(e)
+        })?;
     if !existing.is_empty() {
+        record_static_ip_failure(metric_emitter, operation, "mac_already_exists");
         return Err(CarbideError::InvalidArgument(format!(
             "a machine interface already exists for MAC {bmc_mac_address}; \
              use update to change the IP address"
@@ -62,8 +80,14 @@ pub async fn preallocate_machine_interface(
 
     // Check if the IP is already allocated to another interface.
     if let Some(existing_addr) =
-        db::machine_interface_address::find_by_address(&mut *txn, bmc_ip).await?
+        db::machine_interface_address::find_by_address(&mut *txn, bmc_ip)
+            .await
+            .map_err(|e| {
+                record_static_ip_failure(metric_emitter, operation, "find_by_address");
+                CarbideError::from(e)
+            })?
     {
+        record_static_ip_failure(metric_emitter, operation, "ip_already_allocated");
         return Err(CarbideError::InvalidArgument(format!(
             "IP address {bmc_ip} is already allocated to interface {} \
              on segment {}; use 'machine-interfaces assign-address' to reassign it",
@@ -71,7 +95,12 @@ pub async fn preallocate_machine_interface(
         )));
     }
 
-    let segment = resolve_segment_for_static_ip(txn, bmc_ip).await?;
+    let segment = resolve_segment_for_static_ip(txn, bmc_ip)
+        .await
+        .map_err(|e| {
+            record_static_ip_failure(metric_emitter, operation, "resolve_segment");
+            e
+        })?;
 
     db::machine_interface::create(
         txn,
@@ -81,7 +110,11 @@ pub async fn preallocate_machine_interface(
         true,
         AddressSelectionStrategy::StaticAddress(bmc_ip),
     )
-    .await?;
+    .await
+    .map_err(|e| {
+        record_static_ip_failure(metric_emitter, operation, "create_interface");
+        CarbideError::from(e)
+    })?;
 
     tracing::info!(
         %bmc_mac_address,
@@ -106,17 +139,34 @@ pub async fn preallocate_machine_interface(
 /// 'machine-interfaces assign-address' or 'remove-address'.
 pub async fn update_preallocated_machine_interface(
     txn: &mut sqlx::PgConnection,
+    metric_emitter: &ApiMetricsEmitter,
     bmc_mac_address: MacAddress,
     bmc_ip: std::net::IpAddr,
 ) -> Result<(), CarbideError> {
-    let existing = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac_address).await?;
+    let operation = "update_preallocated_machine_interface";
+    let existing = db::machine_interface::find_by_mac_address(&mut *txn, bmc_mac_address)
+        .await
+        .map_err(|e| {
+            record_static_ip_failure(metric_emitter, operation, "find_by_mac");
+            CarbideError::from(e)
+        })?;
 
     if let Some(iface) = existing.first() {
         if iface.addresses.is_empty() {
             // No addresses -- safe to assign the static IP.
-            db::machine_interface_address::assign_static(txn, iface.id, bmc_ip).await?;
+            db::machine_interface_address::assign_static(txn, iface.id, bmc_ip)
+                .await
+                .map_err(|e| {
+                    record_static_ip_failure(metric_emitter, operation, "assign_static");
+                    CarbideError::from(e)
+                })?;
 
-            let segment = resolve_segment_for_static_ip(txn, bmc_ip).await?;
+            let segment = resolve_segment_for_static_ip(txn, bmc_ip)
+                .await
+                .map_err(|e| {
+                    record_static_ip_failure(metric_emitter, operation, "resolve_segment");
+                    e
+                })?;
             if iface.segment_id != segment.id {
                 db::machine_interface::update_segment_id(
                     txn,
@@ -124,7 +174,11 @@ pub async fn update_preallocated_machine_interface(
                     segment.id,
                     segment.subdomain_id,
                 )
-                .await?;
+                .await
+                .map_err(|e| {
+                    record_static_ip_failure(metric_emitter, operation, "update_segment_id");
+                    CarbideError::from(e)
+                })?;
             }
 
             tracing::info!(
@@ -146,7 +200,12 @@ pub async fn update_preallocated_machine_interface(
         }
     } else {
         // No interface yet -- create a new one.
-        let segment = resolve_segment_for_static_ip(txn, bmc_ip).await?;
+        let segment = resolve_segment_for_static_ip(txn, bmc_ip)
+            .await
+            .map_err(|e| {
+                record_static_ip_failure(metric_emitter, operation, "resolve_segment");
+                e
+            })?;
 
         db::machine_interface::create(
             txn,
@@ -156,7 +215,11 @@ pub async fn update_preallocated_machine_interface(
             true,
             AddressSelectionStrategy::StaticAddress(bmc_ip),
         )
-        .await?;
+        .await
+        .map_err(|e| {
+            record_static_ip_failure(metric_emitter, operation, "create_interface");
+            CarbideError::from(e)
+        })?;
 
         tracing::info!(
             %bmc_mac_address,
@@ -173,22 +236,51 @@ pub async fn assign_static_address(
     api: &Api,
     request: Request<rpc::AssignStaticAddressRequest>,
 ) -> Result<Response<rpc::AssignStaticAddressResponse>, CarbideError> {
+    let operation = "assign_static_address";
     let req = request.into_inner();
-    let interface_id = req.interface_id.ok_or(CarbideError::InvalidArgument(
-        "interface_id is required".into(),
-    ))?;
-    let ip_address: std::net::IpAddr = req.ip_address.parse()?;
+    let interface_id = req.interface_id.ok_or_else(|| {
+        api.metric_emitter
+            .record_static_ip_management_failure(operation, "missing_interface_id");
+        CarbideError::InvalidArgument("interface_id is required".into())
+    })?;
+    let ip_address: std::net::IpAddr = req.ip_address.parse().map_err(|e| {
+        api.metric_emitter
+            .record_static_ip_management_failure(operation, "invalid_ip_address");
+        CarbideError::from(e)
+    })?;
 
-    let mut txn = api.txn_begin().await?;
+    let mut txn = api.txn_begin().await.map_err(|e| {
+        api.metric_emitter
+            .record_static_ip_management_failure(operation, "begin_transaction");
+        e
+    })?;
     let result =
-        db::machine_interface_address::assign_static(&mut txn, interface_id, ip_address).await?;
+        db::machine_interface_address::assign_static(&mut txn, interface_id, ip_address)
+            .await
+            .map_err(|e| {
+                api.metric_emitter
+                    .record_static_ip_management_failure(operation, "assign_static");
+                CarbideError::from(e)
+            })?;
 
     // Resolve the correct segment for this IP and update the interface
     // if needed. IPs within a managed prefix go on that prefix's segment.
     // External IPs go on the static-assignments anchor segment.
-    let target_segment = resolve_segment_for_static_ip(txn.as_pgconn(), ip_address).await?;
+    let target_segment = resolve_segment_for_static_ip(txn.as_pgconn(), ip_address)
+        .await
+        .map_err(|e| {
+            api.metric_emitter
+                .record_static_ip_management_failure(operation, "resolve_segment");
+            e
+        })?;
 
-    let current_iface = db::machine_interface::find_one(txn.as_pgconn(), interface_id).await?;
+    let current_iface = db::machine_interface::find_one(txn.as_pgconn(), interface_id)
+        .await
+        .map_err(|e| {
+            api.metric_emitter
+                .record_static_ip_management_failure(operation, "find_interface");
+            CarbideError::from(e)
+        })?;
     if current_iface.segment_id != target_segment.id {
         db::machine_interface::update_segment_id(
             &mut txn,
@@ -196,7 +288,12 @@ pub async fn assign_static_address(
             target_segment.id,
             target_segment.subdomain_id,
         )
-        .await?;
+        .await
+        .map_err(|e| {
+            api.metric_emitter
+                .record_static_ip_management_failure(operation, "update_segment_id");
+            CarbideError::from(e)
+        })?;
         tracing::info!(
             %interface_id,
             %ip_address,
@@ -206,7 +303,11 @@ pub async fn assign_static_address(
         );
     }
 
-    txn.commit().await?;
+    txn.commit().await.map_err(|e| {
+        api.metric_emitter
+            .record_static_ip_management_failure(operation, "commit_transaction");
+        CarbideError::from(e)
+    })?;
 
     let status: rpc::AssignStaticAddressStatus = result.into();
     tracing::info!(%interface_id, %ip_address, ?status, "Static address assignment");
@@ -222,20 +323,40 @@ pub async fn remove_static_address(
     api: &Api,
     request: Request<rpc::RemoveStaticAddressRequest>,
 ) -> Result<Response<rpc::RemoveStaticAddressResponse>, CarbideError> {
+    let operation = "remove_static_address";
     let req = request.into_inner();
-    let interface_id = req.interface_id.ok_or(CarbideError::InvalidArgument(
-        "interface_id is required".into(),
-    ))?;
-    let ip_address: std::net::IpAddr = req.ip_address.parse()?;
+    let interface_id = req.interface_id.ok_or_else(|| {
+        api.metric_emitter
+            .record_static_ip_management_failure(operation, "missing_interface_id");
+        CarbideError::InvalidArgument("interface_id is required".into())
+    })?;
+    let ip_address: std::net::IpAddr = req.ip_address.parse().map_err(|e| {
+        api.metric_emitter
+            .record_static_ip_management_failure(operation, "invalid_ip_address");
+        CarbideError::from(e)
+    })?;
 
-    let mut txn = api.txn_begin().await?;
+    let mut txn = api.txn_begin().await.map_err(|e| {
+        api.metric_emitter
+            .record_static_ip_management_failure(operation, "begin_transaction");
+        e
+    })?;
     let deleted = db::machine_interface_address::delete_by_address(
         &mut txn,
         ip_address,
         AllocationType::Static,
     )
-    .await?;
-    txn.commit().await?;
+    .await
+    .map_err(|e| {
+        api.metric_emitter
+            .record_static_ip_management_failure(operation, "delete_by_address");
+        CarbideError::from(e)
+    })?;
+    txn.commit().await.map_err(|e| {
+        api.metric_emitter
+            .record_static_ip_management_failure(operation, "commit_transaction");
+        CarbideError::from(e)
+    })?;
 
     let status = if deleted {
         tracing::info!(%interface_id, %ip_address, "Removed static address");

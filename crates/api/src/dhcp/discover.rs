@@ -31,6 +31,11 @@ use tonic::{Request, Response};
 use crate::CarbideError;
 use crate::api::Api;
 
+fn record_static_ip_failure(api: &Api, reason: &'static str) {
+    api.metric_emitter
+        .record_static_ip_management_failure("discover_dhcp", reason);
+}
+
 // MTU for both the underlay and overlay networks on
 // the E/W Fabric
 const SPX_MTU: i32 = 9000;
@@ -272,7 +277,13 @@ pub async fn discover_dhcp(
         host_nic,
         is_primary_nic,
     )
-    .await?;
+    .await
+    .map_err(|e| {
+        if e.is_reserved_segment_no_reservation() {
+            record_static_ip_failure(api, "reserved_segment_no_reservation");
+        }
+        CarbideError::from(e)
+    })?;
 
     // If the interface has no address for the requested address family
     // (e.g., after a lease expiration cleaned up the DHCP allocation,
@@ -302,6 +313,7 @@ pub async fn discover_dhcp(
         // If the segment only allows static reservations, don't
         // dynamically allocate. The device has no reservation.
         if segment.allocation_strategy == AllocationStrategy::Reserved {
+            record_static_ip_failure(api, "reserved_segment_no_reservation");
             return Err(CarbideError::internal(format!(
                 "segment {} configured for static DHCP leases only; no static reservation for MAC {parsed_mac}",
                 segment.name,

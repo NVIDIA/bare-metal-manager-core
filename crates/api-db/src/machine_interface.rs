@@ -389,10 +389,10 @@ pub async fn validate_existing_mac_and_create(
                 // dynamic allocation. The device must have a pre-existing
                 // static reservation to get an IP on this segment.
                 if segment.allocation_strategy == AllocationStrategy::Reserved {
-                    return Err(DatabaseError::internal(format!(
-                        "segment {} configured for static DHCP leases only; no static reservation for MAC {mac_address}",
-                        segment.name,
-                    )));
+                    return Err(DatabaseError::ReservedSegmentNoReservation {
+                        segment_name: segment.name.clone(),
+                        mac_address,
+                    });
                 }
 
                 // If a fixed IP is specified for this NIC, use static
