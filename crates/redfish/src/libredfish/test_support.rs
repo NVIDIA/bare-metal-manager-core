@@ -55,6 +55,16 @@ struct RedfishSimState {
     secure_boot: AtomicBool,
     machine_setup_bios_job_id: Option<String>,
     job_state_sequence: VecDeque<JobState>,
+    /// Records every call to `RedfishClientPool::create_client` so tests can
+    /// assert what vendor was passed at each call site.
+    create_client_calls: Vec<CreateClientCall>,
+}
+
+/// Snapshot of a single `RedfishClientPool::create_client` invocation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateClientCall {
+    pub host: String,
+    pub vendor: Option<RedfishVendor>,
 }
 
 #[derive(Debug)]
@@ -120,6 +130,23 @@ impl RedfishSim {
 
     pub fn set_job_state_sequence(&self, states: Vec<JobState>) {
         self.state.lock().unwrap().job_state_sequence = VecDeque::from(states);
+    }
+
+    /// Returns a snapshot of every `create_client` call made through this sim,
+    /// in the order they happened. Useful for asserting which vendor was
+    /// passed at a given call site.
+    pub fn create_client_calls(&self) -> Vec<CreateClientCall> {
+        self.state.lock().unwrap().create_client_calls.clone()
+    }
+
+    /// Seed a user account so calls like `change_password` /
+    /// `change_password_by_id` see it as already present.
+    pub fn seed_user(&self, username: &str, password: &str) {
+        self.state
+            .lock()
+            .unwrap()
+            .users
+            .insert(username.to_string(), password.to_string());
     }
 }
 
@@ -1374,13 +1401,15 @@ impl RedfishClientPool for RedfishSim {
         host: &str,
         port: Option<u16>,
         _auth: RedfishAuth,
-        _vendor: Option<RedfishVendor>,
+        vendor: Option<RedfishVendor>,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
         {
-            self.state
-                .clone()
-                .lock()
-                .unwrap()
+            let mut state = self.state.lock().unwrap();
+            state.create_client_calls.push(CreateClientCall {
+                host: host.to_string(),
+                vendor,
+            });
+            state
                 .hosts
                 .entry(host.to_string())
                 .or_insert(RedfishSimHostState {
@@ -1388,8 +1417,8 @@ impl RedfishClientPool for RedfishSim {
                     lockdown: EnabledDisabled::Disabled,
                     actions: Default::default(),
                 });
-            if self.state.clone().lock().unwrap().fw_version.is_empty() {
-                self.state.clone().lock().unwrap().fw_version = Arc::new("24.10-17".to_string());
+            if state.fw_version.is_empty() {
+                state.fw_version = Arc::new("24.10-17".to_string());
             }
         }
         Ok(Box::new(RedfishSimClient {
