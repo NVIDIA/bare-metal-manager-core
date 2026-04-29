@@ -253,7 +253,8 @@ pub async fn start(
             "/grpc.reflection.v1alpha.ServerReflection/{*r}",
             api_reflection_service,
         )
-        .nest_service("/admin", crate::web::routes(api_service.clone())?);
+        .nest_service("/admin", crate::web::routes(api_service.clone())?)
+        .merge(crate::web::ufm_cert_routes(api_service.clone()));
 
     let app = tower::ServiceBuilder::new()
         .layer(LogLayer::new(meter.clone()))

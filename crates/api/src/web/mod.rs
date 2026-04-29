@@ -192,6 +192,7 @@ mod switch;
 mod tenant;
 mod tenant_keyset;
 mod ufm_browser;
+mod ufm_certs;
 mod vpc;
 
 const AUTH_TYPE_ENV: &str = "CARBIDE_WEB_AUTH_TYPE";
@@ -667,6 +668,22 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             .layer(Extension(oauth_extension_layer))
             .with_state(api),
     ))
+}
+
+/// UFM certificate serving endpoints.
+/// Mounted outside `/admin` so they bypass the web UI auth middleware.
+/// Authentication is handled by the mTLS layer (`CertDescriptionMiddleware`).
+pub fn ufm_cert_routes(api: Arc<Api>) -> Router {
+    Router::new()
+        .route(
+            "/api/v1/ufm/{fabric}/certs/ca",
+            get(ufm_certs::ca_cert),
+        )
+        .route(
+            "/api/v1/ufm/{fabric}/certs/server",
+            get(ufm_certs::server_cert),
+        )
+        .with_state(api)
 }
 
 pub async fn auth_oauth2(
