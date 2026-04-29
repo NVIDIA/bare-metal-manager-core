@@ -61,6 +61,9 @@ fn check_memory_overwrite_efi_var() -> Result<(), CarbideClientError> {
 }
 
 static NVME_CLI_PROG: &str = "/usr/sbin/nvme";
+static HDPARM_CLI_PROG: &str = "/usr/sbin/hdparm";
+static SG_SANITIZE_CLI_PROG: &str = "/usr/bin/sg_sanitize";
+static DD_CLI_PROG: &str = "/usr/bin/dd";
 static LENOVO_NVMI_CLI_PROG_CANDIDATES: [&str; 4] = [
     "/opt/forge/bin/mnv_cli",
     "/opt/forge/mnv_cli",
@@ -79,6 +82,7 @@ lazy_static::lazy_static! {
     static ref NVME_NS_RE: Regex = Regex::new(r".*:(0x[0-9]+)").unwrap();
     static ref NVME_NSID_RE: Regex = Regex::new(r".*nsid:([0-9]+)").unwrap();
     static ref NVME_DEV_RE: Regex = Regex::new(r"/dev/nvme[0-9]+$").unwrap();
+    static ref SD_DEV_RE: Regex = Regex::new(r"/dev/sd[a-z]+$").unwrap();
 }
 
 #[derive(Deserialize, Debug)]
@@ -502,6 +506,178 @@ async fn all_nvme_cleanup() -> Result<(), CarbideClientError> {
     Ok(())
 }
 
+fn hdparm_has_security_section(output: &str) -> bool {
+    output.contains("Security:")
+}
+
+fn hdparm_is_frozen(output: &str) -> bool {
+    output.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed == "frozen" || (trimmed.ends_with("frozen") && !trimmed.contains("not"))
+    })
+}
+
+fn hdparm_supports_enhanced_erase(output: &str) -> bool {
+    output.contains("supported: enhanced erase")
+}
+
+async fn try_ata_secure_erase(devpath: &str) -> Result<(), CarbideClientError> {
+    let info = cmdrun::run_prog(HDPARM_CLI_PROG, ["-I", devpath]).await?;
+
+    if !hdparm_has_security_section(&info) {
+        return Err(CarbideClientError::GenericError(format!(
+            "Device {} has no ATA Security section; may be SAS/SCSI",
+            devpath
+        )));
+    }
+
+    if hdparm_is_frozen(&info) {
+        return Err(CarbideClientError::GenericError(format!(
+            "Device {} ATA security is frozen; cannot erase without power cycle",
+            devpath
+        )));
+    }
+
+    if !hdparm_supports_enhanced_erase(&info) {
+        return Err(CarbideClientError::GenericError(format!(
+            "Device {} does not support ATA enhanced erase; non-SED SATA drives are not supported",
+            devpath
+        )));
+    }
+
+    cmdrun::run_prog(HDPARM_CLI_PROG, ["--security-set-pass", "p", devpath]).await?;
+
+    tracing::info!("Using enhanced erase for {}", devpath);
+    cmdrun::run_prog(HDPARM_CLI_PROG, ["--security-erase-enhanced", "p", devpath]).await?;
+
+    Ok(())
+}
+
+async fn try_scsi_sanitize(devpath: &str) -> Result<(), CarbideClientError> {
+    cmdrun::run_prog(SG_SANITIZE_CLI_PROG, ["-Q", "-w", "-C", devpath]).await?;
+    // Some drives leave LBA 0 as random bytes after a crypto erase rather than zeroing it.
+    // Random data can accidentally match the AHDI (Atari HDD) partition signature, causing
+    // the Linux kernel to create phantom partition entries. Writing one sector of zeros with
+    // oflag=direct bypasses the SAS HBA cache and ensures LBA 0 is clean.
+    let of_arg = format!("of={devpath}");
+    cmdrun::run_prog(DD_CLI_PROG, ["if=/dev/zero", &of_arg, "count=1", "oflag=direct"]).await?;
+    Ok(())
+}
+
+fn sysfs_path_is_sata(path: &std::path::Path) -> bool {
+    // SATA devices resolve through an ATA host in the sysfs device tree (path contains "/ata").
+    // SAS/SCSI devices do not.
+    path.to_string_lossy().contains("/ata")
+}
+
+fn is_sata_device(devname: &str) -> bool {
+    fs::canonicalize(format!("/sys/block/{devname}"))
+        .map(|p| sysfs_path_is_sata(&p))
+        .unwrap_or(false)
+}
+
+async fn clean_this_block_device(devpath: &str) -> Result<(), CarbideClientError> {
+    let devname = devpath.trim_start_matches("/dev/");
+    if is_sata_device(devname) {
+        tracing::info!("{} detected as SATA, using ATA Secure Erase", devpath);
+        try_ata_secure_erase(devpath).await
+    } else {
+        tracing::info!("{} detected as SAS/SCSI, using SCSI Sanitize", devpath);
+        try_scsi_sanitize(devpath).await
+    }
+}
+
+async fn all_hdd_cleanup() -> Result<(), CarbideClientError> {
+    let mut sata_devicepaths: Vec<String> = Vec::new();
+    if let Ok(entries) = fs::read_dir("/sys/block") {
+        for entry in entries {
+            let entry = match entry {
+                Ok(o) => o,
+                Err(_) => continue,
+            };
+            let devname = entry.file_name().to_string_lossy().to_string();
+            let devpath = format!("/dev/{devname}");
+            if SD_DEV_RE.is_match(&devpath) {
+                sata_devicepaths.push(devpath);
+            }
+        }
+    }
+
+    let device_count = sata_devicepaths.len();
+    if device_count == 0 {
+        tracing::info!("No SATA/SAS block devices found to clean");
+        return Ok(());
+    }
+
+    tracing::info!(device_count, "Starting HDD/SAS cleanup");
+    let start_time = std::time::Instant::now();
+
+    let cleanup_futures: Vec<_> = sata_devicepaths
+        .into_iter()
+        .map(|devpath| {
+            let device = devpath.clone();
+            let span = tracing::info_span!("hdd_cleanup", device = %devpath);
+
+            tokio::spawn(
+                async move {
+                    let device_start = std::time::Instant::now();
+
+                    tracing::info!("Starting cleanup");
+                    let result = clean_this_block_device(&devpath).await;
+                    let duration = device_start.elapsed();
+
+                    match result {
+                        Ok(()) => {
+                            tracing::info!(?duration, "Cleanup completed successfully");
+                            Ok(())
+                        }
+                        Err(error) => {
+                            tracing::error!(?duration, %error, "Cleanup failed");
+                            Err(CleanupFailure {
+                                device,
+                                duration,
+                                error,
+                            })
+                        }
+                    }
+                }
+                .instrument(span),
+            )
+        })
+        .collect();
+
+    let results = futures_util::future::join_all(cleanup_futures).await;
+    let total_duration = start_time.elapsed();
+
+    let mut errors: Vec<String> = Vec::new();
+    let mut success_count = 0;
+
+    for join_result in results {
+        let cleanup_result = join_result.expect("hdd cleanup task panicked");
+        match cleanup_result {
+            Ok(()) => success_count += 1,
+            Err(failure) => errors.push(format!(
+                "HDD_CLEAN_ERROR (device: {}; duration: {:?}): {}",
+                failure.device, failure.duration, failure.error,
+            )),
+        }
+    }
+
+    tracing::info!(
+        device_count,
+        success_count,
+        error_count = errors.len(),
+        ?total_duration,
+        "HDD/SAS cleanup completed"
+    );
+
+    if !errors.is_empty() {
+        return Err(CarbideClientError::GenericError(errors.join("\n")));
+    }
+
+    Ok(())
+}
+
 // #[derive(Debug)]
 // struct StructOsMemInfo {
 //     mem_total: u64,
@@ -719,17 +895,21 @@ async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineC
         ram: None,
         mem_overwrite: None,
         ib: None,
+        hdd: None,
         result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
     };
 
-    // do nvme cleanup only if stdin is /dev/null. This is because we afraid to cleanum someone's nvme drive.
+    // do nvme/hdd cleanup only if stdin is /dev/null. This is because we afraid to cleanup someone's drives.
     let stdin_link = match fs::read_link("/proc/self/fd/0") {
         Ok(o) => o.to_string_lossy().to_string(),
         Err(_) => "None".to_string(),
     };
 
     if stdin_link == "/dev/null" {
-        match all_nvme_cleanup().await {
+        let (nvme_result, hdd_result) =
+            tokio::join!(all_nvme_cleanup(), all_hdd_cleanup());
+
+        match nvme_result {
             Ok(_) => {
                 cleanup_result.nvme = Some(rpc::machine_cleanup_info::CleanupStepResult {
                     result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
@@ -745,8 +925,25 @@ async fn do_cleanup(machine_id: &MachineId) -> CarbideClientResult<rpc::MachineC
                 cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
             }
         }
+
+        match hdd_result {
+            Ok(_) => {
+                cleanup_result.hdd = Some(rpc::machine_cleanup_info::CleanupStepResult {
+                    result: rpc::machine_cleanup_info::CleanupResult::Ok as _,
+                    message: "OK".to_string(),
+                });
+            }
+            Err(e) => {
+                tracing::error!("{}", e);
+                cleanup_result.hdd = Some(rpc::machine_cleanup_info::CleanupStepResult {
+                    result: rpc::machine_cleanup_info::CleanupResult::Error as _,
+                    message: e.to_string(),
+                });
+                cleanup_result.result = rpc::machine_cleanup_info::CleanupResult::Error as _;
+            }
+        }
     } else {
-        tracing::info!("stdin == {}. Skip nvme cleanup.", stdin_link);
+        tracing::info!("stdin == {}. Skip nvme and HDD cleanup.", stdin_link);
     }
 
     match check_memory_overwrite_efi_var() {
@@ -851,8 +1048,12 @@ pub async fn run_no_api() -> Result<(), CarbideClientError> {
             Ok(_) => tracing::debug!("nvme cleanup OK"),
             Err(e) => tracing::error!("nvme cleanup error: {}", e),
         }
+        match all_hdd_cleanup().await {
+            Ok(_) => tracing::debug!("hdd cleanup OK"),
+            Err(e) => tracing::error!("hdd cleanup error: {}", e),
+        }
     } else {
-        tracing::info!("stdin == {}. Skip nvme cleanup.", stdin_link);
+        tracing::info!("stdin == {}. Skip nvme and HDD cleanup.", stdin_link);
     }
 
     // P1 errors are propagated (fail startup), P2 errors are handled internally in reset_ib_devices()
@@ -1020,5 +1221,68 @@ mod tests {
         let ds_4096 = 12u8;
         let sector_size_4096 = 1u64 << ds_4096;
         assert_eq!(sector_size_4096, 4096);
+    }
+
+    #[test]
+    fn test_hdparm_has_security_section() {
+        let with_security = "ATA device, with non-removable media\nSecurity:\n\tMaster password revision code = 65534\n\tsupported\n\tnot\tlocked\n\tnot\tfrozen\n";
+        let without_security = "ATA device, with non-removable media\nCapabilities:\n\tLBA, IORDY\n";
+
+        assert!(hdparm_has_security_section(with_security));
+        assert!(!hdparm_has_security_section(without_security));
+    }
+
+    #[test]
+    fn test_hdparm_is_frozen_not_frozen() {
+        let not_frozen = "Security:\n\tsupported\n\tnot\tfrozen\n";
+        assert!(!hdparm_is_frozen(not_frozen));
+    }
+
+    #[test]
+    fn test_hdparm_is_frozen_frozen() {
+        let frozen = "Security:\n\tsupported\n\tfrozen\n";
+        assert!(hdparm_is_frozen(frozen));
+    }
+
+    #[test]
+    fn test_hdparm_supports_enhanced_erase() {
+        let with_enhanced =
+            "Security:\n\tsupported\n\tnot\tfrozen\n\tsupported: enhanced erase\n";
+        let without_enhanced = "Security:\n\tsupported\n\tnot\tfrozen\n";
+
+        assert!(hdparm_supports_enhanced_erase(with_enhanced));
+        assert!(!hdparm_supports_enhanced_erase(without_enhanced));
+    }
+
+    #[test]
+    fn test_sysfs_path_is_sata() {
+        use std::path::Path;
+        // SATA: path contains /ata host component
+        assert!(sysfs_path_is_sata(Path::new(
+            "/sys/devices/pci0000:00/0000:00:17.0/ata1/host0/target0:0:0/0:0:0:0/block/sda"
+        )));
+        // SAS: path goes through SAS host, no /ata component
+        assert!(!sysfs_path_is_sata(Path::new(
+            "/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0/host0/port-0:0/end_device-0:0/target0:0:0/0:0:0:0/block/sda"
+        )));
+    }
+
+    #[test]
+    fn test_sata_dev_re_matches_whole_disk() {
+        assert!(SD_DEV_RE.is_match("/dev/sda"));
+        assert!(SD_DEV_RE.is_match("/dev/sdb"));
+        assert!(SD_DEV_RE.is_match("/dev/sdz"));
+    }
+
+    #[test]
+    fn test_sata_dev_re_does_not_match_partitions() {
+        assert!(!SD_DEV_RE.is_match("/dev/sda1"));
+        assert!(!SD_DEV_RE.is_match("/dev/sdb2"));
+    }
+
+    #[test]
+    fn test_sata_dev_re_does_not_match_nvme() {
+        assert!(!SD_DEV_RE.is_match("/dev/nvme0"));
+        assert!(!SD_DEV_RE.is_match("/dev/nvme0n1"));
     }
 }

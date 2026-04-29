@@ -4340,7 +4340,9 @@ message MachineCleanupInfo {
   // EFI variable MemoryOverwriteRequestControl-e20939be-32d4-41be-a150-897f85d49829 must be set to 1
   CleanupStepResult mem_overwrite = 4;
   // Reset IB devices
-  CleanupStepResult ib = 5;
+  CleanupStepResult ib  = 5;
+  // HDD/SSD block device cleanup result
+  CleanupStepResult hdd = 6;
 
   CleanupResult result = 11;
 }
