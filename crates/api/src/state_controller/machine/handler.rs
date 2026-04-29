@@ -5395,7 +5395,7 @@ impl StateHandler for InstanceStateHandler {
                         get_extension_services_status(mh_snapshot, instance);
                     let txn = if extension_services_status.configs_synced == SyncState::Synced
                         && !extension_services_status
-                            .get_terminated_service_ids()
+                            .get_terminated_service_keys()
                             .is_empty()
                     {
                         let mut txn = ctx.services.db_pool.begin().await?;
@@ -5496,7 +5496,7 @@ impl StateHandler for InstanceStateHandler {
                             get_extension_services_status(mh_snapshot, instance);
                         if extension_services_status.configs_synced == SyncState::Synced
                             && !extension_services_status
-                                .get_terminated_service_ids()
+                                .get_terminated_service_keys()
                                 .is_empty()
                         {
                             let mut txn = ctx.services.db_pool.begin().await?;
@@ -6192,20 +6192,20 @@ async fn cleanup_terminated_extension_services(
         return Ok(());
     }
 
-    let terminated_service_ids = extension_services_status.get_terminated_service_ids();
-    if terminated_service_ids.is_empty() {
+    let terminated_service_keys = extension_services_status.get_terminated_service_keys();
+    if terminated_service_keys.is_empty() {
         return Ok(());
     }
 
     tracing::info!(
         instance_id = %instance.id,
-        service_ids = ?terminated_service_ids,
+        terminated_extension_services = ?terminated_service_keys,
         "Cleaning up fully terminated extension services from instance config"
     );
     let new_config = instance
         .config
         .extension_services
-        .remove_terminated_services(&terminated_service_ids);
+        .remove_terminated_services(&terminated_service_keys);
 
     db::instance::update_extension_services_config(
         txn,
@@ -6216,9 +6216,11 @@ async fn cleanup_terminated_extension_services(
     )
     .await?;
 
-    extension_services_status
-        .extension_services
-        .retain(|svc| !terminated_service_ids.contains(&svc.service_id));
+    extension_services_status.extension_services.retain(|svc| {
+        !terminated_service_keys
+            .iter()
+            .any(|&(id, ver)| id == svc.service_id && ver == svc.version)
+    });
     Ok(())
 }
 

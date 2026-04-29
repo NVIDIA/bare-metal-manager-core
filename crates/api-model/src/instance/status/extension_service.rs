@@ -247,9 +247,11 @@ impl InstanceExtensionServicesStatus {
         }
     }
 
-    /// Returns the set of service IDs that are marked as removed and have been fully terminated
-    /// across all DPUs (i.e., all DPUs report the service as Terminated)
-    pub fn get_terminated_service_ids(&self) -> std::collections::HashSet<ExtensionServiceId> {
+    /// Returns `(service_id, extension service config version)` for extension services that are
+    /// marked removed and fully `Terminated` on every DPU. Cleanup must use this pair, not
+    /// `service_id` alone, because multiple config versions for the same service can exist during
+    /// rolldown/upgrade.
+    pub fn get_terminated_service_keys(&self) -> Vec<(ExtensionServiceId, ConfigVersion)> {
         self.extension_services
             .iter()
             .filter(|svc| {
@@ -264,7 +266,7 @@ impl InstanceExtensionServicesStatus {
                         )
                     })
             })
-            .map(|svc| svc.service_id)
+            .map(|svc| (svc.service_id, svc.version))
             .collect()
     }
 }
@@ -619,6 +621,8 @@ pub fn is_extension_services_ready(
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
+
+    use chrono::Utc;
 
     use super::*;
     use crate::extension_service::ExtensionServiceType;
@@ -995,5 +999,86 @@ mod tests {
         let overall_status =
             InstanceExtensionServicesStatus::calculate_overall_status(&dpu_statuses);
         assert_eq!(overall_status, ExtensionServiceDeploymentStatus::Unknown);
+    }
+
+    fn create_observation_two_versions(
+        cfg_version: ConfigVersion,
+        v_new: ConfigVersion,
+        new_state: ExtensionServiceDeploymentStatus,
+        v_old: ConfigVersion,
+        old_state: ExtensionServiceDeploymentStatus,
+    ) -> HashMap<MachineId, InstanceExtensionServiceStatusObservation> {
+        let mut observations = HashMap::new();
+        observations.insert(
+            get_test_machine_id(),
+            InstanceExtensionServiceStatusObservation {
+                config_version: cfg_version,
+                instance_config_version: None,
+                extension_service_statuses: vec![
+                    ExtensionServiceStatusObservation {
+                        service_id: get_test_service_id(),
+                        service_type: ExtensionServiceType::KubernetesPod,
+                        service_name: "test-service".to_string(),
+                        version: v_new,
+                        removed: None,
+                        overall_state: new_state,
+                        components: vec![],
+                        message: String::new(),
+                    },
+                    ExtensionServiceStatusObservation {
+                        service_id: get_test_service_id(),
+                        service_type: ExtensionServiceType::KubernetesPod,
+                        service_name: "test-service".to_string(),
+                        version: v_old,
+                        removed: Some(Utc::now().to_rfc3339()),
+                        overall_state: old_state,
+                        components: vec![],
+                        message: String::new(),
+                    },
+                ],
+                observed_at: chrono::Utc::now(),
+            },
+        );
+        observations
+    }
+
+    #[test]
+    fn extension_service_get_terminated_service_keys() {
+        let init_version = ConfigVersion::initial();
+        let second_version = init_version.increment();
+        let config = InstanceExtensionServicesConfig {
+            service_configs: vec![
+                InstanceExtensionServiceConfig {
+                    service_id: get_test_service_id(),
+                    version: second_version,
+                    removed: None,
+                },
+                InstanceExtensionServiceConfig {
+                    service_id: get_test_service_id(),
+                    version: init_version,
+                    removed: Some(Utc::now()),
+                },
+            ],
+        };
+        let config_version = ConfigVersion::initial();
+        let dpu_map = create_dpu_map_with_one_dpu();
+        let observations = create_observation_two_versions(
+            config_version,
+            second_version,
+            ExtensionServiceDeploymentStatus::Running,
+            init_version,
+            ExtensionServiceDeploymentStatus::Terminated,
+        );
+
+        let status = InstanceExtensionServicesStatus::from_config_and_observations(
+            &dpu_map,
+            Versioned::new(&config, config_version),
+            &observations,
+        );
+
+        let keys = status.get_terminated_service_keys();
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].0, get_test_service_id());
+        assert_eq!(keys[0].1, init_version);
     }
 }

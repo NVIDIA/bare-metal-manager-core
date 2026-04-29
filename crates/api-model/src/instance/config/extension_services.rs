@@ -186,16 +186,17 @@ impl InstanceExtensionServicesConfig {
             .collect()
     }
 
-    /// Removes services that have been marked as removed AND have the specified service IDs
-    /// This is used to clean up services that have been fully terminated across all DPUs
+    /// Removes extension service entries that match a fully-terminated `(service_id, version)`.
     pub fn remove_terminated_services(
         &self,
-        service_ids_to_remove: &HashSet<ExtensionServiceId>,
+        keys_to_remove: &[(ExtensionServiceId, ConfigVersion)],
     ) -> Self {
         let mut config = self.clone();
-        config
-            .service_configs
-            .retain(|s| !service_ids_to_remove.contains(&s.service_id));
+        config.service_configs.retain(|s| {
+            !keys_to_remove
+                .iter()
+                .any(|&(id, ver)| id == s.service_id && ver == s.version)
+        });
         config
     }
 }
@@ -225,5 +226,45 @@ impl TryFrom<InstanceExtensionServicesConfig> for rpc::InstanceDpuExtensionServi
                 .map(|config| config.into())
                 .collect(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use carbide_uuid::extension_service::ExtensionServiceId;
+    use chrono::Utc;
+    use config_version::ConfigVersion;
+
+    use super::{InstanceExtensionServiceConfig, InstanceExtensionServicesConfig};
+
+    #[test]
+    fn extension_service_remove_terminated_services() {
+        let sid = ExtensionServiceId::from_str("00000000-0000-0000-0000-000000000001").unwrap();
+        let init_version = ConfigVersion::initial();
+        let second_version = init_version.increment();
+
+        let config = InstanceExtensionServicesConfig {
+            service_configs: vec![
+                InstanceExtensionServiceConfig {
+                    service_id: sid,
+                    version: second_version,
+                    removed: None,
+                },
+                InstanceExtensionServiceConfig {
+                    service_id: sid,
+                    version: init_version,
+                    removed: Some(Utc::now()),
+                },
+            ],
+        };
+
+        let cleaned = config.remove_terminated_services(&[(sid, init_version)]);
+
+        assert_eq!(cleaned.service_configs.len(), 1);
+        assert_eq!(cleaned.service_configs[0].service_id, sid);
+        assert_eq!(cleaned.service_configs[0].version, second_version);
+        assert!(cleaned.service_configs[0].removed.is_none());
     }
 }
