@@ -609,6 +609,25 @@ impl MachineStateMachine {
             PxeResponse::Scout => OsImage::Scout,
             PxeResponse::DpuAgent => OsImage::DpuAgent,
         };
+        // A DPU only actually loads the BFB (DpuAgent) when its BMC has been
+        // configured to network-boot via BootSourceOverride=UefiHttp/Pxe.
+        let next_boot_kind = self
+            .live_state
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .next_boot_kind;
+        let os = if matches!(self.machine_info, MachineInfo::Dpu(_))
+            && os == OsImage::DpuAgent
+            && next_boot_kind != Some(BootOptionKind::Network)
+        {
+            tracing::debug!(
+                "DPU PXE response was DpuAgent but BootSourceOverride is not Network; \
+                 falling back to installed_os."
+            );
+            self.installed_os
+        } else {
+            os
+        };
         match os {
             OsImage::None => Ok(os),
             OsImage::DpuAgent => {
