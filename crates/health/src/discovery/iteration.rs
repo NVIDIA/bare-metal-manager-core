@@ -70,6 +70,9 @@ pub async fn run_discovery_iteration(
         );
     }
 
+    // prune before respawn so downgraded auto-mode endpoints get replaced
+    ctx.collectors.prune_finished_logs();
+
     for endpoint in &sharded_endpoints {
         spawn_collectors_for_endpoint(ctx, endpoint, data_sink.clone(), metrics_prefix).await?;
     }

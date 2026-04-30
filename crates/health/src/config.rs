@@ -414,29 +414,41 @@ impl Default for FirmwareCollectorConfig {
     }
 }
 
-/// SSE is the preferred mode for real-time log streaming.
-/// Periodic polling is retained as a fallback for BMCs that lack SSE support.
+/// how log events are collected from each BMC endpoint.
+///
+/// - `Auto` (default): tries SSE first, downgrades to periodic per-endpoint
+///   when SSE is unsupported or keeps failing.
+/// - `Sse`: SSE only, retries forever. use when every BMC has `/EventService`.
+/// - `Periodic`: polling only, no SSE attempt.
+///
+/// downgrades are in-memory; restart the health service to retry SSE.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LogCollectionMode {
+    Auto,
     Sse,
     Periodic,
 }
 
 impl Default for LogCollectionMode {
     fn default() -> Self {
-        Self::Sse
+        Self::Auto
     }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LogsCollectorConfig {
-    /// Collection mode: "sse" (default, preferred) or "periodic" (fallback).
     pub mode: LogCollectionMode,
 
-    /// Configuration for periodic log polling
     pub periodic: Option<PeriodicLogConfig>,
+    pub auto: Option<AutoModeConfig>,
+}
+
+impl LogsCollectorConfig {
+    pub fn periodic_or_default(&self) -> PeriodicLogConfig {
+        self.periodic.clone().unwrap_or_default()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -464,17 +476,67 @@ impl Default for PeriodicLogConfig {
     }
 }
 
+/// downgrade thresholds for `collectors.logs.mode = "auto"`.
+/// sse_not_available is terminal (defaults to 1), everything else goes
+/// through a rolling window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AutoModeConfig {
+    pub sse_not_available_threshold: u32,
+    #[serde(with = "humantime_serde")]
+    pub connect_failure_window: Duration,
+    pub connect_failure_threshold: u32,
+}
+
+impl Default for AutoModeConfig {
+    fn default() -> Self {
+        Self {
+            sse_not_available_threshold: 1,
+            connect_failure_window: Duration::from_secs(300),
+            connect_failure_threshold: 5,
+        }
+    }
+}
+
 impl LogsCollectorConfig {
     pub fn validate(&self) -> Result<(), String> {
         match self.mode {
+            LogCollectionMode::Auto => {
+                if let Some(auto) = &self.auto {
+                    if auto.sse_not_available_threshold == 0 {
+                        return Err(
+                            "[collectors.logs.auto].sse_not_available_threshold must be greater than 0"
+                                .to_string(),
+                        );
+                    }
+                    if auto.connect_failure_threshold == 0 {
+                        return Err(
+                            "[collectors.logs.auto].connect_failure_threshold must be greater than 0"
+                                .to_string(),
+                        );
+                    }
+                    if auto.connect_failure_window.is_zero() {
+                        return Err(
+                            "[collectors.logs.auto].connect_failure_window must be greater than 0"
+                                .to_string(),
+                        );
+                    }
+                }
+            }
             LogCollectionMode::Periodic if self.periodic.is_none() => {
-                Err("[collectors.logs.periodic] is required when mode = \"periodic\"".to_string())
+                return Err(
+                    "[collectors.logs.periodic] is required when mode = \"periodic\"".to_string(),
+                );
             }
             LogCollectionMode::Sse if self.periodic.is_some() => {
-                Err("[collectors.logs.periodic] should not be set when mode = \"sse\"".to_string())
+                return Err(
+                    "[collectors.logs.periodic] should not be set when mode = \"sse\"".to_string(),
+                );
             }
-            _ => Ok(()),
+            _ => {}
         }
+
+        Ok(())
     }
 }
 
@@ -784,11 +846,16 @@ mod tests {
         }
 
         if let Configurable::Enabled(ref logs) = config.collectors.logs {
-            assert_eq!(logs.mode, LogCollectionMode::Sse);
-            assert!(
-                logs.periodic.is_none(),
-                "SSE mode should not have periodic config"
-            );
+            assert_eq!(logs.mode, LogCollectionMode::Auto);
+            let periodic = logs
+                .periodic
+                .as_ref()
+                .expect("auto mode requires periodic config");
+            assert_eq!(periodic.logs_collection_interval, Duration::from_secs(300));
+            let auto = logs.auto.expect("example config sets [auto]");
+            assert_eq!(auto.sse_not_available_threshold, 1);
+            assert_eq!(auto.connect_failure_window, Duration::from_secs(300));
+            assert_eq!(auto.connect_failure_threshold, 5);
             assert!(logs.validate().is_ok());
         } else {
             panic!("logs empty")
@@ -934,20 +1001,60 @@ cache_size = 50
         config.collectors.logs = Configurable::Enabled(LogsCollectorConfig {
             mode: LogCollectionMode::Periodic,
             periodic: None,
+            auto: None,
         });
         assert!(config.validate().is_err());
 
         config.collectors.logs = Configurable::Enabled(LogsCollectorConfig {
             mode: LogCollectionMode::Sse,
             periodic: Some(PeriodicLogConfig::default()),
+            auto: None,
         });
         assert!(config.validate().is_err());
 
         config.collectors.logs = Configurable::Enabled(LogsCollectorConfig {
             mode: LogCollectionMode::Sse,
             periodic: None,
+            auto: None,
         });
         assert!(config.validate().is_ok());
+
+        config.collectors.logs = Configurable::Enabled(LogsCollectorConfig {
+            mode: LogCollectionMode::Auto,
+            periodic: None,
+            auto: None,
+        });
+        assert!(config.validate().is_ok());
+
+        config.collectors.logs = Configurable::Enabled(LogsCollectorConfig {
+            mode: LogCollectionMode::Auto,
+            periodic: None,
+            auto: Some(AutoModeConfig {
+                sse_not_available_threshold: 0,
+                ..AutoModeConfig::default()
+            }),
+        });
+        assert!(config.validate().is_err());
+
+        config.collectors.logs = Configurable::Enabled(LogsCollectorConfig {
+            mode: LogCollectionMode::Auto,
+            periodic: None,
+            auto: Some(AutoModeConfig {
+                connect_failure_threshold: 0,
+                ..AutoModeConfig::default()
+            }),
+        });
+        assert!(config.validate().is_err());
+
+        config.collectors.logs = Configurable::Enabled(LogsCollectorConfig {
+            mode: LogCollectionMode::Auto,
+            periodic: None,
+            auto: Some(AutoModeConfig {
+                connect_failure_window: Duration::from_secs(0),
+                ..AutoModeConfig::default()
+            }),
+        });
+        assert!(config.validate().is_err());
 
         config.collectors.logs = Configurable::Disabled;
         assert!(config.validate().is_ok());
@@ -1239,10 +1346,68 @@ switch_serial = "SN-SW-001"
     }
 
     #[test]
-    fn test_log_config_default_is_sse() {
+    fn test_log_config_default_is_auto() {
         let config = LogsCollectorConfig::default();
-        assert_eq!(config.mode, LogCollectionMode::Sse);
+        assert_eq!(config.mode, LogCollectionMode::Auto);
         assert!(config.periodic.is_none());
+        assert!(config.auto.is_none());
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_log_config_auto_mode_without_periodic_is_valid() {
+        let toml = r#"
+            mode = "auto"
+        "#;
+        let config: LogsCollectorConfig = Figment::new()
+            .merge(Toml::string(toml))
+            .extract()
+            .expect("should parse");
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_log_config_auto_mode_with_periodic_valid() {
+        let toml = r#"
+            mode = "auto"
+            [periodic]
+            logs_collection_interval = "5m"
+        "#;
+        let config: LogsCollectorConfig = Figment::new()
+            .merge(Toml::string(toml))
+            .extract()
+            .expect("should parse");
+        assert!(config.validate().is_ok());
+        assert_eq!(config.mode, LogCollectionMode::Auto);
+    }
+
+    #[test]
+    fn test_log_config_auto_mode_with_periodic_and_auto_knobs() {
+        let toml = r#"
+            mode = "auto"
+            [periodic]
+            logs_collection_interval = "5m"
+            [auto]
+            sse_not_available_threshold = 2
+            connect_failure_window = "10m"
+            connect_failure_threshold = 8
+        "#;
+        let config: LogsCollectorConfig = Figment::new()
+            .merge(Toml::string(toml))
+            .extract()
+            .expect("should parse");
+        assert!(config.validate().is_ok());
+        let auto = config.auto.expect("auto knobs should be present");
+        assert_eq!(auto.sse_not_available_threshold, 2);
+        assert_eq!(auto.connect_failure_window, Duration::from_secs(600));
+        assert_eq!(auto.connect_failure_threshold, 8);
+    }
+
+    #[test]
+    fn test_auto_mode_config_defaults() {
+        let defaults = AutoModeConfig::default();
+        assert_eq!(defaults.sse_not_available_threshold, 1);
+        assert_eq!(defaults.connect_failure_window, Duration::from_secs(300));
+        assert_eq!(defaults.connect_failure_threshold, 5);
     }
 }

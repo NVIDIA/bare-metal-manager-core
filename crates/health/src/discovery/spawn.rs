@@ -17,14 +17,16 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 use super::context::{BmcClient, CollectorKind, DiscoveryLoopContext};
 use crate::HealthError;
 use crate::collectors::{
-    BackoffConfig, Collector, CollectorStartContext, FirmwareCollector, FirmwareCollectorConfig,
-    LogsCollector, LogsCollectorConfig, NmxtCollector, NmxtCollectorConfig, NvueRestCollector,
-    NvueRestCollectorConfig, SensorCollector, SensorCollectorConfig, SseLogCollector,
-    SseLogCollectorConfig, StreamingCollectorStartContext,
+    AutoFailureBudget, BackoffConfig, BudgetDecision, Collector, CollectorStartContext,
+    FailureKind, FirmwareCollector, FirmwareCollectorConfig, LogsCollector, LogsCollectorConfig,
+    NmxtCollector, NmxtCollectorConfig, NvueRestCollector, NvueRestCollectorConfig,
+    SensorCollector, SensorCollectorConfig, SseLogCollector, SseLogCollectorConfig,
+    StreamingCollectorStartContext,
 };
 use crate::config::{Configurable, LogCollectionMode};
 use crate::endpoint::{BmcEndpoint, EndpointMetadata};
@@ -93,10 +95,35 @@ pub(super) async fn spawn_collectors_for_endpoint(
             metrics_prefix,
         )?);
 
+        let spawn_periodic_logs = |data_sink: Option<Arc<dyn DataSink>>,
+                                   collector_registry: Arc<_>|
+         -> Option<Result<Collector, HealthError>> {
+            let pcfg = logs_cfg.periodic_or_default();
+            let endpoint_id = endpoint.log_identity().into_owned();
+            let state_file_path = logs_state_file_path(&pcfg.logs_state_file, &endpoint_id);
+
+            Some(Collector::start::<LogsCollector<BmcClient>>(
+                endpoint_arc.clone(),
+                LogsCollectorConfig {
+                    state_file_path,
+                    service_refresh_interval: pcfg.state_refresh_interval,
+                    data_sink,
+                },
+                CollectorStartContext {
+                    limiter: ctx.limiter.clone(),
+                    iteration_interval: pcfg.logs_collection_interval,
+                    collector_registry,
+                    metrics_manager: ctx.metrics_manager.clone(),
+                    client: ctx.client.clone(),
+                    health_options: ctx.config.clone(),
+                },
+            ))
+        };
+
         let result = match logs_cfg.mode {
             LogCollectionMode::Sse => {
                 if let Some(data_sink) = data_sink.clone() {
-                    Some(Collector::start_streaming::<SseLogCollector<BmcClient>>(
+                    Some(Collector::start_streaming::<SseLogCollector<BmcClient>, _>(
                         endpoint_arc.clone(),
                         SseLogCollectorConfig,
                         data_sink,
@@ -106,6 +133,7 @@ pub(super) async fn spawn_collectors_for_endpoint(
                             client: ctx.client.clone(),
                             health_options: ctx.config.clone(),
                         },
+                        |_| true,
                     ))
                 } else {
                     tracing::warn!("SSE log collector requires a data sink, skipping");
@@ -113,31 +141,45 @@ pub(super) async fn spawn_collectors_for_endpoint(
                 }
             }
             LogCollectionMode::Periodic => {
-                if let Some(pcfg) = &logs_cfg.periodic {
-                    let endpoint_id = endpoint.log_identity().into_owned();
-                    let state_file_path = logs_state_file_path(&pcfg.logs_state_file, &endpoint_id);
+                spawn_periodic_logs(data_sink.clone(), collector_registry)
+            }
+            LogCollectionMode::Auto => {
+                if ctx.log_downgrade_registry.is_downgraded(&key) {
+                    spawn_periodic_logs(data_sink.clone(), collector_registry)
+                } else if let Some(data_sink) = data_sink.clone() {
+                    let auto_cfg = logs_cfg.auto.unwrap_or_default();
+                    let registry = ctx.log_downgrade_registry.clone();
+                    let endpoint_key = endpoint.hash_key();
+                    let mut budget = AutoFailureBudget::new(auto_cfg, Instant::now());
 
-                    Some(Collector::start::<LogsCollector<BmcClient>>(
+                    Some(Collector::start_streaming::<SseLogCollector<BmcClient>, _>(
                         endpoint_arc.clone(),
-                        LogsCollectorConfig {
-                            state_file_path,
-                            service_refresh_interval: pcfg.state_refresh_interval,
-                            data_sink: data_sink.clone(),
-                        },
-                        CollectorStartContext {
-                            limiter: ctx.limiter.clone(),
-                            iteration_interval: pcfg.logs_collection_interval,
+                        SseLogCollectorConfig,
+                        data_sink,
+                        StreamingCollectorStartContext {
+                            backoff_config: BackoffConfig::default(),
                             collector_registry,
-                            metrics_manager: ctx.metrics_manager.clone(),
                             client: ctx.client.clone(),
                             health_options: ctx.config.clone(),
                         },
+                        move |result| match result {
+                            Ok(()) => {
+                                budget.reset_transient(Instant::now());
+                                true
+                            }
+                            Err(e) => {
+                                match budget.record(FailureKind::classify(e), Instant::now()) {
+                                    BudgetDecision::Continue => true,
+                                    BudgetDecision::Downgrade(reason) => {
+                                        registry.mark_downgraded(endpoint_key.clone(), reason);
+                                        false
+                                    }
+                                }
+                            }
+                        },
                     ))
                 } else {
-                    tracing::error!(
-                        endpoint = ?endpoint.addr,
-                        "periodic log config missing but mode is periodic, skipping"
-                    );
+                    tracing::warn!("auto-mode SSE log collector requires a data sink, skipping");
                     None
                 }
             }
@@ -302,7 +344,10 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::*;
-    use crate::config::{Config, Configurable};
+    use crate::collectors::DowngradeReason;
+    use crate::config::{
+        AutoModeConfig, Config, Configurable, LogsCollectorConfig, PeriodicLogConfig,
+    };
     use crate::endpoint::{BmcAddr, BmcCredentials, EndpointMetadata, SwitchData};
     use crate::limiter::{NoopLimiter, RateLimiter};
     use crate::metrics::MetricsManager;
@@ -393,5 +438,78 @@ mod tests {
         assert_eq!(ctx.collectors.len(CollectorKind::Firmware), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::Nmxt), 0);
         assert_eq!(ctx.collectors.len(CollectorKind::NvueRest), 0);
+    }
+
+    fn auto_mode_config() -> Config {
+        let mut config = Config::default();
+        config.collectors.sensors = Configurable::Disabled;
+        config.collectors.firmware = Configurable::Disabled;
+        config.collectors.nmxt = Configurable::Disabled;
+        config.collectors.nvue = Configurable::Disabled;
+        config.collectors.logs = Configurable::Enabled(LogsCollectorConfig {
+            mode: LogCollectionMode::Auto,
+            periodic: Some(PeriodicLogConfig::default()),
+            auto: Some(AutoModeConfig::default()),
+        });
+        config
+    }
+
+    fn test_endpoint(mac: &str) -> Arc<BmcEndpoint> {
+        Arc::new(BmcEndpoint::with_fixed_credentials(
+            BmcAddr {
+                ip: IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+                port: Some(443),
+                mac: MacAddress::from_str(mac).unwrap(),
+            },
+            BmcCredentials::UsernamePassword {
+                username: "user".to_string(),
+                password: Some("pass".to_string()),
+            },
+            None,
+            None,
+        ))
+    }
+
+    #[tokio::test]
+    async fn test_auto_mode_with_downgraded_endpoint_spawns_periodic() {
+        let limiter: Arc<dyn RateLimiter> = Arc::new(NoopLimiter);
+        let metrics_manager = Arc::new(
+            MetricsManager::new("test_auto_downgraded").expect("metrics manager should initialize"),
+        );
+        let mut ctx =
+            DiscoveryLoopContext::new(limiter, metrics_manager, Arc::new(auto_mode_config()))
+                .expect("context should initialize");
+
+        let endpoint = test_endpoint("aa:bb:cc:dd:ee:01");
+        ctx.log_downgrade_registry
+            .mark_downgraded(endpoint.hash_key(), DowngradeReason::SseNotAvailable);
+
+        spawn_collectors_for_endpoint(&mut ctx, &endpoint, None, "test_auto_downgraded")
+            .await
+            .expect("spawn should succeed for downgraded auto endpoint");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Logs), 1);
+    }
+
+    #[tokio::test]
+    async fn test_auto_mode_without_downgrade_and_no_data_sink_skips_spawn() {
+        let limiter: Arc<dyn RateLimiter> = Arc::new(NoopLimiter);
+        let metrics_manager = Arc::new(
+            MetricsManager::new("test_auto_no_sink").expect("metrics manager should initialize"),
+        );
+        let mut ctx =
+            DiscoveryLoopContext::new(limiter, metrics_manager, Arc::new(auto_mode_config()))
+                .expect("context should initialize");
+
+        let endpoint = test_endpoint("aa:bb:cc:dd:ee:02");
+        spawn_collectors_for_endpoint(&mut ctx, &endpoint, None, "test_auto_no_sink")
+            .await
+            .expect("spawn should succeed (gracefully skip) without data sink");
+
+        assert_eq!(ctx.collectors.len(CollectorKind::Logs), 0);
+        assert!(
+            !ctx.log_downgrade_registry
+                .is_downgraded(&endpoint.hash_key())
+        );
     }
 }

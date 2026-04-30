@@ -100,13 +100,27 @@ include_sensor_thresholds = true
 firmware_refresh_interval = "30m"
 
 [collectors.logs]
-mode = "sse" # "sse" (default, preferred) or "periodic" (fallback)
+#  "auto": (default)
+#       - spawn SSE per endpoint
+#       - if SSE not supported, downgrade to periodic collection
+#       - if reconnects exceeds budget, downgrade to periodic collection
+#       - reset downgrades after server restart
+#  "sse": always SSE; retry with exp. backoff on connect failure
+#  "periodic": always poll
+mode = "auto"
 
-# required when mode = "periodic", must not be set when mode = "sse"
-# [collectors.logs.periodic]
-# logs_collection_interval = "5m"
-# state_refresh_interval = "30m"
-# logs_state_file = "/tmp/logs_collector_{machine_id}.json"
+# required when mode = "auto" or "periodic"; must not be set when mode = "sse"
+[collectors.logs.periodic]
+logs_collection_interval = "5m"
+state_refresh_interval = "30m"
+logs_state_file = "/tmp/logs_collector_{machine_id}.json"
+
+# auto-mode downgrade thresholds; read only when mode = "auto". omit the
+# whole section to use defaults (1 / 5m / 5).
+[collectors.logs.auto]
+sse_not_available_threshold = 1
+connect_failure_window = "5m"
+connect_failure_threshold = 5
 
 [collectors.nmxt]
 scrape_interval = "1m"

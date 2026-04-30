@@ -448,12 +448,17 @@ impl Collector {
         })
     }
 
-    pub fn start_streaming<S: StreamingCollector<BmcClient>>(
+    pub fn start_streaming<S, F>(
         endpoint: Arc<BmcEndpoint>,
         config: S::Config,
         data_sink: Arc<dyn DataSink>,
         start_context: StreamingCollectorStartContext,
-    ) -> Result<Self, HealthError> {
+        mut on_connect_result: F,
+    ) -> Result<Self, HealthError>
+    where
+        S: StreamingCollector<BmcClient>,
+        F: FnMut(Result<(), &HealthError>) -> bool + Send + 'static,
+    {
         let StreamingCollectorStartContext {
             backoff_config,
             collector_registry,
@@ -469,13 +474,12 @@ impl Collector {
         let mut collector = S::new_runner(bmc, endpoint.clone(), config)?;
         let event_context = EventContext::from_endpoint(&endpoint, collector.collector_type());
 
-        let endpoint_key = endpoint.hash_key().to_string();
         let const_labels = HashMap::from([
             (
                 "collector_type".to_string(),
                 collector.collector_type().to_string(),
             ),
-            ("endpoint_key".to_string(), endpoint_key),
+            ("endpoint_key".to_string(), endpoint.hash_key().to_string()),
         ]);
 
         let registry = collector_registry.registry();
@@ -508,12 +512,14 @@ impl Collector {
                             endpoint = ?endpoint.addr,
                             "streaming collector connection failed"
                         );
+                        if !on_connect_result(Err(&e)) {
+                            return;
+                        }
                     }
                     Ok(mut stream) => {
-                        // the guard lives exactly as long as we hold an open stream; Drop
-                        // handles dec for every exit path (shutdown, error, stream end).
                         let _conn_guard = SseConnectionGuard::inc(metrics.connected.clone());
                         backoff.reset();
+                        on_connect_result(Ok(()));
                         tracing::info!(
                             collector_type,
                             endpoint = ?endpoint.addr,
@@ -580,6 +586,24 @@ impl Collector {
     pub async fn stop(self) {
         self.cancel_token.cancel();
         let _ = self.handle.await;
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.handle.is_finished()
+    }
+
+    pub fn spawn_task<F, Fut>(task_fn: F) -> Self
+    where
+        F: FnOnce(CancellationToken) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let cancel_token = CancellationToken::new();
+        let cancel_clone = cancel_token.clone();
+        let handle = tokio::spawn(task_fn(cancel_clone));
+        Self {
+            handle,
+            cancel_token,
+        }
     }
 }
 
