@@ -733,9 +733,10 @@ async fn test_admin_force_delete_with_instance_type(pool: sqlx::PgPool) {
     _ = force_delete(&env, &tmp_machine_id);
 }
 
-/// Force delete with DPF: the node_name and dpu_device_names passed to
-/// force_delete_host must use BMC MAC addresses, not 64-char MachineIds,
-/// so that the resulting K8s resource names stay within the 48-char limit.
+/// Force delete with DPF: the node_id and dpu_device_names passed to
+/// force_delete_host must be BMC MAC-derived ids, not 64-char MachineIds,
+/// so that the resulting K8s resource names stay within the 48-char limit
+/// after the SDK adds the `node-` / `device-` CR prefixes.
 #[crate::sqlx_test]
 async fn test_admin_force_delete_with_dpf_uses_bmc_mac(pool: sqlx::PgPool) {
     type DpfCallLog = Vec<(String, Vec<String>)>;
@@ -798,27 +799,31 @@ async fn test_admin_force_delete_with_dpf_uses_bmc_mac(pool: sqlx::PgPool) {
         "force_delete_host should have been called exactly once, got: {calls:?}"
     );
 
-    let (node_name, device_names) = &calls[0];
+    let (node_id, device_ids) = &calls[0];
 
+    // BMC MAC -> dpf_id formats as `xx-xx-xx-xx-xx-xx` (17 chars). The SDK adds
+    // a `node-` prefix to form the CR name, so the id itself must leave room
+    // for that prefix within the 48-char DPUNode CRD limit.
+    let mac_re = regex::Regex::new(r"^[0-9a-f]{2}(-[0-9a-f]{2}){5}$").unwrap();
     assert!(
-        node_name.starts_with("node-"),
-        "node_name should start with 'node-', got: {node_name}",
+        mac_re.is_match(node_id),
+        "node_id should be a BMC MAC-derived id (xx-xx-xx-xx-xx-xx), got: {node_id}",
     );
     assert!(
-        node_name.len() <= 48,
-        "node_name must be <= 48 chars for DPUNode CRD, got {} chars: {node_name}",
-        node_name.len(),
+        format!("node-{node_id}").len() <= 48,
+        "node CR name must be <= 48 chars for DPUNode CRD, got {} chars",
+        format!("node-{node_id}").len(),
     );
 
-    for name in device_names {
+    for id in device_ids {
         assert!(
-            name.len() <= 48,
-            "dpu device name must be <= 48 chars, got {} chars: {name}",
-            name.len(),
+            mac_re.is_match(id),
+            "dpu device id should be a MAC-derived id (xx-xx-xx-xx-xx-xx), got: {id}",
         );
         assert!(
-            name.contains('-'),
-            "dpu device name should be a MAC-derived id (contain hyphens), got: {name}",
+            format!("device-{id}").len() <= 48,
+            "device CR name must be <= 48 chars, got {} chars",
+            format!("device-{id}").len(),
         );
     }
 }

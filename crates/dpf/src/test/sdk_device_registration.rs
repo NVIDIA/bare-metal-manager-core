@@ -227,9 +227,7 @@ async fn test_register_devices_node_and_force_delete() {
 
     // Force delete
     let dpu_ids = vec!["dpu-1".to_string(), "dpu-2".to_string()];
-    sdk.force_delete_host("node-host-001", &dpu_ids)
-        .await
-        .unwrap();
+    sdk.force_delete_host("host-001", &dpu_ids).await.unwrap();
 
     assert_eq!(
         DpuDeviceRepository::list(&mock, TEST_NS)

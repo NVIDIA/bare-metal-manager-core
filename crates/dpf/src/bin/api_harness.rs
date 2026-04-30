@@ -897,15 +897,14 @@ async fn run_cleanup(
         .map(|s| s.trim().to_string())
         .collect();
 
-    let node_name = device_names
+    let node_id = device_names
         .first()
-        .map(|id| dpu_node_cr_name(id))
         .ok_or("dpu_device_names must not be empty")?;
 
     tracing::info!("=== DPF Cleanup ===");
-    tracing::info!(node = %node_name, device_names = ?device_names, "Starting cleanup");
+    tracing::info!(node = %node_id, device_names = ?device_names, "Starting cleanup");
 
-    sdk.force_delete_host(&node_name, &device_names).await?;
+    sdk.force_delete_host(node_id, &device_names).await?;
 
     tracing::info!("Cleanup complete");
     Ok(())

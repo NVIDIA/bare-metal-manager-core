@@ -102,7 +102,7 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// Force delete a host and all its DPU resources.
     async fn force_delete_host(
         &self,
-        node_name: &str,
+        node_id: &str,
         dpu_device_names: &[String],
     ) -> Result<(), DpfError>;
 
@@ -383,12 +383,10 @@ impl DpfOperations for DpfSdkOps {
 
     async fn force_delete_host(
         &self,
-        node_name: &str,
+        node_id: &str,
         dpu_device_names: &[String],
     ) -> Result<(), DpfError> {
-        self.sdk
-            .force_delete_host(node_name, dpu_device_names)
-            .await
+        self.sdk.force_delete_host(node_id, dpu_device_names).await
     }
 
     async fn reprovision_dpu(
