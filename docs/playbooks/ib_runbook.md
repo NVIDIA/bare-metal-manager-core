@@ -397,7 +397,7 @@ curl -v -s --cert-type PEM --cacert ca.crt --key tls.key --cert tls.crt -XGET  h
 *  start date: Jun 18 02:52:24 2024 GMT
 *  expire date: Jul 18 02:52:54 2024 GMT
 *  subjectAltName: host "carbide-api.forge" matched cert's "carbide-api.forge"
-*  issuer: O=NVIDIA Corporation; CN=NVIDIA Forge Intermediate CA 2023 - pdx-qa2
+*  issuer: O=NVIDIA Corporation; CN=NVIDIA NICo Intermediate CA - <site-name>
 *  SSL certificate verify ok.
 } [5 bytes data]
 > GET /ufmRest/app/ufm_version HTTP/1.1

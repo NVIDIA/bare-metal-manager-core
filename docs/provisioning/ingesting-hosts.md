@@ -105,3 +105,44 @@ The following command configures NICo to approve all pending machines based on P
 ```bash
 admin-cli -c <api-url> mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
 ```
+
+## Managing the Expected Machines Table
+
+The expected machines table in the carbide-api database holds the following fields per host:
+- Chassis Serial Number
+- BMC MAC Address
+- BMC manufacturer's set login
+- BMC manufacturer's set password
+- DPU chassis serial number (only needed for DGX-H100 or other machines where the NetworkAdapter serial number is not available in the host Redfish)
+
+### Individual operations
+
+Use `admin-cli` to operate on individual entries:
+
+```bash
+admin-cli -c <api-url> credential em update ...
+admin-cli -c <api-url> credential em add ...
+admin-cli -c <api-url> credential em delete ...
+```
+
+### Bulk operations
+
+Replace all entries from a JSON file:
+
+```bash
+admin-cli -c <api-url> credential em replace-all --filename expected_machines.json
+```
+
+Erase all entries:
+
+```bash
+admin-cli -c <api-url> credential em erase
+```
+
+### Export
+
+Export the current table as JSON:
+
+```bash
+admin-cli -c <api-url> -f json credential em show
+```

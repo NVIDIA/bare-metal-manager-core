@@ -205,7 +205,7 @@ carbide-admin-cli machine-validation tests enable --test-id <test_id> --version 
 carbide-admin-cli machine-validation tests verify --test-id <test_id> --version  <test version>
 ```
 
-Note: There is a bug, a workaround is to use two commands. Will be fixed in coming releases.
+Note: Due to a current limitation, enable and verify must be run as separate commands.
 
 For example, to enable forge_CudaSample, execute following steps:
 

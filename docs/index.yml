@@ -12,29 +12,55 @@ navigation:
 
     layout:
 
-    - page: Introduction
-      path: README.md
+    - page: Home
+      path: index.md
+
+    - section: Overview
+      contents:
+        - page: What is NICo?
+          path: overview/what-is-nico.md
+          slug: what-is-nico
+        - page: Key Capabilities
+          path: overview/capabilities.md
+        - page: Operational Principles
+          path: overview/operational-principles.md
+        - page: Day 0 / Day 1 / Day 2 Lifecycle
+          path: overview/lifecycle.md
+        - page: Scope and Boundaries
+          path: overview/scope-and-boundaries.md
+          slug: scope-and-boundaries
 
     - section: Getting Started
       contents:
-        - page: Site Reference Architecture
-          path: manuals/site-reference-arch.md
-        - page: Site Setup
-          path: manuals/site-setup.md
-        - page: Networking Requirements
-          path: manuals/networking_requirements.md
+        - section: Prerequisites
+          contents:
+            - page: Hardware
+              path: getting-started/prerequisites/hardware.md
+            - page: Network
+              path: getting-started/prerequisites/network.md
+            - page: Software
+              path: getting-started/prerequisites/software.md
+            - page: BMC and Out-of-Band Setup
+              path: getting-started/prerequisites/bmc-oob-setup.md
         - page: Building NICo Containers
           path: manuals/building_nico_containers.md
-        - page: Ingesting Hosts
-          path: manuals/ingesting_machines.md
-        - page: Updating Expected Hosts Manifest
-          path: manuals/expected_machine_update.md
-        - section: Kubernetes
+          slug: building-nico-containers
+        - page: Quick Start Guide
+          path: getting-started/quick-start.md
+        - section: Installation Options
           contents:
-            - page: Bootstrap New Cluster
-              path: kubernetes/bootstrap.md
-            - page: TLS
-              path: kubernetes/tls.md
+            - page: Reference Installation
+              path: getting-started/installation-options/reference-install.md
+          slug: building-nico-containers
+
+    - section: Provisioning (Day 0 Operations)
+      contents:
+        - page: Ingesting Hosts
+          path: provisioning/ingesting-hosts.md
+        - page: Host Validation
+          path: provisioning/host-validation.md
+        - page: SKU Validation
+          path: provisioning/sku-validation.md
 
     - section: Architecture
       contents:
@@ -73,12 +99,6 @@ navigation:
 
     - section: Operations
       contents:
-        - page: Cargo via Docker on macOS
-          path: manuals/cargo-via-docker-macos.md
-        - page: Host Validation
-          path: manuals/machine_validation.md
-        - page: SKU Validation
-          path: manuals/sku_validation.md
         - page: NVLink Partitioning
           path: manuals/nvlink_partitioning.md
         - page: Release Instance API Enhancements
@@ -133,6 +153,8 @@ navigation:
           path: development.md
         - page: Running a PXE Client in a VM
           path: development/vm_pxe_client.md
+        - page: TLS and SPIFFE Certificates
+          path: development/tls.md
         - page: Re-creating Issuer/CA in Local Dev
           path: development/issuer_ca_recreate.md
         - page: Visual Studio Code Remote Development

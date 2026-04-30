@@ -59,6 +59,6 @@ This list outlines platforms that are under development and have not undergone f
 
 | DPU          | Firmware / Software Version                       |
 |--------------|---------------------------------------------------|
-| Bluefield-2  | DOCA 3.2.0                                        |
-| Bluefield-3  | DOCA 3.2.0                                        |
+| BlueField 2  | DOCA 3.2.0                                        |
+| BlueField 3  | DOCA 3.2.0                                        |
 

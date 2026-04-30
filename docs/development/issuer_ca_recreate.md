@@ -58,7 +58,7 @@ Now, the engine responsible for generating client certificates has type pki. You
         "cluster.local",
         "*.svc",
         "*.svc.cluster.local",
-        "*.frg.nvidia.com"
+        "*.nico.example.com"
         ],
         "allowed_domains_template": false,
         "allowed_other_sans": [],
