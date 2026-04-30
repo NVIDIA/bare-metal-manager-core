@@ -31,10 +31,14 @@ RUN USER=root cargo new --bin carbide
 WORKDIR ./carbide
 COPY . ./
 
-RUN export CARGO_MAKE_SKIP_CODECOV="true" && \
+# --mount=type=cache persists the sccache directory across docker build invocations.
+# Uses id=sccache-aarch64 (separate from x86_64 cache) since compiled artifacts are arch-specific.
+# Requires BuildKit (default in Docker 23+).
+RUN --mount=type=cache,id=sccache-aarch64,target=/sccache \
+  export CARGO_MAKE_SKIP_CODECOV="true" && \
   export DATABASE_URL="postgresql://%2Fvar%2Frun%2Fpostgresql" && \
   export SCCACHE_DIR=/sccache && \
-  export RUST_WRAPPER=sccache && \
+  export RUSTC_WRAPPER=sccache && \
   /etc/init.d/postgresql start && \
   sudo -u postgres psql -c "ALTER USER root WITH SUPERUSER;" && \
   createdb root && \
