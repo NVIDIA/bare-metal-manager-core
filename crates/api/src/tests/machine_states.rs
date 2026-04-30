@@ -74,6 +74,138 @@ use crate::tests::common::api_fixtures::{
     on_demand_machine_validation, update_time_params,
 };
 
+// Verify the group-sync property of `db::machine::try_update_network_config`,
+// where any write to a row in the host's group (the host or any of its DPUs)
+// updates that row's content + version, AND fans the version bump out to every
+// other row in the "group", after which, the host + all of its DPUs network
+// config version are the same.
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_group_sync(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    // After ingestion brings the host to Ready, network_configured fixture
+    // calls have caught DPU observations up to their (per-DPU) expected
+    // versions, so sync is true at this point.
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        snapshot.managed_host_network_config_version_synced(),
+        "sync should be true after ingestion brings DPU observations up to expected version"
+    );
+
+    // Bump the HOST's network_config (write the same content back). The
+    // group-sync helper should also bump each DPU's version to the same
+    // new value.
+    let host_before = mh.host().db_machine(&mut txn).await;
+    db::machine::try_update_network_config(
+        txn.as_mut(),
+        &mh.id,
+        host_before.network_config.version,
+        &host_before.network_config.value,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.db_txn().await;
+    let host_after_host_write = mh.host().db_machine(&mut txn).await;
+    let dpu_after_host_write = mh.dpu().db_machine(&mut txn).await;
+    assert_eq!(
+        host_after_host_write.network_config.version, dpu_after_host_write.network_config.version,
+        "group-sync: DPU's version should match host's after a host write"
+    );
+    assert_ne!(
+        host_after_host_write.network_config.version, host_before.network_config.version,
+        "host's version should have advanced"
+    );
+
+    // Sync should now be false; the DPU's expected has bumped (via the
+    // machine group bump), but its observation still reports the older
+    // version.
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        !snapshot.managed_host_network_config_version_synced(),
+        "sync should be false after the group bump until the DPU agent reports the new version"
+    );
+    txn.commit().await.unwrap();
+
+    // Simulate the DPU agent polling, applying, and reporting back.
+    common::api_fixtures::network_configured(&env, &mh.dpu_ids).await;
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        snapshot.managed_host_network_config_version_synced(),
+        "sync should flip back to true after the agent reports the new version"
+    );
+
+    // And now the converse direction -- bump a DPU's row (the shape of
+    // machine_discovery's loopback_ip allocation). The group-sync helper
+    // fans that bump out to the host's row too, keeping versions equal.
+    let dpu_before_dpu_write = mh.dpu().db_machine(&mut txn).await;
+    db::machine::try_update_network_config(
+        txn.as_mut(),
+        &dpu_before_dpu_write.id,
+        dpu_before_dpu_write.network_config.version,
+        &dpu_before_dpu_write.network_config.value,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.db_txn().await;
+    let host_after_dpu_write = mh.host().db_machine(&mut txn).await;
+    let dpu_after_dpu_write = mh.dpu().db_machine(&mut txn).await;
+    assert_eq!(
+        host_after_dpu_write.network_config.version, dpu_after_dpu_write.network_config.version,
+        "group-sync: host's version should match DPU's after a DPU write"
+    );
+
+    // Sync flips to false again, since the DPU's expected just advanced
+    // beyond what it most recently observed.
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        !snapshot.managed_host_network_config_version_synced(),
+        "sync should be false after a DPU-row write bumps the group"
+    );
+}
+
+// A freshly-created host defaults to admin (`use_admin_network` = true);
+// flipping the host-level `network_config.use_admin_network` to false
+// must be reflected by `ManagedHostStateSnapshot::use_admin_network()`.
+#[crate::sqlx_test]
+async fn test_use_admin_network_reads_host_network_config(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        snapshot.use_admin_network(),
+        "fresh host should default to admin network"
+    );
+
+    let host = mh.host().db_machine(&mut txn).await;
+    let mut netconf = host.network_config.value.clone();
+    netconf.use_admin_network = Some(false);
+    db::machine::try_update_network_config(
+        txn.as_mut(),
+        &mh.id,
+        host.network_config.version,
+        &netconf,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let mut txn = env.db_txn().await;
+    let snapshot = mh.snapshot(&mut txn).await;
+    assert!(
+        !snapshot.use_admin_network(),
+        "host with network_config.use_admin_network=false should report tenant"
+    );
+}
+
 #[crate::sqlx_test]
 async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;

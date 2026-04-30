@@ -250,6 +250,11 @@ impl From<MachineNetworkStatusObservation> for rpc::DpuNetworkStatus {
 pub struct ManagedHostNetworkConfig {
     pub loopback_ip: Option<IpAddr>,
     pub secondary_overlay_vtep_ip: Option<IpAddr>,
+    /// This is a host-level field of the "consolidated" network
+    /// config served to all [DPU] agents within host machine group.
+    /// This is set in the config for the host-specific row in the
+    /// database, and we use it as a base layer of sorts for then
+    /// merging in DPU-specific configs.
     pub use_admin_network: Option<bool>,
     pub quarantine_state: Option<ManagedHostQuarantineState>,
 }

@@ -380,10 +380,6 @@ impl TryFrom<rpc::forge::DpaInterfaceCreationRequest> for NewDpaInterface {
 }
 
 impl DpaInterface {
-    pub fn use_admin_network(&self) -> bool {
-        self.network_config.use_admin_network.unwrap_or(true)
-    }
-
     pub fn get_machine_id(&self) -> MachineId {
         self.machine_id
     }
@@ -391,12 +387,6 @@ impl DpaInterface {
     pub fn managed_host_network_config_version_synced(&self) -> bool {
         let dpa_expected_version = self.network_config.version;
         let dpa_observation = self.network_status_observation.as_ref();
-
-        if self.use_admin_network()
-            && self.controller_state.value == DpaInterfaceControllerState::Provisioning
-        {
-            return true;
-        }
 
         let dpa_observed_version: ConfigVersion = match dpa_observation {
             Some(network_status) => match network_status.network_config_version {

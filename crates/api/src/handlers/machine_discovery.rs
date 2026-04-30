@@ -208,8 +208,7 @@ pub(crate) async fn discover_machine(
             })?
         };
 
-        let (network_config, _version) = db_machine.network_config.clone().take();
-        if network_config.loopback_ip.is_none() {
+        if db_machine.network_config.loopback_ip.is_none() {
             let loopback_ip = db::machine::allocate_loopback_ip(
                 &api.common_pools,
                 &mut txn,
@@ -217,13 +216,12 @@ pub(crate) async fn discover_machine(
             )
             .await?;
 
-            let (mut network_config, version) = db_machine.network_config.clone().take();
+            let mut network_config = db_machine.network_config.value.clone();
             network_config.loopback_ip = Some(loopback_ip);
-            network_config.use_admin_network = Some(true);
             db::machine::try_update_network_config(
                 &mut txn,
                 &stable_machine_id,
-                version,
+                db_machine.network_config.version,
                 &network_config,
             )
             .await?;
@@ -235,7 +233,10 @@ pub(crate) async fn discover_machine(
             .as_ref()
             .map(|vc| vc.secondary_overlay_support)
             .unwrap_or_default()
-            && network_config.secondary_overlay_vtep_ip.is_none()
+            && db_machine
+                .network_config
+                .secondary_overlay_vtep_ip
+                .is_none()
         {
             let secondary_vtep_ip = db::machine::allocate_secondary_vtep_ip(
                 &api.common_pools,
@@ -244,13 +245,12 @@ pub(crate) async fn discover_machine(
             )
             .await?;
 
-            let (mut network_config, version) = db_machine.network_config.clone().take();
+            let mut network_config = db_machine.network_config.value.clone();
             network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
-            network_config.use_admin_network = Some(true);
             db::machine::try_update_network_config(
                 &mut txn,
                 &stable_machine_id,
-                version,
+                db_machine.network_config.version,
                 &network_config,
             )
             .await?;

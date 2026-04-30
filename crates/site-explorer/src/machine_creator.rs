@@ -646,7 +646,6 @@ impl MachineCreator {
             network_config.secondary_overlay_vtep_ip = Some(secondary_vtep_ip);
         }
 
-        network_config.use_admin_network = Some(true);
         db::machine::try_update_network_config(txn, &dpu_machine.id, version, &network_config)
             .await?;
 
