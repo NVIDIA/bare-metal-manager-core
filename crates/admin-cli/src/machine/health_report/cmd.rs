@@ -128,6 +128,19 @@ pub fn get_health_report(template: HealthReportTemplates, message: Option<String
                 HealthAlertClassification::suppress_external_alerting(),
             ];
         }
+        // Same shape as TenantReportedIssue; distinct merge source and probe id for online repair.
+        // Includes `PreventDeletion` so `ReleaseInstance` is blocked while this merge is present (not admin force-delete).
+        HealthReportTemplates::RequestOnlineRepair => {
+            report.source = "request-online-repair".to_string();
+            report.alerts[0].id = HealthProbeId::from_str("RequestOnlineRepair")
+                .expect("RequestOnlineRepair is a valid non-empty HealthProbeId");
+            report.alerts[0].target = Some("request-online-repair".to_string());
+            report.alerts[0].classifications = vec![
+                HealthAlertClassification::prevent_allocations(),
+                HealthAlertClassification::suppress_external_alerting(),
+                HealthAlertClassification::prevent_deletion(),
+            ];
+        }
         // Template to indicate that the instance is identified as unhealthy and
         // is ready to be picked by Repair System for diagnosis and fix.
         HealthReportTemplates::RequestRepair => {
@@ -307,6 +320,69 @@ mod tests {
                 .classifications
                 .contains(&HealthAlertClassification::suppress_external_alerting())
         );
+
+        let request_online_repair = get_health_report(
+            HealthReportTemplates::RequestOnlineRepair,
+            Some("test".to_string()),
+        );
+        assert!(
+            request_online_repair.alerts[0]
+                .classifications
+                .contains(&HealthAlertClassification::suppress_external_alerting())
+        );
+        assert!(
+            request_online_repair.alerts[0]
+                .classifications
+                .contains(&HealthAlertClassification::prevent_deletion())
+        );
+    }
+
+    #[test]
+    fn test_request_online_repair_template() {
+        let report = get_health_report(
+            HealthReportTemplates::RequestOnlineRepair,
+            Some("Online repair handoff for stuck repair workflow".to_string()),
+        );
+
+        assert_eq!(report.source, "request-online-repair");
+        assert_eq!(report.alerts.len(), 1);
+
+        let alert = &report.alerts[0];
+        assert_eq!(
+            alert.id,
+            HealthProbeId::from_str("RequestOnlineRepair").unwrap()
+        );
+        assert_eq!(alert.target, Some("request-online-repair".to_string()));
+        assert_eq!(
+            alert.message,
+            "Online repair handoff for stuck repair workflow"
+        );
+        assert!(alert.tenant_message.is_none());
+
+        assert_eq!(alert.classifications.len(), 3);
+        assert!(
+            alert
+                .classifications
+                .contains(&HealthAlertClassification::prevent_allocations())
+        );
+        assert!(
+            alert
+                .classifications
+                .contains(&HealthAlertClassification::suppress_external_alerting())
+        );
+        assert!(
+            alert
+                .classifications
+                .contains(&HealthAlertClassification::prevent_deletion())
+        );
+    }
+
+    #[test]
+    fn test_request_online_repair_template_with_empty_message() {
+        let report = get_health_report(HealthReportTemplates::RequestOnlineRepair, None);
+
+        assert_eq!(report.source, "request-online-repair");
+        assert_eq!(report.alerts[0].message, "");
     }
 
     #[test]

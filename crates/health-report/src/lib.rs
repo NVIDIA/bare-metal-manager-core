@@ -678,6 +678,12 @@ impl HealthAlertClassification {
         Self("PreventAllocations".to_string())
     }
 
+    /// Signals that the associated resource should not be deleted (e.g. instance or host teardown).
+    /// Callers that interpret health must enforce this; storing the classification alone does not block deletion.
+    pub fn prevent_deletion() -> Self {
+        Self("PreventDeletion".to_string())
+    }
+
     /// The threshold that is used to externally alert on unhealthy hosts in the datacenter
     /// (e.g. via Prometheus/AlertManager alerts)
     /// will not take hosts with this classification into account
@@ -742,6 +748,12 @@ mod tests {
             format!("{classification:?} {classification}").as_str(),
             "\"PreventHostStateChanges\" PreventHostStateChanges"
         );
+    }
+
+    #[test]
+    fn prevent_deletion_classification_string() {
+        let c = HealthAlertClassification::prevent_deletion();
+        assert_eq!(c.as_str(), "PreventDeletion");
     }
 
     #[test]

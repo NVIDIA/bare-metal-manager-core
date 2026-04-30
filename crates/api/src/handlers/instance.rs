@@ -40,7 +40,8 @@ use model::instance::config::tenant_config::TenantConfig;
 use model::instance::snapshot::InstanceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    InstanceState, LoadSnapshotOptions, ManagedHostState, ManagedHostStateSnapshot,
+    HostHealthConfig, InstanceState, LoadSnapshotOptions, ManagedHostState,
+    ManagedHostStateSnapshot,
 };
 use model::metadata::Metadata;
 use model::os::OperatingSystem;
@@ -54,6 +55,36 @@ use crate::instance::{
     validate_ib_partition_ownership, validate_os_definition_usable,
 };
 use crate::{CarbideError, CarbideResult};
+
+/// Refuses `ReleaseInstance` when aggregate host health includes [`HealthAlertClassification::prevent_deletion`].
+/// Admin `force_delete_instance` is not subject to this check.
+async fn ensure_instance_release_not_blocked_by_prevent_deletion(
+    txn: &mut db::Transaction<'_>,
+    machine_id: &MachineId,
+    host_health: HostHealthConfig,
+) -> Result<(), CarbideError> {
+    let Some(snapshot) = db::managed_host::load_snapshot(
+        txn,
+        machine_id,
+        LoadSnapshotOptions::default().with_host_health(host_health),
+    )
+    .await?
+    else {
+        return Err(CarbideError::NotFoundError {
+            kind: "machine",
+            id: machine_id.to_string(),
+        });
+    };
+
+    if snapshot
+        .aggregate_health
+        .has_classification(&HealthAlertClassification::prevent_deletion())
+    {
+        return Err(ConfigValidationError::InstanceReleaseBlockedByPreventDeletion.into());
+    }
+
+    Ok(())
+}
 
 /// Represents the repair status label value set by RepairSystem
 ///
@@ -605,7 +636,11 @@ async fn handle_instance_release_from_regular_tenant_and_report_issue(
 /// Handles instance release requests with support for the Forge-RepairSystem integration.
 ///
 /// This function processes instance deletion requests and applies appropriate health overrides
-/// based on the requesting tenant type and reported issues. It supports two main workflows:
+/// based on the requesting tenant type and reported issues. It supports two main workflows
+/// (repair tenant and regular tenant) described below.
+///
+/// **PreventDeletion:** If aggregate host health includes a [`HealthAlertClassification::prevent_deletion`]
+/// alert, `ReleaseInstance` is rejected until the alert is cleared. Admin machine force-delete does not use this check.
 ///
 /// ## Repair Tenant Workflow
 /// When `is_repair_tenant=true`, this indicates the RepairSystem is releasing an instance after
@@ -642,6 +677,21 @@ pub(crate) async fn release(
 
     log_machine_id(&instance.machine_id);
     log_tenant_organization_id(instance.config.tenant.tenant_organization_id.as_str());
+
+    if instance.deleted.is_some() {
+        tracing::info!(
+            instance_id = %delete_instance.instance_id,
+            "Instance is already marked for deletion.",
+        );
+        return Ok(Response::new(rpc::InstanceReleaseResult {}));
+    }
+
+    ensure_instance_release_not_blocked_by_prevent_deletion(
+        &mut txn,
+        &instance.machine_id,
+        api.runtime_config.host_health,
+    )
+    .await?;
 
     // Instance Release called from the Repair tenant.
     if delete_instance.is_repair_tenant == Some(true) {
@@ -694,14 +744,6 @@ pub(crate) async fn release(
         .map_err(|e| CarbideError::Internal {
             message: e.to_string(),
         })?;
-    }
-
-    if instance.deleted.is_some() {
-        tracing::info!(
-            instance_id = %delete_instance.instance_id,
-            "Instance is already marked for deletion.",
-        );
-        return Ok(Response::new(rpc::InstanceReleaseResult {}));
     }
 
     // TODO: This is racy. If the instance just got deleted we still

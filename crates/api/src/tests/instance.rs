@@ -4843,6 +4843,96 @@ async fn test_instance_release_combined_enhancements(_: PgPoolOptions, options: 
     txn.commit().await.unwrap();
 }
 
+/// Release is rejected when aggregate health includes `PreventDeletion`; succeeds after the override is removed.
+#[crate::sqlx_test]
+async fn test_instance_release_rejected_when_aggregate_health_has_prevent_deletion(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let env = create_test_env(pool).await;
+    let mh = create_managed_host(&env).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let config = InstanceConfig::default_tenant_and_os()
+        .network(single_interface_network_config(segment_id));
+
+    let instance_result = env
+        .api
+        .allocate_instance(
+            InstanceAllocationRequest::builder(false)
+                .machine_id(mh.id)
+                .config(config)
+                .metadata(rpc::Metadata {
+                    name: "test-prevent-deletion".to_string(),
+                    description: "PreventDeletion blocks release".to_string(),
+                    labels: Vec::new(),
+                })
+                .tonic_request(),
+        )
+        .await
+        .expect("allocate instance");
+
+    let instance = instance_result.into_inner();
+    let instance_id = *instance.id.as_ref().expect("Instance ID should be present");
+
+    let block_release = health_report::HealthReport {
+        source: "test-prevent-deletion-override".to_string(),
+        triggered_by: None,
+        observed_at: Some(chrono::Utc::now()),
+        successes: vec![],
+        alerts: vec![health_report::HealthProbeAlert {
+            id: health_report::HealthProbeId::from_str("TestPreventDeletion").unwrap(),
+            target: None,
+            in_alert_since: None,
+            message: "do not delete".to_string(),
+            tenant_message: None,
+            classifications: vec![health_report::HealthAlertClassification::prevent_deletion()],
+        }],
+        ..Default::default()
+    };
+
+    common::api_fixtures::send_health_report_override(
+        &env,
+        &mh.host().id,
+        (block_release, health_report::HealthReportApplyMode::Merge),
+    )
+    .await;
+
+    let err = env
+        .api
+        .release_instance(tonic::Request::new(InstanceReleaseRequest {
+            id: Some(instance_id),
+            issue: None,
+            is_repair_tenant: None,
+        }))
+        .await
+        .expect_err("release should fail when PreventDeletion is present on aggregate health");
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(
+        err.message().contains("PreventDeletion"),
+        "unexpected message: {}",
+        err.message()
+    );
+
+    common::api_fixtures::remove_health_report_override(
+        &env,
+        &mh.host().id,
+        "test-prevent-deletion-override".to_string(),
+    )
+    .await;
+
+    env.api
+        .release_instance(tonic::Request::new(InstanceReleaseRequest {
+            id: Some(instance_id),
+            issue: None,
+            is_repair_tenant: None,
+        }))
+        .await
+        .expect("release should succeed after removing PreventDeletion source");
+}
+
 #[crate::sqlx_test]
 async fn test_instance_release_auto_repair_enabled(_: PgPoolOptions, options: PgConnectOptions) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
