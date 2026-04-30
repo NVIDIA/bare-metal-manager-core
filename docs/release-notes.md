@@ -2,9 +2,66 @@
 
 This document contains release notes for the NVIDIA Infra Controller (NICo) project.
 
+## Infra Controller 0.7.0 (April 30, 2026)
+
+### VPC and Routing
+
+- VPC peering VNI and prefix lists are now sorted deterministically in network config responses.
+- BGP session password support has been added for peering sessions initiated by managed host DPUs.
+- Instance creation/update now supports explicit IP selection within a VPC prefix—this resolves issues with DHCP and PXE boot.
+
+### BMC and Site Explorer
+
+- The BMC now supports static IP address assignment.
+
+### Health and Observability
+
+- Health alerts now carry a severity level.
+- The REST API now supports NVUE health checks.
+- NICo now supports NMX-T metric collection for switches.
+
+### GB200 Rack, NVLink Switch, and Powershelf
+
+- Basic lifecycle management is now available via REST API, including the following:
+  - Expected inventory management (w/ auto discovery and ingestion)
+  - Bring up
+  - Inventory listing
+  - Inventory validation
+  - Power control
+  - Firmware update
+- GB200 NVLink switches are now supported for lifecycle management.
+- GB200 power shelves are now supported for lifecycle management.
+- GB200 racks are now supported for lifecycle management:
+  - At rack-level: rack bring up, power control, and firmware update
+  - At tray-level: compute, NVSwitch, and powershelf tray operations
+
+
+### Identity and Security
+
+- Credentials APIs have been added—operators can manage BMC/UEFI credentials via API.
+- The SuperNIC lockdown key management workflow has been implemented.
+- Vault connections now enforce TLS verification.
+- The NICo codebase has been relicensed to Apache 2.0.
+
+### Admin UI/CLI
+
+- A new IPAM section has been added to the admin UI covering DHCP, DNS, and networks.
+- An expected rack component details panel has been added to the admin UI.
+- (Bug fix) A hardcoded credential bug has been fixed in the admin UI.
+
+### DPF/DPU Integration
+
+- (Bug fix) NICo now injects an nl2doca restart after an nv config is applied to a DPU agent.
+
+### Platform and Infrastructure
+
+- `libredfish` has been updated from v0.39.2 to v0.43.10.
+- The x86 QCOW imager has been updated to Ubuntu 24.04.
+
+
 ## Infra Controller 0.2.0
 
-This release of DIA Infra Controller is open-source software (OSS).
+This release of Infra Controller is open-source software (OSS).
 
 ### Improvements
 
