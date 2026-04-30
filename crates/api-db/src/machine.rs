@@ -264,7 +264,9 @@ pub async fn find(
     }
 
     if search_config.only_maintenance {
-        builder.push(" AND m.health_report_overrides->'merges'->'maintenance'->'alerts'->0->>'id' = 'Maintenance' ");
+        builder.push(
+            " AND m.health_reports->'merges'->'maintenance'->'alerts'->0->>'id' = 'Maintenance' ",
+        );
     }
 
     if search_config.only_quarantine {
@@ -968,7 +970,7 @@ pub async fn update_sku_validation_health_report(
     .await
 }
 
-pub async fn insert_health_report_override(
+pub async fn insert_health_report(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     mode: HealthReportApplyMode,
@@ -980,7 +982,7 @@ pub async fn insert_health_report_override(
         // if a merge with the same source already exists -- but I'm not sure what
         // it's used for, since others seem to do a remove + insert. Do we need
         // to support this still? Might be nice to explain it somewhere.
-        let column_name = "health_report_overrides";
+        let column_name = "health_reports";
         let path = match mode {
             HealthReportApplyMode::Merge => format!("merges,\"{}\"", health_report.source),
             HealthReportApplyMode::Replace => "replace".to_string(),
@@ -1011,7 +1013,7 @@ pub async fn insert_health_report_override(
     }
 }
 
-pub async fn remove_health_report_override(
+pub async fn remove_health_report(
     txn: &mut PgConnection,
     machine_id: &MachineId,
     mode: HealthReportApplyMode,
@@ -1695,7 +1697,7 @@ pub async fn find_machine_ids(
     qb.push(" WHERE TRUE");
 
     if search_config.only_maintenance {
-        qb.push(" AND health_report_overrides->'merges'->'maintenance'->'alerts'->0->>'id' = 'Maintenance'");
+        qb.push(" AND health_reports->'merges'->'maintenance'->'alerts'->0->>'id' = 'Maintenance'");
     }
 
     if search_config.only_quarantine {
@@ -1735,9 +1737,9 @@ pub async fn find_machine_ids(
     }
 
     if let Some(ovrrd_str) = &search_config.only_with_health_alert {
-        qb.push(" AND health_report_overrides->'merges' ? ");
+        qb.push(" AND health_reports->'merges' ? ");
         qb.push_bind(ovrrd_str.clone());
-        qb.push(" AND jsonb_array_length(health_report_overrides->'merges'->");
+        qb.push(" AND jsonb_array_length(health_reports->'merges'->");
         qb.push_bind(ovrrd_str);
         qb.push("->'alerts') > 0");
     }

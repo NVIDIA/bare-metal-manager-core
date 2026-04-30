@@ -47,7 +47,7 @@ use model::rack::RackConfig;
 use model::site_explorer::EndpointExplorationReport;
 use model::switch::{NewSwitch, SwitchConfig};
 use rpc::forge::forge_server::Forge;
-use rpc::forge::{self, HealthReportEntry, InsertHealthReportOverrideRequest};
+use rpc::forge::{self, HealthReportEntry, InsertMachineHealthReportRequest};
 use rpc::forge_agent_control_response::Action;
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
@@ -684,7 +684,7 @@ impl<'a> MockExploredHost<'a> {
 
         self.test_env
             .api
-            .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
+            .insert_machine_health_report(Request::new(InsertMachineHealthReportRequest {
                 health_report_entry: Some(HealthReportEntry {
                     report: Some(
                         HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health"))
@@ -907,7 +907,7 @@ impl<'a> MockExploredHost<'a> {
 
         self.test_env
             .api
-            .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
+            .insert_machine_health_report(Request::new(InsertMachineHealthReportRequest {
                 health_report_entry: Some(HealthReportEntry {
                     report: Some(
                         HealthReport::empty(format!("{HARDWARE_HEALTH_OVERRIDE_PREFIX}health"))

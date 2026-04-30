@@ -716,6 +716,10 @@ pub fn build_deployment<L: ResourceLabeler>(
         metadata: ObjectMeta {
             name: Some(deployment_name.to_string()),
             namespace: Some(namespace.to_string()),
+            annotations: Some(BTreeMap::from([(
+                "svc.dpu.nvidia.com/dpudeployment-skip-chain-requestor".to_string(),
+                "".to_string(),
+            )])),
             ..Default::default()
         },
         spec: DpuDeploymentSpec {

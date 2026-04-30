@@ -42,7 +42,7 @@ async fn test_update_dpu_agent_health_report(
 
     // Start with a clean slate
     let mut txn = env.pool.begin().await?;
-    db::machine::remove_health_report_override(
+    db::machine::remove_health_report(
         &mut txn,
         &dpu_machine_id,
         HealthReportApplyMode::Merge,
@@ -543,15 +543,13 @@ async fn test_attempt_dpu_override(pool: sqlx::PgPool) -> Result<(), Box<dyn std
     use tonic::Request;
     let _ = env
         .api
-        .insert_health_report_override(Request::new(
-            rpc::forge::InsertHealthReportOverrideRequest {
-                machine_id: Some(dpu_machine_id),
-                health_report_entry: Some(rpc::forge::HealthReportEntry {
-                    report: Some(health_report::HealthReport::empty("".to_string()).into()),
-                    mode: health_report::HealthReportApplyMode::Replace as i32,
-                }),
-            },
-        ))
+        .insert_machine_health_report(Request::new(rpc::forge::InsertMachineHealthReportRequest {
+            machine_id: Some(dpu_machine_id),
+            health_report_entry: Some(rpc::forge::HealthReportEntry {
+                report: Some(health_report::HealthReport::empty("".to_string()).into()),
+                mode: health_report::HealthReportApplyMode::Replace as i32,
+            }),
+        }))
         .await
         .expect_err("Should not be able to add HealthReportApplyMode::Replace on dpu");
 
@@ -577,15 +575,13 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     use tonic::Request;
     let _ = env
         .api
-        .insert_health_report_override(Request::new(
-            rpc::forge::InsertHealthReportOverrideRequest {
-                machine_id: Some(host_machine_id),
-                health_report_entry: Some(rpc::forge::HealthReportEntry {
-                    report: Some(health_report::HealthReport::empty("over".to_string()).into()),
-                    mode: health_report::HealthReportApplyMode::Replace as i32,
-                }),
-            },
-        ))
+        .insert_machine_health_report(Request::new(rpc::forge::InsertMachineHealthReportRequest {
+            machine_id: Some(host_machine_id),
+            health_report_entry: Some(rpc::forge::HealthReportEntry {
+                report: Some(health_report::HealthReport::empty("over".to_string()).into()),
+                mode: health_report::HealthReportApplyMode::Replace as i32,
+            }),
+        }))
         .await
         .unwrap();
 
@@ -601,15 +597,13 @@ async fn test_double_insert(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
     let merge_hr = hr("over", vec![], vec![("Fan2", None, "")]);
     let _ = env
         .api
-        .insert_health_report_override(Request::new(
-            rpc::forge::InsertHealthReportOverrideRequest {
-                machine_id: Some(host_machine_id),
-                health_report_entry: Some(rpc::forge::HealthReportEntry {
-                    report: Some(merge_hr.clone().into()),
-                    mode: health_report::HealthReportApplyMode::Merge as i32,
-                }),
-            },
-        ))
+        .insert_machine_health_report(Request::new(rpc::forge::InsertMachineHealthReportRequest {
+            machine_id: Some(host_machine_id),
+            health_report_entry: Some(rpc::forge::HealthReportEntry {
+                report: Some(merge_hr.clone().into()),
+                mode: health_report::HealthReportApplyMode::Merge as i32,
+            }),
+        }))
         .await
         .unwrap();
     let m = find_machine(&env, &host_machine_id).await;

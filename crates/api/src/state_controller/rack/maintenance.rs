@@ -220,6 +220,48 @@ async fn resolve_default_nvos_artifact(
     Ok(None)
 }
 
+async fn resolve_requested_or_default_nvos_artifact(
+    id: &RackId,
+    rack_profile_id: Option<&RackProfileId>,
+    rack_firmware_id: Option<&str>,
+    ctx: &mut StateHandlerContext<'_, RackStateHandlerContextObjects>,
+) -> Result<Option<ResolvedNvosArtifact>, StateHandlerError> {
+    let Some(rack_firmware_id) = rack_firmware_id else {
+        return resolve_default_nvos_artifact(id, rack_profile_id, ctx).await;
+    };
+
+    let firmware = match db_rack_firmware::find_by_id(&ctx.services.db_pool, rack_firmware_id).await
+    {
+        Ok(firmware) => firmware,
+        Err(db::DatabaseError::NotFoundError { .. }) => {
+            return Err(StateHandlerError::GenericError(eyre::eyre!(
+                "requested NVOS rack firmware '{}' not found",
+                rack_firmware_id
+            )));
+        }
+        Err(error) => return Err(error.into()),
+    };
+
+    if !firmware.available {
+        return Err(StateHandlerError::GenericError(eyre::eyre!(
+            "requested NVOS rack firmware '{}' exists but is not available",
+            rack_firmware_id
+        )));
+    }
+
+    let lookup_keys = preferred_nvos_lookup_keys(id, rack_profile_id, ctx);
+    resolve_nvos_artifact_from_firmware(&firmware, &lookup_keys)?.map_or_else(
+        || {
+            Err(StateHandlerError::GenericError(eyre::eyre!(
+                "requested NVOS rack firmware '{}' has no switch system image for lookup keys [{}]",
+                rack_firmware_id,
+                lookup_keys.join(", ")
+            )))
+        },
+        |artifact| Ok(Some(artifact)),
+    )
+}
+
 async fn clear_rack_firmware_device_statuses(
     txn: &mut sqlx::PgConnection,
     machine_ids: &[carbide_uuid::machine::MachineId],
@@ -230,6 +272,16 @@ async fn clear_rack_firmware_device_statuses(
     }
     for switch_id in switch_ids {
         db_switch::update_firmware_upgrade_status(txn, *switch_id, None).await?;
+    }
+    Ok(())
+}
+
+async fn clear_nvos_update_statuses(
+    txn: &mut sqlx::PgConnection,
+    switch_ids: &[carbide_uuid::switch::SwitchId],
+) -> Result<(), StateHandlerError> {
+    for switch_id in switch_ids {
+        db_switch::update_nvos_update_status(txn, *switch_id, None).await?;
     }
     Ok(())
 }
@@ -314,9 +366,49 @@ async fn clear_maintenance_requested_on_error(
     Ok(outcome.with_txn(txn))
 }
 
+fn nvos_update_requested(scope: &MaintenanceScope) -> bool {
+    scope
+        .activities
+        .iter()
+        .any(|activity| matches!(activity, MaintenanceActivity::NvosUpdate { .. }))
+}
+
+fn implicit_nvos_update_requested(scope: &MaintenanceScope) -> bool {
+    scope.should_run(&MaintenanceActivity::NvosUpdate {
+        rack_firmware_id: None,
+    }) && !nvos_update_requested(scope)
+}
+
+fn requested_rack_firmware_id(scope: &MaintenanceScope) -> Option<String> {
+    scope.activities.iter().find_map(|activity| match activity {
+        MaintenanceActivity::NvosUpdate { rack_firmware_id } => rack_firmware_id.clone(),
+        _ => None,
+    })
+}
+
+fn nvos_update_start_state(scope: &MaintenanceScope) -> RackMaintenanceState {
+    RackMaintenanceState::NVOSUpdate {
+        nvos_update: NvosUpdateState::Start {
+            rack_firmware_id: requested_rack_firmware_id(scope),
+        },
+    }
+}
+
 /// Returns the next maintenance sub-state after firmware upgrade, skipping
 /// activities not requested in the scope.
 fn next_state_after_firmware(scope: &MaintenanceScope) -> RackMaintenanceState {
+    if scope.should_run(&MaintenanceActivity::NvosUpdate {
+        rack_firmware_id: None,
+    }) {
+        nvos_update_start_state(scope)
+    } else {
+        next_state_after_nvos(scope)
+    }
+}
+
+/// Returns the next maintenance sub-state after NVOS update, skipping
+/// activities not requested in the scope.
+fn next_state_after_nvos(scope: &MaintenanceScope) -> RackMaintenanceState {
     if scope.should_run(&MaintenanceActivity::ConfigureNmxCluster) {
         RackMaintenanceState::ConfigureNmxCluster {
             configure_nmx_cluster: ConfigureNmxClusterState::Start,
@@ -1163,11 +1255,12 @@ pub async fn handle_maintenance(
                 let completed = all.iter().filter(|d| d.status == "completed").count();
                 let failed = all.iter().filter(|d| d.status == "failed").count();
                 let terminal = completed + failed;
-                let default_nvos_artifact = if terminal == total && failed == 0 {
-                    resolve_default_nvos_artifact(id, rack_profile_id, ctx).await?
-                } else {
-                    None
-                };
+                let default_nvos_artifact =
+                    if terminal == total && failed == 0 && implicit_nvos_update_requested(scope) {
+                        resolve_default_nvos_artifact(id, rack_profile_id, ctx).await?
+                    } else {
+                        None
+                    };
 
                 let mut txn = ctx.services.db_pool.begin().await?;
 
@@ -1295,7 +1388,17 @@ pub async fn handle_maintenance(
                 db_rack::update_firmware_upgrade_job(txn.as_mut(), id, Some(&job)).await?;
                 state.firmware_upgrade_job = Some(job);
 
-                let next_maintenance_state = if let Some(artifact) = default_nvos_artifact {
+                let next_maintenance_state = if nvos_update_requested(scope) {
+                    let next = next_state_after_firmware(scope);
+                    tracing::info!(
+                        rack_id = %id,
+                        completed,
+                        total,
+                        next_state = %next,
+                        "Rack firmware upgrade complete; advancing to explicitly requested next activity"
+                    );
+                    next
+                } else if let Some(artifact) = default_nvos_artifact {
                     tracing::info!(
                         "Rack {} has a default NVOS artifact available; advancing to NVOSUpdate(Start) with firmware {} ({})",
                         id,
@@ -1303,10 +1406,12 @@ pub async fn handle_maintenance(
                         artifact.image_filename,
                     );
                     RackMaintenanceState::NVOSUpdate {
-                        nvos_update: NvosUpdateState::Start { artifact },
+                        nvos_update: NvosUpdateState::Start {
+                            rack_firmware_id: Some(artifact.firmware_id),
+                        },
                     }
                 } else {
-                    let next = next_state_after_firmware(scope);
+                    let next = next_state_after_nvos(scope);
                     tracing::info!(
                         rack_id = %id,
                         completed,
@@ -1324,7 +1429,40 @@ pub async fn handle_maintenance(
             }
         },
         RackMaintenanceState::NVOSUpdate { nvos_update } => match nvos_update {
-            NvosUpdateState::Start { artifact } => {
+            NvosUpdateState::Start { rack_firmware_id } => {
+                let artifact = match resolve_requested_or_default_nvos_artifact(
+                    id,
+                    rack_profile_id,
+                    rack_firmware_id.as_deref(),
+                    ctx,
+                )
+                .await?
+                {
+                    Some(artifact) => artifact,
+                    None if nvos_update_requested(scope) => {
+                        return transition_to_rack_error(
+                            id,
+                            state,
+                            "requested NVOS update could not find a default switch system image",
+                            ctx,
+                        )
+                        .await;
+                    }
+                    None => {
+                        // A missing rack_firmware_id already falls back to the default rack
+                        // firmware. None here means no default switch system image was found.
+                        let next = next_state_after_nvos(scope);
+                        tracing::info!(
+                            rack_id = %id,
+                            next_state = %next,
+                            "No default NVOS artifact available, advancing"
+                        );
+                        return Ok(StateHandlerOutcome::transition(RackState::Maintenance {
+                            maintenance_state: next,
+                        }));
+                    }
+                };
+
                 let Some(rms_client) = ctx.services.switch_system_image_rms_client.as_deref()
                 else {
                     return transition_to_rack_error(id, state, "RMS client not configured", ctx)
@@ -1346,7 +1484,7 @@ pub async fn handle_maintenance(
                 let inventory = filter_inventory_by_scope(inventory, scope);
 
                 if inventory.switches.is_empty() {
-                    let next = next_state_after_firmware(scope);
+                    let next = next_state_after_nvos(scope);
                     tracing::info!(
                         rack_id = %id,
                         next_state = %next,
@@ -1386,9 +1524,10 @@ pub async fn handle_maintenance(
                 }
 
                 let job =
-                    rms_start_nvos_update(rms_client, id, artifact, inventory.switches).await?;
+                    rms_start_nvos_update(rms_client, id, &artifact, inventory.switches).await?;
 
                 let mut txn = ctx.services.db_pool.begin().await?;
+                clear_nvos_update_statuses(txn.as_mut(), &inventory.switch_ids).await?;
                 db_rack::update_nvos_update_job(txn.as_mut(), id, Some(&job)).await?;
                 state.nvos_update_job = Some(job);
 
@@ -1519,7 +1658,7 @@ pub async fn handle_maintenance(
                     .with_txn(txn));
                 }
 
-                let next = next_state_after_firmware(scope);
+                let next = next_state_after_nvos(scope);
                 tracing::info!(
                     rack_id = %id,
                     completed,
@@ -1820,12 +1959,13 @@ pub async fn handle_maintenance(
 mod tests {
     use model::rack::{
         ConfigureNmxClusterState, FirmwareUpgradeDeviceInfo, FirmwareUpgradeState,
-        MaintenanceActivity, MaintenanceScope, RackMaintenanceState, RackPowerState,
+        MaintenanceActivity, MaintenanceScope, NvosUpdateState, RackMaintenanceState,
+        RackPowerState,
     };
 
     use super::{
-        filter_inventory_by_scope, first_maintenance_state, next_state_after_configure,
-        next_state_after_firmware,
+        filter_inventory_by_scope, first_maintenance_state, implicit_nvos_update_requested,
+        next_state_after_configure, next_state_after_firmware, next_state_after_nvos,
     };
     use crate::rack::firmware_update::RackFirmwareInventory;
 
@@ -1896,6 +2036,24 @@ mod tests {
     }
 
     #[test]
+    fn first_maintenance_state_only_nvos() {
+        let scope = MaintenanceScope {
+            activities: vec![MaintenanceActivity::NvosUpdate {
+                rack_firmware_id: Some("fw-nvos".into()),
+            }],
+            ..Default::default()
+        };
+        assert_eq!(
+            first_maintenance_state(&scope),
+            RackMaintenanceState::NVOSUpdate {
+                nvos_update: NvosUpdateState::Start {
+                    rack_firmware_id: Some("fw-nvos".into()),
+                },
+            },
+        );
+    }
+
+    #[test]
     fn first_maintenance_state_only_power_sequence() {
         let scope = MaintenanceScope {
             activities: vec![MaintenanceActivity::PowerSequence],
@@ -1926,17 +2084,47 @@ mod tests {
         );
     }
 
+    #[test]
+    fn implicit_nvos_update_requested_for_all_activities() {
+        let scope = MaintenanceScope::default();
+
+        assert!(implicit_nvos_update_requested(&scope));
+    }
+
+    #[test]
+    fn implicit_nvos_update_not_requested_for_firmware_only() {
+        let scope = MaintenanceScope {
+            activities: vec![MaintenanceActivity::FirmwareUpgrade {
+                firmware_version: None,
+                components: vec![],
+            }],
+            ..Default::default()
+        };
+
+        assert!(!implicit_nvos_update_requested(&scope));
+    }
+
+    #[test]
+    fn implicit_nvos_update_not_requested_for_explicit_nvos() {
+        let scope = MaintenanceScope {
+            activities: vec![MaintenanceActivity::NvosUpdate {
+                rack_firmware_id: None,
+            }],
+            ..Default::default()
+        };
+
+        assert!(!implicit_nvos_update_requested(&scope));
+    }
+
     // ── next_state_after_firmware ───────────────────────────────────────
 
     #[test]
-    fn after_firmware_all_activities_goes_to_configure() {
+    fn after_firmware_all_activities_goes_to_nvos() {
         let scope = MaintenanceScope::default();
-        assert_eq!(
+        assert!(matches!(
             next_state_after_firmware(&scope),
-            RackMaintenanceState::ConfigureNmxCluster {
-                configure_nmx_cluster: ConfigureNmxClusterState::Start,
-            },
-        );
+            RackMaintenanceState::NVOSUpdate { .. },
+        ));
     }
 
     #[test]
@@ -1970,6 +2158,60 @@ mod tests {
             next_state_after_firmware(&scope),
             RackMaintenanceState::Completed,
         );
+    }
+
+    #[test]
+    fn after_firmware_explicit_nvos_preserves_requested_firmware() {
+        let scope = MaintenanceScope {
+            activities: vec![
+                MaintenanceActivity::FirmwareUpgrade {
+                    firmware_version: None,
+                    components: vec![],
+                },
+                MaintenanceActivity::NvosUpdate {
+                    rack_firmware_id: Some("fw-nvos".into()),
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            next_state_after_firmware(&scope),
+            RackMaintenanceState::NVOSUpdate {
+                nvos_update: NvosUpdateState::Start {
+                    rack_firmware_id: Some("fw-nvos".into()),
+                },
+            },
+        );
+    }
+
+    // ── next_state_after_nvos ──────────────────────────────────────────
+
+    #[test]
+    fn after_nvos_all_activities_goes_to_configure() {
+        let scope = MaintenanceScope::default();
+        assert_eq!(
+            next_state_after_nvos(&scope),
+            RackMaintenanceState::ConfigureNmxCluster {
+                configure_nmx_cluster: ConfigureNmxClusterState::Start,
+            },
+        );
+    }
+
+    #[test]
+    fn after_nvos_without_configure_goes_to_power() {
+        let scope = MaintenanceScope {
+            activities: vec![
+                MaintenanceActivity::NvosUpdate {
+                    rack_firmware_id: None,
+                },
+                MaintenanceActivity::PowerSequence,
+            ],
+            ..Default::default()
+        };
+        assert!(matches!(
+            next_state_after_nvos(&scope),
+            RackMaintenanceState::PowerSequence { .. }
+        ));
     }
 
     // ── next_state_after_configure ──────────────────────────────────────

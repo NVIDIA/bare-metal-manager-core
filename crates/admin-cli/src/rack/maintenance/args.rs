@@ -55,7 +55,7 @@ pub struct MaintenanceOptions {
 
     #[clap(
         long,
-        help = "Maintenance activities to perform: firmware-upgrade, configure-nmx-cluster, power-sequence (omit for all)",
+        help = "Maintenance activities to perform: firmware-upgrade, nvos-update, configure-nmx-cluster, power-sequence (omit for all)",
         num_args = 1..,
         value_delimiter = ','
     )]
@@ -74,4 +74,10 @@ pub struct MaintenanceOptions {
         value_delimiter = ','
     )]
     pub components: Option<Vec<String>>,
+
+    #[clap(
+        long,
+        help = "Rack firmware ID containing the NVOS switch system image (omit for default)"
+    )]
+    pub rack_firmware_id: Option<String>,
 }

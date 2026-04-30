@@ -20,10 +20,8 @@ use sqlx::PgConnection;
 
 use crate::DatabaseError;
 
-/// Insert a health report override into the `health_report_overrides`
-/// JSONB column of the given table (we're maintaining the "overrides" table
-/// name so we can leave machines/racks as is for now, and let switches
-/// and power shelves adopt it).
+/// Insert a health report into the `health_reports` JSONB column of the
+/// given table.
 ///
 /// The `id` parameter is bound as `$2` and must match the `id`
 /// column of `table_name`.
@@ -37,7 +35,7 @@ pub async fn insert_health_report<Id>(
 where
     for<'e> Id: sqlx::Encode<'e, sqlx::Postgres> + sqlx::Type<sqlx::Postgres> + Sync,
 {
-    let column_name = "health_report_overrides";
+    let column_name = "health_reports";
     let path = match mode {
         HealthReportApplyMode::Merge => format!("merges,\"{}\"", health_report.source),
         HealthReportApplyMode::Replace => "replace".to_string(),
@@ -57,15 +55,13 @@ where
         .bind(id)
         .fetch_one(txn)
         .await
-        .map_err(|e| {
-            DatabaseError::new(&format!("insert {table_name} health report override"), e)
-        })?;
+        .map_err(|e| DatabaseError::new(&format!("insert {table_name} health report"), e))?;
 
     Ok(())
 }
 
-/// Remove a health report override from the `health_report_overrides`
-/// JSONB column of the given table.
+/// Remove a health report from the `health_reports` JSONB column of the
+/// given table.
 pub async fn remove_health_report<Id>(
     txn: &mut PgConnection,
     table_name: &str,
@@ -76,7 +72,7 @@ pub async fn remove_health_report<Id>(
 where
     for<'e> Id: sqlx::Encode<'e, sqlx::Postgres> + sqlx::Type<sqlx::Postgres> + Sync,
 {
-    let column_name = "health_report_overrides";
+    let column_name = "health_reports";
     let path = match mode {
         HealthReportApplyMode::Merge => format!("merges,{source}"),
         HealthReportApplyMode::Replace => "replace".to_string(),
@@ -90,9 +86,7 @@ where
         .bind(id)
         .fetch_one(txn)
         .await
-        .map_err(|e| {
-            DatabaseError::new(&format!("remove {table_name} health report override"), e)
-        })?;
+        .map_err(|e| DatabaseError::new(&format!("remove {table_name} health report"), e))?;
 
     Ok(())
 }

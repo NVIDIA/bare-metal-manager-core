@@ -19,8 +19,8 @@ use carbide_uuid::rack::RackId;
 use forge_tls::client_config::ClientCert;
 use health_report::HealthReport;
 use rpc::forge::{
-    HealthReportApplyMode, HealthReportEntry, InsertRackHealthReportOverrideRequest,
-    RemoveRackHealthReportOverrideRequest,
+    HealthReportApplyMode, HealthReportEntry, InsertRackHealthReportRequest,
+    RemoveRackHealthReportRequest,
 };
 use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::{ApiConfig, ForgeClientConfig};
@@ -74,7 +74,7 @@ impl RackHealthReportSink for ApiClientWrapper {
         report: HealthReport,
     ) -> Result<(), DsxConsumerError> {
         let rack_id = parse_rack_id(rack_id)?;
-        let request = InsertRackHealthReportOverrideRequest {
+        let request = InsertRackHealthReportRequest {
             rack_id: Some(rack_id),
             health_report_entry: Some(HealthReportEntry {
                 report: Some(report.into()),
@@ -82,23 +82,19 @@ impl RackHealthReportSink for ApiClientWrapper {
             }),
         };
 
-        self.client
-            .insert_rack_health_report_override(request)
-            .await?;
+        self.client.insert_rack_health_report(request).await?;
 
         Ok(())
     }
 
     async fn remove_rack_health_report(&self, rack_id: &str) -> Result<(), DsxConsumerError> {
         let rack_id = parse_rack_id(rack_id)?;
-        let request = RemoveRackHealthReportOverrideRequest {
+        let request = RemoveRackHealthReportRequest {
             rack_id: Some(rack_id),
             source: HEALTH_REPORT_SOURCE.to_string(),
         };
 
-        self.client
-            .remove_rack_health_report_override(request)
-            .await?;
+        self.client.remove_rack_health_report(request).await?;
 
         Ok(())
     }

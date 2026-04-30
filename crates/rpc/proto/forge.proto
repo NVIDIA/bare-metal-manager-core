@@ -134,18 +134,18 @@ service Forge {
   // forge-dpu-agent -> carbide-api
   rpc GetManagedHostNetworkConfig(ManagedHostNetworkConfigRequest) returns (ManagedHostNetworkConfigResponse);
   rpc RecordDpuNetworkStatus(DpuNetworkStatus) returns (google.protobuf.Empty);
-  // Lists all overrides that have been placed on a Machine health status
-  rpc ListHealthReportOverrides(common.MachineId) returns (ListHealthReportResponse);
-  // Adds a new override for a Machines health status
-  rpc InsertHealthReportOverride(InsertHealthReportOverrideRequest) returns (google.protobuf.Empty);
-  // Removes a health report override
-  rpc RemoveHealthReportOverride(RemoveHealthReportOverrideRequest) returns (google.protobuf.Empty);
-  // Lists all overrides that have been placed on a Rack health status
-  rpc ListRackHealthReportOverrides(ListRackHealthReportOverridesRequest) returns (ListHealthReportResponse);
-  // Adds a new health report override for a Rack
-  rpc InsertRackHealthReportOverride(InsertRackHealthReportOverrideRequest) returns (google.protobuf.Empty);
-  // Removes a health report override for a Rack
-  rpc RemoveRackHealthReportOverride(RemoveRackHealthReportOverrideRequest) returns (google.protobuf.Empty);
+  // Lists all health report sources for a Machine
+  rpc ListMachineHealthReports(common.MachineId) returns (ListHealthReportResponse);
+  // Adds a health report source for a Machine
+  rpc InsertMachineHealthReport(InsertMachineHealthReportRequest) returns (google.protobuf.Empty);
+  // Removes a health report source for a Machine
+  rpc RemoveMachineHealthReport(RemoveMachineHealthReportRequest) returns (google.protobuf.Empty);
+  // Lists all health report sources for a Rack
+  rpc ListRackHealthReports(ListRackHealthReportsRequest) returns (ListHealthReportResponse);
+  // Adds a health report source for a Rack
+  rpc InsertRackHealthReport(InsertRackHealthReportRequest) returns (google.protobuf.Empty);
+  // Removes a health report source for a Rack
+  rpc RemoveRackHealthReport(RemoveRackHealthReportRequest) returns (google.protobuf.Empty);
   // Lists all health report sources for a Switch
   rpc ListSwitchHealthReports(ListSwitchHealthReportsRequest) returns (ListHealthReportResponse);
   // Adds a health report source for a Switch
@@ -158,6 +158,22 @@ service Forge {
   rpc InsertPowerShelfHealthReport(InsertPowerShelfHealthReportRequest) returns (google.protobuf.Empty);
   // Removes a health report source for a Power Shelf
   rpc RemovePowerShelfHealthReport(RemovePowerShelfHealthReportRequest) returns (google.protobuf.Empty);
+
+  // Deprecated aliases for the machine health report RPCs.
+  // These exist so older clients (admin-cli binaries, scripts pinned to the
+  // previous proto names, ForgeScope, etc) keep working. They delegate
+  // one-for-one to the canonical names above. Drop once we're confident
+  // nothing in the wild still calls them.
+  rpc ListHealthReportOverrides(common.MachineId) returns (ListHealthReportResponse) {
+    option deprecated = true;
+  }
+  rpc InsertHealthReportOverride(InsertMachineHealthReportRequest) returns (google.protobuf.Empty) {
+    option deprecated = true;
+  }
+  rpc RemoveHealthReportOverride(RemoveMachineHealthReportRequest) returns (google.protobuf.Empty) {
+    option deprecated = true;
+  }
+
   rpc DpuAgentUpgradeCheck(DpuAgentUpgradeCheckRequest) returns (DpuAgentUpgradeCheckResponse);
   rpc DpuAgentUpgradePolicyAction(DpuAgentUpgradePolicyRequest) returns (DpuAgentUpgradePolicyResponse);
   // Looks up a DNS record for DNS names assigned by Forge
@@ -2171,6 +2187,8 @@ message ExpectedRack {
   // The rack profile ID. Determines expected counts of compute trays, switches, and power shelves.
   common.RackProfileId rack_profile_id = 2;
   // Metadata that will be associated with the rack.
+  // This includes things like chassis and location attributes,
+  // which has some "well known" definitions in api-model::rack.
   Metadata metadata = 3;
 }
 
@@ -4534,27 +4552,26 @@ message HealthReportEntry {
   HealthReportApplyMode mode = 2;
 }
 
-message InsertHealthReportOverrideRequest {
+// Request to insert a health report source for a Machine.
+message InsertMachineHealthReportRequest {
   common.MachineId machine_id = 1;
   HealthReportEntry health_report_entry = 2;
 }
 
-// Request to insert a health report override for a Rack.
-// Same as InsertHealthReportOverrideRequest but with rack_id instead of machine_id.
-message InsertRackHealthReportOverrideRequest {
+// Request to insert a health report source for a Rack.
+message InsertRackHealthReportRequest {
   common.RackId rack_id = 1;
   HealthReportEntry health_report_entry = 2;
 }
 
-// Request to remove a health report override for a Rack.
-// Same as RemoveHealthReportOverrideRequest but with rack_id instead of machine_id.
-message RemoveRackHealthReportOverrideRequest {
+// Request to remove a health report source for a Rack.
+message RemoveRackHealthReportRequest {
   common.RackId rack_id = 1;
   string source = 2;
 }
 
-// Request to list health report overrides for a Rack.
-message ListRackHealthReportOverridesRequest {
+// Request to list health report sources for a Rack.
+message ListRackHealthReportsRequest {
   optional common.RackId rack_id = 1;
 }
 
@@ -4596,7 +4613,8 @@ message ListHealthReportResponse {
   repeated HealthReportEntry health_report_entries = 1;
 }
 
-message RemoveHealthReportOverrideRequest {
+// Request to remove a health report source for a Machine.
+message RemoveMachineHealthReportRequest {
   common.MachineId machine_id = 1;
   string source = 2;
 }
@@ -5529,6 +5547,12 @@ message FirmwareUpgradeActivity {
   repeated string components = 2;
 }
 
+message NvosUpdateActivity {
+  // Rack firmware entry containing the switch system image to install.
+  // When empty, the default rack firmware for the rack hardware type is used.
+  string rack_firmware_id = 1;
+}
+
 message ConfigureNmxClusterActivity {
   // Per-activity configuration (extend as needed).
 }
@@ -5544,6 +5568,7 @@ message MaintenanceActivityConfig {
     FirmwareUpgradeActivity firmware_upgrade = 1;
     ConfigureNmxClusterActivity configure_nmx_cluster = 2;
     PowerSequenceActivity power_sequence = 3;
+    NvosUpdateActivity nvos_update = 4;
   }
 }
 
@@ -6622,6 +6647,8 @@ message RackList {
 }
 
 message RackSearchFilter {
+  // Supports filtering on key, value, or key and value.
+  optional Label label = 1;
 }
 
 message RackIdList {

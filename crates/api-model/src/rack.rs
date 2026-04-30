@@ -35,6 +35,35 @@ use crate::controller_outcome::PersistentStateHandlerOutcome;
 use crate::health::HealthReportSources;
 use crate::metadata::Metadata;
 
+// Well-known label keys!
+//
+// For rack chassis and location, there are currently a few labels that we
+// are passing through from the NICo REST API into NICo. These labels get
+// used by orchestration systems and tooling who want to work on, and have
+// awareness of, racks based on their physical location.
+//
+// At the time of this writing, these are all new and optional, but it made
+// the most sense to put them in as labels due to their optional and flexible
+// nature as we smooth things out. In the interim, it seemed to make sense
+// to at least have some "well known" defs for now, which may very well
+// change over time.
+//
+// These labels apply to both ExpectedRack AND Rack metadata labels, which
+// are applied from Expected -> Managed at promition time.
+//
+// First, rack chassis info labels, which physically identifies the rack
+// hardware itself.
+pub const LABEL_CHASSIS_MANUFACTURER: &str = "chassis.manufacturer";
+pub const LABEL_CHASSIS_SERIAL_NUMBER: &str = "chassis.serial-number";
+pub const LABEL_CHASSIS_MODEL: &str = "chassis.model";
+
+// Next, rack location info labels, which identifies where the rack
+// physically lives.
+pub const LABEL_LOCATION_REGION: &str = "location.region";
+pub const LABEL_LOCATION_DATACENTER: &str = "location.datacenter";
+pub const LABEL_LOCATION_ROOM: &str = "location.room";
+pub const LABEL_LOCATION_POSITION: &str = "location.position";
+
 #[derive(Debug, Clone)]
 pub struct Rack {
     pub id: RackId,
@@ -288,11 +317,15 @@ impl From<Rack> for rpc::forge::Rack {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct RackSearchFilter {}
+pub struct RackSearchFilter {
+    pub label: Option<crate::metadata::LabelFilter>,
+}
 
 impl From<rpc::forge::RackSearchFilter> for RackSearchFilter {
-    fn from(_filter: rpc::forge::RackSearchFilter) -> Self {
-        RackSearchFilter {}
+    fn from(filter: rpc::forge::RackSearchFilter) -> Self {
+        RackSearchFilter {
+            label: filter.label.map(crate::metadata::LabelFilter::from),
+        }
     }
 }
 
@@ -314,9 +347,8 @@ impl<'r> FromRow<'r, PgRow> for Rack {
         let controller_state: sqlx::types::Json<RackState> = row.try_get("controller_state")?;
         let controller_state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome").ok();
-        // DB column is still named "health_report_overrides" for backward compatibility.
         let health_reports: HealthReportSources = row
-            .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_report_overrides")
+            .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_reports")
             .map(|j| j.0)
             .unwrap_or_default();
         let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;
@@ -516,7 +548,7 @@ impl Display for FirmwareUpgradeState {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NvosUpdateState {
-    Start { artifact: ResolvedNvosArtifact },
+    Start { rack_firmware_id: Option<String> },
     WaitForComplete,
 }
 
@@ -678,6 +710,11 @@ pub enum MaintenanceActivity {
         #[serde(default)]
         components: Vec<String>,
     },
+    NvosUpdate {
+        /// Rack firmware entry containing the switch system image to install.
+        /// `None` means the default rack firmware for the rack is used.
+        rack_firmware_id: Option<String>,
+    },
     ConfigureNmxCluster,
     PowerSequence,
     /// Per-device power control, dispatched by the rack state controller to
@@ -700,6 +737,7 @@ impl std::fmt::Display for MaintenanceActivity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             MaintenanceActivity::FirmwareUpgrade { .. } => write!(f, "FirmwareUpgrade"),
+            MaintenanceActivity::NvosUpdate { .. } => write!(f, "NvosUpdate"),
             MaintenanceActivity::ConfigureNmxCluster => write!(f, "ConfigureNmxCluster"),
             MaintenanceActivity::PowerSequence => write!(f, "PowerSequence"),
             MaintenanceActivity::PowerControl { .. } => write!(f, "PowerControl"),
@@ -886,6 +924,9 @@ mod tests {
             firmware_version: None,
             components: vec![],
         }));
+        assert!(scope.should_run(&MaintenanceActivity::NvosUpdate {
+            rack_firmware_id: None,
+        }));
         assert!(scope.should_run(&MaintenanceActivity::ConfigureNmxCluster));
         assert!(scope.should_run(&MaintenanceActivity::PowerSequence));
     }
@@ -903,6 +944,9 @@ mod tests {
             firmware_version: None,
             components: vec![],
         }));
+        assert!(!scope.should_run(&MaintenanceActivity::NvosUpdate {
+            rack_firmware_id: None,
+        }));
         assert!(!scope.should_run(&MaintenanceActivity::ConfigureNmxCluster));
         assert!(!scope.should_run(&MaintenanceActivity::PowerSequence));
     }
@@ -915,6 +959,9 @@ mod tests {
                     firmware_version: None,
                     components: vec![],
                 },
+                MaintenanceActivity::NvosUpdate {
+                    rack_firmware_id: Some("fw-nvos".into()),
+                },
                 MaintenanceActivity::PowerSequence,
             ],
             ..Default::default()
@@ -924,6 +971,9 @@ mod tests {
             components: vec![],
         }));
         assert!(!scope.should_run(&MaintenanceActivity::ConfigureNmxCluster));
+        assert!(scope.should_run(&MaintenanceActivity::NvosUpdate {
+            rack_firmware_id: None,
+        }));
         assert!(scope.should_run(&MaintenanceActivity::PowerSequence));
     }
 
@@ -938,6 +988,14 @@ mod tests {
         let b = MaintenanceActivity::FirmwareUpgrade {
             firmware_version: None,
             components: vec![],
+        };
+        assert!(a.same_kind(&b));
+
+        let a = MaintenanceActivity::NvosUpdate {
+            rack_firmware_id: Some("fw-a".into()),
+        };
+        let b = MaintenanceActivity::NvosUpdate {
+            rack_firmware_id: None,
         };
         assert!(a.same_kind(&b));
     }
@@ -965,6 +1023,13 @@ mod tests {
         assert_eq!(
             MaintenanceActivity::ConfigureNmxCluster.to_string(),
             "ConfigureNmxCluster"
+        );
+        assert_eq!(
+            MaintenanceActivity::NvosUpdate {
+                rack_firmware_id: None,
+            }
+            .to_string(),
+            "NvosUpdate"
         );
         assert_eq!(
             MaintenanceActivity::PowerSequence.to_string(),
@@ -1059,5 +1124,40 @@ mod tests {
         let rejection = RackMaintenanceRejection::AlreadyPending;
         let msg = rejection.to_string();
         assert!(msg.contains("already has a pending maintenance request"));
+    }
+
+    #[test]
+    fn rack_search_filter_from_rpc_with_label_key_and_value() {
+        let rpc_filter = rpc::forge::RackSearchFilter {
+            label: Some(rpc::forge::Label {
+                key: LABEL_LOCATION_DATACENTER.to_string(),
+                value: Some("az01".to_string()),
+            }),
+        };
+        let filter = RackSearchFilter::from(rpc_filter);
+        let label = filter.label.unwrap();
+        assert_eq!(label.key, LABEL_LOCATION_DATACENTER);
+        assert_eq!(label.value, Some("az01".to_string()));
+    }
+
+    #[test]
+    fn rack_search_filter_from_rpc_with_label_key_only() {
+        let rpc_filter = rpc::forge::RackSearchFilter {
+            label: Some(rpc::forge::Label {
+                key: LABEL_CHASSIS_MANUFACTURER.to_string(),
+                value: None,
+            }),
+        };
+        let filter = RackSearchFilter::from(rpc_filter);
+        let label = filter.label.unwrap();
+        assert_eq!(label.key, LABEL_CHASSIS_MANUFACTURER);
+        assert!(label.value.is_none());
+    }
+
+    #[test]
+    fn rack_search_filter_from_rpc_no_label() {
+        let rpc_filter = rpc::forge::RackSearchFilter { label: None };
+        let filter = RackSearchFilter::from(rpc_filter);
+        assert!(filter.label.is_none());
     }
 }

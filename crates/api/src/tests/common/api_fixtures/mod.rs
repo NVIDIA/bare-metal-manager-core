@@ -79,7 +79,7 @@ use rcgen::{CertifiedKey, generate_simple_self_signed};
 use regex::Regex;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    HealthReportEntry, InsertHealthReportOverrideRequest, RemoveHealthReportOverrideRequest,
+    HealthReportEntry, InsertMachineHealthReportRequest, RemoveMachineHealthReportRequest,
     VpcVirtualizationType,
 };
 use rpc_instance::RpcInstance;
@@ -2309,12 +2309,12 @@ pub async fn simulate_hardware_health_report(
     health_report: health_report::HealthReport,
 ) {
     use rpc::forge::forge_server::Forge;
-    use rpc::forge::{HealthReportEntry, InsertHealthReportOverrideRequest};
+    use rpc::forge::{HealthReportEntry, InsertMachineHealthReportRequest};
     use tonic::Request;
 
     let _ = env
         .api
-        .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
+        .insert_machine_health_report(Request::new(InsertMachineHealthReportRequest {
             machine_id: Some(*host_machine_id),
             health_report_entry: Some(HealthReportEntry {
                 report: Some(health_report.into()),
@@ -2335,7 +2335,7 @@ pub async fn send_health_report_entry(
     use tonic::Request;
     let _ = env
         .api
-        .insert_health_report_override(Request::new(InsertHealthReportOverrideRequest {
+        .insert_machine_health_report(Request::new(InsertMachineHealthReportRequest {
             machine_id: Some(*machine_id),
             health_report_entry: Some(HealthReportEntry {
                 report: Some(entry.0.into()),
@@ -2352,7 +2352,7 @@ pub async fn remove_health_report_entry(env: &TestEnv, machine_id: &MachineId, s
     use tonic::Request;
     let _ = env
         .api
-        .remove_health_report_override(Request::new(RemoveHealthReportOverrideRequest {
+        .remove_machine_health_report(Request::new(RemoveMachineHealthReportRequest {
             machine_id: Some(*machine_id),
             source,
         }))

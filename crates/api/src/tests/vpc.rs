@@ -1023,3 +1023,91 @@ async fn create_update_network_security_group_for_vpc(
 
     Ok(())
 }
+
+#[crate::sqlx_test]
+async fn test_increment_vpc_version_detects_concurrent_writes(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Two concurrent `increment_vpc_version` calls on the same VPC
+    // should not silently lose an increment. Exactly one caller wins
+    // (their `WHERE version=$old` matches and updates), and the loser
+    // sees 0 rows updated and returns `ConcurrentModificationError`.
+    let env = create_test_env(pool.clone()).await;
+    let vpc_id: VpcId = env
+        .api
+        .create_vpc(
+            VpcCreationRequest::builder("vpc-bump", "2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+                .tonic_request(),
+        )
+        .await
+        .unwrap()
+        .into_inner()
+        .id
+        .unwrap();
+
+    let initial_version_nr = {
+        let vpcs =
+            db::vpc::find_by(&pool, ObjectColumnFilter::One(db::vpc::IdColumn, &vpc_id)).await?;
+        vpcs[0].version.version_nr()
+    };
+
+    // Open two transactions, have both read the current version, then race!
+    let pool_a = pool.clone();
+    let pool_b = pool.clone();
+    let (a, b) = tokio::join!(
+        tokio::spawn(async move {
+            let mut txn = pool_a.begin().await.unwrap();
+            let result = db::vpc::increment_vpc_version(&mut txn, vpc_id).await;
+            if result.is_ok() {
+                txn.commit().await.unwrap();
+            } else {
+                txn.rollback().await.unwrap();
+            }
+            result
+        }),
+        tokio::spawn(async move {
+            let mut txn = pool_b.begin().await.unwrap();
+            let result = db::vpc::increment_vpc_version(&mut txn, vpc_id).await;
+            if result.is_ok() {
+                txn.commit().await.unwrap();
+            } else {
+                txn.rollback().await.unwrap();
+            }
+            result
+        }),
+    );
+    let (a, b) = (a.unwrap(), b.unwrap());
+
+    let outcomes = [&a, &b];
+    let successes = outcomes.iter().filter(|r| r.is_ok()).count();
+    let conflicts = outcomes
+        .iter()
+        .filter(|r| {
+            matches!(
+                r,
+                Err(db::DatabaseError::ConcurrentModificationError("vpc", _))
+            )
+        })
+        .count();
+    assert_eq!(
+        successes, 1,
+        "exactly 1 of 2 concurrent increments should succeed; got {successes} (a={a:?}, b={b:?})"
+    );
+    assert_eq!(
+        conflicts, 1,
+        "the losing race should get a ConcurrentModificationError; got {conflicts} (a={a:?}, b={b:?})"
+    );
+
+    let final_version_nr = {
+        let vpcs =
+            db::vpc::find_by(&pool, ObjectColumnFilter::One(db::vpc::IdColumn, &vpc_id)).await?;
+        vpcs[0].version.version_nr()
+    };
+    assert_eq!(
+        final_version_nr - initial_version_nr,
+        1,
+        "exactly one increment should have happened after the race"
+    );
+
+    Ok(())
+}

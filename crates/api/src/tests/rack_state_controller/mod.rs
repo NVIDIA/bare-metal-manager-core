@@ -28,7 +28,7 @@ use model::machine::ManagedHostState;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::rack::{
     ConfigureNmxClusterState, FirmwareUpgradeState, NvosUpdateState, Rack, RackConfig,
-    RackMaintenanceState, RackState, RackValidationState, ResolvedNvosArtifact,
+    RackMaintenanceState, RackState, RackValidationState,
 };
 use rpc::forge::StateHistoryRecord;
 use rpc::forge::forge_server::Forge;
@@ -98,12 +98,7 @@ impl StateHandler for TestRackStateHandler {
                 RackMaintenanceState::FirmwareUpgrade { .. } => RackState::Maintenance {
                     maintenance_state: RackMaintenanceState::NVOSUpdate {
                         nvos_update: NvosUpdateState::Start {
-                            artifact: ResolvedNvosArtifact {
-                                firmware_id: "test-firmware".to_string(),
-                                image_filename: "test-nvos.bin".to_string(),
-                                local_file_path: "/tmp/test-nvos.bin".to_string(),
-                                version: Some("test-version".to_string()),
-                            },
+                            rack_firmware_id: None,
                         },
                     },
                 },
@@ -152,9 +147,20 @@ impl StateHandler for TestRackStateHandler {
     }
 }
 
-fn validate_state_change_history(histories: &[StateHistoryRecord], expected: &Vec<&str>) -> bool {
-    for &s in expected {
-        if !histories.iter().any(|e| e.state == s) {
+fn validate_state_change_history(histories: &[StateHistoryRecord], expected: &[&str]) -> bool {
+    let parsed_histories = histories
+        .iter()
+        .filter_map(|history| serde_json::from_str::<serde_json::Value>(&history.state).ok())
+        .collect::<Vec<_>>();
+
+    for &state in expected {
+        let Ok(expected_state) = serde_json::from_str::<serde_json::Value>(state) else {
+            return false;
+        };
+        if !parsed_histories
+            .iter()
+            .any(|history| history == &expected_state)
+        {
             return false;
         }
     }
@@ -262,13 +268,14 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
 
     //--------------------------------------------------------------------------
 
-    // Iterations 3-5: FirmwareUpgrade -> Completed.
+    // Iterations 3-6: FirmwareUpgrade -> Completed.
     //
-    // The test handler uses a simplified maintenance sequence:
-    // FirmwareUpgrade -> NVOSUpdate -> ConfigureNmxCluster -> Completed.
+    // The default maintenance sequence is:
+    // FirmwareUpgrade -> NVOSUpdate -> ConfigureNmxCluster -> PowerSequence -> Completed.
     controller.run_single_iteration().await; // FirmwareUpgrade(Start) -> NVOSUpdate(Start)
     controller.run_single_iteration().await; // NVOSUpdate(Start) -> ConfigureNmxCluster
-    controller.run_single_iteration().await; // ConfigureNmxCluster -> Completed
+    controller.run_single_iteration().await; // ConfigureNmxCluster -> PowerSequence
+    controller.run_single_iteration().await; // PowerSequence -> Completed
 
     let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
     assert!(
@@ -282,7 +289,7 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
         rack.controller_state.value
     );
 
-    // Iteration 6: Maintenance(Completed) -> Validating(Pending).
+    // Iteration 7: Maintenance(Completed) -> Validating(Pending).
     // The handler clears rv.* labels (none present yet) and transitions.
     controller.run_single_iteration().await;
 
@@ -300,7 +307,7 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
 
     //--------------------------------------------------------------------------
 
-    // --- Setup for iterations 7-10: Validation states ---
+    // --- Setup for iterations 8-11: Validation states ---
     //
     // Set rv.* labels on both compute trays so the real handler can drive the
     // validation sub-state machine. Both machines are assigned to the same
@@ -330,7 +337,7 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
         txn.commit().await?;
     }
 
-    // Iteration 7: Validating(Pending) -> Validating(InProgress).
+    // Iteration 8: Validating(Pending) -> Validating(InProgress).
     // The handler finds rv.run-id on a machine and promotes to InProgress.
     controller.run_single_iteration().await;
 
@@ -348,7 +355,7 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
 
     //--------------------------------------------------------------------------
 
-    // Iteration 8: Validating(InProgress) -> Validating(Partial).
+    // Iteration 9: Validating(InProgress) -> Validating(Partial).
     // Partition p0 has validated > 0 (both nodes pass), so InProgress -> Partial.
     controller.run_single_iteration().await;
 
@@ -366,7 +373,7 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
 
     //--------------------------------------------------------------------------
 
-    // Iteration 9: Validating(Partial) -> Validating(Validated).
+    // Iteration 10: Validating(Partial) -> Validating(Validated).
     // validated(1) == total_partitions(1) -> Validated.
     controller.run_single_iteration().await;
 
@@ -384,7 +391,7 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
 
     //--------------------------------------------------------------------------
 
-    // Iteration 10: Validating(Validated) -> Ready.
+    // Iteration 11: Validating(Validated) -> Ready.
     controller.run_single_iteration().await;
 
     let rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
@@ -413,6 +420,9 @@ async fn test_can_retrieve_rack_state_history_with_real_handler(
     let expected = vec![
         "{\"state\": \"discovering\"}",
         "{\"state\": \"maintenance\", \"maintenance_state\": {\"FirmwareUpgrade\": {\"rack_firmware_upgrade\": \"Start\"}}}",
+        "{\"state\": \"maintenance\", \"maintenance_state\": {\"NVOSUpdate\": {\"nvos_update\": {\"Start\": {\"rack_firmware_id\": null}}}}}",
+        "{\"state\": \"maintenance\", \"maintenance_state\": {\"ConfigureNmxCluster\": {\"configure_nmx_cluster\": \"Start\"}}}",
+        "{\"state\": \"maintenance\", \"maintenance_state\": {\"PowerSequence\": {\"rack_power\": \"PoweringOn\"}}}",
         "{\"state\": \"maintenance\", \"maintenance_state\": \"Completed\"}",
         "{\"state\": \"validating\", \"validating_state\": \"Pending\"}",
         "{\"state\": \"validating\", \"validating_state\": {\"Validated\": {\"run_id\": \"test-run\"}}}",

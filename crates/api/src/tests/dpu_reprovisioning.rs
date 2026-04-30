@@ -1887,8 +1887,8 @@ async fn test_dpu_for_reprovisioning_cannot_restart_if_not_started(pool: sqlx::P
 impl TestManagedHost {
     pub async fn mark_machine_for_updates(&self) {
         self.api
-            .insert_health_report_override(tonic::Request::new(
-                rpc::forge::InsertHealthReportOverrideRequest {
+            .insert_machine_health_report(tonic::Request::new(
+                rpc::forge::InsertMachineHealthReportRequest {
                     machine_id: self.id.into(),
                     health_report_entry: Some(rpc::forge::HealthReportEntry {
                         report: Some(

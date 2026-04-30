@@ -27,7 +27,7 @@ use crate::api::Api;
 use crate::auth::AuthContext;
 use crate::handlers::utils::convert_and_log_machine_id;
 
-pub async fn list_health_report_overrides(
+pub async fn list_machine_health_reports(
     api: &Api,
     machine_id: Request<MachineId>,
 ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
@@ -96,14 +96,14 @@ async fn remove_by_source(
         });
     };
 
-    db::machine::remove_health_report_override(txn, &machine_id, mode, &source).await?;
+    db::machine::remove_health_report(txn, &machine_id, mode, &source).await?;
 
     Ok(())
 }
 
-pub async fn insert_health_report_override(
+pub async fn insert_machine_health_report(
     api: &Api,
-    request: Request<rpc::InsertHealthReportOverrideRequest>,
+    request: Request<rpc::InsertMachineHealthReportRequest>,
 ) -> Result<Response<()>, Status> {
     let triggered_by = request
         .extensions()
@@ -111,7 +111,7 @@ pub async fn insert_health_report_override(
         .and_then(|ctx| ctx.get_external_user_name())
         .map(String::from);
 
-    let rpc::InsertHealthReportOverrideRequest {
+    let rpc::InsertMachineHealthReportRequest {
         machine_id,
         health_report_entry: Some(rpc::HealthReportEntry { report, mode }),
     } = request.into_inner()
@@ -149,20 +149,20 @@ pub async fn insert_health_report_override(
         Err(e) => return Err(e.into()),
     }
 
-    db::machine::insert_health_report_override(&mut txn, &machine_id, mode, &report, false).await?;
+    db::machine::insert_health_report(&mut txn, &machine_id, mode, &report, false).await?;
 
     txn.commit().await?;
 
     Ok(Response::new(()))
 }
 
-pub async fn remove_health_report_override(
+pub async fn remove_machine_health_report(
     api: &Api,
-    request: Request<rpc::RemoveHealthReportOverrideRequest>,
+    request: Request<rpc::RemoveMachineHealthReportRequest>,
 ) -> Result<Response<()>, Status> {
     let mut txn = api.txn_begin().await?;
 
-    let rpc::RemoveHealthReportOverrideRequest { machine_id, source } = request.into_inner();
+    let rpc::RemoveMachineHealthReportRequest { machine_id, source } = request.into_inner();
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
     remove_by_source(&mut txn, machine_id, source).await?;
     txn.commit().await?;

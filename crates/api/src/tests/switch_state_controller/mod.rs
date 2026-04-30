@@ -514,6 +514,126 @@ async fn test_switch_waiting_for_nvos_upgrade_transitions_to_waiting_for_nmxc_on
 }
 
 #[crate::sqlx_test]
+async fn test_switch_waiting_for_nvos_upgrade_waits_for_current_cycle_status(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+
+    let mut txn = pool.begin().await?;
+    db_switch::set_switch_reprovisioning_requested(txn.as_mut(), switch_id, "rack-nvos-test")
+        .await?;
+    let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
+        .await?
+        .expect("switch should exist");
+    let requested_at = switch
+        .switch_reprovisioning_requested
+        .as_ref()
+        .expect("switch reprovision request should exist")
+        .requested_at;
+    db_switch::try_update_controller_state(
+        txn.as_mut(),
+        switch_id,
+        switch.controller_state.version,
+        switch.controller_state.version.increment(),
+        &SwitchControllerState::ReProvisioning {
+            reprovisioning_state: model::switch::ReProvisioningState::WaitingForNVOSUpgrade,
+        },
+    )
+    .await?;
+    db_switch::update_nvos_update_status(
+        txn.as_mut(),
+        switch_id,
+        Some(&model::switch::SwitchNvosUpdateStatus {
+            task_id: "old-nvos-job".to_string(),
+            firmware_id: "old-fw".to_string(),
+            image_filename: "old-nvos-image.bin".to_string(),
+            status: model::switch::SwitchNvosUpdateState::Completed,
+            started_at: Some(requested_at - chrono::Duration::seconds(10)),
+            ended_at: Some(requested_at - chrono::Duration::seconds(1)),
+        }),
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.run_switch_controller_iteration().await;
+
+    let mut txn = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::ReProvisioning {
+            reprovisioning_state: model::switch::ReProvisioningState::WaitingForNVOSUpgrade,
+        }
+    ));
+    assert!(switch.switch_reprovisioning_requested.is_some());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_switch_waiting_for_nvos_upgrade_transitions_to_error_on_failure(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool.clone()).await;
+    let switch_id = common::api_fixtures::site_explorer::new_switch(&env, None, None).await?;
+
+    let mut txn = pool.begin().await?;
+    db_switch::set_switch_reprovisioning_requested(txn.as_mut(), switch_id, "rack-nvos-test")
+        .await?;
+    let switch = db_switch::find_by_id(txn.as_mut(), &switch_id)
+        .await?
+        .expect("switch should exist");
+    let requested_at = switch
+        .switch_reprovisioning_requested
+        .as_ref()
+        .expect("switch reprovision request should exist")
+        .requested_at;
+    db_switch::try_update_controller_state(
+        txn.as_mut(),
+        switch_id,
+        switch.controller_state.version,
+        switch.controller_state.version.increment(),
+        &SwitchControllerState::ReProvisioning {
+            reprovisioning_state: model::switch::ReProvisioningState::WaitingForNVOSUpgrade,
+        },
+    )
+    .await?;
+    db_switch::update_nvos_update_status(
+        txn.as_mut(),
+        switch_id,
+        Some(&model::switch::SwitchNvosUpdateStatus {
+            task_id: "nvos-job".to_string(),
+            firmware_id: "fw-1".to_string(),
+            image_filename: "nvos-image.bin".to_string(),
+            status: model::switch::SwitchNvosUpdateState::Failed {
+                cause: "image install failed".to_string(),
+            },
+            started_at: Some(requested_at),
+            ended_at: Some(chrono::Utc::now()),
+        }),
+    )
+    .await?;
+    txn.commit().await?;
+
+    env.run_switch_controller_iteration().await;
+
+    let mut txn = pool.acquire().await?;
+    let switch = db_switch::find_by_id(&mut txn, &switch_id)
+        .await?
+        .expect("switch should exist");
+    assert!(matches!(
+        switch.controller_state.value,
+        SwitchControllerState::Error { ref cause } if cause == "image install failed"
+    ));
+    assert!(switch.switch_reprovisioning_requested.is_none());
+
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_switch_waiting_for_nmxc_configure_returns_ready_when_fm_is_running(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

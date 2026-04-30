@@ -284,9 +284,9 @@ pub async fn delete_rack(
     Ok(Response::new(()))
 }
 
-pub async fn list_rack_health_report_overrides(
+pub async fn list_rack_health_reports(
     api: &Api,
-    request: Request<rpc::ListRackHealthReportOverridesRequest>,
+    request: Request<rpc::ListRackHealthReportsRequest>,
 ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
     log_request_data(&request);
 
@@ -319,9 +319,9 @@ pub async fn list_rack_health_report_overrides(
     }))
 }
 
-pub async fn insert_rack_health_report_override(
+pub async fn insert_rack_health_report(
     api: &Api,
-    request: Request<rpc::InsertRackHealthReportOverrideRequest>,
+    request: Request<rpc::InsertRackHealthReportRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
@@ -331,7 +331,7 @@ pub async fn insert_rack_health_report_override(
         .and_then(|ctx| ctx.get_external_user_name())
         .map(String::from);
 
-    let rpc::InsertRackHealthReportOverrideRequest {
+    let rpc::InsertRackHealthReportRequest {
         rack_id,
         health_report_entry: Some(rpc::HealthReportEntry { report, mode }),
     } = request.into_inner()
@@ -375,7 +375,7 @@ pub async fn insert_rack_health_report_override(
         Err(e) => return Err(e.into()),
     }
 
-    db_rack::insert_health_report_override(&mut txn, &rack.id, mode, &report).await?;
+    db_rack::insert_health_report(&mut txn, &rack.id, mode, &report).await?;
 
     txn.commit().await?;
 
@@ -386,13 +386,13 @@ pub async fn insert_rack_health_report_override(
     Ok(Response::new(()))
 }
 
-pub async fn remove_rack_health_report_override(
+pub async fn remove_rack_health_report(
     api: &Api,
-    request: Request<rpc::RemoveRackHealthReportOverrideRequest>,
+    request: Request<rpc::RemoveRackHealthReportRequest>,
 ) -> Result<Response<()>, Status> {
     log_request_data(&request);
 
-    let rpc::RemoveRackHealthReportOverrideRequest { rack_id, source } = request.into_inner();
+    let rpc::RemoveRackHealthReportRequest { rack_id, source } = request.into_inner();
     let rack_id = rack_id.ok_or_else(|| CarbideError::MissingArgument("rack_id"))?;
 
     let mut txn = api.txn_begin().await?;
@@ -431,7 +431,7 @@ async fn remove_rack_override_by_source(
         });
     };
 
-    db_rack::remove_health_report_override(&mut *txn, &rack.id, mode, &source).await?;
+    db_rack::remove_health_report(&mut *txn, &rack.id, mode, &source).await?;
 
     Ok(())
 }
@@ -589,6 +589,13 @@ pub(crate) async fn on_demand_rack_maintenance(
                     Some(fw.firmware_version.clone())
                 },
                 components: fw.components.clone(),
+            }),
+            Some(ProtoActivity::NvosUpdate(nvos)) => Ok(MaintenanceActivity::NvosUpdate {
+                rack_firmware_id: if nvos.rack_firmware_id.is_empty() {
+                    None
+                } else {
+                    Some(nvos.rack_firmware_id.clone())
+                },
             }),
             Some(ProtoActivity::ConfigureNmxCluster(_)) => {
                 Ok(MaintenanceActivity::ConfigureNmxCluster)

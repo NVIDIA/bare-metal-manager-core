@@ -368,11 +368,20 @@ pub async fn increment_vpc_version(
 
     let new_version = current_version.increment();
 
-    let update_query = "UPDATE vpcs SET version = $1 WHERE id = $2 RETURNING version";
-    sqlx::query_as(update_query)
+    let update_query =
+        "UPDATE vpcs SET version = $1 WHERE id = $2 AND version = $3 RETURNING version";
+    let updated: Option<(ConfigVersion,)> = sqlx::query_as(update_query)
         .bind(new_version)
         .bind(id)
-        .fetch_one(txn)
+        .bind(current_version)
+        .fetch_optional(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::query(update_query, e))
+        .map_err(|e| DatabaseError::query(update_query, e))?;
+
+    updated
+        .map(|(v,)| v)
+        .ok_or(DatabaseError::ConcurrentModificationError(
+            "vpc",
+            current_version.to_string(),
+        ))
 }

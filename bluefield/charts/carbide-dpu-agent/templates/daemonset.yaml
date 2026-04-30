@@ -163,8 +163,8 @@ spec:
             path: /proc/meminfo
         - name: host-resolv-conf
           hostPath:
-          path: /etc/resolv.conf
-          type: File
+            path: /etc/resolv.conf
+            type: File
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}

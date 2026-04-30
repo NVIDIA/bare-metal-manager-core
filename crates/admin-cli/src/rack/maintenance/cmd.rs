@@ -29,6 +29,7 @@ pub async fn on_demand_rack_maintenance(
 
     let firmware_version = args.firmware_version.unwrap_or_default();
     let components = args.components.unwrap_or_default();
+    let rack_firmware_id = args.rack_firmware_id.unwrap_or_default();
 
     let activities: Vec<rpc::MaintenanceActivityConfig> = args
          .activities
@@ -42,6 +43,11 @@ pub async fn on_demand_rack_maintenance(
                          components: components.clone(),
                      },
                  )),
+                 "nvos-update" => Ok(ProtoActivity::NvosUpdate(
+                     rpc::NvosUpdateActivity {
+                         rack_firmware_id: rack_firmware_id.clone(),
+                     },
+                 )),
                  "configure-nmx-cluster" => Ok(ProtoActivity::ConfigureNmxCluster(
                      rpc::ConfigureNmxClusterActivity {},
                  )),
@@ -49,7 +55,7 @@ pub async fn on_demand_rack_maintenance(
                      rpc::PowerSequenceActivity {},
                  )),
                  other => Err(eyre::eyre!(
-                     "Unknown activity '{}'. Valid values: firmware-upgrade, configure-nmx-cluster, power-sequence",
+                     "Unknown activity '{}'. Valid values: firmware-upgrade, nvos-update, configure-nmx-cluster, power-sequence",
                      other
                  )),
              }?;

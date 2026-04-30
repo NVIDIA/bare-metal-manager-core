@@ -130,8 +130,22 @@ fn parse_network_config() {
     }
 }
 
-// parse_health_override_show ensures health-override
-// show parses.
+// parse_health_report_show ensures health-report show parses.
+#[test]
+fn parse_health_report_show() {
+    let cmd = Cmd::try_parse_from(["machine", "health-report", "show", TEST_MACHINE_ID])
+        .expect("should parse health-report show");
+
+    match cmd {
+        Cmd::HealthReport(HealthReportCommand::Show { machine_id }) => {
+            assert_eq!(machine_id.to_string(), TEST_MACHINE_ID);
+        }
+        _ => panic!("expected HealthReport Show variant"),
+    }
+}
+
+// parse_health_override_show ensures the legacy
+// health-override alias still parses.
 #[test]
 fn parse_health_override_show() {
     let cmd = Cmd::try_parse_from(["machine", "health-override", "show", TEST_MACHINE_ID])
@@ -145,8 +159,8 @@ fn parse_health_override_show() {
     }
 }
 
-// parse_health_override_add_with_template ensures
-// health-override add parses with template.
+// parse_health_override_add_with_template ensures the
+// legacy health-override alias still parses with template.
 #[test]
 fn parse_health_override_add_with_template() {
     let cmd = Cmd::try_parse_from([
@@ -165,21 +179,6 @@ fn parse_health_override_add_with_template() {
             assert!(args.health_report.is_none());
         }
         _ => panic!("expected HealthReport Add variant"),
-    }
-}
-
-// parse_health_report_show ensures health-report
-// show parses (new primary command name).
-#[test]
-fn parse_health_report_show() {
-    let cmd = Cmd::try_parse_from(["machine", "health-report", "show", TEST_MACHINE_ID])
-        .expect("should parse health-report show");
-
-    match cmd {
-        Cmd::HealthReport(HealthReportCommand::Show { machine_id }) => {
-            assert_eq!(machine_id.to_string(), TEST_MACHINE_ID);
-        }
-        _ => panic!("expected HealthReport Show variant"),
     }
 }
 

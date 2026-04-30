@@ -566,7 +566,7 @@ impl MachineStateHandler {
         mh_snaphost: &ManagedHostStateSnapshot,
         txn: &mut PgConnection,
     ) -> Result<(), StateHandlerError> {
-        db::machine::remove_health_report_override(
+        db::machine::remove_health_report(
             txn,
             &mh_snaphost.host_snapshot.id,
             health_report::HealthReportApplyMode::Merge,
@@ -585,7 +585,7 @@ impl MachineStateHandler {
         txn: &mut PgConnection,
         host_machine_id: &MachineId,
     ) -> Result<(), StateHandlerError> {
-        db::machine::remove_health_report_override(
+        db::machine::remove_health_report(
             txn,
             host_machine_id,
             health_report::HealthReportApplyMode::Merge,
@@ -851,7 +851,7 @@ impl MachineStateHandler {
                         return Ok(outcome
                             .in_transaction(&ctx.services.db_pool, move |txn| {
                                 async move {
-                                    db::machine::insert_health_report_override(
+                                    db::machine::insert_health_report(
                                         txn,
                                         &host_machine_id,
                                         health_report::HealthReportApplyMode::Merge,
@@ -916,7 +916,7 @@ impl MachineStateHandler {
 
                     // Mark the Host as in update.
                     let mut txn = ctx.services.db_pool.begin().await?;
-                    db::machine::insert_health_report_override(
+                    db::machine::insert_health_report(
                         &mut txn,
                         host_machine_id,
                         health_report::HealthReportApplyMode::Merge,
@@ -1712,7 +1712,7 @@ impl MachineStateHandler {
             );
 
             let mut txn = ctx.services.db_pool.begin().await?;
-            db::machine::insert_health_report_override(
+            db::machine::insert_health_report(
                 &mut txn,
                 host_machine_id,
                 HealthReportApplyMode::Merge,
@@ -5765,7 +5765,7 @@ impl StateHandler for InstanceStateHandler {
                                         crate::machine_update_manager::machine_update_module::create_host_update_health_report_hostfw();
                             let machine_id = *host_machine_id;
                             // The health report alert gets generated here, the machine update manager retains responsibilty for clearing it when we're done.
-                            db::machine::insert_health_report_override(
+                            db::machine::insert_health_report(
                                 &mut txn,
                                 &machine_id,
                                 HealthReportApplyMode::Merge,
@@ -5779,7 +5779,7 @@ impl StateHandler for InstanceStateHandler {
                             let health_override = crate::machine_update_manager::machine_update_module::create_host_update_health_report_dpufw();
                             let machine_id = *host_machine_id;
                             // Mark the Host as in update.
-                            db::machine::insert_health_report_override(
+                            db::machine::insert_health_report(
                                 &mut txn,
                                 &machine_id,
                                 HealthReportApplyMode::Merge,
@@ -6103,13 +6103,12 @@ impl StateHandler for InstanceStateHandler {
                             // This is ok to defer into pending_db_writes because we're passing
                             // `no_overwrite: false`, meaning we will overwrite any overrides
                             // already in place.
-                            ctx.pending_db_writes.push(
-                                MachineWriteOp::InsertHealthReportOverride {
+                            ctx.pending_db_writes
+                                .push(MachineWriteOp::InsertMachineHealthReport {
                                     machine_id: *host_machine_id,
                                     mode: health_report::HealthReportApplyMode::Merge,
                                     health_report,
-                                },
-                            );
+                                });
 
                             tracing::info!(
                                 machine_id = %host_machine_id,

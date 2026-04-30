@@ -93,7 +93,7 @@ async fn reset_host_to_waiting_for_ready(
             controller_state = $1, \
             controller_state_version = $2, \
             controller_state_outcome = NULL, \
-            health_report_overrides = '{\"merges\": {}, \"replace\": null}'::jsonb, \
+            health_reports = '{\"merges\": {}, \"replace\": null}'::jsonb, \
             last_reboot_requested = NULL, \
             last_reboot_time = NULL \
          WHERE id = $3",

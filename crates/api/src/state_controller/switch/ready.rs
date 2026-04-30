@@ -41,8 +41,7 @@ pub async fn handle_ready(
     if let Some(req) = &state.switch_reprovisioning_requested {
         if req.initiator.starts_with("rack-") {
             tracing::info!(
-                initiator = %req.initiator,
-                "Rack-level switch reprovisioning requested — transitioning to ReProvisioning"
+                "Rack-level firmware upgrade requested — transitioning to WaitingForRackFirmwareUpgrade"
             );
             return Ok(StateHandlerOutcome::transition(
                 SwitchControllerState::ReProvisioning {

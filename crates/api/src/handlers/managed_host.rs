@@ -253,9 +253,9 @@ pub(crate) async fn set_maintenance(
             }
 
             // Maintenance mode is implemented as a host health override
-            crate::handlers::health::insert_health_report_override(
+            crate::handlers::health::insert_machine_health_report(
                 api,
-                Request::new(rpc::InsertHealthReportOverrideRequest {
+                Request::new(rpc::InsertMachineHealthReportRequest {
                     machine_id: req.host_id,
                     health_report_entry: Some(::rpc::forge::HealthReportEntry {
                         report: Some(health_report::HealthReport {
@@ -293,9 +293,9 @@ pub(crate) async fn set_maintenance(
                 }
             }
 
-            match crate::handlers::health::remove_health_report_override(
+            match crate::handlers::health::remove_machine_health_report(
                 api,
-                Request::new(rpc::RemoveHealthReportOverrideRequest {
+                Request::new(rpc::RemoveMachineHealthReportRequest {
                     machine_id: req.host_id,
                     source: "maintenance".to_string(),
                 }),

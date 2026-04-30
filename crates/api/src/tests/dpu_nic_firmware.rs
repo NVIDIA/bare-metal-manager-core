@@ -281,7 +281,7 @@ async fn test_clear_completed_updates(
 
     let health_override = crate::machine_update_manager::machine_update_module::create_host_update_health_report_dpufw();
     // Mark the Host as in update.
-    db::machine::insert_health_report_override(
+    db::machine::insert_health_report(
         &mut txn,
         &mh.id,
         health_report::HealthReportApplyMode::Merge,

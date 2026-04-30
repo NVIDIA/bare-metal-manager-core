@@ -84,7 +84,7 @@ pub async fn find_completed_updates(
 ) -> Result<Vec<MachineId>, DatabaseError> {
     let query = r#"SELECT id FROM machines
                     WHERE host_reprovisioning_requested IS NULL
-                            AND coalesce(health_report_overrides, '{"merges": {}}'::jsonb)->'merges' ? 'host-fw-update' = TRUE"#;
+                            AND coalesce(health_reports, '{"merges": {}}'::jsonb)->'merges' ? 'host-fw-update' = TRUE"#;
     sqlx::query_as::<_, MachineId>(query)
         .fetch_all(txn)
         .await

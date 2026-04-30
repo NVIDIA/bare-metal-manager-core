@@ -286,7 +286,7 @@ impl MachineUpdateManager {
         txn: &mut PgConnection,
         machine_update: &DpuMachineUpdate,
     ) -> CarbideResult<()> {
-        db::machine::remove_health_report_override(
+        db::machine::remove_health_report(
             txn,
             &machine_update.host_machine_id,
             health_report::HealthReportApplyMode::Merge,

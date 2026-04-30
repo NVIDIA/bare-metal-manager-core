@@ -132,6 +132,39 @@ impl InternalRBACRules {
         );
         x.perm("RecordDpuNetworkStatus", vec![Agent, Machineatron]);
         x.perm(
+            "ListMachineHealthReports",
+            vec![ForgeAdminCLI, Health, Ssh, SshRs],
+        );
+        x.perm(
+            "InsertMachineHealthReport",
+            vec![ForgeAdminCLI, Health, Ssh, SshRs, Rla],
+        );
+        x.perm(
+            "RemoveMachineHealthReport",
+            vec![ForgeAdminCLI, Health, Ssh, SshRs, Rla],
+        );
+        x.perm(
+            "ListRackHealthReports",
+            vec![ForgeAdminCLI, Health, DsxExchangeConsumer],
+        );
+        x.perm(
+            "InsertRackHealthReport",
+            vec![ForgeAdminCLI, Health, DsxExchangeConsumer],
+        );
+        x.perm(
+            "RemoveRackHealthReport",
+            vec![ForgeAdminCLI, Health, DsxExchangeConsumer],
+        );
+        x.perm("ListSwitchHealthReports", vec![ForgeAdminCLI, Health]);
+        x.perm("InsertSwitchHealthReport", vec![ForgeAdminCLI, Health]);
+        x.perm("RemoveSwitchHealthReport", vec![ForgeAdminCLI, Health]);
+        x.perm("ListPowerShelfHealthReports", vec![ForgeAdminCLI, Health]);
+        x.perm("InsertPowerShelfHealthReport", vec![ForgeAdminCLI, Health]);
+        x.perm("RemovePowerShelfHealthReport", vec![ForgeAdminCLI, Health]);
+        // Deprecated aliases for the machine health report RPCs. Mirror the
+        // permissions of their canonical equivalents above. Drop once we're
+        // confident no clients are still calling the old names.
+        x.perm(
             "ListHealthReportOverrides",
             vec![ForgeAdminCLI, Health, Ssh, SshRs],
         );
@@ -143,24 +176,6 @@ impl InternalRBACRules {
             "RemoveHealthReportOverride",
             vec![ForgeAdminCLI, Health, Ssh, SshRs, Rla],
         );
-        x.perm(
-            "ListRackHealthReportOverrides",
-            vec![ForgeAdminCLI, Health, DsxExchangeConsumer],
-        );
-        x.perm(
-            "InsertRackHealthReportOverride",
-            vec![ForgeAdminCLI, Health, DsxExchangeConsumer],
-        );
-        x.perm(
-            "RemoveRackHealthReportOverride",
-            vec![ForgeAdminCLI, Health, DsxExchangeConsumer],
-        );
-        x.perm("ListSwitchHealthReports", vec![ForgeAdminCLI, Health]);
-        x.perm("InsertSwitchHealthReport", vec![ForgeAdminCLI, Health]);
-        x.perm("RemoveSwitchHealthReport", vec![ForgeAdminCLI, Health]);
-        x.perm("ListPowerShelfHealthReports", vec![ForgeAdminCLI, Health]);
-        x.perm("InsertPowerShelfHealthReport", vec![ForgeAdminCLI, Health]);
-        x.perm("RemovePowerShelfHealthReport", vec![ForgeAdminCLI, Health]);
         x.perm("DpuAgentUpgradeCheck", vec![Scout]);
         x.perm("DpuAgentUpgradePolicyAction", vec![ForgeAdminCLI]);
         x.perm("LookupRecord", vec![Dns]);
@@ -1068,13 +1083,13 @@ mod rbac_rule_tests {
             )]
         ));
         assert!(InternalRBACRules::allowed_from_static(
-            "InsertHealthReportOverride",
+            "InsertMachineHealthReport",
             &[Principal::SpiffeServiceIdentifier(
                 "carbide-rla".to_string()
             )]
         ));
         assert!(InternalRBACRules::allowed_from_static(
-            "RemoveHealthReportOverride",
+            "RemoveMachineHealthReport",
             &[Principal::SpiffeServiceIdentifier(
                 "carbide-rla".to_string()
             )]

@@ -330,7 +330,7 @@ async fn apply_health_override(
     override_report: &HealthReport,
     operation_desc: &str,
 ) -> Result<(), CarbideError> {
-    db::machine::insert_health_report_override(
+    db::machine::insert_health_report(
         txn,
         machine_id,
         HealthReportApplyMode::Merge,
@@ -363,22 +363,17 @@ async fn remove_health_override(
     source: &str,
     operation_desc: &str,
 ) -> Result<(), CarbideError> {
-    db::machine::remove_health_report_override(
-        txn,
-        machine_id,
-        HealthReportApplyMode::Merge,
-        source,
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!(
-            machine_id = %machine_id,
-            error = ?e,
-            operation = %operation_desc,
-            "Failed to remove health override"
-        );
-        CarbideError::from(e)
-    })?;
+    db::machine::remove_health_report(txn, machine_id, HealthReportApplyMode::Merge, source)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                machine_id = %machine_id,
+                error = ?e,
+                operation = %operation_desc,
+                "Failed to remove health override"
+            );
+            CarbideError::from(e)
+        })?;
 
     tracing::info!(
         machine_id = %machine_id,

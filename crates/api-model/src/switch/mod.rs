@@ -214,9 +214,8 @@ impl<'r> FromRow<'r, PgRow> for Switch {
         let fabric_manager_status: Option<sqlx::types::Json<FabricManagerStatus>> =
             row.try_get("fabric_manager_status").ok().flatten();
 
-        // DB column is still named "health_report_overrides" for backward compatibility.
         let health_reports: HealthReportSources = row
-            .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_report_overrides")
+            .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_reports")
             .map(|j| j.0)
             .unwrap_or_default();
         let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;

@@ -212,7 +212,7 @@ If the tenant still has active VPCs, the command will fail. In this case, the ex
 
 This means the tenant routing profile should be treated as a planning decision rather than a casual runtime toggle. It is possible to change, but only when the tenant has been returned to a state with no active VPCs.
 
-## Troubleshooting Example
+## Troubleshooting Example: External Routing Profile Not Found
 
 Consider the following example error returned during VPC creation:
 
@@ -264,7 +264,7 @@ After adding the profile, also verify the following:
 
 This example illustrates an important operational rule: In a production site, all routing profile types that may be assigned to tenants or requested by VPCs must already be defined in the API server configuration.
 
-## Additional Troubleshooting Checklist
+### Additional Troubleshooting Checklist
 
 When investigating VPC creation failures related to routing profiles, the following checks are recommended:
 
@@ -275,3 +275,37 @@ When investigating VPC creation failures related to routing profiles, the follow
 5. Check whether the VPC request explicitly supplied the `routing_profile_type`.
 6. Confirm that the requested or inherited routing profile is permitted for that tenant.
 7. Confirm that the routing profile definitions needed by the site are present before creating or updating tenants and VPCs.
+
+## Troubleshooting Example: No Internet Access in a VPC
+
+A tenant reports that instances in their VPC have no external connectivity.
+
+### What This Means
+
+Instances reach destinations outside the overlay by following a default route present in the VPC’s overlay routing table. If no default route exists in the overlay, outbound traffic to external destinations is dropped.
+
+### Why This Happens
+
+There are several common causes, and distinguishing between them requires comparing the routing profile against the expected network deployment:
+
+* **The routing profile does not import the correct route-target.**
+
+  The VPC’s routing profile may not include a `route_target_imports` entry that causes a default route to be imported into the overlay. Without such an import, the VPC has no default route regardless of what the network advertises.
+
+* **The routing profile is correct, but the network injection is not occurring.**
+
+  Some deployment models intentionally omit a default-route route-target import from the profile and instead rely on the network to inject a default route by advertising a route that matches the VPC’s native route-target (`<ASN>:<VNI_OF_VPC>`). In this case the profile is configured as intended, but the expected network-side advertisement is absent or misconfigured.
+
+* **The network device VRF is not importing the VPC’s route-targets.**
+
+  Even when the VPC has a default route and can forward traffic outbound, the network device’s VRF may not be configured to import the route-targets present on VPC routes. If the VRF does not import those route-targets, the network has no visibility into VPC prefixes and cannot return traffic to instances. This produces the same symptom—no external connectivity—despite the overlay routing table appearing correct from the VPC side.
+
+### How to Resolve This Issue
+
+Contact the team that manages the network infrastructure. Provide them with the routing profile assigned to the VPC, specifically the `route_target_imports` values and the `route_targets_on_exports` values, and have them compare those profiles against the expected network deployment. These are the questions to answer:
+
+- Is this profile expected to import a specific route-target that carries a default route? If so, is that entry present and correct?
+- Is this deployment relying on network injection via the VPC's native route-target? If so, is the network advertising the expected route?
+- Is the network device VRF configured to import the route-targets present on routes exported by this VPC?
+
+The resolution depends on the outcome of that comparison and lies with the network team, not with the API server routing profile configuration alone.

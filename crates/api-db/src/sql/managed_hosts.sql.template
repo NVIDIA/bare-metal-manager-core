@@ -158,18 +158,18 @@ SELECT m.* FROM (
         AND mi_parent.attached_dpu_machine_id != mi_parent.machine_id
     ) AS dpu_snapshots ON true
 
-    -- (3) Join rack-level health report overrides
+    -- (3) Join rack-level health reports
     LEFT JOIN LATERAL (
         SELECT x.json
         FROM (
             SELECT
             rack.id,
-            rack.health_report_overrides AS json,
+            rack.health_reports AS json,
             row_number() OVER (
                 PARTITION BY rack.id
             ) AS rn
             FROM racks rack
-            WHERE rack.health_report_overrides IS NOT NULL
+            WHERE rack.health_reports IS NOT NULL
             AND rack.deleted IS NULL
             AND m.rack_id = rack.id
             GROUP BY rack.id

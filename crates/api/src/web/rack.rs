@@ -82,7 +82,7 @@ pub async fn show_json(state: AxumState<Arc<Api>>) -> Response {
 }
 
 pub async fn fetch_racks(api: &Api) -> Result<rpc::forge::RackList, tonic::Status> {
-    let request = tonic::Request::new(rpc::forge::RackSearchFilter {});
+    let request = tonic::Request::new(rpc::forge::RackSearchFilter::default());
 
     let rack_ids = api.find_rack_ids(request).await?.into_inner().rack_ids;
 

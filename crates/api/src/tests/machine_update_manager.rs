@@ -307,7 +307,7 @@ async fn test_get_updating_machines(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         }],
     };
 
-    db::machine::insert_health_report_override(
+    db::machine::insert_health_report(
         &mut txn,
         &host_machine_id2,
         health_report::HealthReportApplyMode::Merge,
@@ -347,7 +347,7 @@ async fn add_host_update_alert(
         false,
     );
 
-    db::machine::insert_health_report_override(
+    db::machine::insert_health_report(
         txn,
         &machine_update.host_machine_id,
         health_report::HealthReportApplyMode::Merge,

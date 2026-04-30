@@ -115,3 +115,19 @@ deployments:
           op: replace
           path: spec.issuerRef.group
           value: ${LOCAL_DEV_CERT_ISSUER_GROUP}
+
+hooks:
+  - name: load-images-into-local-cluster
+    events: ["before:deploy"]
+    command: |-
+      CONTEXT=$(kubectl config current-context 2>/dev/null || echo "")
+      case "$CONTEXT" in
+        kind-*)
+          echo "Loading images into kind cluster..."
+          kind load docker-image \
+            "${runtime.images.carbide-api.image}:${runtime.images.carbide-api.tag}" \
+            "${runtime.images.carbide-bmc-proxy.image}:${runtime.images.carbide-bmc-proxy.tag}" \
+            "${runtime.images.machine-a-tron.image}:${runtime.images.machine-a-tron.tag}"
+          ;;
+        # Add new local K8s tools here
+      esac

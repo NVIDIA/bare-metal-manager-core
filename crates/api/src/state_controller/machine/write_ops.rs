@@ -78,7 +78,7 @@ pub enum MachineWriteOp {
         machine_id: MachineId,
         requested: bool,
     },
-    InsertHealthReportOverride {
+    InsertMachineHealthReport {
         machine_id: MachineId,
         mode: HealthReportApplyMode,
         health_report: HealthReport,
@@ -178,19 +178,13 @@ impl WriteOp for MachineWriteOp {
                 machine_id,
                 requested,
             } => db::instance::set_custom_pxe_reboot_requested(&machine_id, requested, txn).await?,
-            InsertHealthReportOverride {
+            InsertMachineHealthReport {
                 machine_id,
                 mode,
                 health_report,
             } => {
-                db::machine::insert_health_report_override(
-                    txn,
-                    &machine_id,
-                    mode,
-                    &health_report,
-                    false,
-                )
-                .await?
+                db::machine::insert_health_report(txn, &machine_id, mode, &health_report, false)
+                    .await?
             }
             ReExploreIfVersionMatches { address, version } => {
                 db::explored_endpoints::re_explore_if_version_matches(address, version, txn)

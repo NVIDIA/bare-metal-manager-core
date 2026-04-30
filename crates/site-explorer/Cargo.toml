@@ -50,5 +50,9 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 version-compare = { workspace = true }
 
+[dev-dependencies]
+carbide-redfish = { path = "../redfish", features = ["test-support"] }
+tokio = { workspace = true, features = ["macros", "rt"] }
+
 [lints]
 workspace = true

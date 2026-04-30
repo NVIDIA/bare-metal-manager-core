@@ -499,46 +499,71 @@ impl Forge for Api {
         crate::handlers::dpu::record_dpu_network_status(self, request).await
     }
 
+    async fn list_machine_health_reports(
+        &self,
+        request: Request<MachineId>,
+    ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
+        crate::handlers::health::list_machine_health_reports(self, request).await
+    }
+
+    async fn insert_machine_health_report(
+        &self,
+        request: Request<rpc::InsertMachineHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::health::insert_machine_health_report(self, request).await
+    }
+
+    async fn remove_machine_health_report(
+        &self,
+        request: Request<rpc::RemoveMachineHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::health::remove_machine_health_report(self, request).await
+    }
+
+    async fn list_rack_health_reports(
+        &self,
+        request: Request<rpc::ListRackHealthReportsRequest>,
+    ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
+        crate::handlers::rack::list_rack_health_reports(self, request).await
+    }
+
+    async fn insert_rack_health_report(
+        &self,
+        request: Request<rpc::InsertRackHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::rack::insert_rack_health_report(self, request).await
+    }
+
+    async fn remove_rack_health_report(
+        &self,
+        request: Request<rpc::RemoveRackHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::rack::remove_rack_health_report(self, request).await
+    }
+
+    // Deprecated aliases. Delegate to the canonical handlers above.
+    #[allow(deprecated)]
     async fn list_health_report_overrides(
         &self,
         request: Request<MachineId>,
     ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
-        crate::handlers::health::list_health_report_overrides(self, request).await
+        self.list_machine_health_reports(request).await
     }
 
+    #[allow(deprecated)]
     async fn insert_health_report_override(
         &self,
-        request: Request<rpc::InsertHealthReportOverrideRequest>,
+        request: Request<rpc::InsertMachineHealthReportRequest>,
     ) -> Result<Response<()>, Status> {
-        crate::handlers::health::insert_health_report_override(self, request).await
+        self.insert_machine_health_report(request).await
     }
 
+    #[allow(deprecated)]
     async fn remove_health_report_override(
         &self,
-        request: Request<rpc::RemoveHealthReportOverrideRequest>,
+        request: Request<rpc::RemoveMachineHealthReportRequest>,
     ) -> Result<Response<()>, Status> {
-        crate::handlers::health::remove_health_report_override(self, request).await
-    }
-
-    async fn list_rack_health_report_overrides(
-        &self,
-        request: Request<rpc::ListRackHealthReportOverridesRequest>,
-    ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
-        crate::handlers::rack::list_rack_health_report_overrides(self, request).await
-    }
-
-    async fn insert_rack_health_report_override(
-        &self,
-        request: Request<rpc::InsertRackHealthReportOverrideRequest>,
-    ) -> Result<Response<()>, Status> {
-        crate::handlers::rack::insert_rack_health_report_override(self, request).await
-    }
-
-    async fn remove_rack_health_report_override(
-        &self,
-        request: Request<rpc::RemoveRackHealthReportOverrideRequest>,
-    ) -> Result<Response<()>, Status> {
-        crate::handlers::rack::remove_rack_health_report_override(self, request).await
+        self.remove_machine_health_report(request).await
     }
 
     async fn list_switch_health_reports(

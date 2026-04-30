@@ -1057,11 +1057,7 @@ async fn get_alert_entries(
     })?;
 
     // Call API to get current health report entries
-    let response = api_client
-        .0
-        .list_health_report_overrides(machine_id)
-        .await
-        .map_err(CarbideCliError::ApiInvocationError)?;
+    let response = api_client.machine_list_health_reports(machine_id).await?;
 
     Ok(response)
 }

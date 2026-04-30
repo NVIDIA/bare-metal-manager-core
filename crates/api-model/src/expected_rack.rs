@@ -38,7 +38,9 @@ pub struct ExpectedRack {
     /// the rack hardware type, topology, and rack capabilities.
     pub rack_profile_id: RackProfileId,
 
-    /// User-defined metadata for the rack.
+    /// User-defined metadata for the rack. Physical-chassis and
+    /// physical-location attributes are recorded as well-known label keys
+    /// on this Metadata (see api-model::rack for the well-known keys).
     #[serde(default = "default_metadata_for_deserializer")]
     pub metadata: Metadata,
 }

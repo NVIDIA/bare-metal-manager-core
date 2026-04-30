@@ -849,15 +849,18 @@ pub(crate) async fn validate_and_complete_bmc_endpoint_request(
 ) -> Result<(rpc::BmcEndpointRequest, Option<MachineId>), CarbideError> {
     match (bmc_endpoint_request, machine_id) {
         (Some(bmc_endpoint_request), _) => {
-            let interface = db::machine_interface::find_by_ip(
-                txn,
-                bmc_endpoint_request.ip_address.parse().unwrap(),
-            )
-            .await?
-            .ok_or_else(|| CarbideError::NotFoundError {
-                kind: "machine_interface",
-                id: bmc_endpoint_request.ip_address.clone(),
+            let parsed_ip = bmc_endpoint_request.ip_address.parse().map_err(|e| {
+                CarbideError::InvalidArgument(format!(
+                    "invalid ip_address {:?}: {e}",
+                    bmc_endpoint_request.ip_address
+                ))
             })?;
+            let interface = db::machine_interface::find_by_ip(txn, parsed_ip)
+                .await?
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "machine_interface",
+                    id: bmc_endpoint_request.ip_address.clone(),
+                })?;
 
             let bmc_mac = match bmc_endpoint_request.mac_address {
                 // No MAC in the request, use the interface MAC

@@ -108,7 +108,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
         if !completed.is_empty() {
             tracing::info!("Completed host firmware updates: {completed:?}");
             for machine in completed {
-                db::machine::remove_health_report_override(
+                db::machine::remove_health_report(
                     txn,
                     &machine,
                     health_report::HealthReportApplyMode::Merge,

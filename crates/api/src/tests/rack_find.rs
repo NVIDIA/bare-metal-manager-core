@@ -43,7 +43,7 @@ async fn test_find_rack_by_id(pool: sqlx::PgPool) {
 
     let rack_ids = env
         .api
-        .find_rack_ids(tonic::Request::new(rpc::forge::RackSearchFilter {}))
+        .find_rack_ids(tonic::Request::new(rpc::forge::RackSearchFilter::default()))
         .await
         .unwrap()
         .into_inner()

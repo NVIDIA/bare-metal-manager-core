@@ -117,9 +117,8 @@ impl<'r> FromRow<'r, PgRow> for PowerShelf {
         let controller_state_outcome: Option<sqlx::types::Json<PersistentStateHandlerOutcome>> =
             row.try_get("controller_state_outcome").ok();
 
-        // DB column is still named "health_report_overrides" for backward compatibility.
         let health_reports: HealthReportSources = row
-            .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_report_overrides")
+            .try_get::<sqlx::types::Json<HealthReportSources>, _>("health_reports")
             .map(|j| j.0)
             .unwrap_or_default();
         let labels: sqlx::types::Json<HashMap<String, String>> = row.try_get("labels")?;

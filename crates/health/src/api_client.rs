@@ -249,13 +249,13 @@ impl ApiClientWrapper {
             mode: rpc::forge::HealthReportApplyMode::Merge.into(),
         };
 
-        let request = rpc::forge::InsertHealthReportOverrideRequest {
+        let request = rpc::forge::InsertMachineHealthReportRequest {
             machine_id: Some(*machine_id),
             health_report_entry: Some(ovrd),
         };
 
         self.client
-            .insert_health_report_override(request)
+            .insert_machine_health_report(request)
             .await
             .map_err(HealthError::ApiInvocationError)?;
 
@@ -272,13 +272,13 @@ impl ApiClientWrapper {
             mode: rpc::forge::HealthReportApplyMode::Merge.into(),
         };
 
-        let request = rpc::forge::InsertRackHealthReportOverrideRequest {
+        let request = rpc::forge::InsertRackHealthReportRequest {
             rack_id: Some(rack_id.clone()),
             health_report_entry: Some(ovrd),
         };
 
         self.client
-            .insert_rack_health_report_override(request)
+            .insert_rack_health_report(request)
             .await
             .map_err(HealthError::ApiInvocationError)?;
 

@@ -27,8 +27,8 @@ use hyper::http::StatusCode;
 use model::health::HealthReportSources;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
-    HealthReportApplyMode, InsertHealthReportOverrideRequest, MachinesByIdsRequest,
-    RemoveHealthReportOverrideRequest,
+    HealthReportApplyMode, InsertMachineHealthReportRequest, MachinesByIdsRequest,
+    RemoveMachineHealthReportRequest,
 };
 
 use super::filters;
@@ -131,14 +131,14 @@ pub async fn health(
 
     let request = tonic::Request::new(machine_id);
     let mut listed_entries = match state
-        .list_health_report_overrides(request)
+        .list_machine_health_reports(request)
         .await
         .map(|response| response.into_inner().health_report_entries)
     {
         Ok(m) => m,
         Err(err) if err.code() == tonic::Code::NotFound => Vec::new(),
         Err(err) => {
-            tracing::error!(%err, %machine_id, "list_health_report_overrides");
+            tracing::error!(%err, %machine_id, "list_machine_health_reports");
             return (StatusCode::INTERNAL_SERVER_ERROR, Html(err.to_string())).into_response();
         }
     };
@@ -314,7 +314,7 @@ pub async fn add_health_report(
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()),
     };
 
-    let mut request = tonic::Request::new(InsertHealthReportOverrideRequest {
+    let mut request = tonic::Request::new(InsertMachineHealthReportRequest {
         machine_id: Some(machine_id),
         health_report_entry: Some(entry),
     });
@@ -322,7 +322,7 @@ pub async fn add_health_report(
         request.extensions_mut().insert(auth_context);
     }
     match state
-        .insert_health_report_override(request)
+        .insert_machine_health_report(request)
         .await
         .map(|response| response.into_inner())
     {
@@ -346,12 +346,12 @@ pub async fn remove_health_report(
         Ok(id) => id,
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()),
     };
-    let request = tonic::Request::new(RemoveHealthReportOverrideRequest {
+    let request = tonic::Request::new(RemoveMachineHealthReportRequest {
         machine_id: Some(machine_id),
         source: payload.source,
     });
     match state
-        .remove_health_report_override(request)
+        .remove_machine_health_report(request)
         .await
         .map(|response| response.into_inner())
     {

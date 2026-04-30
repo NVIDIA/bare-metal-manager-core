@@ -80,7 +80,7 @@ async fn reset_host_to_provisioning(pool: &sqlx::PgPool, host_id: &MachineId, dp
             controller_state = $1, \
             controller_state_version = $2, \
             controller_state_outcome = NULL, \
-            health_report_overrides = '{\"merges\": {}, \"replace\": null}'::jsonb \
+            health_reports = '{\"merges\": {}, \"replace\": null}'::jsonb \
          WHERE id = $3",
     )
     .bind(sqlx::types::Json(&state_json))
@@ -114,7 +114,7 @@ async fn reset_host_to_waiting_for_ready(
             controller_state = $1, \
             controller_state_version = $2, \
             controller_state_outcome = NULL, \
-            health_report_overrides = '{\"merges\": {}, \"replace\": null}'::jsonb \
+            health_reports = '{\"merges\": {}, \"replace\": null}'::jsonb \
          WHERE id = $3",
     )
     .bind(sqlx::types::Json(&state_json))
