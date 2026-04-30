@@ -1,26 +1,113 @@
-name: Sync OpenAPI Specs # can be customized
-on:                               # additional custom triggers can be configured
-  workflow_dispatch:              # Manual trigger
-  push:                                          
+# OpenAPI drift: curl the URL in fern/generators.yml, compare to the default branch spec.
+# - If they match → done.
+# - If they differ and an open PR from PR_HEAD_BRANCH already has the same bytes → done (merge pending).
+# - Otherwise → copy upstream onto PR_HEAD_BRANCH, push, and open a PR if none exists yet.
+#
+# Requires secret FERN_OPENAPI_SYNC_TOKEN (push to automation branch + create PR; not for default branch).
+
+name: OpenAPI spec vs upstream
+
+on:
+  workflow_dispatch:
+  push:
     branches:
-      - main                      # Trigger on push to
+      - main
+    paths:
+      - 'fern/generators.yml'
+      - 'docs/openapi/spec.yaml'
+      - '.github/workflows/sync-openapi.yml'
   schedule:
-    - cron: '0 3 * * *'           # Daily at 3:00 AM UTC
+    - cron: '0 3 * * *'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  PR_HEAD_BRANCH: fern/update-api
+
 jobs:
-  update-from-source:
+  openapi-upstream:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.FERN_OPENAPI_SYNC_TOKEN }}
-      # Action pinned to v2 commit; requires fern-api/sync-openapi to be part of the allow-list.
-      - name: Delete remote branch if exists
-        run: git push origin --delete fern/update-api || true
-      - name: Update API with Fern
-        uses: fern-api/sync-openapi@8e936a4bac8ad11d698d7114f3074fa3397398ea
-        with:
-          update_from_source: true
-          token: ${{ secrets.FERN_OPENAPI_SYNC_TOKEN }}
-          branch: 'fern/update-api'
-          auto_merge: false
-          add_timestamp: false
+          fetch-depth: 0
+
+      - name: Verify or open PR with synced OpenAPI spec
+        env:
+          GH_TOKEN: ${{ secrets.FERN_OPENAPI_SYNC_TOKEN }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          IFS=$'\t' read -r ORIGIN_URL LOCAL_SPEC SPEC_REL < <(ruby -ryaml -rpathname -e '
+            g = YAML.load_file("fern/generators.yml")
+            s = g.dig("api", "specs", 0) or abort("fern/generators.yml: missing api.specs[0]")
+            o = s["origin"] or abort("fern/generators.yml: missing origin")
+            rel = s["openapi"] or abort("fern/generators.yml: missing openapi")
+            l = Pathname.new("fern").join(rel).expand_path.cleanpath
+            root = Pathname.getwd.cleanpath
+            spec_rel = l.relative_path_from(root).to_s
+            print [o, l.to_s, spec_rel].join("\t")
+          ')
+
+          echo "Upstream URL: ${ORIGIN_URL}"
+          echo "Spec on default branch: ${LOCAL_SPEC}"
+          echo "Repo-relative path: ${SPEC_REL}"
+
+          curl -fsSL "${ORIGIN_URL}" -o /tmp/openapi-upstream.yaml
+
+          if cmp -s /tmp/openapi-upstream.yaml "${LOCAL_SPEC}"; then
+            echo "OK: default branch matches upstream OpenAPI."
+            exit 0
+          fi
+
+          echo "Default branch differs from upstream."
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git fetch origin --prune
+
+          PR_COUNT=$(gh pr list --repo "${{ github.repository }}" --head "${PR_HEAD_BRANCH}" --state open --json number --jq 'length')
+
+          if [ "${PR_COUNT}" -gt 0 ] && git show-ref --verify --quiet "refs/remotes/origin/${PR_HEAD_BRANCH}"; then
+            if git show "origin/${PR_HEAD_BRANCH}:${SPEC_REL}" > /tmp/openapi-pr-head.yaml 2>/dev/null \
+              && cmp -s /tmp/openapi-upstream.yaml /tmp/openapi-pr-head.yaml; then
+              echo "OK: open PR head ${PR_HEAD_BRANCH} matches upstream; merge to ${DEFAULT_BRANCH} when ready."
+              exit 0
+            fi
+          fi
+
+          echo "Updating branch ${PR_HEAD_BRANCH} with upstream spec and ensuring an open PR exists."
+
+          git checkout "${DEFAULT_BRANCH}"
+          git pull --ff-only "origin/${DEFAULT_BRANCH}"
+
+          if git show-ref --verify --quiet "refs/remotes/origin/${PR_HEAD_BRANCH}"; then
+            git checkout -B "${PR_HEAD_BRANCH}" "origin/${PR_HEAD_BRANCH}"
+            git merge --no-edit "origin/${DEFAULT_BRANCH}"
+          else
+            git checkout -b "${PR_HEAD_BRANCH}"
+          fi
+
+          cp /tmp/openapi-upstream.yaml "${LOCAL_SPEC}"
+          git add -- "${LOCAL_SPEC}"
+          git diff --staged --quiet && {
+            echo "::error::Expected staged changes after copying upstream spec."
+            exit 1
+          }
+          git commit -m "chore(openapi): sync spec from origin in fern/generators.yml"
+
+          git fetch origin "${PR_HEAD_BRANCH}" 2>/dev/null || true
+          git push --force-with-lease "origin" "HEAD:${PR_HEAD_BRANCH}"
+
+          PR_OPEN=$(gh pr list --repo "${{ github.repository }}" --head "${PR_HEAD_BRANCH}" --state open --json number --jq 'length')
+          if [ "${PR_OPEN}" -eq 0 ]; then
+            gh pr create --repo "${{ github.repository }}" --base "${DEFAULT_BRANCH}" --head "${PR_HEAD_BRANCH}" \
+              --title "chore(openapi): sync OpenAPI spec from REST repo" \
+              --body "Updates \`${SPEC_REL}\` to match the \`origin\` URL in \`fern/generators.yml\`. Please review and merge."
+          else
+            echo "Open PR already exists for ${PR_HEAD_BRANCH}; branch was updated."
+          fi
