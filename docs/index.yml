@@ -98,7 +98,7 @@ navigation:
 
     - section: Playbooks
       contents:
-        - page: Azure OIDC for NCX Infra Controller Web UI
+        - page: Azure OIDC for Infra Controller Web UI
           path: playbooks/carbide_web_oauth2.md
         - page: Force Deleting and Rebuilding Hosts
           path: playbooks/force_delete.md

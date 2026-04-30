@@ -1,4 +1,4 @@
-# Azure Set-up
+# Azure Setup
 
 For managing client secrets and redirect URIs registered in the Entra portal.
 
