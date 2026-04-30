@@ -197,6 +197,33 @@ async fn test_find_available_outdated_dpus_limit(
 }
 
 #[crate::sqlx_test]
+async fn test_find_available_outdated_dpus_skips_dpf_ingested(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = create_test_env(pool).await;
+    let dpu_count: usize = 3;
+    let snapshots = create_machines(&env, dpu_count).await;
+
+    let dpf_dpu_id = snapshots.values().next().unwrap().dpu_snapshots[0].id;
+
+    let mut txn = env.pool.begin().await?;
+    db::machine::mark_machine_ingestion_done_with_dpf(&mut txn, &dpf_dpu_id).await?;
+    txn.commit().await?;
+
+    let snapshots = get_all_snapshots(&env).await;
+
+    let dpus = DpuMachineUpdate::find_available_outdated_dpus(
+        None,
+        &env.config.dpu_config.dpu_nic_firmware_update_versions,
+        &snapshots,
+    )?;
+
+    assert_eq!(dpus.len(), dpu_count - 1);
+    assert!(dpus.iter().all(|d| d.dpu_machine_id != dpf_dpu_id));
+    Ok(())
+}
+
+#[crate::sqlx_test]
 async fn test_find_unavailable_outdated_dpus_when_none(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {

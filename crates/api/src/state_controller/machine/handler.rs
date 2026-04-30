@@ -2718,8 +2718,10 @@ async fn handle_dpu_reprovision(
             next_state_resolver.next_state_with_all_dpus_updated(state, reprovision_state)?,
         )),
         ReprovisionState::VerifyFirmareVersions => {
-            if let Some(outcome) =
-                check_fw_component_version(ctx, dpu_snapshot, hardware_models).await?
+            // No need to compare version if machine is reprovisioned by DPF.
+            if !state.host_snapshot.dpf.used_for_ingestion
+                && let Some(outcome) =
+                    check_fw_component_version(ctx, dpu_snapshot, hardware_models).await?
             {
                 return Ok(outcome);
             }

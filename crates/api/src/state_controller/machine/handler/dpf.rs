@@ -153,7 +153,7 @@ fn waiting_for_ready_exit_state(
             instance_state: InstanceState::DPUReprovision { .. },
         } => {
             let all_dpu_ids = state.dpu_snapshots.iter().map(|x| &x.id).collect();
-            ReprovisionState::PoweringOffHost.next_state_with_all_dpus_updated(
+            ReprovisionState::WaitingForNetworkConfig.next_state_with_all_dpus_updated(
                 &state.managed_state,
                 &state.dpu_snapshots,
                 all_dpu_ids,
