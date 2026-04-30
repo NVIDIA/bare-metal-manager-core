@@ -12,8 +12,23 @@ navigation:
 
     layout:
 
-    - page: Introduction
-      path: README.md
+    - page: Home
+      path: index.md
+
+    - section: Overview
+      contents:
+        - page: What is NICo?
+          path: overview/what-is-nico.md
+          slug: what-is-nico
+        - page: Key Capabilities
+          path: overview/capabilities.md
+        - page: Operational Principles
+          path: overview/operational-principles.md
+        - page: Day 0 / Day 1 / Day 2 Lifecycle
+          path: overview/lifecycle.md
+        - page: Scope and Boundaries
+          path: overview/scope-and-boundaries.md
+          slug: scope-and-boundaries
 
     - section: Getting Started
       contents:
@@ -25,6 +40,7 @@ navigation:
           path: manuals/networking_requirements.md
         - page: Building NICo Containers
           path: manuals/building_nico_containers.md
+          slug: building-nico-containers
         - page: Ingesting Hosts
           path: manuals/ingesting_machines.md
         - page: Updating Expected Hosts Manifest
@@ -73,8 +89,6 @@ navigation:
 
     - section: Operations
       contents:
-        - page: Cargo via Docker on macOS
-          path: manuals/cargo-via-docker-macos.md
         - page: Host Validation
           path: manuals/machine_validation.md
         - page: SKU Validation

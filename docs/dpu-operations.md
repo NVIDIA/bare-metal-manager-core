@@ -1,4 +1,4 @@
-# Operating Bluefield/DPU
+# Operating BlueField DPUs
 
 ### Connecting to DPU
 The DPU shares a physical 1GB ethernet connection for both BMC and OOB access.
@@ -30,7 +30,7 @@ the DPU OS.
 #### Updating to the latest BFB on a DPU
 
 
-Download the latest BFB from artifactory - https://urm.nvidia.com/artifactory/list/sw-mlnx-bluefield-generic/Ubuntu20.04/
+Download the latest BFB from the NVIDIA DOCA download portal (requires NVIDIA developer account access).
 
 In order to upgrade the OS you will need to `scp` the BFB file to a specific directory on the DPU.
 `scp DOCA_1.3.0_BSP_3.9.0_Ubuntu_20.04-3.20220315.bfb root@bmc_ip:/dev/rshim0/boot` once the file is copied the DPU reboots and completes the install of the new BFB.

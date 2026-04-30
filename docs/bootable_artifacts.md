@@ -22,12 +22,15 @@ Because you cannot build `aarch64` artifacts on an `x86_64` host, we only create
 cd $NICo_ROOT_DIR/pxe && cargo make mkdir-static-aarch64
 ```
 
-> **NOTE**: Running NICo using `docker-compose` and QEMU `clients` only works with `x86_64` binaries. CI/CD is used for testing on `aarch64` systems such as a Bluefield
+
+
+> **NOTE**: Running NICo using `docker-compose` and QEMU `clients` only works with `x86_64` binaries. CI/CD is used for testing on `aarch64` systems such as a BlueField
+
 
 or
 
 download pre-built artifacts - ideal if the `ipxe-x86_64` gives you
-errors. Extract the latest [from Artifactory](https://urm.nvidia.com/ui/native/swngc-ngcc-generic-local/nvmetal/boot-artifacts/x86_64/)
+errors. Extract the latest boot artifacts (available from your NICo distribution package)
 into `$NICo_ROOT_DIR/pxe/static/blobs/internal/x86_64/` (you'll need
 to create the hierarchy).
 

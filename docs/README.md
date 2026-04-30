@@ -102,8 +102,8 @@ For details on NICo REST, please refer to [NICo REST Github Repository](https://
 
 ### Managed Hosts
 
-The point of having a Site Controller is to administer a Site that has been populated with managed hosts.
-Each managed host is a pairing of a single BlueField (BF) 2/3 DPU and a host server.
+The point of having a site controller is to administer a site that has been populated with managed hosts.
+Each managed host is a pairing of a single BlueField 2/3 DPU and a host server.
 During initial deployment, the `scout` service runs, informing the NICo Core gRPC API of any discovered DPUs. NICo completes the installation of services on the DPU and boots into regular operation mode. Thereafter, the `dpu-agent` starts as a daemon.
 
 Each DPU runs the `dpu-agent` which connects to NICo Core gRPC API to retrieve configuration instructions.

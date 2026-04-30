@@ -123,11 +123,9 @@ sudo qemu-system-x86_64 -boot n -nographic -display none \
 
 On Fedora change the `-bios` line to `-bios /usr/share/OVMF/OVMF_CODE.fd`.
 
-**Note**: As of a prior commit, there is a bug that will cause the ipxe dhcp to fail the first time it is run. Wait for it to fail,
-and in the EFI Shell just type `reset` and it will restart the whole pxe process and it will run the ipxe image properly the second time.
-See https://jirasw.nvidia.com/browse/FORGE-243 for more information.
+**Note**: There is a known issue where iPXE DHCP fails on the first run. If this occurs, type `reset` in the EFI Shell to restart the PXE process; it will complete successfully on the second attempt.
 
-**Note:** I had to validate that the /usr/share/ovmf path was correct, it depends on where ovmf installed the file, sometimes its under a subdirectory called "x64", sometimes not.
+**Note:** Verify the OVMF path for your system — depending on how the `ovmf` package was installed, the file may be under a subdirectory called `x64`.
 
 **Note:** Known older issue on first boot that you'll land on a UEFI shell, have to `exit` back into the BIOS and select "Continue" in order to proceed into normal login.
 

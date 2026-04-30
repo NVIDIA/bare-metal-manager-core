@@ -6,7 +6,7 @@ This page provides guidelines for hardware and configuration for NVIDIA Infra Co
 
 The section provides a hardware baseline for the two kinds of hosts, the site controller and compute systems.
 
-The site controller and compute systems must be qualified for one dual-port NVIDIA Bluefield DPU with 2 x 200 Gb network interfaces and a 1 Gb network interface for the BMC. The BlueField-3 B3220 P-Series DPU is suitable (200GbE/NDR200 dual-port QSFP112 Network Adaptor (900-9D3B6-00CV-AA0)). Other network interface controllers on the machine are automatically disabled during site software installation.
+The site controller and compute systems must be qualified for one dual-port NVIDIA BlueField DPU with 2 x 200 Gb network interfaces and a 1 Gb network interface for the BMC. The BlueField-3 B3220 P-Series DPU is suitable (200GbE/NDR200 dual-port QSFP112 Network Adaptor (900-9D3B6-00CV-AA0)). Other network interface controllers on the machine are automatically disabled during site software installation.
 
 ### Site Controller Requirements
 
