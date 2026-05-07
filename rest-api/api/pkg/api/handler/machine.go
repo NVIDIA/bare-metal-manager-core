@@ -1200,12 +1200,11 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 				return cutil.NewAPIError(http.StatusBadRequest, "Machine is currently not in maintenance mode, cannot remove maintenance mode", nil)
 			}
 
-			wfReq := &cwssaws.MaintenanceRequest{HostId: &cwssaws.MachineId{Id: machine.ID}}
+			var wfReq *cwssaws.MaintenanceRequest
 			if *apiRequest.SetMaintenanceMode {
-				wfReq.Operation = cwssaws.MaintenanceOperation_Enable
-				wfReq.Reference = apiRequest.MaintenanceMessage
+				wfReq = machine.ToMaintenanceRequestProto(cwssaws.MaintenanceOperation_Enable, apiRequest.MaintenanceMessage)
 			} else {
-				wfReq.Operation = cwssaws.MaintenanceOperation_Disable
+				wfReq = machine.ToMaintenanceRequestProto(cwssaws.MaintenanceOperation_Disable, nil)
 			}
 
 			// Add context deadlines
@@ -1297,21 +1296,10 @@ func (umh UpdateMachineHandler) Handle(c echo.Context) error {
 			}
 
 			labels := util.ProtobufLabelsFromAPILabels(apiRequest.Labels)
-
-			machineName := machine.ID
-			if machine.Metadata != nil && machine.Metadata.Metadata != nil {
-				machineName = machine.Metadata.Metadata.Name
-			}
-
-			wfReq := &cwssaws.MachineMetadataUpdateRequest{
-				MachineId: &cwssaws.MachineId{
-					Id: machine.ID,
-				},
-				Metadata: &cwssaws.Metadata{
-					Name:   machineName, // Site Controller sets Machine ID as name and it must be specified to update labels
-					Labels: labels,
-				},
-			}
+			// Site Controller sets Machine ID as the metadata Name and requires it
+			// on every update; ToMetadataUpdateRequestProto reads the current name
+			// from the machine's stored metadata, with a fallback to the Machine ID.
+			wfReq := machine.ToMetadataUpdateRequestProto(labels)
 
 			// Add context deadlines
 			wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)

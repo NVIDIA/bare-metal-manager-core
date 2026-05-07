@@ -2253,3 +2253,52 @@ func TestMachine_GetControllerState(t *testing.T) {
 	assert.Equal(t, "Ready", mMeta.GetControllerState())
 	assert.Equal(t, "Ready", scm.GetNormalizedState())
 }
+
+func TestMachine_ToMaintenanceRequestProto(t *testing.T) {
+	t.Run("enable with reference", func(t *testing.T) {
+		ref := "scheduled work"
+		m := &Machine{ID: "m-1"}
+		req := m.ToMaintenanceRequestProto(cwssaws.MaintenanceOperation_Enable, &ref)
+		assert.NotNil(t, req)
+		assert.NotNil(t, req.HostId)
+		assert.Equal(t, "m-1", req.HostId.Id)
+		assert.Equal(t, cwssaws.MaintenanceOperation_Enable, req.Operation)
+		assert.Equal(t, &ref, req.Reference)
+	})
+	t.Run("disable with no reference", func(t *testing.T) {
+		m := &Machine{ID: "m-1"}
+		req := m.ToMaintenanceRequestProto(cwssaws.MaintenanceOperation_Disable, nil)
+		assert.NotNil(t, req)
+		assert.NotNil(t, req.HostId)
+		assert.Equal(t, "m-1", req.HostId.Id)
+		assert.Equal(t, cwssaws.MaintenanceOperation_Disable, req.Operation)
+		assert.Nil(t, req.Reference)
+	})
+}
+
+func TestMachine_ToMetadataUpdateRequestProto(t *testing.T) {
+	labelVal := "prod"
+	labels := []*cwssaws.Label{{Key: "env", Value: &labelVal}}
+
+	t.Run("uses Machine.ID as Name fallback when metadata is nil", func(t *testing.T) {
+		m := &Machine{ID: "m-1"}
+		req := m.ToMetadataUpdateRequestProto(labels)
+		assert.NotNil(t, req)
+		assert.NotNil(t, req.MachineId)
+		assert.Equal(t, "m-1", req.MachineId.Id)
+		assert.NotNil(t, req.Metadata)
+		assert.Equal(t, "m-1", req.Metadata.Name)
+		assert.Equal(t, labels, req.Metadata.Labels)
+	})
+
+	t.Run("uses stored metadata Name when present", func(t *testing.T) {
+		m := &Machine{
+			ID: "m-1",
+			Metadata: &SiteControllerMachine{
+				Machine: &cwssaws.Machine{Metadata: &cwssaws.Metadata{Name: "stored-name"}},
+			},
+		}
+		req := m.ToMetadataUpdateRequestProto(labels)
+		assert.Equal(t, "stored-name", req.Metadata.Name)
+	})
+}
