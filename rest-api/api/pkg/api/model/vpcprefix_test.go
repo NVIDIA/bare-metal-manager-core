@@ -8,12 +8,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	ipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestAPIVpcPrefixCreateRequest_Validate(t *testing.T) {
@@ -274,4 +276,46 @@ func TestNewAPIVpcPrefix_UsageStats(t *testing.T) {
 			req.Equal(tc.want.AcquiredPrefixes, got.UsageStats.AcquiredPrefixes)
 		})
 	}
+}
+
+func TestAPIVpcPrefixCreateRequest_ToProto(t *testing.T) {
+	prefixID := uuid.New()
+	vpcID := uuid.New()
+	vp := &cdbm.VpcPrefix{ID: prefixID, Name: "prefix-a", Prefix: "10.0.0.0/16"}
+	vpc := &cdbm.Vpc{ID: vpcID}
+
+	t.Run("sources canonical fields from the entity's ToProto", func(t *testing.T) {
+		apiReq := APIVpcPrefixCreateRequest{
+			Name:         "prefix-a",
+			VpcID:        vpcID.String(),
+			IPBlockID:    cutil.GetPtr(uuid.New().String()),
+			PrefixLength: 24,
+		}
+		req := apiReq.ToProto(vp, vpc)
+
+		require.NotNil(t, req)
+		require.NotNil(t, req.Id)
+		assert.Equal(t, prefixID.String(), req.Id.Value)
+		require.NotNil(t, req.VpcId)
+		assert.Equal(t, vpcID.String(), req.VpcId.Value)
+		require.NotNil(t, req.Config)
+		assert.Equal(t, "10.0.0.0/16", req.Config.Prefix)
+		require.NotNil(t, req.Metadata)
+		assert.Equal(t, "prefix-a", req.Metadata.Name)
+	})
+}
+
+func TestAPIVpcPrefixUpdateRequest_ToProto(t *testing.T) {
+	prefixID := uuid.New()
+	vp := &cdbm.VpcPrefix{ID: prefixID, Name: "prefix-a"}
+
+	t.Run("sources Id and Metadata.Name from the post-merge entity", func(t *testing.T) {
+		apiReq := APIVpcPrefixUpdateRequest{Name: cutil.GetPtr("prefix-a")}
+		req := apiReq.ToProto(vp)
+		require.NotNil(t, req)
+		require.NotNil(t, req.Id)
+		assert.Equal(t, prefixID.String(), req.Id.Value)
+		require.NotNil(t, req.Metadata)
+		assert.Equal(t, "prefix-a", req.Metadata.Name)
+	})
 }

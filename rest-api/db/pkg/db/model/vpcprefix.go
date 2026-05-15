@@ -11,15 +11,18 @@ import (
 	"strings"
 	"time"
 
-	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+
+	"github.com/google/uuid"
+
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
-	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
 
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 const (
@@ -80,6 +83,89 @@ type VpcPrefix struct {
 	Updated         time.Time  `bun:"updated,nullzero,notnull,default:current_timestamp"`
 	Deleted         *time.Time `bun:"deleted,soft_delete"`
 	CreatedBy       uuid.UUID  `bun:"type:uuid,notnull"`
+}
+
+// ToProto converts this VpcPrefix into its workflow proto representation.
+// Used as the canonical entity-to-proto conversion; request-shape protos
+// (create / update) are produced by `ToProto` methods on the corresponding
+// API request types in api/pkg/api/model/vpcprefix.go.
+//
+// The parent `vpc` is passed as a side input because the Site-facing VPC
+// ID can differ from the cloud-side `vp.VpcID` (see `Vpc.GetSiteID`), and
+// handlers typically already have a hydrated *Vpc from a separate query.
+// A nil `vpc` leaves the wire `VpcId` unset.
+func (vp *VpcPrefix) ToProto(vpc *Vpc) *cwssaws.VpcPrefix {
+	proto := &cwssaws.VpcPrefix{
+		Id: &cwssaws.VpcPrefixId{Value: vp.ID.String()},
+		Config: &cwssaws.VpcPrefixConfig{
+			Prefix: vp.Prefix,
+		},
+		Metadata: &cwssaws.Metadata{
+			Name: vp.Name,
+		},
+	}
+	if vpc != nil {
+		proto.VpcId = &cwssaws.VpcId{Value: vpc.GetSiteID().String()}
+	}
+	return proto
+}
+
+// FromProto populates this VpcPrefix from its workflow proto representation.
+// A nil proto is a no-op. This is the inverse of `ToProto` and exists for
+// convention symmetry — currently no code path on the cloud side
+// reconstructs a full VpcPrefix entity from a `cwssaws.VpcPrefix` (the
+// site is the destination, not the source), but the method is provided so
+// future reconciliation flows have a single canonical entry point.
+//
+// Field-level contract:
+//   - `vp.ID` is preserved on a missing or unparseable `proto.Id`,
+//     because callers pre-validate the UUID before calling.
+//   - `Name` is sourced from `proto.Metadata.Name` when set, falling back
+//     to the (deprecated) top-level `proto.Name` so the method keeps
+//     working through the deprecation window.
+//   - `Prefix` is sourced from `proto.Config.Prefix` when set, falling
+//     back to the (deprecated) top-level `proto.Prefix`.
+//   - `Name` and `Prefix` are similarly reset to the empty string when
+//     the proto omits both the deprecated top-level field and the
+//     structured `Metadata` / `Config` field; `FromProto` is a full
+//     overwrite of those fields, not a merge.
+//   - `VpcID` is cleared when the proto omits it OR when the proto value
+//     is unparseable, so `FromProto` is a clean reset rather than a
+//     partial merge.
+func (vp *VpcPrefix) FromProto(proto *cwssaws.VpcPrefix) {
+	if proto == nil {
+		return
+	}
+	if proto.Id != nil {
+		if id, err := uuid.Parse(proto.Id.Value); err == nil {
+			vp.ID = id
+		}
+	}
+	vp.Name = proto.Name
+	if proto.Metadata != nil && proto.Metadata.Name != "" {
+		vp.Name = proto.Metadata.Name
+	}
+	vp.Prefix = proto.Prefix
+	if proto.Config != nil && proto.Config.Prefix != "" {
+		vp.Prefix = proto.Config.Prefix
+	}
+	if proto.VpcId != nil {
+		if id, err := uuid.Parse(proto.VpcId.Value); err == nil {
+			vp.VpcID = id
+		} else {
+			vp.VpcID = uuid.Nil
+		}
+	} else {
+		vp.VpcID = uuid.Nil
+	}
+}
+
+// ToDeletionRequestProto builds the workflow request that asks a Site to
+// delete this VpcPrefix.
+func (vp *VpcPrefix) ToDeletionRequestProto() *cwssaws.VpcPrefixDeletionRequest {
+	return &cwssaws.VpcPrefixDeletionRequest{
+		Id: &cwssaws.VpcPrefixId{Value: vp.ID.String()},
+	}
 }
 
 // VpcPrefixCreateInput input parameters for Create method

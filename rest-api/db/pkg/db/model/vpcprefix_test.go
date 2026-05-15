@@ -9,16 +9,116 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
+
+	"github.com/google/uuid"
+	"github.com/uptrace/bun/extra/bundebug"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	"github.com/google/uuid"
-	"github.com/uptrace/bun/extra/bundebug"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
+
+func TestVpcPrefix_ToProto(t *testing.T) {
+	prefixID := uuid.New()
+	vpcID := uuid.New()
+	vp := &VpcPrefix{ID: prefixID, Name: "prefix-a", Prefix: "10.0.0.0/16"}
+	vpc := &Vpc{ID: vpcID}
+
+	t.Run("populates wire fields and translates VpcId via the parent VPC", func(t *testing.T) {
+		proto := vp.ToProto(vpc)
+		require.NotNil(t, proto)
+		require.NotNil(t, proto.Id)
+		assert.Equal(t, prefixID.String(), proto.Id.Value)
+		require.NotNil(t, proto.VpcId)
+		assert.Equal(t, vpcID.String(), proto.VpcId.Value)
+		require.NotNil(t, proto.Config)
+		assert.Equal(t, "10.0.0.0/16", proto.Config.Prefix)
+		require.NotNil(t, proto.Metadata)
+		assert.Equal(t, "prefix-a", proto.Metadata.Name)
+	})
+
+	t.Run("leaves VpcId nil when parent VPC is not provided", func(t *testing.T) {
+		proto := vp.ToProto(nil)
+		require.NotNil(t, proto)
+		assert.Nil(t, proto.VpcId)
+		require.NotNil(t, proto.Id)
+		assert.Equal(t, prefixID.String(), proto.Id.Value)
+	})
+}
+
+func TestVpcPrefix_FromProto(t *testing.T) {
+	t.Run("nil proto is a no-op", func(t *testing.T) {
+		original := VpcPrefix{ID: uuid.New(), Name: "original", Prefix: "10.0.0.0/16"}
+		vp := original
+		vp.FromProto(nil)
+		assert.Equal(t, original, vp)
+	})
+
+	t.Run("populates fields from proto Metadata and Config", func(t *testing.T) {
+		prefixID := uuid.New()
+		vpcID := uuid.New()
+		vp := &VpcPrefix{}
+		vp.FromProto(&cwssaws.VpcPrefix{
+			Id:       &cwssaws.VpcPrefixId{Value: prefixID.String()},
+			VpcId:    &cwssaws.VpcId{Value: vpcID.String()},
+			Config:   &cwssaws.VpcPrefixConfig{Prefix: "10.0.0.0/16"},
+			Metadata: &cwssaws.Metadata{Name: "prefix-a"},
+		})
+		assert.Equal(t, prefixID, vp.ID)
+		assert.Equal(t, vpcID, vp.VpcID)
+		assert.Equal(t, "prefix-a", vp.Name)
+		assert.Equal(t, "10.0.0.0/16", vp.Prefix)
+	})
+
+	t.Run("falls back to deprecated top-level Name and Prefix", func(t *testing.T) {
+		prefixID := uuid.New()
+		vp := &VpcPrefix{}
+		vp.FromProto(&cwssaws.VpcPrefix{
+			Id:     &cwssaws.VpcPrefixId{Value: prefixID.String()},
+			Name:   "prefix-legacy",
+			Prefix: "10.1.0.0/16",
+		})
+		assert.Equal(t, "prefix-legacy", vp.Name)
+		assert.Equal(t, "10.1.0.0/16", vp.Prefix)
+	})
+
+	t.Run("preserves ID when proto Id is unparseable", func(t *testing.T) {
+		preserved := uuid.New()
+		vp := &VpcPrefix{ID: preserved}
+		vp.FromProto(&cwssaws.VpcPrefix{
+			Id: &cwssaws.VpcPrefixId{Value: "not-a-uuid"},
+		})
+		assert.Equal(t, preserved, vp.ID)
+	})
+
+	t.Run("clears VpcID when proto omits VpcId", func(t *testing.T) {
+		vp := &VpcPrefix{VpcID: uuid.New()}
+		vp.FromProto(&cwssaws.VpcPrefix{})
+		assert.Equal(t, uuid.Nil, vp.VpcID)
+	})
+
+	t.Run("clears VpcID when proto VpcId is unparseable", func(t *testing.T) {
+		vp := &VpcPrefix{VpcID: uuid.New()}
+		vp.FromProto(&cwssaws.VpcPrefix{
+			VpcId: &cwssaws.VpcId{Value: "not-a-uuid"},
+		})
+		assert.Equal(t, uuid.Nil, vp.VpcID)
+	})
+}
+
+func TestVpcPrefix_ToDeletionRequestProto(t *testing.T) {
+	prefixID := uuid.New()
+	vp := &VpcPrefix{ID: prefixID}
+	req := vp.ToDeletionRequestProto()
+	require.NotNil(t, req)
+	require.NotNil(t, req.Id)
+	assert.Equal(t, prefixID.String(), req.Id.Value)
+}
 
 func testVpcPrefixInitDB(t *testing.T) *db.Session {
 	dbSession := util.GetTestDBSession(t, false)

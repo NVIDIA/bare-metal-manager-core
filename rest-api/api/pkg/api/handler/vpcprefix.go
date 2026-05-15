@@ -36,7 +36,6 @@ import (
 	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
 )
 
@@ -252,16 +251,7 @@ func (csh CreateVpcPrefixHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		createVpcPrefixRequest := &cwssaws.VpcPrefixCreationRequest{
-			Id:    &cwssaws.VpcPrefixId{Value: vpcPrefix.ID.String()},
-			VpcId: &cwssaws.VpcId{Value: vpc.GetSiteID().String()},
-			Config: &cwssaws.VpcPrefixConfig{
-				Prefix: vpcPrefix.Prefix,
-			},
-			Metadata: &cwssaws.Metadata{
-				Name: vpcPrefix.Name,
-			},
-		}
+		createVpcPrefixRequest := apiRequest.ToProto(vpcPrefix, vpc)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "vpc-prefix-create-" + vpcPrefix.ID.String(),
@@ -865,12 +855,7 @@ func (ush UpdateVpcPrefixHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		updateVpcPrefixRequest := &cwssaws.VpcPrefixUpdateRequest{
-			Id: &cwssaws.VpcPrefixId{Value: updated.ID.String()},
-			Metadata: &cwssaws.Metadata{
-				Name: updated.Name,
-			},
-		}
+		updateVpcPrefixRequest := apiRequest.ToProto(updated)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "vpc-prefix-update-" + updated.ID.String(),
@@ -1095,9 +1080,7 @@ func (dsh DeleteVpcPrefixHandler) Handle(c echo.Context) error {
 		}
 
 		// Prepare the delete/release request workflow object
-		deleteVpcPrefixRequest := &cwssaws.VpcPrefixDeletionRequest{
-			Id: &cwssaws.VpcPrefixId{Value: vpcPrefix.ID.String()},
-		}
+		deleteVpcPrefixRequest := vpcPrefix.ToDeletionRequestProto()
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:        "vpc-prefix-delete-" + vpcPrefix.ID.String(),

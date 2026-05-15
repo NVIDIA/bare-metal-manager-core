@@ -13,6 +13,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	ipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 const (
@@ -39,8 +40,8 @@ type APIVpcPrefixCreateRequest struct {
 }
 
 // Validate ensure the values passed in request are acceptable
-func (vpcr APIVpcPrefixCreateRequest) Validate() error {
-	err := validation.ValidateStruct(&vpcr,
+func (vpcr *APIVpcPrefixCreateRequest) Validate() error {
+	err := validation.ValidateStruct(vpcr,
 		validation.Field(&vpcr.Name,
 			validation.Required.Error(validationErrorStringLength),
 			validation.Length(2, 256).Error(validationErrorStringLength)),
@@ -63,6 +64,30 @@ func (vpcr APIVpcPrefixCreateRequest) Validate() error {
 	return nil
 }
 
+// ToProto builds the workflow request that asks a Site to create a new
+// VpcPrefix for this API request. `vp` is the just-persisted DB record;
+// its `ToProto(vpc)` is the source of the canonical wire fields
+// (Id, VpcId, Config.Prefix, Metadata.Name). The parent `vpc` is needed
+// to translate to the Site-facing VPC ID (`Vpc.GetSiteID`).
+//
+// The method trusts that the request has already been Validated. There
+// are no cross-context checks for this entity beyond what Validate
+// covers.
+//
+// Precondition: `vpc` must be non-nil; a nil `vpc` produces a
+// `VpcPrefixCreationRequest` with an unset `VpcId`, which the Site
+// agent will reject. The current handler always provides a hydrated
+// parent VPC.
+func (vpcr *APIVpcPrefixCreateRequest) ToProto(vp *cdbm.VpcPrefix, vpc *cdbm.Vpc) *cwssaws.VpcPrefixCreationRequest {
+	vpProto := vp.ToProto(vpc)
+	return &cwssaws.VpcPrefixCreationRequest{
+		Id:       vpProto.Id,
+		VpcId:    vpProto.VpcId,
+		Config:   vpProto.Config,
+		Metadata: vpProto.Metadata,
+	}
+}
+
 // APIVpcPrefixUpdateRequest is the data structure to capture user request to update a VpcPrefix
 type APIVpcPrefixUpdateRequest struct {
 	// Name is the name of the VpcPrefix
@@ -74,8 +99,8 @@ type APIVpcPrefixUpdateRequest struct {
 }
 
 // Validate ensure the values passed in request are acceptable
-func (vpur APIVpcPrefixUpdateRequest) Validate() error {
-	err := validation.ValidateStruct(&vpur,
+func (vpur *APIVpcPrefixUpdateRequest) Validate() error {
+	err := validation.ValidateStruct(vpur,
 		validation.Field(&vpur.Name,
 			// length validation rule accepts empty string as valid, hence, required is needed
 			validation.When(vpur.Name != nil, validation.Required.Error(validationErrorStringLength)),
@@ -93,6 +118,21 @@ func (vpur APIVpcPrefixUpdateRequest) Validate() error {
 	}
 
 	return nil
+}
+
+// ToProto builds the workflow request that pushes this Update's
+// merged-into-DB state to a Site. The persisted `vp` is the source of
+// the wire fields because the handler has already merged the request's
+// (sparse) update fields into the entity by the time this is called;
+// sending the post-merge state matches the pre-existing handler
+// behaviour. Currently only `Metadata.Name` flows over (`Prefix` is
+// immutable for VpcPrefix and rejected by Validate).
+func (vpur *APIVpcPrefixUpdateRequest) ToProto(vp *cdbm.VpcPrefix) *cwssaws.VpcPrefixUpdateRequest {
+	vpProto := vp.ToProto(nil)
+	return &cwssaws.VpcPrefixUpdateRequest{
+		Id:       vpProto.Id,
+		Metadata: vpProto.Metadata,
+	}
 }
 
 // APIVpcPrefix is the data structure to capture API representation of a VpcPrefix
