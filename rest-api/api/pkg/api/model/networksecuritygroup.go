@@ -4,19 +4,19 @@
 package model
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"strings"
 	"time"
+
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 
 	hutil "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
-	validation "github.com/go-ozzo/ozzo-validation/v4"
-	validationis "github.com/go-ozzo/ozzo-validation/v4/is"
 )
 
 const MaxNetworkSecurityGroupRules = 200
@@ -121,9 +121,12 @@ type APINetworkSecurityGroupCreateRequest struct {
 	Labels map[string]string `json:"labels"`
 }
 
-// Validate ensures the values in the request are acceptable
-func (req APINetworkSecurityGroupCreateRequest) Validate(siteConfig *cdbm.SiteConfig) error {
-	err := validation.ValidateStruct(&req,
+// Validate ensures the values in the request are acceptable.
+// Per the proto-conversion convention, this is the universal
+// pre-`ToProto` step: each rule is validated here so the request-shape
+// `ToProto` can be a focused mapper that trusts its input.
+func (req *APINetworkSecurityGroupCreateRequest) Validate(siteConfig *cdbm.SiteConfig) error {
+	err := validation.ValidateStruct(req,
 		validation.Field(&req.Name,
 			validation.Required.Error(validationErrorStringLength),
 			validation.By(util.ValidateNameCharacters),
@@ -150,9 +153,13 @@ func (req APINetworkSecurityGroupCreateRequest) Validate(siteConfig *cdbm.SiteCo
 		}
 	}
 
-	// Individual rule validation happens later during
-	// processing when we convert from request rules to
-	// the protobuf representation.
+	// Validate (and normalize) each rule up-front so the request-shape
+	// `ToProto` can rely on the request being safe to translate.
+	for i := range req.Rules {
+		if err := req.Rules[i].Validate(); err != nil {
+			return err
+		}
+	}
 
 	if err := util.ValidateLabels(req.Labels); err != nil {
 		return err
@@ -175,9 +182,12 @@ type APINetworkSecurityGroupUpdateRequest struct {
 	Labels map[string]string `json:"labels"`
 }
 
-// Validate ensures the values in the request are acceptable
-func (req APINetworkSecurityGroupUpdateRequest) Validate(siteConfig *cdbm.SiteConfig) error {
-	err := validation.ValidateStruct(&req,
+// Validate ensures the values in the request are acceptable.
+// Per the proto-conversion convention, this is the universal
+// pre-`ToProto` step: each rule is validated here so the request-shape
+// `ToProto` can be a focused mapper that trusts its input.
+func (req *APINetworkSecurityGroupUpdateRequest) Validate(siteConfig *cdbm.SiteConfig) error {
+	err := validation.ValidateStruct(req,
 		validation.Field(&req.Name,
 			validation.When(req.Name != nil, validation.Required.Error(validationErrorStringLength)),
 			validation.When(req.Name != nil, validation.By(util.ValidateNameCharacters)),
@@ -202,9 +212,13 @@ func (req APINetworkSecurityGroupUpdateRequest) Validate(siteConfig *cdbm.SiteCo
 		}
 	}
 
-	// Individual rule validation happens later during
-	// processing when we convert from request rules to
-	// the protobuf representation.
+	// Validate (and normalize) each rule up-front so the request-shape
+	// `ToProto` can rely on the request being safe to translate.
+	for i := range req.Rules {
+		if err := req.Rules[i].Validate(); err != nil {
+			return err
+		}
+	}
 
 	if err := util.ValidateLabels(req.Labels); err != nil {
 		return err
@@ -250,227 +264,218 @@ type APINetworkSecurityGroup struct {
 	RuleCount int `json:"ruleCount"`
 }
 
-// Accepts a rule definition from an API request and converts
-// it to the proto representation that will be stored and passed
-// to NICo
-func ProtobufRuleFromAPINetworkSecurityGroupRule(rule *APINetworkSecurityGroupRule) (*cdbm.NetworkSecurityGroupRule, error) {
+// ruleErr wraps a formatted message in the `validation.Errors{"rules": ...}`
+// envelope that every rule-level failure uses. Keeping this here lets the
+// individual validate* helpers (and the Validate body itself) stay
+// one-liners while still producing the exact error shape callers expect.
+func ruleErr(format string, args ...any) error {
+	return validation.Errors{"rules": fmt.Errorf(format, args...)}
+}
 
-	if rule.Priority < NetworkSecurityGroupRulePriorityMin || rule.Priority > NetworkSecurityGroupRulePriorityMax {
-		return nil, validation.Errors{"rules": fmt.Errorf("priority `%d` must be between 0 and 60000", rule.Priority)}
+// validateRuleEnumValue uppercases *value in place and looks the result
+// up in the provided enum map, returning a `ruleErr` with the field
+// name interpolated if the value is not recognised. Used for the three
+// near-identical Direction / Action / Protocol checks. `T any` is fine
+// because we only care that the map key (the API string) is present.
+func validateRuleEnumValue[T any](value *string, lookup map[string]T, fieldName string) error {
+	*value = strings.ToUpper(*value)
+	if _, found := lookup[*value]; !found {
+		return ruleErr("unknown %s `%s`", fieldName, *value)
 	}
+	return nil
+}
 
-	// Process rule direction
-	rule.Direction = strings.ToUpper(rule.Direction)
-	direction, found := NetworkSecurityGroupRuleProtobufDirectionFromAPIDirection[rule.Direction]
-	if !found {
-		return nil, validation.Errors{"rules": fmt.Errorf("unknown direction `%s`", rule.Direction)}
+// validateRulePortRange runs the shared port-range parser against one
+// side of a rule and wraps any parser error in the matching
+// `unable to parse <label> port range` message. `label` is "source" or
+// "destination". The parsed values themselves are reproduced in
+// `ToProto`; this helper only gates well-formedness.
+func validateRulePortRange(value *string, label string) error {
+	if _, _, err := hutil.StringPtrToPortRangeUint32PtrPair(value); err != nil {
+		return ruleErr("unable to parse %s port range in API request: %w", label, err)
 	}
+	return nil
+}
 
-	// Process rule action
-	rule.Action = strings.ToUpper(rule.Action)
-	action, found := NetworkSecurityGroupRuleProtobufActionFromAPIAction[rule.Action]
-	if !found {
-		return nil, validation.Errors{"rules": fmt.Errorf("unknown action `%s`", rule.Action)}
+// validateRulePrefix enforces that the source / destination prefix is
+// both present (the only network option modelled today, so it's
+// required) and a parseable CIDR. `label` is "source" or "destination"
+// and is interpolated into both the missing-option and invalid-CIDR
+// messages so the caller's error funnel keeps a consistent shape.
+func validateRulePrefix(value *string, label string) error {
+	if value == nil {
+		return ruleErr("required %s network option not found in API request", label)
 	}
-
-	// Process rule protocol
-	rule.Protocol = strings.ToUpper(rule.Protocol)
-	protocol, found := NetworkSecurityGroupRuleProtobufProtocolFromAPIProtocol[rule.Protocol]
-	if !found {
-		return nil, validation.Errors{"rules": fmt.Errorf("unknown protocol `%s`", rule.Protocol)}
+	if _, _, err := net.ParseCIDR(*value); err != nil {
+		return ruleErr("%s prefix `%s` is not valid", label, *value)
 	}
+	return nil
+}
 
-	// Some protocols don't allow ports, so let's check for that.
+// validateRuleProtocolPortCompat rejects rules that pair a port-less
+// protocol (Any / Icmp / Icmp6) with a source or destination port
+// range. Pulled out of `Validate` so the high-level outline stays
+// flat; the switch is small but the inline form drowned in the
+// surrounding sequential checks.
+func validateRuleProtocolPortCompat(rule *APINetworkSecurityGroupRule) error {
 	switch rule.Protocol {
 	case APINetworkSecurityGroupRuleProtocolAny, APINetworkSecurityGroupRuleProtocolIcmp, APINetworkSecurityGroupRuleProtocolIcmp6:
 		if rule.SourcePortRange != nil || rule.DestinationPortRange != nil {
-			return nil, validation.Errors{"rules": fmt.Errorf("ports cannot be specified with protocol `%s`", rule.Protocol)}
+			return ruleErr("ports cannot be specified with protocol `%s`", rule.Protocol)
 		}
 	}
+	return nil
+}
 
-	// Process src/dst port ranges
-
-	srcPortStart, srcPortEnd, err := hutil.StringPtrToPortRangeUint32PtrPair(rule.SourcePortRange)
-	if err != nil {
-		return nil, validation.Errors{"rules": fmt.Errorf("unable to parse source port range in API request: %w", err)}
+// Validate checks the request-side fields of this rule and normalizes
+// case for the enum-style fields (Direction / Action / Protocol).
+// Per the proto-conversion convention this is the pre-`ToProto`
+// validation step: it covers priority bounds, recognised enum values,
+// protocol/port compatibility, port-range parseability, prefix CIDR
+// shape, and the presence of source / destination network options.
+// Once Validate has succeeded `ToProto` can act as a focused mapper.
+func (rule *APINetworkSecurityGroupRule) Validate() error {
+	if rule.Priority < NetworkSecurityGroupRulePriorityMin || rule.Priority > NetworkSecurityGroupRulePriorityMax {
+		return ruleErr("priority `%d` must be between 0 and 60000", rule.Priority)
 	}
-
-	dstPortStart, dstPortEnd, err := hutil.StringPtrToPortRangeUint32PtrPair(rule.DestinationPortRange)
-	if err != nil {
-		return nil, validation.Errors{"rules": fmt.Errorf("unable to parse destination port range in API request: %w", err)}
+	if err := validateRuleEnumValue(&rule.Direction, NetworkSecurityGroupRuleProtobufDirectionFromAPIDirection, "direction"); err != nil {
+		return err
 	}
-
-	newRule := &cdbm.NetworkSecurityGroupRule{
-		NetworkSecurityGroupRuleAttributes: &cwssaws.NetworkSecurityGroupRuleAttributes{
-			Id:        rule.Name,
-			Direction: direction,
-			Protocol:  protocol,
-			Action:    action,
-			Priority:  uint32(rule.Priority),
-			Ipv6:      false, // We have support for it in ACLs but pretty much nowhere else, so hide this for now.
-
-			SrcPortStart: srcPortStart,
-			SrcPortEnd:   srcPortEnd,
-			DstPortStart: dstPortStart,
-			DstPortEnd:   dstPortEnd,
-		},
+	if err := validateRuleEnumValue(&rule.Action, NetworkSecurityGroupRuleProtobufActionFromAPIAction, "action"); err != nil {
+		return err
 	}
+	if err := validateRuleEnumValue(&rule.Protocol, NetworkSecurityGroupRuleProtobufProtocolFromAPIProtocol, "protocol"); err != nil {
+		return err
+	}
+	if err := validateRuleProtocolPortCompat(rule); err != nil {
+		return err
+	}
+	if err := validateRulePortRange(rule.SourcePortRange, "source"); err != nil {
+		return err
+	}
+	if err := validateRulePortRange(rule.DestinationPortRange, "destination"); err != nil {
+		return err
+	}
+	if err := validateRulePrefix(rule.SourcePrefix, "source"); err != nil {
+		return err
+	}
+	if err := validateRulePrefix(rule.DestinationPrefix, "destination"); err != nil {
+		return err
+	}
+	return nil
+}
 
-	// Process src/dst prefixes
+// ToProto converts an API rule into the workflow proto attributes that
+// the DB record wraps and that get sent to NICo. It trusts that
+// `Validate` has run first — enum lookups, port ranges, and prefixes
+// are assumed safe — so this method is a focused mapper and does not
+// return errors.
+func (rule *APINetworkSecurityGroupRule) ToProto() *cwssaws.NetworkSecurityGroupRuleAttributes {
+	// Validate has normalized casing and proven these lookups succeed,
+	// so we don't re-check the `found` results here.
+	direction := NetworkSecurityGroupRuleProtobufDirectionFromAPIDirection[rule.Direction]
+	action := NetworkSecurityGroupRuleProtobufActionFromAPIAction[rule.Action]
+	protocol := NetworkSecurityGroupRuleProtobufProtocolFromAPIProtocol[rule.Protocol]
 
-	// We currently only have a single source network
-	// option supported.
-	// As/If we add more, add more if-blocks
-	// and checking the final count will be a
-	// pretty cheap way to make sure we have only
-	// one.
+	// Validate already parsed both ranges successfully; the parse
+	// helpers are total over well-formed input and a nil pointer
+	// produces nil starts/ends.
+	srcPortStart, srcPortEnd, _ := hutil.StringPtrToPortRangeUint32PtrPair(rule.SourcePortRange)
+	dstPortStart, dstPortEnd, _ := hutil.StringPtrToPortRangeUint32PtrPair(rule.DestinationPortRange)
 
-	// Process source net
+	attrs := &cwssaws.NetworkSecurityGroupRuleAttributes{
+		Id:        rule.Name,
+		Direction: direction,
+		Protocol:  protocol,
+		Action:    action,
+		Priority:  uint32(rule.Priority),
+		Ipv6:      false, // We have support for it in ACLs but pretty much nowhere else, so hide this for now.
 
-	sourceNetOptionCount := 0
+		SrcPortStart: srcPortStart,
+		SrcPortEnd:   srcPortEnd,
+		DstPortStart: dstPortStart,
+		DstPortEnd:   dstPortEnd,
+	}
 
 	if rule.SourcePrefix != nil {
-
-		if _, _, err := net.ParseCIDR(*rule.SourcePrefix); err != nil {
-			return nil, validation.Errors{"rules": fmt.Errorf("source prefix `%s` is not valid", *rule.SourcePrefix)}
-		}
-
-		newRule.SourceNet = &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: *rule.SourcePrefix}
-		sourceNetOptionCount++
+		attrs.SourceNet = &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: *rule.SourcePrefix}
 	}
-
-	if sourceNetOptionCount > 1 {
-		return nil, validation.Errors{"rules": fmt.Errorf("too many source network options found in API request")}
-	}
-
-	if sourceNetOptionCount == 0 {
-		return nil, validation.Errors{"rules": fmt.Errorf("required source network option not found in API request")}
-	}
-
-	// Process destination net
-
-	destinationNetOptionCount := 0
-
 	if rule.DestinationPrefix != nil {
-
-		if _, _, err := net.ParseCIDR(*rule.DestinationPrefix); err != nil {
-			return nil, validation.Errors{"rules": fmt.Errorf("destination prefix `%s` is not valid", *rule.DestinationPrefix)}
-		}
-
-		newRule.DestinationNet = &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: *rule.DestinationPrefix}
-		destinationNetOptionCount++
+		attrs.DestinationNet = &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: *rule.DestinationPrefix}
 	}
 
-	if destinationNetOptionCount > 1 {
-		return nil, validation.Errors{"rules": fmt.Errorf("too many destination network options found in API request")}
-	}
-
-	if destinationNetOptionCount == 0 {
-		return nil, validation.Errors{"rules": fmt.Errorf("required destination network option not found in API request")}
-	}
-
-	return newRule, nil
+	return attrs
 }
 
-// Accepts a NICo rule definition and converts
-// it to the nico-rest-api request representation that will be
-// returned to users
-func APINetworkSecurityGroupRuleFromProtobufRule(rule *cdbm.NetworkSecurityGroupRule) (*APINetworkSecurityGroupRule, error) {
-
-	if rule.Priority > NetworkSecurityGroupRulePriorityMax {
-		return nil, validation.Errors{"rules": fmt.Errorf("priority `%d` must be between 0 and 60000", rule.Priority)}
+// FromProto populates this rule from workflow proto attributes
+// (typically the embedded value on a stored
+// `cdbm.NetworkSecurityGroupRule`). A nil attrs is a no-op.
+//
+// Per the proto-conversion convention this method does not return
+// errors. Unknown enum values leave the corresponding string field
+// empty; half-defined port ranges and unrecognized network options
+// leave the matching fields nil. Anything more aggressive belongs in
+// a DB-integrity check before the data reaches this method.
+func (rule *APINetworkSecurityGroupRule) FromProto(attrs *cwssaws.NetworkSecurityGroupRuleAttributes) {
+	if attrs == nil {
+		return
 	}
 
-	// Process rule direction
-	direction, found := NetworkSecurityGroupRuleAPIDirectionFromProtobufDirection[rule.Direction]
-	if !found {
-		return nil, validation.Errors{"rules": fmt.Errorf("unknown direction in database record, %s (%d)", rule.Direction.String(), rule.Direction.Number())}
+	rule.Name = attrs.Id
+	rule.Priority = int(attrs.Priority)
+
+	// Unknown enum values fall through to the zero string. Callers
+	// that need stricter handling should reject the entity at the DB
+	// layer rather than the conversion layer.
+	rule.Direction = NetworkSecurityGroupRuleAPIDirectionFromProtobufDirection[attrs.Direction]
+	rule.Action = NetworkSecurityGroupRuleAPIActionFromProtobufAction[attrs.Action]
+	rule.Protocol = NetworkSecurityGroupRuleAPIProtocolFromProtobufProtocol[attrs.Protocol]
+
+	// Source / destination prefixes — currently the only network
+	// options modelled on the API side. Anything else leaves the
+	// matching field nil.
+	rule.SourcePrefix = nil
+	if src, ok := attrs.GetSourceNet().(*cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix); ok {
+		prefix := src.SrcPrefix
+		rule.SourcePrefix = &prefix
+	}
+	rule.DestinationPrefix = nil
+	if dst, ok := attrs.GetDestinationNet().(*cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix); ok {
+		prefix := dst.DstPrefix
+		rule.DestinationPrefix = &prefix
 	}
 
-	// Process rule action
-	action, found := NetworkSecurityGroupRuleAPIActionFromProtobufAction[rule.Action]
-	if !found {
-		return nil, validation.Errors{"rules": fmt.Errorf("unknown action in database record, %s (%d)", rule.Action.String(), rule.Action.Number())}
+	// Port ranges round-trip only when both halves are present. A
+	// half-defined range comes back as a nil API range; the rest of
+	// the rule still loads.
+	rule.SourcePortRange = nil
+	if attrs.SrcPortStart != nil && attrs.SrcPortEnd != nil {
+		s := fmt.Sprintf("%d-%d", *attrs.SrcPortStart, *attrs.SrcPortEnd)
+		rule.SourcePortRange = &s
 	}
-
-	// Process rule protocol
-	protocol, found := NetworkSecurityGroupRuleAPIProtocolFromProtobufProtocol[rule.Protocol]
-	if !found {
-		return nil, validation.Errors{"rules": fmt.Errorf("unknown protocol in database record, %s (%d)", rule.Protocol.String(), rule.Protocol.Number())}
+	rule.DestinationPortRange = nil
+	if attrs.DstPortStart != nil && attrs.DstPortEnd != nil {
+		s := fmt.Sprintf("%d-%d", *attrs.DstPortStart, *attrs.DstPortEnd)
+		rule.DestinationPortRange = &s
 	}
-
-	// Some protocols don't allow ports, so let's check for that.
-	switch protocol {
-	case APINetworkSecurityGroupRuleProtocolAny, APINetworkSecurityGroupRuleProtocolIcmp, APINetworkSecurityGroupRuleProtocolIcmp6:
-		if rule.SrcPortStart != nil || rule.DstPortStart != nil {
-			return nil, validation.Errors{"rules": fmt.Errorf("found ports incorrectly specified with protocol `%s` in database record", protocol)}
-		}
-	}
-
-	// Process rule source and destination networks
-
-	var srcPrefix *string
-	var dstPrefix *string
-
-	switch srcNet := rule.GetSourceNet().(type) {
-	case *cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix:
-		if _, _, err := net.ParseCIDR(srcNet.SrcPrefix); err != nil {
-			return nil, validation.Errors{"rules": fmt.Errorf("found invalid source prefix `%s` in database record", srcNet.SrcPrefix)}
-		}
-		srcPrefix = &srcNet.SrcPrefix
-	default:
-		return nil, validation.Errors{"rules": fmt.Errorf("encountered unknown source network option in database record")}
-	}
-
-	switch dstNet := rule.GetDestinationNet().(type) {
-	case *cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix:
-		if _, _, err := net.ParseCIDR(dstNet.DstPrefix); err != nil {
-			return nil, validation.Errors{"rules": fmt.Errorf("found invalid destination prefix `%s` in database record", dstNet.DstPrefix)}
-		}
-		dstPrefix = &dstNet.DstPrefix
-	default:
-		return nil, fmt.Errorf("encountered unknown source network option in database record")
-	}
-
-	// Process rule port ranges
-	var srcPortRange *string
-	var dstPortRange *string
-
-	// Whether nico-rest-api validates ranges or not,
-	// NICo will reject half-defined port ranges.
-	// If we see a half-defined range, it means DB
-	// corruption.
-	if rule.SrcPortStart != nil || rule.SrcPortEnd != nil {
-		if rule.SrcPortStart == nil || rule.SrcPortEnd == nil {
-			return nil, errors.New("encountered half-defined source port range in database record")
-		}
-		srcPortRangeStr := fmt.Sprintf("%d-%d", *rule.SrcPortStart, *rule.SrcPortEnd)
-		srcPortRange = &srcPortRangeStr
-	}
-
-	if rule.DstPortStart != nil || rule.DstPortEnd != nil {
-		if rule.DstPortStart == nil || rule.DstPortEnd == nil {
-			return nil, errors.New("encountered half-defined destination port range in database record")
-		}
-		dstPortRangeStr := fmt.Sprintf("%d-%d", *rule.DstPortStart, *rule.DstPortEnd)
-		dstPortRange = &dstPortRangeStr
-	}
-
-	return &APINetworkSecurityGroupRule{
-		Name:                 rule.Id,
-		Direction:            direction,
-		SourcePortRange:      srcPortRange,
-		DestinationPortRange: dstPortRange,
-		Protocol:             protocol,
-		Action:               action,
-		Priority:             int(rule.Priority),
-		SourcePrefix:         srcPrefix,
-		DestinationPrefix:    dstPrefix,
-	}, nil
 }
 
-// NewAPINetworkSecurityGroup accepts a DB layer NetworkSecurityGroup object and returns an API object
-func NewAPINetworkSecurityGroup(dsg *cdbm.NetworkSecurityGroup, dbsds []cdbm.StatusDetail) (*APINetworkSecurityGroup, error) {
+// NewAPINetworkSecurityGroupRule constructs an APINetworkSecurityGroupRule
+// from workflow proto attributes by calling FromProto. Returns nil for a
+// nil attrs argument.
+func NewAPINetworkSecurityGroupRule(attrs *cwssaws.NetworkSecurityGroupRuleAttributes) *APINetworkSecurityGroupRule {
+	if attrs == nil {
+		return nil
+	}
+	rule := &APINetworkSecurityGroupRule{}
+	rule.FromProto(attrs)
+	return rule
+}
+
+// NewAPINetworkSecurityGroup accepts a DB layer NetworkSecurityGroup object and returns an API object.
+// Rule reconstruction is defensive (see (*APINetworkSecurityGroupRule).FromProto),
+// so this constructor does not return an error.
+func NewAPINetworkSecurityGroup(dsg *cdbm.NetworkSecurityGroup, dbsds []cdbm.StatusDetail) *APINetworkSecurityGroup {
 	apisg := &APINetworkSecurityGroup{
 		ID:             dsg.ID,
 		Name:           dsg.Name,
@@ -500,18 +505,65 @@ func NewAPINetworkSecurityGroup(dsg *cdbm.NetworkSecurityGroup, dbsds []cdbm.Sta
 	rules := make([]*APINetworkSecurityGroupRule, len(dsg.Rules))
 
 	for i, rule := range dsg.Rules {
-		newRule, err := APINetworkSecurityGroupRuleFromProtobufRule(rule)
-		if err != nil {
-			return nil, err
-		}
-
-		rules[i] = newRule
+		rules[i] = NewAPINetworkSecurityGroupRule(rule.NetworkSecurityGroupRuleAttributes)
 	}
 
 	apisg.Rules = rules
 	apisg.RuleCount = len(rules)
 
-	return apisg, nil
+	return apisg
+}
+
+// ToProto builds the workflow request that asks a Site to create a new
+// NetworkSecurityGroup for this API request. `nsg` is the just-persisted
+// DB record; its `ToProto()` is the source of the canonical Metadata
+// (Name, Description, Labels) and the assigned ID. The request-shape
+// fields (rule list, statefulEgress) are taken directly from the
+// request because they're the caller's authoritative input for this
+// create.
+//
+// The method trusts that the request has already been Validated and
+// that the handler has performed any cross-context checks Validate
+// cannot see; in particular, every rule has been Validated, so each
+// `rule.ToProto()` is safe to call without checking errors.
+func (req *APINetworkSecurityGroupCreateRequest) ToProto(nsg *cdbm.NetworkSecurityGroup) *cwssaws.CreateNetworkSecurityGroupRequest {
+	nsgProto := nsg.ToProto()
+	// The DB record has already been built from the request, so the
+	// Metadata it produces (Name / Description / Labels) is the
+	// canonical wire form. Re-use it here rather than rebuilding from
+	// the request struct.
+	rules := make([]*cwssaws.NetworkSecurityGroupRuleAttributes, len(req.Rules))
+	for i := range req.Rules {
+		rules[i] = req.Rules[i].ToProto()
+	}
+	return &cwssaws.CreateNetworkSecurityGroupRequest{
+		Id:                   &nsg.ID,
+		TenantOrganizationId: nsgProto.TenantOrganizationId,
+		Metadata:             nsgProto.Metadata,
+		NetworkSecurityGroupAttributes: &cwssaws.NetworkSecurityGroupAttributes{
+			StatefulEgress: req.StatefulEgress,
+			Rules:          rules,
+		},
+	}
+}
+
+// ToProto builds the workflow request that pushes this update's
+// post-merge state to the Site. `nsg` is the already-updated DB
+// record; its `ToProto()` provides the canonical Metadata and the
+// post-merge rule list (the handler writes the request rules into the
+// DB before calling this), keeping the wire payload aligned with what
+// the database now holds.
+//
+// As with the create variant, this method trusts that `Validate` has
+// run and any cross-context checks have been performed in the handler.
+func (req *APINetworkSecurityGroupUpdateRequest) ToProto(nsg *cdbm.NetworkSecurityGroup) *cwssaws.UpdateNetworkSecurityGroupRequest {
+	nsgProto := nsg.ToProto()
+	return &cwssaws.UpdateNetworkSecurityGroupRequest{
+		Id:                             nsgProto.Id,
+		TenantOrganizationId:           nsgProto.TenantOrganizationId,
+		Metadata:                       nsgProto.Metadata,
+		NetworkSecurityGroupAttributes: nsgProto.Attributes,
+	}
 }
 
 type APINetworkSecurityGroupRule struct {

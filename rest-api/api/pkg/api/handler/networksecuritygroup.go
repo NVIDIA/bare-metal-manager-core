@@ -16,10 +16,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
+	"go.opentelemetry.io/otel/attribute"
+	temporalClient "go.temporal.io/sdk/client"
+	tp "go.temporal.io/sdk/temporal"
+
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	common "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/pagination"
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	auth "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
@@ -28,11 +31,7 @@ import (
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
-	"go.opentelemetry.io/otel/attribute"
-	temporalClient "go.temporal.io/sdk/client"
-	tp "go.temporal.io/sdk/temporal"
 )
 
 // ~~~~~ Create Handler ~~~~~ //
@@ -179,7 +178,9 @@ func (cnsgh CreateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 	}
 
 	// Convert all the request rules into rules
-	// we can store and send to NICo.
+	// we can store and send to NICo. Per-rule validation has already
+	// run inside apiRequest.Validate, so rule.ToProto is a pure mapper
+	// here; we only check for cross-rule constraints (duplicate names).
 	rules := make([]*cdbm.NetworkSecurityGroupRule, len(apiRequest.Rules))
 
 	names := map[string]bool{}
@@ -193,13 +194,7 @@ func (cnsgh CreateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 			names[*rule.Name] = true
 		}
 
-		newRule, err := model.ProtobufRuleFromAPINetworkSecurityGroupRule(&rule)
-		if err != nil {
-			logger.Error().Err(err).Msg("unable to convert rules in request to internal rules")
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Unable to process rules in request", err)
-		}
-
-		rules[i] = newRule
+		rules[i] = &cdbm.NetworkSecurityGroupRule{NetworkSecurityGroupRuleAttributes: rule.ToProto()}
 	}
 
 	networkSecurityGroupID := uuid.NewString()
@@ -255,35 +250,10 @@ func (cnsgh CreateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		createLabels := util.ProtobufLabelsFromAPILabels(nsg.Labels)
-
-		description := ""
-		if nsg.Description != nil {
-			description = *nsg.Description
-		}
-
-		// Convert the DB rule wrappers into rules
-		// we can send to NICo.
-		nicoRules := make([]*cwssaws.NetworkSecurityGroupRuleAttributes, len(rules))
-
-		for i, rule := range rules {
-			nicoRules[i] = rule.NetworkSecurityGroupRuleAttributes
-		}
-
-		// Prepare the create request workflow object
-		createNetworkSecurityGroupRequest := &cwssaws.CreateNetworkSecurityGroupRequest{
-			Id:                   &networkSecurityGroupID,
-			TenantOrganizationId: tenant.Org,
-			Metadata: &cwssaws.Metadata{
-				Name:        apiRequest.Name,
-				Description: description,
-				Labels:      createLabels,
-			},
-			NetworkSecurityGroupAttributes: &cwssaws.NetworkSecurityGroupAttributes{
-				StatefulEgress: apiRequest.StatefulEgress,
-				Rules:          nicoRules,
-			},
-		}
+		// The DB record is the canonical source for Metadata and the
+		// assigned ID; request-shape fields (rules, statefulEgress)
+		// come from the validated apiRequest.
+		createNetworkSecurityGroupRequest := apiRequest.ToProto(nsg)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "network-security-group-create-" + nsg.ID,
@@ -348,11 +318,7 @@ func (cnsgh CreateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 	}
 
 	// Create response
-	apiNetworkSecurityGroup, err := model.NewAPINetworkSecurityGroup(networkSecurityGroup, []cdbm.StatusDetail{*ssd})
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to convert NetworkSecurityGroup database record to API response")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to convert Network Security Group database record to API response", nil)
-	}
+	apiNetworkSecurityGroup := model.NewAPINetworkSecurityGroup(networkSecurityGroup, []cdbm.StatusDetail{*ssd})
 
 	logger.Info().Msg("finishing API handler")
 	return c.JSON(http.StatusCreated, apiNetworkSecurityGroup)
@@ -589,11 +555,7 @@ func (gansgh GetAllNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 
 	// Loop through the NSGs, create the API response, and attach the statsMap data.
 	for i, nsg := range nsgs {
-		apiNSG, err := model.NewAPINetworkSecurityGroup(&nsg, ssdMap[nsg.ID])
-		if err != nil {
-			logger.Error().Err(err).Msg("error converting NetworkSecurityGroup to APINetworkSecurityGroup")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to prepare Network Security Group for response", nil)
-		}
+		apiNSG := model.NewAPINetworkSecurityGroup(&nsg, ssdMap[nsg.ID])
 
 		aits[i] = apiNSG
 		apiNSG.AttachmentStats = statsMap[nsg.ID]
@@ -757,11 +719,7 @@ func (gansgh GetNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 	}
 
 	// Create response
-	apiNetworkSecurityGroup, err := model.NewAPINetworkSecurityGroup(nsg, ssds)
-	if err != nil {
-		logger.Error().Err(err).Msg("error converting NetworkSecurityGroup to APINetworkSecurityGroup")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to prepare Network Security Group for response", nil)
-	}
+	apiNetworkSecurityGroup := model.NewAPINetworkSecurityGroup(nsg, ssds)
 
 	// Attach stats if requested
 	if includeAttachmentStats {
@@ -947,10 +905,7 @@ func (dnsgh DeleteNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		deleteNetworkSecurityGroupRequest := &cwssaws.DeleteNetworkSecurityGroupRequest{
-			Id:                   nsg.ID,
-			TenantOrganizationId: nsg.TenantOrg,
-		}
+		deleteNetworkSecurityGroupRequest := nsg.ToDeletionRequestProto()
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "network-security-group-delete-" + nsg.ID,
@@ -1169,10 +1124,10 @@ func (dnsgh UpdateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 
 	var rules []*cdbm.NetworkSecurityGroupRule
 
-	// Override rules if requested.
+	// Override rules if requested. Per-rule validation has already run
+	// inside apiRequest.Validate, so rule.ToProto is a pure mapper
+	// here; we only check for cross-rule constraints (duplicate names).
 	if apiRequest.Rules != nil {
-		// Convert all the request rules into rules
-		// we can store and send to NICo.
 		rules = make([]*cdbm.NetworkSecurityGroupRule, len(apiRequest.Rules))
 
 		names := map[string]bool{}
@@ -1188,13 +1143,7 @@ func (dnsgh UpdateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 				names[*rule.Name] = true
 			}
 
-			newRule, err := model.ProtobufRuleFromAPINetworkSecurityGroupRule(&rule)
-			if err != nil {
-				logger.Error().Err(err).Msg("unable to convert rules in request to internal rules")
-				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Unable to process rules in request", err)
-			}
-
-			rules[i] = newRule
+			rules[i] = &cdbm.NetworkSecurityGroupRule{NetworkSecurityGroupRuleAttributes: rule.ToProto()}
 		}
 	}
 
@@ -1239,35 +1188,11 @@ func (dnsgh UpdateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		labels := util.ProtobufLabelsFromAPILabels(updated.Labels)
-
-		description := ""
-		if updated.Description != nil {
-			description = *updated.Description
-		}
-
-		// Convert the DB rule wrappers into rules
-		// we can send to NICo.
-		nicoRules := make([]*cwssaws.NetworkSecurityGroupRuleAttributes, len(updated.Rules))
-
-		for i, rule := range updated.Rules {
-			nicoRules[i] = rule.NetworkSecurityGroupRuleAttributes
-		}
-
-		// Prepare the create request workflow object
-		updateNetworkSecurityGroupRequest := &cwssaws.UpdateNetworkSecurityGroupRequest{
-			Id:                   updated.ID,
-			TenantOrganizationId: updated.TenantOrg,
-			Metadata: &cwssaws.Metadata{
-				Name:        updated.Name,
-				Description: description,
-				Labels:      labels,
-			},
-			NetworkSecurityGroupAttributes: &cwssaws.NetworkSecurityGroupAttributes{
-				StatefulEgress: updated.StatefulEgress,
-				Rules:          nicoRules,
-			},
-		}
+		// The DB record has already been updated with the request
+		// data, so its `ToProto()` is the canonical wire form for
+		// both Metadata and the post-merge Attributes (rule list +
+		// statefulEgress).
+		updateNetworkSecurityGroupRequest := apiRequest.ToProto(updated)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "network-security-group-update-" + updated.ID,
@@ -1332,11 +1257,7 @@ func (dnsgh UpdateNetworkSecurityGroupHandler) Handle(c echo.Context) error {
 	}
 
 	// Create response
-	apiNetworkSecurityGroup, err := model.NewAPINetworkSecurityGroup(updatedNSG, ssds)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to convert NetworkSecurityGroup database record to API response")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to convert Network Security Group database record to API response", nil)
-	}
+	apiNetworkSecurityGroup := model.NewAPINetworkSecurityGroup(updatedNSG, ssds)
 
 	logger.Info().Msg("finishing API handler")
 	return c.JSON(http.StatusOK, apiNetworkSecurityGroup)

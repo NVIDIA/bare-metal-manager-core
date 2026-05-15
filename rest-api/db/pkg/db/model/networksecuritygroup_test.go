@@ -8,15 +8,16 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	otrace "go.opentelemetry.io/otel/trace"
+	"google.golang.org/protobuf/proto"
+
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	otrace "go.opentelemetry.io/otel/trace"
-	"google.golang.org/protobuf/proto"
 )
 
 func getIntPtrToUint32Ptr(i *int) *uint32 {
@@ -541,7 +542,7 @@ func TestNetworkSecurityGroupSQLDAO_Update(t *testing.T) {
 		expectedStatus         *string
 		expectedStatefulEgress *bool
 		expectedRules          []*NetworkSecurityGroupRule
-		expectedLabels         map[string]string
+		expectedLabels         Labels
 
 		expectError        bool
 		verifyChildSpanner bool
@@ -563,7 +564,7 @@ func TestNetworkSecurityGroupSQLDAO_Update(t *testing.T) {
 			expectedDescription:    cutil.GetPtr("updatedDesc"),
 			expectedStatus:         cutil.GetPtr(NetworkSecurityGroupStatusReady),
 			expectedVersion:        cutil.GetPtr("555555"),
-			expectedLabels:         map[string]string{"key": "value"},
+			expectedLabels:         Labels{"key": "value"},
 			expectedUpdatedByID:    &user2.ID,
 			expectedTenantID:       &sg1.TenantID,
 			expectedTenantOrg:      &sg1.TenantOrg,

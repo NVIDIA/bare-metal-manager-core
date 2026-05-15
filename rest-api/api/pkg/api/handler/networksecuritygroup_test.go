@@ -16,6 +16,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v4"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/NVIDIA/infra-controller/rest-api/api/internal/config"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model"
@@ -23,22 +28,19 @@ import (
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	sutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
-	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	sc "github.com/NVIDIA/infra-controller/rest-api/api/pkg/client/site"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
-	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 	"github.com/stretchr/testify/mock"
 	"go.temporal.io/api/enums/v1"
 	temporalClient "go.temporal.io/sdk/client"
 	tmocks "go.temporal.io/sdk/mocks"
 	tp "go.temporal.io/sdk/temporal"
+
+	authz "github.com/NVIDIA/infra-controller/rest-api/auth/pkg/authorization"
 )
 
 func getIntPtrToUint32Ptr(i *int) *uint32 {
@@ -1878,8 +1880,7 @@ func TestNetworkSecurityGroupHandler_Update(t *testing.T) {
 	rules := []model.APINetworkSecurityGroupRule{}
 
 	for _, rule := range dbRules {
-		r, err := model.APINetworkSecurityGroupRuleFromProtobufRule(rule)
-		assert.Nil(t, err, err)
+		r := model.NewAPINetworkSecurityGroupRule(rule.NetworkSecurityGroupRuleAttributes)
 		rules = append(rules, *r)
 	}
 

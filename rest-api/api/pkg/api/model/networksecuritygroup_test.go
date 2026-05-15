@@ -8,14 +8,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
-	validation "github.com/go-ozzo/ozzo-validation/v4"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	"google.golang.org/protobuf/proto"
 )
 
 // A helper only for tests.  Ignores potential conversion errors.
@@ -120,55 +121,31 @@ func TestAPINetworkSecurityGroupRuleConversions(t *testing.T) {
 	// as the set of all the generated rules.
 	assert.True(t, len(allRules) > len(validRules))
 
-	// Convert to API rules
-	// We'll loop through all rules, but we expect errors for the
-	// invalid ones and a final count that contains only the valid ones.
-	i := 0
-	for _, rule := range allRules {
+	// Round-trip the valid rules through FromProto and ToProto. After
+	// the layered-proto-conversion refactor, FromProto / ToProto no
+	// longer return errors: they trust their input. The valid set
+	// here is exactly the set of inputs the previous-stage validation
+	// (Validate) would have allowed through.
+	for i, rule := range validRules {
+		apiRule := NewAPINetworkSecurityGroupRule(rule.NetworkSecurityGroupRuleAttributes)
 
-		apiRule, err := APINetworkSecurityGroupRuleFromProtobufRule(rule)
+		assert.NotNil(t, apiRule, "expected non-nil API rule for valid proto attrs")
 
-		failMsg := fmt.Sprintf("\nNICo Rule\n\n%+v\n\nAPI Rule\n\n%+v\n\n", rule, apiRule)
+		newAttrs := apiRule.ToProto()
 
-		// Here, we're doing the inverse of what we did during rule generation where we
-		// excluded matching rules from the set of validRules.
-		// Now, we want to match on the _invalid_ rules and make sure they generate an error.
-		if rule.Direction == cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INVALID ||
-			rule.Protocol == cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_INVALID ||
-			rule.Action == cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_INVALID ||
-			((rule.SrcPortStart == nil) != (rule.SrcPortEnd == nil)) ||
-			((rule.DstPortStart == nil) != (rule.DstPortEnd == nil)) ||
-			(rule.SrcPortStart != nil || rule.DstPortStart != nil) &&
-				(rule.Protocol == cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ANY ||
-					rule.Protocol == cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ICMP ||
-					rule.Protocol == cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_ICMP6) {
-
-			assert.NotNil(t, err, failMsg)
-			continue
-		}
-
-		assert.Nil(t, err, failMsg)
-
-		// Convert back again
-		newRule, err := ProtobufRuleFromAPINetworkSecurityGroupRule(apiRule)
-
-		if !assert.Nil(t, err, failMsg) {
-			if e, ok := err.(validation.Errors); ok {
-				msg, _ := e.MarshalJSON()
-				t.Fatalf("API validation failure: %s", msg)
-			}
-		}
-
-		// Compare the double-conversion to the original of rule
-		assert.True(t, proto.Equal(validRules[i], newRule), fmt.Sprintf("\nNICo Rule\n\n%+v\n\nAPI Rule\n\n%+v\n\nNew NICo Rule\n\n%+v\n", rule, apiRule, newRule))
-
-		// Track the valid rule index
-		i++
+		assert.True(t,
+			proto.Equal(validRules[i].NetworkSecurityGroupRuleAttributes, newAttrs),
+			fmt.Sprintf("\nNICo Rule\n\n%+v\n\nAPI Rule\n\n%+v\n\nNew NICo Rule\n\n%+v\n", rule, apiRule, newAttrs),
+		)
 	}
 
-	// Test some invalid API request cases
-	// The first entry is a known good one.
-	// The rest are invalid
+	// Test some invalid API request cases.
+	// The first entry of each axis is a known-good value; the rest
+	// are invalid. With Validate now owning request validation, we
+	// drive each rule through `Validate()` instead of `ToProto()`,
+	// and assert that any non-zero index along any axis produces an
+	// error. The "known good" combo (all axes at index 0) must
+	// round-trip cleanly through ToProto and FromProto.
 	directions := []string{APINetworkSecurityGroupRuleDirectionIngress, "outer space", ""}
 	protocol := []string{APINetworkSecurityGroupRuleProtocolTcp, "MPLS", ""}
 	actions := []string{APINetworkSecurityGroupRuleActionPermit, "explode", ""}
@@ -201,29 +178,27 @@ func TestAPINetworkSecurityGroupRuleConversions(t *testing.T) {
 
 									failMsg := fmt.Sprintf("\n%v\n%v\n%v\n%v\n%v\n%v\n%v\n%d\n\n%+v\n", d, p, a, sr, dr, sp, dp, prio, rule)
 
-									// Now, convert to a NICo/proto rule
-									nicoRule, err := ProtobufRuleFromAPINetworkSecurityGroupRule(rule)
+									err := rule.Validate()
 
 									// If this rule has all the known good entries,
-									// it should have passed (converted successfully).
+									// it should have passed (validated successfully)
+									// and ToProto/FromProto should be symmetric.
 									if dI == 0 && pI == 0 && aI == 0 && srI == 0 && drI == 0 && spI == 0 && dpI == 0 && prioI == 0 {
 										assert.Nil(t, err, failMsg)
 
-										// Now, convert back again so we can confirm that all conversions
-										// are symmetric.
-										apiRule, err := APINetworkSecurityGroupRuleFromProtobufRule(nicoRule)
+										nicoAttrs := rule.ToProto()
 
-										assert.Nil(t, err, failMsg)
+										apiRule := NewAPINetworkSecurityGroupRule(nicoAttrs)
 
 										// Compare the original rule to the one that
 										// came out of the double-conversion.
 										assert.Equal(t, rule, apiRule, failMsg)
 
 									} else {
-										// For every other case it should fail.
-										// The combos ensure that each bad property gets
-										// tested with every other property set to a known
-										// good value.
+										// For every other case Validate should fail.
+										// The combos ensure that each bad property
+										// gets tested with every other property set to
+										// a known good value.
 										assert.NotNil(t, err, failMsg)
 									}
 								}
@@ -238,8 +213,18 @@ func TestAPINetworkSecurityGroupRuleConversions(t *testing.T) {
 
 func TestAPINetworkSecurityGroupCreateRequest_Validate(t *testing.T) {
 
+	// Rule-level validation now runs inside the parent Validate, so
+	// the fixture rule must itself be valid for the "ok" cases below
+	// to pass.
 	rules := []APINetworkSecurityGroupRule{
-		{Direction: APINetworkSecurityGroupRuleProtocolTcp, SourcePortRange: cutil.GetPtr("80-81"), Protocol: APINetworkSecurityGroupRuleProtocolTcp, Action: APINetworkSecurityGroupRuleActionPermit},
+		{
+			Direction:         APINetworkSecurityGroupRuleDirectionIngress,
+			SourcePortRange:   cutil.GetPtr("80-81"),
+			Protocol:          APINetworkSecurityGroupRuleProtocolTcp,
+			Action:            APINetworkSecurityGroupRuleActionPermit,
+			SourcePrefix:      cutil.GetPtr("0.0.0.0/0"),
+			DestinationPrefix: cutil.GetPtr("0.0.0.0/0"),
+		},
 	}
 
 	tests := []struct {
@@ -283,8 +268,18 @@ func TestAPINetworkSecurityGroupCreateRequest_Validate(t *testing.T) {
 
 func TestAPINetworkSecurityGroupUpdateRequest_Validate(t *testing.T) {
 
+	// Rule-level validation now runs inside the parent Validate, so
+	// the fixture rule must itself be valid for the "ok" cases below
+	// to pass.
 	rules := []APINetworkSecurityGroupRule{
-		{Direction: APINetworkSecurityGroupRuleProtocolTcp, SourcePortRange: cutil.GetPtr("80-81"), Protocol: APINetworkSecurityGroupRuleProtocolTcp, Action: APINetworkSecurityGroupRuleActionPermit},
+		{
+			Direction:         APINetworkSecurityGroupRuleDirectionIngress,
+			SourcePortRange:   cutil.GetPtr("80-81"),
+			Protocol:          APINetworkSecurityGroupRuleProtocolTcp,
+			Action:            APINetworkSecurityGroupRuleActionPermit,
+			SourcePrefix:      cutil.GetPtr("0.0.0.0/0"),
+			DestinationPrefix: cutil.GetPtr("0.0.0.0/0"),
+		},
 	}
 
 	tests := []struct {
@@ -371,8 +366,7 @@ func TestAPINetworkSecurityGroupNew(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got, err := NewAPINetworkSecurityGroup(tc.dbObj, tc.dbSds)
-			assert.Nil(t, err)
+			got := NewAPINetworkSecurityGroup(tc.dbObj, tc.dbSds)
 			assert.Equal(t, tc.dbObj.ID, got.ID)
 		})
 	}
@@ -424,4 +418,150 @@ func TestAPINetworkSecurityGroupNewSummary(t *testing.T) {
 			assert.Equal(t, len(tc.dbObj.Rules), got.RuleCount)
 		})
 	}
+}
+
+func TestNewAPINetworkSecurityGroupRule(t *testing.T) {
+	t.Run("nil attrs returns nil rule", func(t *testing.T) {
+		rule := NewAPINetworkSecurityGroupRule(nil)
+		assert.Nil(t, rule)
+	})
+
+	t.Run("unknown enum produces an empty enum field but a non-nil rule", func(t *testing.T) {
+		// FromProto is defensive: an unrecognized direction enum
+		// leaves the corresponding API field empty rather than
+		// erroring. Any stricter handling belongs in a DB-integrity
+		// check, not in the conversion layer.
+		attrs := &cwssaws.NetworkSecurityGroupRuleAttributes{
+			Direction: cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INVALID,
+		}
+		rule := NewAPINetworkSecurityGroupRule(attrs)
+		assert.NotNil(t, rule)
+		assert.Equal(t, "", rule.Direction)
+	})
+
+	t.Run("valid attrs produce a populated rule", func(t *testing.T) {
+		ruleID := cutil.GetPtr("rule-id")
+		attrs := &cwssaws.NetworkSecurityGroupRuleAttributes{
+			Id:             ruleID,
+			Direction:      cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INGRESS,
+			Action:         cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_PERMIT,
+			Protocol:       cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
+			Priority:       55,
+			SourceNet:      &cwssaws.NetworkSecurityGroupRuleAttributes_SrcPrefix{SrcPrefix: "0.0.0.0/0"},
+			DestinationNet: &cwssaws.NetworkSecurityGroupRuleAttributes_DstPrefix{DstPrefix: "1.1.1.1/0"},
+		}
+		rule := NewAPINetworkSecurityGroupRule(attrs)
+		assert.NotNil(t, rule)
+		assert.Equal(t, APINetworkSecurityGroupRuleDirectionIngress, rule.Direction)
+		assert.Equal(t, APINetworkSecurityGroupRuleActionPermit, rule.Action)
+		assert.Equal(t, APINetworkSecurityGroupRuleProtocolTcp, rule.Protocol)
+		assert.Equal(t, 55, rule.Priority)
+	})
+}
+
+func TestAPINetworkSecurityGroupCreateRequest_Validate_RuleErrors(t *testing.T) {
+	// The parent Validate must surface rule-level validation failures
+	// so that callers never reach a request-shape ToProto with a bad
+	// rule. The simplest signal is a known-bad direction.
+	rules := []APINetworkSecurityGroupRule{
+		{Direction: "nope", Protocol: APINetworkSecurityGroupRuleProtocolTcp, Action: APINetworkSecurityGroupRuleActionPermit, SourcePrefix: cutil.GetPtr("0.0.0.0/0"), DestinationPrefix: cutil.GetPtr("0.0.0.0/0")},
+	}
+	req := APINetworkSecurityGroupCreateRequest{Name: "test", SiteID: uuid.New().String(), Rules: rules}
+	err := req.Validate(nil)
+	assert.Error(t, err)
+}
+
+func TestAPINetworkSecurityGroupCreateRequest_ToProto(t *testing.T) {
+	// Build a request and the corresponding (just-persisted) DB
+	// record. The DB record provides the canonical Metadata; the
+	// request-shape ToProto sources rules / statefulEgress / id from
+	// the request and the wire envelope (Metadata) from the entity.
+	siteID := uuid.New()
+	tenantID := uuid.New()
+	req := APINetworkSecurityGroupCreateRequest{
+		Name:           "test-nsg",
+		Description:    cutil.GetPtr("desc"),
+		SiteID:         siteID.String(),
+		StatefulEgress: true,
+		Rules: []APINetworkSecurityGroupRule{
+			{
+				Direction:         APINetworkSecurityGroupRuleDirectionIngress,
+				Protocol:          APINetworkSecurityGroupRuleProtocolTcp,
+				Action:            APINetworkSecurityGroupRuleActionPermit,
+				SourcePrefix:      cutil.GetPtr("0.0.0.0/0"),
+				DestinationPrefix: cutil.GetPtr("1.1.1.1/0"),
+			},
+		},
+		Labels: map[string]string{"env": "test"},
+	}
+
+	require.NoError(t, req.Validate(nil))
+
+	nsg := &cdbm.NetworkSecurityGroup{
+		ID:             uuid.NewString(),
+		Name:           req.Name,
+		Description:    req.Description,
+		SiteID:         siteID,
+		TenantID:       tenantID,
+		TenantOrg:      "tenant-org",
+		Labels:         req.Labels,
+		StatefulEgress: req.StatefulEgress,
+	}
+
+	got := req.ToProto(nsg)
+	require.NotNil(t, got)
+	assert.Equal(t, nsg.ID, *got.Id)
+	assert.Equal(t, "tenant-org", got.TenantOrganizationId)
+	require.NotNil(t, got.Metadata)
+	assert.Equal(t, req.Name, got.Metadata.Name)
+	assert.Equal(t, *req.Description, got.Metadata.Description)
+	require.NotNil(t, got.NetworkSecurityGroupAttributes)
+	assert.Equal(t, req.StatefulEgress, got.NetworkSecurityGroupAttributes.StatefulEgress)
+	assert.Equal(t, 1, len(got.NetworkSecurityGroupAttributes.Rules))
+}
+
+func TestAPINetworkSecurityGroupUpdateRequest_ToProto(t *testing.T) {
+	// The update flow writes the request data into the DB record
+	// before calling ToProto, so the DB record's `ToProto()` is the
+	// canonical wire form for both Metadata and Attributes. We mimic
+	// that here by setting the post-merge fields directly on the
+	// `nsg` argument.
+	siteID := uuid.New()
+	tenantID := uuid.New()
+	nsg := &cdbm.NetworkSecurityGroup{
+		ID:             uuid.NewString(),
+		Name:           "updated-name",
+		Description:    cutil.GetPtr("updated-desc"),
+		SiteID:         siteID,
+		TenantID:       tenantID,
+		TenantOrg:      "tenant-org",
+		Labels:         map[string]string{"env": "prod"},
+		StatefulEgress: true,
+		Rules: []*cdbm.NetworkSecurityGroupRule{
+			{
+				NetworkSecurityGroupRuleAttributes: &cwssaws.NetworkSecurityGroupRuleAttributes{
+					Direction: cwssaws.NetworkSecurityGroupRuleDirection_NSG_RULE_DIRECTION_INGRESS,
+					Action:    cwssaws.NetworkSecurityGroupRuleAction_NSG_RULE_ACTION_PERMIT,
+					Protocol:  cwssaws.NetworkSecurityGroupRuleProtocol_NSG_RULE_PROTO_TCP,
+				},
+			},
+		},
+	}
+
+	req := APINetworkSecurityGroupUpdateRequest{
+		Name:           cutil.GetPtr("updated-name"),
+		Description:    cutil.GetPtr("updated-desc"),
+		StatefulEgress: cutil.GetPtr(true),
+	}
+
+	got := req.ToProto(nsg)
+	assert.NotNil(t, got)
+	assert.Equal(t, nsg.ID, got.Id)
+	assert.Equal(t, "tenant-org", got.TenantOrganizationId)
+	assert.NotNil(t, got.Metadata)
+	assert.Equal(t, nsg.Name, got.Metadata.Name)
+	assert.Equal(t, *nsg.Description, got.Metadata.Description)
+	assert.NotNil(t, got.NetworkSecurityGroupAttributes)
+	assert.Equal(t, nsg.StatefulEgress, got.NetworkSecurityGroupAttributes.StatefulEgress)
+	assert.Equal(t, 1, len(got.NetworkSecurityGroupAttributes.Rules))
 }
