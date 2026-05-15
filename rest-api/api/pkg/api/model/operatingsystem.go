@@ -7,13 +7,15 @@ import (
 	"errors"
 	"time"
 
-	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
-	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
-	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/go-ozzo/ozzo-validation/v4/is"
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
+
+	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 const (
@@ -66,9 +68,9 @@ type APIOperatingSystemCreateRequest struct {
 }
 
 // Validate ensure the values passed in request are acceptable
-func (oscr APIOperatingSystemCreateRequest) Validate() error {
+func (oscr *APIOperatingSystemCreateRequest) Validate() error {
 	var err error
-	err = validation.ValidateStruct(&oscr,
+	err = validation.ValidateStruct(oscr,
 		validation.Field(&oscr.Name,
 			validation.Required.Error(validationErrorStringLength),
 			validation.By(util.ValidateNameCharacters),
@@ -105,7 +107,7 @@ func (oscr APIOperatingSystemCreateRequest) Validate() error {
 	}
 
 	if oscr.ImageURL != nil {
-		err = validation.ValidateStruct(&oscr,
+		err = validation.ValidateStruct(oscr,
 			validation.Field(&oscr.ImageURL, is.URL),
 			validation.Field(&oscr.ImageSHA,
 				validation.Required.Error(validationErrorValueRequired),
@@ -137,7 +139,7 @@ func (oscr APIOperatingSystemCreateRequest) Validate() error {
 			}
 		}
 	} else {
-		err = validation.ValidateStruct(&oscr,
+		err = validation.ValidateStruct(oscr,
 			validation.Field(&oscr.SiteIDs,
 				validation.Nil.Error("siteIds cannot be specified if imageURL is not specified")),
 			validation.Field(&oscr.ImageSHA,
@@ -156,7 +158,7 @@ func (oscr APIOperatingSystemCreateRequest) Validate() error {
 	}
 
 	if oscr.IpxeScript != nil {
-		err = validation.ValidateStruct(&oscr,
+		err = validation.ValidateStruct(oscr,
 			validation.Field(&oscr.IpxeScript,
 				validation.Required.Error(validationErrorValueRequired)),
 			validation.Field(&oscr.EnableBlockStorage,
@@ -224,6 +226,25 @@ func (oscr *APIOperatingSystemCreateRequest) ValidateAndSetUserData(phonehomeUrl
 	return nil
 }
 
+// ToProto builds the workflow request that asks a Site to create the
+// OS image for this API request. `os` is the just-persisted DB record;
+// its `ToImageAttributesProto(tenantOrg)` is the source of every wire
+// field because the handler has already merged the request fields into
+// the entity via the DAO before this method runs. `tenantOrg` is a
+// side input — it lives on the request's resolved Tenant rather than
+// on the entity, and the handler passes it through.
+//
+// The method trusts that the request has already been Validated (and
+// that ValidateAndSetUserData has run) and that the handler has
+// performed the cross-context checks Validate cannot see — most
+// importantly that the OS is image-typed, since
+// `ToImageAttributesProto` dereferences `ImageURL` and `ImageSHA`.
+// For iPXE-typed records there is no Site-side image workflow, so
+// this method should not be called.
+func (oscr *APIOperatingSystemCreateRequest) ToProto(os *cdbm.OperatingSystem, tenantOrg string) *cwssaws.OsImageAttributes {
+	return os.ToImageAttributesProto(tenantOrg)
+}
+
 // APIOperatingSystemUpdateRequest is the data structure to capture user request to update an OperatingSystem
 type APIOperatingSystemUpdateRequest struct {
 	// Name is the name of the OperatingSystem
@@ -261,8 +282,8 @@ type APIOperatingSystemUpdateRequest struct {
 }
 
 // Validate ensure the values passed in request are acceptable
-func (osur APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.OperatingSystem) error {
-	err := validation.ValidateStruct(&osur,
+func (osur *APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.OperatingSystem) error {
+	err := validation.ValidateStruct(osur,
 		validation.Field(&osur.Name,
 			validation.When(osur.Name != nil, validation.Required.Error(validationErrorStringLength)),
 			validation.When(osur.Name != nil, validation.By(util.ValidateNameCharacters)),
@@ -331,7 +352,7 @@ func (osur APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.OperatingS
 	}
 
 	if osur.ImageURL != nil {
-		err = validation.ValidateStruct(&osur,
+		err = validation.ValidateStruct(osur,
 			validation.Field(&osur.ImageURL, is.URL),
 			validation.Field(&osur.ImageSHA,
 				validation.Required.Error(validationErrorValueRequired),
@@ -351,7 +372,7 @@ func (osur APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.OperatingS
 				validation.When(!(util.IsNilOrEmptyStrPtr(osur.RootFsID)), validation.Empty.Error(errMsgOnlyOneRootFsField))),
 		)
 	} else {
-		err = validation.ValidateStruct(&osur,
+		err = validation.ValidateStruct(osur,
 			validation.Field(&osur.ImageSHA,
 				validation.Nil.Error("imageSHA cannot be specified if imageURL is not specified")),
 			validation.Field(&osur.ImageAuthType,
@@ -368,7 +389,7 @@ func (osur APIOperatingSystemUpdateRequest) Validate(existingOS *cdbm.OperatingS
 	}
 
 	if osur.IpxeScript != nil {
-		err = validation.ValidateStruct(&osur,
+		err = validation.ValidateStruct(osur,
 			validation.Field(&osur.IpxeScript,
 				validation.Required.Error(validationErrorValueRequired)),
 		)
@@ -483,6 +504,29 @@ func (osur *APIOperatingSystemUpdateRequest) ValidateAndSetUserData(phonehomeUrl
 	osur.UserData = cutil.GetPtr(string(byteUserData))
 
 	return nil
+}
+
+// ToProto builds the workflow request that asks a Site to update the
+// OS image for this API request. `uos` is the post-update DB record;
+// its `ToImageAttributesProto(tenantOrg)` is the source of every wire
+// field, so unchanged fields stay populated and updated fields reflect
+// the just-persisted state. `tenantOrg` is a side input — it lives on
+// the request's resolved Tenant rather than on the entity, and the
+// handler passes it through.
+//
+// The same `OsImageAttributes` proto is used for both create and
+// update workflows on the Site side, so this method delegates to the
+// entity-level method rather than building a distinct wire shape. The
+// request-level method exists so call sites stay uniform with the
+// rest of the layered convention (handlers always invoke
+// `apiRequest.ToProto(entity, ...)`).
+//
+// As with the create variant, the method trusts that the request has
+// been Validated (Validate + ValidateAndSetUserData) and that the
+// handler has confirmed the OS is image-typed before this is called;
+// `ToImageAttributesProto` dereferences `ImageURL` and `ImageSHA`.
+func (osur *APIOperatingSystemUpdateRequest) ToProto(uos *cdbm.OperatingSystem, tenantOrg string) *cwssaws.OsImageAttributes {
+	return uos.ToImageAttributesProto(tenantOrg)
 }
 
 // APIOperatingSystem is the data structure to capture API representation of an OS

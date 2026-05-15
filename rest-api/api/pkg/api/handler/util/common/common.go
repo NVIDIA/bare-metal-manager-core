@@ -17,7 +17,6 @@ import (
 	"strings"
 	"sync"
 
-	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/attribute"
@@ -26,6 +25,8 @@ import (
 	tp "go.temporal.io/sdk/temporal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -86,14 +87,6 @@ func GetSiteNetworkSegmentID(s *cdbm.Subnet) *uuid.UUID {
 		return s.ControllerNetworkSegmentID
 	} else {
 		return &s.ID
-	}
-}
-
-func GetSiteOperatingSystemtID(o *cdbm.OperatingSystem) *uuid.UUID {
-	if o.ControllerOperatingSystemID != nil {
-		return o.ControllerOperatingSystemID
-	} else {
-		return &o.ID
 	}
 }
 

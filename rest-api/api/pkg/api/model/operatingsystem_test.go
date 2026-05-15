@@ -10,14 +10,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cdmu "github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestAPIOperatingSystemCreateRequest_Validate(t *testing.T) {
@@ -888,4 +889,79 @@ func TestAPIOperatingSystemNew(t *testing.T) {
 			assert.Equal(t, *tc.dbObj.Description, *got.Description)
 		})
 	}
+}
+
+func TestAPIOperatingSystemCreateRequest_ToProto(t *testing.T) {
+	id := uuid.New()
+	url := "https://image"
+	sha := "deadbeef"
+	rootFsID := "fs-1"
+	os := &cdbm.OperatingSystem{
+		ID:                 id,
+		Name:               "ubuntu",
+		ImageURL:           &url,
+		ImageSHA:           &sha,
+		RootFsID:           &rootFsID,
+		EnableBlockStorage: false,
+	}
+	t.Run("delegates to ToImageAttributesProto with tenantOrg", func(t *testing.T) {
+		req := APIOperatingSystemCreateRequest{}
+		got := req.ToProto(os, "org-1")
+		require.NotNil(t, got)
+		require.NotNil(t, got.Id)
+		assert.Equal(t, id.String(), got.Id.Value)
+		require.NotNil(t, got.Name)
+		assert.Equal(t, "ubuntu", *got.Name)
+		assert.Equal(t, "org-1", got.TenantOrganizationId)
+		assert.Equal(t, "https://image", got.SourceUrl)
+		assert.Equal(t, "deadbeef", got.Digest)
+		require.NotNil(t, got.RootfsId)
+		assert.Equal(t, "fs-1", *got.RootfsId)
+	})
+	t.Run("uses ControllerOperatingSystemID when set", func(t *testing.T) {
+		ctrlID := uuid.New()
+		osWithCtrl := &cdbm.OperatingSystem{
+			ID:                          id,
+			ControllerOperatingSystemID: &ctrlID,
+			Name:                        "ubuntu",
+			ImageURL:                    &url,
+			ImageSHA:                    &sha,
+			RootFsID:                    &rootFsID,
+		}
+		req := APIOperatingSystemCreateRequest{}
+		got := req.ToProto(osWithCtrl, "org-1")
+		require.NotNil(t, got)
+		require.NotNil(t, got.Id)
+		assert.Equal(t, ctrlID.String(), got.Id.Value)
+	})
+}
+
+func TestAPIOperatingSystemUpdateRequest_ToProto(t *testing.T) {
+	id := uuid.New()
+	url := "https://image-new"
+	sha := "cafebabe"
+	rootFsLabel := "lbl"
+	uos := &cdbm.OperatingSystem{
+		ID:                 id,
+		Name:               "ubuntu-22",
+		ImageURL:           &url,
+		ImageSHA:           &sha,
+		RootFsLabel:        &rootFsLabel,
+		EnableBlockStorage: true,
+	}
+	t.Run("delegates to ToImageAttributesProto with tenantOrg", func(t *testing.T) {
+		req := APIOperatingSystemUpdateRequest{}
+		got := req.ToProto(uos, "org-2")
+		require.NotNil(t, got)
+		require.NotNil(t, got.Id)
+		assert.Equal(t, id.String(), got.Id.Value)
+		require.NotNil(t, got.Name)
+		assert.Equal(t, "ubuntu-22", *got.Name)
+		assert.Equal(t, "org-2", got.TenantOrganizationId)
+		assert.Equal(t, "https://image-new", got.SourceUrl)
+		assert.Equal(t, "cafebabe", got.Digest)
+		assert.True(t, got.CreateVolume)
+		require.NotNil(t, got.RootfsLabel)
+		assert.Equal(t, "lbl", *got.RootfsLabel)
+	})
 }

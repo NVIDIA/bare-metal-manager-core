@@ -9,16 +9,83 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
+
+	"github.com/google/uuid"
+	"github.com/uptrace/bun/extra/bundebug"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	"github.com/google/uuid"
-	"github.com/uptrace/bun/extra/bundebug"
 )
+
+func TestOperatingSystem_GetSiteID(t *testing.T) {
+	id := uuid.New()
+	ctrlID := uuid.New()
+	t.Run("falls back to ID when ControllerOperatingSystemID is nil", func(t *testing.T) {
+		os := &OperatingSystem{ID: id}
+		got := os.GetSiteID()
+		require.NotNil(t, got)
+		assert.Equal(t, id, *got)
+	})
+	t.Run("uses ControllerOperatingSystemID when set", func(t *testing.T) {
+		os := &OperatingSystem{ID: id, ControllerOperatingSystemID: &ctrlID}
+		got := os.GetSiteID()
+		require.NotNil(t, got)
+		assert.Equal(t, ctrlID, *got)
+	})
+}
+
+func TestOperatingSystem_ToImageAttributesProto(t *testing.T) {
+	id := uuid.New()
+	desc := "primary"
+	url := "https://image"
+	sha := "deadbeef"
+	authType := "Basic"
+	authToken := "token"
+	rootFsID := "fs-1"
+	rootFsLabel := "label"
+	os := &OperatingSystem{
+		ID:                 id,
+		Name:               "ubuntu",
+		Description:        &desc,
+		ImageURL:           &url,
+		ImageSHA:           &sha,
+		ImageAuthType:      &authType,
+		ImageAuthToken:     &authToken,
+		RootFsID:           &rootFsID,
+		RootFsLabel:        &rootFsLabel,
+		EnableBlockStorage: true,
+	}
+	got := os.ToImageAttributesProto("org-1")
+	require.NotNil(t, got)
+	require.NotNil(t, got.Id)
+	assert.Equal(t, id.String(), got.Id.Value)
+	require.NotNil(t, got.Name)
+	assert.Equal(t, "ubuntu", *got.Name)
+	assert.Equal(t, "org-1", got.TenantOrganizationId)
+	assert.Equal(t, &desc, got.Description)
+	assert.Equal(t, "https://image", got.SourceUrl)
+	assert.Equal(t, "deadbeef", got.Digest)
+	assert.True(t, got.CreateVolume)
+	assert.Equal(t, &authType, got.AuthType)
+	assert.Equal(t, &authToken, got.AuthToken)
+	assert.Equal(t, &rootFsID, got.RootfsId)
+	assert.Equal(t, &rootFsLabel, got.RootfsLabel)
+}
+
+func TestOperatingSystem_ToDeletionRequestProto(t *testing.T) {
+	id := uuid.New()
+	os := &OperatingSystem{ID: id}
+	got := os.ToDeletionRequestProto("org-1")
+	require.NotNil(t, got)
+	require.NotNil(t, got.Id)
+	assert.Equal(t, id.String(), got.Id.Value)
+	assert.Equal(t, "org-1", got.TenantOrganizationId)
+}
 
 func testOperatingSystemInitDB(t *testing.T) *db.Session {
 	dbSession := util.GetTestDBSession(t, false)
