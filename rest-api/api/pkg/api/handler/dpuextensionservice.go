@@ -218,33 +218,7 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 			statusDetails = append(statusDetails, *statusDetail)
 		}
 
-		createDpuExtensionServiceRequest := &cwssaws.CreateDpuExtensionServiceRequest{
-			ServiceId:            cutil.GetPtr(dpuExtensionService.ID.String()),
-			ServiceName:          apiRequest.Name,
-			Description:          apiRequest.Description,
-			TenantOrganizationId: org,
-			Data:                 apiRequest.Data,
-		}
-
-		if apiRequest.ServiceType == model.DpuExtensionServiceTypeKubernetesPod {
-			createDpuExtensionServiceRequest.ServiceType = cwssaws.DpuExtensionServiceType_KUBERNETES_POD
-		}
-
-		if apiRequest.Credentials != nil {
-			createDpuExtensionServiceRequest.Credential = &cwssaws.DpuExtensionServiceCredential{
-				RegistryUrl: apiRequest.Credentials.RegistryURL,
-				Type: &cwssaws.DpuExtensionServiceCredential_UsernamePassword{
-					UsernamePassword: &cwssaws.UsernamePassword{
-						Username: *apiRequest.Credentials.Username,
-						Password: *apiRequest.Credentials.Password,
-					},
-				},
-			}
-		}
-
-		if apiRequest.Observability != nil {
-			createDpuExtensionServiceRequest.Observability = apiRequest.Observability.ToProto()
-		}
+		createDpuExtensionServiceRequest := apiRequest.ToProto(dpuExtensionService.ID.String(), org)
 
 		logger.Info().Msg("triggering DPU Extension Service create workflow on Site")
 
@@ -833,31 +807,7 @@ func (udesh UpdateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 		updatedDpuExtensionService = udes
 
 		// Trigger workflow to update DPU Extension Service
-		updateDpuExtensionServiceRequest := &cwssaws.UpdateDpuExtensionServiceRequest{
-			ServiceId:   updatedDpuExtensionService.ID.String(),
-			ServiceName: apiRequest.Name,
-			Description: apiRequest.Description,
-		}
-
-		if apiRequest.Data != nil {
-			updateDpuExtensionServiceRequest.Data = *apiRequest.Data
-		}
-
-		if apiRequest.Credentials != nil {
-			updateDpuExtensionServiceRequest.Credential = &cwssaws.DpuExtensionServiceCredential{
-				RegistryUrl: apiRequest.Credentials.RegistryURL,
-				Type: &cwssaws.DpuExtensionServiceCredential_UsernamePassword{
-					UsernamePassword: &cwssaws.UsernamePassword{
-						Username: *apiRequest.Credentials.Username,
-						Password: *apiRequest.Credentials.Password,
-					},
-				},
-			}
-		}
-
-		if apiRequest.Observability != nil {
-			updateDpuExtensionServiceRequest.Observability = apiRequest.Observability.ToProto()
-		}
+		updateDpuExtensionServiceRequest := apiRequest.ToProto(updatedDpuExtensionService.ID.String())
 
 		logger.Info().Msg("triggering DPU Extension Service update workflow on Site")
 
@@ -1102,9 +1052,7 @@ func (ddesh DeleteDpuExtensionServiceHandler) Handle(c echo.Context) error {
 		}
 
 		// Trigger workflow to delete DPU Extension Service
-		deleteDpuExtensionServiceRequest := &cwssaws.DeleteDpuExtensionServiceRequest{
-			ServiceId: dpuExtensionService.ID.String(),
-		}
+		deleteDpuExtensionServiceRequest := dpuExtensionService.ToDeletionRequestProto()
 
 		// Get the temporal client for the site we are working with
 		stc, derr := ddesh.scp.GetClientByID(dpuExtensionService.SiteID)
@@ -1560,10 +1508,7 @@ func (ddesvh DeleteDpuExtensionServiceVersionHandler) Handle(c echo.Context) err
 		}
 
 		// Trigger workflow to delete DPU Extension Service version
-		deleteDpuExtensionServiceVersionRequest := &cwssaws.DeleteDpuExtensionServiceRequest{
-			ServiceId: dpuExtensionService.ID.String(),
-			Versions:  []string{versionID},
-		}
+		deleteDpuExtensionServiceVersionRequest := dpuExtensionService.ToVersionDeletionRequestProto(versionID)
 
 		// Get the temporal client for the site we are working with
 		siteClient, derr := ddesvh.scp.GetClientByID(dpuExtensionService.SiteID)

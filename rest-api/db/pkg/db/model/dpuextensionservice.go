@@ -8,12 +8,13 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
-	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
-	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 	"google.golang.org/protobuf/encoding/protojson"
+
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
+	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
+	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
@@ -154,6 +155,25 @@ type DpuExtensionService struct {
 	Updated         time.Time                       `bun:"updated,nullzero,notnull,default:current_timestamp"`
 	Deleted         time.Time                       `bun:"deleted,nullzero,default:null"`
 	CreatedBy       uuid.UUID                       `bun:"created_by,type:uuid,notnull"`
+}
+
+// ToDeletionRequestProto builds the workflow request that asks a Site to
+// delete this DPU Extension Service.
+func (des *DpuExtensionService) ToDeletionRequestProto() *cwssaws.DeleteDpuExtensionServiceRequest {
+	return &cwssaws.DeleteDpuExtensionServiceRequest{
+		ServiceId: des.ID.String(),
+	}
+}
+
+// ToVersionDeletionRequestProto builds the workflow request that asks a
+// Site to delete a single version of this DPU Extension Service. Shares
+// the `DeleteDpuExtensionServiceRequest` proto with the whole-service
+// delete; the populated `Versions` field is what scopes the request.
+func (des *DpuExtensionService) ToVersionDeletionRequestProto(versionID string) *cwssaws.DeleteDpuExtensionServiceRequest {
+	return &cwssaws.DeleteDpuExtensionServiceRequest{
+		ServiceId: des.ID.String(),
+		Versions:  []string{versionID},
+	}
 }
 
 var _ bun.BeforeAppendModelHook = (*DpuExtensionService)(nil)

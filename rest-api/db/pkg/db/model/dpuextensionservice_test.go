@@ -9,13 +9,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	otrace "go.opentelemetry.io/otel/trace"
+
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	otrace "go.opentelemetry.io/otel/trace"
 
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
@@ -935,4 +936,22 @@ func TestDpuExtensionServiceSQLDAO_Delete(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDpuExtensionService_ToDeletionRequestProto(t *testing.T) {
+	id := uuid.New()
+	des := &DpuExtensionService{ID: id}
+	req := des.ToDeletionRequestProto()
+	assert.NotNil(t, req)
+	assert.Equal(t, id.String(), req.ServiceId)
+	assert.Empty(t, req.Versions)
+}
+
+func TestDpuExtensionService_ToVersionDeletionRequestProto(t *testing.T) {
+	id := uuid.New()
+	des := &DpuExtensionService{ID: id}
+	req := des.ToVersionDeletionRequestProto("v1.2.3")
+	assert.NotNil(t, req)
+	assert.Equal(t, id.String(), req.ServiceId)
+	assert.Equal(t, []string{"v1.2.3"}, req.Versions)
 }

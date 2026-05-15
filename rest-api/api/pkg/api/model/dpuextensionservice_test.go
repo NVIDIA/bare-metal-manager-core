@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
-	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
@@ -712,4 +714,101 @@ func TestNewAPIDpuExtensionService(t *testing.T) {
 			assert.Equal(t, len(tc.dbdesds), len(ades.StatusHistory))
 		})
 	}
+}
+
+func TestAPIDpuExtensionServiceCredentials_ToProto(t *testing.T) {
+	t.Run("nil receiver yields nil", func(t *testing.T) {
+		var c *APIDpuExtensionServiceCredentials
+		assert.Nil(t, c.ToProto())
+	})
+	t.Run("populates UsernamePassword type", func(t *testing.T) {
+		user := "u"
+		pass := "p"
+		c := &APIDpuExtensionServiceCredentials{RegistryURL: "https://reg/", Username: &user, Password: &pass}
+		got := c.ToProto()
+		require.NotNil(t, got)
+		assert.Equal(t, "https://reg/", got.RegistryUrl)
+		up, ok := got.Type.(*cwssaws.DpuExtensionServiceCredential_UsernamePassword)
+		require.True(t, ok)
+		require.NotNil(t, up.UsernamePassword)
+		assert.Equal(t, "u", up.UsernamePassword.Username)
+		assert.Equal(t, "p", up.UsernamePassword.Password)
+	})
+	t.Run("nil username/password yields no Type", func(t *testing.T) {
+		c := &APIDpuExtensionServiceCredentials{RegistryURL: "https://reg/"}
+		got := c.ToProto()
+		require.NotNil(t, got)
+		assert.Equal(t, "https://reg/", got.RegistryUrl)
+		assert.Nil(t, got.Type)
+	})
+}
+
+func TestAPIDpuExtensionServiceCreateRequest_ToProto(t *testing.T) {
+	t.Run("populated request maps fields through", func(t *testing.T) {
+		desc := "primary"
+		user := "u"
+		pass := "p"
+		descr := APIDpuExtensionServiceCreateRequest{
+			Name:        "svc-a",
+			Description: &desc,
+			ServiceType: DpuExtensionServiceTypeKubernetesPod,
+			SiteID:      uuid.NewString(),
+			Data:        "kind: Pod",
+			Credentials: &APIDpuExtensionServiceCredentials{
+				RegistryURL: "https://reg/",
+				Username:    &user,
+				Password:    &pass,
+			},
+		}
+		req := descr.ToProto("svc-id-1", "org-1")
+		assert.NotNil(t, req)
+		assert.Equal(t, "svc-id-1", *req.ServiceId)
+		assert.Equal(t, "svc-a", req.ServiceName)
+		assert.Equal(t, &desc, req.Description)
+		assert.Equal(t, "org-1", req.TenantOrganizationId)
+		assert.Equal(t, "kind: Pod", req.Data)
+		assert.Equal(t, cwssaws.DpuExtensionServiceType_KUBERNETES_POD, req.ServiceType)
+		assert.NotNil(t, req.Credential)
+	})
+	t.Run("nil Credentials and Observability yield nil proto fields", func(t *testing.T) {
+		// Confirms the nested ToProto calls' nil-receiver behavior is
+		// what keeps the request mapper clean.
+		descr := APIDpuExtensionServiceCreateRequest{
+			Name:        "svc-c",
+			ServiceType: DpuExtensionServiceTypeKubernetesPod,
+			Data:        "kind: Pod",
+		}
+		req := descr.ToProto("svc-id-3", "org-1")
+		assert.NotNil(t, req)
+		assert.Nil(t, req.Credential)
+		assert.Nil(t, req.Observability)
+	})
+}
+
+func TestAPIDpuExtensionServiceUpdateRequest_ToProto(t *testing.T) {
+	t.Run("populated request maps fields through", func(t *testing.T) {
+		name := "svc-b"
+		data := "kind: Pod V2"
+		desur := APIDpuExtensionServiceUpdateRequest{
+			Name: &name,
+			Data: &data,
+		}
+		req := desur.ToProto("svc-id-2")
+		assert.NotNil(t, req)
+		assert.Equal(t, "svc-id-2", req.ServiceId)
+		assert.Equal(t, &name, req.ServiceName)
+		assert.Equal(t, "kind: Pod V2", req.Data)
+		assert.Nil(t, req.Credential)
+		assert.Nil(t, req.Observability)
+	})
+	t.Run("nil Data leaves proto Data at the zero value", func(t *testing.T) {
+		// Update's Data is *string on the request, but a required
+		// string on the wire; nil request Data maps to "".
+		desur := APIDpuExtensionServiceUpdateRequest{}
+		req := desur.ToProto("svc-id-4")
+		assert.NotNil(t, req)
+		assert.Equal(t, "", req.Data)
+		assert.Nil(t, req.Credential)
+		assert.Nil(t, req.Observability)
+	})
 }
