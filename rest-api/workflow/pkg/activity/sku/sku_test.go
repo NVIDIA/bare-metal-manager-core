@@ -41,7 +41,7 @@ func TestManageSku_Reconcile_CreateUpdateDelete(t *testing.T) {
 	// 1) Create: inventory contains one sku not in DB
 	id1 := "sku-1"
 	inv1 := &cwssaws.SkuInventory{
-		Skus: []*cwssaws.Sku{{Id: id1}},
+		Skus: []*cwssaws.Sku{{Id: id1, Components: &cwssaws.SkuComponents{}}},
 	}
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv1))
 
@@ -55,7 +55,7 @@ func TestManageSku_Reconcile_CreateUpdateDelete(t *testing.T) {
 	}
 
 	// 2) Update: same id, ensure still one record
-	inv2 := &cwssaws.SkuInventory{Skus: []*cwssaws.Sku{{Id: id1}}}
+	inv2 := &cwssaws.SkuInventory{Skus: []*cwssaws.Sku{{Id: id1, Components: &cwssaws.SkuComponents{}}}}
 	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv2))
 
 	_, total, err = ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(100)})
@@ -69,6 +69,43 @@ func TestManageSku_Reconcile_CreateUpdateDelete(t *testing.T) {
 	_, total, err = ssd.GetAll(ctx, nil, cdbm.SkuFilterInput{SiteIDs: []uuid.UUID{site.ID}}, cdbp.PageInput{Limit: cutil.GetPtr(100)})
 	assert.NoError(t, err)
 	assert.Equal(t, 0, total)
+}
+
+func TestManageSku_NilComponents_ClearsExisting(t *testing.T) {
+	ctx := context.Background()
+	_ = config.GetTestConfig()
+
+	dbSession := cwu.TestInitDB(t)
+	defer dbSession.Close()
+	cwu.TestSetupSchema(t, dbSession)
+
+	ipOrg := "test-ip-org"
+	ipRoles := []string{"FORGE_PROVIDER_ADMIN"}
+	ipu := cwu.TestBuildUser(t, dbSession, uuid.NewString(), []string{ipOrg}, ipRoles)
+	ip := cwu.TestBuildInfrastructureProvider(t, dbSession, "test-provider", ipOrg, ipu)
+	site := cwu.TestBuildSite(t, dbSession, ip, "test-site", cdbm.SiteStatusRegistered, nil, ipu)
+
+	// Seed a SKU with non-nil Components.
+	id := "sku-clear"
+	_, err := dbSession.DB.NewInsert().Model(&cdbm.SKU{ID: id, SiteID: site.ID, Components: &cdbm.SkuComponents{SkuComponents: &cwssaws.SkuComponents{}}}).Exec(ctx)
+	assert.NoError(t, err)
+
+	ms := NewManageSku(dbSession, cwu.TestTemporalSiteClientPool(t))
+
+	// Send inventory with the same SKU but Components: nil. The activity should
+	// translate nil to a non-nil empty wrapper so the DAO actually writes the
+	// clear (the DAO skips nil Components fields).
+	inv := &cwssaws.SkuInventory{
+		Skus: []*cwssaws.Sku{{Id: id, Components: nil}},
+	}
+	assert.NoError(t, ms.UpdateSkusInDB(ctx, site.ID, inv))
+
+	ssd := cdbm.NewSkuDAO(dbSession)
+	got, gerr := ssd.Get(ctx, nil, id)
+	assert.NoError(t, gerr)
+	if got.Components == nil || got.Components.SkuComponents == nil {
+		t.Fatalf("expected Components to be a non-nil empty wrapper after clear, got %+v", got.Components)
+	}
 }
 
 func TestManageSku_InventoryStatusFailed_Skip(t *testing.T) {

@@ -25,19 +25,6 @@ type ManageSku struct {
 	siteClientPool *sc.ClientPool
 }
 
-func getAssociatedMachineIDsFromProto(sku *cwssaws.Sku) []string {
-	if sku == nil || sku.AssociatedMachineIds == nil {
-		return nil
-	}
-	result := []string{}
-	for _, amid := range sku.AssociatedMachineIds {
-		if strId := amid.GetId(); strId != "" {
-			result = append(result, strId)
-		}
-	}
-	return result
-}
-
 // UpdateSkusInDB is a Temporal activity that takes a collection of SKU data pushed by Site Agent and updates the DB
 // NOTE: Initial implementation validates inputs and site existence; DB synchronization will be added iteratively.
 func (ms ManageSku) UpdateSkusInDB(ctx context.Context, siteID uuid.UUID, skuInventory *cwssaws.SkuInventory) error {
@@ -108,20 +95,20 @@ func (ms ManageSku) UpdateSkusInDB(ctx context.Context, siteID uuid.UUID, skuInv
 			continue
 		}
 		reportedIDs[reportedSku.Id] = true
-		reportedAssociatedMachineIDs := getAssociatedMachineIDsFromProto(reportedSku)
+
+		reported := &cdbm.SKU{}
+		reported.FromProto(reportedSku, siteID)
 
 		// Create a new SKU if it doesn't already exist in DB
 		cur, found := existingByID[reportedSku.Id]
 		if !found {
 			// Create new SKU with SiteID
 			sku := cdbm.SkuCreateInput{
-				SkuID:      reportedSku.Id,
-				SiteID:     siteID,
-				DeviceType: reportedSku.DeviceType,
-				Components: &cdbm.SkuComponents{
-					SkuComponents: reportedSku.Components,
-				},
-				AssociatedMachineIds: reportedAssociatedMachineIDs,
+				SkuID:                reported.ID,
+				SiteID:               reported.SiteID,
+				DeviceType:           reported.DeviceType,
+				Components:           reported.Components,
+				AssociatedMachineIds: reported.AssociatedMachineIds,
 			}
 			_, cerr := skuDAO.Create(ctx, nil, sku)
 			if cerr != nil {
@@ -131,19 +118,26 @@ func (ms ManageSku) UpdateSkusInDB(ctx context.Context, siteID uuid.UUID, skuInv
 		}
 
 		// Update existing SKU data in DB
-		if !reflect.DeepEqual(cur.Components.SkuComponents, reportedSku.Components) || cur.DeviceType != reportedSku.DeviceType ||
-			!reflect.DeepEqual(cur.AssociatedMachineIds, reportedAssociatedMachineIDs) {
+		if !cur.Components.Equal(reported.Components) || cur.DeviceType != reported.DeviceType ||
+			!reflect.DeepEqual(cur.AssociatedMachineIds, reported.AssociatedMachineIds) {
 			// nil AssociatedMachineIds in nico can mean we need to clear out existing AssociatedMachineIds in DB
 			// but a nil value will not trigger an update in the DAO layer. We could use `Clear` but an empty map
 			// will save a call to the DB.
-			if cur.AssociatedMachineIds != nil && reportedAssociatedMachineIDs == nil {
-				reportedAssociatedMachineIDs = []string{}
+			associated := reported.AssociatedMachineIds
+			if cur.AssociatedMachineIds != nil && associated == nil {
+				associated = []string{}
+			}
+			// Same nil-clear pattern for Components: a nil from NICo means "clear",
+			// but the DAO skips nil fields, so substitute a non-nil empty wrapper.
+			components := reported.Components
+			if cur.Components != nil && components == nil {
+				components = &cdbm.SkuComponents{SkuComponents: &cwssaws.SkuComponents{}}
 			}
 			sku := cdbm.SkuUpdateInput{
-				SkuID:                reportedSku.Id,
-				Components:           &cdbm.SkuComponents{SkuComponents: reportedSku.Components},
-				DeviceType:           reportedSku.DeviceType,
-				AssociatedMachineIds: reportedAssociatedMachineIDs,
+				SkuID:                reported.ID,
+				Components:           components,
+				DeviceType:           reported.DeviceType,
+				AssociatedMachineIds: associated,
 			}
 			_, uerr := skuDAO.Update(ctx, nil, sku)
 			if uerr != nil {

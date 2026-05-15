@@ -19,6 +19,113 @@ import (
 	otrace "go.opentelemetry.io/otel/trace"
 )
 
+func TestSkuComponents_Equal(t *testing.T) {
+	t.Run("nil wrapper equals nil wrapper", func(t *testing.T) {
+		var a, b *SkuComponents
+		assert.True(t, a.Equal(b))
+	})
+	t.Run("nil wrapper equals wrapper with nil inner", func(t *testing.T) {
+		var a *SkuComponents
+		b := &SkuComponents{}
+		assert.True(t, a.Equal(b))
+		assert.True(t, b.Equal(a))
+	})
+	t.Run("two wrappers with nil inner are equal", func(t *testing.T) {
+		assert.True(t, (&SkuComponents{}).Equal(&SkuComponents{}))
+	})
+	t.Run("identical inner protos are equal", func(t *testing.T) {
+		a := &SkuComponents{SkuComponents: &cwssaws.SkuComponents{}}
+		b := &SkuComponents{SkuComponents: &cwssaws.SkuComponents{}}
+		assert.True(t, a.Equal(b))
+	})
+	t.Run("nil inner does not equal non-nil inner", func(t *testing.T) {
+		a := &SkuComponents{}
+		b := &SkuComponents{SkuComponents: &cwssaws.SkuComponents{}}
+		assert.False(t, a.Equal(b))
+		assert.False(t, b.Equal(a))
+	})
+}
+
+func TestSKU_ToProto(t *testing.T) {
+	siteID := uuid.New()
+	deviceType := "GPU"
+
+	t.Run("populates proto from receiver", func(t *testing.T) {
+		sk := &SKU{
+			ID:                   "sku-1",
+			SiteID:               siteID,
+			DeviceType:           &deviceType,
+			Components:           &SkuComponents{SkuComponents: &cwssaws.SkuComponents{}},
+			AssociatedMachineIds: []string{"m-1", "m-2"},
+		}
+		proto := sk.ToProto()
+		require.NotNil(t, proto)
+		assert.Equal(t, "sku-1", proto.Id)
+		assert.Equal(t, &deviceType, proto.DeviceType)
+		require.NotNil(t, proto.Components)
+		require.Len(t, proto.AssociatedMachineIds, 2)
+		assert.Equal(t, "m-1", proto.AssociatedMachineIds[0].Id)
+		assert.Equal(t, "m-2", proto.AssociatedMachineIds[1].Id)
+	})
+
+	t.Run("nil Components yields nil proto.Components", func(t *testing.T) {
+		sk := &SKU{ID: "sku-2"}
+		proto := sk.ToProto()
+		require.NotNil(t, proto)
+		assert.Nil(t, proto.Components)
+	})
+
+	t.Run("nil AssociatedMachineIds yields nil proto.AssociatedMachineIds", func(t *testing.T) {
+		sk := &SKU{ID: "sku-3"}
+		proto := sk.ToProto()
+		require.NotNil(t, proto)
+		assert.Nil(t, proto.AssociatedMachineIds)
+	})
+}
+
+func TestSKU_FromProto(t *testing.T) {
+	siteID := uuid.New()
+	deviceType := "GPU"
+
+	t.Run("nil proto leaves receiver unchanged", func(t *testing.T) {
+		sk := &SKU{ID: "preserved", SiteID: siteID}
+		sk.FromProto(nil, uuid.New())
+		assert.Equal(t, "preserved", sk.ID)
+		assert.Equal(t, siteID, sk.SiteID)
+	})
+
+	t.Run("populates fields from proto", func(t *testing.T) {
+		sk := &SKU{}
+		sk.FromProto(&cwssaws.Sku{
+			Id:         "sku-1",
+			DeviceType: &deviceType,
+			Components: &cwssaws.SkuComponents{},
+			AssociatedMachineIds: []*cwssaws.MachineId{
+				{Id: "m-1"},
+				{Id: ""}, // skipped
+				{Id: "m-2"},
+			},
+		}, siteID)
+		assert.Equal(t, "sku-1", sk.ID)
+		assert.Equal(t, siteID, sk.SiteID)
+		assert.Equal(t, &deviceType, sk.DeviceType)
+		assert.Equal(t, []string{"m-1", "m-2"}, sk.AssociatedMachineIds)
+		require.NotNil(t, sk.Components)
+	})
+
+	t.Run("nil Components yields nil wrapper", func(t *testing.T) {
+		sk := &SKU{Components: &SkuComponents{SkuComponents: &cwssaws.SkuComponents{}}}
+		sk.FromProto(&cwssaws.Sku{Id: "sku-1"}, siteID)
+		assert.Nil(t, sk.Components)
+	})
+
+	t.Run("nil AssociatedMachineIds yields nil slice", func(t *testing.T) {
+		sk := &SKU{}
+		sk.FromProto(&cwssaws.Sku{Id: "sku-1"}, siteID)
+		assert.Nil(t, sk.AssociatedMachineIds)
+	})
+}
+
 // reset the tables needed for SKU tests
 func testSKUSetupSchema(t *testing.T, dbSession *db.Session) {
 	// create User table
