@@ -30,8 +30,6 @@ import (
 	cdbp "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	swe "github.com/NVIDIA/infra-controller/rest-api/site-workflow/pkg/error"
 	"github.com/NVIDIA/infra-controller/rest-api/workflow/pkg/queue"
-
-	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 // ~~~~~ Create VPC Peering Handler ~~~~~ //
@@ -312,12 +310,11 @@ func (cvph CreateVpcPeeringHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update VPC Peering status to Configuring", nil)
 		}
 
-		// Create the VPC Peering creation request
-		createVpcPeeringRequest := &cwssaws.VpcPeeringCreationRequest{
-			VpcId:     &cwssaws.VpcId{Value: vpcPeering.Vpc1ID.String()},
-			PeerVpcId: &cwssaws.VpcId{Value: vpcPeering.Vpc2ID.String()},
-			Id:        &cwssaws.VpcPeeringId{Value: vpcPeering.ID.String()},
-		}
+		// Create the VPC Peering creation request. The entity's
+		// `ToProto()` is the source of the canonical wire fields; the API
+		// request's `ToProto` produces the request-shape envelope around
+		// it.
+		createVpcPeeringRequest := apiRequest.ToProto(vpcPeering)
 
 		logger.Info().Msg("triggering VPC Peering create workflow on Site")
 
@@ -867,9 +864,7 @@ func (dvph DeleteVpcPeeringHandler) Handle(c echo.Context) error {
 		}
 
 		// Create the VPC Peering deletion request
-		deleteVpcPeeringRequest := &cwssaws.VpcPeeringDeletionRequest{
-			Id: &cwssaws.VpcPeeringId{Value: vpcPeering.ID.String()},
-		}
+		deleteVpcPeeringRequest := vpcPeering.ToDeletionRequestProto()
 
 		// Get the site temporal client
 		stc, derr := dvph.scp.GetClientByID(vpcPeering.SiteID)

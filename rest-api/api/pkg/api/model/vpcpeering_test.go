@@ -8,9 +8,11 @@ import (
 	"testing"
 	"time"
 
-	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 )
 
 func TestAPIVpcPeeringCreateRequest_Validate(t *testing.T) {
@@ -105,6 +107,27 @@ func TestAPIVpcPeeringCreateRequest_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAPIVpcPeeringCreateRequest_ToProto(t *testing.T) {
+	id := uuid.New()
+	v1 := uuid.New()
+	v2 := uuid.New()
+	vp := &cdbm.VpcPeering{ID: id, Vpc1ID: v1, Vpc2ID: v2}
+
+	req := APIVpcPeeringCreateRequest{
+		Vpc1ID: v1.String(),
+		Vpc2ID: v2.String(),
+		SiteID: uuid.New().String(),
+	}
+	got := req.ToProto(vp)
+	require.NotNil(t, got)
+	require.NotNil(t, got.Id)
+	assert.Equal(t, id.String(), got.Id.Value)
+	require.NotNil(t, got.VpcId)
+	assert.Equal(t, v1.String(), got.VpcId.Value)
+	require.NotNil(t, got.PeerVpcId)
+	assert.Equal(t, v2.String(), got.PeerVpcId.Value)
 }
 
 func TestNewAPIVpcPeering(t *testing.T) {

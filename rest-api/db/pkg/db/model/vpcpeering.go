@@ -11,9 +11,11 @@ import (
 
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 
+	"github.com/google/uuid"
+
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	"github.com/google/uuid"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 
 	"github.com/uptrace/bun"
 )
@@ -88,6 +90,69 @@ type VpcPeering struct {
 	Updated   time.Time  `bun:"updated,nullzero,notnull,default:current_timestamp"`
 	Deleted   *time.Time `bun:"deleted,soft_delete"`
 	CreatedBy uuid.UUID  `bun:"type:uuid,notnull"`
+}
+
+// ToProto converts this VpcPeering into its workflow proto representation.
+// Used as the canonical entity-to-proto conversion; the request-shape
+// proto for create is produced by `APIVpcPeeringCreateRequest.ToProto`
+// in api/pkg/api/model/vpcpeering.go, which sources its canonical wire
+// fields from this method.
+//
+// The peering's Vpc1ID/Vpc2ID are sent through directly: the Site
+// treats them as opaque identifiers, and any ControllerVpcID
+// indirection has already been applied by the time the peering rows
+// reference these UUIDs.
+func (vp *VpcPeering) ToProto() *cwssaws.VpcPeering {
+	return &cwssaws.VpcPeering{
+		Id:        &cwssaws.VpcPeeringId{Value: vp.ID.String()},
+		VpcId:     &cwssaws.VpcId{Value: vp.Vpc1ID.String()},
+		PeerVpcId: &cwssaws.VpcId{Value: vp.Vpc2ID.String()},
+	}
+}
+
+// FromProto populates this VpcPeering from its workflow proto
+// representation. A nil proto is a no-op. This is the inverse of
+// `ToProto` and exists for convention symmetry — currently no code
+// path on the cloud side reconstructs a full VpcPeering entity from a
+// `cwssaws.VpcPeering` (the site is the destination, not the source),
+// but the method is provided so future reconciliation flows have a
+// single canonical entry point.
+//
+// Field-level contract:
+//   - `vp.ID` is preserved on a missing or unparseable `proto.Id`,
+//     because callers pre-validate the UUID before calling.
+//   - `vp.Vpc1ID` / `vp.Vpc2ID` are likewise preserved when the proto
+//     omits the matching `VpcId` / `PeerVpcId` or carries an
+//     unparseable value, so `FromProto` cannot silently zero out a
+//     required foreign key.
+func (vp *VpcPeering) FromProto(proto *cwssaws.VpcPeering) {
+	if proto == nil {
+		return
+	}
+	if proto.Id != nil {
+		if id, err := uuid.Parse(proto.Id.Value); err == nil {
+			vp.ID = id
+		}
+	}
+	if proto.VpcId != nil {
+		if id, err := uuid.Parse(proto.VpcId.Value); err == nil {
+			vp.Vpc1ID = id
+		}
+	}
+	if proto.PeerVpcId != nil {
+		if id, err := uuid.Parse(proto.PeerVpcId.Value); err == nil {
+			vp.Vpc2ID = id
+		}
+	}
+}
+
+// ToDeletionRequestProto builds the workflow request that asks a Site to
+// delete this VpcPeering. Stays on the entity because the delete-by-id
+// flow has no API request body.
+func (vp *VpcPeering) ToDeletionRequestProto() *cwssaws.VpcPeeringDeletionRequest {
+	return &cwssaws.VpcPeeringDeletionRequest{
+		Id: &cwssaws.VpcPeeringId{Value: vp.ID.String()},
+	}
 }
 
 type VpcPeeringCreateInput struct {

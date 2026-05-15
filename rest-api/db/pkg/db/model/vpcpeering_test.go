@@ -7,18 +7,101 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	otrace "go.opentelemetry.io/otel/trace"
+
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	otrace "go.opentelemetry.io/otel/trace"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 var (
 	mockID = uuid.MustParse("123e4567-e89b-12d3-a456-426614174000")
 )
+
+func TestVpcPeering_ToProto(t *testing.T) {
+	id := uuid.New()
+	v1 := uuid.New()
+	v2 := uuid.New()
+	vp := &VpcPeering{ID: id, Vpc1ID: v1, Vpc2ID: v2}
+	got := vp.ToProto()
+	require.NotNil(t, got)
+	require.NotNil(t, got.Id)
+	assert.Equal(t, id.String(), got.Id.Value)
+	require.NotNil(t, got.VpcId)
+	assert.Equal(t, v1.String(), got.VpcId.Value)
+	require.NotNil(t, got.PeerVpcId)
+	assert.Equal(t, v2.String(), got.PeerVpcId.Value)
+}
+
+func TestVpcPeering_FromProto(t *testing.T) {
+	t.Run("nil proto is a no-op", func(t *testing.T) {
+		origID := uuid.New()
+		origV1 := uuid.New()
+		origV2 := uuid.New()
+		vp := &VpcPeering{ID: origID, Vpc1ID: origV1, Vpc2ID: origV2}
+		vp.FromProto(nil)
+		assert.Equal(t, origID, vp.ID)
+		assert.Equal(t, origV1, vp.Vpc1ID)
+		assert.Equal(t, origV2, vp.Vpc2ID)
+	})
+
+	t.Run("populates all fields from a complete proto", func(t *testing.T) {
+		id := uuid.New()
+		v1 := uuid.New()
+		v2 := uuid.New()
+		vp := &VpcPeering{}
+		vp.FromProto(&cwssaws.VpcPeering{
+			Id:        &cwssaws.VpcPeeringId{Value: id.String()},
+			VpcId:     &cwssaws.VpcId{Value: v1.String()},
+			PeerVpcId: &cwssaws.VpcId{Value: v2.String()},
+		})
+		assert.Equal(t, id, vp.ID)
+		assert.Equal(t, v1, vp.Vpc1ID)
+		assert.Equal(t, v2, vp.Vpc2ID)
+	})
+
+	t.Run("preserves required IDs when proto omits or carries unparseable values", func(t *testing.T) {
+		origID := uuid.New()
+		origV1 := uuid.New()
+		origV2 := uuid.New()
+		vp := &VpcPeering{ID: origID, Vpc1ID: origV1, Vpc2ID: origV2}
+		vp.FromProto(&cwssaws.VpcPeering{
+			Id:        &cwssaws.VpcPeeringId{Value: "not-a-uuid"},
+			VpcId:     nil,
+			PeerVpcId: &cwssaws.VpcId{Value: "also-bad"},
+		})
+		assert.Equal(t, origID, vp.ID)
+		assert.Equal(t, origV1, vp.Vpc1ID)
+		assert.Equal(t, origV2, vp.Vpc2ID)
+	})
+
+	t.Run("round-trips through ToProto/FromProto", func(t *testing.T) {
+		orig := &VpcPeering{
+			ID:     uuid.New(),
+			Vpc1ID: uuid.New(),
+			Vpc2ID: uuid.New(),
+		}
+		round := &VpcPeering{}
+		round.FromProto(orig.ToProto())
+		assert.Equal(t, orig.ID, round.ID)
+		assert.Equal(t, orig.Vpc1ID, round.Vpc1ID)
+		assert.Equal(t, orig.Vpc2ID, round.Vpc2ID)
+	})
+}
+
+func TestVpcPeering_ToDeletionRequestProto(t *testing.T) {
+	id := uuid.New()
+	vp := &VpcPeering{ID: id}
+	req := vp.ToDeletionRequestProto()
+	require.NotNil(t, req)
+	require.NotNil(t, req.Id)
+	assert.Equal(t, id.String(), req.Id.Value)
+}
 
 func testVpcPeeringSetupSchema(t *testing.T, dbSession *db.Session) {
 	testInterfaceSetupSchema(t, dbSession)
