@@ -73,7 +73,7 @@ func TestNVLinkInterfaceSQLDAO_GetByID(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 	nvli := testBuildNVLinkInterface(t, dbSession, nil, st.ID, i1.ID, nvllp.ID, nil, db.GetStrPtr("Nvidia GB200"), 0, nil, db.GetStrPtr(NVLinkInterfaceStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
@@ -243,8 +243,8 @@ func TestNVLinkInterface_GetAll(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i2)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn1.Org, tn1.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu1.ID)
-	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition2", nil, tn2.Org, tn2.ID, st2.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu2.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn1.Org, tn1.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu1.ID)
+	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition2", nil, tn2.Org, tn2.ID, st2.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu2.ID)
 
 	totalCount := 30
 	nvlinkInterfaces := []NVLinkInterface{}
@@ -558,7 +558,7 @@ func TestNVLinkInterfaceSQLDAO_Create(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 
 	nvli := &NVLinkInterface{
 		SiteID:                   st.ID,
@@ -689,7 +689,7 @@ func TestNVLinkInterfaceSQLDAO_Update(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 	nvli := testBuildNVLinkInterface(t, dbSession, nil, st.ID, i1.ID, nvllp.ID, nil, db.GetStrPtr("Nvidia GB200"), 0, db.GetStrPtr("guid"), db.GetStrPtr(NVLinkInterfaceStatusReady), tnu.ID)
 
 	uNVLinkInterface := nvli
@@ -809,7 +809,7 @@ func TestNVLinkInterfaceSQLDAO_UpdateMultiple(t *testing.T) {
 	)
 	assert.Nil(t, err)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 
 	// Create multiple NVLinkInterfaces for batch update testing
 	nvli1 := testBuildNVLinkInterface(t, dbSession, nil, st.ID, instance.ID, nvllp.ID, nil, db.GetStrPtr("Nvidia GB200"), 0, db.GetStrPtr("guid1"), db.GetStrPtr(NVLinkInterfaceStatusReady), tnu.ID)
@@ -957,7 +957,7 @@ func TestNVLinkInterfaceSQLDAO_Clear(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 	nvli := testBuildNVLinkInterface(t, dbSession, nil, st.ID, i1.ID, nvllp.ID, nil, db.GetStrPtr("Nvidia GB200"), 1, db.GetStrPtr("guid"), db.GetStrPtr(NVLinkInterfaceStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
@@ -1078,7 +1078,7 @@ func TestNVLinkInterfaceSQLDAO_Delete(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 	nvli := testBuildNVLinkInterface(t, dbSession, nil, st.ID, i1.ID, nvllp.ID, nil, db.GetStrPtr("Nvidia GB200"), 0, db.GetStrPtr("guid"), db.GetStrPtr(NVLinkInterfaceStatusReady), tnu.ID)
 
 	// OTEL Spanner configuration
@@ -1169,7 +1169,7 @@ func TestNVLinkInterfaceSQLDAO_CreateMultiple(t *testing.T) {
 	)
 	assert.Nil(t, err)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, nil, "test-nvlinklogicalpartition", nil, tn.Org, tn.ID, st.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 
 	nvlisd := NewNVLinkInterfaceDAO(dbSession)
 
@@ -1327,8 +1327,8 @@ func TestNVLinkInterfaceSQLDAO_DeleteAllBySiteID(t *testing.T) {
 	inst1 := buildInstanceForSite(st1, "host1.com", "mcType1")
 	inst2 := buildInstanceForSite(st2, "host2.com", "mcType2")
 
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, nil, "nvllp-site-1", nil, tn.Org, tn.ID, st1.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
-	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, nil, "nvllp-site-2", nil, tn.Org, tn.ID, st2.ID, db.GetStrPtr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, nil, "nvllp-site-1", nil, tn.Org, tn.ID, st1.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
+	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, nil, "nvllp-site-2", nil, tn.Org, tn.ID, st2.ID, db.Ptr(NVLinkLogicalPartitionStatusReady), tnu.ID)
 
 	// Two interfaces in the target site, one in another site that should remain.
 	nvli1a := testBuildNVLinkInterface(t, dbSession, nil, st1.ID, inst1.ID, nvllp1.ID, nil, db.GetStrPtr("Nvidia GB200"), 0, db.GetStrPtr("guid-1a"), db.GetStrPtr(NVLinkInterfaceStatusReady), tnu.ID)

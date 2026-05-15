@@ -336,7 +336,7 @@ func testBuildInfiniBandInterface(t *testing.T, dbSession *db.Session, id *uuid.
 	return ibif
 }
 
-func testBuildNVLinkLogicalPartition(t *testing.T, dbSession *db.Session, id *uuid.UUID, name string, description *string, org string, tenantID uuid.UUID, siteID uuid.UUID, status *string, createdBy uuid.UUID) *NVLinkLogicalPartition {
+func testBuildNVLinkLogicalPartition(t *testing.T, dbSession *db.Session, id *uuid.UUID, name string, description *string, org string, tenantID uuid.UUID, siteID uuid.UUID, status *NVLinkLogicalPartitionStatus, createdBy uuid.UUID) *NVLinkLogicalPartition {
 	pid := uuid.New()
 	if id != nil {
 		pid = *id

@@ -221,7 +221,7 @@ func (cibph CreateNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 		}
 
 		// create the status detail record
-		ssd, derr = sdDAO.CreateFromParams(ctx, tx, nvllp.ID.String(), *cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusPending),
+		ssd, derr = sdDAO.CreateFromParams(ctx, tx, nvllp.ID.String(), string(cdbm.NVLinkLogicalPartitionStatusPending),
 			cdb.GetStrPtr("received NVLink Logical Partition creation request, pending"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
@@ -239,20 +239,7 @@ func (cibph CreateNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		createRequest := &cwssaws.NVLinkLogicalPartitionCreationRequest{
-			Id: &cwssaws.NVLinkLogicalPartitionId{Value: nvllp.ID.String()},
-			Config: &cwssaws.NVLinkLogicalPartitionConfig{
-				Metadata: &cwssaws.Metadata{
-					Name: nvllp.Name,
-				},
-				TenantOrganizationId: orgTenant.Org,
-			},
-		}
-
-		// Include description if it is present
-		if nvllp.Description != nil {
-			createRequest.Config.Metadata.Description = *nvllp.Description
-		}
+		createRequest := apiRequest.ToProto(nvllp)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "nvlink-logical-partition-create-" + nvllp.ID.String(),
@@ -317,10 +304,12 @@ func (cibph CreateNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 	if protoNvllp != nil {
 		logger.Info().Msg("received NVLink Logical Partition info from workflow")
 
-		status, statusMessage := wfutil.GetNVLinkLogicalPartitionStatus(protoNvllp.Status.State)
-		// if status is nil, then default is pending and inventory will be updating status from workflow
-		if status != nil {
-			updatedNvllp, newSSD, err := wfutil.UpdateNVLinkLogicalPartitionStatusInDB(ctx, nil, cibph.dbSession, nvllp.ID, status, statusMessage)
+		var status cdbm.NVLinkLogicalPartitionStatus
+		status.FromProto(protoNvllp.Status.State)
+		// if status is empty, then default is pending and inventory will be updating status from workflow
+		if status != "" {
+			message := status.Message()
+			updatedNvllp, newSSD, err := wfutil.UpdateNVLinkLogicalPartitionStatusInDB(ctx, nil, cibph.dbSession, nvllp.ID, &status, &message)
 			if err != nil {
 				logger.Error().Err(err).Msg("failed to update NVLink Logical Partition status in DB")
 			} else {
@@ -476,7 +465,7 @@ func (gaibph GetAllNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 	statusQuery := c.QueryParam("status")
 	if statusQuery != "" {
 		gaibph.tracerSpan.SetAttribute(handlerSpan, attribute.String("status", statusQuery), logger)
-		_, ok := cdbm.NVLinkLogicalPartitionStatusMap[statusQuery]
+		_, ok := cdbm.NVLinkLogicalPartitionStatusMap[cdbm.NVLinkLogicalPartitionStatus(statusQuery)]
 		if !ok {
 			logger.Warn().Msg(fmt.Sprintf("invalid value in status query: %v", statusQuery))
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Status value in query", nil)
@@ -1030,21 +1019,11 @@ func (uibph UpdateNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		updateRequest := &cwssaws.NVLinkLogicalPartitionUpdateRequest{
-			Id: &cwssaws.NVLinkLogicalPartitionId{Value: updated.ID.String()},
-			Config: &cwssaws.NVLinkLogicalPartitionConfig{
-				TenantOrganizationId: orgTenant.Org,
-				Metadata:             &cwssaws.Metadata{},
-			},
-		}
-
-		// Site Controller (NICo) requires metadata.name on every update. When the client
-		// sends only description, apiRequest.Name is nil but we must still send the
-		// current partition name from the DB.
-		updateRequest.Config.Metadata.Name = updated.Name
-		if updated.Description != nil {
-			updateRequest.Config.Metadata.Description = *updated.Description
-		}
+		// Site Controller (NICo) requires metadata.name on every update. When the
+		// client sends only description, apiRequest.Name is nil but we must still
+		// send the current partition name from the DB; ToProto reads it directly
+		// off the (already-updated) DB entity via the entity's ToProto().
+		updateRequest := apiRequest.ToProto(updated)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "nvlink-logical-partition-update-" + updated.ID.String(),
@@ -1270,12 +1249,13 @@ func (dibph DeleteNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 	var timeoutResp func() error
 	err = cdb.WithTx(ctx, dibph.dbSession, func(tx *cdb.Tx) error {
 		// Update NVLink Logical Partition and set status to Deleting
+		deletingStatus := cdbm.NVLinkLogicalPartitionStatusDeleting
 		if _, derr := nvllpDAO.Update(
 			ctx,
 			tx,
 			cdbm.NVLinkLogicalPartitionUpdateInput{
 				NVLinkLogicalPartitionID: nvllpID,
-				Status:                   cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusDeleting),
+				Status:                   &deletingStatus,
 			},
 		); derr != nil {
 			logger.Error().Err(derr).Msg("error updating NVLink Logical Partition in DB")
@@ -1283,7 +1263,7 @@ func (dibph DeleteNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 		}
 
 		// Create status detail
-		ssd, derr := sdDAO.CreateFromParams(ctx, tx, nvllp.ID.String(), *cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusDeleting),
+		ssd, derr := sdDAO.CreateFromParams(ctx, tx, nvllp.ID.String(), string(deletingStatus),
 			cdb.GetStrPtr("Received request for deletion, pending processing"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
@@ -1301,9 +1281,7 @@ func (dibph DeleteNVLinkLogicalPartitionHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		deleteNvllpRequest := &cwssaws.NVLinkLogicalPartitionDeletionRequest{
-			Id: &cwssaws.NVLinkLogicalPartitionId{Value: nvllp.ID.String()},
-		}
+		deleteNvllpRequest := nvllp.ToDeletionRequestProto()
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "nvlink-logical-partition-delete-" + nvllp.ID.String(),

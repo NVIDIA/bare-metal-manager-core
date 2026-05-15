@@ -826,10 +826,10 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, osPhoneHome)
 
 	// create a default NVLink Logical Partition
-	nvllpDefault := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-default", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllpDefault := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-default", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllpDefault)
 
-	nvllpNotDefault := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-not-default", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllpNotDefault := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-not-default", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllpNotDefault)
 
 	vpc1 := testInstanceBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st1, cdb.GetUUIDPtr(uuid.New()), nil, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdb.GetUUIDPtr(nvllpDefault.ID), cdbm.VpcStatusReady, tnu1)
@@ -1130,10 +1130,10 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 	vpcPrefixSite2 := common.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-site2", st2, tn1, vpc9Site2.ID, &ipbSite2.ID, cdb.GetStrPtr("192.170.0.0/24"), cdb.GetIntPtr(24), cdbm.VpcPrefixStatusReady, tnu1)
 	assert.NotNil(t, vpcPrefixSite2)
 	// NvLink Logical Partition
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
 
-	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp2)
 
 	e := echo.New()
@@ -3946,10 +3946,10 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 	// Add NVLink GPU capability to Machine
 	common.TestBuildMachineCapability(t, dbSession, &mc5.ID, nil, cdbm.MachineCapabilityTypeGPU, "NVIDIA GB200", nil, nil, cdb.GetStrPtr("NVIDIA"), cdb.GetIntPtr(4), cdb.Ptr(cdbm.MachineCapabilityDeviceTypeNVLink), nil)
 
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, st3, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, st3, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
 
-	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, st3, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, st3, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp2)
 
 	instnvlifc1 := testInstanceBuildInstanceNVLinkInterface(t, dbSession, st3.ID, inst13.ID, nvllp1.ID, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr("NVIDIA GB200"), 0, cdbm.NVLinkInterfaceStatusReady)

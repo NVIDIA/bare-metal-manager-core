@@ -167,7 +167,7 @@ func TestGetTrayHandler_Handle(t *testing.T) {
 	_, site, _ := testTraySetupTestData(t, dbSession, org)
 
 	// Create a site without Flow enabled
-	siteNoFlow := &cdbm.Site{
+	siteNoRLA := &cdbm.Site{
 		ID:                       uuid.New(),
 		Name:                     "test-site-no-flow",
 		Org:                      org,
@@ -175,7 +175,7 @@ func TestGetTrayHandler_Handle(t *testing.T) {
 		Status:                   cdbm.SiteStatusRegistered,
 		Config:                   &cdbm.SiteConfig{},
 	}
-	_, err := dbSession.DB.NewInsert().Model(siteNoFlow).Exec(context.Background())
+	_, err := dbSession.DB.NewInsert().Model(siteNoRLA).Exec(context.Background())
 	assert.Nil(t, err)
 
 	// Create provider user
@@ -225,7 +225,7 @@ func TestGetTrayHandler_Handle(t *testing.T) {
 			user:   providerUser,
 			trayID: trayID,
 			queryParams: map[string]string{
-				"siteId": siteNoFlow.ID.String(),
+				"siteId": siteNoRLA.ID.String(),
 			},
 			expectedStatus: http.StatusPreconditionFailed,
 			wantErr:        true,
@@ -351,7 +351,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 	_, site, _ := testTraySetupTestData(t, dbSession, org)
 
 	// Create a site without Flow enabled
-	siteNoFlow := &cdbm.Site{
+	siteNoRLA := &cdbm.Site{
 		ID:                       uuid.New(),
 		Name:                     "test-site-no-flow",
 		Org:                      org,
@@ -359,7 +359,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 		Status:                   cdbm.SiteStatusRegistered,
 		Config:                   &cdbm.SiteConfig{},
 	}
-	_, err := dbSession.DB.NewInsert().Model(siteNoFlow).Exec(context.Background())
+	_, err := dbSession.DB.NewInsert().Model(siteNoRLA).Exec(context.Background())
 	assert.Nil(t, err)
 
 	// Create provider user
@@ -506,7 +506,7 @@ func TestGetAllTrayHandler_Handle(t *testing.T) {
 			reqOrg: org,
 			user:   providerUser,
 			queryParams: map[string]string{
-				"siteId": siteNoFlow.ID.String(),
+				"siteId": siteNoRLA.ID.String(),
 			},
 			mockResponse:   nil,
 			expectedStatus: http.StatusPreconditionFailed,
@@ -710,7 +710,7 @@ func TestValidateTrayHandler_Handle(t *testing.T) {
 	_, site, _ := testTraySetupTestData(t, dbSession, org)
 
 	// Create a site without Flow enabled
-	siteNoFlow := &cdbm.Site{
+	siteNoRLA := &cdbm.Site{
 		ID:                       uuid.New(),
 		Name:                     "test-site-no-flow",
 		Org:                      org,
@@ -718,7 +718,7 @@ func TestValidateTrayHandler_Handle(t *testing.T) {
 		Status:                   cdbm.SiteStatusRegistered,
 		Config:                   &cdbm.SiteConfig{},
 	}
-	_, err := dbSession.DB.NewInsert().Model(siteNoFlow).Exec(context.Background())
+	_, err := dbSession.DB.NewInsert().Model(siteNoRLA).Exec(context.Background())
 	assert.Nil(t, err)
 
 	providerUser := testTrayBuildUser(t, dbSession, "provider-user-validate-tray", org, []string{authz.ProviderAdminRole})
@@ -794,7 +794,7 @@ func TestValidateTrayHandler_Handle(t *testing.T) {
 			user:   providerUser,
 			trayID: trayID,
 			queryParams: map[string]string{
-				"siteId": siteNoFlow.ID.String(),
+				"siteId": siteNoRLA.ID.String(),
 			},
 			expectedStatus: http.StatusPreconditionFailed,
 		},
@@ -914,7 +914,7 @@ func TestValidateTraysHandler_Handle(t *testing.T) {
 	_, site, _ := testTraySetupTestData(t, dbSession, org)
 
 	// Create a site without Flow enabled
-	siteNoFlow := &cdbm.Site{
+	siteNoRLA := &cdbm.Site{
 		ID:                       uuid.New(),
 		Name:                     "test-site-no-flow",
 		Org:                      org,
@@ -922,7 +922,7 @@ func TestValidateTraysHandler_Handle(t *testing.T) {
 		Status:                   cdbm.SiteStatusRegistered,
 		Config:                   &cdbm.SiteConfig{},
 	}
-	_, err := dbSession.DB.NewInsert().Model(siteNoFlow).Exec(context.Background())
+	_, err := dbSession.DB.NewInsert().Model(siteNoRLA).Exec(context.Background())
 	assert.Nil(t, err)
 
 	providerUser := testTrayBuildUser(t, dbSession, "provider-user-validate-trays", org, []string{authz.ProviderAdminRole})
@@ -1100,7 +1100,7 @@ func TestValidateTraysHandler_Handle(t *testing.T) {
 			reqOrg: org,
 			user:   providerUser,
 			queryParams: map[string]string{
-				"siteId": siteNoFlow.ID.String(),
+				"siteId": siteNoRLA.ID.String(),
 			},
 			expectedStatus: http.StatusPreconditionFailed,
 		},

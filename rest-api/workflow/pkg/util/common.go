@@ -12,8 +12,6 @@ import (
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	"github.com/google/uuid"
-
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 var (
@@ -86,24 +84,8 @@ func IsTimeWithinStaleInventoryThreshold(actionTime time.Time) bool {
 	return time.Since(actionTime) < cwutil.InventoryReceiptInterval+(time.Second*10)
 }
 
-// GetNVLinkLogicalPartitionStatus returns the NVLinkLogicalPartition status and message from Controller NVLinkLogicalPartition state
-func GetNVLinkLogicalPartitionStatus(controllerNVLinkLogicalPartitionTenantState cwssaws.TenantState) (*string, *string) {
-	switch controllerNVLinkLogicalPartitionTenantState {
-	case cwssaws.TenantState_PROVISIONING:
-		return cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusProvisioning), cdb.GetStrPtr("NVLink Logical Partition is being provisioned on Site")
-	case cwssaws.TenantState_CONFIGURING:
-		return cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusConfiguring), cdb.GetStrPtr("NVLink Logical Partition is being configured on Site")
-	case cwssaws.TenantState_READY:
-		return cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), cdb.GetStrPtr("NVLink Logical Partition is ready for use")
-	case cwssaws.TenantState_FAILED:
-		return cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusError), cdb.GetStrPtr("NVLink Logical Partition is in error state")
-	default:
-		return nil, nil
-	}
-}
-
 // UpdateNVLinkLogicalPartitionStatusInDB updates the NVLinkLogicalPartition status in the DB and creates a new StatusDetail
-func UpdateNVLinkLogicalPartitionStatusInDB(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, nvlinklogicalpartitionID uuid.UUID, status *string, statusMessage *string) (*cdbm.NVLinkLogicalPartition, *cdbm.StatusDetail, error) {
+func UpdateNVLinkLogicalPartitionStatusInDB(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, nvlinklogicalpartitionID uuid.UUID, status *cdbm.NVLinkLogicalPartitionStatus, statusMessage *string) (*cdbm.NVLinkLogicalPartition, *cdbm.StatusDetail, error) {
 	var updatedNVLinkLogicalPartition *cdbm.NVLinkLogicalPartition
 	var err error
 	var newSSD *cdbm.StatusDetail
@@ -122,7 +104,7 @@ func UpdateNVLinkLogicalPartitionStatusInDB(ctx context.Context, tx *cdb.Tx, dbS
 		}
 
 		statusDetailDAO := cdbm.NewStatusDetailDAO(dbSession)
-		newSSD, err = statusDetailDAO.CreateFromParams(ctx, tx, nvlinklogicalpartitionID.String(), *status, statusMessage)
+		newSSD, err = statusDetailDAO.CreateFromParams(ctx, tx, nvlinklogicalpartitionID.String(), string(*status), statusMessage)
 		if err != nil {
 			return updatedNVLinkLogicalPartition, newSSD, err
 		}
