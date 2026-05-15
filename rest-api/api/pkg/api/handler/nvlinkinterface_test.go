@@ -786,7 +786,7 @@ func TestGetAllInstanceNVLinkInterfaceHandler_Handle(t *testing.T) {
 
 	ibps := []*cdbm.InfiniBandPartition{}
 	for i := 0; i < 25; i++ {
-		ibp1 := testBuildIBPartition(t, dbSession, "test-infiniband-partition-1", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+		ibp1 := testBuildIBPartition(t, dbSession, "test-infiniband-partition-1", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
 		assert.NotNil(t, ibp1)
 		ibps = append(ibps, ibp1)
 	}

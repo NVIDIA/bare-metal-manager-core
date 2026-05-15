@@ -23,7 +23,6 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/api/internal/config"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/handler/util/common"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model"
-	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/pagination"
 	sc "github.com/NVIDIA/infra-controller-rest/api/pkg/client/site"
 	auth "github.com/NVIDIA/infra-controller-rest/auth/pkg/authorization"
@@ -33,7 +32,6 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 	swe "github.com/NVIDIA/infra-controller-rest/site-workflow/pkg/error"
 
-	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/NVIDIA/infra-controller-rest/workflow/pkg/queue"
 )
 
@@ -228,7 +226,7 @@ func (cibph CreateInfiniBandPartitionHandler) Handle(c echo.Context) error {
 		}
 
 		// create the status detail record
-		newSSD, derr := sdDAO.CreateFromParams(ctx, tx, ibp.ID.String(), *cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusPending),
+		newSSD, derr := sdDAO.CreateFromParams(ctx, tx, ibp.ID.String(), string(cdbm.InfiniBandPartitionStatusPending),
 			cdb.GetStrPtr("received InfiniBand Partition creation request, pending"))
 		if derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
@@ -247,33 +245,13 @@ func (cibph CreateInfiniBandPartitionHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		createIBPRequest := &cwssaws.IBPartitionCreationRequest{
-			Id: &cwssaws.IBPartitionId{Value: ibp.ID.String()},
-			Config: &cwssaws.IBPartitionConfig{
-				Name:                 ibp.Name,
-				TenantOrganizationId: orgTenant.Org,
-			},
-		}
+		createIBPRequest := apiRequest.ToProto(ibp)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "infiniband-partition-create-" + ibp.ID.String(),
 			TaskQueue:                queue.SiteTaskQueue,
 			WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
 		}
-
-		// InfiniBand Partition metadata info
-		metadata := &cwssaws.Metadata{
-			Name:        ibp.Name,
-			Description: "",
-		}
-
-		if ibp.Description != nil {
-			metadata.Description = *ibp.Description
-		}
-
-		metadata.Labels = util.ProtobufLabelsFromAPILabels(ibp.Labels)
-
-		createIBPRequest.Metadata = metadata
 
 		logger.Info().Msg("triggering InfiniBand Partition create workflow")
 
@@ -464,7 +442,7 @@ func (gaibph GetAllInfiniBandPartitionHandler) Handle(c echo.Context) error {
 	statusQuery := c.QueryParam("status")
 	if statusQuery != "" {
 		gaibph.tracerSpan.SetAttribute(handlerSpan, attribute.String("status", statusQuery), logger)
-		_, ok := cdbm.InfiniBandPartitionStatusMap[statusQuery]
+		_, ok := cdbm.InfiniBandPartitionStatusMap[cdbm.InfiniBandPartitionStatus(statusQuery)]
 		if !ok {
 			logger.Warn().Msg(fmt.Sprintf("invalid value in status query: %v", statusQuery))
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Invalid Status value in query", nil)
@@ -847,19 +825,7 @@ func (uibph UpdateInfiniBandPartitionHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		updateIBPRequest := &cwssaws.IBPartitionUpdateRequest{
-			Id: &cwssaws.IBPartitionId{Value: ibp.ID.String()},
-			Config: &cwssaws.IBPartitionConfig{
-				Name:                 uipb.Name,
-				TenantOrganizationId: orgTenant.Org,
-			},
-		}
-		metadata := &cwssaws.Metadata{Name: uipb.Name}
-		if uipb.Description != nil {
-			metadata.Description = *uipb.Description
-		}
-		metadata.Labels = util.ProtobufLabelsFromAPILabels(uipb.Labels)
-		updateIBPRequest.Metadata = metadata
+		updateIBPRequest := apiRequest.ToProto(uipb)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "infiniband-partition-update-" + ibp.ID.String(),
@@ -1065,12 +1031,13 @@ func (dibph DeleteInfiniBandPartitionHandler) Handle(c echo.Context) error {
 
 	err = cdb.WithTx(ctx, dibph.dbSession, func(tx *cdb.Tx) error {
 		// Update InfiniBand Partition and set status to Deleting
+		deletingStatus := cdbm.InfiniBandPartitionStatusDeleting
 		if _, derr := ibpDAO.Update(
 			ctx,
 			tx,
 			cdbm.InfiniBandPartitionUpdateInput{
 				InfiniBandPartitionID: ibp.ID,
-				Status:                cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusDeleting),
+				Status:                &deletingStatus,
 			},
 		); derr != nil {
 			logger.Error().Err(derr).Msg("error updating InfiniBand Partition in DB")
@@ -1078,7 +1045,7 @@ func (dibph DeleteInfiniBandPartitionHandler) Handle(c echo.Context) error {
 		}
 
 		// Create status detail
-		if _, derr := sdDAO.CreateFromParams(ctx, tx, ibp.ID.String(), *cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusDeleting),
+		if _, derr := sdDAO.CreateFromParams(ctx, tx, ibp.ID.String(), string(deletingStatus),
 			cdb.GetStrPtr("Received request for deletion, pending processing")); derr != nil {
 			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for InfiniBand Partition deletion", nil)
@@ -1091,9 +1058,7 @@ func (dibph DeleteInfiniBandPartitionHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		deleteIBPRequest := &cwssaws.IBPartitionDeletionRequest{
-			Id: &cwssaws.IBPartitionId{Value: ibp.ID.String()},
-		}
+		deleteIBPRequest := ibp.ToDeletionRequestProto()
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "infiniband-partition-delete-" + ibp.ID.String(),

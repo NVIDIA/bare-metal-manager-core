@@ -136,7 +136,7 @@ func TestBatchCreateInstanceHandler_Handle(t *testing.T) {
 	assert.NotNil(t, vpcPrefixSite2)
 
 	// InfiniBand Partition for testing InfiniBand Interfaces
-	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+	ibp1 := testBuildIBPartition(t, dbSession, "test-ibp-1", tnOrg, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
 	assert.NotNil(t, ibp1)
 
 	// NVLink Logical Partition for testing NVLink Interfaces

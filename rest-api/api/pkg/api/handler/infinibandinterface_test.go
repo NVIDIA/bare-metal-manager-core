@@ -106,7 +106,7 @@ func TestGetAllInfiniBandInterface_Handle(t *testing.T) {
 
 	ibPartitions := []*cdbm.InfiniBandPartition{}
 	for i := 0; i < 3; i++ {
-		ibPartition := testBuildIBPartition(t, dbSession, fmt.Sprintf("test-InfiniBandPartition-%d", i), tn1.Org, st1, tn1, nil, cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+		ibPartition := testBuildIBPartition(t, dbSession, fmt.Sprintf("test-InfiniBandPartition-%d", i), tn1.Org, st1, tn1, nil, cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
 		assert.NotNil(t, ibPartition)
 		ibPartitions = append(ibPartitions, ibPartition)
 	}
@@ -743,7 +743,7 @@ func TestGetAllInstanceInfiniBandInterfaceHandler_Handle(t *testing.T) {
 
 	ibps := []*cdbm.InfiniBandPartition{}
 	for i := 0; i < 25; i++ {
-		ibp1 := testBuildIBPartition(t, dbSession, "test-infiniband-partition-1", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.GetStrPtr(cdbm.InfiniBandPartitionStatusReady), false)
+		ibp1 := testBuildIBPartition(t, dbSession, "test-infiniband-partition-1", tnOrg1, st1, tn1, cdb.GetUUIDPtr(uuid.New()), cdb.Ptr(cdbm.InfiniBandPartitionStatusReady), false)
 		assert.NotNil(t, ibp1)
 		ibps = append(ibps, ibp1)
 	}
