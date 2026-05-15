@@ -1630,7 +1630,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 
 			// Build instance allocation request using pre-built configs
 			instanceRequest := &cwssaws.InstanceAllocationRequest{
-				InstanceId: &cwssaws.InstanceId{Value: common.GetSiteInstanceID(instance).String()},
+				InstanceId: &cwssaws.InstanceId{Value: instance.GetSiteID().String()},
 				MachineId:  &cwssaws.MachineId{Id: *instance.MachineID},
 				Metadata: &cwssaws.Metadata{
 					Name:        instance.Name,

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
@@ -3499,4 +3500,31 @@ func TestInstanceSQLDAO_UpdateMultiple_AllFields(t *testing.T) {
 	assert.Equal(t, InstanceStatusReady, updated.Status, "Status not updated")
 	assert.Equal(t, "on", *updated.PowerStatus, "PowerStatus not updated")
 	assert.True(t, updated.IsMissingOnSite, "IsMissingOnSite not updated")
+}
+
+func TestInstance_GetSiteID(t *testing.T) {
+	id := uuid.New()
+	ctrlID := uuid.New()
+	t.Run("falls back to ID when ControllerInstanceID is nil", func(t *testing.T) {
+		i := &Instance{ID: id}
+		got := i.GetSiteID()
+		require.NotNil(t, got)
+		assert.Equal(t, id, *got)
+	})
+	t.Run("uses ControllerInstanceID when set", func(t *testing.T) {
+		i := &Instance{ID: id, ControllerInstanceID: &ctrlID}
+		got := i.GetSiteID()
+		require.NotNil(t, got)
+		assert.Equal(t, ctrlID, *got)
+	})
+}
+
+func TestInstance_ToReleaseRequestProto(t *testing.T) {
+	id := uuid.New()
+	i := &Instance{ID: id}
+	req := i.ToReleaseRequestProto()
+	require.NotNil(t, req)
+	require.NotNil(t, req.Id)
+	assert.Equal(t, id.String(), req.Id.Value)
+	assert.Nil(t, req.Issue)
 }

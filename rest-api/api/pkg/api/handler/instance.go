@@ -1555,7 +1555,7 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 
 		// Prepare the create request workflow object
 		createInstanceRequest := &cwssaws.InstanceAllocationRequest{
-			InstanceId: &cwssaws.InstanceId{Value: common.GetSiteInstanceID(instance).String()},
+			InstanceId: &cwssaws.InstanceId{Value: instance.GetSiteID().String()},
 			MachineId:  &cwssaws.MachineId{Id: *instance.MachineID},
 			Metadata: &cwssaws.Metadata{
 				Name:        instance.Name,
@@ -3516,7 +3516,7 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 
 		// Prepare the config update request workflow object
 		updateInstanceRequest := &cwssaws.InstanceConfigUpdateRequest{
-			InstanceId: &cwssaws.InstanceId{Value: common.GetSiteInstanceID(instance).String()},
+			InstanceId: &cwssaws.InstanceId{Value: instance.GetSiteID().String()},
 			Metadata: &cwssaws.Metadata{
 				Name:        ui.Name,
 				Description: description,
@@ -4737,31 +4737,19 @@ func (dih DeleteInstanceHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		// Prepare the delete/release request workflow object
-		releaseInstanceRequest := &cwssaws.InstanceReleaseRequest{
-			Id: &cwssaws.InstanceId{Value: common.GetSiteInstanceID(instance).String()},
-		}
-
-		// This is for enhanced break-fix flow:
-		if apiRequest.MachineHealthIssue != nil {
-			releaseInstanceRequest.Issue = &cwssaws.Issue{
-				Category: cwssaws.IssueCategory(model.MachineIssueCategoriesFromAPIToProtobuf[apiRequest.MachineHealthIssue.Category]),
-			}
-			if apiRequest.MachineHealthIssue.Summary != nil {
-				releaseInstanceRequest.Issue.Summary = *apiRequest.MachineHealthIssue.Summary
-			}
-			if apiRequest.MachineHealthIssue.Details != nil {
-				releaseInstanceRequest.Issue.Details = *apiRequest.MachineHealthIssue.Details
-			}
-		}
-		// if caller attempt to set IsRepairTenant then it must be a tenant with targetedInstanceCreation capability
+		// Authorization stays in the handler: setting `IsRepairTenant`
+		// requires the tenant to carry the TargetedInstanceCreation
+		// capability. By the time `ToProto` runs the request is safe
+		// to trust.
 		if apiRequest.IsRepairTenant != nil && *apiRequest.IsRepairTenant {
 			if instance.Tenant.Config == nil || !instance.Tenant.Config.TargetedInstanceCreation {
 				logger.Warn().Msg("tenant does not have capability to set IsRepairTenant")
 				return cutil.NewAPIError(http.StatusForbidden, "Tenant does not have capability to set IsRepairTenant", nil)
 			}
-			releaseInstanceRequest.IsRepairTenant = apiRequest.IsRepairTenant
 		}
+
+		// Prepare the delete/release request workflow object
+		releaseInstanceRequest := apiRequest.ToProto(instance)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "instance-delete-" + instance.ID.String(),

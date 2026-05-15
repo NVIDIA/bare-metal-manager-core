@@ -14,8 +14,10 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewAPIInstance(t *testing.T) {
@@ -2569,4 +2571,64 @@ func TestAPIInstanceUpdateRequest_Validate_Auto(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAPIInstanceDeleteRequest_ToProto(t *testing.T) {
+	id := uuid.New()
+	ctrlID := uuid.New()
+	instance := &cdbm.Instance{ID: id, ControllerInstanceID: &ctrlID}
+
+	t.Run("empty request sources only the canonical ID", func(t *testing.T) {
+		req := APIInstanceDeleteRequest{}
+		got := req.ToProto(instance)
+		require.NotNil(t, got)
+		require.NotNil(t, got.Id)
+		assert.Equal(t, ctrlID.String(), got.Id.Value)
+		assert.Nil(t, got.Issue)
+		assert.Nil(t, got.IsRepairTenant)
+	})
+
+	t.Run("overlays MachineHealthIssue with summary and details", func(t *testing.T) {
+		req := APIInstanceDeleteRequest{
+			MachineHealthIssue: &APIMachineHealthIssue{
+				Category: MachineIssueCategoryHardware,
+				Summary:  cdb.GetStrPtr("burnt out NIC"),
+				Details:  cdb.GetStrPtr("port 0 returned link-down for 30 minutes"),
+			},
+		}
+		got := req.ToProto(instance)
+		require.NotNil(t, got)
+		require.NotNil(t, got.Issue)
+		assert.Equal(t, cwssaws.IssueCategory_HARDWARE, got.Issue.Category)
+		assert.Equal(t, "burnt out NIC", got.Issue.Summary)
+		assert.Equal(t, "port 0 returned link-down for 30 minutes", got.Issue.Details)
+	})
+
+	t.Run("MachineHealthIssue without optional pointers leaves Summary and Details empty", func(t *testing.T) {
+		req := APIInstanceDeleteRequest{
+			MachineHealthIssue: &APIMachineHealthIssue{
+				Category: MachineIssueCategoryOther,
+			},
+		}
+		got := req.ToProto(instance)
+		require.NotNil(t, got.Issue)
+		assert.Equal(t, cwssaws.IssueCategory_OTHER, got.Issue.Category)
+		assert.Equal(t, "", got.Issue.Summary)
+		assert.Equal(t, "", got.Issue.Details)
+	})
+
+	t.Run("overlays IsRepairTenant when set", func(t *testing.T) {
+		req := APIInstanceDeleteRequest{IsRepairTenant: cdb.GetBoolPtr(true)}
+		got := req.ToProto(instance)
+		require.NotNil(t, got.IsRepairTenant)
+		assert.True(t, *got.IsRepairTenant)
+	})
+
+	t.Run("uses Instance ID when ControllerInstanceID is nil", func(t *testing.T) {
+		bare := &cdbm.Instance{ID: id}
+		req := APIInstanceDeleteRequest{}
+		got := req.ToProto(bare)
+		require.NotNil(t, got.Id)
+		assert.Equal(t, id.String(), got.Id.Value)
+	})
 }
