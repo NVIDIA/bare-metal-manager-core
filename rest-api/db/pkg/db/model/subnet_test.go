@@ -9,16 +9,243 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	otrace "go.opentelemetry.io/otel/trace"
+
+	"github.com/google/uuid"
+	"github.com/uptrace/bun/extra/bundebug"
 
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller/rest-api/db/pkg/tracer"
 	"github.com/NVIDIA/infra-controller/rest-api/db/pkg/util"
-	"github.com/google/uuid"
-	"github.com/uptrace/bun/extra/bundebug"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
+
+func TestSubnet_GetSiteID(t *testing.T) {
+	id := uuid.New()
+	ctrlID := uuid.New()
+	t.Run("falls back to ID when ControllerNetworkSegmentID is nil", func(t *testing.T) {
+		s := &Subnet{ID: id}
+		got := s.GetSiteID()
+		require.NotNil(t, got)
+		assert.Equal(t, id, *got)
+	})
+	t.Run("uses ControllerNetworkSegmentID when set", func(t *testing.T) {
+		s := &Subnet{ID: id, ControllerNetworkSegmentID: &ctrlID}
+		got := s.GetSiteID()
+		require.NotNil(t, got)
+		assert.Equal(t, ctrlID, *got)
+	})
+}
+
+func TestSubnet_ToProto(t *testing.T) {
+	subID := uuid.New()
+	vpcID := uuid.New()
+	domainID := uuid.New()
+	prefix := "10.0.0.0"
+	gateway := "10.0.0.1"
+	mtu := 9000
+
+	t.Run("emits id/vpcId/name/subdomain/mtu/prefixes from entity", func(t *testing.T) {
+		s := &Subnet{
+			ID:           subID,
+			VpcID:        vpcID,
+			Name:         "subnet-a",
+			DomainID:     &domainID,
+			IPv4Prefix:   &prefix,
+			IPv4Gateway:  &gateway,
+			PrefixLength: 16,
+			MTU:          &mtu,
+		}
+		proto := s.ToProto()
+		require.NotNil(t, proto)
+		require.NotNil(t, proto.Id)
+		assert.Equal(t, subID.String(), proto.Id.Value)
+		require.NotNil(t, proto.VpcId)
+		assert.Equal(t, vpcID.String(), proto.VpcId.Value)
+		assert.Equal(t, "subnet-a", proto.Name)
+		require.NotNil(t, proto.SubdomainId)
+		assert.Equal(t, domainID.String(), proto.SubdomainId.Value)
+		require.NotNil(t, proto.Mtu)
+		assert.Equal(t, int32(9000), *proto.Mtu)
+		require.Len(t, proto.Prefixes, 1)
+		assert.Equal(t, "10.0.0.0/16", proto.Prefixes[0].Prefix)
+		require.NotNil(t, proto.Prefixes[0].Gateway)
+		assert.Equal(t, gateway, *proto.Prefixes[0].Gateway)
+		// ReserveFirst is a deployment-policy value overlaid by the
+		// request-shape ToProto; the entity emits zero.
+		assert.Equal(t, int32(0), proto.Prefixes[0].ReserveFirst)
+	})
+
+	t.Run("prefers ControllerNetworkSegmentID for the Site-facing ID", func(t *testing.T) {
+		ctrlID := uuid.New()
+		s := &Subnet{ID: subID, ControllerNetworkSegmentID: &ctrlID, VpcID: vpcID, Name: "subnet-a"}
+		proto := s.ToProto()
+		require.NotNil(t, proto.Id)
+		assert.Equal(t, ctrlID.String(), proto.Id.Value)
+	})
+
+	t.Run("omits optional fields when entity has none", func(t *testing.T) {
+		s := &Subnet{ID: subID, VpcID: vpcID, Name: "subnet-a"}
+		proto := s.ToProto()
+		require.NotNil(t, proto)
+		assert.Nil(t, proto.SubdomainId)
+		assert.Nil(t, proto.Mtu)
+		assert.Nil(t, proto.Prefixes)
+	})
+}
+
+func TestSubnet_FromProto(t *testing.T) {
+	subID := uuid.New()
+	vpcID := uuid.New()
+	domainID := uuid.New()
+	gateway := "10.0.0.1"
+
+	t.Run("nil proto leaves the receiver untouched", func(t *testing.T) {
+		s := &Subnet{ID: subID, Name: "existing", VpcID: vpcID}
+		s.FromProto(nil)
+		assert.Equal(t, subID, s.ID)
+		assert.Equal(t, "existing", s.Name)
+		assert.Equal(t, vpcID, s.VpcID)
+	})
+
+	t.Run("populates fields from a full proto", func(t *testing.T) {
+		mtu := int32(9000)
+		proto := &cwssaws.NetworkSegment{
+			Id:          &cwssaws.NetworkSegmentId{Value: subID.String()},
+			VpcId:       &cwssaws.VpcId{Value: vpcID.String()},
+			Name:        "subnet-a",
+			SubdomainId: &cwssaws.DomainId{Value: domainID.String()},
+			Mtu:         &mtu,
+			Prefixes: []*cwssaws.NetworkPrefix{
+				{Prefix: "10.0.0.0/16", Gateway: &gateway},
+			},
+		}
+		s := &Subnet{}
+		s.FromProto(proto)
+		assert.Equal(t, subID, s.ID)
+		assert.Equal(t, vpcID, s.VpcID)
+		assert.Equal(t, "subnet-a", s.Name)
+		require.NotNil(t, s.DomainID)
+		assert.Equal(t, domainID, *s.DomainID)
+		require.NotNil(t, s.MTU)
+		assert.Equal(t, 9000, *s.MTU)
+		require.NotNil(t, s.IPv4Prefix)
+		assert.Equal(t, "10.0.0.0", *s.IPv4Prefix)
+		assert.Equal(t, 16, s.PrefixLength)
+		require.NotNil(t, s.IPv4Gateway)
+		assert.Equal(t, gateway, *s.IPv4Gateway)
+	})
+
+	t.Run("clears optional fields when proto omits them", func(t *testing.T) {
+		existing := "stale"
+		existingGW := "stale-gw"
+		mtu := 1500
+		s := &Subnet{
+			ID:           subID,
+			Name:         "stale-name",
+			DomainID:     &domainID,
+			MTU:          &mtu,
+			IPv4Prefix:   &existing,
+			IPv4Gateway:  &existingGW,
+			PrefixLength: 24,
+		}
+		proto := &cwssaws.NetworkSegment{
+			Id:    &cwssaws.NetworkSegmentId{Value: subID.String()},
+			VpcId: &cwssaws.VpcId{Value: vpcID.String()},
+			Name:  "fresh-name",
+		}
+		s.FromProto(proto)
+		assert.Equal(t, "fresh-name", s.Name)
+		assert.Nil(t, s.DomainID)
+		assert.Nil(t, s.MTU)
+		assert.Nil(t, s.IPv4Prefix)
+		assert.Nil(t, s.IPv4Gateway)
+	})
+
+	t.Run("preserves entity ID when proto Id is unparseable", func(t *testing.T) {
+		s := &Subnet{ID: subID, Name: "x"}
+		proto := &cwssaws.NetworkSegment{Id: &cwssaws.NetworkSegmentId{Value: "not-a-uuid"}, Name: "x"}
+		s.FromProto(proto)
+		assert.Equal(t, subID, s.ID)
+	})
+
+	t.Run("clears DomainID when proto subdomain is unparseable", func(t *testing.T) {
+		s := &Subnet{ID: subID, DomainID: &domainID, Name: "x"}
+		proto := &cwssaws.NetworkSegment{Name: "x", SubdomainId: &cwssaws.DomainId{Value: "not-a-uuid"}}
+		s.FromProto(proto)
+		assert.Nil(t, s.DomainID)
+	})
+
+	t.Run("clears IPv4Prefix when proto prefix is malformed", func(t *testing.T) {
+		existing := "10.0.0.0"
+		gw := "192.168.0.1"
+		s := &Subnet{ID: subID, IPv4Prefix: &existing, PrefixLength: 24, Name: "x"}
+		proto := &cwssaws.NetworkSegment{
+			Name:     "x",
+			Prefixes: []*cwssaws.NetworkPrefix{{Prefix: "garbage", Gateway: &gw}},
+		}
+		s.FromProto(proto)
+		assert.Nil(t, s.IPv4Prefix)
+		assert.Nil(t, s.IPv4Gateway)
+	})
+}
+
+func TestSubnet_Validate(t *testing.T) {
+	prefix := "192.168.1.0"
+	valid := &Subnet{
+		Name:       "test-subnet",
+		Status:     SubnetStatusReady,
+		VpcID:      uuid.New(),
+		IPv4Prefix: &prefix,
+	}
+
+	t.Run("populated subnet is valid", func(t *testing.T) {
+		assert.NoError(t, valid.Validate())
+	})
+	t.Run("uuid.Nil VpcID errors", func(t *testing.T) {
+		s := *valid
+		s.VpcID = uuid.Nil
+		assert.Error(t, s.Validate())
+	})
+	t.Run("empty Status errors", func(t *testing.T) {
+		s := *valid
+		s.Status = ""
+		assert.Error(t, s.Validate())
+	})
+	t.Run("invalid Status errors", func(t *testing.T) {
+		s := *valid
+		s.Status = "Bogus"
+		assert.Error(t, s.Validate())
+	})
+	t.Run("empty Name errors", func(t *testing.T) {
+		s := *valid
+		s.Name = ""
+		assert.Error(t, s.Validate())
+	})
+	t.Run("Name with leading whitespace errors", func(t *testing.T) {
+		s := *valid
+		s.Name = " test-subnet"
+		assert.Error(t, s.Validate())
+	})
+	t.Run("Name with trailing whitespace errors", func(t *testing.T) {
+		s := *valid
+		s.Name = "test-subnet "
+		assert.Error(t, s.Validate())
+	})
+	t.Run("single-character Name errors (too short)", func(t *testing.T) {
+		s := *valid
+		s.Name = "x"
+		assert.Error(t, s.Validate())
+	})
+	t.Run("nil IPv4Prefix errors (catches FromProto half-state from malformed prefix)", func(t *testing.T) {
+		s := *valid
+		s.IPv4Prefix = nil
+		assert.Error(t, s.Validate())
+	})
+}
 
 func testSubnetInitDB(t *testing.T) *db.Session {
 	dbSession := util.GetTestDBSession(t, false)

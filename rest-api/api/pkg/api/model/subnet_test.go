@@ -8,11 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	cutil "github.com/NVIDIA/infra-controller/rest-api/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestAPISubnetCreateRequest_Validate(t *testing.T) {
@@ -100,6 +102,61 @@ func TestAPISubnetCreateRequest_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAPISubnetCreateRequest_ToProto(t *testing.T) {
+	subID := uuid.New()
+	vpcID := uuid.New()
+	domainID := uuid.New()
+	prefix := "10.0.0.0"
+	gateway := "10.0.0.1"
+	mtu := 9000
+
+	subnet := &cdbm.Subnet{
+		ID:           subID,
+		VpcID:        vpcID,
+		Name:         "subnet-a",
+		DomainID:     &domainID,
+		IPv4Prefix:   &prefix,
+		IPv4Gateway:  &gateway,
+		PrefixLength: 16,
+		MTU:          &mtu,
+	}
+	vpc := &cdbm.Vpc{ID: vpcID}
+
+	t.Run("sources canonical fields from the entity's ToProto and overlays the reservedIPCount", func(t *testing.T) {
+		scr := APISubnetCreateRequest{
+			Name:         "subnet-a",
+			VpcID:        vpcID.String(),
+			IPv4BlockID:  cutil.GetPtr(uuid.New().String()),
+			PrefixLength: 16,
+		}
+		req := scr.ToProto(subnet, vpc, 2)
+		require.NotNil(t, req)
+		require.NotNil(t, req.Id)
+		assert.Equal(t, subID.String(), req.Id.Value)
+		assert.Equal(t, "subnet-a", req.Name)
+		require.NotNil(t, req.SubdomainId)
+		assert.Equal(t, domainID.String(), req.SubdomainId.Value)
+		require.NotNil(t, req.VpcId)
+		assert.Equal(t, vpcID.String(), req.VpcId.Value)
+		require.NotNil(t, req.Mtu)
+		assert.Equal(t, int32(9000), *req.Mtu)
+		require.Len(t, req.Prefixes, 1)
+		assert.Equal(t, "10.0.0.0/16", req.Prefixes[0].Prefix)
+		require.NotNil(t, req.Prefixes[0].Gateway)
+		assert.Equal(t, gateway, *req.Prefixes[0].Gateway)
+		assert.Equal(t, int32(2), req.Prefixes[0].ReserveFirst)
+	})
+
+	t.Run("uses VPC's Site-facing ID for the parent ID", func(t *testing.T) {
+		ctrlID := uuid.New()
+		vpcWithCtrl := &cdbm.Vpc{ID: vpcID, ControllerVpcID: &ctrlID}
+		scr := APISubnetCreateRequest{}
+		req := scr.ToProto(subnet, vpcWithCtrl, 2)
+		require.NotNil(t, req.VpcId)
+		assert.Equal(t, ctrlID.String(), req.VpcId.Value)
+	})
 }
 
 func TestAPISubnetUpdateRequest_Validate(t *testing.T) {

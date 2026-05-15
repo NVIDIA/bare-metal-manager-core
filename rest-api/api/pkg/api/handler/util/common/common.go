@@ -82,14 +82,6 @@ var (
 	RequestAsTenant = "Tenant"
 )
 
-func GetSiteNetworkSegmentID(s *cdbm.Subnet) *uuid.UUID {
-	if s.ControllerNetworkSegmentID != nil {
-		return s.ControllerNetworkSegmentID
-	} else {
-		return &s.ID
-	}
-}
-
 // GetInfrastructureProviderForOrg gets the infrastructureProvider for org
 func GetInfrastructureProviderForOrg(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, org string) (*cdbm.InfrastructureProvider, error) {
 	ipDAO := cdbm.NewInfrastructureProviderDAO(dbSession)

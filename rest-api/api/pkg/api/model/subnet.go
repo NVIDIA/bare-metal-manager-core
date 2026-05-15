@@ -12,6 +12,7 @@ import (
 	"github.com/NVIDIA/infra-controller/rest-api/api/pkg/api/model/util"
 	cdbm "github.com/NVIDIA/infra-controller/rest-api/db/pkg/db/model"
 	cipam "github.com/NVIDIA/infra-controller/rest-api/ipam"
+	cwssaws "github.com/NVIDIA/infra-controller/rest-api/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 const (
@@ -46,8 +47,8 @@ type APISubnetCreateRequest struct {
 }
 
 // Validate ensure the values passed in request are acceptable
-func (scr APISubnetCreateRequest) Validate() error {
-	err := validation.ValidateStruct(&scr,
+func (scr *APISubnetCreateRequest) Validate() error {
+	err := validation.ValidateStruct(scr,
 		validation.Field(&scr.Name,
 			validation.Required.Error(validationErrorStringLength),
 			validation.Length(2, 256).Error(validationErrorStringLength)),
@@ -77,6 +78,37 @@ func (scr APISubnetCreateRequest) Validate() error {
 	return nil
 }
 
+// ToProto builds the workflow request that asks a Site to create a new
+// Subnet under the given parent VPC. `subnet` is the just-persisted DB
+// record; its `ToProto()` is the source of the canonical wire fields
+// (Id/Name/Mtu/SubdomainId/Prefixes). `vpc` provides the Site-facing
+// parent VPC ID. `reservedIPCount` is a deployment-policy value applied
+// to each prefix that does not live on the entity, so it is threaded
+// through here.
+//
+// The method trusts that the request has already been Validated and
+// that the handler has performed any cross-context checks Validate
+// cannot see.
+func (scr *APISubnetCreateRequest) ToProto(subnet *cdbm.Subnet, vpc *cdbm.Vpc, reservedIPCount int32) *cwssaws.NetworkSegmentCreationRequest {
+	subnetProto := subnet.ToProto()
+	// `prefixes` aliases `subnetProto.Prefixes`; the slice + its `NetworkPrefix`
+	// elements are freshly allocated by `subnet.ToProto()` on every call, so
+	// mutating `ReserveFirst` here is safe -- nothing else holds a reference
+	// to those values.
+	prefixes := subnetProto.Prefixes
+	for _, p := range prefixes {
+		p.ReserveFirst = reservedIPCount
+	}
+	return &cwssaws.NetworkSegmentCreationRequest{
+		Id:          subnetProto.Id,
+		Name:        subnetProto.Name,
+		SubdomainId: subnetProto.SubdomainId,
+		VpcId:       &cwssaws.VpcId{Value: vpc.GetSiteID().String()},
+		Mtu:         subnetProto.Mtu,
+		Prefixes:    prefixes,
+	}
+}
+
 // APISubnetUpdateRequest is the data structure to capture user request to update a Subnet
 type APISubnetUpdateRequest struct {
 	// Name is the name of the Subnet
@@ -86,8 +118,8 @@ type APISubnetUpdateRequest struct {
 }
 
 // Validate ensure the values passed in request are acceptable
-func (sur APISubnetUpdateRequest) Validate() error {
-	return validation.ValidateStruct(&sur,
+func (sur *APISubnetUpdateRequest) Validate() error {
+	return validation.ValidateStruct(sur,
 		validation.Field(&sur.Name,
 			// length validation rule accepts empty string as valid, hence, required is needed
 			validation.When(sur.Name != nil, validation.Required.Error(validationErrorStringLength)),

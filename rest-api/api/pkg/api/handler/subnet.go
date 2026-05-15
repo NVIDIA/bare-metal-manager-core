@@ -295,32 +295,7 @@ func (csh CreateSubnetHandler) Handle(c echo.Context) error {
 			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 		}
 
-		var subnetMTU *int32 = nil
-		if subnet.MTU != nil {
-			mtu := int32(*subnet.MTU)
-			subnetMTU = &mtu
-		}
-
-		var subnetDomainID *cwssaws.DomainId
-		if subnet.DomainID != nil {
-			subnetDomainID = &cwssaws.DomainId{Value: subnet.DomainID.String()}
-		}
-		prefixes := []*cwssaws.NetworkPrefix{
-			{
-				Gateway:      subnet.IPv4Gateway,
-				ReserveFirst: DefaultReservedIPCount,
-				Prefix:       fmt.Sprintf("%s/%d", *subnet.IPv4Prefix, subnet.PrefixLength),
-			},
-		}
-
-		createSubnetRequest := &cwssaws.NetworkSegmentCreationRequest{
-			Id:          &cwssaws.NetworkSegmentId{Value: common.GetSiteNetworkSegmentID(subnet).String()},
-			Name:        subnet.Name,
-			SubdomainId: subnetDomainID,
-			VpcId:       &cwssaws.VpcId{Value: vpc.GetSiteID().String()},
-			Mtu:         subnetMTU,
-			Prefixes:    prefixes,
-		}
+		createSubnetRequest := apiRequest.ToProto(subnet, vpc, DefaultReservedIPCount)
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
 			ID:                       "subnet-create-" + subnet.ID.String(),
@@ -1103,7 +1078,7 @@ func (dsh DeleteSubnetHandler) Handle(c echo.Context) error {
 
 		// Prepare the delete/release request workflow object
 		deleteSubnetRequest := &cwssaws.NetworkSegmentDeletionRequest{
-			Id: &cwssaws.NetworkSegmentId{Value: common.GetSiteNetworkSegmentID(subnet).String()},
+			Id: &cwssaws.NetworkSegmentId{Value: subnet.GetSiteID().String()},
 		}
 
 		workflowOptions := temporalClient.StartWorkflowOptions{
