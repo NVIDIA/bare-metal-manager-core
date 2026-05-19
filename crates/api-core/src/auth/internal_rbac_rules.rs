@@ -166,6 +166,15 @@ impl InternalRBACRules {
         x.perm("ListPowerShelfHealthReports", vec![ForgeAdminCLI, Health]);
         x.perm("InsertPowerShelfHealthReport", vec![ForgeAdminCLI, Health]);
         x.perm("RemovePowerShelfHealthReport", vec![ForgeAdminCLI, Health]);
+        x.perm("ListNVLinkDomainHealthReports", vec![ForgeAdminCLI, Health]);
+        x.perm(
+            "InsertNVLinkDomainHealthReport",
+            vec![ForgeAdminCLI, Health],
+        );
+        x.perm(
+            "RemoveNVLinkDomainHealthReport",
+            vec![ForgeAdminCLI, Health],
+        );
         // Deprecated aliases for the machine health report RPCs. Mirror the
         // permissions of their canonical equivalents above. Drop once we're
         // confident no clients are still calling the old names.

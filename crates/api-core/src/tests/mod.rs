@@ -166,6 +166,8 @@ mod nvl_instance;
 #[cfg(test)]
 mod nvl_logical_partition;
 #[cfg(test)]
+mod nvlink_domain_health;
+#[cfg(test)]
 mod operating_system;
 #[cfg(test)]
 mod power_shelf;

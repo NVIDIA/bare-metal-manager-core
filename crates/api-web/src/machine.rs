@@ -34,7 +34,7 @@ use serde::Deserialize;
 
 use super::pagination::{self, PageContext, PaginationParams};
 use super::state_history::StateHistoryTable;
-use super::{Base, filters};
+use super::{Base, filters, health};
 use crate::action_status::{self, ActionStatus};
 
 #[derive(Template)]
@@ -502,6 +502,7 @@ struct MachineIbInterfaceDisplay {
 #[derive(Debug, Default)]
 struct MachineNvLinkGpuDisplay {
     domain_uuid: String,
+    domain_health_url: String,
     tray_index: i32,
     slot_id: i32,
     device_instance: i32,
@@ -619,11 +620,16 @@ impl From<forgerpc::Machine> for MachineDetail<'_> {
         }
 
         if let Some(nvlink_info) = m.nvlink_info {
+            let domain_id = nvlink_info.domain_uuid.unwrap_or_default();
+            let domain_uuid = domain_id.to_string();
+            let domain_health_url = health::nvlink_domain_health_url(&domain_id);
+
             nvlink_gpus = nvlink_info
                 .gpus
                 .into_iter()
                 .map(|gpu| MachineNvLinkGpuDisplay {
-                    domain_uuid: nvlink_info.domain_uuid.unwrap_or_default().to_string(),
+                    domain_uuid: domain_uuid.clone(),
+                    domain_health_url: domain_health_url.clone(),
                     tray_index: gpu.tray_index,
                     slot_id: gpu.slot_id,
                     guid: gpu.guid,
