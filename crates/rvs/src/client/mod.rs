@@ -115,7 +115,6 @@ impl TryFrom<Rack> for RackData {
 }
 
 /// SOT JSON blob returned from NICC for a rack firmware/release record.
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct RackFirmwareData {
     /// Firmware record ID.

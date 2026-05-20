@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 mod resolver;
 
 use std::path::Path;

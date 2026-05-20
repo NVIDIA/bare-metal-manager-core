@@ -16,7 +16,6 @@ use crate::rack::Racks;
 use crate::scenario;
 
 /// A resolved artifact ready to be downloaded.
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct ArtifactDownload {
     /// Destination path under cache_dir/<model>/<sot_release>/.

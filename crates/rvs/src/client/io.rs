@@ -36,7 +36,6 @@ impl NiccClient {
     }
 
     /// Fetch a rack firmware record (SOT JSON) by ID.
-    #[allow(dead_code)]
     pub async fn get_rack_firmware(&self, firmware_id: &str) -> Result<RackFirmwareData, RvsError> {
         let response = self
             .inner
@@ -103,7 +102,6 @@ impl NiccClient {
     }
 
     /// Allocate a validation instance on a single machine.
-    #[allow(dead_code)]
     ///
     /// The OS is identified by `os_uri` from the scenario file. Until RVS can
     /// resolve the URI to a NICC OS image UUID, `os_image_id` is stubbed with
@@ -151,7 +149,6 @@ impl NiccClient {
     }
 
     /// Fetch current state of instances by their IDs.
-    #[allow(dead_code)]
     pub async fn get_instances(&self, instance_ids: &[String]) -> Result<Vec<Instance>, RvsError> {
         let ids = instance_ids
             .iter()

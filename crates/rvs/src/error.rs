@@ -13,7 +13,6 @@ pub enum RvsError {
     InvalidMachineId(#[from] MachineIdParseError),
 
     /// An ID string couldn't be parsed as a UUID-based type.
-    #[allow(dead_code)]
     #[error("Failed to parse ID: {0}")]
     InvalidId(String),
 
