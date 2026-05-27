@@ -1786,6 +1786,519 @@ impl<R: DpuServiceTemplateRepository, L> DpfSdk<R, L> {
     }
 }
 
+impl<R, L> DpfSdk<R, L>
+where
+    R: BfbRepository
+        + DpuDeploymentRepository
+        + DpuFlavorRepository
+        + DpuServiceTemplateRepository
+        + DpuServiceConfigurationRepository
+        + crate::repository::DpuServiceRepository
+        + crate::repository::DpuServiceChainRepository
+        + crate::repository::DpuServiceInterfaceRepository
+        + DpuServiceNADRepository
+        + DpfOperatorConfigRepository,
+{
+    /// Run sanity checks on the live DPF installation.
+    ///
+    /// Returns a vector of [`crate::types::ValidationCheck`] in a stable order
+    /// so callers can render them as a table. Never errors based on check
+    /// results — only on hard failures talking to the cluster.
+    ///
+    /// `expected_services` carries the helm/docker versions the carbide config
+    /// believes should be deployed; check #7 compares those against the live
+    /// `DPUServiceTemplate.spec.helm_chart.source.version`.
+    pub async fn validate(
+        &self,
+        expected_services: &[crate::types::ExpectedService],
+    ) -> Result<Vec<crate::types::ValidationCheck>, DpfError> {
+        use crate::types::{ValidationCheck, ValidationStatus as VS};
+        let ns = self.namespace.as_str();
+        let mut out: Vec<ValidationCheck> = Vec::new();
+
+        // --- 1-3. DPFOperatorConfig ---
+        let dpf_cfg =
+            DpfOperatorConfigRepository::get(&*self.repo, DPF_OPERATOR_CONFIG, ns).await?;
+        match &dpf_cfg {
+            None => {
+                out.push(ValidationCheck {
+                    name: "dpfoperatorconfig.exists".into(),
+                    description: "DPFOperatorConfig resource is present".into(),
+                    status: VS::Warn,
+                    message: format!("missing in namespace '{ns}'"),
+                    details: String::new(),
+                });
+                out.push(skip("dpfoperatorconfig.ready", "DPFOperatorConfig missing"));
+                out.push(skip(
+                    "dpfoperatorconfig.no_bfcfg_template_configmap",
+                    "DPFOperatorConfig missing",
+                ));
+            }
+            Some(cfg) => {
+                out.push(ValidationCheck {
+                    name: "dpfoperatorconfig.exists".into(),
+                    description: "DPFOperatorConfig resource is present".into(),
+                    status: VS::Pass,
+                    message: cfg.metadata.name.clone().unwrap_or_default(),
+                    details: String::new(),
+                });
+                let (ok, msg, details) = summarize_conditions(
+                    cfg.status.as_ref().and_then(|s| s.conditions.as_ref()),
+                    &[],
+                );
+                out.push(ValidationCheck {
+                    name: "dpfoperatorconfig.ready".into(),
+                    description: "DPFOperatorConfig .status.conditions all True".into(),
+                    status: if ok { VS::Pass } else { VS::Warn },
+                    message: msg,
+                    details,
+                });
+                let bfcfg = cfg
+                    .spec
+                    .provisioning_controller
+                    .bf_cfg_template_config_map
+                    .as_ref();
+                out.push(ValidationCheck {
+                    name: "dpfoperatorconfig.no_bfcfg_template_configmap".into(),
+                    description: "spec.provisioningController.bfCFGTemplateConfigMap must be unset"
+                        .into(),
+                    status: if bfcfg.is_none() { VS::Pass } else { VS::Warn },
+                    message: match bfcfg {
+                        None => "unset".to_string(),
+                        Some(v) => format!("set to '{v}' — clear it"),
+                    },
+                    details: String::new(),
+                });
+            }
+        }
+
+        // --- 4-6. DPUDeployment + referenced BFB + flavor ---
+        let deployments = DpuDeploymentRepository::list(&*self.repo, ns).await?;
+        if deployments.is_empty() {
+            out.push(skip(
+                "dpudeployment.ready",
+                "no DPUDeployment found in namespace",
+            ));
+            out.push(skip("dpudeployment.bfb_ready", "no DPUDeployment"));
+            out.push(skip("dpudeployment.flavor_exists", "no DPUDeployment"));
+        } else {
+            // Combined Ready check across all deployments. DPUServiceChainsReady
+            // failures are downgraded to Warn per SRE convention.
+            let (deploy_status, deploy_msg, deploy_details) =
+                evaluate_deployments_ready(&deployments);
+            out.push(ValidationCheck {
+                name: "dpudeployment.ready".into(),
+                description: "DPUDeployment(s) status conditions all True".into(),
+                status: deploy_status,
+                message: deploy_msg,
+                details: deploy_details,
+            });
+
+            // BFB ref check
+            let (bfb_status, bfb_msg, bfb_details) =
+                check_deployment_bfbs(&*self.repo, ns, &deployments).await?;
+            out.push(ValidationCheck {
+                name: "dpudeployment.bfb_ready".into(),
+                description: "BFB referenced by each DPUDeployment exists and is Ready".into(),
+                status: bfb_status,
+                message: bfb_msg,
+                details: bfb_details,
+            });
+
+            // Flavor ref check
+            let (flavor_status, flavor_msg, flavor_details) =
+                check_deployment_flavors(&*self.repo, ns, &deployments).await?;
+            out.push(ValidationCheck {
+                name: "dpudeployment.flavor_exists".into(),
+                description: "DPUFlavor referenced by each DPUDeployment exists".into(),
+                status: flavor_status,
+                message: flavor_msg,
+                details: flavor_details,
+            });
+        }
+
+        // --- 7. DPUServiceTemplate version matches expected ---
+        let live_templates = DpuServiceTemplateRepository::list(&*self.repo, ns).await?;
+        out.push(check_template_versions(expected_services, &live_templates));
+
+        // --- 8. DPUServiceTemplate Ready ---
+        out.push(check_list_conditions(
+            "dpuservicetemplate.ready",
+            "DPUServiceTemplate .status.conditions all True",
+            live_templates.iter().map(|t| {
+                (
+                    t.metadata.name.clone().unwrap_or_default(),
+                    t.status
+                        .as_ref()
+                        .and_then(|s| s.conditions.as_ref())
+                        .cloned(),
+                )
+            }),
+            &[],
+        ));
+
+        // --- 9. DPUServiceConfiguration Ready (status type has no conditions today; report presence) ---
+        let live_configs = DpuServiceConfigurationRepository::list(&*self.repo, ns).await?;
+        let cfg_present: Vec<&str> = expected_services
+            .iter()
+            .filter(|exp| {
+                !live_configs.iter().any(|c| {
+                    c.spec.deployment_service_name.as_str() == exp.name
+                        || c.metadata.name.as_deref() == Some(exp.name.as_str())
+                })
+            })
+            .map(|exp| exp.name.as_str())
+            .collect();
+        out.push(ValidationCheck {
+            name: "dpuserviceconfiguration.present".into(),
+            description: "DPUServiceConfiguration exists for each configured service".into(),
+            status: if cfg_present.is_empty() {
+                VS::Pass
+            } else {
+                VS::Warn
+            },
+            message: if cfg_present.is_empty() {
+                format!("{} configurations present", live_configs.len())
+            } else {
+                format!("missing: {}", cfg_present.join(", "))
+            },
+            details: String::new(),
+        });
+
+        // --- 10. DPUService Ready ---
+        let services = crate::repository::DpuServiceRepository::list(&*self.repo, ns).await?;
+        out.push(check_list_conditions(
+            "dpuservice.ready",
+            "DPUService .status.conditions all True",
+            services.iter().map(|s| {
+                (
+                    s.metadata.name.clone().unwrap_or_default(),
+                    s.status
+                        .as_ref()
+                        .and_then(|st| st.conditions.as_ref())
+                        .cloned(),
+                )
+            }),
+            &[],
+        ));
+
+        // --- 11. ServiceInterface / NAD / ServiceChain Ready ---
+        let ifaces =
+            crate::repository::DpuServiceInterfaceRepository::list(&*self.repo, ns).await?;
+        out.push(check_list_conditions(
+            "dpuserviceinterface.ready",
+            "DPUServiceInterface .status.conditions all True",
+            ifaces.iter().map(|i| {
+                (
+                    i.metadata.name.clone().unwrap_or_default(),
+                    i.status
+                        .as_ref()
+                        .and_then(|st| st.conditions.as_ref())
+                        .cloned(),
+                )
+            }),
+            &[],
+        ));
+        let nads = DpuServiceNADRepository::list(&*self.repo, ns).await?;
+        out.push(check_list_conditions(
+            "dpuservicenad.ready",
+            "DPUServiceNAD .status.conditions all True",
+            nads.iter().map(|n| {
+                (
+                    n.metadata.name.clone().unwrap_or_default(),
+                    n.status
+                        .as_ref()
+                        .and_then(|st| st.conditions.as_ref())
+                        .cloned(),
+                )
+            }),
+            &[],
+        ));
+        let chains = crate::repository::DpuServiceChainRepository::list(&*self.repo, ns).await?;
+        out.push(check_list_conditions(
+            "dpuservicechain.ready",
+            "DPUServiceChain .status.conditions all True",
+            chains.iter().map(|c| {
+                (
+                    c.metadata.name.clone().unwrap_or_default(),
+                    c.status
+                        .as_ref()
+                        .and_then(|st| st.conditions.as_ref())
+                        .cloned(),
+                )
+            }),
+            &[],
+        ));
+
+        // NOTE: per-DPU / per-DPUNode summaries (e.g. DPU phase, DPUNode
+        // conditions) are intentionally omitted here. In environments with
+        // thousands of DPUs they would list every node and flood the report.
+        // Validation focuses on the DPF control-plane resources above.
+
+        Ok(out)
+    }
+}
+
+fn skip(name: &str, why: &str) -> crate::types::ValidationCheck {
+    crate::types::ValidationCheck {
+        name: name.into(),
+        description: String::new(),
+        status: crate::types::ValidationStatus::Skip,
+        message: why.into(),
+        details: String::new(),
+    }
+}
+
+/// Returns (all_true_or_empty, short_summary, verbose_details).
+fn summarize_conditions(
+    conditions: Option<&Vec<k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition>>,
+    excluded_types: &[&str],
+) -> (bool, String, String) {
+    let conds = match conditions {
+        None => return (true, "no conditions reported".into(), String::new()),
+        Some(c) => c,
+    };
+    let mut not_true: Vec<String> = Vec::new();
+    let mut verbose: Vec<String> = Vec::new();
+    for c in conds {
+        if excluded_types.contains(&c.type_.as_str()) {
+            continue;
+        }
+        let line = format!(
+            "{}={} reason={} msg={}",
+            c.type_,
+            c.status,
+            c.reason.as_str(),
+            c.message.as_str(),
+        );
+        verbose.push(line.clone());
+        if c.status != "True" {
+            not_true.push(line);
+        }
+    }
+    let ok = not_true.is_empty();
+    let summary = if ok {
+        format!(
+            "{} conditions True",
+            conds.len() - excluded_types.len().min(conds.len())
+        )
+    } else {
+        not_true.join("; ")
+    };
+    (ok, summary, verbose.join("\n"))
+}
+
+/// Across all DPUDeployments, returns aggregate (status, message, details).
+/// DPUServiceChainsReady failures are downgraded to Warn.
+fn evaluate_deployments_ready(
+    deployments: &[crate::crds::dpudeployments_generated::DPUDeployment],
+) -> (crate::types::ValidationStatus, String, String) {
+    use crate::types::ValidationStatus as VS;
+    let mut any_fail = false;
+    let mut any_chain_warn = false;
+    let mut summary: Vec<String> = Vec::new();
+    let mut details: Vec<String> = Vec::new();
+    for d in deployments {
+        let name = d.metadata.name.clone().unwrap_or_default();
+        let conds = d.status.as_ref().and_then(|s| s.conditions.as_ref());
+        let (ok_hard, hard_msg, verbose) = summarize_conditions(conds, &["DPUServiceChainsReady"]);
+        let chains_bad = conds
+            .map(|cs| {
+                cs.iter()
+                    .any(|c| c.type_ == "DPUServiceChainsReady" && c.status != "True")
+            })
+            .unwrap_or(false);
+        if !ok_hard {
+            any_fail = true;
+            summary.push(format!("{name}: {hard_msg}"));
+        }
+        if chains_bad {
+            any_chain_warn = true;
+            if ok_hard {
+                summary.push(format!("{name}: DPUServiceChainsReady=False (warn)"));
+            }
+        }
+        details.push(format!("{name}:\n{verbose}"));
+    }
+    // Any not-True condition (hard or DPUServiceChainsReady) surfaces as Warn —
+    // this report never emits Fail, since a true failure depends on conditions
+    // the command can't observe.
+    let status = if any_fail || any_chain_warn {
+        VS::Warn
+    } else {
+        VS::Pass
+    };
+    let message = if summary.is_empty() {
+        format!("{} deployment(s) Ready", deployments.len())
+    } else {
+        summary.join(" | ")
+    };
+    (status, message, details.join("\n\n"))
+}
+
+async fn check_deployment_bfbs<R: BfbRepository + DpuDeploymentRepository>(
+    repo: &R,
+    ns: &str,
+    deployments: &[crate::crds::dpudeployments_generated::DPUDeployment],
+) -> Result<(crate::types::ValidationStatus, String, String), DpfError> {
+    use crate::types::ValidationStatus as VS;
+    let mut problems: Vec<String> = Vec::new();
+    let mut details: Vec<String> = Vec::new();
+    for d in deployments {
+        let dname = d.metadata.name.clone().unwrap_or_default();
+        let bfb_name = &d.spec.dpus.bfb;
+        match BfbRepository::get(repo, bfb_name, ns).await? {
+            None => problems.push(format!("{dname}: BFB '{bfb_name}' not found")),
+            Some(bfb) => {
+                let phase = bfb
+                    .status
+                    .as_ref()
+                    .map(|s| s.phase.to_string())
+                    .unwrap_or_else(|| "Unknown".into());
+                if phase != "Ready" {
+                    problems.push(format!("{dname}: BFB '{bfb_name}' phase={phase}"));
+                }
+                details.push(format!("{dname} -> {bfb_name} (phase={phase})"));
+            }
+        }
+    }
+    let status = if problems.is_empty() {
+        VS::Pass
+    } else {
+        VS::Warn
+    };
+    let msg = if problems.is_empty() {
+        format!("{} deployment(s) bfb Ready", deployments.len())
+    } else {
+        problems.join("; ")
+    };
+    Ok((status, msg, details.join("\n")))
+}
+
+async fn check_deployment_flavors<R: DpuFlavorRepository>(
+    repo: &R,
+    ns: &str,
+    deployments: &[crate::crds::dpudeployments_generated::DPUDeployment],
+) -> Result<(crate::types::ValidationStatus, String, String), DpfError> {
+    use crate::types::ValidationStatus as VS;
+    let mut missing: Vec<String> = Vec::new();
+    let mut details: Vec<String> = Vec::new();
+    for d in deployments {
+        let dname = d.metadata.name.clone().unwrap_or_default();
+        let flavor = &d.spec.dpus.flavor;
+        match DpuFlavorRepository::get(repo, flavor, ns).await? {
+            None => missing.push(format!("{dname}: flavor '{flavor}' not found")),
+            Some(_) => details.push(format!("{dname} -> {flavor}")),
+        }
+    }
+    let status = if missing.is_empty() {
+        VS::Pass
+    } else {
+        VS::Warn
+    };
+    let msg = if missing.is_empty() {
+        format!("{} flavor reference(s) resolve", deployments.len())
+    } else {
+        missing.join("; ")
+    };
+    Ok((status, msg, details.join("\n")))
+}
+
+fn check_template_versions(
+    expected: &[crate::types::ExpectedService],
+    live_templates: &[crate::crds::dpuservicetemplates_generated::DPUServiceTemplate],
+) -> crate::types::ValidationCheck {
+    use crate::types::ValidationStatus as VS;
+    let mut mismatches: Vec<String> = Vec::new();
+    let mut details: Vec<String> = Vec::new();
+    for exp in expected {
+        let matched = live_templates
+            .iter()
+            .find(|t| t.spec.deployment_service_name == exp.name);
+        match matched {
+            None => mismatches.push(format!("{}: no live template", exp.name)),
+            Some(t) => {
+                let live = &t.spec.helm_chart.source.version;
+                if live != &exp.helm_version {
+                    mismatches.push(format!(
+                        "{}: live={} expected={}",
+                        exp.name, live, exp.helm_version
+                    ));
+                }
+                details.push(format!(
+                    "{}: live={} expected={}",
+                    exp.name, live, exp.helm_version
+                ));
+            }
+        }
+    }
+    crate::types::ValidationCheck {
+        name: "dpuservicetemplate.version_matches".into(),
+        description: "DPUServiceTemplate helm version matches configured expected version".into(),
+        status: if mismatches.is_empty() {
+            VS::Pass
+        } else {
+            VS::Warn
+        },
+        message: if mismatches.is_empty() {
+            format!("{} service(s) match expected", expected.len())
+        } else {
+            mismatches.join("; ")
+        },
+        details: details.join("\n"),
+    }
+}
+
+/// Generic helper: walk a list of (resource_name, conditions) and emit one
+/// aggregate ValidationCheck.
+fn check_list_conditions<I>(
+    name: &str,
+    description: &str,
+    items: I,
+    excluded_types: &[&str],
+) -> crate::types::ValidationCheck
+where
+    I: IntoIterator<
+        Item = (
+            String,
+            Option<Vec<k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition>>,
+        ),
+    >,
+{
+    use crate::types::ValidationStatus as VS;
+    let mut count = 0usize;
+    let mut problems: Vec<String> = Vec::new();
+    let mut details: Vec<String> = Vec::new();
+    for (resource_name, conds) in items {
+        count += 1;
+        let (ok, msg, verbose) = summarize_conditions(conds.as_ref(), excluded_types);
+        if !ok {
+            problems.push(format!("{resource_name}: {msg}"));
+        }
+        if !verbose.is_empty() {
+            details.push(format!("{resource_name}:\n{verbose}"));
+        }
+    }
+    let status = if count == 0 {
+        VS::Skip
+    } else if problems.is_empty() {
+        VS::Pass
+    } else {
+        VS::Warn
+    };
+    crate::types::ValidationCheck {
+        name: name.into(),
+        description: description.into(),
+        status,
+        message: match (count, problems.is_empty()) {
+            (0, _) => "no resources found".to_string(),
+            (n, true) => format!("{n} resource(s) Ready"),
+            (_, false) => problems.join(" | "),
+        },
+        details: details.join("\n\n"),
+    }
+}
+
 impl<R: DpuRepository, L: ResourceLabeler> DpfSdk<R, L> {
     /// Create a watcher builder for DPF events.
     ///
@@ -2103,6 +2616,14 @@ mod tests {
 
     #[async_trait]
     impl crate::repository::DpfOperatorConfigRepository for SdkMock {
+        async fn get(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Result<Option<crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig>, DpfError>
+        {
+            Ok(None)
+        }
         async fn patch(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
             Ok(())
         }
@@ -2605,6 +3126,14 @@ mod tests {
 
     #[async_trait]
     impl crate::repository::DpfOperatorConfigRepository for SecretTrackingMock {
+        async fn get(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> Result<Option<crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig>, DpfError>
+        {
+            Ok(None)
+        }
         async fn patch(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
             Ok(())
         }
@@ -3168,6 +3697,165 @@ mod tests {
         assert!(
             !sdk.verify_node_labels("node-host-001").await.unwrap(),
             "node with correct key but wrong value should return false"
+        );
+    }
+
+    // ---- `dpf env validate` helper unit tests ----
+    //
+    // These cover the pure check helpers behind the env validate command. The
+    // key invariant exercised here: checks only ever resolve to Pass / Warn /
+    // Skip — never Fail. A hard failure depends on many external conditions the
+    // command can't observe, so problems are surfaced as warnings instead.
+
+    use crate::types::{ExpectedService, ValidationStatus as VStatus};
+
+    type Conditions = Vec<k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition>;
+
+    fn cond(
+        type_: &str,
+        status: &str,
+    ) -> k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition {
+        k8s_openapi::apimachinery::pkg::apis::meta::v1::Condition {
+            last_transition_time: terminating_timestamp(),
+            message: String::new(),
+            observed_generation: None,
+            reason: "Test".into(),
+            status: status.into(),
+            type_: type_.into(),
+        }
+    }
+
+    fn service_template(service: &str, version: &str) -> DPUServiceTemplate {
+        DPUServiceTemplate {
+            metadata: ObjectMeta {
+                name: Some(service.to_string()),
+                namespace: Some(TEST_NAMESPACE.to_string()),
+                ..Default::default()
+            },
+            spec: DpuServiceTemplateSpec {
+                deployment_service_name: service.to_string(),
+                helm_chart: DpuServiceTemplateHelmChart {
+                    source: DpuServiceTemplateHelmChartSource {
+                        chart: Some(service.to_string()),
+                        path: None,
+                        release_name: None,
+                        repo_url: "https://example.com".into(),
+                        version: version.into(),
+                    },
+                    values: None,
+                },
+                resource_requirements: None,
+            },
+            status: None,
+        }
+    }
+
+    #[test]
+    fn test_summarize_conditions_none_is_ok() {
+        let (ok, msg, details) = summarize_conditions(None, &[]);
+        assert!(ok);
+        assert_eq!(msg, "no conditions reported");
+        assert!(details.is_empty());
+    }
+
+    #[test]
+    fn test_summarize_conditions_all_true() {
+        let conds = vec![cond("Ready", "True"), cond("Reconciled", "True")];
+        let (ok, msg, _) = summarize_conditions(Some(&conds), &[]);
+        assert!(ok);
+        assert_eq!(msg, "2 conditions True");
+    }
+
+    #[test]
+    fn test_summarize_conditions_reports_not_true() {
+        let conds = vec![cond("Ready", "False")];
+        let (ok, msg, _) = summarize_conditions(Some(&conds), &[]);
+        assert!(!ok);
+        assert!(msg.contains("Ready=False"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_summarize_conditions_excludes_type() {
+        let conds = vec![
+            cond("Ready", "True"),
+            cond("DPUServiceChainsReady", "False"),
+        ];
+        let (ok, _, _) = summarize_conditions(Some(&conds), &["DPUServiceChainsReady"]);
+        assert!(ok, "excluded condition type should not count as a failure");
+    }
+
+    #[test]
+    fn test_check_list_conditions_empty_is_skip() {
+        let empty: Vec<(String, Option<Conditions>)> = Vec::new();
+        let check = check_list_conditions("x.ready", "desc", empty, &[]);
+        assert_eq!(check.status, VStatus::Skip);
+        assert_eq!(check.message, "no resources found");
+    }
+
+    #[test]
+    fn test_check_list_conditions_all_ready_is_pass() {
+        let items = vec![
+            ("a".to_string(), Some(vec![cond("Ready", "True")])),
+            ("b".to_string(), Some(vec![cond("Ready", "True")])),
+        ];
+        let check = check_list_conditions("x.ready", "desc", items, &[]);
+        assert_eq!(check.status, VStatus::Pass);
+        assert_eq!(check.message, "2 resource(s) Ready");
+    }
+
+    #[test]
+    fn test_check_list_conditions_problem_is_warn_not_fail() {
+        let items = vec![
+            ("good".to_string(), Some(vec![cond("Ready", "True")])),
+            ("bad".to_string(), Some(vec![cond("Ready", "False")])),
+        ];
+        let check = check_list_conditions("x.ready", "desc", items, &[]);
+        // A not-True condition must surface as Warn, never Fail.
+        assert_eq!(check.status, VStatus::Warn);
+        assert_ne!(check.status, VStatus::Fail);
+        assert!(check.message.contains("bad"), "got: {}", check.message);
+    }
+
+    #[test]
+    fn test_check_template_versions_match_is_pass() {
+        let expected = vec![ExpectedService {
+            name: "dts".into(),
+            helm_version: "1.2.3".into(),
+            docker_image_tag: String::new(),
+        }];
+        let live = vec![service_template("dts", "1.2.3")];
+        let check = check_template_versions(&expected, &live);
+        assert_eq!(check.status, VStatus::Pass);
+    }
+
+    #[test]
+    fn test_check_template_versions_mismatch_is_warn() {
+        let expected = vec![ExpectedService {
+            name: "dts".into(),
+            helm_version: "1.2.3".into(),
+            docker_image_tag: String::new(),
+        }];
+        let live = vec![service_template("dts", "9.9.9")];
+        let check = check_template_versions(&expected, &live);
+        // A version mismatch is a warning, not a hard failure.
+        assert_eq!(check.status, VStatus::Warn);
+        assert_ne!(check.status, VStatus::Fail);
+        assert!(check.message.contains("dts"), "got: {}", check.message);
+    }
+
+    #[test]
+    fn test_check_template_versions_missing_template_is_warn() {
+        let expected = vec![ExpectedService {
+            name: "dts".into(),
+            helm_version: "1.2.3".into(),
+            docker_image_tag: String::new(),
+        }];
+        let check = check_template_versions(&expected, &[]);
+        assert_eq!(check.status, VStatus::Warn);
+        assert!(
+            check.message.contains("no live template"),
+            "got: {}",
+            check.message
         );
     }
 }

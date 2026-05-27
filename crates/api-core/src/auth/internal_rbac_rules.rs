@@ -861,6 +861,7 @@ impl InternalRBACRules {
         x.perm("ListComponentFirmwareVersions", vec![ForgeAdminCLI, Flow]);
         x.perm("GetDPFHostSnapshot", vec![ForgeAdminCLI]);
         x.perm("GetDPFServiceVersions", vec![ForgeAdminCLI]);
+        x.perm("ValidateDpfRequest", vec![ForgeAdminCLI]);
         x
     }
     fn perm(&mut self, msg: &str, principals: Vec<RulePrincipal>) {

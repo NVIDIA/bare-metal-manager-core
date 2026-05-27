@@ -906,6 +906,10 @@ service Forge {
   // Helm/docker versions for the carbide DPF mandatory services, from both
   // the carbide config and the live DPUServiceTemplate CRs.
   rpc GetDPFServiceVersions(GetDPFServiceVersionsRequest) returns (DPFServiceVersionsResponse);
+  // Run sanity checks on the live DPF installation and return per-check
+  // results. Intended for SRE triage: the command never fails based on check
+  // results; results are returned so the caller can render them.
+  rpc ValidateDPF(ValidateDPFRequest) returns (ValidateDPFResponse);
 
   // --- Component management (unified switch + power shelf operations) ---
   rpc ComponentPowerControl(ComponentPowerControlRequest) returns (ComponentPowerControlResponse);
@@ -7972,6 +7976,39 @@ message DPFServiceVersion {
 
 message DPFServiceVersionsResponse {
   repeated DPFServiceVersion services = 1;
+}
+
+// --- DPF installation validation ---
+
+message ValidateDPFRequest {
+}
+
+// Severity of a single validation check.
+enum DPFValidationStatus {
+  DPF_VALIDATION_STATUS_UNSPECIFIED = 0;
+  DPF_VALIDATION_STATUS_PASS = 1;
+  DPF_VALIDATION_STATUS_WARN = 2;
+  DPF_VALIDATION_STATUS_FAIL = 3;
+  // Check was not run (e.g. prerequisite resource missing).
+  DPF_VALIDATION_STATUS_SKIP = 4;
+}
+
+message DPFValidationCheck {
+  // Short stable identifier for this check (e.g.
+  // "dpfoperatorconfig.no_bfcfg_template_configmap").
+  string name = 1;
+  // Human readable description of what was checked.
+  string description = 2;
+  DPFValidationStatus status = 3;
+  // Short summary message displayed in the table row.
+  string message = 4;
+  // Optional verbose detail (full condition strings, offending field values,
+  // etc). Rendered when --verbose is set.
+  string details = 5;
+}
+
+message ValidateDPFResponse {
+  repeated DPFValidationCheck checks = 1;
 }
 
 // ============================================================================

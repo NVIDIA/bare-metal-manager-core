@@ -15,13 +15,7 @@
  * limitations under the License.
  */
 
-pub mod common;
-mod disable;
-mod enable;
-mod env;
-mod service_version;
-mod show;
-mod snapshot;
+mod validate;
 
 use clap::Parser;
 
@@ -29,20 +23,6 @@ use crate::cfg::dispatch::Dispatch;
 
 #[derive(Parser, Debug, Dispatch)]
 pub enum Cmd {
-    #[clap(about = "Enable DPF")]
-    Enable(enable::Args),
-    #[clap(about = "Disable DPF")]
-    Disable(disable::Args),
-    #[clap(about = "Check Status of DPF")]
-    Show(show::Args),
-    #[clap(about = "Snapshot DPF CRs (DPUNode, DPUDevices, DPUs) for a host")]
-    Snapshot(snapshot::Args),
-    #[clap(
-        alias = "sv",
-        about = "Compare configured vs deployed DPF service versions"
-    )]
-    ServiceVersion(service_version::Args),
-    #[dispatch]
-    #[clap(subcommand, about = "Manage and validate the DPF environment")]
-    Env(env::Cmd),
+    #[clap(about = "Run sanity checks on the DPF installation on the Env")]
+    Validate(validate::Args),
 }

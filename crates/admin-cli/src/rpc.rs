@@ -2296,4 +2296,9 @@ impl ApiClient {
         let response = self.0.get_dpf_service_versions().await?;
         Ok(response.services)
     }
+
+    pub async fn validate_dpf(&self) -> CarbideCliResult<Vec<rpc::DpfValidationCheck>> {
+        let response = self.0.validate_dpf().await?;
+        Ok(response.checks)
+    }
 }

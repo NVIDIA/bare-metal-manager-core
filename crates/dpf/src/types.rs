@@ -440,6 +440,45 @@ pub struct ServiceTemplateVersion {
     pub docker_image_tag: String,
 }
 
+/// Expected version metadata for a DPF service, supplied by the caller of
+/// [`crate::DpfSdk::validate`].
+#[derive(Debug, Clone)]
+pub struct ExpectedService {
+    /// `DPUDeployment.spec.services[<key>]` and
+    /// `DPUServiceTemplate.spec.deploymentServiceName`.
+    pub name: String,
+    /// Helm chart version the carbide config believes should be deployed.
+    pub helm_version: String,
+    /// Docker image tag the carbide config believes should be deployed.
+    /// Empty if the template doesn't pin an image (e.g. dts uses chart default).
+    pub docker_image_tag: String,
+}
+
+/// Severity of a single [`ValidationCheck`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum ValidationStatus {
+    Pass,
+    Warn,
+    Fail,
+    /// Check did not run because a prerequisite was missing.
+    Skip,
+}
+
+/// Result of one DPF installation sanity check.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ValidationCheck {
+    /// Short stable identifier (kebab/dot-case) for this check.
+    pub name: String,
+    /// One-line description of what was checked.
+    pub description: String,
+    pub status: ValidationStatus,
+    /// Short summary surfaced in the default table view.
+    pub message: String,
+    /// Optional verbose detail (full condition messages, offending values).
+    /// Surfaced when `--verbose` is set.
+    pub details: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

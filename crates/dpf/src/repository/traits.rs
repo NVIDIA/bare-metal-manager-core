@@ -24,6 +24,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::crds::bfbs_generated::BFB;
+use crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig;
 use crate::crds::dpuclusters_generated::DPUCluster;
 use crate::crds::dpudeployments_generated::DPUDeployment;
 use crate::crds::dpudevices_generated::DPUDevice;
@@ -252,6 +253,8 @@ pub trait K8sConfigRepository: Send + Sync {
 /// Repository for DPFOperatorConfig resources.
 #[async_trait]
 pub trait DpfOperatorConfigRepository: Send + Sync {
+    async fn get(&self, name: &str, namespace: &str)
+    -> Result<Option<DPFOperatorConfig>, DpfError>;
     async fn patch(
         &self,
         name: &str,

@@ -178,6 +178,14 @@ impl K8sConfigRepository for DeviceRegistrationMock {
 
 #[async_trait]
 impl DpfOperatorConfigRepository for DeviceRegistrationMock {
+    async fn get(
+        &self,
+        _: &str,
+        _: &str,
+    ) -> Result<Option<crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig>, DpfError>
+    {
+        Ok(None)
+    }
     async fn patch(&self, _: &str, _: &str, _: serde_json::Value) -> Result<(), DpfError> {
         Ok(())
     }

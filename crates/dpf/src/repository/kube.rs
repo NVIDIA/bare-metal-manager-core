@@ -610,6 +610,21 @@ impl K8sConfigRepository for KubeRepository {
 
 #[async_trait]
 impl DpfOperatorConfigRepository for KubeRepository {
+    async fn get(
+        &self,
+        name: &str,
+        namespace: &str,
+    ) -> Result<Option<crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig>, DpfError>
+    {
+        use crate::crds::dpfoperatorconfigs_generated::DPFOperatorConfig;
+        let api: Api<DPFOperatorConfig> = Api::namespaced(self.client.clone(), namespace);
+        match api.get(name).await {
+            Ok(cfg) => Ok(Some(cfg)),
+            Err(kube::Error::Api(e)) if e.code == 404 => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     async fn patch(
         &self,
         name: &str,

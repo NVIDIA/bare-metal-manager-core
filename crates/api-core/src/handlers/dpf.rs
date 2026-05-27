@@ -142,6 +142,66 @@ pub(crate) async fn get_dpf_host_snapshot(
     Ok(Response::new(rpc::DpfHostSnapshotResponse { json_payload }))
 }
 
+pub(crate) async fn validate_dpf(
+    api: &Api,
+    request: Request<rpc::ValidateDpfRequest>,
+) -> Result<Response<rpc::ValidateDpfResponse>, Status> {
+    log_request_data(&request);
+
+    let Some(ops) = api.dpf_sdk.as_ref() else {
+        return Err(CarbideError::InvalidArgument(
+            "DPF is not enabled on this carbide instance".to_string(),
+        )
+        .into());
+    };
+
+    let cfg = &api.runtime_config.dpf.services;
+    let expected: Vec<carbide_dpf::ExpectedService> = [
+        &cfg.dts,
+        &cfg.doca_hbn,
+        &cfg.dpu_agent,
+        &cfg.dhcp_server,
+        &cfg.fmds,
+        &cfg.otel,
+    ]
+    .iter()
+    .map(|s| carbide_dpf::ExpectedService {
+        name: s.name.clone(),
+        helm_version: s.helm_version.clone(),
+        docker_image_tag: s.docker_image_tag.clone(),
+    })
+    .collect();
+
+    let checks = ops
+        .validate(&expected)
+        .await
+        .map_err(CarbideError::DpfError)?;
+
+    let proto_checks = checks
+        .into_iter()
+        .map(|c| rpc::DpfValidationCheck {
+            name: c.name,
+            description: c.description,
+            status: validation_status_to_proto(c.status) as i32,
+            message: c.message,
+            details: c.details,
+        })
+        .collect();
+
+    Ok(Response::new(rpc::ValidateDpfResponse {
+        checks: proto_checks,
+    }))
+}
+
+fn validation_status_to_proto(s: carbide_dpf::ValidationStatus) -> rpc::DpfValidationStatus {
+    match s {
+        carbide_dpf::ValidationStatus::Pass => rpc::DpfValidationStatus::Pass,
+        carbide_dpf::ValidationStatus::Warn => rpc::DpfValidationStatus::Warn,
+        carbide_dpf::ValidationStatus::Fail => rpc::DpfValidationStatus::Fail,
+        carbide_dpf::ValidationStatus::Skip => rpc::DpfValidationStatus::Skip,
+    }
+}
+
 pub(crate) async fn get_dpf_service_versions(
     api: &Api,
     request: Request<rpc::GetDpfServiceVersionsRequest>,

@@ -21,10 +21,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use carbide_dpf::types::{HostDpfSnapshot, ServiceTemplateVersion};
 use carbide_dpf::{
     BmcPasswordProvider, DpfError, DpfSdk, DpuDeviceInfo, DpuNodeInfo, DpuPhase, DpuWatcher,
-    KubeRepository, ResourceLabeler, node_id_from_dpu_node_cr_name,
+    ExpectedService, HostDpfSnapshot, KubeRepository, ResourceLabeler, ServiceTemplateVersion,
+    ValidationCheck, node_id_from_dpu_node_cr_name,
 };
 use carbide_uuid::machine::MachineId;
 use model::dpu_machine_update::OutdatedDpfDpu;
@@ -105,6 +105,13 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// from carbide config — see [`DpfSdk::find_outdated_dpus_dpf`] for
     /// details.
     async fn find_outdated_dpus_dpf(&self) -> Result<Vec<OutdatedDpfDpu>, DpfError>;
+
+    /// Run sanity checks on the live DPF installation. Returns a vector of
+    /// per-check results ordered for table display.
+    async fn validate(
+        &self,
+        expected: &[ExpectedService],
+    ) -> Result<Vec<ValidationCheck>, DpfError>;
 }
 
 /// Check whether the DPUNode and DPUDevice CRs are missing for the given host.
@@ -484,5 +491,12 @@ impl DpfOperations for DpfSdkOps {
             });
         }
         Ok(out)
+    }
+
+    async fn validate(
+        &self,
+        expected: &[ExpectedService],
+    ) -> Result<Vec<ValidationCheck>, DpfError> {
+        self.sdk.validate(expected).await
     }
 }
