@@ -6,7 +6,7 @@ NICo REST `auth` module [README](https://github.com/NVIDIA/infra-controller-rest
 
 ### API Version
 The next step is to be aware of the API version being used. The API version can be retrieved by calling the [Retrieve Metadata endpoint](/infra-controller/rest-api-reference/api-reference/metadata/get-metadata). In general, the API maintains backward
-compatibility with the previous versions. Any breaking changes are announced using a deprecation notice. Current and past deprecations are listed in the [Deprecations](/infra-controller/rest-api-reference/deprecations) section.
+compatibility with the previous versions. Any breaking changes are announced using a deprecation notice. Click on each API resource to see the deprecation notices.
 
 ### Service Account Mode
 Depending on the auth configuration used, the NICo REST API may be configured in Service Account mode. In this mode, API users can act as both Provider and Tenant as part of the same organization.
