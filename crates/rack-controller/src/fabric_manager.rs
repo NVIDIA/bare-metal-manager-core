@@ -56,30 +56,26 @@ pub(super) fn validate_switch_inventory_for_nmx_cluster(
 fn build_scale_up_fabric_services_status_request(
     rack_id: &RackId,
     switches: &[FirmwareUpgradeDeviceInfo],
-) -> rms::GetScaleUpFabricServicesStatusRequest {
-    rms::GetScaleUpFabricServicesStatusRequest {
+) -> rms::BatchGetScaleUpFabricServiceStatusRequest {
+    rms::BatchGetScaleUpFabricServiceStatusRequest {
         nodes: Some(rms::NodeSet {
-            devices: switches
+            nodes: switches
                 .iter()
-                .map(|switch| build_new_node_info(rack_id, switch, rms::NodeType::Switch))
+                .map(|switch| build_new_node_info(rack_id, switch, rms::NodeType::Switch, true))
                 .collect(),
         }),
-        verify_ssl: false,
-        ..Default::default()
     }
 }
 
-pub(super) async fn get_scale_up_fabric_services_status(
+pub(super) async fn batch_get_scale_up_fabric_service_status(
     rms_config: &RmsConfig,
     rack_id: &RackId,
     switches: &[FirmwareUpgradeDeviceInfo],
-) -> Result<rms::GetScaleUpFabricServicesStatusResponse, String> {
+) -> Result<rms::BatchGetScaleUpFabricServiceStatusResponse, String> {
     let Some(url) = rms_config.api_url.as_deref().filter(|url| !url.is_empty()) else {
         return Err("RMS client not configured".to_string());
     };
 
-    // The pinned librms::RmsApi trait does not yet expose this RPC, so keep
-    // the direct concrete-client use local to ConfigureNmxCluster.
     let rms_client_config = librms::client_config::RmsClientConfig::new(
         rms_config.root_ca_path.clone(),
         rms_config.client_cert.clone(),
@@ -91,11 +87,11 @@ pub(super) async fn get_scale_up_fabric_services_status(
 
     rms_client
         .client
-        .get_scale_up_fabric_services_status(build_scale_up_fabric_services_status_request(
+        .batch_get_scale_up_fabric_service_status(build_scale_up_fabric_services_status_request(
             rack_id, switches,
         ))
         .await
-        .map_err(|error| format!("RMS GetScaleUpFabricServicesStatus failed: {}", error))
+        .map_err(|error| format!("RMS BatchGetScaleUpFabricServiceStatus failed: {}", error))
 }
 
 #[derive(Debug, Deserialize)]
@@ -165,17 +161,17 @@ pub(super) async fn persist_fabric_manager_statuses(
     txn: &mut PgConnection,
     rack_id: &RackId,
     switches: &[FirmwareUpgradeDeviceInfo],
-    response: &rms::GetScaleUpFabricServicesStatusResponse,
+    response: &rms::BatchGetScaleUpFabricServiceStatusResponse,
 ) -> Result<(), String> {
     if response.status != rms::ReturnCode::Success as i32 {
         return Err(
-            "RMS GetScaleUpFabricServicesStatus returned failure for ConfigureNmxCluster"
+            "RMS BatchGetScaleUpFabricServiceStatus returned failure for ConfigureNmxCluster"
                 .to_string(),
         );
     }
 
     for switch in switches {
-        let Some(entry) = response.device_info_result.get(switch.node_id.as_str()) else {
+        let Some(entry) = response.service_statuses.get(switch.node_id.as_str()) else {
             return Err(format!(
                 "RMS did not return fabric-manager status for switch {}",
                 switch.node_id
@@ -214,13 +210,13 @@ pub(super) async fn persist_fabric_manager_statuses(
 #[derive(Debug, Clone)]
 pub(super) struct SwitchPlacement {
     pub(super) device: FirmwareUpgradeDeviceInfo,
-    pub(super) tray_index: i32,
-    pub(super) slot_number: Option<i32>,
+    pub(super) tray_index: u32,
+    pub(super) slot_number: Option<u32>,
 }
 
 pub(super) fn select_primary_switch(
     switches: &[FirmwareUpgradeDeviceInfo],
-    response: &rms::GetDeviceInfoByDeviceListResponse,
+    response: &rms::BatchGetNodeDeviceInfoResponse,
 ) -> Result<SwitchPlacement, String> {
     if response.status != rms::ReturnCode::Success as i32 {
         let details = if response.message.trim().is_empty() {
@@ -228,17 +224,17 @@ pub(super) fn select_primary_switch(
         } else {
             response.message.clone()
         };
-        return Err(format!("RMS GetDeviceInfoByDeviceList failed: {}", details));
+        return Err(format!("RMS BatchGetNodeDeviceInfo failed: {}", details));
     }
 
     let switches_by_node_id: HashMap<&str, &FirmwareUpgradeDeviceInfo> = switches
         .iter()
         .map(|switch| (switch.node_id.as_str(), switch))
         .collect();
-    let mut placements = Vec::with_capacity(response.node_device_info.len());
-    let mut seen_node_ids = HashSet::with_capacity(response.node_device_info.len());
+    let mut placements = Vec::with_capacity(response.node_device_details.len());
+    let mut seen_node_ids = HashSet::with_capacity(response.node_device_details.len());
 
-    for node_info in &response.node_device_info {
+    for node_info in &response.node_device_details {
         let Some(device) = switches_by_node_id.get(node_info.node_id.as_str()) else {
             return Err(format!(
                 "RMS returned device info for unexpected switch {}",
@@ -294,10 +290,11 @@ pub(super) fn select_primary_switch(
         ));
     }
 
-    Ok(placements
-        .into_iter()
-        .next()
-        .expect("placements cannot be empty after explicit guard"))
+    let Some(primary) = placements.into_iter().next() else {
+        return Err("RMS returned no switch device info for ConfigureNmxCluster".to_string());
+    };
+
+    Ok(primary)
 }
 
 pub(super) async fn persist_primary_switch(
@@ -344,10 +341,10 @@ mod tests {
         }
     }
 
-    fn node_device_info(
+    fn node_device_details(
         node_id: &str,
-        tray_index: i32,
-        slot_number: Option<i32>,
+        tray_index: u32,
+        slot_number: Option<u32>,
     ) -> rms::NodeDeviceInfo {
         rms::NodeDeviceInfo {
             node_id: node_id.to_string(),
@@ -360,18 +357,20 @@ mod tests {
     #[test]
     fn select_primary_switch_picks_lowest_tray_index() {
         let switches = vec![switch("sw-1"), switch("sw-2"), switch("sw-3")];
-        let response = rms::GetDeviceInfoByDeviceListResponse {
+        let response = rms::BatchGetNodeDeviceInfoResponse {
             status: rms::ReturnCode::Success as i32,
-            node_device_info: vec![
-                node_device_info("sw-1", 3, Some(3)),
-                node_device_info("sw-2", 1, Some(1)),
-                node_device_info("sw-3", 2, Some(2)),
+            node_device_details: vec![
+                node_device_details("sw-1", 3, Some(3)),
+                node_device_details("sw-2", 1, Some(1)),
+                node_device_details("sw-3", 2, Some(2)),
             ],
             ..Default::default()
         };
 
-        let primary =
-            select_primary_switch(&switches, &response).expect("selection should succeed");
+        let primary = match select_primary_switch(&switches, &response) {
+            Ok(primary) => primary,
+            Err(error) => panic!("selection should succeed: {error}"),
+        };
 
         assert_eq!(primary.device.node_id, "sw-2");
         assert_eq!(primary.tray_index, 1);
@@ -381,16 +380,18 @@ mod tests {
     #[test]
     fn select_primary_switch_errors_on_duplicate_tray_index() {
         let switches = vec![switch("sw-1"), switch("sw-2")];
-        let response = rms::GetDeviceInfoByDeviceListResponse {
+        let response = rms::BatchGetNodeDeviceInfoResponse {
             status: rms::ReturnCode::Success as i32,
-            node_device_info: vec![
-                node_device_info("sw-1", 1, Some(1)),
-                node_device_info("sw-2", 1, Some(2)),
+            node_device_details: vec![
+                node_device_details("sw-1", 1, Some(1)),
+                node_device_details("sw-2", 1, Some(2)),
             ],
             ..Default::default()
         };
 
-        let error = select_primary_switch(&switches, &response).expect_err("selection should fail");
+        let Err(error) = select_primary_switch(&switches, &response) else {
+            panic!("selection should fail");
+        };
 
         assert!(error.contains("duplicate tray_index 1"));
         assert!(error.contains("sw-1"));

@@ -244,13 +244,13 @@ impl MachineCreator {
         if let (Some(rack_id), Some(rms_client)) =
             (&expected_machine.data.rack_id, &self.rms_client)
         {
-            let request = librms::protos::rack_manager::GetDeviceInfoByDeviceListRequest {
+            let request = librms::protos::rack_manager::BatchGetNodeDeviceInfoRequest {
                 nodes: Some(librms::protos::rack_manager::NodeSet {
-                    devices: vec![librms::protos::rack_manager::NewNodeInfo {
+                    nodes: vec![librms::protos::rack_manager::NodeInfo {
                         node_id: host_machine_id.to_string(),
                         rack_id: rack_id.to_string(),
                         r#type: Some(librms::protos::rack_manager::NodeType::Compute as i32),
-                        bmc_endpoint: Some(librms::protos::rack_manager::BmcEndpoint {
+                        bmc_endpoint: Some(librms::protos::rack_manager::Endpoint {
                             interface: Some(librms::protos::rack_manager::NetworkInterface {
                                 ip_address: explored_host.host_bmc_ip.to_string(),
                                 mac_address: expected_machine.bmc_mac_address.to_string(),
@@ -268,11 +268,11 @@ impl MachineCreator {
                                     ),
                                 }
                             }),
+                            dangerously_accept_invalid_certs: false,
                         }),
                         ..Default::default()
                     }],
                 }),
-                ..Default::default()
             };
             let (slot_number, tray_index) =
                 crate::fetch_slot_and_tray(rms_client.as_ref(), request).await;

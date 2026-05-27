@@ -21,9 +21,9 @@ use librms::RmsApi;
 
 use crate::rms::args::{FirmwareInventory, PowerOnSequence, PowerState};
 
-pub async fn get_all_inventory(rms_client: &Arc<dyn RmsApi>) -> eyre::Result<()> {
-    let cmd = librms::protos::rack_manager::GetAllInventoryRequest::default();
-    let response = rms_client.get_all_inventory(cmd).await?;
+/// Print the RMS node inventory as JSON.
+pub async fn list_node_inventory(rms_client: &Arc<dyn RmsApi>) -> eyre::Result<()> {
+    let response = rms_client.list_node_inventory().await?;
     println!("{}", serde_json::to_string_pretty(&response)?);
     Ok(())
 }

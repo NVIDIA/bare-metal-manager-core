@@ -29,8 +29,8 @@ use carbide_rack::rms_client::SwitchSystemImageRmsClient;
 use carbide_rack_controller::config::RmsConfig;
 use carbide_rack_controller::context::RackStateHandlerContextObjects;
 use carbide_rack_controller::fabric_manager::{
-    get_scale_up_fabric_services_status, persist_fabric_manager_statuses, persist_primary_switch,
-    select_primary_switch, validate_switch_inventory_for_nmx_cluster,
+    batch_get_scale_up_fabric_service_status, persist_fabric_manager_statuses,
+    persist_primary_switch, select_primary_switch, validate_switch_inventory_for_nmx_cluster,
 };
 use carbide_rack_controller::validating::strip_rv_labels;
 use carbide_uuid::rack::{RackId, RackProfileId};
@@ -438,15 +438,14 @@ fn skip_configure_nmx_cluster_outcome(
 fn build_switch_device_info_request(
     rack_id: &RackId,
     switches: &[FirmwareUpgradeDeviceInfo],
-) -> rms::GetDeviceInfoByDeviceListRequest {
-    rms::GetDeviceInfoByDeviceListRequest {
+) -> rms::BatchGetNodeDeviceInfoRequest {
+    rms::BatchGetNodeDeviceInfoRequest {
         nodes: Some(rms::NodeSet {
-            devices: switches
+            nodes: switches
                 .iter()
-                .map(|switch| build_new_node_info(rack_id, switch, rms::NodeType::Switch))
+                .map(|switch| build_new_node_info(rack_id, switch, rms::NodeType::Switch, false))
                 .collect(),
         }),
-        ..Default::default()
     }
 }
 
@@ -550,29 +549,26 @@ async fn rms_start_firmware_upgrade_from_json(
     let started_at = chrono::Utc::now();
     let machine_count = request.machines.len();
     let switch_count = request.switches.len();
-    let mut devices = Vec::with_capacity(machine_count + switch_count);
-    devices.extend(
-        request
-            .machines
-            .iter()
-            .map(|device| build_new_node_info(request.rack_id, device, rms::NodeType::Compute)),
+    let mut nodes = Vec::with_capacity(machine_count + switch_count);
+    nodes.extend(
+        request.machines.iter().map(|device| {
+            build_new_node_info(request.rack_id, device, rms::NodeType::Compute, false)
+        }),
     );
-    devices.extend(
-        request
-            .switches
-            .iter()
-            .map(|device| build_new_node_info(request.rack_id, device, rms::NodeType::Switch)),
+    nodes.extend(
+        request.switches.iter().map(|device| {
+            build_new_node_info(request.rack_id, device, rms::NodeType::Switch, false)
+        }),
     );
 
     let response = rms_client
-        .apply_firmware_object_from_json(rms::ApplyFirmwareObjectFromJsonRequest {
-            metadata: None,
+        .apply_firmware_object(rms::ApplyFirmwareObjectRequest {
             rack_id: request.rack_id.to_string(),
             config_json: request.config_json.to_string(),
             access_token: request.access_token.to_string(),
             firmware_type: request.firmware_type.to_string(),
             hardware_type: request.hardware_type.to_string(),
-            nodes: Some(rms::NodeSet { devices }),
+            nodes: Some(rms::NodeSet { nodes }),
             force_update: request.force_update,
             component_filters: rms_component_filters_from_components(
                 request.components,
@@ -597,13 +593,13 @@ async fn rms_start_firmware_upgrade_from_json(
         .unwrap_or_default();
     if batch_status != rms::ReturnCode::Success as i32
         && batch_job_id.is_empty()
-        && response.node_jobs.is_empty()
+        && response.jobs.is_empty()
     {
         let message = batch_response
             .map(|batch_response| batch_response.message.as_str())
             .unwrap_or_default();
         let message = if message.is_empty() {
-            "RMS returned failure for ApplyFirmwareObjectFromJSON".to_string()
+            "RMS returned failure for ApplyFirmwareObject".to_string()
         } else {
             message.to_string()
         };
@@ -612,7 +608,7 @@ async fn rms_start_firmware_upgrade_from_json(
 
     let parent_job_id = (!batch_job_id.is_empty()).then(|| batch_job_id.to_string());
     let child_jobs = response
-        .node_jobs
+        .jobs
         .iter()
         .map(|child| (child.node_id.clone(), child.job_id.clone()))
         .collect::<std::collections::HashMap<_, _>>();
@@ -734,7 +730,6 @@ async fn rms_get_firmware_upgrade_status(
         let response = rms_client
             .get_firmware_job_status(librms::protos::rack_manager::GetFirmwareJobStatusRequest {
                 job_id: job_id.clone(),
-                ..Default::default()
             })
             .await;
 
@@ -745,20 +740,20 @@ async fn rms_get_firmware_upgrade_status(
                 if !response.node_id.is_empty() {
                     device.node_id = response.node_id.clone();
                 }
-                match response.job_state {
-                    0 => {
+                match rms::FirmwareJobState::try_from(response.job_state) {
+                    Ok(rms::FirmwareJobState::Queued) => {
                         device.status = "pending".into();
                         device.error_message = None;
                     }
-                    1 => {
+                    Ok(rms::FirmwareJobState::Running) => {
                         device.status = "in_progress".into();
                         device.error_message = None;
                     }
-                    2 => {
+                    Ok(rms::FirmwareJobState::Completed) => {
                         device.status = "completed".into();
                         device.error_message = None;
                     }
-                    3 => {
+                    Ok(rms::FirmwareJobState::Failed) => {
                         device.status = "failed".into();
                         device.error_message = Some(if response.error_message.is_empty() {
                             response.state_description
@@ -766,7 +761,7 @@ async fn rms_get_firmware_upgrade_status(
                             response.error_message
                         });
                     }
-                    _ => {
+                    Ok(rms::FirmwareJobState::Unspecified) | Err(_) => {
                         tracing::warn!(
                             job_id = %job_id,
                             job_state = response.job_state,
@@ -854,18 +849,17 @@ async fn rms_start_nvos_update(
     switches: Vec<FirmwareUpgradeDeviceInfo>,
 ) -> Result<NvosUpdateJob, StateHandlerError> {
     let started_at = chrono::Utc::now();
-    let devices: Vec<_> = switches
+    let nodes: Vec<_> = switches
         .iter()
-        .map(|switch| build_new_node_info(rack_id, switch, rms::NodeType::Switch))
+        .map(|switch| build_new_node_info(rack_id, switch, rms::NodeType::Switch, false))
         .collect();
-    let nodes = Some(rms::NodeSet { devices });
+    let nodes = Some(rms::NodeSet { nodes });
     let NvosUpdateSource {
         config_json,
         access_token,
     } = source;
     let response = rms_client
-        .apply_switch_system_image_from_json(rms::ApplySwitchSystemImageFromJsonRequest {
-            metadata: None,
+        .apply_switch_system_image(rms::ApplySwitchSystemImageRequest {
             rack_id: rack_id.to_string(),
             config_json: config_json.to_string(),
             access_token: access_token.to_string(),
@@ -890,13 +884,13 @@ async fn rms_start_nvos_update(
         .unwrap_or_default();
     if batch_status != rms::ReturnCode::Success as i32
         && batch_job_id.is_empty()
-        && response.node_jobs.is_empty()
+        && response.jobs.is_empty()
     {
         let message = batch_response
             .map(|batch_response| batch_response.message.as_str())
             .unwrap_or_default();
         let message = if message.is_empty() {
-            "RMS returned failure for ApplySwitchSystemImageFromJSON".to_string()
+            "RMS returned failure for ApplySwitchSystemImage".to_string()
         } else {
             message.to_string()
         };
@@ -905,7 +899,7 @@ async fn rms_start_nvos_update(
 
     let parent_job_id = (!batch_job_id.is_empty()).then(|| batch_job_id.to_string());
     let child_jobs = response
-        .node_jobs
+        .jobs
         .iter()
         .map(|child| (child.node_id.clone(), child.job_id.clone()))
         .collect::<std::collections::HashMap<_, _>>();
@@ -995,7 +989,6 @@ async fn rms_get_nvos_update_status(
         let response = rms_client
             .get_switch_system_image_job_status(rms::GetSwitchSystemImageJobStatusRequest {
                 job_id: job_id.clone(),
-                ..Default::default()
             })
             .await;
 
@@ -1801,31 +1794,31 @@ pub async fn handle_maintenance(
                     "Disabling ScaleUpFabric state before selecting ConfigureNmxCluster primary switch"
                 );
                 let response = match rms_client
-                    .set_scale_up_fabric_state(rms::SetScaleUpFabricStateRequest {
+                    .batch_set_scale_up_fabric_state(rms::BatchSetScaleUpFabricStateRequest {
                         nodes: Some(rms::NodeSet {
-                            devices: switch_inventory
+                            nodes: switch_inventory
                                 .switches
                                 .iter()
                                 .map(|switch| {
-                                    build_new_node_info(id, switch, rms::NodeType::Switch)
+                                    build_new_node_info(id, switch, rms::NodeType::Switch, true)
                                 })
                                 .collect(),
                         }),
-                        enabled: Some(false),
-                        verify_ssl: false,
-                        ..Default::default()
+                        enabled: false,
                     })
                     .await
                 {
                     Ok(response) => response,
                     Err(error) => {
-                        let error = rack_manager_error("set_scale_up_fabric_state", error);
+                        let error = rack_manager_error("batch_set_scale_up_fabric_state", error);
                         return transition_to_rack_error(id, state, error.to_string(), ctx).await;
                     }
                 };
 
                 let batch = response.response.unwrap_or_default();
-                if batch.status != rms::ReturnCode::Success as i32 || batch.failed_nodes > 0 {
+                let stats = batch.stats.unwrap_or_default();
+
+                if batch.status != rms::ReturnCode::Success as i32 || stats.failed_nodes > 0 {
                     let node_error = batch
                         .node_results
                         .iter()
@@ -1847,21 +1840,21 @@ pub async fn handle_maintenance(
                     } else {
                         format!(
                             "batch status {}, failed_nodes {}",
-                            batch.status, batch.failed_nodes,
+                            batch.status, stats.failed_nodes,
                         )
                     };
                     tracing::error!(
                         rack_id = %id,
                         batch_status = batch.status,
-                        successful_nodes = batch.successful_nodes,
-                        failed_nodes = batch.failed_nodes,
+                        successful_nodes = stats.successful_nodes,
+                        failed_nodes = stats.failed_nodes,
                         summary = %summary,
-                        "RMS SetScaleUpFabricState failed",
+                        "RMS BatchSetScaleUpFabricState failed",
                     );
                     return transition_to_rack_error(
                         id,
                         state,
-                        format!("RMS SetScaleUpFabricState failed: {}", summary),
+                        format!("RMS BatchSetScaleUpFabricState failed: {}", summary),
                         ctx,
                     )
                     .await;
@@ -1869,7 +1862,7 @@ pub async fn handle_maintenance(
 
                 tracing::info!(
                     rack_id = %id,
-                    successful_nodes = batch.successful_nodes,
+                    successful_nodes = stats.successful_nodes,
                     switch_count = switch_inventory.switches.len(),
                     "ScaleUpFabric state disabled; advancing to ConfigureScaleUpFabricManager"
                 );
@@ -1955,7 +1948,7 @@ pub async fn handle_maintenance(
                 };
 
                 let response = match rms_client
-                    .get_device_info_by_device_list(build_switch_device_info_request(
+                    .batch_get_node_device_info(build_switch_device_info_request(
                         id,
                         &switch_inventory.switches,
                     ))
@@ -1963,7 +1956,7 @@ pub async fn handle_maintenance(
                 {
                     Ok(response) => response,
                     Err(error) => {
-                        let error = rack_manager_error("get_device_info_by_device_list", error);
+                        let error = rack_manager_error("batch_get_node_device_info", error);
                         return transition_to_rack_error(id, state, error.to_string(), ctx).await;
                     }
                 };
@@ -1996,14 +1989,13 @@ pub async fn handle_maintenance(
                 );
                 let response = match rms_client
                     .configure_scale_up_fabric_manager(rms::ConfigureScaleUpFabricManagerRequest {
-                        device: Some(build_new_node_info(
+                        node: Some(build_new_node_info(
                             id,
                             &primary_switch.device,
                             rms::NodeType::Switch,
+                            true,
                         )),
                         topology_type: topology_type.clone(),
-                        verify_ssl: false,
-                        ..Default::default()
                     })
                     .await
                 {
@@ -2088,7 +2080,7 @@ pub async fn handle_maintenance(
                     ));
                 }
 
-                let fabric_status_response = match get_scale_up_fabric_services_status(
+                let fabric_status_response = match batch_get_scale_up_fabric_service_status(
                     &ctx.services.site_config.rms,
                     id,
                     &switch_inventory.switches,

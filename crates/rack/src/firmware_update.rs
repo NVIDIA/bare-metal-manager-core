@@ -210,34 +210,37 @@ pub fn build_new_node_info(
     rack_id: &RackId,
     device: &FirmwareUpgradeDeviceInfo,
     node_type: rms::NodeType,
-) -> rms::NewNodeInfo {
+    dangerously_accept_invalid_certs: bool,
+) -> rms::NodeInfo {
     let bmc_endpoint = if device.bmc_ip.is_empty() || device.mac.is_empty() {
         None
     } else {
-        Some(rms::BmcEndpoint {
+        Some(rms::Endpoint {
             interface: Some(rms::NetworkInterface {
                 ip_address: device.bmc_ip.clone(),
                 mac_address: device.mac.clone(),
             }),
             port: 443,
             credentials: user_pass_credentials(&device.bmc_username, &device.bmc_password),
+            dangerously_accept_invalid_certs,
         })
     };
 
     let host_endpoint = if matches!(node_type, rms::NodeType::Switch) {
-        Some(rms::HostEndpoint {
-            interfaces: build_host_interfaces(device),
+        Some(rms::Endpoint {
+            interface: build_host_interface(device),
             port: 0,
             credentials: user_pass_credentials(
                 device.os_username.as_deref().unwrap_or_default(),
                 device.os_password.as_deref().unwrap_or_default(),
             ),
+            dangerously_accept_invalid_certs,
         })
     } else {
         None
     };
 
-    rms::NewNodeInfo {
+    rms::NodeInfo {
         node_id: device.node_id.clone(),
         rack_id: rack_id.to_string(),
         r#type: Some(node_type as i32),
@@ -246,15 +249,15 @@ pub fn build_new_node_info(
     }
 }
 
-fn build_host_interfaces(device: &FirmwareUpgradeDeviceInfo) -> Vec<rms::NetworkInterface> {
-    if device.os_ip.is_none() && device.os_mac.is_none() {
-        return Vec::new();
-    }
+fn build_host_interface(device: &FirmwareUpgradeDeviceInfo) -> Option<rms::NetworkInterface> {
+    let (Some(ip_address), Some(mac_address)) = (&device.os_ip, &device.os_mac) else {
+        return None;
+    };
 
-    vec![rms::NetworkInterface {
-        ip_address: device.os_ip.clone().unwrap_or_default(),
-        mac_address: device.os_mac.clone().unwrap_or_default(),
-    }]
+    Some(rms::NetworkInterface {
+        ip_address: ip_address.clone(),
+        mac_address: mac_address.clone(),
+    })
 }
 
 fn user_pass_credentials(username: &str, password: &str) -> Option<rms::Credentials> {
