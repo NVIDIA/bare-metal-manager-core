@@ -63,7 +63,7 @@ pub fn nvlink_config_synced(
     }
 
     let Some(observation) = observation.as_ref() else {
-        return Err(NvLinkConfigNotSyncedReason("Due to missing NvLink status observation, it can't be verified whether the NvLink config is applied to NMX-M".to_string()));
+        return Err(NvLinkConfigNotSyncedReason("Due to missing NvLink status observation, it can't be verified whether the NvLink config is applied to NMX-C".to_string()));
     };
 
     for gpu_config in config.gpu_configs.iter() {

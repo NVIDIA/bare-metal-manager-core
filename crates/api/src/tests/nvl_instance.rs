@@ -17,14 +17,19 @@
 
 //use rpc::forge::NvlPartitionSearchFilter;
 use ::rpc::machine_discovery::Gpu;
+use carbide_uuid::nvlink::NvLinkPartitionId;
 use common::api_fixtures::create_managed_host_with_hardware_info_template;
 use common::api_fixtures::instance::{
     create_instance_with_nvlink_config, update_instance_nvlink_config,
 };
 use common::api_fixtures::managed_host::HardwareInfoTemplate;
 use common::api_fixtures::nvl_logical_partition::create_nvl_logical_partition;
-use libnmxc::nmxc_model::GetPartitionInfoListRequest;
+use db::{self, nvl_partition as db_nvl_partition};
+use libnmxc::nmxc_model::{
+    CreatePartitionRequest, GetPartitionInfoListRequest, UpdatePartitionRequest,
+};
 use model::instance::config::nvlink::InstanceNvLinkConfig;
+use model::nvl_partition::{NewNvlPartition, NvlPartitionName};
 use rpc::forge::TenantState;
 use rpc::forge::forge_server::Forge;
 
@@ -32,6 +37,84 @@ use rpc::forge::forge_server::Forge;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::tests::common::api_fixtures::nvl_logical_partition::NvlLogicalPartitionFixture;
+
+#[crate::sqlx_test]
+async fn test_nmx_c_partition_id_migration_deletes_legacy_nmx_m_rows(pool: sqlx::PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+
+    sqlx::query("ALTER TABLE nvlink_partitions RENAME COLUMN nmx_c_partition_id TO nmx_m_id")
+        .execute(conn.as_mut())
+        .await
+        .unwrap();
+    sqlx::query(
+        "ALTER TABLE nvlink_partitions ALTER COLUMN nmx_m_id TYPE VARCHAR USING nmx_m_id::VARCHAR",
+    )
+    .execute(conn.as_mut())
+    .await
+    .unwrap();
+    sqlx::query(
+        "ALTER TABLE nvlink_partitions ADD CONSTRAINT nvlink_partitions_nmx_m_id_key UNIQUE (nmx_m_id)",
+    )
+    .execute(conn.as_mut())
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "WITH lp AS (
+            INSERT INTO nvlink_logical_partitions (tenant_organization_id, config_version)
+            VALUES ('tenant', 'V1-T1666644937952267')
+            RETURNING id
+        )
+        INSERT INTO nvlink_partitions (nmx_m_id, name, domain_uuid, logical_partition_id)
+        SELECT '699c4bdb83acac93e9c1476f', 'legacy_partition', gen_random_uuid(), id
+        FROM lp",
+    )
+    .execute(conn.as_mut())
+    .await
+    .unwrap();
+
+    let row_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM nvlink_partitions")
+        .fetch_one(conn.as_mut())
+        .await
+        .unwrap();
+    assert_eq!(row_count, 1);
+
+    sqlx::raw_sql(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../api-db/migrations/20260526120000_nvlink_partitions_nmx_c_partition_id.sql"
+    )))
+    .execute(conn.as_mut())
+    .await
+    .unwrap();
+
+    let row_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM nvlink_partitions")
+        .fetch_one(conn.as_mut())
+        .await
+        .unwrap();
+    assert_eq!(row_count, 0);
+
+    let legacy_column_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)
+         FROM information_schema.columns
+         WHERE table_name = 'nvlink_partitions'
+             AND column_name = 'nmx_m_id'",
+    )
+    .fetch_one(conn.as_mut())
+    .await
+    .unwrap();
+    assert_eq!(legacy_column_count, 0);
+
+    let nmx_c_column_type: String = sqlx::query_scalar(
+        "SELECT data_type
+         FROM information_schema.columns
+         WHERE table_name = 'nvlink_partitions'
+             AND column_name = 'nmx_c_partition_id'",
+    )
+    .fetch_one(conn.as_mut())
+    .await
+    .unwrap();
+    assert_eq!(nmx_c_column_type, "integer");
+}
 
 #[crate::sqlx_test]
 async fn test_create_instance_with_nvl_config(pool: sqlx::PgPool) {
@@ -2149,6 +2232,255 @@ async fn test_create_instance_with_nvl_config_mtls_use_nmxc_simulator(pool: sqlx
         return;
     }
     run_create_instance_with_nvl_config_nmxc_simulator_scenario(pool, true).await;
+}
+
+#[crate::sqlx_test]
+async fn test_update_nvlink_config_nmxm_existing_partitions_with_nmxc_simulator(
+    pool: sqlx::PgPool,
+) {
+    if !nmxc_simulator_tests_enabled() {
+        println!(
+            "skipping test_update_nvlink_config_nmxm_existing_partitions_with_nmxc_simulator as nmxc simulator tests are not enabled"
+        );
+        return;
+    }
+
+    let mut config = common::api_fixtures::get_config();
+    if let Some(nvlink_config) = config.nvlink_config.as_mut() {
+        nvlink_config.enabled = true;
+    }
+
+    let mut test_overrides = TestEnvOverrides::with_config(config);
+    test_overrides.nmxc_simulator = Some(true);
+
+    let env =
+        common::api_fixtures::create_test_env_with_overrides(pool.clone(), test_overrides).await;
+
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+
+    let NvlLogicalPartitionFixture {
+        id: logical_partition_id,
+        logical_partition: _logical_partition,
+    } = create_nvl_logical_partition(&env, "test_partition".to_string()).await;
+
+    let request_logical_ids =
+        tonic::Request::new(rpc::forge::NvLinkLogicalPartitionSearchFilter { name: None });
+
+    let logical_ids_list = env
+        .api
+        .find_nv_link_logical_partition_ids(request_logical_ids)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(logical_ids_list.partition_ids.len(), 1);
+
+    let mh = create_managed_host_with_hardware_info_template(
+        &env,
+        HardwareInfoTemplate::Custom(
+            crate::tests::common::api_fixtures::host::GB200_COMPUTE_TRAY_4_INFO_JSON,
+        ),
+    )
+    .await;
+    let machine = mh.host().rpc_machine().await;
+
+    assert_eq!(&machine.state, "Ready");
+    let discovery_info = machine.discovery_info.as_ref().unwrap();
+
+    assert_eq!(discovery_info.gpus.len(), 4);
+
+    let gpus: Vec<Gpu> = discovery_info.gpus.to_vec();
+
+    let gpu_uids: Vec<u64> = gpus
+        .iter()
+        .filter_map(|gpu| {
+            gpu.platform_info.as_ref().map(|platform_info| {
+                let s = platform_info.fabric_guid.trim();
+                if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+                    u64::from_str_radix(hex, 16).unwrap_or(0)
+                } else {
+                    s.parse::<u64>().unwrap_or(0)
+                }
+            })
+        })
+        .collect();
+    assert_eq!(gpu_uids.len(), 4);
+
+    let mut nmxc_sim_client = env
+        .nmxc_sim
+        .create_client(libnmxc::Endpoint::new("http://localhost:9601").expect("NMX-C endpoint URI"))
+        .await
+        .unwrap();
+
+    const NMXC_DEFAULT_PARTITION_ID: u32 = 32766;
+    nmxc_sim_client
+        .remove_gpus_from_partition(UpdatePartitionRequest {
+            context: None,
+            partition_id: Some(libnmxc::nmxc_model::PartitionId {
+                partition_id: NMXC_DEFAULT_PARTITION_ID,
+            }),
+            location_list: vec![],
+            gpu_uid: gpu_uids.clone(),
+            gateway_id: libnmxc::NMX_C_GATEWAY_ID.into(),
+            name: String::new(),
+            reroute: true,
+        })
+        .await
+        .expect("remove host GPUs from default NMX-C partition");
+    // create a NMX-C partition with all the GPUs from the managed host. This is used to simulate the case
+    // as if NMX-M created the partition
+    nmxc_sim_client
+        .create_partition(CreatePartitionRequest {
+            context: None,
+            name: "test-existing-nmxc-partition".to_string(),
+            gpu_resource_id: gpu_uids
+                .iter()
+                .map(|&uid| libnmxc::nmxc_model::GpuResourceId {
+                    resource_id: Some(libnmxc::nmxc_model::gpu_resource_id::ResourceId::GpuUid(
+                        uid,
+                    )),
+                })
+                .collect(),
+            attr: None,
+            partition_id: None,
+            gateway_id: libnmxc::NMX_C_GATEWAY_ID.into(),
+        })
+        .await
+        .expect("create NMX-C partition for managed host GPUs");
+
+    // Now create a NMX-M db nvlink partition entry. This should simulate the case where core had
+    // a pre-exisiting NMX-M partition
+    const NMXC_PARTITION_ID: u32 = 666_666;
+    let nmxc_partition_id = NMXC_PARTITION_ID;
+    let nmx_c_partition_id = i32::try_from(u64::from(nmxc_partition_id) + 10_000_000).unwrap();
+    let domain_uuid = machine
+        .nvlink_info
+        .as_ref()
+        .and_then(|info| info.domain_uuid)
+        .expect("domain_uuid from machine discovery nvlink_info");
+
+    let mut txn = db::Transaction::begin(&env.pool).await.unwrap();
+    db_nvl_partition::create(
+        &NewNvlPartition {
+            id: NvLinkPartitionId::new(),
+            nmx_c_partition_id,
+            domain_uuid,
+            name: NvlPartitionName::try_from("test_partition".to_string()).unwrap(),
+            logical_partition_id,
+        },
+        &mut txn,
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let nvl_config = rpc::forge::InstanceNvLinkConfig {
+        gpu_configs: gpus
+            .iter()
+            .filter_map(|gpu| {
+                gpu.platform_info.as_ref().map(|platform_info| {
+                    rpc::forge::InstanceNvLinkGpuConfig {
+                        device_instance: platform_info.module_id - 1,
+                        logical_partition_id: None,
+                    }
+                })
+            })
+            .collect(),
+    };
+
+    let (_tinstance, instance) =
+        create_instance_with_nvlink_config(&env, &mh, nvl_config, segment_id).await;
+
+    let machine = mh.host().rpc_machine().await;
+    assert_eq!(&machine.state, "Assigned/Ready");
+
+    env.run_nvl_partition_monitor_iteration().await;
+
+    let request_all = tonic::Request::new(rpc::forge::NvLinkPartitionSearchFilter {
+        name: None,
+        tenant_organization_id: None,
+    });
+    let ids_before_update = env
+        .api
+        .find_nv_link_partition_ids(request_all)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(ids_before_update.partition_ids.len(), 1);
+
+    let new_nvl_config = rpc::forge::InstanceNvLinkConfig {
+        gpu_configs: gpus
+            .iter()
+            .filter_map(|gpu| {
+                gpu.platform_info.as_ref().map(|platform_info| {
+                    rpc::forge::InstanceNvLinkGpuConfig {
+                        device_instance: platform_info.module_id - 1,
+                        logical_partition_id: Some(logical_partition_id),
+                    }
+                })
+            })
+            .collect(),
+    };
+
+    let mut new_config = instance.config().inner().clone();
+    new_config.nvlink = Some(new_nvl_config);
+    let instance = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                instance_id: instance.id().into(),
+                if_version_match: None,
+                config: Some(new_config),
+                metadata: Some(instance.metadata().clone()),
+            },
+        ))
+        .await
+        .unwrap()
+        .into_inner();
+    let instance_status = instance.status.as_ref().unwrap();
+    assert_eq!(instance_status.configs_synced(), rpc::SyncState::Pending);
+    assert_eq!(
+        instance_status.tenant.as_ref().unwrap().state(),
+        rpc::TenantState::Configuring
+    );
+
+    env.run_nvl_partition_monitor_iteration().await;
+    env.run_nvl_partition_monitor_iteration().await;
+
+    let instance = env.one_instance(instance.id.unwrap()).await;
+    let instance_status = instance.status();
+    let nvl_status = instance_status.inner().nvlink.as_ref().unwrap();
+    assert_eq!(nvl_status.configs_synced(), rpc::SyncState::Synced);
+
+    // After partition monitor has run, it should delete the old partition created by NMX-M
+    // and create a new one with the GPUs.
+    let request_all = tonic::Request::new(rpc::forge::NvLinkPartitionSearchFilter {
+        name: None,
+        tenant_organization_id: None,
+    });
+    let ids_after_update = env
+        .api
+        .find_nv_link_partition_ids(request_all)
+        .await
+        .map(|response| response.into_inner())
+        .unwrap();
+    assert_eq!(ids_after_update.partition_ids.len(), 2);
+
+    let nmxc_partitions = nmxc_sim_client
+        .get_partition_info_list(GetPartitionInfoListRequest {
+            context: Some(libnmxc::nmxc_model::Context {
+                context: String::new(),
+            }),
+            partition_id_list: vec![],
+            partition_name_list: vec![],
+            gateway_id: libnmxc::NMX_C_GATEWAY_ID.into(),
+        })
+        .await
+        .unwrap()
+        .partition_info_list;
+    assert!(
+        nmxc_partitions.iter().any(|p| p.gpu_uid_list.len() == 4),
+        "expected a Carbide-managed NMX-C partition with four GPUs after instance update, got: {nmxc_partitions:?}"
+    );
 }
 
 #[crate::sqlx_test]

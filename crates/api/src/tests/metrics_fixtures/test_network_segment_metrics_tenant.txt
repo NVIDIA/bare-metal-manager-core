@@ -134,14 +134,18 @@ carbide_machines_total{fresh="true"} 1
 carbide_machines_with_state_handling_errors_per_state{error="any",fresh="true",state="deleting",substate="drainallocatedips"} 0
 # HELP carbide_nvlink_partition_monitor_nmxc_changes_applied_total Number of changes requested to NMX-C
 # TYPE carbide_nvlink_partition_monitor_nmxc_changes_applied_total counter
-carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="create",status="false"} 0
-carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="create",status="true"} 0
-carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="remove",status="false"} 0
-carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="remove",status="true"} 0
-carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="remove_default_partition",status="false"} 0
-carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="remove_default_partition",status="true"} 0
-carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="update",status="false"} 0
-carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="update",status="true"} 0
+carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="create",status="completed"} 0
+carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="create",status="failed"} 0
+carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="create",status="timedout"} 0
+carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="remove",status="completed"} 0
+carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="remove",status="failed"} 0
+carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="remove",status="timedout"} 0
+carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="remove_default_partition",status="completed"} 0
+carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="remove_default_partition",status="failed"} 0
+carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="remove_default_partition",status="timedout"} 0
+carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="update",status="completed"} 0
+carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="update",status="failed"} 0
+carbide_nvlink_partition_monitor_nmxc_changes_applied_total{operation="update",status="timedout"} 0
 # HELP carbide_site_explorer_create_machines Whether site-explorer machine creation is enabled (1) or disabled (0)
 # TYPE carbide_site_explorer_create_machines gauge
 carbide_site_explorer_create_machines 1

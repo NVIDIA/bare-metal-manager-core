@@ -74,7 +74,7 @@ applicable.
 | `dpa_config` | `Option<DpaConfig>` | — | Cluster Interconnect (east-west Ethernet) config (see [DpaConfig](#dpaconfig)). |
 | `dsx_exchange_event_bus` | `Option<DsxExchangeEventBusConfig>` | — | MQTT event bus for managed-host state publishing plus BMS metadata subscription and rack/isolation/heartbeat publishing (see [DsxExchangeEventBusConfig](#dsxexchangeeventbusconfig)). |
 | `datacenter_asn` | `u32` | `11414` | Datacenter ASN used by FNN for DC-specific route targets. |
-| `nvlink_config` | `Option<NvLinkConfig>` | — | NvLink partitioning via NMX-M (see [NvLinkConfig](#nvlinkconfig)). |
+| `nvlink_config` | `Option<NvLinkConfig>` | — | NvLink partitioning via NMX-C (see [NvLinkConfig](#nvlinkconfig)). |
 | `power_manager_options` | `PowerManagerOptions` | *(see below)* | Power management timing (see [PowerManagerOptions](#powermanageroptions)). |
 | `sitename` | `Option<String>` | — | Human-readable site name exposed to tenants via FMDS. |
 | `auto_machine_repair_plugin` | `AutoMachineRepairPluginConfig` | *(default)* | Auto-repair configuration for failed machines. |
@@ -135,9 +135,11 @@ applicable.
 |-------|------|---------|-------------|
 | `enabled` | `bool` | `false` | Enables NvLink partitioning. |
 | `monitor_run_interval` | `Duration` | `60s` | NvLink monitor polling interval. |
-| `nmx_m_operation_timeout` | `Duration` | `10s` | Timeout for pending NMX-M operations. |
-| `nmx_m_endpoint` | `String` | `"localhost"` | NMX-M endpoint (host:port). |
-| `allow_insecure` | `bool` | `false` | Skip TLS verification for NMX-M. |
+| `nmx_c_tls_ca_cert_path` | `Option<String>` | — | Extra CA bundle for verifying the NMX-C server over HTTPS. |
+| `nmx_c_tls_client_cert_path` | `Option<String>` | — | Client certificate for mTLS to NMX-C. |
+| `nmx_c_tls_client_key_path` | `Option<String>` | — | Client private key for mTLS to NMX-C. |
+| `nmx_c_tls_authority` | `Option<String>` | — | TLS server name used for SNI and certificate verification. |
+| `allow_insecure` | `bool` | `false` | Skip TLS verification for NMX-C. |
 
 ### `SiteExplorerConfig`
 

@@ -776,7 +776,7 @@ pub struct Machine {
     /// If host upgrades have been completed since the last start explicit start request or actual start
     pub update_complete: bool,
 
-    /// The NMX-M GPU info for this machine.
+    /// The NVLink GPU info for this machine.
     pub nvlink_info: Option<MachineNvLinkInfo>,
 
     /// Whether the DPF is enabled for this machine

@@ -359,7 +359,7 @@ pub async fn find_ids_by_instance_type_id(
         .map_err(|e| DatabaseError::query(builder.sql(), e))
 }
 
-/// Finds NMX-M info for a list of machine IDs
+/// Finds NVLink info for a list of machine IDs
 ///
 /// * `txn` - A reference to an active DB transaction
 /// * `machine_ids` - A slice of machine IDs to query for
