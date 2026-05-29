@@ -24,6 +24,18 @@ image:
   repository: ""
   pullPolicy: IfNotPresent
   tag: ""
+# node-exporter sidecar: provides the host metrics scraped by the
+# prometheus/node receiver in otel_config.yaml at localhost:<port>.
+# It binds to loopback only, so it is never exposed on the host's external
+# interfaces. Pinned public multi-arch image (includes arm64 for BlueField).
+nodeExporter:
+  image:
+    repository: quay.io/prometheus/node-exporter
+    tag: v1.9.1
+    pullPolicy: IfNotPresent
+  # Must match the prometheus/node scrape target (localhost:9200) in otel_config.yaml.
+  port: 9200
+  resources: {}
 imagePullSecrets: []
 podSecurityContext: {}
 securityContext:
