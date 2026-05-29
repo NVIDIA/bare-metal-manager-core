@@ -1,4 +1,4 @@
-# HELP carbide_api_ready Whether the Forge Site Controller API is running
+# HELP carbide_api_ready Whether the NICo API is running
 # TYPE carbide_api_ready gauge
 carbide_api_ready 1
 # HELP carbide_api_version Version (git sha, build date, etc) of this service
