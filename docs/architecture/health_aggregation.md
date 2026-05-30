@@ -18,7 +18,7 @@ Health checks roughly fall into 3 categories:
     2. [BMC inventory based health monitoring](#bmc-inventory-monitoring)
     3. [dpu-agent based health monitoring](#dpu-agent-based-health-monitoring)
 2. In band health checks: These health checks run at certain well-defined points in time during the host lifecycle. Within this category, NICo provides the following types of health checks
-    1. [Host validation tests](#host-validation-tests)
+    1. [Machine validation tests](#machine-validation-tests)
     2. [SKU validation tests](#sku-validation-tests)
 3. Health status assessments by external tools and operators: NICo allows external tooling to provide health information via APIs. These APIs have the same capabilities as all health related tools that are provided by NICo. They can thereby used to extend the scope of health-monitoring as required by site operators. These APIs are described in the [Health overrides](#health-report-overrides)
 
@@ -212,7 +212,7 @@ The set of classifications that are currently interpreted by NICo is described i
 
 ## In band health checks
 
-### Host validation tests
+### Machine validation tests
 
 NICo will schedule the execution of validation tests via the `scout` tool on the actual host at various points
 in the lifecycle of a managed host:
@@ -224,11 +224,11 @@ The set of tests that are run on a host are defined by the site administrator.
 Each test is defined as an arbitrary shell script which needs to run and is expected to return an exit code of `0`.
 The framework thereby allows the execution of off-the-shelf tests, e.g. using the tools [dcgm](https://docs.nvidia.com/datacenter/dcgm/latest/user-guide/index.html), `stress-ng` or `benchpress`.
 
-If Host validation fails, a Health Alert with ID `FailedValidationTest` or `FailedValidationTestCompletion` will be placed on the host to make the host un-allocatable by tenants.
+If Machine Validation fails, a Health Alert with ID `FailedValidationTest` or `FailedValidationTestCompletion` will be placed on the host to make the host un-allocatable by tenants.
 
 In addition to that, the full test output (stdout and stderr) will be stored within nico-core and is made available to NICo users via APIs, admin-cli and admin-ui.
 
-Details can be found in the [Host Validation guide](../provisioning/host-validation.md).
+Details can be found in the [Machine Validation guide](../provisioning/host-validation.md).
 
 ### SKU validation tests
 

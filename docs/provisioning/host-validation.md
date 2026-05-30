@@ -1,855 +1,457 @@
-Host Validation
-===============
-
-
-# Getting Started
-
-**Overview**
-
-This page provides a workflow for machine validation in NVIDIA Infra Controller (NICo).
-
-Machine validation is a process of testing and verifying the hardware components and peripherals of a machine before handing it over to a tenant. The purpose of machine validation is to avoid disruption of tenant usage and ensure that the machine meets the expected benchmarks and performance. Machine validation involves running a series of regression tests and burn-in tests to stress the machine to its maximum capability and identify any potential issues or failures. Machine validation provides several benefits for the tenant. By performing machine validation, NICo ensures that machine is in optimal condition and ready for tenant usage. Machine validation helps to detect and resolve any hardware issues or failures before they affect the tenant's workloads
-
-Machine validation is performed using a different tool, these are available in the discovery image. Most of these tools require root privileges and are non-interactive. The tool(s) runs tests and sends result to Site controller
-
-**Purpose**
-
-End to end user guide for usage of machine validation feature in NICo
-
-**Audience**
-
-SRE, Provider admin, Developer
-
-**Prerequisites**
-
-1) Access to NICo sites
-
-# Features and Functionalities
-
-## **Features**
-
-#### Feature gate
-
-The NICo site controller has site settings. These settings provide mechanisms to enable and disable features. Machine Validation feature controlled using these settings.  The feature gate enables or disables machine validation features at deploy time.
-
-#### Test case management
-
-Test Case Management is the process of  adding, updating test cases. There are two types of test cases
-
-1) Test cases added during deploy- These are common across all the sites and these are read-only test cases. Test cases are added through NICo DB migration.
-2) Site specific test case - Added by site admin
-
-#### Enable disable test
-
-If the test case is enabled then nico-scout selects the test case for running.
-
-#### Verify tests
-
-If site admin adds a test case, by default the test case verified flag will be set to false. The term verify means test case added to NICo datastore but not actually verified on hardware. By default the nico-scout never runs unverified test cases. Using on-demand machine validation, admin can run unverified test cases.
-
-#### View tests results
-
-Once the nico-scout completes the test cases, the view results feature gives a detailed report of executed test cases.
-
-#### On Demand tests
-
-If the machine is not allocated for long and the machine remains in ready state, the site admin can run the On-Demand testing. Here the selected tests will run.
-
-
-### List of test cases
-
-```bash
-| TestId                   | Name               | Command                    | Timeout | IsVerified | Version              | IsEnabled |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_CpuBenchmarkingFp  | CpuBenchmarkingFp  | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_CpuBenchmarkingInt | CpuBenchmarkingInt | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_CudaSample         | CudaSample         | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_FioFile            | FioFile            | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_FioPath            | FioPath            | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_FioSSD             | FioSSD             | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_MmMemBandwidth     | MmMemBandwidth     | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_MmMemLatency       | MmMemLatency       | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_MmMemPeakBandwidth | MmMemPeakBandwidth | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_Nvbandwidth        | Nvbandwidth        | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_RaytracingVk       | RaytracingVk       | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | false     |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_CPUTestLong        | CPUTestLong        | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_CPUTestShort       | CPUTestShort       | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_MemoryTestLong     | MemoryTestLong     | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_MemoryTestShort    | MemoryTestShort    | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_MqStresserLong     | MqStresserLong     | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_MqStresserShort    | MqStresserShort    | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_DcgmFullShort      | DcgmFullShort      | dcgmi                      | 7200    | true       | V1-T1731384539962561 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_DefaultTestCase    | DefaultTestCase    | echo                       | 7200    | false      | V1-T1731384539962561 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_DcgmFullLong       | DcgmFullLong       | dcgmi                      | 7200    | true       | V1-T1731383523746813 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_NicoRunBook       | NicoRunBook       |                            | 7200    | true       | V1-T1731382251768493 | false     |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-```
-
-## **How to use Machine Validation feature**
-
-### Initial setup
-
-NICo has a Machine validation feature gate. By default the feature is disabled.
-
-To enable this feature, add the following section in the API site config TOML file (`/site/site-controller/files/nico-api/nico-api-site-config.toml`):
+# Machine Validation
+
+Machine Validation is NVIDIA Infra Controller's in-band validation framework for
+checking a machine before it is made available to tenants. NICo uses Scout to run
+validation tests on the host, collect the results, and report them back to the
+site controller.
+
+The framework is intended to be extensible. NICo provides a catalog of built-in
+hardware validation tests, and site administrators can add site-specific tests
+when the deployment enables test mutation workflows.
+
+## Summary
+
+Machine Validation helps operators answer a simple question: is this machine
+healthy enough to enter or return to the tenant-ready pool?
+
+NICo can run validation during lifecycle workflows such as discovery and release,
+and administrators can also start validation on demand for a specific machine.
+Each validation run selects tests based on context, platform support, test
+enablement, verification state, tags, and any allow list supplied by the
+operator.
+
+In normal lifecycle validation, NICo runs only tests that are both enabled and
+verified. Unverified tests can be exercised through on-demand validation before
+they are promoted into the standard workflow.
+
+## Audience
+
+This guide is written for site administrators, SREs, platform administrators, and
+developers who manage or extend NICo machine validation. The examples assume the
+operator has access to the target site through `nico-admin-cli` and has the
+permissions required to view or modify machine validation configuration.
+
+## Prerequisites
+
+Before using Machine Validation, confirm the following:
+
+- Machine Validation is enabled for the site.
+- The operator has privileges to view validation runs and manage validation
+  tests.
+- The target machine is under platform control and is not allocated to a tenant.
+- Required validation images, tools, and external configs are available for the
+  selected tests.
+
+## How Machine Validation Fits Into NICo
+
+Machine Validation runs while a machine is under platform control and before it
+is allocated to a tenant. Typical entry points include:
+
+- Initial discovery, before a newly discovered machine reaches `Ready`.
+- Cleanup or release workflows, before a returned machine is made available
+  again.
+- On-demand validation, when an administrator explicitly starts validation for a
+  machine that needs additional checks.
+
+Machine Validation complements SKU validation. SKU validation checks that the
+machine inventory matches the expected hardware model. Machine Validation runs
+tests on the machine to prove that the hardware and relevant host-side software
+paths behave correctly.
+
+## Framework Concepts
+
+| Concept | Description |
+| --- | --- |
+| Validation run | One execution of Machine Validation for a machine. A run contains the selected tests and their results. |
+| Test definition | The stored definition of a validation test, including command, arguments, image, contexts, supported platforms, timeout, tags, and version. |
+| Context | The lifecycle situation in which a test is eligible to run. Common contexts are `Discovery`, `Cleanup`, and `OnDemand`. |
+| Platform mapping | The list of machine platforms on which a test is supported. Scout uses the discovered machine platform to select compatible tests. |
+| Enabled flag | Controls whether the test is eligible for selection. Disabled tests are not selected for normal validation. |
+| Verified flag | Indicates that an administrator has validated the test itself. Normal lifecycle runs skip unverified tests. |
+| Tags | Optional selectors that allow administrators to group tests and run targeted suites. |
+| External config | A named configuration file, such as registry credentials, that can be referenced by a test without embedding secrets in the test command. |
+| Result | The recorded output for one test execution, including status, timing, exit code, and captured output. |
+
+## Test Selection
+
+When a validation run starts, NICo and Scout select tests using the following
+criteria:
+
+1. The Machine Validation feature must be enabled for the site.
+2. The test must be enabled, unless the site configuration explicitly overrides
+   the catalog selection mode.
+3. The test must be verified for normal lifecycle runs.
+4. The test context must match the run context, such as `Discovery`, `Cleanup`,
+   or `OnDemand`.
+5. The test must support the machine platform.
+6. If tags are supplied, the test must match the requested tags.
+7. If an allow list is supplied, the test must be included in the allow list.
+
+On-demand validation can intentionally include unverified tests by using the
+current CLI flag `--run-unverfied-tests`. The spelling of `unverfied` is part of
+the current CLI interface and must be used exactly as shown.
+
+## Built-In Validation Coverage
+
+The exact test IDs, versions, enabled state, and supported platforms are
+deployment and release specific. Use `nico-admin-cli machine-validation tests
+show` as the source of truth for the running site.
+
+The built-in catalog commonly includes the following test groups:
+
+| Area | Common tests | What they validate |
+| --- | --- | --- |
+| GPU health | `CudaSample`, `DcgmFullShort`, `DcgmFullLong` | CUDA execution, DCGM diagnostics, and basic GPU health. |
+| GPU performance | `Nvbandwidth`, `RaytracingVk` | GPU memory bandwidth and graphics or compute paths used by supported platforms. |
+| CPU | `CPUTestShort`, `CPUTestLong`, `CpuBenchmarkingFp`, `CpuBenchmarkingInt` | CPU stress and benchmark coverage for short and long validation windows. |
+| Memory | `MemoryTestShort`, `MemoryTestLong`, `MmMemBandwidth`, `MmMemLatency`, `MmMemPeakBandwidth`, `MqStresserShort`, `MqStresserLong` | Memory stress, latency, bandwidth, and queue pressure. |
+| Storage | `FioFile`, `FioPath`, `FioSSD` | File, path, and device-level I/O validation with fio-based tests. |
+| Operational extensions | `DefaultTestCase`, runbook-style tests | Site or release-specific checks used to extend the validation workflow. |
+
+Built-in tests that are delivered through NICo migrations are normally
+read-only. Site-specific tests can be added and modified by administrators when
+the deployment enables those mutation APIs.
+
+## Site Configuration
+
+Machine Validation is controlled by the site configuration. A minimal
+configuration enables the feature:
 
 ```toml
 [machine_validation_config]
 enabled = true
 ```
 
-Machine Validation allows site operators to configure the NGC container registry
+A site can also control the catalog selection behavior:
 
-Finally add the config to the site:
-
-```bash
-user:~$ nico-admin-cli machine-validation external-config    add-update --name container_auth --description "NVCR description"  --file-name /tmp/config.json
+```toml
+[machine_validation_config]
+enabled = true
+test_selection_mode = "Default"
+run_interval = "60s"
+tests = [
+  { id = "CudaSample", enable = true },
+]
 ```
 
-> **Note**: You can copy the Imagepullsecret from Kubernetes with the command `kubectl get secrets -n nico-system imagepullsecret -o yaml | awk '$1==".dockerconfigjson:" {print $2}'`.
+| Setting | Description |
+| --- | --- |
+| `enabled` | Enables or disables Machine Validation for the site. |
+| `test_selection_mode` | Controls how configured tests are selected. `Default` uses the catalog and per-test settings, `EnableAll` enables all configured tests, and `DisableAll` disables all configured tests. |
+| `run_interval` | Controls how often the controller processes pending validation work. |
+| `tests` | Optional per-test overrides. Use the test identifiers reported by `tests show` for the running site. |
 
-### Enable test cases
+## External Configuration
 
-By default all the test cases are disabled.
+Some validation tests require external configuration, such as container registry
+credentials. Store those inputs as named external configs instead of embedding
+secrets in test definitions.
 
-```bash
-user@host:admin$ nico-admin-cli machine-validation tests show
+For example, to add or update the container authentication file:
 
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| TestId                   | Name               | Command                    | Timeout | IsVerified | Version              | IsEnabled |
-
-+==========================+====================+============================+=========+============+======================+===========+
-
-| nico_CpuBenchmarkingFp  | CpuBenchmarkingFp  | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | false     |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_CpuBenchmarkingInt | CpuBenchmarkingInt | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | false     |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| nico_CudaSample         | CudaSample         | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | false     |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
+```sh
+nico-admin-cli machine-validation external-config add-update \
+  --name container_auth \
+  --description "Container registry credentials for machine validation" \
+  --file-name /tmp/config.json
 ```
 
-To enable tests
+To view or remove external configuration:
 
-```bash
-nico-admin-cli machine-validation tests enable --test-id <test_id> --version  <test version>
-
-nico-admin-cli machine-validation tests verify --test-id <test_id> --version  <test version>
+```sh
+nico-admin-cli machine-validation external-config show --name container_auth
+nico-admin-cli machine-validation external-config remove --name container_auth
 ```
 
-Note: Due to a current limitation, enable and verify must be run as separate commands.
+## Managing the Test Catalog
 
-For example, to enable nico_CudaSample, execute following steps:
+### List Tests
 
-```
-user@host:admin$ nico-admin-cli machine-validation tests enable --test-id nico_CudaSample  --version  V1-T1734600519831720
+Use the test catalog to see the tests available in the site:
 
-user@host:admin$ nico-admin-cli machine-validation tests verify --test-id nico_CudaSample  --version  V1-T1734600519831720
-```
-
-Enabling different tests cases
-
-CPU Benchmarking test cases
-
-1) nico_CpuBenchmarkingFp
-
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_CpuBenchmarkingFp  --version  V1-T1734600519831720
-
-nico-admin-cli machine-validation tests verify --test-id nico_CpuBenchmarkingFp  --version  V1-T1734600519831720
+```sh
+nico-admin-cli machine-validation tests show
 ```
 
-2) nico_CpuBenchmarkingInt
+Show a specific test:
 
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_CpuBenchmarkingInt --version  V1-T1734600519831720
-
-nico-admin-cli machine-validation tests verify --test-id nico_CpuBenchmarkingInt --version  V1-T1734600519831720
+```sh
+nico-admin-cli machine-validation tests show --test-id <test_id>
 ```
 
-Cuda sample test cases
+Filter by platform or context:
 
-3) nico_CudaSample
-
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_CudaSample --version  V1-T1734600519831720
-
-nico-admin-cli machine-validation tests verify --test-id nico_CudaSample --version  V1-T1734600519831720
+```sh
+nico-admin-cli machine-validation tests show --platforms <platform>
+nico-admin-cli machine-validation tests show --contexts Discovery
 ```
 
-FIO test cases
+Show unverified tests:
 
-4) nico_FioFile
-
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_FioFile --version  V1-T1734600519831720
-
-nico-admin-cli machine-validation tests verify --test-id nico_FioFile --version  V1-T1734600519831720
+```sh
+nico-admin-cli machine-validation tests show --show-un-verfied
 ```
 
-5) nico_FioPath
+The current CLI flag is spelled `--show-un-verfied`; use the spelling shown
+above.
 
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_FioPath --version  V1-T1734600519831720
+### Enable or Disable Tests
 
-nico-admin-cli machine-validation tests verify --test-id nico_FioPath --version  V1-T1734600519831720
+Enable a test when it should be eligible for selection:
+
+```sh
+nico-admin-cli machine-validation tests enable \
+  --test-id <test_id> \
+  --version <version>
 ```
 
-6) nico_FioSSD
+Disable a test when it should not be selected:
 
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_FioSSD --version  V1-T1734600519831720
-
-nico-admin-cli machine-validation tests verify --test-id nico_FioSSD --version  V1-T1734600519831720
+```sh
+nico-admin-cli machine-validation tests disable \
+  --test-id <test_id> \
+  --version <version>
 ```
 
-Memory test cases
+Use the `test_id` and `version` values returned by `tests show`.
 
-7) nico_MmMemBandwidth
+### Verify Tests
 
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_MmMemBandwidth --version  V1-T1734600519831720
+Verify a test after it has been proven safe and correct for the target site:
 
-nico-admin-cli machine-validation tests verify --test-id nico_MmMemBandwidth --version  V1-T1734600519831720
+```sh
+nico-admin-cli machine-validation tests verify \
+  --test-id <test_id> \
+  --version <version>
 ```
 
-8) nico_MmMemLatency
+Verification is a promotion step. A newly added test should be run on demand
+first, reviewed, and then marked verified before it is allowed into normal
+lifecycle validation.
 
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_MmMemLatency --version  V1-T1734600519831720
+## Adding Site-Specific Tests
 
-nico-admin-cli machine-validation tests verify --test-id nico_MmMemLatency --version  V1-T1734600519831720
+When test mutation workflows are enabled for the deployment, administrators can
+add tests to extend the validation framework. A site-specific test should be
+small, deterministic, non-interactive, and safe to run under platform control.
+
+The following example adds a host-side smoke test:
+
+```sh
+nico-admin-cli machine-validation tests add \
+  --name AcmeGpuSmoke \
+  --description "Runs the Acme GPU smoke validation" \
+  --command /usr/local/bin/acme-gpu-smoke \
+  --args "--quick" \
+  --contexts OnDemand \
+  --supported-platforms <platform> \
+  --timeout 1800 \
+  --is-enabled false
 ```
 
-9) nico_MmMemPeakBandwidth
+The following example adds a container-based test:
 
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_MmMemPeakBandwidth --version  V1-T1734600519831720
-
-nico-admin-cli machine-validation tests verify --test-id nico_MmMemPeakBandwidth --version  V1-T1734600519831720
+```sh
+nico-admin-cli machine-validation tests add \
+  --name AcmeContainerHealth \
+  --description "Runs Acme container health checks" \
+  --command /opt/acme/health-check \
+  --args "" \
+  --img-name nvcr.io/nvidian/nvforge/acme-health:1.0.0 \
+  --contexts Discovery \
+  --supported-platforms <platform> \
+  --external-config-file container_auth \
+  --timeout 3600 \
+  --is-enabled false
 ```
 
-NV test cases
+After adding a test:
 
-10) nico_Nvbandwidth
+1. Run it on demand with `--run-unverfied-tests`.
+2. Review the result output.
+3. Enable the test if it should be selected.
+4. Verify the test after it is accepted for normal validation.
 
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_Nvbandwidth --version  V1-T1734600519831720
+## Execution Models
 
-nico-admin-cli machine-validation tests verify --test-id nico_Nvbandwidth --version  V1-T1734600519831720
+Machine Validation tests can be implemented as host commands or container-based
+commands.
+
+| Model | When to use it | Common fields |
+| --- | --- | --- |
+| Host command | Use when the test tool is already present in the discovery environment or host filesystem. | `--command`, `--args`, `--timeout` |
+| Container command | Use when the test needs a packaged dependency set or must run from a validation image. | `--img-name`, `--container-arg`, `--external-config-file` |
+| Host filesystem execution | Use when a containerized test must execute against the host filesystem. | `--execute-in-host true` |
+
+Tests can also declare output file locations with `--extra-output-file` and
+`--extra-err-file` when a command writes important diagnostics outside stdout or
+stderr. Keep those outputs concise. Scout records command output for result
+review, but Machine Validation is not a replacement for long-term log storage.
+
+## Updating Site-Specific Tests
+
+Use `tests update` to change a mutable test definition:
+
+```sh
+nico-admin-cli machine-validation tests update \
+  --test-id <test_id> \
+  --version <version> \
+  --timeout 3600 \
+  --description "Updated validation timeout"
 ```
 
-Stress ng test cases
+Use updates for site-specific tests only. Built-in tests may be read-only,
+depending on how they were delivered to the site.
 
-11) nico_CPUTestLong
+## Extension Design Guidelines
 
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_CPUTestLong --version  V1-T1731386879991534
+Use the following guidelines when designing a new validation test:
 
-nico-admin-cli machine-validation tests verify --test-id nico_CPUTestLong --version  V1-T1731386879991534
+| Area | Recommendation |
+| --- | --- |
+| Naming | Use a stable, descriptive PascalCase name such as `GpuFabricSmoke` or `StorageFioPath`. Avoid embedding temporary incident names or one-off ticket IDs. |
+| Scope | Keep each test focused on one hardware or software concern. Prefer separate tests over a large script that hides multiple failure modes. |
+| Contexts | Use `Discovery` for pre-allocation checks, `Cleanup` for checks after release, and `OnDemand` for operator-triggered validation or test qualification. |
+| Platform support | Map tests only to platforms where the command, devices, firmware, and drivers are expected to exist. |
+| Verification | Treat verification as a release gate for the test definition. Do not verify a test until it has passed on representative hardware. |
+| Timeouts | Set an explicit timeout that matches the expected runtime. Long tests should be intentional and documented. |
+| Secrets | Use external config files for credentials and sensitive inputs. Do not pass secrets directly in command arguments. |
+| Output | Write concise stdout and stderr that explains what failed. Use extra output files only for diagnostics that cannot be emitted directly. |
+| Pre-conditions | Use pre-conditions to skip tests that do not apply to a machine rather than failing unrelated platforms. |
+| Tags | Add tags when operators need to run a targeted suite such as `gpu-smoke`, `storage`, or `burn-in`. |
+
+## Running On-Demand Validation
+
+Start validation for a specific machine:
+
+```sh
+nico-admin-cli machine-validation on-demand start --machine <machine_id>
 ```
 
-12) nico_CPUTestShort
+Run only selected contexts:
 
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_CPUTestShort --version  V1-T1731386879991534
-
-nico-admin-cli machine-validation tests verify --test-id nico_CPUTestShort --version  V1-T1731386879991534
+```sh
+nico-admin-cli machine-validation on-demand start \
+  --machine <machine_id> \
+  --contexts OnDemand
 ```
 
-13) nico_MemoryTestLong
+Run selected tests:
 
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_MemoryTestLong  --version  V1-T1731386879991534
-
-nico-admin-cli machine-validation tests verify --test-id nico_MemoryTestLong  --version  V1-T1731386879991534
+```sh
+nico-admin-cli machine-validation on-demand start \
+  --machine <machine_id> \
+  --allowed-tests <test_id_1> \
+  --allowed-tests <test_id_2>
 ```
 
-14) nico_MemoryTestShort
+Run a tagged suite:
 
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_MemoryTestShort  --version  V1-T1731386879991534
-
-nico-admin-cli machine-validation tests verify --test-id nico_MemoryTestShort  --version  V1-T1731386879991534
+```sh
+nico-admin-cli machine-validation on-demand start \
+  --machine <machine_id> \
+  --tags gpu-smoke
 ```
 
-15) nico_MqStresserLong
+Run unverified tests during qualification:
 
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_MqStresserLong  --version  V1-T1731386879991534
-
-nico-admin-cli machine-validation tests verify --test-id nico_MqStresserShort  --version  V1-T1731386879991534
+```sh
+nico-admin-cli machine-validation on-demand start \
+  --machine <machine_id> \
+  --allowed-tests <test_id> \
+  --run-unverfied-tests
 ```
 
-16) nico_MqStresserShort
+The current CLI flag is spelled `--run-unverfied-tests`; use the spelling shown
+above.
 
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_MqStresserShort  --version  V1-T1731386879991534
+## Viewing Runs and Results
 
-nico-admin-cli machine-validation tests verify --test-id nico_MqStresserShort  --version  V1-T1731386879991534
+Show validation runs:
+
+```sh
+nico-admin-cli machine-validation runs show
 ```
 
-DCGMI test cases
+Show runs for one machine:
 
-17) nico_DcgmFullShort
-
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_DcgmFullShort  --version  V1-T1731384539962561
-
-nico-admin-cli machine-validation tests verify --test-id nico_DcgmFullLong  --version  V1-T1731384539962561
+```sh
+nico-admin-cli machine-validation runs show --machine <machine_id>
 ```
 
-18) nico_DcgmFullLong
+Include historical runs:
 
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_DcgmFullLong  --version  V1-T1731383523746813
-
-nico-admin-cli machine-validation tests verify --test-id nico_DcgmFullLong  --version  V1-T1731383523746813
+```sh
+nico-admin-cli machine-validation runs show --machine <machine_id> --history
 ```
 
-Shoreline Agent test case
+Show validation results for a machine:
 
-19) nico_NicoRunBook
-
-```bash
-nico-admin-cli machine-validation tests enable --test-id nico_NicoRunBook --version  V1-T1731383523746813
-
-nico-admin-cli machine-validation tests verify --test-id nico_NicoRunBook  --version  V1-T1731383523746813
+```sh
+nico-admin-cli machine-validation results show --machine <machine_id>
 ```
 
-### Verify tests
+Show results for a specific validation run:
 
-If a test is modified or added by site admin by default the test case verify flag is set to false
-
-```bash
-user@host:admin$ nico-admin-cli machine-validation tests show
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
-
-| TestId                   | Name               | Command                    | Timeout | IsVerified | Version              | IsEnabled |
-
-+==========================+====================+============================+=========+============+======================+===========+
-
-| nico_site_admin         | site               | echo                       | 7200    | false      | V1-T1734009539861341 | true      |
-
-+--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
+```sh
+nico-admin-cli machine-validation results show --validation-id <validation_id>
 ```
 
-To mark test as verified
+Show a specific test result from a run:
 
-```bash
-nico-admin-cli machine-validation tests verify --test-id <test_id> --version  <test version>
+```sh
+nico-admin-cli machine-validation results show \
+  --validation-id <validation_id> \
+  --test-name <test_name>
 ```
 
-Eg:  To enable nico_CudaSample  execute following steps
-
-```bash
-user@host:admin$ nico-admin-cli machine-validation tests verify --test-id nico_site_admin --version  V1-T1734009539861341
-```
-
-### Add test case
-
-Site admin can add test cases per site.
-
-```bash
-user@host:admin$ nico-admin-cli machine-validation tests add  --help
-```
-
-Add new test case
-
-Usage: `nico-admin-cli machine-validation tests add [OPTIONS] --name <NAME> --command <COMMAND> --args <ARGS>`
-
-Options:
-
-```bash
-  --name <NAME>
-
-      Name of the test case
-
-  --command <COMMAND>
-
-      Command of the test case
-
-  --args <ARGS>
-
-      Args for command
-
-  --contexts <CONTEXTS>
-
-      List of contexts
-
-  --img-name <IMG_NAME>
-
-      Container image name
-
-  --execute-in-host <EXECUTE_IN_HOST>
-
-      Run command using chroot in case of container [possible values: true, false]
-
-  --container-arg <CONTAINER_ARG>
-
-      Container args
-
-  --description <DESCRIPTION>
-
-      Description
-
-  --extra-err-file <EXTRA_ERR_FILE>
-
-      Command output error file
-
-  --extended
-
-      Extended result output.
-
-  --extra-output-file <EXTRA_OUTPUT_FILE>
-
-      Command output file
-
-  --external-config-file <EXTERNAL_CONFIG_FILE>
-
-      External file
-
-  --pre-condition <PRE_CONDITION>
-
-      Pre condition
-
-  --timeout <TIMEOUT>
-
-      Command Timeout
-
-  --supported-platforms <SUPPORTED_PLATFORMS>
-
-      List of supported platforms
-
-  --custom-tags <CUSTOM_TAGS>
-
-      List of custom tags
-
-  --components <COMPONENTS>
-
-      List of system components
-
-  --is-enabled <IS_ENABLED>
-
-      Enable the test [possible values: true, false]
-
-  --read-only <READ_ONLY>
-
-      Is read-only [possible values: true, false]
-
--h, --help
-
-      Print help
-```
-
-Eg: add test case which prints **‘newtest’**
-
-```bash
-user@host:admin$ nico-admin-cli machine-validation tests add   --name NewTest --command echo --args newtest
-
-user@host:admin$ nico-admin-cli machine-validation tests show --test-id nico_NewTest
-
-+---------------+---------+---------+---------+------------+----------------------+-----------+
-
-| TestId        | Name    | Command | Timeout | IsVerified | Version              | IsEnabled |
-
-+===============+=========+=========+=========+============+======================+===========+
-
-| nico_NewTest | NewTest | echo    | 7200    | false      | V1-T1736492939564126 | true      |
-
-+---------------+---------+---------+---------+------------+----------------------+-----------+
-```
-
-By default the test case’s verify flag is set to false. Set
-
-```bash
-user@host:admin$ nico-admin-cli machine-validation tests verify  --test-id nico_NewTest --version V1-T1736492939564126
-
-user@host:admin$ nico-admin-cli machine-validation tests show --test-id nico_NewTest
-
-+---------------+---------+---------+---------+------------+----------------------+-----------+
-
-| TestId        | Name    | Command | Timeout | IsVerified | Version              | IsEnabled |
-
-+===============+=========+=========+=========+============+======================+===========+
-
-| nico_NewTest | NewTest | echo    | 7200    | true       | V1-T1736492939564126 | true      |
-
-+---------------+---------+---------+---------+------------+----------------------+-----------+
-```
-
-### Update test case
-
-Update existing testcases
-
-```bash
-user@host:admin$ nico-admin-cli machine-validation tests update --help
-```
-
-Update existing test case
-
-Usage: `nico-admin-cli machine-validation tests update [OPTIONS] --test-id <TEST_ID> --version <VERSION>`
-
-Options:
-
-```bash
---test-id <TEST_ID>
-
-    Unique identification of the test
-
---version <VERSION>
-
-    Version to be verify
-
---contexts <CONTEXTS>
-
-    List of contexts
-
---img-name <IMG_NAME>
-
-    Container image name
-
---execute-in-host <EXECUTE_IN_HOST>
-
-    Run command using chroot in case of container [possible values: true, false]
-
---container-arg <CONTAINER_ARG>
-
-    Container args
-
---description <DESCRIPTION>
-
-    Description
-
---command <COMMAND>
-
-    Command
-
---args <ARGS>
-
-    Command args
-
---extended
-
-    Extended result output.
-
---extra-err-file <EXTRA_ERR_FILE>
-
-    Command output error file
-
---extra-output-file <EXTRA_OUTPUT_FILE>
-
-    Command output file
-
---external-config-file <EXTERNAL_CONFIG_FILE>
-
-    External file
-
---pre-condition <PRE_CONDITION>
-
-    Pre condition
-
---timeout <TIMEOUT>
-
-    Command Timeout
-
---supported-platforms <SUPPORTED_PLATFORMS>
-
-    List of supported platforms
-
---custom-tags <CUSTOM_TAGS>
-
-    List of custom tags
-
---components <COMPONENTS>
-
-    List of system components
-
---is-enabled <IS_ENABLED>
-
-    Enable the test [possible values: true, false]
-
-  -h, --help
-
-    Print help
-```
-
-We can selectively update fields of test cases. Once the test case is updated the verify flag is set to false. Site admin hs to explicitly set the flag as verified.
-
-```bash
-user@host:admin$ nico-admin-cli machine-validation tests update  --test-id nico_NewTest --version V1-T1736492939564126 --args updatenewtest
-
-user@host:admin$ nico-admin-cli machine-validation tests show --test-id nico_NewTest
-
-+---------------+---------+---------+---------+------------+----------------------+-----------+
-
-| TestId        | Name    | Command | Timeout | IsVerified | Version              | IsEnabled |
-
-+===============+=========+=========+=========+============+======================+===========+
-
-| nico_NewTest | NewTest | echo    | 7200    | false      | V1-T1736492939564126 | true      |
-
-+---------------+---------+---------+---------+------------+----------------------+-----------+
-
-user@host:admin$ nico-admin-cli machine-validation tests verify  --test-id nico_NewTest --version V1-T1736492939564126
-
-user@host:admin$ nico-admin-cli machine-validation tests show --test-id nico_NewTest
-
-+---------------+---------+---------+---------+------------+----------------------+-----------+
-
-| TestId        | Name    | Command | Timeout | IsVerified | Version              | IsEnabled |
-
-+===============+=========+=========+=========+============+======================+===========+
-
-| nico_NewTest | NewTest | echo    | 7200    | true       | V1-T1736492939564126 | true      |
-
-+---------------+---------+---------+---------+------------+----------------------+-----------+
-```
-
-### Run On-Demand Validation
-
-Machine validation has 3 Contexts
-
-1) Discovery - Tests cases with this context will be executed during node ingestion time.
-2) Cleanup - Tests cases with context will be executed during node cleanup(between tenants).
-3) On-Demand - Tests cases with context will be executed when on demand machine validation is triggered.
-
-```bash
-user@host:admin$ nico-admin-cli machine-validation on-demand start  --help
-```
-
-Start on demand machine validation
-
-Usage: `nico-admin-cli machine-validation on-demand start [OPTIONS] --machine <MACHINE>`
-
-Options:
-
-```bash
-    --help
-
--m, --machine <MACHINE>              Machine id for start validation
-
-  --tags <TAGS>                    Results history
-
-  --allowed-tests <ALLOWED_TESTS>  Allowed tests
-
-  --run-unverfied-tests            Run un verified tests
-
-  --contexts <CONTEXTS>            Contexts
-
-  --extended                       Extended result output.
-```
-
-Usecase 1 - Run tests whose context is on-demand
-
-```bash
-user@host:admin$ nico-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg
-```
-
-Usecase 2 - Run tests whose context is Discovery
-
-```bash
-user@host:admin$ nico-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg --contexts Discovery
-```
-
-Usecase 3 - Run a specific test case
-
-```bash
-user@host:admin$ nico-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg  --allowed-tests  nico_CudaSample
-```
-
-Usecase 4 - Run un verified nico_CudaSample test case
-
-```bash
-user@host:admin$ nico-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg   --run-unverfied-tests  --allowed-tests  nico_CudaSample
-```
-
-### View results
-
-Feature shows progress of the on-going machine validation
-
-```bash
-user@host:admin$ nico-admin-cli machine-validation runs show --help
-```
-
-Show Runs
-
-
-Usage: `nico-admin-cli machine-validation runs show [OPTIONS]`
-
-Options:
-```bash
-
--m, --machine <MACHINE>  Show machine validation runs of a machine
-
-    --history            run history
-
-    --extended           Extended result output.
-
--h, --help               Print help
-
-user@host:admin$ nico-admin-cli machine-validation runs show   -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg
-
-+--------------------------------------+-------------------------------------------------------------+-----------------------------+-----------------------------+-----------+------------------------+
-
-| Id                                   | MachineId                                                   | StartTime                   | EndTime
-
-    | Context   | State                  |
-
-+======================================+=============================================================+=============================+=============================+===========+========================+
-
-| b8df2faf-dc6e-402d-90ca-781c63e380b9 | fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg | 2024-12-02T22:54:47.997398Z | 2024-12-02T23:22:00.396804Z | Discovery | InProgress(InProgress) |
-
-+--------------------------------------+-------------------------------------------------------------+-----------------------------+-----------------------------+-----------+------------------------+
-
-| 539cea32-60ae-4863-8991-8b8e3c726717 | fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg | 2025-01-09T14:12:23.243324Z | 2025-01-09T16:51:32.110006Z | OnDemand  | Completed(Success)     |
-
-+--------------------------------------+-------------------------------------------------------------+-----------------------------+-----------------------------+-----------+------------------------+
-```
-
-To view individual completed test results, by default the result command shows only last run tests in each individual context**(Discovery,Ondemand, Cleanup)**.
-
-```bash
-user@host:admin$ nico-admin-cli machine-validation results show --help
-```
-
-Show results
-
-Usage: `nico-admin-cli machine-validation results show [OPTIONS] <--validation-id <VALIDATION_ID>|--test-name <TEST_NAME>|--machine <MACHINE>>`
-
-Options:
-
-```bash
--m, --machine <MACHINE>              Show machine validation result of a machine
-
--v, --validation-id <VALIDATION_ID>  Machine validation id
-
--t, --test-name <TEST_NAME>          Name of the test case
-
-    --history                        Results history
-
-    --extended                       Extended result output.
-
--h, --help                           Print help
-
-user@host:admin$ nico-admin-cli machine-validation results   show   -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg
-
-+--------------------------------------+----------------+-----------+----------+-----------------------------+-----------------------------+
-
-| RunID                                | Name           | Context   | ExitCode | StartTime                   | EndTime                     |
-
-+======================================+================+===========+==========+=============================+=============================+
-
-| b8df2faf-dc6e-402d-90ca-781c63e380b9 | CPUTestLong    | Discovery | 0        | 2024-12-02T23:08:04.063057Z | 2024-12-02T23:10:03.463683Z |
-
-+--------------------------------------+----------------+-----------+----------+-----------------------------+-----------------------------+
-
-| b8df2faf-dc6e-402d-90ca-781c63e380b9 | MemoryTestLong | Discovery | 0        | 2024-12-02T23:10:03.533416Z | 2024-12-02T23:12:06.060216Z |
-
-+--------------------------------------+----------------+-----------+----------+-----------------------------+-----------------------------+
-
-| b8df2faf-dc6e-402d-90ca-781c63e380b9 | MqStresserLong | Discovery | 0        | 2024-12-02T23:12:06.134385Z | 2024-12-02T23:14:07.589445Z |
-
-+--------------------------------------+----------------+-----------+----------+-----------------------------+-----------------------------+
-
-| b8df2faf-dc6e-402d-90ca-781c63e380b9 | DcgmFullLong   | Discovery | 0        | 2024-12-02T23:14:07.801503Z | 2024-12-02T23:20:11.166087Z |
-
-+--------------------------------------+----------------+-----------+----------+-----------------------------+-----------------------------+
-
-| b8df2faf-dc6e-402d-90ca-781c63e380b9 | NicoRunBook   | Discovery | 0        | 2024-12-02T23:20:30.427153Z | 2024-12-02T23:22:00.202657Z |
-
-+--------------------------------------+----------------+-----------+----------+-----------------------------+-----------------------------+
-
-| 539cea32-60ae-4863-8991-8b8e3c726717 | CudaSample     | OnDemand  | 0        | 2025-01-09T16:51:09.046537Z | 2025-01-09T16:51:32.611098Z |
-
-+--------------------------------------+----------------+-----------+----------+-----------------------------+-----------------------------+
-```
-
-### How to add new platform support
-
-To add a new platform for individual tests
-
-1) Get system sku id-
-
-```bash
-# dmidecode -s system-sku-number | tr "[:upper:]" "[:lower:]"
-```
-2)
-
-```bash
-# nico-admin-cli machine-validation tests update  --test-id  <test_id> --version   <test version> --supported-platforms    <sku>
-
-For example:
-```
-# nico-admin-cli machine-validation tests update  --test-id  nico_default  --version   V1-T1734009539861341   --supported-platforms    7d9ectOlww
-```
-
+## Interpreting Results
+
+Each test result records the command execution outcome, timing, exit code, and
+captured output. A non-zero exit code indicates failure unless the test command
+implements a documented skip or pre-condition behavior.
+
+Scout captures stdout and stderr after the command exits. Captured output is
+bounded, so tests should print useful progress and final diagnostic information
+without producing unbounded logs. Live log streaming should not be assumed unless
+the deployment has additional logging integration.
+
+When a validation run fails, review:
+
+- Whether the selected test is supported on the machine platform.
+- Whether the test was verified and enabled intentionally.
+- The command exit code and captured output.
+- Any referenced external configuration.
+- Whether the test timed out.
+- Whether a pre-condition skipped or changed the intended execution path.
+
+## Operational Guidance
+
+Use Machine Validation as a controlled pre-allocation gate. Do not enable or
+verify a new test in the standard lifecycle until it has been qualified with
+on-demand runs on representative hardware.
+
+For production sites:
+
+- Keep the built-in catalog enabled according to the site's hardware and release
+  policy.
+- Use short tests for routine lifecycle validation and long tests for burn-in,
+  repair validation, or targeted on-demand workflows.
+- Prefer tags and allow lists for targeted validation instead of modifying the
+  global catalog for temporary needs.
+- Keep site-specific test names stable across releases so operators can compare
+  historical results.
+- Store registry credentials and sensitive test inputs as external config.
+- Review the output format of extension tests so failures are actionable from
+  the CLI and admin UI.
+
+## Troubleshooting
+
+| Symptom | Common causes | Next step |
+| --- | --- | --- |
+| No tests are selected | Feature disabled, tests disabled, tests unverified, context mismatch, platform mismatch, tags do not match, or allow list excludes all tests. | Run `tests show` with the relevant platform and context, and confirm enabled and verified state. |
+| A new test does not run in lifecycle validation | The test is unverified or disabled. | Run the test on demand with `--run-unverfied-tests`, review the result, then enable and verify it. |
+| A test fails only on one platform | Platform mapping is too broad, platform-specific dependency is missing, or the test command assumes hardware that is not present. | Restrict `supported-platforms` or add a pre-condition. |
+| A container test cannot start | Image name, registry credentials, or external config are incorrect. | Confirm the image exists and refresh `container_auth`. |
+| A test times out | Timeout is too short, the test is hung, or the machine is unhealthy. | Review captured output and set a deliberate timeout for the test's expected runtime. |
+| Result output is incomplete | The test wrote too much output or logs outside captured stdout and stderr. | Keep CLI output concise and write important diagnostics before exit. |
