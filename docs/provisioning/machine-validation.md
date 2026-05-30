@@ -451,6 +451,7 @@ For production sites:
 | --- | --- | --- |
 | No tests are selected | Feature disabled, tests disabled, tests unverified, context mismatch, platform mismatch, tags do not match, or allow list excludes all tests. | Run `tests show` with the relevant platform and context, and confirm enabled and verified state. |
 | A new test does not run in lifecycle validation | The test is unverified or disabled. | Run the test on demand with `--run-unverfied-tests`, review the result, then enable and verify it. |
+| After modifying or updating a test, I no longer see the test | The updated test may have become unverified, or the current `tests show` filter may exclude its new context, platform, or version. | Run `tests show --show-un-verfied --test-id <test_id>`, review the updated definition, then re-enable or re-verify the test as needed. |
 | A test fails only on one platform | Platform mapping is too broad, platform-specific dependency is missing, or the test command assumes hardware that is not present. | Restrict `supported-platforms` or add a pre-condition. |
 | A container test cannot start | Image name, registry credentials, or external config are incorrect. | Confirm the image exists and refresh `container_auth`. |
 | A test times out | Timeout is too short, the test is hung, or the machine is unhealthy. | Review captured output and set a deliberate timeout for the test's expected runtime. |
