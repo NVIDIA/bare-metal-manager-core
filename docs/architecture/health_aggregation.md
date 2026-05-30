@@ -228,7 +228,7 @@ If Machine Validation fails, a Health Alert with ID `FailedValidationTest` or `F
 
 In addition to that, the full test output (stdout and stderr) will be stored within nico-core and is made available to NICo users via APIs, admin-cli and admin-ui.
 
-Details can be found in the [Machine Validation guide](../provisioning/host-validation.md).
+Details can be found in the [Machine Validation guide](../provisioning/machine-validation.md).
 
 ### SKU validation tests
 
