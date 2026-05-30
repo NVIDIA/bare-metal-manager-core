@@ -25,6 +25,17 @@ Repair system integration is the provider-side behavior behind full repair. It e
 
 The repair tenant workflow is the operator runbook for the middle of the full repair process: targeted instance creation into a dedicated repair tenant, machine repair, repair outcome labeling, and repair tenant release.
 
+## Tenant Privileges for Online Repair
+
+Online repair requires elevated Tenant privileges when calling REST API operations. Tenant privileges are described in terms of Capabilities. For online repair the Tenant must have the `targetedInstanceCreation` capability.
+
+One can check the capabilities of a Tenant by calling the [`GET /v2/org/{org}/nico/tenant` REST API endpoint](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/tenant/get-current-tenant) and inspecting the `capabilities` field.
+
+This capability is automatically granted to Service Account tenants. If REST API is configured in Service Account mode, the capability can be turned on by calling the [`GET /v2/org/{org}/nico/service-account/current` REST API endpoint](https://docs.nvidia.com/infra-controller/rest-api-reference/api-reference/service-account/get-current-service-account)
+
+At present turning this capability on for arbitrary Tenants (who are not part of a Service Account org) is not supported via the REST API. However the feature is in active development, relevant issue can be tracked [here](https://github.com/NVIDIA/infra-controller-rest/issues/304).
+
+
 ## API Surface
 
 | Workflow | REST operation | Restish operation |
