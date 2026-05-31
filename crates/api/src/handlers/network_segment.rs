@@ -97,7 +97,12 @@ pub(crate) async fn create(
 
     let new_network_segment = NewNetworkSegment::try_from(request)?;
 
-    if new_network_segment.segment_type.is_tenant()
+    // Only actual ::Tenant segments need to be contained within site
+    // fabric prefixes. ::HostInband segments (which, yes, are also part
+    // of `is_tenant()` for binding rules) are underlay networks not
+    // part of the overlay/site fabric prefixes, exist before VPCs, and
+    // can exist without ever needing to be associated with a VPC.
+    if new_network_segment.segment_type == NetworkSegmentType::Tenant
         && let Some(site_fabric_prefixes) = api.eth_data.site_fabric_prefixes.as_ref()
     {
         let segment_prefixes: Vec<_> = new_network_segment
