@@ -41,6 +41,7 @@ use model::machine::network::{
     MachineNetworkStatusObservation, ManagedHostNetworkConfig, ManagedHostQuarantineState,
 };
 use model::machine::nvlink::MachineNvLinkStatusObservation;
+use model::machine::spx::MachineSpxStatusObservation;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::machine::{
     Dpf, DpuInfo, FailureDetails, HostProfile, Machine, MachineInterfaceSnapshot,
@@ -877,6 +878,28 @@ pub async fn update_nvlink_status_observation(
 ) -> Result<(), DatabaseError> {
     let query = "UPDATE machines SET nvlink_status_observation = $1::json WHERE id = $2 AND
                 (nvlink_status_observation->>'observed_at' IS NULL OR nvlink_status_observation->>'observed_at' <= $3) RETURNING id";
+    let _id: (MachineId,) = sqlx::query_as(query)
+        .bind(sqlx::types::Json(&observation))
+        .bind(machine_id)
+        .bind(observation.observed_at.to_rfc3339())
+        .fetch_one(txn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?;
+
+    Ok(())
+}
+
+pub async fn update_spx_status_observation(
+    txn: &mut PgConnection,
+    machine_id: &MachineId,
+    observation: &MachineSpxStatusObservation,
+) -> Result<(), DatabaseError> {
+    tracing::debug!(
+        "update_spx_status_observation: observation {:#?}",
+        observation
+    );
+    let query = "UPDATE machines SET spx_status_observation = $1::json WHERE id = $2 AND
+                (spx_status_observation->>'observed_at' IS NULL OR spx_status_observation->>'observed_at' <= $3) RETURNING id";
     let _id: (MachineId,) = sqlx::query_as(query)
         .bind(sqlx::types::Json(&observation))
         .bind(machine_id)

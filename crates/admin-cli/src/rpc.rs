@@ -25,8 +25,9 @@ use ::rpc::forge::{
     IdentifySerialRequest, MachineHardwareInfo, MachineHardwareInfoUpdateType,
     ModifyDpfStateRequest, NetworkPrefix, NetworkSecurityGroupAttributes,
     NetworkSegmentCreationRequest, NetworkSegmentType, Remediation, RemediationIdList,
-    RemediationList, UpdateMachineHardwareInfoRequest, UpdateNetworkSecurityGroupRequest,
-    VpcCreationRequest, VpcSearchFilter, VpcVirtualizationType, VpcsByIdsRequest,
+    RemediationList, SpxPartitionSearchFilter, UpdateMachineHardwareInfoRequest,
+    UpdateNetworkSecurityGroupRequest, VpcCreationRequest, VpcSearchFilter, VpcVirtualizationType,
+    VpcsByIdsRequest,
 };
 use ::rpc::forge_api_client::ForgeApiClient;
 use ::rpc::{Machine, NetworkSegment};
@@ -40,6 +41,7 @@ use carbide_uuid::network::NetworkSegmentId;
 use carbide_uuid::nvlink::{NvLinkLogicalPartitionId, NvLinkPartitionId};
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
+use carbide_uuid::spx::SpxPartitionId;
 use carbide_uuid::switch::SwitchId;
 use carbide_uuid::vpc::VpcId;
 use mac_address::MacAddress;
@@ -1036,6 +1038,33 @@ impl ApiClient {
         Ok(all_list)
     }
 
+    pub async fn get_all_spx_partitions(
+        &self,
+        tenant_org_id: Option<String>,
+        name: Option<String>,
+        page_size: usize,
+    ) -> CarbideCliResult<rpc::SpxPartitionList> {
+        let all_ids = self.get_spx_partition_ids(tenant_org_id, name).await?;
+        let mut all_list = rpc::SpxPartitionList {
+            spx_partitions: Vec::with_capacity(all_ids.spx_partition_ids.len()),
+        };
+
+        for ids in all_ids.spx_partition_ids.chunks(page_size) {
+            let list = self.get_spx_partitions_by_ids(ids).await?;
+            all_list.spx_partitions.extend(list.spx_partitions);
+        }
+
+        Ok(all_list)
+    }
+
+    pub async fn get_one_spx_partition(
+        &self,
+        spx_partition_id: SpxPartitionId,
+    ) -> CarbideCliResult<rpc::SpxPartitionList> {
+        let partitions = self.get_spx_partitions_by_ids(&[spx_partition_id]).await?;
+        Ok(partitions)
+    }
+
     pub async fn get_one_ib_partition(
         &self,
         ib_partition_id: IBPartitionId,
@@ -1057,6 +1086,19 @@ impl ApiClient {
         Ok(self.0.find_ib_partition_ids(request).await?)
     }
 
+    async fn get_spx_partition_ids(
+        &self,
+        tenant_org_id: Option<String>,
+        name: Option<String>,
+    ) -> CarbideCliResult<rpc::SpxPartitionIdList> {
+        let request = SpxPartitionSearchFilter {
+            tenant_org_id,
+            name,
+            label: None,
+        };
+        Ok(self.0.find_spx_partition_ids(request).await?)
+    }
+
     async fn get_ib_partitions_by_ids(
         &self,
         ids: &[IBPartitionId],
@@ -1066,6 +1108,16 @@ impl ApiClient {
             include_history: ids.len() == 1,
         };
         Ok(self.0.find_ib_partitions_by_ids(request).await?)
+    }
+
+    async fn get_spx_partitions_by_ids(
+        &self,
+        ids: &[SpxPartitionId],
+    ) -> CarbideCliResult<rpc::SpxPartitionList> {
+        let request = rpc::SpxPartitionsByIdsRequest {
+            spx_partition_ids: Vec::from(ids),
+        };
+        Ok(self.0.find_spx_partitions_by_ids(request).await?)
     }
 
     pub async fn get_all_keysets(
@@ -1270,7 +1322,7 @@ impl ApiClient {
                 allocate_instance
                     .tenant_org
                     .as_deref()
-                    .unwrap_or("Forge-simulation-tenant"),
+                    .unwrap_or("devenv_test_org"),
             )
         } else if !allocate_instance.vpc_prefix_id.is_empty() {
             let Some(discovery_info) = &machine.discovery_info else {
@@ -1418,6 +1470,7 @@ impl ApiClient {
             infiniband: None,
             dpu_extension_services: None,
             nvlink: None,
+            spxconfig: allocate_instance.spxconfig.clone(),
         };
 
         let mut labels = vec![

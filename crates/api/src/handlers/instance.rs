@@ -37,6 +37,7 @@ use model::instance::config::extension_services::InstanceExtensionServicesConfig
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{InstanceNetworkConfig, NetworkDetails};
 use model::instance::config::nvlink::InstanceNvLinkConfig;
+use model::instance::config::spx::InstanceSpxConfig;
 use model::instance::config::tenant_config::TenantConfig;
 use model::instance::snapshot::InstanceSnapshot;
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -55,7 +56,8 @@ use crate::ethernet_virtualization::validate_instance_interface_routing_profiles
 use crate::handlers::utils::convert_and_log_machine_id;
 use crate::instance::{
     InstanceAllocationRequest, allocate_ib_port_guid, allocate_instance, allocate_network,
-    validate_ib_partition_ownership, validate_os_definition_usable,
+    allocate_spx_port_mac, validate_ib_partition_ownership, validate_os_definition_usable,
+    validate_spx_partition_ownership,
 };
 use crate::{CarbideError, CarbideResult};
 
@@ -1120,6 +1122,8 @@ pub(crate) async fn update_instance_config(
         Some(config) => config.try_into().map_err(CarbideError::from)?,
     };
 
+    println!("SPX updaete_instance_config config: {:?}", config.spxconfig);
+
     // Network validation is done only if network update is requested.
     config
         .validate(
@@ -1309,6 +1313,13 @@ pub(crate) async fn update_instance_config(
         config.nvlink
     );
     update_instance_nvlink_config(&mh_snapshot, &instance, &config.nvlink, &mut txn).await?;
+
+    tracing::debug!(
+        "Updating instance {} with Spx config {:?}",
+        instance.id,
+        config.spxconfig
+    );
+    update_instance_spx_config(&mh_snapshot, &instance, &mut config.spxconfig, &mut txn).await?;
 
     db::instance::update_config(&mut txn, instance.id, expected_version, config, metadata).await?;
 
@@ -1699,6 +1710,59 @@ pub async fn update_instance_nvlink_config(
         true,
     )
     .await?;
+
+    Ok(())
+}
+
+pub async fn update_instance_spx_config(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    instance: &InstanceSnapshot,
+    spxcfg: &mut InstanceSpxConfig,
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+) -> Result<(), CarbideError> {
+    let mid = instance.machine_id;
+
+    let mut mh_snapshot = mh_snapshot.clone();
+
+    if !instance
+        .config
+        .spxconfig
+        .is_spx_config_update_requested(spxcfg)
+    {
+        println!("SPX update_instance_spx_config is_spx_config_update_requested is false");
+        return Ok(());
+    }
+
+    if !matches!(
+        mh_snapshot.managed_state,
+        ManagedHostState::Assigned {
+            instance_state: InstanceState::Ready,
+        }
+    ) {
+        println!("SPX update_instance_spx_config not Assigned");
+        return Err(ConfigValidationError::InvalidState.into());
+    }
+
+    if instance.deleted.is_some() {
+        println!("SPX update_instance_spx_config instance deleted");
+        return Err(ConfigValidationError::InstanceDeletionIsRequested.into());
+    }
+
+    let dpa_interfaces = db::dpa_interface::find_by_machine_id(txn.as_mut(), mid).await?;
+
+    mh_snapshot.dpa_interface_snapshots = dpa_interfaces;
+
+    validate_spx_partition_ownership(txn, &instance.config.tenant.tenant_organization_id, spxcfg)
+        .await?;
+
+    let spx_config_with_ports = allocate_spx_port_mac(spxcfg, &mh_snapshot)?;
+    *spxcfg = spx_config_with_ports;
+
+    // Update config in db.
+    db::instance::update_spx_config(txn, instance.id, instance.spx_config_version, spxcfg, true)
+        .await?;
+
+    println!("SPX update_instance_spx_config updating config in db done");
 
     Ok(())
 }

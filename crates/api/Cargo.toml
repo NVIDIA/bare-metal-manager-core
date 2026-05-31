@@ -86,7 +86,11 @@ askama_escape = { workspace = true }
 asn1-rs = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true, features = ["http2"] }
-axum-extra = { workspace = true, features = ["cookie", "cookie-private", "typed-header"] }
+axum-extra = { workspace = true, features = [
+  "cookie",
+  "cookie-private",
+  "typed-header",
+] }
 base64 = { workspace = true }
 byteorder = { workspace = true }
 bytes = { workspace = true }
@@ -119,19 +123,24 @@ oauth2 = { workspace = true, default-features = false }
 opentelemetry = { workspace = true, features = ["logs"] }
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
 opentelemetry-prometheus = { workspace = true }
-opentelemetry-semantic-conventions = {  workspace = true, features = ["semconv_experimental"] }
+opentelemetry-semantic-conventions = { workspace = true, features = [
+  "semconv_experimental",
+] }
 opentelemetry_sdk = { workspace = true, features = [
-    "logs",
-    "rt-tokio",
-    "spec_unstable_metrics_views",
-    "testing",
+  "logs",
+  "rt-tokio",
+  "spec_unstable_metrics_views",
+  "testing",
 ] }
 pkcs1 = { workspace = true }
 p256 = { workspace = true }
 prometheus = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
-reqwest = { workspace = true, default-features = false, features = ["rustls", "stream"]  }
+reqwest = { workspace = true, default-features = false, features = [
+  "rustls",
+  "stream",
+] }
 rsa = { workspace = true }
 rumqttc = { workspace = true }
 rustls = { workspace = true }
@@ -142,15 +151,15 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true, features = [
-    "runtime-tokio-rustls",
-    "mac_address",
-    "ipnetwork",
-    "uuid",
-    "migrate",
-    "postgres",
-    "chrono",
-    "macros",
-    "json",
+  "runtime-tokio-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "migrate",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
 ] }
 strum = { workspace = true }
 temp-dir = { workspace = true }
@@ -164,11 +173,18 @@ toml = { workspace = true }
 tonic = { workspace = true }
 tonic-reflection = { workspace = true }
 tower = { workspace = true }
-tower-http = { workspace = true, features = ["add-extension", "auth", "normalize-path"] }
+tower-http = { workspace = true, features = [
+  "add-extension",
+  "auth",
+  "normalize-path",
+] }
 tracing = { workspace = true }
 tracing-log = { workspace = true }
 tracing-opentelemetry = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter", "local-time"] }
+tracing-subscriber = { workspace = true, features = [
+  "env-filter",
+  "local-time",
+] }
 tss-esapi = { workspace = true, optional = true }
 url = { workspace = true, features = ["serde"] }
 urlencoding = { workspace = true }
@@ -185,9 +201,13 @@ carbide-version = { path = "../version" }
 [dev-dependencies]
 # External dependencies. PLEASE KEEP ALPHABETIZED ORDER.
 carbide-ib-fabric = { path = "../ib-fabric", features = ["test-support"] }
-carbide-machine-controller = { path = "../machine-controller", features = ["test-support"] }
+carbide-machine-controller = { path = "../machine-controller", features = [
+  "test-support",
+] }
 carbide-macros = { path = "../macros" }
-carbide-nvlink-manager = { path = "../nvlink-manager", features = ["test-support"] }
+carbide-nvlink-manager = { path = "../nvlink-manager", features = [
+  "test-support",
+] }
 carbide-prost-builder = { path = "../prost-builder" }
 carbide-rack = { path = "../rack", features = ["test-support"] }
 carbide-redfish = { path = "../redfish", features = ["test-support"] }

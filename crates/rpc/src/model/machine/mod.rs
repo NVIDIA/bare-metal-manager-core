@@ -41,6 +41,7 @@ pub mod machine_id;
 pub mod machine_search_config;
 pub mod network;
 pub mod nvlink;
+pub mod spx;
 pub mod upgrade_policy;
 
 impl From<DpuInfo> for rpc::forge::DpuInfo {
@@ -87,6 +88,7 @@ impl RpcTryFrom<ManagedHostStateSnapshot> for Option<rpc::Instance> {
                 .infiniband_status_observation
                 .as_ref(),
             snapshot.host_snapshot.nvlink_status_observation.as_ref(),
+            snapshot.host_snapshot.spx_status_observation.as_ref(),
             &snapshot.host_snapshot.health_reports,
         )?;
 
@@ -286,6 +288,7 @@ impl From<Machine> for rpc::forge::Machine {
             nvlink_status_observation: machine
                 .nvlink_status_observation
                 .map(|status| status.into()),
+            spx_status_observation: machine.spx_status_observation.map(|status| status.into()),
             placement_in_rack: Some(rpc::forge::PlacementInRack {
                 slot_number: machine.slot_number,
                 tray_index: machine.tray_index,

@@ -41,6 +41,7 @@ use strum_macros::EnumIter;
 use self::infiniband::MachineInfinibandStatusObservation;
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use self::nvlink::MachineNvLinkStatusObservation;
+use self::spx::MachineSpxStatusObservation;
 use super::StateSla;
 use super::bmc_info::BmcInfo;
 use super::hardware_info::MachineInventory;
@@ -75,6 +76,7 @@ pub mod machine_id;
 pub mod machine_search_config;
 pub mod network;
 pub mod nvlink;
+pub mod spx;
 pub mod topology;
 pub mod upgrade_policy;
 
@@ -677,6 +679,9 @@ pub struct Machine {
 
     // The most recent status of the nvlink GPUs.
     pub nvlink_status_observation: Option<MachineNvLinkStatusObservation>,
+
+    // The most recent status of the SPX attachments.
+    pub spx_status_observation: Option<MachineSpxStatusObservation>,
 
     /// A list of [StateHistoryRecord]s that this machine has experienced
     pub history: Vec<StateHistoryRecord>,

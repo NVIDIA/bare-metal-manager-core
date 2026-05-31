@@ -6,7 +6,9 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-opentelemetry_sdk = { workspace = true, features = ["spec_unstable_metrics_views"] }
+opentelemetry_sdk = { workspace = true, features = [
+  "spec_unstable_metrics_views",
+] }
 glob = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

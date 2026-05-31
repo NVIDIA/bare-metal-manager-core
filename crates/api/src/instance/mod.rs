@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use ::rpc::errors::RpcDataConversionError;
@@ -24,6 +25,7 @@ use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::instance::InstanceId;
 use carbide_uuid::instance_type::InstanceTypeId;
 use carbide_uuid::machine::MachineId;
+use carbide_uuid::spx::SpxPartitionId;
 use carbide_uuid::vpc::VpcPrefixId;
 use config_version::ConfigVersion;
 use db::{
@@ -33,6 +35,7 @@ use db::{
 use ipnetwork::IpNetwork;
 use itertools::Itertools;
 use model::ConfigValidationError;
+use model::dpa_interface::DpaInterface;
 use model::hardware_info::InfinibandInterface;
 use model::instance::NewInstance;
 use model::instance::config::InstanceConfig;
@@ -40,6 +43,7 @@ use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{
     InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
 };
+use model::instance::config::spx::{InstanceSpxConfig, SpxAttachmentType};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     HostHealthConfig, LoadSnapshotOptions, Machine, ManagedHostStateSnapshot, NotAllocatableReason,
@@ -654,6 +658,14 @@ pub async fn batch_allocate_instances(
     )
     .await?;
 
+    for mid in &machine_ids {
+        let dpa_interfaces = db::dpa_interface::find_by_machine_id(&mut txn, *mid).await?;
+        let machine_snapshot = snapshot_map.get(mid).unwrap();
+        let mut machine_snapshot = machine_snapshot.clone();
+        machine_snapshot.dpa_interface_snapshots = dpa_interfaces;
+        snapshot_map.insert(*mid, machine_snapshot.clone());
+    }
+
     // Verify all snapshots were loaded and validate usability
     for request in &requests {
         let machine_id = request.machine_id;
@@ -828,6 +840,19 @@ pub async fn batch_allocate_instances(
 
     batch_validate_ib_partition_ownership(&mut txn, &ib_partition_validations).await?;
 
+    let spx_partition_validations: Vec<_> = requests
+        .iter()
+        .flat_map(|r| {
+            r.config.spxconfig.spx_attachments.iter().map(|attachment| {
+                (
+                    attachment.spx_partition_id,
+                    &r.config.tenant.tenant_organization_id,
+                )
+            })
+        })
+        .collect();
+    batch_validate_spx_partition_ownership(&mut txn, &spx_partition_validations).await?;
+
     // Batch query inband segments for all machines
     let inband_segments_map =
         db::instance_network_config::batch_get_inband_segments_by_machine_ids(
@@ -996,6 +1021,7 @@ pub async fn batch_allocate_instances(
     let extension_services_config_version = ConfigVersion::initial();
     let config_version = ConfigVersion::initial();
     let nvl_config_version = ConfigVersion::initial();
+    let spx_config_version = ConfigVersion::initial();
 
     let new_instances: Vec<NewInstance<'_>> = processed_requests
         .iter()
@@ -1010,6 +1036,7 @@ pub async fn batch_allocate_instances(
             ib_config_version,
             extension_services_config_version,
             nvlink_config_version: nvl_config_version,
+            spx_config_version,
         })
         .collect();
 
@@ -1032,6 +1059,11 @@ pub async fn batch_allocate_instances(
         carbide_uuid::instance::InstanceId,
         ConfigVersion,
         model::instance::config::nvlink::InstanceNvLinkConfig,
+    )> = Vec::with_capacity(request_count);
+    let mut spx_config_updates: Vec<(
+        carbide_uuid::instance::InstanceId,
+        ConfigVersion,
+        model::instance::config::spx::InstanceSpxConfig,
     )> = Vec::with_capacity(request_count);
 
     for (request, mh_snapshot) in &processed_requests {
@@ -1078,6 +1110,9 @@ pub async fn batch_allocate_instances(
             nvl_config_version,
             request.config.nvlink.clone(),
         ));
+
+        let updated_spx_config = allocate_spx_port_mac(&request.config.spxconfig, mh_snapshot)?;
+        spx_config_updates.push((instance_id, spx_config_version, updated_spx_config));
     }
 
     // ==== Phase 8: Batch update configs ====
@@ -1099,6 +1134,12 @@ pub async fn batch_allocate_instances(
         .map(|(id, ver, cfg)| (*id, *ver, cfg))
         .collect();
     db::instance::batch_update_nvlink_config(&mut txn, &nvlink_refs, false).await?;
+
+    let spx_refs: Vec<_> = spx_config_updates
+        .iter()
+        .map(|(id, ver, cfg)| (*id, *ver, cfg))
+        .collect();
+    db::instance::batch_update_spx_config(&mut txn, &spx_refs, false).await?;
 
     // ==== Phase 9: Load final instances ====
     let machine_id_refs: Vec<&MachineId> = processed_requests
@@ -1132,6 +1173,55 @@ pub async fn batch_allocate_instances(
     );
 
     Ok(snapshots)
+}
+
+/// Batch validate SPX partition ownership for multiple (partition_id, tenant_id) pairs
+pub async fn batch_validate_spx_partition_ownership(
+    txn: &mut PgConnection,
+    validations: &[(SpxPartitionId, &TenantOrganizationId)],
+) -> CarbideResult<()> {
+    if validations.is_empty() {
+        tracing::info!("batch_validate_spx_partition_ownership validations is empty");
+        return Ok(());
+    }
+
+    // Batch query all unique partitions
+    let unique_partition_ids: Vec<_> = validations
+        .iter()
+        .map(|(id, _)| *id)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    let partitions = db::spx_partition::find_by(
+        txn,
+        ObjectColumnFilter::List(db::spx_partition::IdColumn, &unique_partition_ids),
+    )
+    .await?;
+
+    let partition_map: HashMap<_, _> = partitions.into_iter().map(|p| (p.id, p)).collect();
+
+    // Validate each partition ownership
+    for (partition_id, expected_tenant) in validations {
+        let partition = partition_map.get(partition_id).ok_or_else(|| {
+            tracing::error!(
+                "batch_validate_spx_partition_ownership partition not found: {partition_id}"
+            );
+            ConfigValidationError::invalid_value(format!(
+                "SPX partition {partition_id} is not created"
+            ))
+        })?;
+
+        if &partition.tenant_organization_id != *expected_tenant {
+            tracing::error!(
+                "batch_validate_spx_partition_ownership partition not owned by the tenant: {partition_id}"
+            );
+            return Err(CarbideError::InvalidArgument(format!(
+                "SPX Partition {partition_id} is not owned by the tenant {expected_tenant}",
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Batch validate IB partition ownership for multiple (partition_id, tenant_id) pairs
@@ -1188,6 +1278,132 @@ pub async fn validate_ib_partition_ownership(
         .map(|iface| (iface.ib_partition_id, instance_tenant))
         .collect();
     batch_validate_ib_partition_ownership(txn, &validations).await
+}
+
+pub async fn validate_spx_partition_ownership(
+    txn: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    instance_tenant: &TenantOrganizationId,
+    spxcfg: &InstanceSpxConfig,
+) -> Result<(), CarbideError> {
+    for attachment in &spxcfg.spx_attachments {
+        let partition_id = attachment.spx_partition_id;
+
+        let partition = db::spx_partition::find_by(
+            txn.as_mut(),
+            ObjectColumnFilter::List(db::spx_partition::IdColumn, &[partition_id]),
+        )
+        .await?;
+        if partition.len() != 1 {
+            return Err(CarbideError::InvalidArgument(format!(
+                "SPX partition {partition_id} is not found",
+            )));
+        }
+        let spx_partition = &partition[0];
+        if spx_partition.tenant_organization_id != *instance_tenant {
+            return Err(CarbideError::InvalidArgument(format!(
+                "SPX partition {partition_id} is not owned by the tenant {instance_tenant}",
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+/// sort spx device by slot and add devices with the same name are added to hashmap
+pub fn sort_spx_by_slot(spx_hw_info_vec: &[DpaInterface]) -> HashMap<String, Vec<DpaInterface>> {
+    let mut spx_hw_map = HashMap::new();
+    let mut sorted_spx_hw_info_vec = spx_hw_info_vec.to_owned();
+    sorted_spx_hw_info_vec.sort_by(|a, b| a.pci_name.cmp(&b.pci_name));
+
+    for spx in sorted_spx_hw_info_vec {
+        if let Some(device) = &spx.device_description.clone() {
+            let entry: &mut Vec<DpaInterface> = spx_hw_map.entry(device.clone()).or_default();
+            entry.push(spx);
+        } else {
+            tracing::info!(
+                "sort_spx_by_slot device_description is not found: {:#?}",
+                spx
+            );
+        }
+    }
+
+    spx_hw_map
+}
+
+/// Allocate SPX port MAC addresses
+pub fn allocate_spx_port_mac(
+    spx_config: &InstanceSpxConfig,
+    mh_snapshot: &ManagedHostStateSnapshot,
+) -> CarbideResult<InstanceSpxConfig> {
+    let mut updated_spx_config = spx_config.clone();
+
+    tracing::debug!(
+        "allocate_spx_port_mac dev len: {:#?}",
+        mh_snapshot.dpa_interface_snapshots.len()
+    );
+
+    let mut seen_device_instances = HashSet::new();
+    for att in &updated_spx_config.spx_attachments {
+        if !seen_device_instances.insert((att.device.clone(), att.device_instance)) {
+            tracing::error!(
+                "allocate_spx_port_mac duplicate SPX attachment for device {} instance {}",
+                att.device,
+                att.device_instance
+            );
+            return Err(CarbideError::InvalidArgument(format!(
+                "duplicate SPX attachment for device {} instance {}",
+                att.device, att.device_instance,
+            )));
+        }
+    }
+
+    // Process higher `device_instance` indices first so removing a consumed interface from
+    // `sorted_spxs` does not shift indices still needed for lower instances on the same device.
+    updated_spx_config
+        .spx_attachments
+        .sort_unstable_by(|a, b| match a.device.cmp(&b.device) {
+            Ordering::Equal => b.device_instance.cmp(&a.device_instance),
+            o => o,
+        });
+
+    let mut spx_hw_map = sort_spx_by_slot(mh_snapshot.dpa_interface_snapshots.as_ref());
+
+    for spx_attachment in &mut updated_spx_config.spx_attachments {
+        if spx_attachment.attachment_type == SpxAttachmentType::Virtual {
+            tracing::error!("allocate_spx_port_mac SPX attachment type Virtual is not supported");
+            return Err(CarbideError::InvalidArgument(
+                "SPX attachment type Virtual is not supported".to_string(),
+            ));
+        }
+        if let Some(sorted_spxs) = spx_hw_map.get_mut(&spx_attachment.device) {
+            if let Some(spx_interface) = sorted_spxs.get(spx_attachment.device_instance as usize) {
+                spx_attachment.mac_address = Some(spx_interface.mac_address.to_string());
+                sorted_spxs.remove(spx_attachment.device_instance as usize);
+            } else {
+                tracing::error!(
+                    "allocate_spx_port_mac SPX device {} has no instance {}",
+                    spx_attachment.device,
+                    spx_attachment.device_instance
+                );
+                return Err(CarbideError::InvalidArgument(format!(
+                    "SPX device {} has no instance {}",
+                    spx_attachment.device, spx_attachment.device_instance,
+                )));
+            }
+        } else {
+            tracing::error!(
+                "allocate_spx_port_mac No SPX device with name {} in machine {}",
+                spx_attachment.device,
+                mh_snapshot.host_snapshot.id
+            );
+            return Err(CarbideError::InvalidArgument(format!(
+                "No SPX device with name {} in machine {}",
+                spx_attachment.device, mh_snapshot.host_snapshot.id,
+            )));
+        }
+    }
+
+    Ok(updated_spx_config)
 }
 
 #[cfg(test)]

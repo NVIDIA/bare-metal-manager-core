@@ -51,6 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".common.DomainId", "::carbide_uuid::domain::DomainId")
         .extern_path(".common.DpaInterfaceId", "::carbide_uuid::dpa_interface::DpaInterfaceId")
         .extern_path(".common.IBPartitionId", "::carbide_uuid::infiniband::IBPartitionId")
+        .extern_path(".common.SpxPartitionId", "::carbide_uuid::spx::SpxPartitionId")
         .extern_path(".common.InstanceId", "::carbide_uuid::instance::InstanceId")
         .extern_path(".common.MachineId", "::carbide_uuid::machine::MachineId")
         .extern_path(".common.MachineInterfaceId", "::carbide_uuid::machine::MachineInterfaceId")
@@ -132,6 +133,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "forge.InstanceInfinibandConfig",
             "#[derive(serde::Deserialize, serde::Serialize)]",
         )
+        .type_attribute(
+            "forge.InstanceSpxConfig",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
+        .type_attribute(
+            "forge.InstanceSpxAttachment",
+            "#[derive(serde::Deserialize, serde::Serialize)]",
+        )
         .type_attribute("forge.InstanceStorageConfig", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.IpxeTemplateParameter",
@@ -170,6 +179,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.DpuExtensionServiceObservabilityConfig.config", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("forge.DpuExtensionServiceObservabilityConfig", "#[derive(serde::Serialize, serde::Deserialize)]")
         .type_attribute("forge.DpuExtensionServiceObservability.configs", "#[derive(serde::Serialize, serde::Deserialize)]")
+        .type_attribute("forge.InstanceSpxStatus", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.InstanceSpxAttachmentStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.InstanceNVLinkConfig", "#[derive(serde::Deserialize, serde::Serialize)]")
         .type_attribute("forge.InstanceNVLinkGpuConfig", "#[derive(serde::Deserialize, serde::Serialize)]")
         .type_attribute("forge.InstanceNVLinkStatus", "#[derive(serde::Serialize)]")
@@ -197,6 +208,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("common.NVLinkPartitionId", "#[derive(serde::Serialize)]")
         .type_attribute("forge.MachineNVLinkInfo", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NVLinkGpu", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.MachineSpxStatusObservation", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.MachineSpxAttachmentStatusObservation", "#[derive(serde::Serialize)]")
         .type_attribute(
             "forge.InstanceInterfaceStatus",
             "#[derive(serde::Serialize)]",
@@ -311,10 +324,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .type_attribute("forge.NetworkSegmentStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.NetworkSegment", "#[derive(serde::Serialize)]")
         .type_attribute("forge.IBPartitionConfig", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.SpxPartitionConfig", "#[derive(serde::Serialize)]")
         .type_attribute("forge.IBPartitionStatus", "#[derive(serde::Serialize)]")
         .type_attribute("forge.IBPartition", "#[derive(serde::Serialize)]")
         .type_attribute("forge.IBPartitionIdList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.IBPartitionList", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.SpxPartitionList", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.SpxPartition", "#[derive(serde::Serialize)]")
+        .type_attribute("forge.SpxPartitionIdList", "#[derive(serde::Serialize)]")
         .type_attribute("forge.PowerOptionResponse",
                         "#[derive(serde::Deserialize, serde::Serialize)]")
         .type_attribute("forge.PowerOptions",
@@ -918,6 +935,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             (
                 ".common.IBPartitionId",
                 "::carbide_uuid::infiniband::IBPartitionId",
+            ),
+            (
+                ".common.SpxPartitionId",
+                "::carbide_uuid::spx::SpxPartitionId",
             ),
             (".common.InstanceId", "::carbide_uuid::instance::InstanceId"),
             (

@@ -267,6 +267,7 @@ mod redfish_browser;
 mod resource_pool;
 mod search;
 mod sku;
+mod spx_partition;
 mod state_history;
 mod switch;
 mod tenant;
@@ -730,6 +731,8 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 get(nvlink::show_nvlink_logical_partitions_json),
             )
             .route("/nvlink-partition/{id}", get(nvlink::detail))
+            .route("/spx-partition", get(spx_partition::show_html))
+            .route("/spx-partition.json", get(spx_partition::show_all_json))
             .route("/resource-pool", get(resource_pool::show_html))
             .route("/resource-pool.json", get(resource_pool::show_all_json))
             .route("/vpc", get(vpc::show_html))

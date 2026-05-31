@@ -1273,7 +1273,7 @@ impl CarbideConfig {
         self.dpa_config.as_ref().map(|conf| conf.mqtt_broker_port)
     }
 
-    pub fn get_hb_interval(&self) -> Option<Duration> {
+    pub fn get_hb_interval(&self) -> Option<chrono::TimeDelta> {
         self.dpa_config.as_ref().map(|conf| conf.hb_interval)
     }
 
@@ -1441,8 +1441,12 @@ pub struct InitialObjectsConfig {
 }
 
 impl DpaConfig {
-    pub const fn default_hb_interval() -> chrono::Duration {
-        Duration::minutes(2)
+    pub const fn default_hb_interval() -> chrono::TimeDelta {
+        chrono::TimeDelta::minutes(2)
+    }
+
+    pub const fn default_monitor_run_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(60)
     }
 
     pub const fn default_subnet_ip() -> Ipv4Addr {
@@ -1459,6 +1463,7 @@ impl Default for DpaConfig {
             subnet_ip: Self::default_subnet_ip(),
             subnet_mask: 0,
             hb_interval: Self::default_hb_interval(),
+            monitor_run_interval: Self::default_monitor_run_interval(),
             auth: MqttAuthConfig::default(),
         }
     }
@@ -2111,6 +2116,14 @@ pub struct DpaConfig {
         serialize_with = "as_duration"
     )]
     pub hb_interval: chrono::TimeDelta,
+
+    /// The interval at which we run the DPA monitor.
+    #[serde(
+        default = "DpaConfig::default_monitor_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub monitor_run_interval: std::time::Duration,
 
     #[serde(default)]
     pub auth: MqttAuthConfig,
@@ -3377,7 +3390,8 @@ mqtt_endpoint = "mqtt.forge"
                 enabled: true,
                 mqtt_endpoint: "mqtt.forge".to_string(),
                 mqtt_broker_port: 1884,
-                hb_interval: Duration::minutes(2),
+                hb_interval: chrono::TimeDelta::minutes(2),
+                monitor_run_interval: std::time::Duration::from_secs(60),
                 subnet_ip: Ipv4Addr::UNSPECIFIED,
                 subnet_mask: 0_i32,
                 auth: MqttAuthConfig::default(),

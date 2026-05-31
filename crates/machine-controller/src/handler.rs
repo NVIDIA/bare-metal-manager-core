@@ -1610,27 +1610,6 @@ impl MachineStateHandler {
                 // Clear if any reprovision (dpu or host) is set due to race scenario.
                 Self::clear_host_update_alert_and_reprov(mh_snapshot, &mut txn).await?;
 
-                // Flip the host onto the tenant network. Setting
-                // `use_admin_network = false` on the host row goes through
-                // `try_update_network_config`, which fans the version bump out
-                // to every DPU in the host machine group -- each DPU's sync state
-                // then flips to "out of sync" until its agent has polled, applied,
-                // and reported the new version. State-machine waits (e.g.
-                // WaitingForNetworkReconfig, WaitingForNetworkSegmentToBeReady)
-                // gate on that. DPAs follow the same flag (read host-level via the
-                // snapshot), but use a separate per-interface ack mechanism for
-                // SetVNI commands.
-                let host_version = mh_snapshot.host_snapshot.network_config.version;
-                let mut host_netconf = mh_snapshot.host_snapshot.network_config.value.clone();
-                host_netconf.use_admin_network = Some(false);
-                db::machine::try_update_network_config(
-                    &mut txn,
-                    &mh_snapshot.host_snapshot.id,
-                    host_version,
-                    &host_netconf,
-                )
-                .await?;
-
                 let mut next_state = ManagedHostState::Assigned {
                     instance_state: InstanceState::DpaProvisioning,
                 };
@@ -2223,6 +2202,7 @@ impl StateHandler for MachineStateHandler {
             .is_empty()
             && mh_snapshot.dpu_snapshots.is_empty()
         {
+            tracing::error!("No DPU snapshot found for host {}", host_machine_id);
             return Err(StateHandlerError::GenericError(eyre!(
                 "No DPU snapshot found."
             )));
@@ -5460,6 +5440,24 @@ impl StateHandler for InstanceStateHandler {
                                 ));
                     }
 
+                    // Check each DPA interface to see if it has acted on updating the network config.
+                    // This involves the DPA State Machine sending SetVNI commands to the NICs, and getting
+                    // an ACK. If any of the interfaces has not yet heard back the ACk, we will continue to
+                    // be in the current state.
+                    if ctx.services.site_config.dpa_enabled {
+                        for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
+                            if !dpa_interface.managed_host_network_config_version_synced(
+                                &mh_snapshot.instance,
+                                &mh_snapshot.host_snapshot.spx_status_observation,
+                            ) {
+                                return Ok(StateHandlerOutcome::wait(
+                                            "Waiting for DPA agent(s) to apply network config and report healthy network"
+                                                .to_string()
+                                        ));
+                            }
+                        }
+                    }
+
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::WaitingForRebootToReady,
                     };
@@ -5994,11 +5992,13 @@ impl StateHandler for InstanceStateHandler {
                     // Bump each DPA interface's config version so the DPA State Controller
                     // re-evaluates and sends SetVNI commands with VNI zero.
                     for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
+                        let (mut netconf, version) = dpa_interface.network_config.clone().take();
+                        netconf.use_admin_network = Some(true);
                         db::dpa_interface::try_update_network_config(
                             &mut txn,
                             &dpa_interface.id,
-                            dpa_interface.network_config.version,
-                            &dpa_interface.network_config.value,
+                            version,
+                            &netconf,
                         )
                         .await?;
                     }
@@ -6058,7 +6058,10 @@ impl StateHandler for InstanceStateHandler {
                             {
                                 continue;
                             }
-                            if !dpa_interface.managed_host_network_config_version_synced() {
+                            if !dpa_interface.managed_host_network_config_version_synced(
+                                &None,
+                                &mh_snapshot.host_snapshot.spx_status_observation,
+                            ) {
                                 return Ok(StateHandlerOutcome::wait(
                                             "Waiting for DPA agent(s) to apply network config and report healthy network"
                                                 .to_string()
@@ -6272,14 +6275,24 @@ impl StateHandler for InstanceStateHandler {
                     // we just bump each DPA interface's config version so the
                     // DPA state controller re-evaluates with the new host value
                     // (READY -> WaitingForSetVNI, triggering SetVNI).
+
+                    // Note that we have to defer setting use_admin_network for the DPUs
+                    // till after DPA provisioning is complete. This is due to the fact
+                    // that we have to interact with scout to unlock/apply firmware/lock
+                    // the card. If we switch the DPUs also out of admin network, we will
+                    // no longer be able to interact with scout.
+
                     let mut txn = ctx.services.db_pool.begin().await?;
                     if ctx.services.site_config.dpa_enabled {
                         for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
+                            let (mut netconf, version) =
+                                dpa_interface.network_config.clone().take();
+                            netconf.use_admin_network = Some(false);
                             db::dpa_interface::try_update_network_config(
                                 &mut txn,
                                 &dpa_interface.id,
-                                dpa_interface.network_config.version,
-                                &dpa_interface.network_config.value,
+                                version,
+                                &netconf,
                             )
                             .await?;
                         }
@@ -6294,16 +6307,32 @@ impl StateHandler for InstanceStateHandler {
                     // This involves the DPA State Machine sending SetVNI commands to the NICs, and getting
                     // an ACK. If any of the interfaces has not yet heard back the ACk, we will continue to
                     // be in the current state.
+
                     if ctx.services.site_config.dpa_enabled {
                         for dpa_interface in &mh_snapshot.dpa_interface_snapshots {
-                            if !dpa_interface.managed_host_network_config_version_synced() {
+                            if !dpa_interface.managed_host_network_config_version_synced(
+                                &mh_snapshot.instance,
+                                &mh_snapshot.host_snapshot.spx_status_observation,
+                            ) {
                                 return Ok(StateHandlerOutcome::wait(
-                                            "Waiting for DPA agent(s) to apply network config and report healthy network"
-                                                .to_string()
-                                        ));
+                                        "Waiting for DPA agent(s) to apply network config and report healthy network"
+                                            .to_string()
+                                    ));
                             }
                         }
                     }
+
+                    let mut txn = ctx.services.db_pool.begin().await?;
+                    let host_version = mh_snapshot.host_snapshot.network_config.version;
+                    let mut host_netconf = mh_snapshot.host_snapshot.network_config.value.clone();
+                    host_netconf.use_admin_network = Some(false);
+                    db::machine::try_update_network_config(
+                        &mut txn,
+                        &mh_snapshot.host_snapshot.id,
+                        host_version,
+                        &host_netconf,
+                    )
+                    .await?;
 
                     // The host was already flipped to tenant network in the
                     // Ready -> Assigned transition; that write fanned out via
@@ -6312,7 +6341,7 @@ impl StateHandler for InstanceStateHandler {
                     let next_state = ManagedHostState::Assigned {
                         instance_state: InstanceState::WaitingForNetworkSegmentToBeReady,
                     };
-                    Ok(StateHandlerOutcome::transition(next_state))
+                    return Ok(StateHandlerOutcome::transition(next_state).with_txn(txn));
                 }
             }
         } else {

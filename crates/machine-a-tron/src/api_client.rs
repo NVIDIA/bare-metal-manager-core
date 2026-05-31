@@ -292,6 +292,7 @@ impl ApiClient {
             infiniband: None,
             dpu_extension_services: None,
             nvlink: None,
+            spxconfig: None,
         };
 
         let instance_request = rpc::InstanceAllocationRequest {

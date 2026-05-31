@@ -29,7 +29,7 @@ sqlx = ["carbide-network/sqlx", "dep:sqlx"]
 test-support = [
   "dep:opentelemetry_sdk",
   "dep:prometheus",
-  "dep:opentelemetry-prometheus"
+  "dep:opentelemetry-prometheus",
 ]
 
 [dependencies]

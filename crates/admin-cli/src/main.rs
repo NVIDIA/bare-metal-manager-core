@@ -101,6 +101,7 @@ mod scout_stream;
 mod set;
 mod site_explorer;
 mod sku;
+mod spx_partition;
 mod ssh;
 mod switch;
 mod tenant;
@@ -247,6 +248,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::NetworkSegment(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NvlinkNmxcEndpoints(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NvlPartition(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::SpxPartition(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::IpxeTemplate(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::OsImage(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::OperatingSystem(cmd) => cmd.dispatch(ctx).await?,

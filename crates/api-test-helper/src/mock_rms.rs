@@ -67,6 +67,10 @@ pub struct MockRmsApi {
         Mutex<VecDeque<Result<rms::GetPowerStateResponse, RackManagerError>>>,
     get_power_state_calls: Mutex<Vec<rms::GetPowerStateRequest>>,
 
+    get_power_state_by_device_list_responses:
+        Mutex<VecDeque<Result<rms::GetPowerStateByDeviceListResponse, RackManagerError>>>,
+    get_power_state_by_device_list_calls: Mutex<Vec<rms::GetPowerStateByDeviceListRequest>>,
+
     sequence_rack_power_responses:
         Mutex<VecDeque<Result<rms::SequenceRackPowerResponse, RackManagerError>>>,
     sequence_rack_power_calls: Mutex<Vec<rms::SequenceRackPowerRequest>>,
@@ -244,6 +248,8 @@ impl MockRmsApi {
             set_power_state_calls: Default::default(),
             set_power_state_by_device_list_responses: Default::default(),
             set_power_state_by_device_list_calls: Default::default(),
+            get_power_state_by_device_list_responses: Default::default(),
+            get_power_state_by_device_list_calls: Default::default(),
             get_power_state_responses: Default::default(),
             get_power_state_calls: Default::default(),
             sequence_rack_power_responses: Default::default(),
@@ -809,6 +815,16 @@ fn pop_or_err<T>(
 
 #[async_trait::async_trait]
 impl RmsApi for MockRmsApi {
+    async fn get_power_state_by_device_list(
+        &self,
+        cmd: rms::GetPowerStateByDeviceListRequest,
+    ) -> Result<rms::GetPowerStateByDeviceListResponse, RackManagerError> {
+        self.get_power_state_by_device_list_calls
+            .lock()
+            .await
+            .push(cmd);
+        pop_or_err(&mut self.get_power_state_by_device_list_responses.lock().await)
+    }
     async fn set_power_state(
         &self,
         cmd: rms::SetPowerStateRequest,

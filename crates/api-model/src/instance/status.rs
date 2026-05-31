@@ -26,6 +26,7 @@ pub mod extension_service;
 pub mod infiniband;
 pub mod network;
 pub mod nvlink;
+pub mod spx;
 pub mod tenant;
 
 /// Instance status
@@ -48,6 +49,9 @@ pub struct InstanceStatus {
 
     /// Status of nvlink subsystem of an instance
     pub nvlink: nvlink::InstanceNvLinkStatus,
+
+    /// Status of the SPX subsystem of an instance
+    pub spx_status: spx::InstanceSpxStatus,
 
     /// Whether all configurations related to an instance are in-sync.
     /// This is a logical AND for the settings of all sub-configurations.

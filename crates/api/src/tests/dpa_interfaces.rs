@@ -38,6 +38,8 @@ async fn dpa_api_test_cases(pool: sqlx::PgPool) -> Result<(), Box<dyn std::error
         machine_id: Some(mh.id),
         device_type: "BlueField3".to_string(),
         pci_name: "0000:cc:00.0".to_string(),
+        device_description: Some("NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC; 400GbE / NDR IB (default mode); Single-port QSFP112
+; PCIe Gen5.0 x16; 8 Arm cores; 16GB on-board DDR; integrated BMC; Crypto Enabled".to_string()),
     });
 
     let cr_resp = env
@@ -97,6 +99,7 @@ async fn dpa_scout_request_returns_typed_mlx_action(
             machine_id: Some(mh.id),
             device_type: "BlueField3".to_string(),
             pci_name: "0000:cc:00.0".to_string(),
+            device_description: Some("NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC; 400GbE / NDR IB (default mode); Single-port QSFP112".to_string()),
         }))
         .await
         .unwrap()

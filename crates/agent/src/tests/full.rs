@@ -787,6 +787,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             network_security_group_id: None,
             dpu_extension_services: None,
             nvlink: None,
+            spxconfig: None,
 
         }),
         status: Some(rpc::InstanceStatus {
@@ -820,6 +821,7 @@ async fn handle_netconf(AxumState(state): AxumState<Arc<Mutex<State>>>) -> impl 
             }),
             configs_synced: rpc::SyncState::Synced.into(),
             update: None,
+            spx_status: None,
         }),
         network_config_version: "V1-T1748645613333257".to_string(),
         ib_config_version: "V1-T1748645613333260".to_string(),

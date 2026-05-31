@@ -1318,6 +1318,7 @@ pub fn get_config() -> CarbideConfig {
             subnet_ip: Ipv4Addr::UNSPECIFIED,
             subnet_mask: 0_i32,
             auth: MqttAuthConfig::default(),
+            monitor_run_interval: std::time::Duration::from_secs(10),
         }),
         power_manager_options: PowerManagerOptions {
             enabled: false,
@@ -2227,6 +2228,19 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: 10_001.to_string(),
                 end: (10_001 + fabric_len as u16 - 1).to_string(),
+                auto_assign: true,
+            }],
+            prefix: None,
+            delegate_prefix_len: None,
+        },
+    );
+    defs.insert(
+        model::resource_pool::common::DPA_VNI.to_string(),
+        resource_pool::ResourcePoolDef {
+            pool_type: resource_pool::ResourcePoolType::Integer,
+            ranges: vec![resource_pool::Range {
+                start: 40001.to_string(),
+                end: (40001 + fabric_len as u16 - 1).to_string(),
                 auto_assign: true,
             }],
             prefix: None,

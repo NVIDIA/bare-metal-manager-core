@@ -110,6 +110,7 @@ impl NiccClient {
                     network_security_group_id: None,
                     dpu_extension_services: None,
                     nvlink: None,
+                    spxconfig: None,
                 }),
                 instance_id: None,
                 instance_type_id: None,
