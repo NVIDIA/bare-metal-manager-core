@@ -1,0 +1,47 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+use axum::Router;
+// The admin-UI tests build a real `Api` from the `carbide-api-core` fixtures, which are exposed via
+// that crate's `test-support` feature (see this crate's dev-dependencies). Re-export the fixtures as
+// `crate::tests::common` so the test modules below can use the same paths they did when they lived
+// in `carbide-api-core`.
+pub use carbide_api_core::tests::common;
+use carbide_api_core::tests::common::api_fixtures::TestEnv;
+// The `#[crate::sqlx_test]` macro expands to references to `crate::tests::MIGRATOR` and
+// `crate::tests::sqlx_fixture_from_str`; re-export them here so those macro-generated paths resolve
+// in this crate. `#[allow(unused_imports)]` because the only references are in macro output (and
+// `sqlx_fixture_from_str` is only used by tests that declare fixtures), which the lint can't see.
+#[allow(unused_imports)]
+pub use carbide_api_core::tests::{MIGRATOR, sqlx_fixture_from_str};
+use hyper::http::Request;
+use hyper::http::request::Builder;
+
+use crate::routes;
+
+mod health;
+mod managed_host;
+mod vpc;
+
+fn make_test_app(env: &TestEnv) -> Router {
+    let r = routes(env.api.clone()).unwrap();
+    Router::new().nest_service("/admin", r)
+}
+
+/// Builder for admin UI requests (in-process auth defaults to none in tests).
+fn web_request_builder() -> Builder {
+    Request::builder().header("Host", "with.the.most")
+}

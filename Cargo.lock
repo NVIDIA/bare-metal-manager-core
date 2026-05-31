@@ -1155,14 +1155,27 @@ dependencies = [
 name = "carbide-api"
 version = "0.0.1"
 dependencies = [
- "ansi-to-html",
+ "carbide-api-core",
+ "carbide-api-db",
+ "carbide-api-web",
+ "carbide-secrets",
+ "carbide-version",
+ "clap",
+ "eyre",
+ "sqlx",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "carbide-api-core"
+version = "0.0.1"
+dependencies = [
  "arc-swap",
- "askama",
- "askama_escape",
  "asn1-rs",
  "async-trait",
  "axum",
- "axum-extra",
  "base64",
  "bmc-vendor",
  "byteorder",
@@ -1240,7 +1253,6 @@ dependencies = [
  "mqttea",
  "nras",
  "num_cpus",
- "oauth2",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry-prometheus",
@@ -1288,7 +1300,6 @@ dependencies = [
  "tracing-subscriber",
  "tss-esapi",
  "url",
- "urlencoding",
  "uuid",
  "x509-parser",
 ]
@@ -1451,6 +1462,56 @@ dependencies = [
  "tonic",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "carbide-api-web"
+version = "0.0.1"
+dependencies = [
+ "ansi-to-html",
+ "askama",
+ "askama_escape",
+ "axum",
+ "axum-extra",
+ "base64",
+ "carbide-api-core",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-authn",
+ "carbide-health-report",
+ "carbide-macros",
+ "carbide-measured-boot",
+ "carbide-rpc",
+ "carbide-rpc-utils",
+ "carbide-sqlx-testing",
+ "carbide-uuid",
+ "carbide-version",
+ "chrono",
+ "config-version",
+ "eyre",
+ "futures",
+ "http",
+ "http-body-util",
+ "hyper",
+ "ipnetwork",
+ "itertools 0.14.0",
+ "lazy_static",
+ "mac_address",
+ "oauth2",
+ "reqwest 0.13.3",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "tonic",
+ "tower",
+ "tower-http",
+ "tracing",
+ "url",
+ "urlencoding",
  "uuid",
 ]
 

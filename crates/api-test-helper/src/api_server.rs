@@ -295,6 +295,8 @@ pub async fn start(
         None,
         credential_config,
         true,
+        // The in-process test server does not serve the admin web UI.
+        None,
         cancel_token,
         ready_channel,
     )
