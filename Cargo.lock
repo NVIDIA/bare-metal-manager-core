@@ -1170,7 +1170,7 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-authn",
- "carbide-dpa-interface-controller",
+ "carbide-dpa",
  "carbide-dpf",
  "carbide-firmware",
  "carbide-health-report",
@@ -1626,7 +1626,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "carbide-dpa-interface-controller"
+name = "carbide-dpa"
 version = "0.0.0"
 dependencies = [
  "async-trait",
@@ -2278,7 +2278,7 @@ dependencies = [
 name = "carbide-mockdpa"
 version = "0.0.1"
 dependencies = [
- "carbide-dpa-interface-controller",
+ "carbide-dpa",
  "chrono",
  "clap",
  "mqttea",

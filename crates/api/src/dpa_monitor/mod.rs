@@ -19,7 +19,7 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-use carbide_dpa_interface_controller::DpaInfo;
+use carbide_dpa::DpaInfo;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::spx::NULL_SPX_PARTITION_ID;
@@ -841,7 +841,7 @@ impl DpaMonitor {
         let services = &self.db_services;
 
         // Send a heartbeat command, indicated by the revision string being "NIL".
-        match carbide_dpa_interface_controller::send_dpa_command(
+        match carbide_dpa::send_dpa_command(
             client,
             dpa_info,
             state.mac_address.to_string(),

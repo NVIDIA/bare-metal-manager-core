@@ -35,7 +35,7 @@ bmc-vendor = { path = "../bmc-vendor" }
 carbide-api-model = { path = "../api-model", default-features = false }
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-authn = { path = "../authn" }
-carbide-dpa-interface-controller = { path = "../dpa-interface-controller" }
+carbide-dpa = { path = "../dpa" }
 carbide-dpf = { path = "../dpf" }
 carbide-firmware = { path = "../firmware" }
 carbide-health-report = { path = "../health-report" }
