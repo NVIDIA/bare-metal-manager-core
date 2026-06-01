@@ -1,16 +1,62 @@
 # Measured Boot Attestation
 
-## Introduction
+## Purpose
 
-At the highest level, measured boot works by comparing (attesting) hash values (checksums) of certain critical components of a vulnerable system against some golden values.
+The purpose of Measured Boot is to try and prove that a machine has booted into a known, secure state, i.e. it is used to verify the boot path.
+
+During machine's boot hash signatures of firmware state, bootloader, Secure Boot variables, boot drivers and kernel-related components are stored in TPM's PCR registers. A single PCR register can contain the result of hash chaining of multiple signatures. The process is recorded in TPM event log, which can be replayed and a value stored in a PCR register can be reconstituted.
+
+In a typical scenario the collected PCR values are signed with the use of TPM and sent to the verifier, which performs a cryptographic check and compares PCR values against some golden standard obtained through some other methods. In NICo, the implementation is rather "trust on first use". It is assumed that initially a machine is found in an uncompromised state, so the initial measurement values are converted into golden values, which are then used to verify a later state of a machine.
+
+Golden values (called bundles in this documentation) are grouped based on machine's profile. A machine's profile is made of system vendor name, BIOS version and product name, e.g. Lenovo, U8E122J-1.51, ThinkSystem SR670 V2. For a single profile there can be multiple instances of golden values.
+
+In NICo the Measured Boot is used to verify that the scout image remains the same from one boot to another. The attestation happens during the ingestion of a managed host, and after a managed host has been released by a tenant. Using TPM event log obtained from DELL machine as an example, the PCR values can be as follows:
+- **PCR 0 — Firmware root of trust**
+  
+  PCR 0 represents the earliest firmware measurements from the Static Core Root of Trust for Measurement. It includes the S-CRTM contents and version, several UEFI platform firmware blobs, ACPI POST-code data, and a separator event. This PCR is primarily useful for detecting changes in system firmware or early platform initialization.
+- **PCR 1 — Platform configuration and boot variables**
+  
+  PCR 1 records UEFI platform configuration and boot-selection state. It includes variables such as DeployedMode, AuditMode, memory-encryption-related platform flags, the device table, BootOrder, individual boot entries such as Boot0001 and Boot0004, and EFI handoff table data. This PCR changes when firmware boot configuration, boot order, or relevant platform settings change.
+- **PCR 2 — EFI boot-services drivers**
+  
+  PCR 2 contains measurements of EFI boot-services driver images loaded during the UEFI boot process. In this log, it contains 29 boot-services driver measurements, mostly identified by image length, load address, and device path rather than human-readable filenames. This PCR is useful for detecting changes in UEFI drivers loaded before the operating system starts.
+- **PCR 3 — Separator only**
+   
+  PCR 3 contains only a separator event. No substantive firmware, driver, bootloader, or operating-system component was measured into this PCR in this log. Its value mainly indicates that the firmware emitted the expected boot-phase boundary marker.
+- **PCR 4 — EFI applications and boot flow**
+  
+  PCR 4 records EFI boot applications and boot-control-flow events. It includes Dell’s System_Services.efi, EFI application call and return events, and the measured boot application scout.efi. This PCR is important because it reflects which EFI applications were executed during boot.
+- **PCR 5 — Exit Boot Services**
+  
+  PCR 5 records the transition from UEFI firmware control to the operating-system loader/runtime environment. It includes a separator, Exit Boot Services Invocation, and Exit Boot Services Returned with Success. This PCR helps confirm that the firmware-to-OS handoff occurred in the expected way.
+- **PCR 6 — Separator only**
+  
+  PCR 6 contains only a separator event. No meaningful boot component or configuration object was measured into this PCR in this log. Like PCR 3, it mainly acts as a phase-boundary marker rather than evidence about a specific component.
+- **PCR 7 — Secure Boot and DMA protection state**
+  
+  PCR 7 records Secure Boot policy state and related security configuration. It includes SecureBoot = 0x00, the PK, KEK, db, and dbx Secure Boot variables, plus an event indicating that DMA protection was disabled. The most important observation is that Secure Boot was disabled for this boot.
+- **PCR 8 — Selected boot payload name**
+  
+  PCR 8 records the selected initial program load string. In this log, it contains scout.efi followed by a separator event. This PCR identifies the named EFI payload selected during the measured boot flow.
+- **PCR 9 — Load options and initrd tags**
+  
+  PCR 9 records event tags related to the loaded image and Linux initrd. Specifically, it contains LOADED_IMAGE::LoadOptions and Linux initrd event tags. This PCR provides evidence that load options and initrd-related metadata were included in the measured boot sequence.
+- **PCR 10 — Additional IPL marker**
+  
+  PCR 10 contains an additional IPL marker string, recorded as s, followed by a separator event. The log does not provide much semantic detail beyond that marker. Its value therefore represents this specific boot-stage marker rather than a full file or configuration object.
+- **PCR 11 — UKI / systemd-stub section measurements**
+  
+  PCR 11 records section-level measurements associated with a UKI or systemd-stub style boot flow. It includes repeated measurements for .linux, .osrel, .cmdline, .initrd, .uname, and .sbat. This PCR is useful for validating the measured contents of the unified boot payload, including the kernel, initrd, command line section, OS release metadata, kernel version metadata, and SBAT metadata.
+
+Measured Boot is most suitable for stable environments, where the measurements remain the same. If measurements change frequently the administrator will have to approve changes often. It is advised to use historical report data to establish PCR changes over time, which would help decide which PCR values can be monitored. Measured Boot is not suitable for watching changes to various firmwares outside of UEFI.
+
+## Components
 
 In NICo ecosystem, this system has three components:
 
 - Custom UEFI code on tenant machines, which performs measurements during machine boot and pushes those hash values (measurements) into so called PCR registers.
 - `scout`, which runs inside discovery image, and which collects PCR values and submits them to `nico-api`.
 - `nico-api`, which analyses PCR values received from `scout`, compares those values against golden values and makes a judgement call whether the measured boot is successful or not.
-
-Measured Boot attestation happens during the ingestion of a managed host, and after a managed host has been released by a tenant.
 
 ## Measured Boot Scope and Its Effect
 
