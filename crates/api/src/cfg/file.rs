@@ -24,6 +24,11 @@ use bmc_vendor::BMCVendor;
 use carbide_authn::config::{AllowedCertCriteria, TrustConfig};
 use carbide_firmware::FirmwareConfig;
 use carbide_ib_fabric::config::{IBFabricConfig, IbFabricDefinition};
+use carbide_machine_controller::config::power_manager::default_power_options;
+use carbide_machine_controller::config::{
+    BomValidationConfig, FirmwareGlobal, MachineStateControllerConfig,
+    MachineStateHandlerSiteConfig, MachineValidationConfig, PowerManagerOptions, TimePeriod,
+};
 use carbide_nvlink_manager::config::NvLinkConfig;
 use carbide_preingestion_manager::PreingestionManagerConfig;
 use carbide_rack_controller::config::{RackValidationConfig, RmsConfig};
@@ -50,12 +55,6 @@ use model::resource_pool::define::ResourcePoolDef;
 use model::tenant::identity_config::SigningAlgorithm;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
-
-use crate::state_controller::machine::config::power_manager::default_power_options;
-use crate::state_controller::machine::config::{
-    BomValidationConfig, FirmwareGlobal, MachineStateControllerConfig,
-    MachineStateHandlerSiteConfig, PowerManagerOptions,
-};
 
 static BF2_NIC: &str = "24.47.2682";
 static BF2_BMC: &str = "BF-25.10-20";
@@ -644,6 +643,13 @@ pub struct CarbideConfig {
     /// hidden when the list is empty.
     #[serde(default)]
     pub web_ui_sidebar_tools: Vec<ToolLink>,
+
+    /// In-memory log history for the admin web live log viewer
+    /// (`/admin/logs`): how much recent log data to keep for
+    /// replay-on-connect and scrollback, and how many lines to send
+    /// per page to the browser.
+    #[serde(default)]
+    pub log_history: LogHistoryConfig,
 }
 
 impl CarbideConfig {
@@ -662,7 +668,6 @@ impl CarbideConfig {
             spdm_enabled: self.spdm.enabled,
 
             dpu_enable_secure_boot: self.dpu_config.dpu_enable_secure_boot,
-            allow_zero_dpu_hosts: self.site_explorer.allow_zero_dpu_hosts,
         }
     }
 }
@@ -678,6 +683,40 @@ pub struct ToolLink {
     pub display_name: String,
     /// Absolute URL the link points to.
     pub url: String,
+}
+
+/// In-memory log history for the admin web live log viewer
+/// (`crate::web::logs`). Bounds memory use and the page size served
+/// to the browser.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LogHistoryConfig {
+    /// Maximum amount of recent log history to retain in memory, in
+    /// MiB. Oldest lines are evicted once the budget is exceeded.
+    /// Default 128.
+    #[serde(default = "default_log_history_max_megabytes")]
+    pub max_megabytes: usize,
+
+    /// Number of lines sent in the initial view and in each
+    /// scrollback page. Default 500.
+    #[serde(default = "default_log_history_page_size")]
+    pub page_size: usize,
+}
+
+impl Default for LogHistoryConfig {
+    fn default() -> Self {
+        Self {
+            max_megabytes: default_log_history_max_megabytes(),
+            page_size: default_log_history_page_size(),
+        }
+    }
+}
+
+fn default_log_history_max_megabytes() -> usize {
+    128
+}
+
+fn default_log_history_page_size() -> usize {
+    500
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -1234,7 +1273,7 @@ impl CarbideConfig {
         self.dpa_config.as_ref().map(|conf| conf.mqtt_broker_port)
     }
 
-    pub fn get_hb_interval(&self) -> Option<Duration> {
+    pub fn get_hb_interval(&self) -> Option<chrono::TimeDelta> {
         self.dpa_config.as_ref().map(|conf| conf.hb_interval)
     }
 
@@ -1402,8 +1441,12 @@ pub struct InitialObjectsConfig {
 }
 
 impl DpaConfig {
-    pub const fn default_hb_interval() -> chrono::Duration {
-        Duration::minutes(2)
+    pub const fn default_hb_interval() -> chrono::TimeDelta {
+        chrono::TimeDelta::minutes(2)
+    }
+
+    pub const fn default_monitor_run_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(60)
     }
 
     pub const fn default_subnet_ip() -> Ipv4Addr {
@@ -1420,6 +1463,7 @@ impl Default for DpaConfig {
             subnet_ip: Self::default_subnet_ip(),
             subnet_mask: 0,
             hb_interval: Self::default_hb_interval(),
+            monitor_run_interval: Self::default_monitor_run_interval(),
             auth: MqttAuthConfig::default(),
         }
     }
@@ -1751,15 +1795,6 @@ pub struct MachineUpdater {
     pub max_concurrent_machine_updates_percent: Option<i32>,
 }
 
-/// A UTC time window defined by a start and end timestamp.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-pub struct TimePeriod {
-    /// Start of the time window (UTC).
-    pub start: chrono::DateTime<chrono::Utc>,
-    /// End of the time window (UTC).
-    pub end: chrono::DateTime<chrono::Utc>,
-}
-
 pub fn default_max_find_by_ids() -> u32 {
     100
 }
@@ -1826,70 +1861,6 @@ impl Default for MeasuredBootMetricsCollectorConfig {
 }
 
 impl MeasuredBootMetricsCollectorConfig {
-    const fn default_run_interval() -> std::time::Duration {
-        std::time::Duration::from_secs(60)
-    }
-}
-
-/// Controls which machine validation tests are active.
-#[derive(Default, Clone, Copy, Debug, Deserialize, Serialize)]
-pub enum MachineValidationTestSelectionMode {
-    /// Only update tests in DB that are specified in the
-    /// `tests` config list.
-    #[default]
-    Default,
-    /// Enable all tests in DB, but allow per-test overrides
-    /// from the `tests` config list.
-    EnableAll,
-    /// Disable all tests in DB, but allow per-test overrides
-    /// from the `tests` config list.
-    DisableAll,
-}
-
-/// Configuration for machine validation tests (memory
-/// latency, SSD I/O, etc.) run after ingestion to verify
-/// hardware health.
-#[derive(Default, Clone, Debug, Deserialize, Serialize)]
-pub struct MachineValidationConfig {
-    /// Enables machine validation testing.
-    #[serde(default)]
-    pub enabled: bool,
-
-    /// Controls whether to run all tests, no tests, or use
-    /// per-test configuration.
-    #[serde(default)]
-    pub test_selection_mode: MachineValidationTestSelectionMode,
-
-    #[serde(
-        default = "MachineValidationConfig::default_run_interval",
-        deserialize_with = "deserialize_duration",
-        serialize_with = "as_std_duration"
-    )]
-    pub run_interval: std::time::Duration,
-
-    /// Per-test enable/disable overrides.
-    #[serde(default)]
-    pub tests: Vec<MachineValidationTestConfig>,
-}
-
-/// Per-test override for machine validation.
-///
-/// Example:
-/// ```toml
-/// tests = [
-///    { id = "MmMemLatency", enable = true },
-///    { id = "FioSSD", enable = true }
-/// ]
-/// ```
-#[derive(Default, Clone, Debug, Deserialize, Serialize)]
-pub struct MachineValidationTestConfig {
-    /// Unique test identifier (e.g., "MmMemLatency").
-    pub id: String,
-    /// Whether this test is enabled.
-    pub enable: bool,
-}
-
-impl MachineValidationConfig {
     const fn default_run_interval() -> std::time::Duration {
         std::time::Duration::from_secs(60)
     }
@@ -2146,6 +2117,14 @@ pub struct DpaConfig {
     )]
     pub hb_interval: chrono::TimeDelta,
 
+    /// The interval at which we run the DPA monitor.
+    #[serde(
+        default = "DpaConfig::default_monitor_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub monitor_run_interval: std::time::Duration,
+
     #[serde(default)]
     pub auth: MqttAuthConfig,
 }
@@ -2352,6 +2331,8 @@ mod tests {
             dpu_up_threshold: Duration::weeks(1),
             scout_reporting_timeout: Duration::minutes(5),
             uefi_boot_wait: Duration::minutes(5),
+            max_bios_config_retries: 3,
+            polling_bios_setup_stuck_threshold: Duration::minutes(15),
         };
 
         let config_str = serde_json::to_string(&input).unwrap();
@@ -2395,6 +2376,8 @@ mod tests {
                 dpu_up_threshold: Duration::weeks(1),
                 scout_reporting_timeout: Duration::minutes(5),
                 uefi_boot_wait: Duration::minutes(5),
+                max_bios_config_retries: 3,
+                polling_bios_setup_stuck_threshold: Duration::minutes(15),
             }
         );
     }
@@ -2415,6 +2398,8 @@ mod tests {
                 dpu_up_threshold: Duration::weeks(1),
                 scout_reporting_timeout: Duration::minutes(5),
                 uefi_boot_wait: Duration::minutes(5),
+                max_bios_config_retries: 3,
+                polling_bios_setup_stuck_threshold: Duration::minutes(15),
             }
         );
     }
@@ -2673,7 +2658,6 @@ mod tests {
                 machines_created_per_run: 1,
                 override_target_ip: None,
                 override_target_port: None,
-                allow_zero_dpu_hosts: false,
                 bmc_proxy: carbide_site_explorer::config::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(1),
@@ -2707,6 +2691,8 @@ mod tests {
                 dpu_up_threshold: Duration::minutes(77),
                 scout_reporting_timeout: Duration::minutes(5),
                 uefi_boot_wait: Duration::minutes(5),
+                max_bios_config_retries: 3,
+                polling_bios_setup_stuck_threshold: Duration::minutes(15),
             }
         );
         assert_eq!(
@@ -2847,7 +2833,6 @@ mod tests {
                 machines_created_per_run: 2,
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
-                allow_zero_dpu_hosts: false,
                 bmc_proxy: carbide_site_explorer::config::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(2),
@@ -2892,6 +2877,8 @@ mod tests {
                 dpu_up_threshold: Duration::minutes(33),
                 scout_reporting_timeout: Duration::minutes(20),
                 uefi_boot_wait: Duration::minutes(5),
+                max_bios_config_retries: 3,
+                polling_bios_setup_stuck_threshold: Duration::minutes(15),
             }
         );
         assert_eq!(
@@ -3156,7 +3143,6 @@ mod tests {
                 machines_created_per_run: 2,
                 override_target_ip: Some("1.2.3.4".to_owned()),
                 override_target_port: Some(10443),
-                allow_zero_dpu_hosts: false,
                 bmc_proxy: carbide_site_explorer::config::bmc_proxy(None),
                 allow_changing_bmc_proxy: None,
                 reset_rate_limit: Duration::hours(2),
@@ -3201,6 +3187,8 @@ mod tests {
                 dpu_up_threshold: Duration::minutes(77),
                 scout_reporting_timeout: Duration::minutes(20),
                 uefi_boot_wait: Duration::minutes(5),
+                max_bios_config_retries: 3,
+                polling_bios_setup_stuck_threshold: Duration::minutes(15),
             }
         );
         assert_eq!(
@@ -3402,7 +3390,8 @@ mqtt_endpoint = "mqtt.forge"
                 enabled: true,
                 mqtt_endpoint: "mqtt.forge".to_string(),
                 mqtt_broker_port: 1884,
-                hb_interval: Duration::minutes(2),
+                hb_interval: chrono::TimeDelta::minutes(2),
+                monitor_run_interval: std::time::Duration::from_secs(60),
                 subnet_ip: Ipv4Addr::UNSPECIFIED,
                 subnet_mask: 0_i32,
                 auth: MqttAuthConfig::default(),

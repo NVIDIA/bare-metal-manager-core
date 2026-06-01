@@ -50,7 +50,7 @@ async fn test_machine_state_history(pool: sqlx::PgPool) -> Result<(), Box<dyn st
         {"state": "dpuinit", "dpu_states": {"states": {&dpu_machine_id_string: {"dpustate": "waitingfornetworkconfig"}}}},
         {"state": "hostinit", "machine_state": {"state": "enableipmioverlan"}},
         {"state": "hostinit", "machine_state": {"state": "waitingforplatformconfiguration", "retry_count": 0}},
-        {"state": "hostinit", "machine_state": {"state": "pollingbiossetup"}},
+        {"state": "hostinit", "machine_state": {"state": "pollingbiossetup", "retry_count": 0}},
         {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"retry_count": 0, "set_boot_order_state": {"state": "setbootorder"}}}},
         {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"retry_count": 0, "set_boot_order_state": {"state": "waitforsetbootorderjobscheduled"}}}},
         {"state": "hostinit", "machine_state": {"state": "setbootorder", "set_boot_order_info": {"retry_count": 0, "set_boot_order_state": {"state": "reboothost"}}}},

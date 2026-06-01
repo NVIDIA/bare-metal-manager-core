@@ -23,9 +23,6 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use carbide_dpa_interface_controller::DpaInfo;
-use carbide_dpa_interface_controller::context::DpaInterfaceStateHandlerServices;
-use carbide_dpa_interface_controller::handler::DpaInterfaceStateHandler;
-use carbide_dpa_interface_controller::io::DpaInterfaceStateControllerIO;
 use carbide_firmware::FirmwareDownloader;
 use carbide_ib_fabric::IbFabricMonitor;
 use carbide_ib_fabric::ib::{self, IBFabricManager};
@@ -33,6 +30,12 @@ use carbide_ib_partition_controller::context::IBPartitionStateHandlerServices;
 use carbide_ib_partition_controller::handler::IBPartitionStateHandler;
 use carbide_ib_partition_controller::io::IBPartitionStateControllerIO;
 use carbide_ipmi::IPMITool;
+use carbide_machine_controller::context::MachineStateHandlerServices;
+use carbide_machine_controller::dpf::{
+    CarbideBmcPasswordProvider, CarbideDPFLabeler, DpfOperations, DpfSdkOps,
+};
+use carbide_machine_controller::handler::MachineStateHandlerBuilder;
+use carbide_machine_controller::io::MachineStateControllerIO;
 use carbide_network_segment_controller::context::NetworkSegmentStateHandlerServices;
 use carbide_network_segment_controller::handler::NetworkSegmentStateHandler;
 use carbide_network_segment_controller::io::NetworkSegmentStateControllerIO;
@@ -89,6 +92,7 @@ use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
 use crate::cfg::file::{CarbideConfig, InitialObjectsConfig, ListenMode};
 use crate::dpa::handler::start_dpa_handler;
+use crate::dpa_monitor::DpaMonitor;
 use crate::dynamic_settings::DynamicSettings;
 use crate::errors::CarbideError;
 use crate::handlers::machine_validation::apply_config_on_startup;
@@ -101,10 +105,6 @@ use crate::machine_update_manager::MachineUpdateManager;
 use crate::measured_boot::metrics_collector::MeasuredBootMetricsCollector;
 use crate::mqtt_state_change_hook::hook::MqttStateChangeHook;
 use crate::scout_stream::ConnectionRegistry;
-use crate::state_controller::common_services::CommonStateHandlerServices;
-use crate::state_controller::machine::context::MachineStateHandlerServices;
-use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
-use crate::state_controller::machine::io::MachineStateControllerIO;
 use crate::{attestation, db_init, ethernet_virtualization, listener};
 
 /// The resolved set of network declarations passed from `start_api` into
@@ -644,58 +644,51 @@ pub async fn start_api(
 
     // Create DPF SDK and initialize CRs if enabled
     // If we end up having static DPUDeployments, we could move the static CRs outside of the API.
-    let dpf_sdk: Option<Arc<dyn crate::state_controller::machine::dpf::DpfOperations>> =
-        if carbide_config.dpf.enabled {
-            tracing::info!("Initializing DPF SDK");
-            let repo = carbide_dpf::KubeRepository::new()
-                .await
-                .map_err(|e| eyre::eyre!("Failed to create DPF repository: {e}"))?;
+    let dpf_sdk: Option<Arc<dyn DpfOperations>> = if carbide_config.dpf.enabled {
+        tracing::info!("Initializing DPF SDK");
+        let repo = carbide_dpf::KubeRepository::new()
+            .await
+            .map_err(|e| eyre::eyre!("Failed to create DPF repository: {e}"))?;
 
-            let provider = crate::state_controller::machine::dpf::CarbideBmcPasswordProvider::new(
-                credential_manager.clone(),
-            );
+        let provider = CarbideBmcPasswordProvider::new(credential_manager.clone());
 
-            let mandatory_services = carbide_config.dpf.services.clone();
-            let dpf_mandatory_services = vec![
-                crate::dpf_services::dts_service(&mandatory_services.dts),
-                crate::dpf_services::doca_hbn_service(&mandatory_services.doca_hbn),
-                crate::dpf_services::dhcp_server_service(&mandatory_services.dhcp_server),
-                crate::dpf_services::dpu_agent_service(&mandatory_services.dpu_agent),
-                crate::dpf_services::fmds_service(&mandatory_services.fmds),
-                crate::dpf_services::otelcol_service(&mandatory_services.otel),
-            ];
+        let mandatory_services = carbide_config.dpf.services.clone();
+        let dpf_mandatory_services = vec![
+            crate::dpf_services::dts_service(&mandatory_services.dts),
+            crate::dpf_services::doca_hbn_service(&mandatory_services.doca_hbn),
+            crate::dpf_services::dhcp_server_service(&mandatory_services.dhcp_server),
+            crate::dpf_services::dpu_agent_service(&mandatory_services.dpu_agent),
+            crate::dpf_services::fmds_service(&mandatory_services.fmds),
+            crate::dpf_services::otelcol_service(&mandatory_services.otel),
+        ];
 
-            // This is just temparary code until we make v2 only option. (just 2 weeks)
-            // Soon v2 flag will be removed and will become only mode for dpf handling.
-            let init_config = carbide_dpf::InitDpfResourcesConfig {
-                bfb_url: carbide_config.dpf.bfb_url.clone(),
-                flavor_name: carbide_config.dpf.flavor_name.clone(),
-                deployment_name: carbide_config.dpf.deployment_name.clone(),
-                services: dpf_mandatory_services,
-            };
-
-            let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
-                .with_labeler(
-                    crate::state_controller::machine::dpf::CarbideDPFLabeler::new(
-                        carbide_config.dpf.node_label_key.clone(),
-                    ),
-                )
-                .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
-                .with_join_set(join_set)
-                .initialize(&init_config)
-                .await
-                .map_err(|err| eyre::eyre!("Failed to initialize DPF SDK: {err}"))?;
-
-            Some(Arc::new(
-                crate::state_controller::machine::dpf::DpfSdkOps::new(
-                    Arc::new(sdk),
-                    db_pool.clone(),
-                    join_set,
-                )?,
-            ))
-        } else {
-            None
+        // This is just temparary code until we make v2 only option. (just 2 weeks)
+        // Soon v2 flag will be removed and will become only mode for dpf handling.
+        let init_config = carbide_dpf::InitDpfResourcesConfig {
+            bfb_url: carbide_config.dpf.bfb_url.clone(),
+            flavor_name: carbide_config.dpf.flavor_name.clone(),
+            deployment_name: carbide_config.dpf.deployment_name.clone(),
+            services: dpf_mandatory_services,
         };
+
+        let sdk = carbide_dpf::DpfSdkBuilder::new(repo, carbide_dpf::NAMESPACE, provider)
+            .with_labeler(CarbideDPFLabeler::new(
+                carbide_config.dpf.node_label_key.clone(),
+            ))
+            .with_bmc_password_refresh_interval(std::time::Duration::from_secs(60))
+            .with_join_set(join_set)
+            .initialize(&init_config)
+            .await
+            .map_err(|err| eyre::eyre!("Failed to initialize DPF SDK: {err}"))?;
+
+        Some(Arc::new(DpfSdkOps::new(
+            Arc::new(sdk),
+            db_pool.clone(),
+            join_set,
+        )?))
+    } else {
+        None
+    };
 
     let component_manager = if let Some(cd_config) = &carbide_config.component_manager {
         match component_manager::component_manager::build_component_manager(
@@ -928,24 +921,6 @@ pub async fn initialize_and_start_controllers<'a>(
     let downloader = FirmwareDownloader::new();
     let upload_limiter = Arc::new(Semaphore::new(carbide_config.firmware_global.max_uploads));
 
-    let mut dpa_info: Option<Arc<DpaInfo>> = None;
-
-    if carbide_config.is_dpa_enabled() {
-        let mqtt_client =
-            Some(start_dpa_handler(join_set, api_service.clone(), cancel_token.clone()).await?);
-        let subnet_ip = carbide_config.get_dpa_subnet_ip()?;
-
-        let subnet_mask = carbide_config.get_dpa_subnet_mask()?;
-
-        let info: DpaInfo = DpaInfo {
-            subnet_ip,
-            subnet_mask,
-            mqtt_client,
-        };
-
-        dpa_info = Some(Arc::new(info));
-    }
-
     // Create state change emitter with DSX Exchange Event Bus hook if enabled
     let state_change_emitter = {
         let mut emitter_builder = StateChangeEmitterBuilder::default();
@@ -1027,34 +1002,22 @@ pub async fn initialize_and_start_controllers<'a>(
         emitter_builder.build()
     };
 
-    let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: db_pool.clone(),
-        db_reader: db_pool.clone().into(),
-        redfish_client_pool: shared_redfish_pool.clone(),
-        ib_fabric_manager: ib_fabric_manager.clone(),
-        ib_pools: common_pools.infiniband.clone(),
-        ipmi_tool: ipmi_tool.clone(),
-        site_config: carbide_config.clone(),
-        dpa_info,
-        rms_client: rms_client.clone(),
-        switch_system_image_rms_client: carbide_config
-            .rms
-            .api_url
-            .as_deref()
-            .filter(|url| !url.is_empty())
-            .map(|url| {
-                let rms_client_config = librms::client_config::RmsClientConfig::new(
-                    carbide_config.rms.root_ca_path.clone(),
-                    carbide_config.rms.client_cert.clone(),
-                    carbide_config.rms.client_key.clone(),
-                    carbide_config.rms.enforce_tls,
-                );
-                let rms_api_config = librms::client::RmsApiConfig::new(url, &rms_client_config);
-                Arc::new(librms::RackManagerApi::new(&rms_api_config))
-                    as Arc<dyn carbide_rack::rms_client::SwitchSystemImageRmsClient>
-            }),
-        credential_manager: credential_manager.clone(),
-    });
+    let switch_system_image_rms_client = carbide_config
+        .rms
+        .api_url
+        .as_deref()
+        .filter(|url| !url.is_empty())
+        .map(|url| {
+            let rms_client_config = librms::client_config::RmsClientConfig::new(
+                carbide_config.rms.root_ca_path.clone(),
+                carbide_config.rms.client_cert.clone(),
+                carbide_config.rms.client_key.clone(),
+                carbide_config.rms.enforce_tls,
+            );
+            let rms_api_config = librms::client::RmsApiConfig::new(url, &rms_client_config);
+            Arc::new(librms::RackManagerApi::new(&rms_api_config))
+                as Arc<dyn carbide_rack::rms_client::SwitchSystemImageRmsClient>
+        });
 
     // Use the hostname as cluster-wide state controller ID
     // The expectation here is that either the host only runs a single
@@ -1073,14 +1036,11 @@ pub async fn initialize_and_start_controllers<'a>(
         .processor_id(state_controller_id.clone())
         .services(
             MachineStateHandlerServices {
-                db_pool: handler_services.db_pool.clone(),
-                db_reader: handler_services.db_reader.clone(),
-                redfish_client_pool: handler_services.redfish_client_pool.clone(),
-                ipmi_tool: handler_services.ipmi_tool.clone(),
-                site_config: handler_services
-                    .site_config
-                    .machine_state_handler_site_config()
-                    .into(),
+                db_pool: db_pool.clone(),
+                db_reader: db_pool.clone().into(),
+                redfish_client_pool: shared_redfish_pool.clone(),
+                ipmi_tool: ipmi_tool.clone(),
+                site_config: carbide_config.machine_state_handler_site_config().into(),
             }
             .into(),
         )
@@ -1155,7 +1115,7 @@ pub async fn initialize_and_start_controllers<'a>(
         .processor_id(state_controller_id.clone())
         .services(
             NetworkSegmentStateHandlerServices {
-                db_pool: handler_services.db_pool.clone(),
+                db_pool: db_pool.clone(),
             }
             .into(),
         );
@@ -1170,27 +1130,6 @@ pub async fn initialize_and_start_controllers<'a>(
         )))
         .build_and_spawn(join_set, cancel_token.clone())
         .expect("Unable to build NetworkSegmentController");
-
-    if carbide_config.is_dpa_enabled() {
-        tracing::info!("Starting DpaInterfaceStateController as dpa is enabled");
-        StateController::<DpaInterfaceStateControllerIO>::builder()
-            .database(db_pool.clone(), work_lock_manager_handle.clone())
-            .meter("carbide_dpa_interfaces", meter.clone())
-            .processor_id(state_controller_id.clone())
-            .services(
-                DpaInterfaceStateHandlerServices {
-                    db_pool: handler_services.db_pool.clone(),
-                    db_reader: handler_services.db_reader.clone(),
-                    dpa_info: handler_services.dpa_info.clone(),
-                    hb_interval: handler_services.site_config.get_hb_interval(),
-                }
-                .into(),
-            )
-            .iteration_config((&carbide_config.dpa_interface_state_controller.controller).into())
-            .state_handler(Arc::new(DpaInterfaceStateHandler {}))
-            .build_and_spawn(join_set, cancel_token.clone())
-            .expect("Unable to build DpaInterfaceStateController");
-    }
 
     if carbide_config.spdm.enabled {
         let Some(nras_config) = carbide_config.spdm.nras_config.clone() else {
@@ -1207,8 +1146,8 @@ pub async fn initialize_and_start_controllers<'a>(
             .processor_id(state_controller_id.clone())
             .services(
                 SpdmStateHandlerServices {
-                    db_pool: handler_services.db_pool.clone(),
-                    redfish_client_pool: handler_services.redfish_client_pool.clone(),
+                    db_pool: db_pool.clone(),
+                    redfish_client_pool: shared_redfish_pool.clone(),
                 }
                 .into(),
             )
@@ -1227,9 +1166,9 @@ pub async fn initialize_and_start_controllers<'a>(
         .processor_id(state_controller_id.clone())
         .services(
             IBPartitionStateHandlerServices {
-                db_pool: handler_services.db_pool.clone(),
-                ib_fabric_manager: handler_services.ib_fabric_manager.clone(),
-                ib_pools: handler_services.ib_pools.clone(),
+                db_pool: db_pool.clone(),
+                ib_fabric_manager: ib_fabric_manager.clone(),
+                ib_pools: common_pools.infiniband.clone(),
             }
             .into(),
         )
@@ -1244,9 +1183,9 @@ pub async fn initialize_and_start_controllers<'a>(
         .processor_id(state_controller_id.clone())
         .services(
             PowerShelfStateHandlerServices {
-                db_pool: handler_services.db_pool.clone(),
-                rms_client: handler_services.rms_client.clone(),
-                credential_manager: handler_services.credential_manager.clone(),
+                db_pool: db_pool.clone(),
+                rms_client: rms_client.clone(),
+                credential_manager: credential_manager.clone(),
             }
             .into(),
         )
@@ -1261,21 +1200,16 @@ pub async fn initialize_and_start_controllers<'a>(
         .processor_id(state_controller_id.clone())
         .services(
             RackStateHandlerServices {
-                db_pool: handler_services.db_pool.clone(),
-                rms_client: handler_services.rms_client.clone(),
+                db_pool: db_pool.clone(),
+                rms_client: rms_client.clone(),
                 site_config: RackConfig {
-                    rms: handler_services.site_config.rms.clone(),
-                    rack_validation_config: handler_services
-                        .site_config
-                        .rack_validation_config
-                        .clone(),
-                    rack_profiles: handler_services.site_config.rack_profiles.clone(),
+                    rms: carbide_config.rms.clone(),
+                    rack_validation_config: carbide_config.rack_validation_config.clone(),
+                    rack_profiles: carbide_config.rack_profiles.clone(),
                 }
                 .into(),
-                switch_system_image_rms_client: handler_services
-                    .switch_system_image_rms_client
-                    .clone(),
-                credential_manager: handler_services.credential_manager.clone(),
+                switch_system_image_rms_client,
+                credential_manager: credential_manager.clone(),
             }
             .into(),
         )
@@ -1289,9 +1223,9 @@ pub async fn initialize_and_start_controllers<'a>(
         .processor_id(state_controller_id.clone())
         .services(
             SwitchStateHandlerServices {
-                db_pool: handler_services.db_pool.clone(),
-                rms_client: handler_services.rms_client.clone(),
-                credential_manager: handler_services.credential_manager.clone(),
+                db_pool: db_pool.clone(),
+                rms_client: rms_client.clone(),
+                credential_manager: credential_manager.clone(),
             }
             .into(),
         )
@@ -1323,6 +1257,34 @@ pub async fn initialize_and_start_controllers<'a>(
         work_lock_manager_handle.clone(),
     )
     .start(join_set, cancel_token.clone())?;
+
+    if carbide_config.is_dpa_enabled() {
+        let mqtt_client =
+            Some(start_dpa_handler(join_set, api_service.clone(), cancel_token.clone()).await?);
+
+        let subnet_ip = carbide_config.get_dpa_subnet_ip()?;
+
+        let subnet_mask = carbide_config.get_dpa_subnet_mask()?;
+
+        let info: DpaInfo = DpaInfo {
+            subnet_ip,
+            subnet_mask,
+            mqtt_client,
+        };
+
+        let dpa_info = Some(Arc::new(info));
+
+        DpaMonitor::new(
+            db_pool.clone(),
+            db_pool.clone().into(),
+            dpa_info,
+            meter.clone(),
+            carbide_config.dpa_config.clone().unwrap_or_default(),
+            carbide_config.host_health,
+            work_lock_manager_handle.clone(),
+        )
+        .start(join_set, cancel_token.clone())?;
+    }
 
     SiteExplorer::new(
         db_pool.clone(),
@@ -1380,6 +1342,8 @@ pub async fn initialize_and_start_controllers<'a>(
         &carbide_config.machine_validation_config.clone(),
     )
     .await?;
+
+    tracing::info!("initialize_and_start_controllers: all controllers initialized and started");
 
     Ok(())
 }

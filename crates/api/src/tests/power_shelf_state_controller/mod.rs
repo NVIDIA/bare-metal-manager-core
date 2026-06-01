@@ -36,8 +36,6 @@ mod maintenance;
 use fixtures::power_shelf::{mark_power_shelf_as_deleted, set_power_shelf_controller_state};
 use forge_secrets::credentials::TestCredentialManager;
 
-use crate::state_controller::common_services::CommonStateHandlerServices;
-
 #[crate::sqlx_test]
 async fn test_power_shelf_state_transition_validation(
     pool: sqlx::PgPool,
@@ -115,19 +113,7 @@ async fn test_power_shelf_deletion_with_state_controller(
     let power_shelf_handler = Arc::new(PowerShelfStateHandler::default());
     const ITERATION_TIME: Duration = Duration::from_millis(50);
 
-    let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: pool.clone(),
-        db_reader: pool.clone().into(),
-        redfish_client_pool: env.redfish_sim.clone(),
-        ib_fabric_manager: env.ib_fabric_manager.clone(),
-        ib_pools: env.common_pools.infiniband.clone(),
-        ipmi_tool: env.ipmi_tool.clone(),
-        site_config: env.config.clone(),
-        dpa_info: None,
-        rms_client: None,
-        switch_system_image_rms_client: None,
-        credential_manager: Arc::new(TestCredentialManager::default()),
-    });
+    let credential_manager = Arc::new(TestCredentialManager::default());
 
     let cancel_token = CancellationToken::new();
     let mut controller = StateController::<PowerShelfStateControllerIO>::builder()
@@ -140,9 +126,9 @@ async fn test_power_shelf_deletion_with_state_controller(
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(
             PowerShelfStateHandlerServices {
-                db_pool: handler_services.db_pool.clone(),
-                rms_client: handler_services.rms_client.clone(),
-                credential_manager: handler_services.credential_manager.clone(),
+                db_pool: pool.clone(),
+                rms_client: None,
+                credential_manager: credential_manager.clone(),
             }
             .into(),
         )

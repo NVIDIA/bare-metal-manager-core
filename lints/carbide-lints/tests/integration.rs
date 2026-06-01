@@ -46,6 +46,17 @@ fn driver_runs_and_emits_expected_lint() {
 
     let cargo = std::env::var("CARGO").expect("Cargo should set $CARGO to the running binary");
 
+    let clean_status = Command::new(&cargo)
+        .arg("clean")
+        .arg("--manifest-path")
+        .arg(&manifest_path)
+        .arg("-p")
+        .arg("sqlx_app")
+        .env("CARGO_TARGET_DIR", &target_dir)
+        .status()
+        .expect("failed to clean sqlx_app fixture");
+    assert!(clean_status.success(), "failed to clean sqlx_app fixture");
+
     let output = Command::new(cargo)
         .arg("check")
         .arg("--manifest-path")

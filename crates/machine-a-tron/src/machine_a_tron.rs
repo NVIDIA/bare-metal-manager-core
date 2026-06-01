@@ -99,13 +99,33 @@ impl MachineATron {
 
         if self.app_context.app_config.register_expected_machines {
             for machine in &machines {
+                // Derive the expected `dpu_mode` from the machine's
+                // MachineConfig: zero-DPU hosts declare `NoDpu`, hosts
+                // running their DPUs as NICs declare `NicMode`, everything
+                // else defers to the absolute default (DpuMode).
+                // Site-explorer's ingestion gate requires this explicit
+                // declaration for any host without DPU PCIe devices.
+                let dpu_mode = self
+                    .app_context
+                    .app_config
+                    .machines
+                    .get(machine.machine_config_section())
+                    .and_then(|config| {
+                        if config.dpu_per_host_count == 0 {
+                            Some(rpc::forge::DpuMode::NoDpu)
+                        } else if config.dpus_in_nic_mode {
+                            Some(rpc::forge::DpuMode::NicMode)
+                        } else {
+                            None
+                        }
+                    });
                 // Inform the API that we have finished our reboot (ie. scout is now running)
                 self.app_context
                     .api_client()
                     .add_expected_machine(
                         machine.host_info().bmc_mac_address.to_string(),
                         machine.host_info().serial.clone(),
-
+                        dpu_mode,
                     )
                     .await
                     .inspect_err(|e| {

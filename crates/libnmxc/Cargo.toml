@@ -29,7 +29,12 @@ path = "src/lib.rs"
 [dependencies]
 async-trait = { workspace = true }
 http = { workspace = true }
-tokio = { workspace = true, features = ["fs", "net", "time", "rt-multi-thread"] }
+tokio = { workspace = true, features = [
+  "fs",
+  "net",
+  "time",
+  "rt-multi-thread",
+] }
 tonic = { workspace = true }
 prost = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

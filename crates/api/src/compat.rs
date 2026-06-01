@@ -130,8 +130,8 @@ impl BuildAndFillLegacyFields for ForgeAgentControlResponse {
 
 #[cfg(test)]
 mod tests {
-    use ::rpc::common;
     use ::rpc::protos::mlx_device;
+    use ::rpc::{common, scout_firmware_upgrade as sfu};
     use carbide_uuid::machine_validation::MachineValidationId;
 
     use super::*;
@@ -339,17 +339,17 @@ mod tests {
     fn firmware_upgrade_converts_to_legacy_task_json() {
         let upgrade_task_id = uuid::Uuid::new_v4().to_string();
         let action = fac::Action::FirmwareUpgrade(fac::FirmwareUpgrade {
-            task: Some(fac::ScoutFirmwareUpgradeTask {
+            task: Some(sfu::ScoutFirmwareUpgradeTask {
                 upgrade_task_id: upgrade_task_id.clone(),
                 component_type: "cpld".to_string(),
                 target_version: "1.2.3".to_string(),
-                script: Some(fac::FileArtifact {
+                script: Some(sfu::FileArtifact {
                     url: "http://pxe/script.sh".to_string(),
                     sha256: "abc".to_string(),
                 }),
                 execution_timeout_seconds: 30,
                 artifact_download_timeout_seconds: 10,
-                file_artifacts: vec![fac::FileArtifact {
+                file_artifacts: vec![sfu::FileArtifact {
                     url: "http://pxe/fw.bin".to_string(),
                     sha256: "def".to_string(),
                 }],
@@ -385,17 +385,17 @@ mod tests {
     fn response_from_firmware_upgrade_sets_typed_payload_and_legacy_pairs() {
         let response = ForgeAgentControlResponse::build_and_fill_legacy_fields(
             fac::Action::FirmwareUpgrade(fac::FirmwareUpgrade {
-                task: Some(fac::ScoutFirmwareUpgradeTask {
+                task: Some(sfu::ScoutFirmwareUpgradeTask {
                     upgrade_task_id: uuid::Uuid::new_v4().to_string(),
                     component_type: "cpld".to_string(),
                     target_version: "1.2.3".to_string(),
-                    script: Some(fac::FileArtifact {
+                    script: Some(sfu::FileArtifact {
                         url: "http://pxe/script.sh".to_string(),
                         sha256: "abc".to_string(),
                     }),
                     execution_timeout_seconds: 30,
                     artifact_download_timeout_seconds: 10,
-                    file_artifacts: vec![fac::FileArtifact {
+                    file_artifacts: vec![sfu::FileArtifact {
                         url: "http://pxe/fw.bin".to_string(),
                         sha256: "def".to_string(),
                     }],

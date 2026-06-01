@@ -1,6 +1,6 @@
 # Machine-A-Tron
 
-A rust tool that uses the api client to simulate machines in the forge development environment.
+A rust tool that uses the api client to simulate machines in the nico development environment.
 
 The purpose of this tool is similar to the bootstrap scripts in `dev/bin` to build machines in the local-dev
 environment. I will generate machine information from the files in the template directory and fill in the dynamic data
@@ -11,19 +11,19 @@ periodically report health network observations.
 
 ```
 target/debug/machine-a-tron -h
-Usage: machine-a-tron [OPTIONS] --relay-address <RELAY_ADDRESS> <NUM_HOSTS> [CARBIDE_API]
+Usage: machine-a-tron [OPTIONS] --relay-address <RELAY_ADDRESS> <NUM_HOSTS> [NICO_API]
 
 Arguments:
   <NUM_HOSTS>    The number of host machines to create
-  [CARBIDE_API]  the api url
+  [NICO_API]  the api url
 
 Options:
-      --forge-root-ca-path <FORGE_ROOT_CA_PATH>
-          Default to FORGE_ROOT_CA_PATH environment variable or $HOME/.config/carbide_api_cli.json file. [env: FORGE_ROOT_CA_PATH=]
+      --nico-root-ca-path <NICO_ROOT_CA_PATH>
+          Default to NICO_ROOT_CA_PATH environment variable or $HOME/.config/nico_api_cli.json file. [env: NICO_ROOT_CA_PATH=]
       --client-cert-path <CLIENT_CERT_PATH>
-          Default to CLIENT_CERT_PATH environment variable or $HOME/.config/carbide_api_cli.json file. [env: CLIENT_CERT_PATH=]
+          Default to CLIENT_CERT_PATH environment variable or $HOME/.config/nico_api_cli.json file. [env: CLIENT_CERT_PATH=]
       --client-key-path <CLIENT_KEY_PATH>
-          Default to CLIENT_KEY_PATH environment variable or $HOME/.config/carbide_api_cli.json file. [env: CLIENT_KEY_PATH=]
+          Default to CLIENT_KEY_PATH environment variable or $HOME/.config/nico_api_cli.json file. [env: CLIENT_KEY_PATH=]
       --template-dir <TEMPLATE_DIR>
           directory containing template files.
       --relay-address <RELAY_ADDRESS>
@@ -54,10 +54,10 @@ The following are broken into tasks:
 
 ## How to run against a development instance
 
-If you configure your `mat.toml` to connect to your carbide instance, by default it will request IP's via DHCP for each
+If you configure your `mat.toml` to connect to your nico instance, by default it will request IP's via DHCP for each
 BMC it is mocking, and it will try to bind to said IP locally. It will even run `ip addr add` to add an alias for that
 IP. But the default configuration will also try to listen on port 2000 for each mock. This means that for correct
-behavior, your carbide instance will need to have the following set:
+behavior, your nico instance will need to have the following set:
 
 ```toml
 [site_explorer]
@@ -69,16 +69,16 @@ run_interval = "10s"
 ```
 
 If you're using the `skaffold dev` workflow to configure this, you'll want to
-edit `envs/local-dev/site/site-controller/files/generated/carbide-api-site-config.toml` to add these lines.
+edit `envs/local-dev/site/site-controller/files/generated/nico-api-site-config.toml` to add these lines.
 
 ## Deploying with kubernetes in development environment
 
 Machine-a-tron can run as a kubernetes service in your k3s development environment, which can be helpful if you want
 your environment to be seeded with mock machines as part of your workflow. To do this, you'll need to configure a custom
-DPU network in the `forged` repo, configuring it to enable machine-a-tron and specifying how many mock hosts/DPUs you
+DPU network in the `nicod` repo, configuring it to enable machine-a-tron and specifying how many mock hosts/DPUs you
 want.
 
-To do this, make a copy of `envs/local-dev/dpu_networks/custom-dpu-config.json` in the `forged` repo (any path will
+To do this, make a copy of `envs/local-dev/dpu_networks/custom-dpu-config.json` in the `nicod` repo (any path will
 work), and populate it.
 
 For example, copying it to `/home/me/dpu-config.json`, you can configure:
@@ -108,16 +108,16 @@ For example, copying it to `/home/me/dpu-config.json`, you can configure:
 This config uses 192.168.200 for the admin net, 192.168.201 for the DPU BMC net, and 192.168.202 for the x86 BMC net.
 Most important are the lines near the bottom, which specify that we want to use machine-a-tron to mock the DPUs.
 
-Next, run `CUSTOM_DPU_PATH=/home/me/dpu-config.json just setup-k3s-env-ips` in the forged repo, which will generate a
-carbide site config *and* a machine-a-tron config matching what you've specified.
+Next, run `CUSTOM_DPU_PATH=/home/me/dpu-config.json just setup-k3s-env-ips` in the nicod repo, which will generate a
+nico site config *and* a machine-a-tron config matching what you've specified.
 
-Now when you run `skaffold dev` in the carbide repo, it will deploy the machine-a-tron config you generated
-via `just setup-k3s-env-ips` to your cluster, and machine-a-tron will run with that config. Notably carbide will also be
+Now when you run `skaffold dev` in the nico repo, it will deploy the machine-a-tron config you generated
+via `just setup-k3s-env-ips` to your cluster, and machine-a-tron will run with that config. Notably nico will also be
 setup with the appropriate overrides for redfish so that it will send all requests to the machine-a-tron service.
 
-> Note: If you follow the above steps to configure carbide and machine-a-tron in your cluster, then running
-> machine-a-tron locally will not work, because carbide will be configured to always use the in-cluster machine-a-tron
+> Note: If you follow the above steps to configure nico and machine-a-tron in your cluster, then running
+> machine-a-tron locally will not work, because nico will be configured to always use the in-cluster machine-a-tron
 > for all libredfish calls. If you want to go back to running the TUI locally, you'll want to manually edit the
-> generated carbide-api-site-config.toml and drop the `override_target_host` line. You may also want to edit the
+> generated nico-api-site-config.toml and drop the `override_target_host` line. You may also want to edit the
 > `mat.toml` in the same directory and set the host_count to 0 so that the in-cluster machine-a-tron doesn't run any
 > mock machines.

@@ -133,16 +133,16 @@ Both commands honor the JSON format flag `-f json` to change the output to JSON.
 
 The `sku show` command can be used to list all SKUs, or show the details of a single SKU:
 ```sh
-carbide-admin-cli sku show [<sku id>]
+nico-admin-cli sku show [<sku id>]
 
-> carbide-admin-cli sku show
+> nico-admin-cli sku show
 +----------------------------------------------------------------+---------------------------------------------------------+------------------------------+-----------------------------+
 | ID                                                             | Description                                             | Model                        | Created                     |
 +================================================================+=========================================================+==============================+=============================+
 | PowerEdge R750 1xGPU 1xIB                                      | PowerEdge R750; 2xCPU; 1xGPU; 128 GiB                   | PowerEdge R750               | 2025-02-27T13:57:19.435162Z |
 +----------------------------------------------------------------+---------------------------------------------------------+------------------------------+-----------------------------+
 
-> carbide-admin-cli sku show 'PowerEdge R750 1xGPU 1xIB'
+> nico-admin-cli sku show 'PowerEdge R750 1xGPU 1xIB'
 ID                  : PowerEdge R750 1xGPU 1xIB
 Schema Version      : 4
 Description         : PowerEdge R750; 2xCPU; 1xGPU; 128 GiB
@@ -183,9 +183,9 @@ IB Devices:
 The `sku generate` command can be used to show what would match a given machine.
 
 ```sh
-carbide-admin-cli sku generate <machineid>
+nico-admin-cli sku generate <machineid>
 
-> carbide-admin-cli sku generate fm100hts7tqfqtgn3imi7ipd2jk7r37idk5r4aa41krpcelg498hasoqtkg
+> nico-admin-cli sku generate fm100hts7tqfqtgn3imi7ipd2jk7r37idk5r4aa41krpcelg498hasoqtkg
 ID                  : PowerEdge R750 1xGPU 1xIB
 Schema Version      : 4
 Description         : PowerEdge R750; 2xCPU; 1xGPU; 128 GiB
@@ -240,14 +240,14 @@ site controller.
 Save the SKU information (on your local machine, written to an output file):
 
 ```sh
-carbide-admin-cli -f json -o <sku_name>.json sku generate <machineid> --id <sku_name>
+nico-admin-cli -f json -o <sku_name>.json sku generate <machineid> --id <sku_name>
 ```
 
 This will create a file in the current directory with the name `<sku_name>.json`, at this point you can create the
 SKU on the site controller:
 
 ```sh
-carbide-admin-cli sku create <sku_name>.json
+nico-admin-cli sku create <sku_name>.json
 ```
 
 ### Assign a SKU to a machine
@@ -256,7 +256,7 @@ Note that generally, you do not need to assign a SKU to a machine, since the SKU
 machine goes to ready (not assigned) state, or goes through a machine validation workflow.
 
 ```sh
-carbide-admin-cli sku assign <sku_name> <machineid>
+nico-admin-cli sku assign <sku_name> <machineid>
 ```
 
 ### Remove a SKU assignment from a machine
@@ -266,14 +266,14 @@ a SKU in the given site, and it is not in an assigned state, it will likely be q
 the site controller after this command is run.
 
 ```sh
-carbide-admin-cli sku unassign <machineid>
+nico-admin-cli sku unassign <machineid>
 ```
 
 ### Replacing an existing SKU
 If a SKU has a set of components that do not work for a set of machines (either due to bugs, or NICo software updates) updating machines by unassigning and assigning a SKU would be challenging.  Replacing the components of a SKU can be done with the `sku replace` command.  This will force all machines to go through verification when no instance is allocated to the machine (all machines are verified when an instance is released).
 
 ```sh
-carbide-admin-cli sku replace <filename> [--id <sku_name>]
+nico-admin-cli sku replace <filename> [--id <sku_name>]
 ```
 
 ### Remove a SKU from a site
@@ -284,7 +284,7 @@ machines have a given SKU using the command below, `sku show-machines` then foll
 following command to remove the SKU:
 
 ```sh
-carbide-admin-cli sku delete <sku_name>
+nico-admin-cli sku delete <sku_name>
 ```
 
 #### Upgrading a SKU to the current version example
@@ -293,7 +293,7 @@ When a new version of NICo is released that changes how SKUs behave, existing SK
 The existing SKU is below.  Note that the "Storage Devices" section includes a device with a model of "NO_MODEL" and there is no TPM.  The extra storage device is created by the raid card and may not always exist and should not have been included in the SKU.
 
 ```sh
-carbide-admin-cli sku show XE9680
+nico-admin-cli sku show XE9680
 ID:              XE9680
 Schema Version:  2
 Description:     PowerEdge XE9680; 2xCPU; 8xGPU; 2 TiB
@@ -337,7 +337,7 @@ Storage Devices:
 Using the `sku generate` command, we can see what the updated SKU looks like for the same machine.  This is the same machine that generated the older SKU in a previous release.  Note that the "NO_MODEL" device is gone, the RAID controller is now shown as `Dell BOSS-N1` and the version of the TPM is shown.
 
 ``` sh
-carbide-admin-cli sku generate fm100hti7olik00gefc9qlma831n6q49d1odkksp86q639cugt5afjnm4s0
+nico-admin-cli sku generate fm100hti7olik00gefc9qlma831n6q49d1odkksp86q639cugt5afjnm4s0
 ID                  : PowerEdge R750 1xGPU 1xIB
 Schema Version      : 4
 Description         : PowerEdge R750; 2xCPU; 1xGPU; 128 GiB
@@ -383,13 +383,13 @@ Storage Devices:
 
 Create a new SKU file using the generate command again, but create a json file.  Note that the same ID needs to be specified as the existing SKU in order for the replace command to find the old SKU.
 ```sh
-carbide-admin-cli -f json -o /tmp/xe9680.json sku g fm100hti7olik00gefc9qlma831n6q49d1odkksp86q639cugt5afjnm4s0 --id XE9680
+nico-admin-cli -f json -o /tmp/xe9680.json sku g fm100hti7olik00gefc9qlma831n6q49d1odkksp86q639cugt5afjnm4s0 --id XE9680
 
 ```
 
 Then replace the old SKU
 ```sh
-carbide-admin-cli sku replace /tmp/xe9680.json
+nico-admin-cli sku replace /tmp/xe9680.json
 +--------+---------------------------------------+------------------+-----------------------------+
 | ID     | Description                           | Model            | Created                     |
 +========+=======================================+==================+=============================+
@@ -400,7 +400,7 @@ carbide-admin-cli sku replace /tmp/xe9680.json
 
 The `show sku` command now shows the updated components (and version)
 ```sh
-carbide-admin-cli sku show XE9680
+nico-admin-cli sku show XE9680
 ID                  : XE9680
 Schema Version      : 4
 Description         : PowerEdge R750; 2xCPU; 1xGPU; 128 GiB
@@ -449,7 +449,7 @@ Storage Devices:
 To find all the assigned machines for a given SKU:
 
 ```sh
-carbide-admin-cli sku show-machines <sku_name>
+nico-admin-cli sku show-machines <sku_name>
 ```
 
 ### Force SKU revalidation
@@ -460,7 +460,7 @@ it will be validated the next time the machine is unassigned. Note that you cann
 will refrain from doing so automatically.
 
 ```sh
-carbide-admin-cli sku verify <sku_name>
+nico-admin-cli sku verify <sku_name>
 ```
 
 ## Issues

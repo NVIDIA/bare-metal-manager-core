@@ -154,7 +154,6 @@ create_machines = true
 allow_changing_bmc_proxy = true
 bmc_proxy = ":2000"
 run_interval = "10s"
-allow_zero_dpu_hosts = true
 
 [component_manager]
 nv_switch_backend = "nsm"

@@ -21,6 +21,7 @@ use std::time::Duration;
 use reqwest::Client;
 use reqwest::header::ACCEPT;
 use serde::Deserialize;
+use serde::de::Error as _;
 use url::Url;
 
 use crate::HealthError;
@@ -228,11 +229,37 @@ pub struct ClusterApp {
 
 pub type SdnPartitionsResponse = HashMap<String, SdnPartition>;
 
+fn deserialize_optional_u32_from_number_or_string<'de, D>(
+    deserializer: D,
+) -> Result<Option<u32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum U32OrString {
+        Number(u32),
+        String(String),
+    }
+
+    match Option::<U32OrString>::deserialize(deserializer)? {
+        Some(U32OrString::Number(value)) => Ok(Some(value)),
+        Some(U32OrString::String(value)) => value.parse::<u32>().map(Some).map_err(|error| {
+            D::Error::custom(format!("invalid numeric string for num-gpus: {error}"))
+        }),
+        None => Ok(None),
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct SdnPartition {
     pub name: Option<String>,
     pub health: Option<String>,
-    #[serde(rename = "num-gpus")]
+    #[serde(
+        default,
+        rename = "num-gpus",
+        deserialize_with = "deserialize_optional_u32_from_number_or_string"
+    )]
     pub num_gpus: Option<u32>,
 }
 
@@ -351,6 +378,23 @@ mod tests {
         let resp: SdnPartition = serde_json::from_str(json).unwrap();
         assert_eq!(resp.name.as_deref(), Some("Partition1"));
         assert_eq!(resp.health.as_deref(), Some("healthy"));
+        assert_eq!(resp.num_gpus, Some(8));
+    }
+
+    #[test]
+    fn test_parse_sdn_partition_string_num_gpus() {
+        let json = r#"{
+            "name": "Default Partition",
+            "num-gpus": "8",
+            "health": "unhealthy",
+            "resiliency-mode": "adaptive_bandwidth",
+            "mcast-limit": 1024,
+            "partition-type": "gpuuid_based"
+        }"#;
+
+        let resp: SdnPartition = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.name.as_deref(), Some("Default Partition"));
+        assert_eq!(resp.health.as_deref(), Some("unhealthy"));
         assert_eq!(resp.num_gpus, Some(8));
     }
 

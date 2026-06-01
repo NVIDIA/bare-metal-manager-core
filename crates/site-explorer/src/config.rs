@@ -96,13 +96,6 @@ pub struct SiteExplorerConfig {
     /// This is a debug override and should not be used in production.
     pub override_target_port: Option<u16>,
 
-    /// Whether to allow hosts with zero DPUs in site-explorer. This should typically be set to
-    /// false in production environments where we expect all hosts to have DPUs. When false, if we
-    /// encounter a host with no DPUs, site-explorer will throw an error for that host (because it
-    /// should be assumed that there's a bug in detecting the DPUs).
-    #[serde(default)]
-    pub allow_zero_dpu_hosts: bool,
-
     /// The host:port to use as a proxy when making BMC calls to all hosts in NICo. This is used
     /// for integration testing, and for local development with machine-a-tron/bmc-mock. Should not
     /// be used in production.
@@ -206,7 +199,6 @@ impl Default for SiteExplorerConfig {
             machines_created_per_run: Self::default_machines_created_per_run(),
             override_target_ip: None,
             override_target_port: None,
-            allow_zero_dpu_hosts: false,
             bmc_proxy: bmc_proxy(None),
             allow_changing_bmc_proxy: None,
             reset_rate_limit: Self::default_reset_rate_limit(),

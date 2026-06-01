@@ -188,7 +188,7 @@ async fn test_managed_host_network_config_includes_routing_profile_prefix_lists(
         .build()
         .await;
 
-    // Fetch the DPU network config and extract its per-interface routing profile.
+    // Fetch the DPU network config and extract its per-VPC routing profile.
     let response = env
         .api
         .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
@@ -198,9 +198,14 @@ async fn test_managed_host_network_config_includes_routing_profile_prefix_lists(
         .unwrap()
         .into_inner();
     let routing_profile = response.tenant_interfaces[0]
-        .routing_profile
+        .vpc_routing_profile
         .clone()
         .unwrap();
+    assert!(
+        response.tenant_interfaces[0]
+            .interface_routing_profile
+            .is_none()
+    );
 
     // Verify the configured leak prefixes are preserved in the gRPC response.
     let actual_leaks: Vec<_> = routing_profile
@@ -223,6 +228,145 @@ async fn test_managed_host_network_config_includes_routing_profile_prefix_lists(
 
     // Verify the deprecated top-level field is still populated for rollout compatibility.
     assert!(response.routing_profile.is_some());
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_network_config_narrows_interface_anycast_prefixes(pool: sqlx::PgPool) {
+    let profile_type = "ANYCAST_SUBSET_TEST";
+    let vpc_allowed_anycast_prefixes = ["192.0.2.0/24".to_string(), "2001:db8:99::/48".to_string()];
+    let interface_allowed_anycast_prefixes = vec![
+        "192.0.2.64/26".to_string(),
+        "2001:db8:99:1::/64".to_string(),
+    ];
+    let inherited_import = RouteTargetConfig {
+        asn: 65001,
+        vni: 123,
+    };
+
+    // Configure an FNN routing profile with anycast prefixes broad enough for the interface.
+    let env = api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::default().with_fnn_config(Some(FnnConfig {
+            admin_vpc: None,
+            common_internal_route_target: None,
+            additional_route_target_imports: vec![],
+            routing_profiles: HashMap::from([(
+                profile_type.to_string(),
+                FnnRoutingProfileConfig {
+                    internal: true,
+                    access_tier: 0,
+                    leak_default_route_from_underlay: true,
+                    route_target_imports: vec![inherited_import.clone()],
+                    allowed_anycast_prefixes: vpc_allowed_anycast_prefixes
+                        .iter()
+                        .map(|prefix| PrefixFilterPolicyEntry {
+                            prefix: prefix.parse().unwrap(),
+                        })
+                        .collect(),
+                    ..Default::default()
+                },
+            )]),
+            use_vpc_vrf_loopback: false,
+        })),
+    )
+    .await;
+
+    // Create a tenant and FNN VPC using that VPC-level routing profile.
+    let tenant = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: "anycast-subset-test".to_string(),
+            routing_profile_type: Some(profile_type.to_string()),
+            metadata: Some(rpc::forge::Metadata {
+                name: "anycast-subset-test".to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap()
+        .into_inner()
+        .tenant
+        .unwrap();
+
+    let segment_id = env
+        .create_vpc_and_tenant_segment_with_vpc_details(
+            VpcCreationRequest::builder(tenant.organization_id.as_str())
+                .metadata(Metadata {
+                    name: "anycast subset vpc".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .routing_profile_type(profile_type.to_string())
+                .rpc(),
+        )
+        .await;
+
+    // Allocate an instance with a per-interface anycast prefix subset.
+    let mut network_config =
+        common::api_fixtures::instance::single_interface_network_config(segment_id);
+    network_config.interfaces[0].routing_profile =
+        Some(rpc::forge::InstanceInterfaceRoutingProfile {
+            allowed_anycast_prefixes: interface_allowed_anycast_prefixes
+                .iter()
+                .map(|prefix| rpc::forge::PrefixFilterPolicyEntry {
+                    prefix: prefix.to_string(),
+                })
+                .collect(),
+        });
+    let mh = create_managed_host(&env).await;
+    mh.instance_builer(&env)
+        .tenant_org(tenant.organization_id)
+        .network(network_config)
+        .build()
+        .await;
+
+    // Fetch the DPU network config and extract its split routing profiles.
+    let response = env
+        .api
+        .get_managed_host_network_config(tonic::Request::new(ManagedHostNetworkConfigRequest {
+            dpu_machine_id: Some(mh.dpu().id),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let vpc_routing_profile = response.tenant_interfaces[0]
+        .vpc_routing_profile
+        .clone()
+        .unwrap();
+    let interface_routing_profile = response.tenant_interfaces[0]
+        .interface_routing_profile
+        .clone()
+        .unwrap();
+
+    // Verify the VPC-level anycast prefixes remain unchanged.
+    let actual_vpc_allowed_anycast_prefixes: Vec<_> = vpc_routing_profile
+        .allowed_anycast_prefixes
+        .clone()
+        .into_iter()
+        .map(|prefix| prefix.prefix)
+        .collect();
+    assert_eq!(
+        actual_vpc_allowed_anycast_prefixes,
+        vpc_allowed_anycast_prefixes.to_vec()
+    );
+
+    // Verify the interface-level anycast prefixes are sent separately.
+    let actual_interface_allowed_anycast_prefixes: Vec<_> = interface_routing_profile
+        .allowed_anycast_prefixes
+        .into_iter()
+        .map(|prefix| prefix.prefix)
+        .collect();
+    assert_eq!(
+        actual_interface_allowed_anycast_prefixes,
+        interface_allowed_anycast_prefixes
+    );
+
+    // Verify non-interface profile fields remain on the VPC profile.
+    assert!(vpc_routing_profile.leak_default_route_from_underlay);
+    assert_eq!(vpc_routing_profile.route_target_imports.len(), 1);
+    assert_eq!(vpc_routing_profile.route_target_imports[0].asn, 65001);
+    assert_eq!(vpc_routing_profile.route_target_imports[0].vni, 123);
 }
 
 #[crate::sqlx_test]
@@ -379,7 +523,7 @@ async fn test_managed_host_network_config_includes_per_vpc_routing_profiles(pool
             (
                 interface.vpc_vni,
                 interface
-                    .routing_profile
+                    .vpc_routing_profile
                     .expect("FNN interface should include a routing profile"),
             )
         })
@@ -610,9 +754,10 @@ async fn test_managed_host_network_config_omits_admin_fnn_vrf_loopback_by_defaul
     assert!(response.routing_profile.is_some());
 
     let routing_profile = admin_interface
-        .routing_profile
+        .vpc_routing_profile
         .as_ref()
-        .expect("admin interface should include per-interface routing profile");
+        .expect("admin interface should include per-VPC routing profile");
+    assert!(admin_interface.interface_routing_profile.is_none());
     assert!(routing_profile.leak_default_route_from_underlay);
     assert_eq!(routing_profile.route_target_imports.len(), 1);
     assert_eq!(routing_profile.route_target_imports[0].asn, 64512);
@@ -954,6 +1099,7 @@ async fn test_managed_host_network_status(pool: sqlx::PgPool) {
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }],
         auto: false,
     };
@@ -1055,6 +1201,7 @@ async fn test_managed_host_network_config_with_extension_services(pool: sqlx::Pg
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }],
         auto: false,
     };

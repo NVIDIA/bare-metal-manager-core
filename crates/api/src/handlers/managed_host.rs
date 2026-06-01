@@ -70,7 +70,7 @@ pub(crate) async fn set_primary_dpu(
                 kind: "Machine",
                 id: host_machine_id.to_string(),
             })?;
-    if snapshot.is_zero_dpu() {
+    if !snapshot.has_managed_dpus() {
         return Err(CarbideError::FailedPrecondition(format!(
             "Host {host_machine_id} has no DPUs; set-primary-dpu does not apply to zero-DPU hosts."
         ))

@@ -21,6 +21,7 @@ use std::default::Default;
 use std::io;
 use std::sync::Arc;
 
+use carbide_machine_controller::config::machine_validation::MachineValidationConfig;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use db::ObjectFilter;
 use tokio::task::JoinSet;
@@ -28,7 +29,6 @@ use tokio_util::sync::CancellationToken;
 
 use self::metrics::MachineValidationMetrics;
 use crate::CarbideResult;
-use crate::cfg::file::MachineValidationConfig;
 
 pub struct MachineValidationManager {
     database_connection: sqlx::PgPool,

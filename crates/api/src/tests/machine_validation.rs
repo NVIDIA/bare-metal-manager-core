@@ -18,6 +18,9 @@
 use std::str::FromStr;
 use std::time::SystemTime;
 
+use carbide_machine_controller::config::machine_validation::{
+    MachineValidationConfig, MachineValidationTestConfig, MachineValidationTestSelectionMode,
+};
 use carbide_uuid::machine_validation::MachineValidationId;
 use common::api_fixtures::{
     TestEnvOverrides, create_host_with_machine_validation, create_test_env,
@@ -33,9 +36,6 @@ use rpc::Timestamp;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{MachineValidationTestNextVersionRequest, MachineValidationTestVerfiedRequest};
 
-use crate::cfg::file::{
-    MachineValidationConfig, MachineValidationTestConfig, MachineValidationTestSelectionMode,
-};
 use crate::handlers::machine_validation::apply_config_on_startup;
 use crate::tests::common;
 

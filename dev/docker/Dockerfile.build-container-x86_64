@@ -21,7 +21,7 @@ FROM rust:1.95.0-slim-bookworm
 # Set in gitlab-templates/scripts/build-push-container-image.sh
 ARG CI_COMMIT_SHORT_SHA
 ENV CI_COMMIT_SHORT_SHA $CI_COMMIT_SHORT_SHA
-ENV RUST_NIGHTLY nightly-2025-11-14
+ENV RUST_NIGHTLY nightly-2026-05-27
 
 # Change CACHEKEY to whatever so docker doesn't re-use the cache from before if you want apt to actually run.
 #

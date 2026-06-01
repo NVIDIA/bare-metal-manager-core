@@ -21,14 +21,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use carbide_dpf::DpuPhase;
+use carbide_machine_controller::dpf::DpfOperations;
 use model::machine::ManagedHostState;
 use tokio::time::timeout;
 
-use crate::state_controller::machine::dpf::DpfOperations;
-
 const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
-use crate::state_controller::machine::dpf::MockDpfOperations;
+use carbide_machine_controller::dpf::MockDpfOperations;
+
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host_with_dpf, create_test_env_with_overrides, get_config,
 };

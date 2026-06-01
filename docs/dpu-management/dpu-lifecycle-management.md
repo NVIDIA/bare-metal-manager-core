@@ -19,7 +19,7 @@ NICo treats each managed host as a host server paired with one or more BlueField
 
 ### `dpu-agent`
 
-The DPU agent runs as a daemon on the DPU. In service names and logs it appears as `forge-dpu-agent`; in the documentation it is usually referred to as `dpu-agent`.
+The DPU agent runs as a daemon on the DPU. In service names and logs it appears as `nico-dpu-agent`; in the documentation it is usually referred to as `dpu-agent`.
 
 The agent periodically calls `GetManagedHostNetworkConfig` to fetch the desired configuration from NICo Core. It applies the configuration locally, runs health checks, and reports status back with `RecordDpuNetworkStatus`. The report includes applied configuration versions and DPU health.
 
@@ -28,7 +28,7 @@ The agent is responsible for:
 - Applying DPU network configuration (HBN/NVUE).
 - Configuring the DPU-local DHCP server.
 - Running periodic health checks for required services, BGP peering, disk utilization, restricted mode, and related DPU conditions.
-- Running the Forge Metadata Service (FMDS).
+- Running the NICo Metadata Service (MDS).
 - Supporting auto-updates of the agent itself.
 - Applying selected DPU OS hotfixes without requiring a full DPU OS reinstall.
 
@@ -38,9 +38,9 @@ NICo runs a custom DHCP server on the DPU. The DPU-local DHCP server handles DHC
 
 This is a security benefit: the DPU enforces host isolation before the host receives any network configuration. A compromised host cannot broadcast DHCP traffic onto the underlay to discover or interfere with other hosts. It also makes DHCP behavior part of the declarative DPU configuration that `dpu-agent` receives from NICo Core.
 
-### Forge Metadata Service
+### NICo Metadata Service
 
-The Forge Metadata Service (FMDS) exposes instance metadata to tenants from the DPU. Tenants can use FMDS to retrieve information such as the Machine ID and boot or operating system metadata for their instance. FMDS runs on the DPU rather than on the host, so its responses are trusted independently of the host OS.
+The NICo Metadata Service (MDS) exposes instance metadata to tenants from the DPU. Tenants can use MDS to retrieve information such as the Machine ID and boot or operating system metadata for their instance. MDS runs on the DPU rather than on the host, so its responses are trusted independently of the host OS.
 
 ### HBN and Containerized Cumulus
 
@@ -58,8 +58,8 @@ DPU OS installation happens as part of the managed host state machine after Site
 
 NICo uses two different BFB images. They are not interchangeable:
 
-- **NICo BFB**: The image installed during the managed host state machine and reprovisioning. It is built from the vanilla DOCA BFB and customized with NICo services: `dpu-agent`, the DPU DHCP server, FMDS, HBN installer and configuration, NICo root CA, and scout. This is the image that makes the DPU a fully managed component. For build instructions, see [Building NICo Containers](../manuals/building_nico_containers.md#building-the-dpu-bfb).
-- **Preingestion BFB** (`preingestion.bfb`): The unmodified vanilla DOCA BFB, saved as-is during the build process before any NICo customization is applied. It does **not** contain `dpu-agent`, HBN, FMDS, or any other NICo services. This image is used only for pre-ingestion recovery via rshim (`copy-bfb-to-dpu-rshim`) to return a DPU to a clean factory state so that NICo can discover and pair it. After the preingestion BFB is installed, the normal state machine installs the NICo BFB.
+- **NICo BFB**: The image installed during the managed host state machine and reprovisioning. It is built from the vanilla DOCA BFB and customized with NICo services: `dpu-agent`, the DPU DHCP server, MDS, HBN installer and configuration, NICo root CA, and scout. This is the image that makes the DPU a fully managed component. For build instructions, see [Building NICo Containers](../manuals/building_nico_containers.md#building-the-dpu-bfb).
+- **Preingestion BFB** (`preingestion.bfb`): The unmodified vanilla DOCA BFB, saved as-is during the build process before any NICo customization is applied. It does **not** contain `dpu-agent`, HBN, MDS, or any other NICo services. This image is used only for pre-ingestion recovery via rshim (`copy-bfb-to-dpu-rshim`) to return a DPU to a clean factory state so that NICo can discover and pair it. After the preingestion BFB is installed, the normal state machine installs the NICo BFB.
 
 ### How NICo Chooses the Install Method
 
@@ -80,7 +80,7 @@ This is the preferred method for DPUs with recent BMC firmware. NICo pushes the 
 2. The managed host enters `DpuDiscoveringState`.
 3. NICo enables rshim access and configures DPU Secure Boot (the `EnableSecureBoot` sub-flow).
 4. Once Secure Boot is confirmed enabled, the state machine enters `DPUInit/InstallDpuOs/InstallingBFB`.
-5. NICo calls the DPU BMC Redfish `UpdateService` `SimpleUpdate` action, pointing it at the NICo BFB hosted by `carbide-pxe`, with the target `DPU_OS`.
+5. NICo calls the DPU BMC Redfish `UpdateService` `SimpleUpdate` action, pointing it at the NICo BFB hosted by `nico-pxe`, with the target `DPU_OS`.
 6. NICo polls the Redfish task and waits in `DPUInit/InstallDpuOs/WaitForInstallComplete`.
 7. When the task completes, NICo power-cycles the host so the new DPU image and platform configuration take effect.
 8. NICo waits for DPU discovery, DPU network configuration, and a healthy `dpu-agent` report before moving to host initialization.
@@ -89,13 +89,13 @@ While the BFB task is running, the handler outcome includes messages like `Waiti
 
 ### UEFI HTTP Boot (Network Install)
 
-For DPUs whose BMC firmware does not support Redfish-based BFB install, NICo falls back to a network install via UEFI HTTP Boot. In this path the DPU downloads and installs its OS from `carbide-pxe` during boot rather than receiving a Redfish push.
+For DPUs whose BMC firmware does not support Redfish-based BFB install, NICo falls back to a network install via UEFI HTTP Boot. In this path the DPU downloads and installs its OS from `nico-pxe` during boot rather than receiving a Redfish push.
 
 1. Site Explorer discovers and pairs the host and DPU as above.
 2. The managed host enters `DpuDiscoveringState`.
 3. NICo enables rshim access and disables DPU Secure Boot (the `DisableSecureBoot` sub-flow). Secure Boot must be off because the network boot image is not signed for the DPU Secure Boot chain.
 4. NICo configures the DPU to boot once from UEFI HTTP (`SetUefiHttpBoot` state) and reboots all DPUs.
-5. The DPU boots via HTTP and requests PXE instructions from `carbide-pxe`. NICo serves a DPU-specific boot payload: a `carbide.efi` kernel, a `carbide.root` initrd, and a BlueField Kickstart script (`bfks`) delivered via cloud-init user-data. The kickstart script drives the BFB installation on the DPU.
+5. The DPU boots via HTTP and requests PXE instructions from `nico-pxe`. NICo serves a DPU-specific boot payload: a `nico.efi` kernel, a `nico.root` initrd, and a BlueField Kickstart script (`bfks`) delivered via cloud-init user-data. The kickstart script drives the BFB installation on the DPU.
 6. After boot, NICo enters `DPUInit/Init`, restarts all DPUs, power-cycles the host, and waits for the DPU to come up with the new image.
 7. NICo proceeds through `WaitingForPlatformConfiguration` and `WaitingForNetworkConfig`, waiting for the `dpu-agent` to apply configuration and report healthy, before moving to host initialization.
 
@@ -108,24 +108,24 @@ Because there is no Redfish task to poll, NICo monitors the network install indi
 During normal ingestion no manual action is required. Operators can monitor the state with:
 
 ```bash
-carbide-admin-cli -c <api-url> managed-host show --all
-carbide-admin-cli -c <api-url> managed-host show <machine-id>
+nico-admin-cli -c <api-url> managed-host show --all
+nico-admin-cli -c <api-url> managed-host show <machine-id>
 ```
 
 For Redfish BFB installs, the handler outcome reports install percentage. For UEFI HTTP Boot installs, the handler outcome reports DPU discovery and reboot status.
 
 ### Common Installation Failures
 
-Most DPU OS installation failures are diagnosed from the managed host state, `carbide-api` logs, and (for Redfish installs) the Redfish task messages returned by the DPU BMC.
+Most DPU OS installation failures are diagnosed from the managed host state, `nico-api` logs, and (for Redfish installs) the Redfish task messages returned by the DPU BMC.
 
 | Symptom | Install method | Likely cause | Resolution |
 |---|---|---|---|
 | `Invalid FW Package` | Both | The BFB was built incorrectly or for the wrong DPU platform. | Verify the DPU model from Redfish inventory or DPU firmware output, rebuild the BFB for the correct platform, and retry. |
 | Redfish unavailable | Redfish | DPU BMC is unreachable or not responding to Redfish requests. | Check DPU BMC network reachability and credentials. NICo retries automatically. |
-| Task exception or unknown state | Redfish | Unexpected Redfish task status. | Inspect the Redfish task messages in `carbide-api` logs and confirm the BFB URL served by `carbide-pxe`. |
+| Task exception or unknown state | Redfish | Unexpected Redfish task status. | Inspect the Redfish task messages in `nico-api` logs and confirm the BFB URL served by `nico-pxe`. |
 | rshim ownership conflict | rshim (SCP) | Host holds rshim and the DPU BMC cannot initiate the copy. | Use `--pre-copy-powercycle` when installing a fresh BFB via rshim to release host control first. |
-| DPU never becomes reachable after reboot | UEFI HTTP | DPU failed to PXE boot or kickstart failed. | Check `carbide-pxe` logs for the DPU's PXE request. Verify the DPU boot order is set to UEFI HTTP. Check `carbide-api` logs for the DPU BMC IP. |
-| Stuck in `WaitingForNetworkInstall` | UEFI HTTP | DPU booted but did not install the OS or `dpu-agent` did not start. | SSH to the DPU via its BMC/rshim and check `journalctl -fu forge-dpu-agent`. NICo reboots the DPU automatically if it does not appear within the reboot timeout. |
+| DPU never becomes reachable after reboot | UEFI HTTP | DPU failed to PXE boot or kickstart failed. | Check `nico-pxe` logs for the DPU's PXE request. Verify the DPU boot order is set to UEFI HTTP. Check `nico-api` logs for the DPU BMC IP. |
+| Stuck in `WaitingForNetworkInstall` | UEFI HTTP | DPU booted but did not install the OS or `dpu-agent` did not start. | SSH to the DPU via its BMC/rshim and check `journalctl -fu nico-dpu-agent`. NICo reboots the DPU automatically if it does not appear within the reboot timeout. |
 
 For the manual rshim recovery command (which installs the preingestion BFB, not the NICo BFB) and additional pairing troubleshooting, see [DPU-Related Issues: Installing a Fresh DPU OS](../provisioning/ingesting-hosts.md#dpu-related-issues-installing-a-fresh-dpu-os). For the full DPU troubleshooting workflow, see [`WaitingForNetworkConfig` and DPU health](../playbooks/stuck_objects/waiting_for_network_config.md).
 
@@ -164,7 +164,7 @@ A DPU update is treated as a host-level maintenance event because the host and i
 Operators can inspect DPU firmware status with:
 
 ```bash
-carbide-admin-cli -c <api-url> dpu versions
+nico-admin-cli -c <api-url> dpu versions
 ```
 
 ## Containerized Cumulus and NVUE
@@ -209,15 +209,15 @@ NICo uses DPU health to gate state transitions and allocation:
 
 - If the DPU has not recently reported that it is up, healthy, and synchronized to the desired configuration, the managed host state does not advance.
 - If the health report contains alerts with the `PreventAllocations` classification, the host is not available for new tenant allocation.
-- If the `dpu-agent` stops sending reports entirely, NICo records a `HeartbeatTimeout` health alert against `forge-dpu-agent`.
+- If the `dpu-agent` stops sending reports entirely, NICo records a `HeartbeatTimeout` health alert against `nico-dpu-agent`.
 
 ### Investigating Unhealthy DPUs
 
 When a DPU becomes unhealthy, inspect the managed host state and DPU health report:
 
 ```bash
-carbide-admin-cli -c <api-url> managed-host show <machine-id>
-carbide-admin-cli -c <api-url> machine network status
+nico-admin-cli -c <api-url> managed-host show <machine-id>
+nico-admin-cli -c <api-url> machine network status
 ```
 
 Key fields to check in the output:
@@ -252,7 +252,7 @@ Automatic DPU reprovisioning is triggered when Machine Update Manager selects an
 The API requires a `HostUpdateInProgress` health alert on the host before it accepts a reprovisioning request. Use `--update-message` to apply this alert:
 
 ```bash
-carbide-admin-cli -c <api-url> dpu reprovision set \
+nico-admin-cli -c <api-url> dpu reprovision set \
   --id <host-or-dpu-machine-id> \
   --update-message "<maintenance-reference>"
 ```
@@ -262,8 +262,8 @@ Firmware is always verified and updated during reprovisioning regardless of whet
 ### Monitoring Reprovisioning Progress
 
 ```bash
-carbide-admin-cli -c <api-url> dpu reprovision list
-carbide-admin-cli -c <api-url> managed-host show <machine-id>
+nico-admin-cli -c <api-url> dpu reprovision list
+nico-admin-cli -c <api-url> managed-host show <machine-id>
 ```
 
 The `managed-host show` output displays the current reprovisioning substate, percent complete for BFB installation (when available), and any handler errors.
@@ -273,13 +273,13 @@ The `managed-host show` output displays the current reprovisioning substate, per
 To restart a DPU reprovisioning flow for all DPUs on a host:
 
 ```bash
-carbide-admin-cli -c <api-url> dpu reprovision restart --id <host-machine-id>
+nico-admin-cli -c <api-url> dpu reprovision restart --id <host-machine-id>
 ```
 
 To clear a pending reprovisioning request that has not started:
 
 ```bash
-carbide-admin-cli -c <api-url> dpu reprovision clear --id <host-or-dpu-machine-id>
+nico-admin-cli -c <api-url> dpu reprovision clear --id <host-or-dpu-machine-id>
 ```
 
 For the complete reprovisioning state machine, see [DPU Reprovision State Details](../architecture/state_machines/managedhost.md#dpu-reprovision-state-details-dpureprovisionstate).

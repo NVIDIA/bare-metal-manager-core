@@ -58,7 +58,7 @@ pub use crate::protos::machine_discovery::{
     self, BlockDevice, Cpu, DiscoveryInfo, DmiData, NetworkInterface, NvmeDevice,
     PciDeviceProperties,
 };
-pub use crate::protos::{fmds, health, site_explorer};
+pub use crate::protos::{fmds, health, scout_firmware_upgrade, site_explorer};
 
 pub mod errors;
 pub mod forge_tls_client;
@@ -559,6 +559,15 @@ impl FromStr for forge::InstanceInfinibandConfig {
 }
 
 impl FromStr for forge::InstanceNvLinkConfig {
+    type Err = RpcDataConversionError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s)
+            .map_err(|e| RpcDataConversionError::JsonConversionFailure(e.to_string()))
+    }
+}
+
+impl FromStr for forge::InstanceSpxConfig {
     type Err = RpcDataConversionError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {

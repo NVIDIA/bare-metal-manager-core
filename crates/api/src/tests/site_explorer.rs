@@ -226,7 +226,6 @@ async fn test_site_explorer_default_pause_ingestion_and_poweron(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
-        allow_zero_dpu_hosts: true,
         ..Default::default()
     };
     let test_meter = TestMeter::default();
@@ -394,7 +393,6 @@ async fn test_handle_redfish_error_powers_on_machine(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
-        allow_zero_dpu_hosts: true,
         ..Default::default()
     };
     let test_meter = TestMeter::default();
@@ -484,6 +482,37 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     );
     txn.commit().await.unwrap();
 
+    // Register `expected_machines` so site-explorer accepts these hosts: the
+    // host with a DPU pair takes the default `DpuMode`, and the zero-DPU host
+    // declares `NoDpu` to pass the strict ingestion gate.
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: machines[1].mac,
+            data: ExpectedMachineData {
+                serial_number: "host-with-dpu".to_string(),
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: machines[2].mac,
+            data: ExpectedMachineData {
+                serial_number: "host-with-no-dpu".to_string(),
+                dpu_mode: model::expected_machine::DpuMode::NoDpu,
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
     let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
     let mock_dpu = machines[0].as_mock_dpu();
 
@@ -533,7 +562,6 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
-        allow_zero_dpu_hosts: true,
         create_power_shelves: Arc::new(true.into()),
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
@@ -816,6 +844,293 @@ async fn test_site_explorer_main(pool: sqlx::PgPool) -> Result<(), Box<dyn std::
     Ok(())
 }
 
+/// Strict ingestion gate: a host whose BMC reports no DPU PCIe devices
+/// and whose `ExpectedMachine` does not declare `NoDpu` is skipped (with
+/// a warning + a `NoDpuReportedByHost` pairing-blocker metric) rather
+/// than ingested. Operators must explicitly opt in to zero-DPU.
+#[crate::sqlx_test]
+async fn test_site_explorer_skips_unexpected_zero_dpu_host(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let mut machine = FakeMachine::new(
+        "AA:AB:AC:AD:AA:11",
+        "Vendor1",
+        env.underlay_segment.unwrap(),
+    );
+    machine.discover_dhcp(&env).await?;
+
+    // expected_machine WITHOUT a NoDpu declaration -- the host is
+    // "expected to have DPUs" by default.
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: machine.mac,
+            data: ExpectedMachineData {
+                serial_number: "host-expected-dpus-but-has-none".to_string(),
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    // BMC report with no PCIe devices / no chassis -- the gate sees
+    // zero DPUs.
+    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
+    endpoint_explorer.insert_endpoint_results(vec![(
+        machine.ip.parse().unwrap(),
+        Ok(EndpointExplorationReport {
+            endpoint_type: EndpointType::Bmc,
+            vendor: Some(bmc_vendor::BMCVendor::Lenovo),
+            systems: vec![ComputerSystem {
+                serial_number: Some("0123456789".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+    )]);
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let test_meter = TestMeter::default();
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        test_meter.meter(),
+        endpoint_explorer,
+        Arc::new(env.config.get_firmware_config()),
+        env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
+    );
+
+    // First iteration populates `explored_endpoints`; second runs
+    // `identify_managed_hosts` after preingestion is complete.
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    db::explored_endpoints::set_preingestion_complete(machine.ip.parse().unwrap(), &mut txn)
+        .await?;
+    txn.commit().await?;
+    explorer.run_single_iteration().await.unwrap();
+
+    // No managed host should have been identified.
+    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
+    assert!(
+        explored_managed_hosts.is_empty(),
+        "strict gate should refuse to ingest a zero-DPU host without a `NoDpu` declaration, got {:?}",
+        explored_managed_hosts,
+    );
+    assert_eq!(
+        test_meter
+            .formatted_metric("carbide_site_exploration_identified_managed_hosts_count")
+            .unwrap(),
+        "0"
+    );
+
+    // The pairing-blocker metric should have ticked for `NoDpuReportedByHost`.
+    let blocker_metric = test_meter
+        .formatted_metric("carbide_host_dpu_pairing_blockers_count")
+        .expect("expected `carbide_host_dpu_pairing_blockers_count` to be emitted");
+    assert!(
+        blocker_metric.contains("no_dpu_reported_by_host"),
+        "expected pairing-blocker metric to mention `no_dpu_reported_by_host`, got {blocker_metric}",
+    );
+
+    Ok(())
+}
+
+/// Companion to `test_site_explorer_skips_unexpected_zero_dpu_host`: when
+/// the operator explicitly declares `dpu_mode = "nic_mode"`, a host whose
+/// BMC reports zero usable DPU PCIe devices (because anything that is a
+/// BlueField has been stripped as "DPU in NIC mode") should be ingested as
+/// a zero-DPU managed host -- the operator has already opted into "treat
+/// as zero-DPU" semantics by declaring NicMode.
+#[crate::sqlx_test]
+async fn test_site_explorer_ingests_nic_mode_host_with_no_observed_dpus(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let mut machine = FakeMachine::new(
+        "AA:AB:AC:AD:AA:22",
+        "Vendor1",
+        env.underlay_segment.unwrap(),
+    );
+    machine.discover_dhcp(&env).await?;
+
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: machine.mac,
+            data: ExpectedMachineData {
+                serial_number: "host-nic-mode-no-observed-dpus".to_string(),
+                dpu_mode: model::expected_machine::DpuMode::NicMode,
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
+    endpoint_explorer.insert_endpoint_results(vec![(
+        machine.ip.parse().unwrap(),
+        Ok(EndpointExplorationReport {
+            endpoint_type: EndpointType::Bmc,
+            vendor: Some(bmc_vendor::BMCVendor::Lenovo),
+            systems: vec![ComputerSystem {
+                serial_number: Some("0123456789".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+    )]);
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let test_meter = TestMeter::default();
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        test_meter.meter(),
+        endpoint_explorer,
+        Arc::new(env.config.get_firmware_config()),
+        env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
+    );
+
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    db::explored_endpoints::set_preingestion_complete(machine.ip.parse().unwrap(), &mut txn)
+        .await?;
+    txn.commit().await?;
+    explorer.run_single_iteration().await.unwrap();
+
+    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
+    assert_eq!(
+        explored_managed_hosts.len(),
+        1,
+        "NicMode declaration should let the host through the strict gate even with zero observed DPUs",
+    );
+    assert!(
+        explored_managed_hosts[0].dpus.is_empty(),
+        "NicMode hosts ingest with an empty `dpus` vector",
+    );
+
+    Ok(())
+}
+
+/// Third member of the zero-DPU triad (alongside the `DpuMode::DpuMode`
+/// skip test and the `DpuMode::NicMode` ingest test): a host explicitly
+/// declared `dpu_mode = "no_dpu"` ingests as a zero-DPU managed host. The
+/// `NoDpu` fast-path in `identify_managed_hosts` short-circuits before any
+/// DPU PCIe enumeration, so this holds regardless of what the BMC reports.
+#[crate::sqlx_test]
+async fn test_site_explorer_ingests_no_dpu_host(
+    pool: sqlx::PgPool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = common::api_fixtures::create_test_env(pool.clone()).await;
+
+    let mut machine = FakeMachine::new(
+        "AA:AB:AC:AD:AA:33",
+        "Vendor1",
+        env.underlay_segment.unwrap(),
+    );
+    machine.discover_dhcp(&env).await?;
+
+    let mut txn = env.pool.begin().await?;
+    db::expected_machine::create(
+        &mut txn,
+        ExpectedMachine {
+            id: None,
+            bmc_mac_address: machine.mac,
+            data: ExpectedMachineData {
+                serial_number: "host-no-dpu-declared".to_string(),
+                dpu_mode: model::expected_machine::DpuMode::NoDpu,
+                ..Default::default()
+            },
+        },
+    )
+    .await?;
+    txn.commit().await?;
+
+    let endpoint_explorer = Arc::new(MockEndpointExplorer::default());
+    endpoint_explorer.insert_endpoint_results(vec![(
+        machine.ip.parse().unwrap(),
+        Ok(EndpointExplorationReport {
+            endpoint_type: EndpointType::Bmc,
+            vendor: Some(bmc_vendor::BMCVendor::Lenovo),
+            systems: vec![ComputerSystem {
+                serial_number: Some("0123456789".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+    )]);
+
+    let explorer_config = SiteExplorerConfig {
+        enabled: Arc::new(true.into()),
+        explorations_per_run: 1,
+        concurrent_explorations: 1,
+        run_interval: std::time::Duration::from_secs(1),
+        create_machines: Arc::new(true.into()),
+        ..Default::default()
+    };
+    let test_meter = TestMeter::default();
+    let explorer = SiteExplorer::new(
+        env.pool.clone(),
+        explorer_config,
+        test_meter.meter(),
+        endpoint_explorer,
+        Arc::new(env.config.get_firmware_config()),
+        env.common_pools.clone(),
+        env.api.work_lock_manager_handle.clone(),
+        env.rms_sim.as_rms_client(),
+        env.test_credential_manager.clone(),
+    );
+
+    explorer.run_single_iteration().await.unwrap();
+    let mut txn = env.pool.begin().await?;
+    db::explored_endpoints::set_preingestion_complete(machine.ip.parse().unwrap(), &mut txn)
+        .await?;
+    txn.commit().await?;
+    explorer.run_single_iteration().await.unwrap();
+
+    let explored_managed_hosts = db::explored_managed_host::find_all(&env.pool).await?;
+    assert_eq!(
+        explored_managed_hosts.len(),
+        1,
+        "NoDpu declaration should ingest the host as zero-DPU",
+    );
+    assert!(
+        explored_managed_hosts[0].dpus.is_empty(),
+        "NoDpu hosts ingest with an empty `dpus` vector",
+    );
+
+    Ok(())
+}
+
 #[crate::sqlx_test(fixtures("create_expected_machine"))]
 async fn test_site_explorer_audit_exploration_results(
     pool: sqlx::PgPool,
@@ -1022,7 +1337,6 @@ async fn test_site_explorer_audit_exploration_results(
         machines_created_per_run: 1,
         override_target_ip: None,
         override_target_port: None,
-        allow_zero_dpu_hosts: false,
         allow_changing_bmc_proxy: None,
         bmc_proxy: Arc::default(),
         reset_rate_limit: chrono::Duration::hours(1),
@@ -1902,7 +2216,6 @@ async fn test_site_explorer_new_host_fixture(
     let env = common::api_fixtures::create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
-            allow_zero_dpu_hosts: Some(true),
             site_prefixes: Some(vec![
                 IpNetwork::new(
                     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
@@ -2091,7 +2404,6 @@ async fn test_site_explorer_fixtures_zerodpu_site_explorer_before_host_dhcp(
     let env = common::api_fixtures::create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
-            allow_zero_dpu_hosts: Some(true),
             site_prefixes: Some(vec![
                 IpNetwork::new(
                     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
@@ -2181,7 +2493,6 @@ async fn test_site_explorer_fixtures_zerodpu_dhcp_before_site_explorer(
     let env = common::api_fixtures::create_test_env_with_overrides(
         pool.clone(),
         TestEnvOverrides {
-            allow_zero_dpu_hosts: Some(true),
             site_prefixes: Some(vec![
                 IpNetwork::new(
                     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
@@ -2335,7 +2646,6 @@ async fn test_site_explorer_unknown_vendor(
         concurrent_explorations: 1,
         run_interval: std::time::Duration::from_secs(1),
         create_machines: Arc::new(true.into()),
-        allow_zero_dpu_hosts: true,
         allocate_secondary_vtep_ip: true,
         create_power_shelves: Arc::new(true.into()),
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
@@ -3079,7 +3389,6 @@ async fn test_site_explorer_power_shelf_discovery(
         create_power_shelves: Arc::new(true.into()),
         explore_power_shelves_from_static_ip: Arc::new(false.into()),
         power_shelves_created_per_run: 1,
-        allow_zero_dpu_hosts: true,
         ..Default::default()
     };
     let test_meter = TestMeter::default();
@@ -3235,7 +3544,6 @@ async fn test_site_explorer_switch_discovery(
         create_machines: Arc::new(true.into()),
         create_switches: Arc::new(true.into()),
         switches_created_per_run: 1,
-        allow_zero_dpu_hosts: true,
         ..Default::default()
     };
     let test_meter = TestMeter::default();
@@ -3385,7 +3693,6 @@ async fn test_site_explorer_power_shelf_with_expected_config(
         create_power_shelves: Arc::new(true.into()),
         explore_power_shelves_from_static_ip: Arc::new(false.into()),
         power_shelves_created_per_run: 1,
-        allow_zero_dpu_hosts: true,
         ..Default::default()
     };
     let test_meter = TestMeter::default();
@@ -3540,7 +3847,6 @@ async fn test_site_explorer_power_shelf_creation_limit(
         create_power_shelves: Arc::new(true.into()),
         explore_power_shelves_from_static_ip: Arc::new(false.into()),
         power_shelves_created_per_run: 2, // Limit to 2 per run
-        allow_zero_dpu_hosts: true,
         ..Default::default()
     };
     let test_meter = TestMeter::default();
@@ -3675,7 +3981,6 @@ async fn test_site_explorer_power_shelf_disabled(
         create_power_shelves: Arc::new(false.into()), // Disabled
         explore_power_shelves_from_static_ip: Arc::new(false.into()),
         power_shelves_created_per_run: 1,
-        allow_zero_dpu_hosts: true,
         ..Default::default()
     };
     let test_meter = TestMeter::default();
@@ -3779,7 +4084,6 @@ async fn test_site_explorer_power_shelf_error_handling(
         create_power_shelves: Arc::new(true.into()),
         explore_power_shelves_from_static_ip: Arc::new(false.into()),
         power_shelves_created_per_run: 1,
-        allow_zero_dpu_hosts: true,
         ..Default::default()
     };
     let test_meter = TestMeter::default();
@@ -4849,7 +5153,6 @@ async fn test_site_explorer_power_shelf_discovery_with_static_ip(
         create_power_shelves: Arc::new(true.into()),
         explore_power_shelves_from_static_ip: Arc::new(true.into()),
         power_shelves_created_per_run: 1,
-        allow_zero_dpu_hosts: true,
         ..Default::default()
     };
     let test_meter = TestMeter::default();

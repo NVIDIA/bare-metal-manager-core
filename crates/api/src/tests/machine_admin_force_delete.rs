@@ -26,6 +26,7 @@ use ::rpc::forge::{
 };
 use carbide_ib_fabric::config::IBFabricConfig;
 use carbide_ib_fabric::ib::{self, IBFabricManager};
+use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
 use carbide_uuid::infiniband::IBPartitionId;
 use carbide_uuid::machine::{MachineId, MachineType};
 use common::api_fixtures::dpu::create_dpu_machine;
@@ -47,7 +48,6 @@ use tonic::Request;
 
 use crate::api::Api;
 use crate::attestation as attest;
-use crate::state_controller::machine::dpf::{DpfOperations, MockDpfOperations};
 use crate::tests::common;
 
 async fn get_partition_status(api: &Api, ib_partition_id: IBPartitionId) -> IbPartitionStatus {

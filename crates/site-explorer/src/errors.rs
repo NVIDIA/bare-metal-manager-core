@@ -15,8 +15,6 @@
  * limitations under the License.
  */
 
-use std::net::IpAddr;
-
 use db::DatabaseError;
 use model::errors::ModelError;
 use model::site_explorer::EndpointExplorationError;
@@ -27,8 +25,6 @@ pub enum SiteExplorerError {
     DatabaseError(#[from] DatabaseError),
     #[error("Model error: {0}")]
     ModelError(#[from] ModelError),
-    #[error("Explored machine at {0} has no DPUs")]
-    NoDpusInMachine(IpAddr),
     #[error("{kind} already exists: {id}")]
     AlreadyFoundError {
         /// The type of the resource that already exists (e.g. Machine)

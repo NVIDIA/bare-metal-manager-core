@@ -60,15 +60,19 @@ async fn redfish_client(
     bmc_info: &BmcInfo,
     ctx: &mut StateHandlerContext<'_, SpdmStateHandlerContextObjects>,
 ) -> Result<Box<dyn Redfish>, StateHandlerError> {
+    let ip_addr = bmc_info
+        .ip_addr()
+        .map_err(StateHandlerError::GenericError)?;
+    let bmc_access_info = db::machine_interface::lookup_bmc_access_info(
+        &ctx.services.db_pool,
+        ip_addr,
+        bmc_info.port,
+    )
+    .await?;
+
     ctx.services
         .redfish_client_pool
-        .create_client_for_ingested_host(
-            bmc_info
-                .ip_addr()
-                .map_err(StateHandlerError::GenericError)?,
-            bmc_info.port,
-            &ctx.services.db_pool,
-        )
+        .client_by_info(&bmc_access_info)
         .await
         .map_err(StateHandlerError::from)
 }
@@ -174,8 +178,9 @@ impl StateHandler for SpdmAttestationStateHandler {
                         ),
                     ));
                 };
+                let nonce = snapshot.nonce_hex();
                 let task = redfish_client
-                    .trigger_evidence_collection(url.as_str(), snapshot.nonce.to_string().as_str())
+                    .trigger_evidence_collection(url.as_str(), nonce.as_str())
                     .await
                     .map_err(|error| redfish_error("trigger measurement collection", error))?;
 
@@ -344,7 +349,7 @@ async fn perform_attestation(
             firmware_version,
         }],
         architecture: nras::MachineArchitecture::Blackwell,
-        nonce: device.nonce.to_string(),
+        nonce: device.nonce_hex(),
     };
 
     let device_type: DeviceType = device.device_id.parse()?;

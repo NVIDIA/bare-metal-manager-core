@@ -705,6 +705,7 @@ mod tests {
                     ip_addrs: HashMap::default(),
                     requested_ip_addr: None,
                     ipv6_interface_config: None,
+                    routing_profile: None,
                     interface_prefixes: HashMap::default(),
                     network_segment_gateways: HashMap::default(),
                     host_inband_mac_address: None,

@@ -245,11 +245,12 @@ async fn invoke_rms_power_operation(
 }
 
 /// Build the `rms::NewNodeInfo` describing this power shelf for inclusion
-/// in a `SetPowerStateByDeviceList` request. Resolves the BMC IP from the
-/// database and BMC credentials via the credential manager, since the
-/// caller-supplied variant of the RPC requires the BMC connection details
-/// inline rather than relying on RMS's inventory.
-async fn build_power_shelf_node_info(
+/// in any caller-supplied `NodeSet` request (`SetPowerStateByDeviceList`
+/// from `Maintenance`, `GetDeviceInfoByDeviceList` from `Ready`). Resolves
+/// the BMC IP from the database and BMC credentials via the credential
+/// manager, since these RPCs require the BMC connection details inline
+/// rather than relying on RMS's inventory.
+pub(super) async fn build_power_shelf_node_info(
     power_shelf_id: &PowerShelfId,
     state: &PowerShelf,
     rack_id: String,

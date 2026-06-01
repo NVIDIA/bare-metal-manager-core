@@ -44,15 +44,15 @@ restish <api-profile> delete-instance <tenant-org-id> <instance-id> < <request-b
 For example, in staging:
 
 ```bash
-restish carbide-stg delete-instance <tenant-org-id> <instance-id> < release-for-repair.json
+restish nico-stg delete-instance <tenant-org-id> <instance-id> < release-for-repair.json
 ```
 
-`carbide-stg` is the Restish API profile or environment. Replace it with the profile for your deployment.
+`nico-stg` is the Restish API profile or environment. Replace it with the profile for your deployment.
 
 Use Restish help to confirm the operation signature in the target environment:
 
 ```bash
-restish carbide-stg delete-instance --help
+restish nico-stg delete-instance --help
 ```
 
 The `delete-instance` operation accepts an optional JSON request body. When releasing for repair, include the body with shell redirection (`< release-for-repair.json`) so the machine health issue is reported with the release.
@@ -65,7 +65,7 @@ Collect the following values:
 
 | Value | Description |
 |---|---|
-| `<api-profile>` | Restish profile, for example `carbide-stg`. |
+| `<api-profile>` | Restish profile, for example `nico-stg`. |
 | `<tenant-org-id>` | Tenant organization identifier used by the REST API. |
 | `<instance-id>` | Instance UUID to release. |
 
@@ -85,7 +85,7 @@ When full repair follows a failed online repair attempt, update the instance lab
 First fetch the instance and preserve any labels that should remain:
 
 ```bash
-restish carbide-stg get-instance <tenant-org-id> <instance-id>
+restish nico-stg get-instance <tenant-org-id> <instance-id>
 ```
 
 Instance label updates replace the full label map. Labels not included in the update request are removed. Labels are limited to 10 key/value pairs, so use the minimum failure labels if the instance is already near that limit.
@@ -107,7 +107,7 @@ Example `online-repair-failed-labels.json`:
 Use the `update-instance` operation:
 
 ```bash
-restish carbide-stg update-instance <tenant-org-id> <instance-id> < online-repair-failed-labels.json
+restish nico-stg update-instance <tenant-org-id> <instance-id> < online-repair-failed-labels.json
 ```
 
 Use at least `onlineRepair.status: Failed`. Add `onlineRepair.escalation` and `onlineRepair.failureReason` when label capacity permits.
@@ -129,7 +129,7 @@ Create `release-for-repair.json`:
 Run:
 
 ```bash
-restish carbide-stg delete-instance <tenant-org-id> <instance-id> < release-for-repair.json
+restish nico-stg delete-instance <tenant-org-id> <instance-id> < release-for-repair.json
 ```
 
 Expected result:
@@ -185,7 +185,7 @@ The original tenant does not move this instance back to `Ready`. Returning the s
 Use the deployment's normal instance and machine inspection commands. With Restish, the common pattern is:
 
 ```bash
-restish carbide-stg get-instance <tenant-org-id> <instance-id>
+restish nico-stg get-instance <tenant-org-id> <instance-id>
 ```
 
 Check that:

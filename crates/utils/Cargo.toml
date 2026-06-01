@@ -29,7 +29,7 @@ sqlx = ["carbide-network/sqlx", "dep:sqlx"]
 test-support = [
   "dep:opentelemetry_sdk",
   "dep:prometheus",
-  "dep:opentelemetry-prometheus"
+  "dep:opentelemetry-prometheus",
 ]
 
 [dependencies]
@@ -38,15 +38,16 @@ carbide-network = { path = "../network" }
 byte-unit = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
-thiserror = { workspace = true }
-tokio = { workspace = true }
 ipnetwork = { workspace = true }
-sqlx = { workspace = true, features = ["postgres"], optional = true }
+mac_address = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-prometheus = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 serde = { workspace = true, features = ["derive"] }
+sqlx = { workspace = true, features = ["postgres"], optional = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
 
 [lints]
 workspace = true

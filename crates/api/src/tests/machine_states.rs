@@ -20,6 +20,10 @@ use std::sync::atomic::AtomicBool;
 
 use ::rpc::measured_boot::FromGrpc;
 use base64::prelude::*;
+use carbide_machine_controller::context::MachineStateHandlerContextObjects;
+use carbide_machine_controller::handler::{MachineStateHandlerBuilder, handler_host_power_control};
+use carbide_machine_controller::metrics::MachineMetrics;
+use carbide_redfish::libredfish::test_support::RedfishSimAction;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::machine_validation::MachineValidationId;
 use chrono::Duration;
@@ -47,10 +51,11 @@ use model::firmware::FirmwareComponentType;
 use model::hardware_info::TpmEkCertificate;
 use model::machine::health_override::HARDWARE_HEALTH_OVERRIDE_PREFIX;
 use model::machine::{
-    CleanupContext, CleanupState, DpuInitState, DpuReprovisionStates, FailureCause, FailureDetails,
-    FailureSource, HostReprovisionState, InstanceState, LockdownMode, MachineState,
-    MachineValidatingState, ManagedHostState, MeasuringState, RetryInfo, SpdmMeasuringState,
-    StateMachineArea, ValidationState,
+    BiosConfigInfo, BiosConfigState, CleanupContext, CleanupState, DpuInitState,
+    DpuReprovisionStates, FailureCause, FailureDetails, FailureSource,
+    HostPlatformConfigurationState, HostReprovisionState, InstanceState, LockdownMode,
+    MachineState, MachineValidatingState, ManagedHostState, MeasuringState, PowerState, RetryInfo,
+    SpdmMeasuringState, StateMachineArea, ValidationState,
 };
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{HealthReportEntry, InsertMachineHealthReportRequest, TpmCaCert, TpmCaCertId};
@@ -63,11 +68,6 @@ use tonic::{Code, Request};
 
 use crate::handlers::measured_boot::rpc_forge::MachineDiscoveryInfo;
 use crate::measured_boot::convert_vec;
-use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
-use crate::state_controller::machine::handler::{
-    MachineStateHandlerBuilder, handler_host_power_control,
-};
-use crate::state_controller::machine::metrics::MachineMetrics;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::{
     TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION, TEST_DPU_AGENT_VERSION,
@@ -81,6 +81,7 @@ use crate::tests::common::api_fixtures::{
     on_demand_machine_validation, update_time_params,
 };
 use crate::tests::common::attestation::spdm_attestation_run_to_failed_then_to_success;
+use crate::tests::instance_ipxe_behaviors::create_instance;
 
 // Verify the group-sync property of `db::machine::try_update_network_config`,
 // where any write to a row in the host's group (the host or any of its DPUs)
@@ -2182,6 +2183,366 @@ async fn test_bios_config_job_happy_path(pool: sqlx::PgPool) {
     );
 }
 
+/// When HostInit/PollingBiosSetup is stuck, enter HandleBiosJobFailure recovery.
+#[crate::sqlx_test]
+async fn test_polling_bios_setup_stuck_enters_handle_bios_job_failure(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let host_id = mh.host().id;
+
+    env.redfish_sim.set_is_bios_setup(false);
+
+    set_host_controller_state_stuck_in(
+        &env,
+        host_id,
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::PollingBiosSetup { retry_count: 0 },
+        },
+        16,
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert!(
+        matches!(
+            host.current_state(),
+            ManagedHostState::HostInit {
+                machine_state: MachineState::WaitingForBiosJob {
+                    bios_config_info: BiosConfigInfo {
+                        bios_job_id: None,
+                        retry_count: 1,
+                        bios_config_state: BiosConfigState::HandleBiosJobFailure {
+                            power_state: PowerState::Off,
+                            ..
+                        },
+                    },
+                },
+            }
+        ),
+        "expected stuck HostInit/PollingBiosSetup to enter HandleBiosJobFailure recovery, got: {:?}",
+        host.current_state()
+    );
+}
+
+/// Assigned/HostPlatformConfiguration/PollingBiosSetup stuck recovery enters HandleBiosJobFailure.
+#[crate::sqlx_test]
+async fn test_hpc_polling_bios_setup_stuck_enters_handle_bios_job_failure(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    create_instance(&env, &mh, false, segment_id).await;
+    let host_id = mh.host().id;
+
+    env.redfish_sim.set_is_bios_setup(false);
+
+    set_host_controller_state_stuck_in(
+        &env,
+        host_id,
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::HostPlatformConfiguration {
+                platform_config_state: HostPlatformConfigurationState::PollingBiosSetup {
+                    retry_count: 0,
+                },
+            },
+        },
+        16,
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    let mut txn = env.db_txn().await;
+    let host = mh.host().db_machine(&mut txn).await;
+    assert!(
+        matches!(
+            host.current_state(),
+            ManagedHostState::Assigned {
+                instance_state: InstanceState::HostPlatformConfiguration {
+                    platform_config_state: HostPlatformConfigurationState::WaitingForBiosJob {
+                        bios_config_info: BiosConfigInfo {
+                            bios_job_id: None,
+                            retry_count: 1,
+                            bios_config_state: BiosConfigState::HandleBiosJobFailure {
+                                power_state: PowerState::Off,
+                                ..
+                            },
+                        },
+                    },
+                },
+            }
+        ),
+        "expected stuck Assigned/HostPlatformConfiguration/PollingBiosSetup to enter HandleBiosJobFailure recovery, got: {:?}",
+        host.current_state()
+    );
+}
+
+/// Stuck HostInit/PollingBiosSetup recovery re-runs machine_setup and reaches HostInit/SetBootOrder.
+#[crate::sqlx_test]
+async fn test_polling_bios_setup_full_recovery_reruns_machine_setup_and_succeeds(
+    pool: sqlx::PgPool,
+) {
+    let env = create_test_env(pool).await;
+
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let host_id = mh.host().id;
+
+    env.redfish_sim.set_is_bios_setup(false);
+
+    set_host_controller_state_stuck_in(
+        &env,
+        host_id,
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::PollingBiosSetup { retry_count: 0 },
+        },
+        16,
+    )
+    .await;
+
+    let redfish_timepoint = env.redfish_sim.timepoint();
+
+    // Escalate into HandleBiosJobFailure while BIOS still reports not ready.
+    env.run_machine_state_controller_iteration().await;
+    env.redfish_sim.set_is_bios_setup(true);
+
+    // ForceOff records last_reboot_requested; backdate it so power_down_wait elapses in-process.
+    env.run_machine_state_controller_iteration().await;
+    {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        update_time_params(&env.pool, &host, 1, None).await;
+    }
+
+    let mut reached_set_boot_order = false;
+    for _ in 0..30 {
+        env.run_machine_state_controller_iteration().await;
+
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        if matches!(
+            host.current_state(),
+            ManagedHostState::HostInit {
+                machine_state: MachineState::SetBootOrder { .. },
+            }
+        ) {
+            reached_set_boot_order = true;
+            break;
+        }
+
+        if matches!(
+            host.current_state(),
+            ManagedHostState::HostInit {
+                machine_state: MachineState::WaitingForLockdown {
+                    lockdown_info: model::machine::LockdownInfo {
+                        state: model::machine::LockdownState::WaitForDPUUp
+                            | model::machine::LockdownState::TimeWaitForDPUDown,
+                        ..
+                    },
+                },
+            }
+        ) {
+            if host.last_reboot_requested.is_some() {
+                update_time_params(&env.pool, &host, 1, None).await;
+            }
+            mh.network_configured(&env).await;
+        }
+    }
+    if !reached_set_boot_order {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        panic!(
+            "expected recovery to reach HostInit/SetBootOrder, got: {:?}",
+            host.current_state()
+        );
+    }
+
+    let actions = env
+        .redfish_sim
+        .actions_since(&redfish_timepoint)
+        .all_hosts();
+    assert!(
+        actions
+            .iter()
+            .any(|action| matches!(action, RedfishSimAction::BmcReset)),
+        "expected BMC reset during stuck HostInit/PollingBiosSetup recovery, got: {actions:?}"
+    );
+    assert!(
+        actions
+            .iter()
+            .any(|action| matches!(action, RedfishSimAction::MachineSetup { .. })),
+        "expected machine_setup to be re-run after recovery, got: {actions:?}"
+    );
+}
+
+/// When HostInit/PollingBiosSetup retry budget is exhausted, enter Failed and recover via is_bios_setup.
+#[crate::sqlx_test]
+async fn test_polling_bios_setup_exhausted_enters_failed_and_recovers_when_bios_setup_true(
+    pool: sqlx::PgPool,
+) {
+    let env = create_test_env(pool).await;
+
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let host_id = mh.host().id;
+
+    env.redfish_sim.set_is_bios_setup(false);
+
+    set_host_controller_state_stuck_in(
+        &env,
+        host_id,
+        &ManagedHostState::HostInit {
+            machine_state: MachineState::PollingBiosSetup { retry_count: 3 },
+        },
+        16,
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        assert!(
+            matches!(
+                host.current_state(),
+                ManagedHostState::Failed {
+                    details: FailureDetails {
+                        cause: FailureCause::BiosSetupFailed { .. },
+                        source: FailureSource::StateMachineArea(StateMachineArea::HostInit),
+                        ..
+                    },
+                    ..
+                }
+            ),
+            "expected ManagedHostState::Failed with BiosSetupFailed/HostInit, got: {:?}",
+            host.current_state()
+        );
+    }
+
+    env.redfish_sim.set_is_bios_setup(true);
+    env.run_machine_state_controller_iteration().await;
+
+    {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        assert!(
+            matches!(
+                host.current_state(),
+                ManagedHostState::HostInit {
+                    machine_state: MachineState::SetBootOrder { .. },
+                }
+            ),
+            "expected recovery to reach HostInit/SetBootOrder, got: {:?}",
+            host.current_state()
+        );
+    }
+}
+
+/// Assigned/HostPlatformConfiguration/PollingBiosSetup retry exhaustion enters InstanceState::Failed.
+#[crate::sqlx_test]
+async fn test_hpc_polling_bios_setup_exhausted_enters_failed_and_recovers_when_bios_setup_true(
+    pool: sqlx::PgPool,
+) {
+    let env = create_test_env(pool).await;
+
+    let mh = common::api_fixtures::create_managed_host(&env).await;
+    let segment_id = env.create_vpc_and_tenant_segment().await;
+    create_instance(&env, &mh, false, segment_id).await;
+    let host_id = mh.host().id;
+
+    env.redfish_sim.set_is_bios_setup(false);
+
+    set_host_controller_state_stuck_in(
+        &env,
+        host_id,
+        &ManagedHostState::Assigned {
+            instance_state: InstanceState::HostPlatformConfiguration {
+                platform_config_state: HostPlatformConfigurationState::PollingBiosSetup {
+                    retry_count: 3,
+                },
+            },
+        },
+        16,
+    )
+    .await;
+
+    env.run_machine_state_controller_iteration().await;
+
+    {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        assert!(
+            matches!(
+                host.current_state(),
+                ManagedHostState::Assigned {
+                    instance_state: InstanceState::Failed {
+                        details: FailureDetails {
+                            cause: FailureCause::BiosSetupFailed { .. },
+                            source: FailureSource::StateMachineArea(
+                                StateMachineArea::AssignedInstance
+                            ),
+                            ..
+                        },
+                        ..
+                    },
+                }
+            ),
+            "expected Assigned/InstanceState::Failed with BiosSetupFailed/AssignedInstance, got: {:?}",
+            host.current_state()
+        );
+    }
+
+    env.redfish_sim.set_is_bios_setup(true);
+    env.run_machine_state_controller_iteration().await;
+
+    {
+        let mut txn = env.db_txn().await;
+        let host = mh.host().db_machine(&mut txn).await;
+        assert!(
+            matches!(
+                host.current_state(),
+                ManagedHostState::Assigned {
+                    instance_state: InstanceState::HostPlatformConfiguration {
+                        platform_config_state: HostPlatformConfigurationState::SetBootOrder { .. },
+                    },
+                }
+            ),
+            "expected recovery to reach HostPlatformConfiguration/SetBootOrder, got: {:?}",
+            host.current_state()
+        );
+    }
+}
+
+async fn set_host_controller_state_stuck_in(
+    env: &TestEnv,
+    host_id: MachineId,
+    state: &ManagedHostState,
+    minutes_in_state: i64,
+) {
+    let state_json = serde_json::to_value(state).unwrap();
+    let ts = chrono::Utc::now() - chrono::Duration::minutes(minutes_in_state);
+    let version = format!("V1-T{}", ts.timestamp_micros());
+
+    let mut txn = env.db_txn().await;
+    sqlx::query(
+        "UPDATE machines SET \
+            controller_state = $1, \
+            controller_state_version = $2, \
+            controller_state_outcome = NULL \
+         WHERE id = $3",
+    )
+    .bind(sqlx::types::Json(&state_json))
+    .bind(&version)
+    .bind(host_id)
+    .execute(&mut *txn)
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+}
+
 #[crate::sqlx_test]
 async fn test_scout_heartbeat_timeout_alert_cleared_on_ready_transition(pool: sqlx::PgPool) {
     let env = create_test_env(pool).await;
@@ -2264,6 +2625,7 @@ async fn test_scout_heartbeat_timeout_alert_cleared_on_instance_creation_transit
                 network_security_group_id: None,
                 dpu_extension_services: None,
                 nvlink: None,
+                spxconfig: None,
             }),
             metadata: Some(rpc::Metadata {
                 name: "test_instance".to_string(),
@@ -2345,6 +2707,7 @@ async fn test_scout_heartbeat_timeout_alert_not_cleared_when_unhealthy_allocatio
                 network_security_group_id: None,
                 dpu_extension_services: None,
                 nvlink: None,
+                spxconfig: None,
             }),
             metadata: Some(rpc::Metadata {
                 name: "test_instance".to_string(),
@@ -2450,7 +2813,6 @@ async fn zero_dpu_host_with_instance(pool: sqlx::PgPool) -> (TestEnv, TestManage
     let env = create_test_env_with_overrides(
         pool,
         TestEnvOverrides {
-            allow_zero_dpu_hosts: Some(true),
             site_prefixes: Some(vec![
                 IpNetwork::new(
                     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),

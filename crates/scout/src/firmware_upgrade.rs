@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use futures_util::TryStreamExt;
-use rpc::forge_agent_control_response::ScoutFirmwareUpgradeTask as FirmwareUpgradeTask;
+use rpc::scout_firmware_upgrade::ScoutFirmwareUpgradeTask as FirmwareUpgradeTask;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -264,7 +264,7 @@ async fn sha256_file(path: &Path) -> Result<String, Box<dyn std::error::Error>> 
 mod tests {
     use axum::Router;
     use axum::routing::get;
-    use rpc::forge_agent_control_response::FileArtifact;
+    use rpc::scout_firmware_upgrade::FileArtifact;
     use tokio::net::TcpListener;
 
     use super::*;

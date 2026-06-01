@@ -16,7 +16,7 @@
  */
 use ::rpc::forge::ForgeAgentControlResponse;
 use ::rpc::model::machine::get_action_for_dpu_state;
-use ::rpc::{forge as rpc, forge_agent_control_response as fac};
+use ::rpc::{forge as rpc, forge_agent_control_response as fac, scout_firmware_upgrade as sfu};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
     BomValidating, CleanupContext, CleanupState, FailureCause, FailureDetails, FailureSource,
@@ -334,7 +334,7 @@ pub(crate) async fn forge_agent_control(
                     machine_id = %machine.id,
                     "Sending firmware upgrade task to scout",
                 );
-                let action = match serde_json::from_str::<fac::ScoutFirmwareUpgradeTask>(task_json)
+                let action = match serde_json::from_str::<sfu::ScoutFirmwareUpgradeTask>(task_json)
                 {
                     Ok(task) => Action::FirmwareUpgrade(fac::FirmwareUpgrade { task: Some(task) }),
                     Err(e) => {

@@ -25,7 +25,7 @@ use clap::Parser;
 use figment::Figment;
 use figment::providers::{Format, Toml};
 use forge_tls::client_config::{
-    get_client_cert_info, get_config_from_file, get_forge_root_ca_path, get_proxy_info,
+    get_client_cert_info, get_config_from_file, get_proxy_info, get_root_ca_path,
 };
 use machine_a_tron::{
     AppEvent, BmcMockRegistry, BmcRegistrationMode, MachineATron, MachineATronArgs,
@@ -92,7 +92,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let file_config = get_config_from_file();
 
-    let forge_root_ca_path = get_forge_root_ca_path(args.forge_root_ca_path, file_config.as_ref());
+    let forge_root_ca_path = get_root_ca_path(args.forge_root_ca_path, file_config.as_ref());
     let forge_client_cert = get_client_cert_info(
         args.client_cert_path,
         args.client_key_path,

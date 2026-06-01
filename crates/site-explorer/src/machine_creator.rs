@@ -148,12 +148,6 @@ impl MachineCreator {
 
         // Zero-dpu case: If the explored host had no DPUs, we can create the machine now
         if managed_host.explored_host.dpus.is_empty() {
-            if !self.config.allow_zero_dpu_hosts {
-                let error =
-                    SiteExplorerError::NoDpusInMachine(managed_host.explored_host.host_bmc_ip);
-                tracing::error!(%error, "Cannot create managed host for explored endpoint with no DPUs: Zero-dpu hosts are disallowed by config");
-                return Err(error);
-            }
             if let Some(machine_id) = self
                 .create_zero_dpu_machine(&mut txn, &managed_host, report, machine_data)
                 .await?

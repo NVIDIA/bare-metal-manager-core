@@ -21,7 +21,7 @@
 
 use std::path::{Path, PathBuf};
 
-use forge_ssh::ssh_client::{AuthConfig, SshClientConfig};
+use forge_ssh::ssh_client::{AuthConfig, HostKeyVerification, SshClientConfig};
 use tokio::io::AsyncWriteExt;
 use tracing;
 
@@ -287,12 +287,17 @@ async fn resolve_ssh(
 
     let auth = credentials.clone().map(AuthConfig::try_from).transpose()?;
 
+    let host_key_verification = match known_hosts_file {
+        Some(path) => HostKeyVerification::KnownHostsFile(path.to_path_buf()),
+        None => HostKeyVerification::DefaultKnownHostsFile,
+    };
+
     let client = SshClientConfig {
         host,
         port: *port,
         username,
         auth: auth.as_ref(),
-        known_hosts_file,
+        host_key_verification,
     }
     .make_authenticated_client()
     .await?;

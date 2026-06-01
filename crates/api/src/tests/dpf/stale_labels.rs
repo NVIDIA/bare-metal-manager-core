@@ -28,11 +28,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use carbide_dpf::DpuPhase;
+use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
 use carbide_uuid::machine::MachineId;
 use model::machine::{DpfState, DpuInitState, FailureCause, FailureDetails, ManagedHostState};
 use tokio::time::timeout;
 
-use crate::state_controller::machine::dpf::{DpfOperations, MockDpfOperations};
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, TestManagedHost, create_managed_host_with_dpf,
     create_test_env_with_overrides, get_config,

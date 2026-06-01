@@ -23,19 +23,18 @@ pub mod error;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 pub use auth::RedfishAuth;
 use carbide_utils::HostPortPair;
+use carbide_utils::redfish::BmcAccessInfo;
 pub use error::RedfishClientCreationError;
 use forge_secrets::credentials::{CredentialKey, CredentialReader, CredentialType, Credentials};
 use libredfish::Redfish;
 use libredfish::model::service_root::RedfishVendor;
-use model::machine::Machine;
-use sqlx::PgPool;
 
 pub fn new_pool(
     credential_reader: Arc<dyn CredentialReader>,
@@ -93,54 +92,17 @@ pub trait RedfishClientPool: Send + Sync + 'static {
         Ok(())
     }
 
-    async fn create_client_from_machine(
+    async fn client_by_info(
         &self,
-        target: &Machine,
-        pool: &PgPool,
+        access: &BmcAccessInfo,
     ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        let Some(addr) = target.bmc_addr() else {
-            return Err(RedfishClientCreationError::MissingBmcEndpoint(format!(
-                "BMC Endpoint Information (bmc_info.ip) is missing for {}",
-                target.id,
-            )));
-        };
-        let ip = addr.ip();
-        let port = addr.port();
-        let auth_key = db::machine_interface::find_by_ip(pool, ip)
-            .await?
-            .ok_or_else(|| {
-                RedfishClientCreationError::MissingArgument(format!(
-                    "Machine Interface for IP address: {ip}"
-                ))
-            })
-            .map(|machine_interface| RedfishAuth::for_bmc_mac(machine_interface.mac_address))?;
-
-        self.create_client(&ip.to_string(), Some(port), auth_key, None)
-            .await
-    }
-
-    /// Create a redfish client using auth credentials we already have in machine_interfaces for a
-    /// given IP.
-    ///
-    /// For testing purposes, if no credentials are found for the IP, and if self.proxy_address is
-    /// set, will use anonymous auth.
-    async fn create_client_for_ingested_host(
-        &self,
-        ip: IpAddr,
-        port: Option<u16>,
-        pool: &PgPool,
-    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        let auth_key = db::machine_interface::find_by_ip(pool, ip)
-            .await?
-            .ok_or_else(|| {
-                RedfishClientCreationError::MissingArgument(format!(
-                    "Machine Interface for IP address: {ip}"
-                ))
-            })
-            .map(|machine_interface| RedfishAuth::for_bmc_mac(machine_interface.mac_address))?;
-
-        self.create_client(&ip.to_string(), port, auth_key, None)
-            .await
+        self.create_client(
+            &access.host,
+            access.port,
+            RedfishAuth::for_bmc_mac(access.mac_address),
+            None,
+        )
+        .await
     }
 
     // clear_host_uefi_password updates the UEFI password from Forge's sitewide password to an empty string

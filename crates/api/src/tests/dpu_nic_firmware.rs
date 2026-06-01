@@ -17,6 +17,7 @@
 use std::collections::HashSet;
 use std::string::ToString;
 
+use carbide_machine_controller::health_report::create_host_update_health_report_dpufw;
 use common::api_fixtures::{create_managed_host, create_managed_host_multi_dpu, create_test_env};
 use model::machine::LoadSnapshotOptions;
 use model::machine_update_module::{
@@ -26,7 +27,6 @@ use model::machine_update_module::{
 use crate::CarbideResult;
 use crate::machine_update_manager::dpu_nic_firmware::DpuNicFirmwareUpdate;
 use crate::machine_update_manager::machine_update_module::MachineUpdateModule;
-use crate::state_controller::machine::health_report::create_host_update_health_report_dpufw;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestManagedHost;
 use crate::tests::common::api_fixtures::test_managed_host::TestManagedHostSnapshots;

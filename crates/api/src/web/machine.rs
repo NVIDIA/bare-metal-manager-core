@@ -795,6 +795,27 @@ pub async fn detail(
 
     let mut display: MachineDetail = machine.into();
 
+    if display.is_host {
+        match state
+            .find_instance_by_machine_id(tonic::Request::new(machine_id))
+            .await
+            .map(|response| response.into_inner())
+        {
+            Ok(instances) => {
+                if let Some(instance_id) = instances
+                    .instances
+                    .first()
+                    .and_then(|instance| instance.id.as_ref())
+                {
+                    display.lifecycle_detail.associated_instance_id = Some(instance_id.to_string());
+                }
+            }
+            Err(err) => {
+                tracing::warn!(%err, %machine_id, "find_instance_by_machine_id failed");
+            }
+        }
+    }
+
     if display.has_instance_type {
         match fetch_instance_type_names(&state, vec![display.instance_type_id.clone()]).await {
             Ok(mut instance_types) => {

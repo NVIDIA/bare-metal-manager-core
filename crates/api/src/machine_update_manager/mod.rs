@@ -26,6 +26,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use carbide_machine_controller::dpf::DpfOperations;
 use carbide_utils::periodic_timer::PeriodicTimer;
 use carbide_uuid::machine::MachineId;
 use db::work_lock_manager::WorkLockManagerHandle;
@@ -44,7 +45,6 @@ use self::dpu_nic_firmware::DpuNicFirmwareUpdate;
 use self::metrics::MachineUpdateManagerMetrics;
 use crate::CarbideResult;
 use crate::cfg::file::{CarbideConfig, MaxConcurrentUpdates};
-use crate::state_controller::machine::dpf::DpfOperations;
 
 /// The MachineUpdateManager periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the MachineUpdateManager will:

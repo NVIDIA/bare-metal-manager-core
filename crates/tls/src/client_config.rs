@@ -14,14 +14,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-use std::path::Path;
+use std::io::BufReader;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::{env, fs, io};
+use std::{env, fs};
 
 use serde::Deserialize;
 use tonic::transport::Uri;
 
 use crate::default as tls_default;
+pub const CONFIG_FILE_LOCATION: &str = ".config/carbide_api_cli.json";
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClientConfigError {
@@ -37,29 +39,27 @@ pub struct ClientCert {
 
 #[derive(Debug, Deserialize)]
 pub struct FileConfig {
-    pub carbide_api_url: Option<String>,
-    pub forge_root_ca_path: Option<String>,
+    pub api_url: Option<String>,
+    pub root_ca_path: Option<String>,
     pub client_key_path: Option<String>,
     pub client_cert_path: Option<String>,
     pub rms_root_ca_path: Option<String>,
 }
 
-pub fn get_carbide_api_url(
-    carbide_api: Option<String>,
-    file_config: Option<&FileConfig>,
-) -> String {
+pub fn get_api_url(api_url: Option<String>, file_config: Option<&FileConfig>) -> String {
     // First from command line, second env var.
-    if let Some(carbide_api) = carbide_api {
-        return carbide_api;
+    if let Some(api) = api_url {
+        return api;
     }
 
     // Third config file
     if let Some(file_config) = file_config
-        && let Some(carbide_api_url) = file_config.carbide_api_url.as_ref()
+        && let Some(api_url) = file_config.api_url.as_ref()
     {
-        return carbide_api_url.clone();
+        return api_url.clone();
     }
 
+    // TODO configurable default api_url
     // Otherwise we assume the admin-cli is called from inside a kubernetes pod
     "https://carbide-api.forge-system.svc.cluster.local:1079".to_string()
 }
@@ -108,7 +108,7 @@ pub fn get_client_cert_info(
         };
     }
 
-    // and this is the location for developers executing from within carbide's repo
+    // and this is the location for developers executing from within infra-controller's repo
     if let Ok(project_root) = env::var("REPO_ROOT") {
         //TODO: actually fix this cert and give it one that's valid for like 10 years.
         let cert_path = format!("{project_root}/dev/certs/server_identity.pem");
@@ -126,29 +126,25 @@ pub fn get_client_cert_info(
         r###"Unknown client cert location. Set (will be read in same sequence.)
            1. --client-cert-path and --client-key-path flag or
            2. environment variables CLIENT_KEY_PATH and CLIENT_CERT_PATH or
-           3. add client_key_path and client_cert_path in $HOME/.config/carbide_api_cli.json.
+           3. add client_key_path and client_cert_path in $HOME/{CONFIG_FILE_LOCATION}.
            4. a file existing at "/var/run/secrets/spiffe.io/tls.crt" and "/var/run/secrets/spiffe.io/tls.key".
-           5. a file existing at "{}" and "{}".
-           6. a file existing at "$REPO_ROOT/dev/certs/server_identity.pem" and "$REPO_ROOT/dev/certs/server_identity.key."###,
+           5. a file existing at "{}" and "{}"."###,
         tls_default::CLIENT_CERT,
         tls_default::CLIENT_KEY
     )
 }
 
-pub fn get_forge_root_ca_path(
-    forge_root_ca_path: Option<String>,
-    file_config: Option<&FileConfig>,
-) -> String {
+pub fn get_root_ca_path(root_ca_path: Option<String>, file_config: Option<&FileConfig>) -> String {
     // First from command line, second env var.
-    if let Some(forge_root_ca_path) = forge_root_ca_path {
-        return forge_root_ca_path;
+    if let Some(root_ca_path) = root_ca_path {
+        return root_ca_path;
     }
 
     // Third config file
     if let Some(file_config) = file_config
-        && let Some(forge_root_ca_path) = file_config.forge_root_ca_path.as_ref()
+        && let Some(root_ca_path) = file_config.root_ca_path.as_ref()
     {
-        return forge_root_ca_path.clone();
+        return root_ca_path.clone();
     }
 
     // this is the location for most k8s pods
@@ -161,7 +157,7 @@ pub fn get_forge_root_ca_path(
         return tls_default::ROOT_CA.to_string();
     }
 
-    // and this is the location for developers executing from within carbide's repo
+    // and this is the location for developers executing from within infra-controller's repo
     if let Ok(project_root) = env::var("REPO_ROOT") {
         let path = format!("{project_root}/dev/certs/localhost/ca.crt");
         if Path::new(path.as_str()).exists() {
@@ -171,30 +167,37 @@ pub fn get_forge_root_ca_path(
 
     // if you make it here, you'll just have to tell me where the root CA is.
     panic!(
-        r###"Unknown FORGE_ROOT_CA_PATH. Set (will be read in same sequence.)
-           1. --forge-root-ca-path flag or
-           2. environment variable FORGE_ROOT_CA_PATH or
-           3. add forge_root_ca_path in $HOME/.config/carbide_api_cli.json.
+        r###"Unknown ROOT_CA_PATH. Set (will be read in same sequence.)
+           1. --root-ca-path flag or
+           2. environment variable ROOT_CA_PATH or
+           3. add root_ca_path in $HOME/{CONFIG_FILE_LOCATION}.
            4. a file existing at "/var/run/secrets/spiffe.io/ca.crt".
-           5. a file existing at "{}".
-           6. a file existing at "$REPO_ROOT/dev/certs/forge_developer_local_only_root_cert_pem"."###,
+           5. a file existing at "{}"."###,
         tls_default::ROOT_CA
     )
 }
 
+fn get_config_file_location() -> Result<Option<PathBuf>, ClientConfigError> {
+    let Ok(home) = env::var("HOME") else {
+        return Ok(None);
+    };
+    let legacy = Path::new(&home).join(CONFIG_FILE_LOCATION);
+    if legacy.exists() {
+        Ok(Some(legacy))
+    } else {
+        Ok(None)
+    }
+}
 pub fn get_config_from_file() -> Option<FileConfig> {
     // Third config file
-    if let Ok(home) = env::var("HOME") {
-        let file = Path::new(&home).join(".config/carbide_api_cli.json");
-        if file.exists() {
-            let file = fs::File::open(file).unwrap();
-            let reader = io::BufReader::new(file);
-            let file_config: FileConfig = serde_json::from_reader(reader).unwrap();
+    let config_file_path = get_config_file_location().ok()?;
 
-            return Some(file_config);
-        }
+    if let Some(cfg_file) = config_file_path {
+        let file = fs::File::open(cfg_file).unwrap();
+        let reader = BufReader::new(file);
+        let file_config: FileConfig = serde_json::from_reader(reader).unwrap();
+        return Some(file_config);
     }
-
     None
 }
 

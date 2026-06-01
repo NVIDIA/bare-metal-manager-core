@@ -440,13 +440,13 @@ pub(crate) async fn get_managed_host_network_config_inner(
     };
 
     // Deprecated compatibility field for DPU agents that do not yet read
-    // FlatInterfaceConfig.routing_profile.
+    // FlatInterfaceConfig.vpc_routing_profile.
     let deprecated_routing_profile = if tenant_interfaces.is_empty() {
         admin_vpc_routing_profile.map(rpc::RoutingProfile::from)
     } else {
         tenant_interfaces
             .first()
-            .and_then(|interface| interface.routing_profile.clone())
+            .and_then(|interface| interface.vpc_routing_profile.clone())
     };
 
     let network_config = build_consolidated_network_config(
@@ -1162,7 +1162,7 @@ pub(crate) async fn trigger_dpu_reprovisioning(
                 return Err(CarbideError::InvalidArgument("A restart has to be triggered for all DPUs together. Only host_id is accepted for restart operation.".to_string()).into());
             }
 
-            if snapshot.is_zero_dpu() {
+            if !snapshot.has_managed_dpus() {
                 return Err(CarbideError::InvalidArgument(
                     "Machine has no DPUs, cannot trigger DPU reprovisioning.".to_string(),
                 )

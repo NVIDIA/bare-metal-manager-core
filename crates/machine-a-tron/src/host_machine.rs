@@ -573,6 +573,10 @@ impl HostMachineHandle {
         &self.0.host_info
     }
 
+    pub fn machine_config_section(&self) -> &str {
+        &self.0.machine_config_section
+    }
+
     pub fn persisted(&self) -> PersistedHostMachine {
         let live_state = self.0.live_state.read().unwrap();
         PersistedHostMachine {

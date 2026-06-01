@@ -22,6 +22,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::str::FromStr;
 use std::time::Duration;
 
+use carbide_machine_controller::config::{FirmwareGlobal, TimePeriod};
+use carbide_machine_controller::handler::MAX_FIRMWARE_UPGRADE_RETRIES;
 use carbide_preingestion_manager::PreingestionManager;
 use carbide_redfish::libredfish::test_support::RedfishSimAction;
 use carbide_uuid::machine::MachineId;
@@ -49,10 +51,8 @@ use tokio::time::sleep;
 use tonic::Request;
 
 use crate::CarbideResult;
-use crate::cfg::file::{CarbideConfig, TimePeriod};
+use crate::cfg::file::CarbideConfig;
 use crate::machine_update_manager::MachineUpdateManager;
-use crate::state_controller::machine::config::FirmwareGlobal;
-use crate::state_controller::machine::handler::MAX_FIRMWARE_UPGRADE_RETRIES;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::managed_host::HardwareInfoTemplate;
 use crate::tests::common::api_fixtures::{
@@ -1259,6 +1259,7 @@ async fn test_instance_upgrading_actual_part_2(
             None,
             None,
             None,
+            None,
             &host.health_reports,
         )
         .unwrap()
@@ -1296,6 +1297,7 @@ async fn test_instance_upgrading_actual_part_2(
             &instance,
             device_id_maps.1,
             host.state.clone().value,
+            None,
             None,
             None,
             None,
@@ -1349,6 +1351,7 @@ async fn test_instance_upgrading_actual_part_2(
             None,
             None,
             None,
+            None,
             &host.health_reports,
         )
         .unwrap()
@@ -1396,6 +1399,7 @@ async fn test_instance_upgrading_actual_part_2(
             None,
             None,
             None,
+            None,
             &host.health_reports,
         )
         .unwrap()
@@ -1430,6 +1434,7 @@ async fn test_instance_upgrading_actual_part_2(
             &instance,
             device_id_maps.1,
             host.state.clone().value,
+            None,
             None,
             None,
             None,
@@ -1492,6 +1497,7 @@ async fn test_instance_upgrading_actual_part_2(
             None,
             None,
             None,
+            None,
             &host.health_reports,
         )
         .unwrap()
@@ -1526,6 +1532,7 @@ async fn test_instance_upgrading_actual_part_2(
             &instance,
             device_id_maps.1,
             host.state.clone().value,
+            None,
             None,
             None,
             None,
@@ -1575,6 +1582,7 @@ async fn test_instance_upgrading_actual_part_2(
             &instance,
             device_id_maps.1,
             host.state.clone().value,
+            None,
             None,
             None,
             None,
@@ -1647,6 +1655,7 @@ async fn test_instance_upgrading_actual_part_2(
             None,
             None,
             None,
+            None,
             &host.health_reports,
         )
         .unwrap()
@@ -1712,6 +1721,7 @@ async fn test_instance_upgrading_actual_part_2(
             None,
             None,
             None,
+            None,
             &host.health_reports,
         )
         .unwrap()
@@ -1746,6 +1756,7 @@ async fn test_instance_upgrading_actual_part_2(
             &instance,
             device_id_maps.1,
             host.state.clone().value,
+            None,
             None,
             None,
             None,
@@ -1784,6 +1795,7 @@ async fn test_instance_upgrading_actual_part_2(
             None,
             None,
             None,
+            None,
             &host.health_reports,
         )
         .unwrap()
@@ -1811,6 +1823,7 @@ async fn test_instance_upgrading_actual_part_2(
             &instance,
             device_id_maps.1,
             host.state.clone().value,
+            None,
             None,
             None,
             None,

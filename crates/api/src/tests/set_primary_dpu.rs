@@ -42,7 +42,6 @@ async fn test_set_primary_dpu_rejects_zero_dpu_host(
     let env = api_fixtures::create_test_env_with_overrides(
         pool,
         api_fixtures::TestEnvOverrides {
-            allow_zero_dpu_hosts: Some(true),
             site_prefixes: Some(vec![
                 IpNetwork::new(
                     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),

@@ -88,7 +88,6 @@ nico-api:
       enabled = true
       create_machines = true
       allow_changing_bmc_proxy = true
-      allow_zero_dpu_hosts = true
       bmc_proxy = "machine-a-tron-bmc-mock.nico-system.svc.cluster.local:1266"
       run_interval = "10s"
       machines_created_per_run = 1000

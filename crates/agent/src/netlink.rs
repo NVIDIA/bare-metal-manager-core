@@ -20,10 +20,11 @@ use std::error::Error;
 
 use futures_util::TryStreamExt;
 use rpc::forge as rpc;
+use rtnetlink;
 use rtnetlink::packet_route::link::{
     LinkAttribute, LinkLayerType, LinkMessage, State as LinkState,
 };
-use {rtnetlink, tokio};
+use tokio;
 
 #[derive(Clone, Debug)]
 // Most of the fields are Option<T> because the netlink protocol allows them

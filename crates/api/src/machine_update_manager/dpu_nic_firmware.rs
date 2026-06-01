@@ -20,6 +20,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
+use carbide_machine_controller::dpf::DpfOperations;
 use carbide_uuid::machine::MachineId;
 use db::dpu_machine_update;
 use model::dpu_machine_update::{DpuMachineUpdate, OutdatedDpfDpu};
@@ -30,7 +31,6 @@ use super::dpu_nic_firmware_metrics::DpuNicFirmwareUpdateMetrics;
 use super::machine_update_module::MachineUpdateModule;
 use crate::cfg::file::CarbideConfig;
 use crate::machine_update_manager::MachineUpdateManager;
-use crate::state_controller::machine::dpf::DpfOperations;
 use crate::{CarbideResult, DatabaseError};
 
 /// DpuNicFirmwareUpdate is a module used [MachineUpdateManager](crate::machine_update_manager::MachineUpdateManager)

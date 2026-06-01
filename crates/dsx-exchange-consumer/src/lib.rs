@@ -83,7 +83,16 @@ pub async fn run_service(config: Config) -> Result<(), DsxConsumerError> {
     .await
     .map_err(|e| DsxConsumerError::Secrets(e.to_string()))?;
 
-    // Connect to MQTT and get message receiver
+    // Connect to MQTT and get message receiver. The mqttea event loop
+    // has two layered recoveries for the NVBug 6191840 wedge:
+    //   * On every CONNACK, re-issue SUBSCRIBE for all tracked topics
+    //     so a fresh broker session always has our subscriptions even
+    //     though the underlying rumqttc client uses clean_session=false.
+    //   * If the event loop goes `mqtt.reconnect_rebuild_threshold`
+    //     without a successful SubAck/Publish/PingResp, tear down and
+    //     rebuild the rumqttc client (replaying subscriptions on the
+    //     new session). Backstop for the rare case where rumqttc never
+    //     reaches CONNACK on its own.
     let rx = mqtt_consumer::connect(
         &config.mqtt,
         consumer_metrics.clone(),

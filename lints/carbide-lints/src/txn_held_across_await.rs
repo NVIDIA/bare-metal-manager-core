@@ -16,6 +16,7 @@
  */
 use rustc_ast::UnOp;
 use rustc_data_structures::fx::FxHashMap;
+use rustc_errors::DiagDecorator;
 use rustc_hir as hir;
 use rustc_hir::def::Res;
 use rustc_hir::intravisit::{self, Visitor};
@@ -27,13 +28,11 @@ use rustc_lint_defs::{Lint, LintPass, LintVec};
 use rustc_middle::hir::nested_filter;
 use rustc_middle::hir::place::{Place as HirPlace, PlaceBase};
 use rustc_middle::mir::{Location, ProjectionElem};
-use rustc_middle::ty::{
-    Adt, ParamEnv, Ty as MiddleTy, TyCtxt, TypeckResults, UpvarId, UpvarPath,
-};
+use rustc_middle::ty::{Adt, ParamEnv, Ty as MiddleTy, TyCtxt, TypeckResults, UpvarId, UpvarPath};
 use rustc_middle::{bug, mir};
+use rustc_mir_dataflow::Analysis;
 use rustc_mir_dataflow::impls::{MaybeInitializedPlaces, MaybeUninitializedPlaces};
 use rustc_mir_dataflow::move_paths::{LookupResult, MoveData};
-use rustc_mir_dataflow::Analysis;
 use rustc_span::def_id::DefId;
 use rustc_span::{Span, Symbol};
 use rustc_type_ir::inherent::SliceLike;
@@ -267,16 +266,16 @@ impl TxnHeldAcrossAwait {
                     continue;
                 }
 
-                tcx.node_span_lint(
+                tcx.emit_node_span_lint(
                     TXN_HELD_ACROSS_AWAIT,
                     hir_body.id().hir_id,
                     source_info.span,
-                    |diag| {
+                    DiagDecorator(|diag| {
                         diag.primary_message(
                             "A sqlx::Transaction is being held across this 'await' point",
                         );
                         diag.span_note(local_span, "Transaction declared here");
-                    },
+                    }),
                 );
             }
         }
@@ -395,16 +394,16 @@ impl TxnHeldAcrossAwait {
                     continue;
                 }
 
-                tcx.node_span_lint(
+                tcx.emit_node_span_lint(
                     TXN_HELD_ACROSS_AWAIT,
                     closure.body.hir_id,
                     source_info.span,
-                    |diag| {
+                    DiagDecorator(|diag| {
                         diag.primary_message(
                             "A sqlx::Transaction is being held across this 'await' point",
                         );
                         diag.span_note(hir_local_place.var_ident.span, "Transaction declared here");
-                    },
+                    }),
                 );
             }
         }
@@ -811,26 +810,20 @@ impl<'tcx> DbAwaitFinder<'tcx> {
         };
 
         let Some(await_expr) = finder.awaited_expr() else {
-            tcx.node_span_lint(
+            tcx.emit_node_span_lint(
                 TXN_HELD_ACROSS_AWAIT,
                 body.id().hir_id,
                 params.await_span,
-                |diag| {
+                DiagDecorator(|diag| {
                     diag.primary_message(
                         "DbAwaitFinder could not find the awaited expression for this await span",
                     );
-                },
+                }),
             );
             return false;
         };
 
-        lint.is_passing_txn(
-            txn_local_hir_id,
-            await_expr,
-            tcx,
-            typeck_results,
-            param_env,
-        )
+        lint.is_passing_txn(txn_local_hir_id, await_expr, tcx, typeck_results, param_env)
     }
 
     fn awaited_expr(&self) -> Option<&'tcx Expr<'tcx>> {

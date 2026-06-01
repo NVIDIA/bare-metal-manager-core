@@ -3,10 +3,10 @@
 ## Overview
 
 - cert-manager-spiffe uses Kubernetes `serviceAccounts`, `clusterDomain`,
-  `roles`, and `rolebindings` to build the SVID, e.g., spiffe://forge.local/forge-system/carbide-api
+  `roles`, and `rolebindings` to build the SVID, e.g., spiffe://nico.local/nico-system/nico-api
 - Certificates are available in pods at `/run/secrets/spiffe.io/{tls.crt,tls.key,ca.crt}`
 - To retrieve a certificate, you must first create a `serviceAccount`, `role`, and `roleBinding` (example below)
-- Don't forget to update the `namespace` to the correct value
+- Don't nicot to update the `namespace` to the correct value
 - Helm upgrade/install generates the `Labels` you see in the
   example below; you can omit those.
 - The `role` associated with the `serviceAccount` grants enough permissions to request a certificate from `cert-manager-csi-driver-spiffe`
@@ -15,7 +15,7 @@
 The `CertificateRequest` (which includes the CSR) references a
 `ClusterIssuer` set up during the initial bootstrap of the site.
 
-The `ClusterIssuer` sends CSRs to Vault for signing using the forgeCA PKI.
+The `ClusterIssuer` sends CSRs to Vault for signing using the nicoCA PKI.
 Before a `CertificateRequest` can be signed, it must be approved.
 
 `cert-manager-csi-driver-spiffe-approver` runs as a `deployment` and is
@@ -50,14 +50,14 @@ With SPIFFE formatted `Certificates`, the only field populated is the SAN (Subje
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-name: carbide-api
+name: nico-api
 namespace: "default"
 labels:
-app.kubernetes.io/name: carbide-api
-helm.sh/chart: carbideApi-0.0.1
+app.kubernetes.io/name: nico-api
+helm.sh/chart: nicoApi-0.0.1
 app.kubernetes.io/instance: release-name
 app.kubernetes.io/managed-by: Helm
-app.kubernetes.io/component: carbide-api
+app.kubernetes.io/component: nico-api
 automountServiceAccountToken: true
 
 ---
@@ -65,14 +65,14 @@ automountServiceAccountToken: true
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-name: carbide-api
+name: nico-api
 namespace: "default"
 labels:
-app.kubernetes.io/name: carbide-api
-helm.sh/chart: carbideApi-0.0.1
+app.kubernetes.io/name: nico-api
+helm.sh/chart: nicoApi-0.0.1
 app.kubernetes.io/instance: release-name
 app.kubernetes.io/managed-by: Helm
-app.kubernetes.io/component: carbide-api
+app.kubernetes.io/component: nico-api
 rules:
 
 - apiGroups: ["cert-manager.io"]
@@ -84,22 +84,22 @@ rules:
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-name: carbide-api
+name: nico-api
 namespace: default
 labels:
-app.kubernetes.io/name: carbide-api
-helm.sh/chart: carbideApi-0.0.1
+app.kubernetes.io/name: nico-api
+helm.sh/chart: nicoApi-0.0.1
 app.kubernetes.io/instance: release-name
 app.kubernetes.io/managed-by: Helm
-app.kubernetes.io/component: carbide-api
+app.kubernetes.io/component: nico-api
 roleRef:
 apiGroup: rbac.authorization.k8s.io
 kind: Role
-name: carbide-api
+name: nico-api
 subjects:
 
 - kind: ServiceAccount
-  name: carbide-api
+  name: nico-api
   namespace: "default"
 
 ```
@@ -108,7 +108,7 @@ After creating the `serviceAccount`, `role`, and `rolebinding`, modify your depl
 
 ```yaml
 spec:
-  serviceAccountName: carbide-api
+  serviceAccountName: nico-api
 ...
       volumeMounts:
         - name: spiffe

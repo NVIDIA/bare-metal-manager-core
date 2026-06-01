@@ -33,6 +33,7 @@ pub mod nvlink;
 pub mod operating_system;
 pub mod power_shelf;
 pub mod rack;
+pub mod spx;
 pub mod switch;
 pub mod typed_uuids;
 pub mod vpc;

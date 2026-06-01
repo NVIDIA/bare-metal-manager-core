@@ -52,18 +52,28 @@ pub struct SshClientConfig<'a> {
     pub port: u16,
     pub username: &'a str,
     pub auth: Option<&'a AuthConfig>,
-    pub known_hosts_file: Option<&'a Path>,
+    pub host_key_verification: HostKeyVerification,
+}
+
+/// How to verify the SSH server's host key.
+pub enum HostKeyVerification {
+    /// Skip host key verification.
+    Insecure,
+    /// Verify against the system default known_hosts file (`~/.ssh/known_hosts`).
+    DefaultKnownHostsFile,
+    /// Verify against an explicit known_hosts file.
+    KnownHostsFile(PathBuf),
 }
 
 impl<'a> SshClientConfig<'a> {
-    pub async fn make_authenticated_client(&'a self) -> SshResult<SshClient> {
+    pub async fn make_authenticated_client(self) -> SshResult<SshClient> {
         let mut client = russh::client::connect(
             russh_client_config(),
             (self.host, self.port),
             KnownHostsCheck {
                 host: self.host.to_string(),
                 port: self.port,
-                known_hosts_file: self.known_hosts_file.map(|p| p.to_path_buf()),
+                check: self.host_key_verification,
             },
         )
         .await?;
@@ -165,7 +175,7 @@ fn russh_client_config() -> Arc<russh::client::Config> {
 struct KnownHostsCheck {
     host: String,
     port: u16,
-    known_hosts_file: Option<PathBuf>,
+    check: HostKeyVerification,
 }
 
 impl russh::client::Handler for KnownHostsCheck {
@@ -175,18 +185,17 @@ impl russh::client::Handler for KnownHostsCheck {
         &mut self,
         server_public_key: &PublicKey,
     ) -> Result<bool, Self::Error> {
-        if let Some(path) = self.known_hosts_file.as_ref() {
-            return russh::keys::check_known_hosts_path(
-                &self.host,
-                self.port,
-                server_public_key,
-                path,
-            )
-            .map_err(russh::Error::from);
+        match &self.check {
+            HostKeyVerification::Insecure => Ok(true),
+            HostKeyVerification::KnownHostsFile(path) => {
+                russh::keys::check_known_hosts_path(&self.host, self.port, server_public_key, path)
+                    .map_err(russh::Error::from)
+            }
+            HostKeyVerification::DefaultKnownHostsFile => {
+                russh::keys::check_known_hosts(&self.host, self.port, server_public_key)
+                    .map_err(russh::Error::from)
+            }
         }
-
-        russh::keys::check_known_hosts(&self.host, self.port, server_public_key)
-            .map_err(russh::Error::from)
     }
 }
 

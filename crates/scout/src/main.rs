@@ -37,7 +37,10 @@ use rpc::protos::mlx_device::{
     FirmwareFlashReport as FirmwareFlashReportPb, LockStatus, MlxObservation, MlxObservationReport,
     PublishMlxObservationReportRequest,
 };
-use rpc::{ForgeScoutErrorReport, forge as rpc_forge, forge_agent_control_response as fac};
+use rpc::{
+    ForgeScoutErrorReport, forge as rpc_forge, forge_agent_control_response as fac,
+    scout_firmware_upgrade as sfu,
+};
 pub use scout::{CarbideClientError, CarbideClientResult};
 use tokio::sync::RwLock;
 use tryhard::{RetryFutureConfig, RetryPolicy};
@@ -407,7 +410,7 @@ async fn handle_action(
 async fn handle_firmware_upgrade_action(
     config: &Options,
     machine_id: &MachineId,
-    task: Option<fac::ScoutFirmwareUpgradeTask>,
+    task: Option<sfu::ScoutFirmwareUpgradeTask>,
 ) -> Result<(), CarbideClientError> {
     let task = task.ok_or_else(|| {
         CarbideClientError::GenericError("firmware upgrade action missing task".to_string())

@@ -16,7 +16,6 @@
  */
 
 use std::collections::{HashMap, VecDeque};
-use std::net::IpAddr;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -24,9 +23,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use forge_secrets::credentials::{
-    BmcCredentialType, CredentialKey, CredentialReader, TestCredentialManager,
-};
+use forge_secrets::credentials::{CredentialReader, TestCredentialManager};
 use libredfish::model::certificate::Certificate;
 use libredfish::model::component_integrity::{ComponentIntegrities, ComponentIntegrity};
 use libredfish::model::oem::nvidia_dpu::{HostPrivilegeLevel, NicMode};
@@ -42,8 +39,6 @@ use libredfish::{
     Assembly, Chassis, Collection, EnabledDisabled, JobState, NetworkAdapter, PowerState, Redfish,
     RedfishError, Resource, SystemPowerControl,
 };
-use mac_address::MacAddress;
-use sqlx::PgPool;
 
 use crate::libredfish::{RedfishAuth, RedfishClientCreationError, RedfishClientPool};
 
@@ -59,6 +54,7 @@ struct RedfishSimState {
     firmware_for_component_error: bool,
     get_task_trigger_evidence_returns_interrupted: bool,
     machine_setup_bios_job_id: Option<String>,
+    is_bios_setup: Option<bool>,
     job_state_sequence: VecDeque<JobState>,
     /// Records every call to `RedfishClientPool::create_client` so tests can
     /// assert what vendor was passed at each call site.
@@ -149,6 +145,10 @@ impl RedfishSim {
 
     pub fn set_job_state_sequence(&self, states: Vec<JobState>) {
         self.state.lock().unwrap().job_state_sequence = VecDeque::from(states);
+    }
+
+    pub fn set_is_bios_setup(&self, ready: bool) {
+        self.state.lock().unwrap().is_bios_setup = Some(ready);
     }
 
     /// Returns a snapshot of every `create_client` call made through this sim,
@@ -911,6 +911,7 @@ impl Redfish for RedfishSimClient {
         Box::pin(async move {
             Ok(ServiceRoot {
                 vendor: Some("Nvidia".to_string()),
+                product: Some("GB200 NVL".to_string()),
                 component_integrity: Some(ODataId {
                     odata_id: "Valid Data".to_string(),
                 }),
@@ -1354,7 +1355,7 @@ impl Redfish for RedfishSimClient {
         &'a self,
         _: Option<&'a str>,
     ) -> libredfish::RedfishFuture<'a, Result<bool, RedfishError>> {
-        Box::pin(async move { Ok(true) })
+        Box::pin(async move { Ok(self.state.lock().unwrap().is_bios_setup.unwrap_or(true)) })
     }
 
     fn get_secure_boot_certificate<'a>(
@@ -1499,6 +1500,40 @@ impl Redfish for RedfishSimClient {
                 },
                 ComponentIntegrity {
                     component_integrity_enabled: true,
+                    component_integrity_type: "SPDM".to_string(),
+                    component_integrity_type_version: "1.1.0".to_string(),
+                    id: "HGX_IRoT_GPU_2".to_string(),
+                    name: "SPDM Integrity for HGX_IRoT_GPU_2".to_string(),
+                    target_component_uri: Some("/redfish/v1/Chassis/HGX_IRoT_GPU_2".to_string()),
+                    spdm: Some(libredfish::model::component_integrity::SPDMData {
+                        identity_authentication:
+                            libredfish::model::component_integrity::IdentityAuthentication { responder_authentication: libredfish::model::component_integrity::ResponderAuthentication {
+                                component_certificate: ODataId {
+                                    odata_id:
+                                        "/redfish/v1/Chassis/HGX_IRoT_GPU_2/Certificates/CertChain"
+                                            .to_string(),
+                                },
+                            } },
+                        requester: ODataId {
+                            odata_id: "/redfish/v1/Managers/BMC_0".to_string(),
+                        },
+                    }),
+                    actions: Some(libredfish::model::component_integrity::SPDMActions {
+                        get_signed_measurements: Some(
+                            libredfish::model::component_integrity::SPDMGetSignedMeasurements {
+                                action_info: "/redfish/v1/ComponentIntegrity/HGX_IRoT_GPU_2/SPDMGetSignedMeasurementsActionInfo".to_string(),
+                                target: "/redfish/v1/ComponentIntegrity/HGX_IRoT_GPU_2/Actions/ComponentIntegrity.SPDMGetSignedMeasurements".to_string(),
+                            },
+                        ),
+                    }),
+                    links: Some(
+                        libredfish::model::component_integrity::ComponentsProtectedLinks {
+                            components_protected: vec![ODataId{ odata_id: "/redfish/v1/Systems/HGX_Baseboard_0/Processors/GPU_2".to_string() }]
+                        },
+                    ),
+                },
+                ComponentIntegrity {
+                    component_integrity_enabled: true,
                     component_integrity_type: "TPM".to_string(),
                     component_integrity_type_version: "1.1.0".to_string(),
                     id: "HGX_IRoT_GPU_1".to_string(),
@@ -1601,7 +1636,7 @@ impl Redfish for RedfishSimClient {
                 },
                 ],
                 name: "ComponentIntegrities".to_string(),
-                count: 6,
+                count: 7,
             })
         })
     }
@@ -1758,25 +1793,6 @@ impl RedfishClientPool for RedfishSim {
 
     fn credential_reader(&self) -> &dyn CredentialReader {
         &self.credential_manager
-    }
-
-    async fn create_client_for_ingested_host(
-        &self,
-        ip: IpAddr,
-        port: Option<u16>,
-        _txn: &PgPool,
-    ) -> Result<Box<dyn Redfish>, RedfishClientCreationError> {
-        self.create_client(
-            &ip.to_string(),
-            port,
-            RedfishAuth::Key(CredentialKey::BmcCredentials {
-                credential_type: BmcCredentialType::BmcRoot {
-                    bmc_mac_address: MacAddress::default(),
-                },
-            }),
-            None,
-        )
-        .await
     }
 
     async fn uefi_setup(

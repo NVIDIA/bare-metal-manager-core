@@ -24,6 +24,7 @@ use model::instance::snapshot::InstanceSnapshot;
 use model::instance::status::InstanceStatus;
 use model::machine::infiniband::MachineInfinibandStatusObservation;
 use model::machine::nvlink::MachineNvLinkStatusObservation;
+use model::machine::spx::MachineSpxStatusObservation;
 use model::machine::{ManagedHostState, ReprovisionRequest};
 
 use crate::errors::RpcDataConversionError;
@@ -31,6 +32,7 @@ use crate::model::instance::status::instance_status_from_config_and_observation;
 
 /// Derives the tenant and site-admin facing [`InstanceStatus`] from the
 /// snapshot information about the instance
+#[allow(clippy::too_many_arguments)]
 pub fn instance_snapshot_derive_status(
     snapshot: &InstanceSnapshot,
     dpu_id_to_device_map: HashMap<String, Vec<MachineId>>,
@@ -38,6 +40,7 @@ pub fn instance_snapshot_derive_status(
     reprovision_request: Option<ReprovisionRequest>,
     ib_status: Option<&MachineInfinibandStatusObservation>,
     nvlink_status: Option<&MachineNvLinkStatusObservation>,
+    spx_status: Option<&MachineSpxStatusObservation>,
     host_health: &HealthReportSources,
 ) -> Result<InstanceStatus, RpcDataConversionError> {
     instance_status_from_config_and_observation(
@@ -50,12 +53,14 @@ pub fn instance_snapshot_derive_status(
             snapshot.extension_services_config_version,
         ),
         Versioned::new(&snapshot.config.nvlink, snapshot.nvlink_config_version),
+        Versioned::new(&snapshot.config.spxconfig, snapshot.spx_config_version),
         &snapshot.observations,
         managed_host_state,
         snapshot.deleted.is_some(),
         reprovision_request,
         ib_status,
         nvlink_status,
+        spx_status,
         snapshot.update_network_config_request.is_some(),
         host_health,
     )

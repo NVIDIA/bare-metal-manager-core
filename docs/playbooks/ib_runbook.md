@@ -253,10 +253,10 @@ root:/# curl -s -k -XGET -u admin:password https://ufm:443/ufmRest/app/tokens | 
 ]
 ```
 
-Create the credential for UFM client in NICo by carbide-admin-cli as follows:
+Create the credential for UFM client in NICo by nico-admin-cli as follows:
 
 ```
-root:/# carbide-admin-cli credential add-ufm --url=https://<address:port> --token=<access_token>
+root:/# nico-admin-cli credential add-ufm --url=https://<address:port> --token=<access_token>
 ```
 
 ##### Client Authentication (mTLS)
@@ -270,11 +270,11 @@ Zero Trust means that no user, device, or network traffic is trusted by default,
 UFM Server Certificates should include UFM Host Name `<ufm host name>` into The Subject Alternative Name (SAN) extension to the X.509 specification.
 
 Note:
-- `<ufm host name>` should be as `default.ufm.forge`, `default.ufm.<site domain name>`. Where `<site domain name>` is taken from `initial_domain_name` NICo configuration parameter.
+- `<ufm host name>` should be as `default.ufm.nico`, `default.ufm.<site domain name>`. Where `<site domain name>` is taken from `initial_domain_name` NICo configuration parameter.
 
 ```
 openssl x509 -in server.crt -text -noout | grep DNS
-                DNS:default.ufm.forge, DNS:default.ufm.nico.example.org
+                DNS:default.ufm.nico, DNS:default.ufm.nico.example.org
 ```
 - direct IP address is not supported.
 - for UFM version less than 6.18.0-5 following patch should be applied as
@@ -296,16 +296,16 @@ openssl x509 -in server.crt -text -noout | grep DNS
 Existing NICo certificates such as `/run/secrets/spiffe.io/{tls.crt,tls.key,ca.crt}` are used for client side.
 
 ```
-carbide-admin-cli credential add-ufm --url=<ufm host name>
+nico-admin-cli credential add-ufm --url=<ufm host name>
 ```
 
 **Generate UFM server certificate using Vault.**
 
 Enter this command to create server UFM certificates using the vault:
 
-    carbide-admin-cli credential generate-ufm-cert --fabric=default
+    nico-admin-cli credential generate-ufm-cert --fabric=default
 
-UFM Server Certificates have predefined names as `default-ufm-ca-intermediate.crt, default-ufm-server.crt, default-ufm-server.key` and stored under `/var/run/secrets` location on `carbide-api` pod.
+UFM Server Certificates have predefined names as `default-ufm-ca-intermediate.crt, default-ufm-server.crt, default-ufm-server.key` and stored under `/var/run/secrets` location on `nico-api` pod.
 
 **Enter Docker UFM container.**
 ```
@@ -322,9 +322,9 @@ Create UFM Server certificates using certificates generated on previous step in 
 ```
 
 **Assign UFM Client Host Name with UFM `admin` role.**
-It should be value from `client certificate SAN record` for example: carbide-api.forge.
+It should be value from `client certificate SAN record` for example: nico-api.nico.
 ```
-/opt/ufm/scripts/manage_client_authentication.sh associate-user --san carbide-api.forge --username admin
+/opt/ufm/scripts/manage_client_authentication.sh associate-user --san nico-api.nico --username admin
 curl -s -k -XGET -u admin:123456 https://<client host name>/ufmRest/app/client_authentication/settings | jq
 {
   "enable": false,
@@ -342,9 +342,9 @@ curl -s -k -XGET -u admin:123456 https://<client host name>/ufmRest/app/client_a
 ```
 
 **Set UFM Server Host Name for certificate verification.**
-It should be value from `server certificate SAN record` for example: default.ufm.forge.
+It should be value from `server certificate SAN record` for example: default.ufm.nico.
 ```
-/opt/ufm/scripts/manage_client_authentication.sh set-ssl-cert-hostname --hostname default.ufm.forge
+/opt/ufm/scripts/manage_client_authentication.sh set-ssl-cert-hostname --hostname default.ufm.nico
 curl -s -k -XGET -u admin:123456 https://<ufm host name>/ufmRest/app/client_authentication/settings | jq
 {
   "enable": false,
@@ -375,12 +375,12 @@ client_cert_authentication = true
 ```
 
 **Check functionality.**
-Existing carbide certificates such as `/run/secrets/spiffe.io/{tls.crt,tls.key,ca.crt}` are used for verification.
+Existing nico certificates such as `/run/secrets/spiffe.io/{tls.crt,tls.key,ca.crt}` are used for verification.
 ```
 curl -v -s --cert-type PEM --cacert ca.crt --key tls.key --cert tls.crt -XGET  https://<ufm host name>/ufmRest/app/ufm_version | jq
 *   Trying 192.168.121.78:443...
 * TCP_NODELAY set
-* Connected to carbide-api.forge (192.168.121.78) port 443 (#0)
+* Connected to nico-api.nico (192.168.121.78) port 443 (#0)
 * ALPN, offering h2
 * ALPN, offering http/1.1
 * successfully set certificate verify locations:
@@ -411,12 +411,12 @@ curl -v -s --cert-type PEM --cacert ca.crt --key tls.key --cert tls.crt -XGET  h
 *  subject: [NONE]
 *  start date: Jun 18 02:52:24 2024 GMT
 *  expire date: Jul 18 02:52:54 2024 GMT
-*  subjectAltName: host "carbide-api.forge" matched cert's "carbide-api.forge"
+*  subjectAltName: host "nico-api.nico" matched cert's "nico-api.nico"
 *  issuer: O=NVIDIA Corporation; CN=NVIDIA NICo Intermediate CA - <site-name>
 *  SSL certificate verify ok.
 } [5 bytes data]
 > GET /ufmRest/app/ufm_version HTTP/1.1
-> Host: carbide-api.forge
+> Host: nico-api.nico
 > User-Agent: curl/7.68.0
 > Accept: */*
 >
@@ -463,15 +463,15 @@ curl -v -s --cert-type PEM --cacert ca.crt --key tls.key --cert tls.crt -XGET  h
 < ClientCertAuthen: yes
 <
 { [34 bytes data]
-* Connection #0 to host carbide-api.forge left intact
+* Connection #0 to host nico-api.nico left intact
 {
   "ufm_release_version": "6.23.1-6"
 }
 ```
 
-#### carbide-api-site-config
+#### nico-api-site-config
 
-Update the configmap `carbide-api-site-config-files` to configure
+Update the configmap `nico-api-site-config-files` to configure
 the UFM address/endpoint and the pkey range that is used per fabric as follows.
 
 Infiniband typically expresses `Pkeys` in hex; the available range is `“0x0 ~ 0x7FFF”`.
@@ -487,34 +487,34 @@ the fabric ID `default` will be accepted here.
 
 **NOTE**: A pkey will be generated for all partitions that are managed by NICo; ensure the range does not conflict with the existing pkey in UFM (if any).
 
-Update the configmap `carbide-api-site-config-files` to enable Infiniband features as follows:
+Update the configmap `nico-api-site-config-files` to enable Infiniband features as follows:
 
 ```toml
 [ib_config]
 enabled = true
 ```
 
-To enable the monitor of IB, update the configmap `carbide-api-site-config-files`  as follows:
+To enable the monitor of IB, update the configmap `nico-api-site-config-files`  as follows:
 
 ```toml
 [ib_fabric_monitor]
 enabled = true
 ```
 
-#### Restart carbide-api
+#### Restart nico-api
 
-Restart carbide-api to enable Infiniband in site-controller.
+Restart nico-api to enable Infiniband in site-controller.
 
 ### Rollback
 
-Update the configmap forge-system/carbide-api-site-config-files to disable Infiniband features as follows:
+Update the configmap nico-system/nico-api-site-config-files to disable Infiniband features as follows:
 
 ```toml
 [ib_config]
 enabled = false
 ```
 
-Restart carbide-api to disable Infiniband in site-controller.
+Restart nico-api to disable Infiniband in site-controller.
 
 ## FAQ
 

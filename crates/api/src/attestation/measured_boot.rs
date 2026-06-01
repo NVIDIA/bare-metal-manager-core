@@ -21,6 +21,7 @@ use std::io::Write;
 use std::process::Command;
 
 use byteorder::{BigEndian, ByteOrder};
+use carbide_machine_controller::{MeasuringOutcome, handle_measuring_state};
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::measured_boot::MeasurementReportId;
 use db::db_read::DbReader;
@@ -31,7 +32,6 @@ use sqlx::PgConnection;
 use temp_dir::TempDir;
 
 use crate::attestation::get_ek_cert_by_machine_id;
-use crate::state_controller::machine::{MeasuringOutcome, handle_measuring_state};
 use crate::{CarbideError, CarbideResult};
 
 /// VerifyQuoteState is a simple enum used to track

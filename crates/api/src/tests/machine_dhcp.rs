@@ -342,6 +342,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -352,6 +353,7 @@ async fn test_machine_dhcp_with_api_for_instance_physical_virtual(
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
         ],
         auto: false,
@@ -745,7 +747,6 @@ async fn test_dhcp_allows_zero_dpu_host_with_instance(
     let env = create_test_env_with_overrides(
         pool,
         TestEnvOverrides {
-            allow_zero_dpu_hosts: Some(true),
             site_prefixes: Some(vec![
                 IpNetwork::new(
                     FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),

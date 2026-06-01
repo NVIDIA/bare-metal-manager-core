@@ -199,8 +199,6 @@ async fn test_switch_entire_state_transition_flow(
     let switch_handler = Arc::new(SwitchStateHandler::default());
     const ITERATION_TIME: Duration = Duration::from_millis(50);
 
-    let handler_services = Arc::new(env.state_handler_services());
-
     let cancel_token = CancellationToken::new();
     let mut controller = StateController::<SwitchStateControllerIO>::builder()
         .iteration_config(IterationConfig {
@@ -212,9 +210,9 @@ async fn test_switch_entire_state_transition_flow(
         .processor_id(uuid::Uuid::new_v4().to_string())
         .services(
             SwitchStateHandlerServices {
-                db_pool: handler_services.db_pool.clone(),
-                rms_client: handler_services.rms_client.clone(),
-                credential_manager: handler_services.credential_manager.clone(),
+                db_pool: pool.clone(),
+                rms_client: env.rms_sim.as_rms_client(),
+                credential_manager: env.test_credential_manager.clone(),
             }
             .into(),
         )

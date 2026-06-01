@@ -51,6 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .compile_protos(
             &[
                 "proto/common.proto",
+                "proto/scout_firmware_upgrade.proto",
                 "proto/dns.proto",
                 "proto/forge.proto",
                 "proto/machine_discovery.proto",

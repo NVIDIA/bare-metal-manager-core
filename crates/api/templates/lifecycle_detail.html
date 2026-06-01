@@ -4,6 +4,9 @@
 		<th>State</th>
 		<td>{{ state_display|safe }}</td>
 	</tr>
+	{% if let Some(associated_instance_id) = associated_instance_id %}
+	<tr><th>Instance</th><td><a href="/admin/instance/{{ associated_instance_id }}">{{ associated_instance_id }}</a></td></tr>
+	{% endif %}
 	{% if let Some(json_state) = json_state %}
 	<tr>
 		<th>JSON State</th>

@@ -14,7 +14,7 @@ Before deploying NICo, you must configure DNS A records that resolve each `.nico
 |---|---|---|---|---|---|
 | `nico-api.nico` | 443 | gRPC / TLS | DPU agents, admin CLI, PXE service, DHCP plugin, FMDS, health probe | `nico-api` pod | NICo gRPC API |
 | `nico-pxe.nico` | 80 | HTTP | DPU agents, iPXE clients | `nico-pxe` pod | iPXE scripts, cloud-init payloads, boot artifacts, internal APT |
-| `nico-static-pxe.nico` | 80 | HTTP | Host PXE loader (scout) | `nico-static-pxe` pod | Static boot files: `scout.cpio.zst`, `scout.efi`, BFB images |
+| `nico-static-pxe.nico` | 80 | HTTP | Host PXE loader (scout) | `nico-static-pxe` pod | Static boot files: `scout.squashfs`, `scout.efi`, BFB images |
 | `nico-ntp.nico` | 123 | UDP (NTP) | DPU agents, managed hosts (DHCP option 42) | `nico-ntp` pods | NTP time synchronisation |
 | `unbound.nico` | 53 | UDP / TCP (DNS) | DPU agents, managed hosts (DHCP option 6) | `nico-unbound` pod | Site-local recursive DNS resolver |
 | `otel-receiver.nico` | 443 | gRPC / TLS (OTLP) | DPU otel-collector sidecars | otel-receiver service | OpenTelemetry ingestion endpoint |
@@ -71,7 +71,7 @@ Serves dynamic per-machine iPXE boot scripts, cloud-init payloads, boot artifact
 Serves pre-built, version-controlled boot assets used during host bring-up. Unlike `nico-pxe.nico`, content here is static rather than dynamically generated per machine.
 
 **Consumers:**
-- Scout host PXE loader — downloads `scout.cpio.zst` (the initramfs), `scout.efi`, and BFB images used during host network boot and DPU firmware provisioning
+- Scout host PXE loader — downloads `scout.squashfs` (the initramfs), `scout.efi`, and BFB images used during host network boot and DPU firmware provisioning
 
 **Configurability:** The URL is hardcoded in host boot shell scripts (`pxe/common_files/scout-loader-rclocal`, `pxe/common_files/check-scout-updates.sh`) that are embedded in boot images at build time. The server-side deployment can set `NICO_STATIC_PXE_URL` to override the URL used by the PXE service, but the embedded client scripts that run on hosts **cannot be reconfigured at runtime**.
 
@@ -165,7 +165,7 @@ The DPU agent (`nico-agent`) issues DNS queries at startup and periodically ther
 
 How it finds its resolver:
 
-- The DPU's network interface receives an IP and DHCP options from `nico-dhcp` (the Kea + carbide hook combination).
+- The DPU's network interface receives an IP and DHCP options from `nico-dhcp` (the Kea + nico hook combination).
 - DHCP option 6 (Domain Name Server) is set to the `unbound.nico` VIP. This value comes from the Kea hook parameter `nico-nameserver`.
 - The DPU agent uses this as its sole resolver. The agent has no compiled-in resolver address; changing the resolver is a DHCP-side configuration change.
 

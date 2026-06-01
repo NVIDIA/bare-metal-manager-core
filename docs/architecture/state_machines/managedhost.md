@@ -76,6 +76,10 @@ stateDiagram-v2
     ForceDeletion --> [*] : Force deletion complete
 ```
 
+### `Failed` recovery semantics
+
+`FailureCause::BiosSetupFailed` is set when BIOS setup retries are exhausted during ingestion or instance deprovisioning. The Failed handler polls `is_bios_setup` and auto-recovers into `SetBootOrder` once the BMC reports success.
+
 ## DPU Discovery State Details (DpuDiscoveringState)
 
 Shows the complete DPU discovery and configuration process:
@@ -240,6 +244,10 @@ stateDiagram-v2
 
     state "EnableIpmiOverLan" as HI_EnableIpmiOverLan
     state "WaitingForPlatformConfiguration" as HI_WaitingForPlatformConfiguration
+    state "WaitingForBiosJob" as HI_WaitingForBiosJob {
+        state "HandleBiosJobFailure" as HI_WBJ_HandleBiosJobFailure
+    }
+    state "PollingBiosSetup" as HI_PollingBiosSetup
     state "WaitingForDiscovery" as HI_WaitingForDiscovery
     state "Discovered" as HI_Discovered
     state "BomValidating/MatchingSku" as BomValidating_BV_MatchingSku
@@ -251,9 +259,19 @@ stateDiagram-v2
     DpuInitState_DI_WaitingForNetworkConfig --> HI_EnableIpmiOverLan
     Failed --> HI_WFL_TimeWaitForDPUDown
     Failed --> HI_M_WaitingForMeasurements
+    Failed --> HI_SBO_SetBootOrder : BiosSetupFailed AND is_bios_setup ok
 
     HI_EnableIpmiOverLan --> HI_WaitingForPlatformConfiguration : Enable IPMI over LAN access
-    HI_WaitingForPlatformConfiguration --> HI_SBO_SetBootOrder : Call machine setup/Restart Host
+    HI_WaitingForPlatformConfiguration --> HI_PollingBiosSetup : Call machine setup/Restart Host
+    HI_WaitingForPlatformConfiguration --> HI_WaitingForBiosJob : Dell BIOS job scheduled
+    HI_WaitingForBiosJob --> HI_PollingBiosSetup : BIOS job completed
+    HI_WaitingForBiosJob --> HI_WBJ_HandleBiosJobFailure : BIOS job failed
+    HI_WaitingForBiosJob --> Failed : Retry budget exhausted (BiosSetupFailed)
+    HI_WBJ_HandleBiosJobFailure --> HI_WaitingForPlatformConfiguration : Power off + BMC reset + power on
+    HI_PollingBiosSetup --> HI_PollingBiosSetup : Wait for BIOS setup
+    HI_PollingBiosSetup --> HI_WBJ_HandleBiosJobFailure : Stuck > 15 min, retry budget left
+    HI_PollingBiosSetup --> Failed : Stuck > 15 min, retry budget exhausted (BiosSetupFailed)
+    HI_PollingBiosSetup --> HI_SBO_SetBootOrder : BIOS is setup
 
     HI_SBO_SetBootOrder --> hi_sbo_if_zero_dpu
     hi_sbo_if_zero_dpu --> HI_SBO_WaitForSetBootOrderJobCompletion : No DPU
@@ -446,6 +464,9 @@ stateDiagram-v2
         }
         state "CheckHostConfig" as A_HPC_CheckHostConfig
         state "ConfigureBios" as A_HPC_ConfigureBios
+        state "WaitingForBiosJob" as A_HPC_WaitingForBiosJob {
+            state "HandleBiosJobFailure" as A_HPC_WBJ_HandleBiosJobFailure
+        }
         state "PollingBiosSetup" as A_HPC_PollingBiosSetup
         state "SetBootOrder" as A_HPC_SetBootOrder {
             state "SetBootOrder" as A_HPC_SBO_SetBootOrder
@@ -513,7 +534,14 @@ stateDiagram-v2
     A_HPC_CheckHostConfig --> A_HPC_ConfigureBios : Need config host boot order
     A_HPC_CheckHostConfig --> A_HPC_LockHost : No need config host boot order
     A_HPC_ConfigureBios --> A_HPC_PollingBiosSetup : Config BIOS
+    A_HPC_ConfigureBios --> A_HPC_WaitingForBiosJob : Dell BIOS job scheduled
+    A_HPC_WaitingForBiosJob --> A_HPC_PollingBiosSetup : BIOS job completed
+    A_HPC_WaitingForBiosJob --> A_HPC_WBJ_HandleBiosJobFailure : BIOS job failed
+    A_HPC_WaitingForBiosJob --> A_Failed : Retry budget exhausted (BiosSetupFailed)
+    A_HPC_WBJ_HandleBiosJobFailure --> A_HPC_ConfigureBios : Power off + BMC reset + power on
     A_HPC_PollingBiosSetup --> A_HPC_PollingBiosSetup : Wait for BIOS setup
+    A_HPC_PollingBiosSetup --> A_HPC_WBJ_HandleBiosJobFailure : Stuck > 15 min, retry budget left
+    A_HPC_PollingBiosSetup --> A_Failed : Stuck > 15 min, retry budget exhausted (BiosSetupFailed)
     A_HPC_PollingBiosSetup --> A_HPC_SBO_SetBootOrder : BIOS is setup
     A_HPC_SBO_SetBootOrder --> A_HPC_SBO_WaitForSetBootOrderJobScheduled : Set boot order job scheduled
     A_HPC_SBO_WaitForSetBootOrderJobScheduled --> A_HPC_SBO_RebootHost : Job scheduled
@@ -524,6 +552,7 @@ stateDiagram-v2
     state AnyState
     AnyState --> A_Failed : Any failure condition
     A_Failed --> A_Failed : Wait (stuck, manual action needed)
+    A_Failed --> A_HPC_SBO_SetBootOrder : BiosSetupFailed AND is_bios_setup ok
 ```
 
 

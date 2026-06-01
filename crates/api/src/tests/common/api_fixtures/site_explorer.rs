@@ -834,7 +834,7 @@ impl<'a> MockExploredHost<'a> {
         }
 
         // Zero-DPU hosts skip the WaitForDPUUp lockdown state and land
-        // directly in BomValidating (see `is_zero_dpu` short-circuit in
+        // directly in BomValidating (see `has_managed_dpus` short-circuit in
         // `LockdownState::TimeWaitForDPUDown`). There are no DPUs to
         // signal as configured, so skip the network_configured handshake.
         if !self.dpu_machine_ids.is_empty() {
@@ -1325,6 +1325,12 @@ pub async fn register_expected_machine(
     data.serial_number = config.serial.clone();
     if data.dpf_enabled.is_none() {
         data.dpf_enabled = default_dpf_enabled;
+    }
+    // For fixtures that intentionally create zero-DPU hosts (no DpuConfigs),
+    // declare them as `NoDpu` so site-explorer accepts them. Tests that
+    // explicitly set `dpu_mode` via `expected_machine_data` are left alone.
+    if config.dpus.is_empty() && data.dpu_mode == model::expected_machine::DpuMode::DpuMode {
+        data.dpu_mode = model::expected_machine::DpuMode::NoDpu;
     }
 
     let em = ExpectedMachine {

@@ -84,7 +84,7 @@ impl From<ShowLogicalPartition> for LogicalPartitionRowDisplay {
 struct ShowPhysicalPartitionDetail {
     id: String,
     name: String,
-    nmx_m_id: String,
+    nmx_c_partition_id: String,
     members: Vec<ShowPartitionMember>,
 }
 
@@ -105,7 +105,7 @@ impl From<ShowLogicalPartition> for LogicalPartitionDetail {
             let pp = ShowPhysicalPartitionDetail {
                 id: s.partition.id.map(|i| i.to_string()).unwrap_or_default(),
                 name: s.partition.name,
-                nmx_m_id: s.partition.nmx_m_id,
+                nmx_c_partition_id: s.partition.nmx_m_id,
                 members: s.members,
             };
             physical_partitions.push(pp);

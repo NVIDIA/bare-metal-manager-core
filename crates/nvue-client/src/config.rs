@@ -15,9 +15,11 @@
  * limitations under the License.
  */
 
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use crate::client::NvueClientError;
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Hash, serde::Deserialize, serde::Serialize)]
 #[serde(transparent)]
 pub struct NvueConfig {
     // FIXME: Replace this with a more strongly typed inner representation
@@ -66,6 +68,12 @@ impl NvueConfig {
         } else {
             Ok(None)
         }
+    }
+
+    pub fn u64_hash(&self) -> u64 {
+        let mut h = DefaultHasher::new();
+        self.hash(&mut h);
+        h.finish()
     }
 }
 

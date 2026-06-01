@@ -19,7 +19,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use crate::SshError;
-use crate::ssh_client::AuthConfig;
+use crate::ssh_client::{AuthConfig, HostKeyVerification};
 
 async fn execute_command(
     command: &str,
@@ -34,7 +34,7 @@ async fn execute_command(
         port: 22,
         username: &username,
         auth: Some(&auth),
-        known_hosts_file: None,
+        host_key_verification: HostKeyVerification::Insecure,
     }
     .make_authenticated_client()
     .await?;

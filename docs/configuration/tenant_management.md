@@ -4,7 +4,7 @@ Operator guide for tenant creation, resource allocation, and instance provisioni
 
 This is a Day 1 (Configuration) activity in NICo's lifecycle model -- the phase after hardware has been discovered, validated, and ingested (Day 0). Day 1 is when operators configure tenant boundaries, define resource allocations, and provision instances so tenants can consume bare-metal infrastructure.
 
-The primary tool throughout this guide is `nicocli`, the CLI client that wraps the NICo REST API. Every REST endpoint is available as a CLI command, and nicocli handles authentication, token refresh, and multi-environment configuration automatically. The carbide-admin-cli (which talks to the Core gRPC API) is referenced only where an operation has no REST API equivalent.
+The primary tool throughout this guide is `nicocli`, the CLI client that wraps the NICo REST API. Every REST endpoint is available as a CLI command, and nicocli handles authentication, token refresh, and multi-environment configuration automatically. The nico-admin-cli (which talks to the Core gRPC API) is referenced only where an operation has no REST API equivalent.
 
 ## Before You Start
 
@@ -71,7 +71,7 @@ nicocli tui
 - The authenticated user must be a member of the organization specified in the nicocli config (`api.org`).
 - The user must hold the Tenant Admin role within that org.
 
-If either condition is not met, the API returns HTTP 403. NICo trusts whatever the IdP says in the token's claims, so getting these conditions met is an IdP administration task -- it is not done through nicocli or the NICo API. The [Quick Start Guide](../getting-started/quick-start.md) walks through the bundled Keycloak reference implementation (a dev Keycloak deployed by `setup.sh` with a pre-loaded realm), which is the simplest path for first-time setup. For production, point NICo at any OIDC-compatible IdP (Keycloak, Okta, Auth0, your existing enterprise IdP) by configuring the `issuers` block in `carbide-rest-api`'s config -- see [`getting-started/installation-options/reference-install.md`](../getting-started/installation-options/reference-install.md) for the deployment-side wiring.
+If either condition is not met, the API returns HTTP 403. NICo trusts whatever the IdP says in the token's claims, so getting these conditions met is an IdP administration task -- it is not done through nicocli or the NICo API. The [Quick Start Guide](../getting-started/quick-start.md) walks through the bundled Keycloak reference implementation (a dev Keycloak deployed by `setup.sh` with a pre-loaded realm), which is the simplest path for first-time setup. For production, point NICo at any OIDC-compatible IdP (Keycloak, Okta, Auth0, your existing enterprise IdP) by configuring the `issuers` block in `nico-rest-api`'s config -- see [`getting-started/installation-options/reference-install.md`](../getting-started/installation-options/reference-install.md) for the deployment-side wiring.
 
 ### Worked Example
 
@@ -226,14 +226,14 @@ The detail view for an instance type includes an `allocationStats` section showi
 
 ### Creating Instance Types (Provider Admin, gRPC Only)
 
-Instance type creation is a gRPC operation via carbide-admin-cli:
+Instance type creation is a gRPC operation via nico-admin-cli:
 
 ```
-carbide-admin-cli -c <core-api-url> instance-type create --name "GB200-NVL72" --gpu-count 72
-carbide-admin-cli -c <core-api-url> instance-type associate --instance-type-id <id> --machine-id <machine-id>
+nico-admin-cli -c <core-api-url> instance-type create --name "GB200-NVL72" --gpu-count 72
+nico-admin-cli -c <core-api-url> instance-type associate --instance-type-id <id> --machine-id <machine-id>
 ```
 
-See the Quick Start Guide, Step 7 for carbide-admin-cli access patterns. The REST API exposes instance type CRUD endpoints, but machine association management is currently gRPC-only.
+See the Quick Start Guide, Step 7 for nico-admin-cli access patterns. The REST API exposes instance type CRUD endpoints, but machine association management is currently gRPC-only.
 
 ## Assigning Resources with Allocations
 
@@ -684,14 +684,14 @@ In TUI mode, `instance delete` prompts for confirmation before proceeding. Delet
 
 ### Machine-Level Emergency Operations (gRPC Only)
 
-For stuck or unresponsive machines that cannot be managed through the instance API, carbide-admin-cli provides direct BMC operations:
+For stuck or unresponsive machines that cannot be managed through the instance API, nico-admin-cli provides direct BMC operations:
 
 ```
 # Force-reboot via BMC
-carbide-admin-cli -c <core-api-url> machine reboot --machine-id="<machine-id>"
+nico-admin-cli -c <core-api-url> machine reboot --machine-id="<machine-id>"
 
 # Force-delete a stuck machine (destructive -- wipes machine state)
-carbide-admin-cli -c <core-api-url> machine force-delete --machine="<machine-id>"
+nico-admin-cli -c <core-api-url> machine force-delete --machine="<machine-id>"
 ```
 
 See the [Machine Reboot](../playbooks/machine_reboot.md) and [Force Delete](../playbooks/force_delete.md) playbooks in the core documentation for detailed procedures.
@@ -860,7 +860,7 @@ The instance should reach `Ready` (or `BootCompleted` if `phoneHomeEnabled: true
 | HTTP 400 on allocation create "machines available" | Not enough capacity at the site | Check `nicocli instance-type get <id>` for `allocationStats.maxAllocatable` |
 | HTTP 400 on allocation constraint update with shrink | New value < tenant's active instance count for that type | Terminate instances first, then resize |
 | Instance stuck in `Pending` or `Registering` | Provisioning workflow blocked or failed | `nicocli instance status-history <id>` for the failure message |
-| Connection refused on `localhost:8388` | Port-forward died | Re-run `kubectl port-forward -n carbide-rest svc/carbide-rest-api 8388:http` (note the service port name is `http`, not 8388) |
+| Connection refused on `localhost:8388` | Port-forward died | Re-run `kubectl port-forward -n nico-rest svc/nico-rest-api 8388:http` (note the service port name is `http`, not 8388) |
 
 ### Debugging with nicocli
 

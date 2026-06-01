@@ -15,6 +15,7 @@ import "health.proto";
 import "machine_discovery.proto";
 import "measured_boot.proto";
 import "mlx_device.proto";
+import "scout_firmware_upgrade.proto";
 import "site_explorer.proto";
 
 service Forge {
@@ -51,6 +52,11 @@ service Forge {
   rpc DeleteVpc(VpcDeletionRequest) returns (VpcDeletionResult);
   rpc FindVpcIds(VpcSearchFilter) returns (VpcIdList);
   rpc FindVpcsByIds(VpcsByIdsRequest) returns (VpcList);
+
+  rpc CreateSpxPartition(SpxPartitionCreationRequest) returns (SpxPartition);
+  rpc DeleteSpxPartition(SpxPartitionDeletionRequest) returns (SpxPartitionDeletionResult);
+  rpc FindSpxPartitionIds(SpxPartitionSearchFilter) returns (SpxPartitionIdList);
+  rpc FindSpxPartitionsByIds(SpxPartitionsByIdsRequest) returns (SpxPartitionList);
 
   // VPC prefixes
   rpc CreateVpcPrefix(VpcPrefixCreationRequest) returns (VpcPrefix);
@@ -690,7 +696,6 @@ service Forge {
   rpc CreateDpaInterface(DpaInterfaceCreationRequest) returns (DpaInterface);
   rpc EnsureDpaInterface(DpaInterfaceCreationRequest) returns (DpaInterface);
   rpc DeleteDpaInterface(DpaInterfaceDeletionRequest) returns (DpaInterfaceDeletionResult);
-  rpc SetDpaNetworkObservationStatus(DpaNetworkObservationSetRequest) returns (DpaInterface);
 
   // Power Options
   rpc GetPowerOptions(PowerOptionRequest) returns (PowerOptionResponse);
@@ -2663,6 +2668,7 @@ message InstanceConfig {
   // Configures instance nvlink partitions
   InstanceNVLinkConfig nvlink = 24;
 
+  InstanceSpxConfig spxconfig = 25;
 }
 
 // Desired network configuration for an instance
@@ -2710,6 +2716,24 @@ message InstanceDpuExtensionServicesConfig {
 message InstanceNVLinkConfig {
   // Configures how instance nvlink gpus are set up
   repeated InstanceNVLinkGpuConfig gpu_configs = 1;
+}
+
+message InstanceSpxConfig {
+  repeated InstanceSpxAttachment spx_attachments = 1;
+}
+
+enum SpxAttachmentType {
+  Physical = 0;
+  Virtual = 1;
+  Ovn = 2; // This is WIP. Specification for this not yet finalized in Astra Spec
+}
+
+message InstanceSpxAttachment {
+  string device = 1;
+  uint32 device_instance = 2;
+  common.SpxPartitionId spx_partition_id = 3;
+  SpxAttachmentType attachment_type = 4;
+  optional uint32 virtual_function_id = 5; // Needed only if AttachmentType is Virtual
 }
 
 // New configuration for the instances network interfaces
@@ -2798,6 +2822,21 @@ message InstanceStatus {
   optional InstanceUpdateStatus update = 102;
 
   InstanceNVLinkStatus nvlink = 103;
+
+  InstanceSpxStatus spx_status = 104;
+}
+
+message InstanceSpxStatus {
+  repeated InstanceSpxAttachmentStatus attachment_statuses = 1;
+  SyncState configs_synced = 101;
+}
+
+message InstanceSpxAttachmentStatus {
+  optional string mac_addr = 1;
+  uint32 virtual_function_id = 2;
+  optional string ip_address = 3;
+  SpxAttachmentType attachment_type = 4;
+  common.SpxPartitionId spx_partition_id = 5;
 }
 
 // State of the networking subsystem of an instance
@@ -2994,6 +3033,11 @@ message InstanceInterfaceConfig {
   // Optional IPv6 configuration for dual-stack interfaces. When set alongside
   // vpc_prefix_id (field 6), both prefixes are allocated to a single network segment.
   optional InstanceInterfaceIpv6Config ipv6_interface_config = 11;
+
+  // Optional per-interface routing profile overrides. API callers can only
+  // narrow prefix-list options that are already allowed by the owning VPC's
+  // routing profile.
+  optional InstanceInterfaceRoutingProfile routing_profile = 12;
 }
 
 // IPv6 configuration for a dual-stack instance interface.
@@ -3003,6 +3047,14 @@ message InstanceInterfaceIpv6Config {
   common.VpcPrefixId vpc_prefix_id = 1;
   // Explicit host IPv6 address requested for this interface.
   optional string ip_address = 2;
+}
+
+// Routing-profile options API callers may narrow on an instance interface.
+message InstanceInterfaceRoutingProfile {
+  // IP prefixes this interface is allowed to announce as anycast routes.
+  // Every entry must be contained by an allowed_anycast_prefixes entry on the
+  // owning VPC's routing profile.
+  repeated PrefixFilterPolicyEntry allowed_anycast_prefixes = 1;
 }
 
 // The configuration that a customer desires for an instances IB interface
@@ -3420,6 +3472,8 @@ message Machine {
   optional common.RackId rack_id = 45;
 
   optional PlacementInRack placement_in_rack = 46;
+
+  optional MachineSpxStatusObservation spx_status_observation = 47;
 }
 
 message InstanceNetworkRestrictions {
@@ -3975,7 +4029,7 @@ message ManagedHostNetworkConfigResponse {
 
   // Route imports and tagging details for exports
   // used by FNN configs.
-  // Deprecated: use FlatInterfaceConfig.routing_profile for per-VPC routing.
+  // Deprecated: use FlatInterfaceConfig.vpc_routing_profile for per-VPC routing.
   // NOTE: This will replace internet_l3_vni and common_internal_route_target but could allow
   //       common_internal_route_target to be renamed/repurposed as a site-level RT.
   //       to become a site-level common route target.
@@ -4202,7 +4256,11 @@ message FlatInterfaceConfig {
 
   // Route imports and tagging details for exports used by FNN configs.
   // This is scoped to the VPC that owns this interface.
-  optional RoutingProfile routing_profile = 20;
+  optional RoutingProfile vpc_routing_profile = 20;
+
+  // Interface-local routing profile details. These narrow the VPC routing
+  // profile for this interface.
+  optional FlatInterfaceRoutingProfile interface_routing_profile = 21;
 
   // The details of the network security group associated with
   // either the instance or its parent VPC.
@@ -4216,6 +4274,10 @@ message FlatInterfaceConfig {
 
   // A UUID used to associate a network status with an interface config.
   optional common.UUID internal_uuid = 108;
+}
+
+message FlatInterfaceRoutingProfile {
+  repeated PrefixFilterPolicyEntry allowed_anycast_prefixes = 1;
 }
 
 // IPv6 configuration for a dual-stack FNN interface, sent from the API to
@@ -4565,23 +4627,9 @@ message ForgeAgentControlResponse {
   }
 
   message FirmwareUpgrade {
-    ScoutFirmwareUpgradeTask task = 1;
+    scout_firmware_upgrade.ScoutFirmwareUpgradeTask task = 1;
   }
 
-  message ScoutFirmwareUpgradeTask {
-    string upgrade_task_id = 1;
-    string component_type = 2;
-    string target_version = 3;
-    FileArtifact script = 4;
-    uint32 execution_timeout_seconds = 5;
-    uint32 artifact_download_timeout_seconds = 6;
-    repeated FileArtifact file_artifacts = 7;
-  }
-
-  message FileArtifact {
-    string url = 1;
-    string sha256 = 2;
-  }
 
   oneof action {
     Noop noop = 3;
@@ -6739,7 +6787,8 @@ message DpaInterface {
   string controller_state = 7;
   string controller_state_version = 8;
   string controller_state_outcome = 9;
-  string network_status_observation = 10;
+
+  reserved 10;
 
   string network_config = 11;
   string network_config_version = 12;
@@ -6764,6 +6813,8 @@ message DpaInterface {
   // back to its default values before allocating to the
   // next tenant.
   optional string mlxconfig_profile = 19;
+
+  optional string device_description = 20;
 }
 
 
@@ -6772,6 +6823,7 @@ message DpaInterfaceCreationRequest {
   string mac_addr = 2;
   string device_type = 3;
   string pci_name = 4;
+  optional string device_description = 5;
 }
 
 message DpaInterfaceIdList {
@@ -7100,6 +7152,19 @@ message MachineNVLinkInfo {
 message UpdateMachineNvLinkInfoRequest {
   common.MachineId machine_id = 1;
   MachineNVLinkInfo nvlink_info = 2;
+}
+
+message MachineSpxStatusObservation {
+  repeated MachineSpxAttachmentStatusObservation attachment_status = 1;
+  optional google.protobuf.Timestamp observed_at = 2;
+}
+
+message MachineSpxAttachmentStatusObservation {
+  string mac_address = 1;
+  optional common.SpxPartitionId partition_id = 2;
+  optional SpxAttachmentType attachment_type = 3;
+  optional uint32 virtual_function_id = 4;
+  optional google.protobuf.Timestamp observed_at = 5;
 }
 
 message NVLinkGpu {
@@ -8101,6 +8166,45 @@ message DeviceFirmwareVersions {
 
 message ListComponentFirmwareVersionsResponse {
   repeated DeviceFirmwareVersions devices = 1;
+}
+
+message SpxPartitionCreationRequest {
+  Metadata metadata = 1;
+  optional common.SpxPartitionId id = 2;
+  optional uint32 vni = 3;
+  string tenant_organization_id = 4;
+}
+
+message SpxPartition {
+  Metadata metadata = 1;
+  common.SpxPartitionId id = 2;
+  uint32 vni = 3;
+  string tenant_organization_id = 4;
+}
+
+message SpxPartitionIdList {
+  repeated common.SpxPartitionId spx_partition_ids = 1;
+}
+
+message SpxPartitionDeletionRequest {
+  common.SpxPartitionId id = 1;
+}
+
+message SpxPartitionDeletionResult {
+}
+
+message SpxPartitionSearchFilter {
+  optional string name = 1;
+  optional string tenant_org_id = 2;
+  optional Label label = 3;
+}
+
+message SpxPartitionList {
+  repeated SpxPartition spx_partitions = 1;
+}
+
+message SpxPartitionsByIdsRequest {
+  repeated common.SpxPartitionId spx_partition_ids = 1;
 }
 
 // Force deletes a Switch and optionally its associated interfaces.

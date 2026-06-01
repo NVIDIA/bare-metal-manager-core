@@ -17,7 +17,6 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::fmt::Display;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
@@ -1004,29 +1003,6 @@ impl SiteExplorer {
         let mut managed_hosts = Vec::new();
         let mut boot_interface_macs: Vec<(IpAddr, MacAddress)> = Vec::new();
 
-        let is_dpu_in_nic_mode = |dpu_ep: &ExploredEndpoint, host_ep: &ExploredEndpoint| -> bool {
-            let nic_mode = dpu_ep.report.nic_mode().is_some_and(|m| m == NicMode::Nic);
-            if nic_mode {
-                tracing::info!(
-                    address = %dpu_ep.address,
-                    // exploration_report = ?dpu_ep.report,
-                    "discovered bluefield in NIC mode attached to host {}",
-                    host_ep.address
-                );
-            }
-            nic_mode
-        };
-
-        let get_host_pf_mac_address = |dpu_ep: &ExploredEndpoint| -> Option<MacAddress> {
-            match find_host_pf_mac_address(dpu_ep) {
-                Ok(m) => Some(m),
-                Err(error) => {
-                    tracing::error!(%error, dpu_ip = %dpu_ep.address, "Failed to find base mac address for DPU");
-                    None
-                }
-            }
-        };
-
         for (_, ep) in explored_hosts {
             // Resolve the operator-declared DPU mode for this host once;
             // it drives both auto-correction (`check_and_configure_dpu_mode`
@@ -1055,128 +1031,57 @@ impl SiteExplorer {
                 continue;
             }
 
-            // the list of DPUs that the site-explorer has explored for this host
-            let mut dpus_explored_for_host: Vec<ExploredDpu> = Vec::new();
-            // the number of DPUs that the host reports are attached to it
-            let mut expected_num_dpus_attached_to_host = 0;
-            let mut all_dpus_configured_properly_in_host = true;
+            // Record the host's DPU devices against the discovered DPU BMCs.
+            // A DPU can appear as a PCIe device under a system or as a chassis
+            // network adapter (vendor-dependent), so we scan the PCIe inventory first
+            // and fall back to chassis adapters only if it turned up nothing. The
+            // per-device logic -- counting, `set_nic_mode` auto-correction, NIC-mode
+            // stripping -- lives once in `record_host_dpu_device` / `classify_matched_dpu`.
+            let mut dpu_exploration = DpuExplorationState::new();
             for system in ep.report.systems.iter() {
                 for pcie_device in system.pcie_devices.iter() {
-                    if pcie_device.is_bluefield() {
-                        // is_bluefield currently returns true if a network adapter is BF2 DPU, BF3 DPU, or BF3 Super NIC
-                        expected_num_dpus_attached_to_host += 1;
-                    }
-
-                    if let Some(sn) = pcie_device.serial_number.as_ref().map(|sn| sn.trim())
-                        && let Entry::Occupied(dpu_ep_entry) =
-                            dpu_sn_to_endpoint.entry(sn.to_string())
-                    {
-                        let dpu_ep = dpu_ep_entry.get();
-                        if let Some(model) = pcie_device.part_number.as_ref() {
-                            match self
-                                .check_and_configure_dpu_mode(
-                                    dpu_ep,
-                                    model.to_string(),
-                                    host_dpu_mode,
-                                )
-                                .await
-                            {
-                                Ok(is_dpu_mode_configured_correctly) => {
-                                    if !is_dpu_mode_configured_correctly {
-                                        all_dpus_configured_properly_in_host = false;
-                                        // we do not want to ingest a host with an incorrectly configured DPU
-                                        continue;
-                                    }
-                                }
-                                Err(err) => {
-                                    tracing::warn!(
-                                        "failed to check DPU mode against {}: {err}",
-                                        dpu_ep.address
-                                    );
-                                    continue;
-                                }
-                            };
-                        }
-
-                        // We do not want to attach bluefields that are in NIC mode as DPUs to the host
-                        if is_dpu_in_nic_mode(dpu_ep, &ep) {
-                            expected_num_dpus_attached_to_host -= 1;
-                            continue;
-                        }
-
-                        // TODO: we can use dpu_ep_entry.remove() here but we need to
-                        // make sure that it will not affect fallback_dpu_serial_numbers logic.
-                        let dpu_ep = dpu_ep_entry.get().clone();
-                        dpus_explored_for_host.push(ExploredDpu {
-                            bmc_ip: dpu_ep.address,
-                            host_pf_mac_address: get_host_pf_mac_address(&dpu_ep),
-                            report: dpu_ep.report.into(),
-                        });
-                    }
+                    self.record_host_dpu_device(
+                        pcie_device.part_number.as_deref(),
+                        pcie_device.serial_number.as_deref(),
+                        &dpu_sn_to_endpoint,
+                        host_dpu_mode,
+                        &ep,
+                        &mut dpu_exploration,
+                    )
+                    .await;
                 }
             }
 
-            if expected_num_dpus_attached_to_host == 0 {
+            // A DPU can show up as a chassis network adapter instead of a PCIe
+            // device on some BMCs; fall back to those only if the PCIe scan found none.
+            if dpu_exploration.expected_managed_total() == 0 {
                 for chassis in ep.report.chassis.iter() {
                     for network_adapter in chassis.network_adapters.iter() {
-                        if let Some(model) = network_adapter.part_number.as_ref()
-                            && is_bluefield_model(model.trim())
-                        {
-                            expected_num_dpus_attached_to_host += 1;
-                        }
-
-                        if let Some(sn) = network_adapter.serial_number.as_ref().map(|sn| sn.trim())
-                            && let Entry::Occupied(dpu_ep_entry) =
-                                dpu_sn_to_endpoint.entry(sn.to_string())
-                        {
-                            let dpu_ep = dpu_ep_entry.get();
-                            if let Some(model) = network_adapter.part_number.as_ref() {
-                                match self
-                                    .check_and_configure_dpu_mode(
-                                        dpu_ep,
-                                        model.to_string(),
-                                        host_dpu_mode,
-                                    )
-                                    .await
-                                {
-                                    Ok(is_dpu_mode_configured_correctly) => {
-                                        if !is_dpu_mode_configured_correctly {
-                                            all_dpus_configured_properly_in_host = false;
-                                            // we do not want to ingest a host with an incorrectly configured DPU
-                                            continue;
-                                        }
-                                    }
-                                    Err(err) => {
-                                        tracing::warn!(
-                                            "failed to check DPU mode against {}: {err}",
-                                            dpu_ep.address
-                                        );
-                                        continue;
-                                    }
-                                };
-                            }
-
-                            // We do not want to attach bluefields that are in NIC mode as DPUs to the host
-                            if is_dpu_in_nic_mode(dpu_ep, &ep) {
-                                expected_num_dpus_attached_to_host -= 1;
-                                continue;
-                            }
-
-                            // TODO: we can use dpu_ep_entry.remove() instead of clone here but we need to
-                            // make sure that it will not affect fallback_dpu_serial_numbers logic.
-                            let dpu_ep = dpu_ep_entry.get().clone();
-                            dpus_explored_for_host.push(ExploredDpu {
-                                bmc_ip: dpu_ep.address,
-                                host_pf_mac_address: get_host_pf_mac_address(&dpu_ep),
-                                report: dpu_ep.report.into(),
-                            });
-                        }
+                        self.record_host_dpu_device(
+                            network_adapter.part_number.as_deref(),
+                            network_adapter.serial_number.as_deref(),
+                            &dpu_sn_to_endpoint,
+                            host_dpu_mode,
+                            &ep,
+                            &mut dpu_exploration,
+                        )
+                        .await;
                     }
                 }
             }
 
+            // Bring the accumulated counts into variables that the rest
+            // of this function uses.
+            let DpuExplorationState {
+                reported_total: host_reported_dpus_total,
+                running_as_nic_total: mut host_reported_dpus_nic_mode_total,
+                all_configured: all_dpus_configured_properly_in_host,
+                running_as_dpu: mut dpus_explored_for_host,
+            } = dpu_exploration;
+
             if dpus_explored_for_host.is_empty()
-                || dpus_explored_for_host.len() != expected_num_dpus_attached_to_host
+                || dpus_explored_for_host.len()
+                    != host_reported_dpus_total.saturating_sub(host_reported_dpus_nic_mode_total)
             {
                 // Check if there are dpu serial(s) specified in expected_machine table for this host
                 // Lets assume for now that if a DPU is specific in the expected machine table for the host
@@ -1189,9 +1094,11 @@ impl SiteExplorer {
                         if let Some(dpu_ep) = dpu_sn_to_endpoint.remove(dpu_sn.as_str()) {
                             // We do not want to attach bluefields that are in NIC mode as DPUs to the host
                             if is_dpu_in_nic_mode(&dpu_ep, &ep)
-                                && expected_num_dpus_attached_to_host > 0
+                                && host_reported_dpus_total
+                                    .saturating_sub(host_reported_dpus_nic_mode_total)
+                                    > 0
                             {
-                                expected_num_dpus_attached_to_host -= 1;
+                                host_reported_dpus_nic_mode_total += 1;
                                 continue;
                             }
 
@@ -1218,12 +1125,16 @@ impl SiteExplorer {
                 // If only one of the two DPUs have made the DHCP request, the site explorer must wait until it has explored the latter DPU's BMC
                 // (ensuring that the second DPU has also made the DHCP request).
                 if !dpu_added {
-                    if expected_num_dpus_attached_to_host > 0 {
+                    // Net DPUs still expected to pair: reported DPU minus those
+                    // confirmed to be running as plain NICs.
+                    let expected_managed_dpus_total =
+                        host_reported_dpus_total.saturating_sub(host_reported_dpus_nic_mode_total);
+                    if expected_managed_dpus_total > 0 {
                         tracing::warn!(
                             address = %ep.address,
                             exploration_report = ?ep,
                             "cannot identify managed host because the site explorer has only discovered {} out of the {} attached DPUs (all_dpus_configured_properly_in_host={all_dpus_configured_properly_in_host}):\n{:#?}",
-                            dpus_explored_for_host.len(), expected_num_dpus_attached_to_host, dpus_explored_for_host
+                            dpus_explored_for_host.len(), expected_managed_dpus_total, dpus_explored_for_host
                         );
 
                         if !all_dpus_configured_properly_in_host {
@@ -1238,10 +1149,10 @@ impl SiteExplorer {
                                         ep.address,
                                     );
 
-                                    self.redfish_powercycle(
-                                        ep.address,
-                                    )
-                                        .await.inspect_err(|err| tracing::warn!("site explorer failed to power cycle host {} to apply DPU mode changes: {err}", ep.address)).ok();
+                                    self.redfish_powercycle(ep.address)
+                                        .await
+                                        .inspect_err(|err| tracing::warn!("site explorer failed to power cycle host {} to apply DPU mode changes: {err}", ep.address))
+                                        .ok();
                                 }
                             } else {
                                 tracing::warn!(
@@ -1256,11 +1167,29 @@ impl SiteExplorer {
                         }
 
                         continue;
-                    } else if !self.config.allow_zero_dpu_hosts {
+                    } else if matches!(host_dpu_mode, DpuMode::DpuMode) {
+                        // Host has no DPU PCIe devices reported by its
+                        // BMC, and the effective `dpu_mode` is the
+                        // default (`DpuMode`) -- i.e. neither per-host
+                        // on `ExpectedMachine.dpu_mode` nor site-wide on
+                        // `[site_explorer] dpu_mode` declared this host
+                        // as zero-DPU. We expect DPUs but found none --
+                        // probably a misconfiguration or a DPU-discovery
+                        // bug. Skip ingestion this cycle; site-explorer
+                        // will retry on the next iteration, giving the
+                        // operator a chance to either fix the host or
+                        // declare it as `NoDpu`.
+                        //
+                        // (`NoDpu` hosts are handled by the fast-path
+                        // earlier in the loop; `NicMode` hosts fall
+                        // through to the push below with an empty `dpus`
+                        // vector -- the operator already declared
+                        // "treat as zero-DPU.")
                         tracing::warn!(
                             address = %ep.address,
                             exploration_report = ?ep,
-                            "cannot identify managed host because the site explorer does not see any DPUs on this host, and zero-DPU hosts are not allowed by configuration; expected_num_dpus_attached_to_host: {expected_num_dpus_attached_to_host}; dpus_explored_for_host: {dpus_explored_for_host:#?}",
+                            ?host_dpu_mode,
+                            "cannot identify managed host: site explorer sees no DPUs on this host and it isn't declared as `NoDpu`; declare `dpu_mode = \"no_dpu\"` to ingest as zero-DPU",
                         );
                         metrics.increment_host_dpu_pairing_blocker(
                             PairingBlockerReason::NoDpuReportedByHost,
@@ -1371,6 +1300,62 @@ impl SiteExplorer {
         txn.commit().await?;
 
         Ok(managed_hosts)
+    }
+
+    /// Record a single host-reported device (a PCIe device or a chassis network
+    /// adapter) into `exploration`, against the discovered DPU BMCs.
+    ///
+    /// The one piece of IO -- `check_and_configure_dpu_mode`, which may issue a
+    /// `set_nic_mode` to auto-correct a mismatch -- happens here; the actual
+    /// classification of its result lives in [`classify_matched_dpu`], which is
+    /// unit-tested directly. Both the PCIe loop and the chassis fallback call this.
+    async fn record_host_dpu_device(
+        &self,
+        part_number: Option<&str>,
+        serial_number: Option<&str>,
+        dpu_sn_to_endpoint: &HashMap<String, ExploredEndpoint>,
+        host_dpu_mode: DpuMode,
+        host_ep: &ExploredEndpoint,
+        exploration: &mut DpuExplorationState,
+    ) {
+        // Count every DPU the host reports, independent of whether we've
+        // discovered its BMC yet.
+        if part_number.map(str::trim).is_some_and(is_bluefield_model) {
+            exploration.reported_total += 1;
+        }
+
+        // Only a device whose serial matches a *discovered* DPU BMC is ours to
+        // classify; anything else is some other device, or a DPU whose BMC
+        // we haven't explored yet.
+        let Some(dpu_ep) = serial_number
+            .map(str::trim)
+            .and_then(|sn| dpu_sn_to_endpoint.get(sn))
+        else {
+            return;
+        };
+
+        // Resolve the DPU's mode against what the host declared. This is the only
+        // I/O, and may issue a `set_nic_mode` (in which case it returns `Ok(false)`).
+        let mode_check = match part_number {
+            Some(model) => Some(
+                self.check_and_configure_dpu_mode(dpu_ep, model.to_string(), host_dpu_mode)
+                    .await,
+            ),
+            None => None,
+        };
+
+        match classify_matched_dpu(dpu_ep, host_ep, mode_check) {
+            DiscoveredDpu::RunningAsDpu(dpu) => exploration.running_as_dpu.push(dpu),
+            DiscoveredDpu::RunningAsNic => exploration.running_as_nic_total += 1,
+            DiscoveredDpu::NeedsReconfig => exploration.all_configured = false,
+            DiscoveredDpu::ModeCheckFailed(err) => {
+                tracing::warn!(
+                    dpu = %dpu_ep.address,
+                    error = %err,
+                    "failed to check DPU mode; skipping this device",
+                );
+            }
+        }
     }
 
     async fn identify_power_shelves_to_ingest(
@@ -2916,6 +2901,110 @@ fn find_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Result<MacAddress, Str
     })
 }
 
+/// Whether a discovered DPU BMC is reporting that it's running as a plain NIC.
+fn is_dpu_in_nic_mode(dpu_ep: &ExploredEndpoint, host_ep: &ExploredEndpoint) -> bool {
+    let nic_mode = dpu_ep.report.nic_mode().is_some_and(|m| m == NicMode::Nic);
+    if nic_mode {
+        tracing::info!(
+            address = %dpu_ep.address,
+            "discovered bluefield in NIC mode attached to host {}",
+            host_ep.address
+        );
+    }
+    nic_mode
+}
+
+/// The host-facing PF MAC of a discovered DPU, or `None` if it can't be determined.
+fn get_host_pf_mac_address(dpu_ep: &ExploredEndpoint) -> Option<MacAddress> {
+    match find_host_pf_mac_address(dpu_ep) {
+        Ok(m) => Some(m),
+        Err(error) => {
+            tracing::error!(%error, dpu_ip = %dpu_ep.address, "Failed to find base mac address for DPU");
+            None
+        }
+    }
+}
+
+/// State from exploring a host's DPUs and pairing them with DPU BMCs.
+///
+/// The two counts are only ever incremented (monotonic), so the
+/// bookkeeping can never underflow; DPUs we still expect to manage is
+/// the derived difference ([`DpuExplorationState::expected_managed_total`]).
+#[derive(Debug)]
+struct DpuExplorationState {
+    /// DPUs the host's BMC reports (matched on `part_number`).
+    reported_total: usize,
+    /// Of those, the ones confirmed running as a plain NIC -- not managed DPUs.
+    running_as_nic_total: usize,
+    /// `false` once any discovered DPU's mode didn't match the target (a
+    /// `set_nic_mode` was issued); drives the downstream host power-cycle.
+    all_configured: bool,
+    /// DPUs running in DPU mode (configured correctly) -- attached to the host.
+    running_as_dpu: Vec<ExploredDpu>,
+}
+
+impl DpuExplorationState {
+    fn new() -> Self {
+        Self {
+            reported_total: 0,
+            running_as_nic_total: 0,
+            all_configured: true,
+            running_as_dpu: Vec::new(),
+        }
+    }
+
+    /// DPUs we still expect to manage = reported DPUs minus those running as NICs.
+    fn expected_managed_total(&self) -> usize {
+        self.reported_total
+            .saturating_sub(self.running_as_nic_total)
+    }
+}
+
+/// Status of a discovered DPU (one whose serial matched an explored DPU BMC)
+/// relative to a host, as determined by [`classify_matched_dpu`].
+enum DiscoveredDpu {
+    /// Running in DPU mode and configured correctly -- the caller attaches it.
+    RunningAsDpu(ExploredDpu),
+    /// A DPU running as a plain NIC -- counted, but not a managed DPU.
+    RunningAsNic,
+    /// Mode didn't match the target; `check_and_configure_dpu_mode` just issued a
+    /// `set_nic_mode`. The host needs a power cycle (handled downstream) before
+    /// this DPU re-reports in the corrected mode, so we can't pair it this cycle.
+    NeedsReconfig,
+    /// The DPU's mode couldn't be checked (Redfish error); skip it this cycle.
+    ModeCheckFailed(SiteExplorerError),
+}
+
+/// Classify a discovered DPU against a host.
+///
+/// The only IO (`check_and_configure_dpu_mode`, which may issue a
+/// `set_nic_mode`) happens in the caller, which passes its result in as
+/// `mode_check` (`None` when the device reported no model to check). Keeping the
+/// decision here makes it unit-testable without a Redfish mock.
+fn classify_matched_dpu(
+    dpu_ep: &ExploredEndpoint,
+    host_ep: &ExploredEndpoint,
+    mode_check: Option<SiteExplorerResult<bool>>,
+) -> DiscoveredDpu {
+    match mode_check {
+        Some(Ok(false)) => return DiscoveredDpu::NeedsReconfig,
+        Some(Err(err)) => return DiscoveredDpu::ModeCheckFailed(err),
+        // Mode already correct, or there was no model to check.
+        Some(Ok(true)) | None => {}
+    }
+
+    // We do not want to attach DPUs running as NICs as "managed" DPUs.
+    if is_dpu_in_nic_mode(dpu_ep, host_ep) {
+        return DiscoveredDpu::RunningAsNic;
+    }
+
+    DiscoveredDpu::RunningAsDpu(ExploredDpu {
+        bmc_ip: dpu_ep.address,
+        host_pf_mac_address: get_host_pf_mac_address(dpu_ep),
+        report: dpu_ep.report.clone().into(),
+    })
+}
+
 pub async fn get_machine_state_by_bmc_ip(
     database_connection: &PgPool,
     bmc_ip: &str,
@@ -3002,6 +3091,98 @@ mod tests {
     #[test]
     fn test_load_dell_report() {
         let _ = load_dell_ep_report();
+    }
+
+    fn explored_endpoint(report: EndpointExplorationReport) -> ExploredEndpoint {
+        ExploredEndpoint {
+            address: "10.0.0.1".parse().unwrap(),
+            report,
+            report_version: ConfigVersion::initial(),
+            preingestion_state: PreingestionState::Initial,
+            waiting_for_explorer_refresh: false,
+            exploration_requested: false,
+            last_redfish_bmc_reset: None,
+            last_ipmitool_bmc_reset: None,
+            last_redfish_reboot: None,
+            last_redfish_powercycle: None,
+            pause_ingestion_and_poweron: false,
+            pause_remediation: false,
+            boot_interface_mac: None,
+        }
+    }
+
+    /// A BF2 DPU endpoint with its reported NIC mode forced to `nic_mode`.
+    fn bf2_dpu(nic_mode: Option<NicMode>) -> ExploredEndpoint {
+        let mut report = load_bf2_ep_report();
+        report
+            .systems
+            .first_mut()
+            .expect("bf2 report has a system")
+            .attributes
+            .nic_mode = nic_mode;
+        explored_endpoint(report)
+    }
+
+    #[test]
+    fn classify_running_as_dpu_when_in_dpu_mode() {
+        let dpu = bf2_dpu(Some(NicMode::Dpu));
+        let host = explored_endpoint(load_dell_ep_report());
+        // Mode already correct (`Ok(true)`) -> attach as a managed DPU.
+        assert!(matches!(
+            classify_matched_dpu(&dpu, &host, Some(Ok(true))),
+            DiscoveredDpu::RunningAsDpu(_)
+        ));
+        // No model to check (`None`) behaves the same.
+        assert!(matches!(
+            classify_matched_dpu(&dpu, &host, None),
+            DiscoveredDpu::RunningAsDpu(_)
+        ));
+    }
+
+    #[test]
+    fn classify_running_as_nic_when_dpu_reports_nic_mode() {
+        let dpu = bf2_dpu(Some(NicMode::Nic));
+        let host = explored_endpoint(load_dell_ep_report());
+        assert!(matches!(
+            classify_matched_dpu(&dpu, &host, Some(Ok(true))),
+            DiscoveredDpu::RunningAsNic
+        ));
+    }
+
+    #[test]
+    fn classify_needs_reconfig_when_set_nic_mode_was_issued() {
+        // `Ok(false)` means `check_and_configure_dpu_mode` just issued a `set_nic_mode`.
+        let dpu = bf2_dpu(Some(NicMode::Nic));
+        let host = explored_endpoint(load_dell_ep_report());
+        assert!(matches!(
+            classify_matched_dpu(&dpu, &host, Some(Ok(false))),
+            DiscoveredDpu::NeedsReconfig
+        ));
+    }
+
+    #[test]
+    fn classify_mode_check_failed_on_error() {
+        let dpu = bf2_dpu(Some(NicMode::Dpu));
+        let host = explored_endpoint(load_dell_ep_report());
+        let err = SiteExplorerError::InvalidArgument("boom".to_string());
+        assert!(matches!(
+            classify_matched_dpu(&dpu, &host, Some(Err(err))),
+            DiscoveredDpu::ModeCheckFailed(_)
+        ));
+    }
+
+    #[test]
+    fn dpu_exploration_expected_managed_total_saturates() {
+        let mut exploration = DpuExplorationState::new();
+        // More NIC-mode than reported (the partial-data case that used to
+        // underflow `-= 1`): the derived total saturates to 0 instead of panicking.
+        exploration.reported_total = 1;
+        exploration.running_as_nic_total = 3;
+        assert_eq!(exploration.expected_managed_total(), 0);
+        // Normal case: reported DPUs minus those running as NICs.
+        exploration.reported_total = 5;
+        exploration.running_as_nic_total = 2;
+        assert_eq!(exploration.expected_managed_total(), 3);
     }
 
     #[test]

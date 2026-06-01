@@ -15,6 +15,9 @@
  * limitations under the License.
  */
 use ::rpc::forge::{self as rpc, GetMachineValidationExternalConfigResponse};
+use carbide_machine_controller::config::machine_validation::{
+    MachineValidationConfig, MachineValidationTestSelectionMode,
+};
 use config_version::ConfigVersion;
 use db::{self, machine_validation_suites};
 use model::machine::machine_search_config::MachineSearchConfig;
@@ -32,7 +35,6 @@ use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_request_data};
-use crate::cfg::file::{MachineValidationConfig, MachineValidationTestSelectionMode};
 use crate::handlers::utils::convert_and_log_machine_id;
 
 /// Temporary: when `true`, MV mutation handlers return `FailedPrecondition` and do not write to the DB.

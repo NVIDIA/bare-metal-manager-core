@@ -20,9 +20,9 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_machine_controller::handler::MachineStateHandlerBuilder;
 use carbide_site_explorer::MachineCreator;
 use carbide_site_explorer::config::SiteExplorerConfig;
-use carbide_site_explorer::errors::SiteExplorerError;
 use carbide_utils::arch::CpuArchitecture;
 use carbide_uuid::machine::MachineId;
 use itertools::Itertools;
@@ -39,7 +39,6 @@ use rpc::{BlockDevice, DiscoveryData, DiscoveryInfo, MachineDiscoveryInfo};
 use tonic::Request;
 
 use crate::cfg::file::DpuConfig as InitialDpuConfig;
-use crate::state_controller::machine::handler::MachineStateHandlerBuilder;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::tests::common::api_fixtures::dpu::DpuConfig;
@@ -61,93 +60,6 @@ async fn discover_dpu_bmc_ip(
         .into_inner();
 
     Ok(response.address.parse()?)
-}
-
-#[crate::sqlx_test]
-async fn test_site_explorer_reject_zero_dpu_hosts(
-    pool: sqlx::PgPool,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let config = common::api_fixtures::get_config();
-    let env = common::api_fixtures::create_test_env_with_overrides(
-        pool,
-        TestEnvOverrides::with_config(config),
-    )
-    .await;
-
-    let explorer_config = SiteExplorerConfig {
-        enabled: Arc::new(true.into()),
-        explorations_per_run: 2,
-        concurrent_explorations: 1,
-        run_interval: std::time::Duration::from_secs(1),
-        create_machines: Arc::new(true.into()),
-        create_power_shelves: Arc::new(true.into()),
-        explore_power_shelves_from_static_ip: Arc::new(true.into()),
-        power_shelves_created_per_run: 1,
-        create_switches: Arc::new(true.into()),
-        switches_created_per_run: 1,
-        allow_zero_dpu_hosts: false,
-        ..Default::default()
-    };
-    let machine_creator = MachineCreator::new(
-        env.pool.clone(),
-        explorer_config,
-        env.common_pools.clone(),
-        None,
-        env.test_credential_manager.clone(),
-    );
-
-    let host_bmc_mac = MacAddress::from_str("a0:88:c2:08:81:98")?;
-    let response = env
-        .api
-        .discover_dhcp(
-            DhcpDiscovery::builder(host_bmc_mac, "192.0.1.1")
-                .vendor_string("SomeVendor")
-                .tonic_request(),
-        )
-        .await
-        .unwrap()
-        .into_inner();
-    assert!(!response.address.is_empty());
-
-    let interface_id = response.machine_interface_id;
-    let mut ifaces = env
-        .api
-        .find_interfaces(tonic::Request::new(rpc::forge::InterfaceSearchQuery {
-            id: Some(interface_id.unwrap()),
-            ip: None,
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
-    assert_eq!(ifaces.interfaces.len(), 1);
-    let iface = ifaces.interfaces.remove(0);
-    let mut addresses = iface.address;
-    let host_bmc_ip = addresses.remove(0);
-
-    let exploration_report = ExploredManagedHost {
-        host_bmc_ip: IpAddr::from_str(&host_bmc_ip)?,
-        dpus: vec![],
-    };
-
-    let expected_machine = ExpectedMachine {
-        id: Some(uuid::Uuid::new_v4()),
-        bmc_mac_address: host_bmc_mac,
-        data: ExpectedMachineData::default(),
-    };
-
-    let Err(SiteExplorerError::NoDpusInMachine(_)) = machine_creator
-        .create_managed_host(
-            &exploration_report,
-            &mut EndpointExplorationReport::default(),
-            Some(&expected_machine),
-            &env.pool,
-        )
-        .await
-    else {
-        panic!("explorer.create_managed_host should have failed with a NoDpusInMachine error")
-    };
-    Ok(())
 }
 
 #[crate::sqlx_test]
