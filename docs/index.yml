@@ -77,6 +77,15 @@ navigation:
         - page: BlueField DPU Operations
           path: dpu-management/dpu-operations.md
 
+    - section: Configuration (Day 1 Operations)
+      contents:
+        - page: Network Isolation
+          path: configuration/network-isolation.md
+        - page: Tenant Management
+          path: configuration/tenant_management.md
+        - page: Organization & Permissions
+          path: configuration/org-permissions.md
+
     - section: Architecture
       contents:
         - page: Overview and Components

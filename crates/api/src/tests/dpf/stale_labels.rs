@@ -32,7 +32,7 @@ use carbide_uuid::machine::MachineId;
 use model::machine::{DpfState, DpuInitState, FailureCause, FailureDetails, ManagedHostState};
 use tokio::time::timeout;
 
-use crate::dpf::MockDpfOperations;
+use crate::state_controller::machine::dpf::{DpfOperations, MockDpfOperations};
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, TestManagedHost, create_managed_host_with_dpf,
     create_test_env_with_overrides, get_config,
@@ -139,7 +139,7 @@ async fn get_host_state(
 #[crate::sqlx_test]
 async fn test_stale_labels_during_provisioning_fails(pool: sqlx::PgPool) {
     let labels_valid = Arc::new(AtomicBool::new(true));
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> =
+    let dpf_sdk: Arc<dyn DpfOperations> =
         Arc::new(provisioning_mock_with_labels_valid(labels_valid.clone()));
 
     let mut config = get_config();
@@ -182,7 +182,7 @@ async fn test_stale_labels_during_provisioning_fails(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_stale_labels_during_waiting_for_ready_fails(pool: sqlx::PgPool) {
     let labels_valid = Arc::new(AtomicBool::new(true));
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> =
+    let dpf_sdk: Arc<dyn DpfOperations> =
         Arc::new(provisioning_mock_with_labels_valid(labels_valid.clone()));
 
     let mut config = get_config();
@@ -225,7 +225,7 @@ async fn test_stale_labels_during_waiting_for_ready_fails(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_current_labels_allow_provisioning_to_proceed(pool: sqlx::PgPool) {
     let labels_valid = Arc::new(AtomicBool::new(true));
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> =
+    let dpf_sdk: Arc<dyn DpfOperations> =
         Arc::new(provisioning_mock_with_labels_valid(labels_valid));
 
     let mut config = get_config();
@@ -261,7 +261,7 @@ async fn test_current_labels_allow_provisioning_to_proceed(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_labels_become_stale_mid_provisioning(pool: sqlx::PgPool) {
     let labels_valid = Arc::new(AtomicBool::new(true));
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> =
+    let dpf_sdk: Arc<dyn DpfOperations> =
         Arc::new(provisioning_mock_with_labels_valid(labels_valid.clone()));
 
     let mut config = get_config();

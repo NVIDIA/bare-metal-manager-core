@@ -66,7 +66,7 @@ impl DHCPFactory {
         use v4::DhcpOption::*;
         opts.insert(ClassIdentifier(uefi_vendor_class)); // 60
         opts.insert(RelayAgentInformation(relay_agent)); // 82
-        opts.insert(ClientSystemArchitecture(v4::Architecture::Intelx86PC)); // 93
+        opts.insert(ClientSystemArchitecture(v4::Architecture::X86_Bios)); // 93
         opts.insert(MessageType(msg_type));
 
         msg

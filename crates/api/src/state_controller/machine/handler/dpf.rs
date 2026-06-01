@@ -20,7 +20,7 @@
 //! 2. Wait for watcher callbacks (DPU ready, reboot required)
 //! 3. Handle cleanup on error/reprovisioning
 
-use carbide_dpf::{DpuPhase, dpu_node_cr_name};
+use carbide_dpf::{DpfError, DpuPhase, dpu_node_cr_name};
 use carbide_uuid::machine::MachineId;
 use libredfish::SystemPowerControl;
 use model::machine::{
@@ -28,14 +28,17 @@ use model::machine::{
     ManagedHostState, ManagedHostStateSnapshot, ReprovisionState, StateMachineArea,
 };
 use state_controller::state_handler::{
-    StateHandlerContext, StateHandlerError, StateHandlerOutcome,
+    ExternalServiceError, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 
 use super::helpers::{DpuInitStateHelper, ManagedHostStateHelper, ReprovisionStateHelper};
 use super::{handler_host_power_control, host_power_state};
-use crate::dpf::DpfOperations;
-use crate::state_controller::external_service_error::dpf_error;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
+use crate::state_controller::machine::dpf::DpfOperations;
+
+fn dpf_error(error: DpfError) -> StateHandlerError {
+    ExternalServiceError::with_source("dpf", "", error.to_string(), "dpf_error", error).into()
+}
 
 // wrapper so we can get an error without copying it at every call site
 fn bmc_ip(machine: &Machine) -> Result<&str, StateHandlerError> {

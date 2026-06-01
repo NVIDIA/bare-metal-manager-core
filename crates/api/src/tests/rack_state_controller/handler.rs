@@ -15,6 +15,10 @@
  * limitations under the License.
  */
 
+use carbide_rack_controller::context::RackStateHandlerContextObjects;
+use carbide_rack_controller::handler::RackStateHandler;
+use carbide_rack_controller::maintenance::apply_nvos_job_status_response;
+use carbide_rack_controller::metrics::RackMetrics;
 use carbide_uuid::machine::{MachineId, MachineIdSource, MachineType};
 use carbide_uuid::rack::{RackId, RackProfileId};
 use carbide_uuid::switch::SwitchId;
@@ -37,16 +41,10 @@ use model::rack_type::{
     RackHardwareClass, RackHardwareTopology, RackHardwareType, RackProfile, RackProfileConfig,
 };
 use model::switch::{NewSwitch, SwitchConfig};
+use state_controller::db_write_batch::DbWriteBatch;
+use state_controller::state_handler::{StateHandler, StateHandlerContext, StateHandlerOutcome};
 use tonic::Request;
 
-use crate::state_controller::db_write_batch::DbWriteBatch;
-use crate::state_controller::rack::context::RackStateHandlerContextObjects;
-use crate::state_controller::rack::handler::RackStateHandler;
-use crate::state_controller::rack::maintenance::apply_nvos_job_status_response;
-use crate::state_controller::rack::metrics::RackMetrics;
-use crate::state_controller::state_handler::{
-    StateHandler, StateHandlerContext, StateHandlerOutcome,
-};
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::site_explorer::{create_expected_switches, new_host};
 use crate::tests::common::api_fixtures::{

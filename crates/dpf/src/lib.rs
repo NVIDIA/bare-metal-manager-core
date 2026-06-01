@@ -79,11 +79,10 @@ pub use sdk::{
 };
 pub use services::{DEFAULT_DOCA_HELM_REGISTRY, ServiceRegistryConfig};
 pub use types::{
-    BmcPasswordProvider, ConfigPortsServiceType, DpuDeviceInfo, DpuDeviceSummary, DpuErrorEvent,
-    DpuEvent, DpuNodeInfo, DpuNodeSummary, DpuPhase, DpuReadyEvent, DpuSummary, HostDpfSnapshot,
-    InitDpfResourcesConfig, MaintenanceEvent, RebootRequiredEvent, ServiceChainSwitch,
-    ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition, ServiceInterface, ServiceNAD,
-    ServiceNADResourceType, ServiceTemplateVersion,
+    BmcPasswordProvider, ConfigPortsServiceType, DpuDeviceInfo, DpuErrorEvent, DpuEvent,
+    DpuMismatch, DpuNodeInfo, DpuPhase, DpuReadyEvent, InitDpfResourcesConfig, MaintenanceEvent,
+    RebootRequiredEvent, ServiceChainSwitch, ServiceConfigPort, ServiceConfigPortProtocol,
+    ServiceDefinition, ServiceInterface, ServiceNAD, ServiceNADResourceType,
 };
 pub use watcher::{DpuWatcher, DpuWatcherBuilder};
 

@@ -44,6 +44,7 @@ use self::dpu_nic_firmware::DpuNicFirmwareUpdate;
 use self::metrics::MachineUpdateManagerMetrics;
 use crate::CarbideResult;
 use crate::cfg::file::{CarbideConfig, MaxConcurrentUpdates};
+use crate::state_controller::machine::dpf::DpfOperations;
 
 /// The MachineUpdateManager periodically runs [modules](machine_update_module::MachineUpdateModule) to initiate upgrades of machine components.
 /// On each iteration the MachineUpdateManager will:
@@ -93,10 +94,13 @@ impl MachineUpdateManager {
         config: Arc<CarbideConfig>,
         meter: opentelemetry::metrics::Meter,
         work_lock_manager_handle: WorkLockManagerHandle,
+        dpf: Option<Arc<dyn DpfOperations>>,
     ) -> Self {
         let mut update_modules = vec![];
 
-        if let Some(dpu_nic_firmware) = DpuNicFirmwareUpdate::new(config.clone(), meter.clone()) {
+        if let Some(dpu_nic_firmware) =
+            DpuNicFirmwareUpdate::new(config.clone(), meter.clone(), dpf)
+        {
             update_modules.push(Box::new(dpu_nic_firmware) as Box<dyn MachineUpdateModule>);
         }
 
@@ -223,6 +227,8 @@ impl MachineUpdateManager {
 
         let snapshots = self.get_all_snapshots(&mut txn).await?;
 
+        txn.commit().await?;
+
         let (all_count, unhealthy_count) =
             db::machine::count_healthy_unhealthy_host_machines(&snapshots);
         let max_concurrent_updates = self
@@ -238,7 +244,7 @@ impl MachineUpdateManager {
 
             let updates_started = update_module
                 .start_updates(
-                    &mut txn,
+                    &self.database_connection,
                     available_updates,
                     &current_updating_machines,
                     &snapshots,
@@ -256,13 +262,15 @@ impl MachineUpdateManager {
         let current_updating_count = current_updating_machines.len();
 
         //refresh snapshots for metrics
+        let mut txn = Transaction::begin(&self.database_connection).await?;
         let snapshots = self.get_all_snapshots(&mut txn).await?;
+        txn.commit().await?;
 
         for update_module in self.update_modules.iter() {
-            update_module.update_metrics(&mut txn, &snapshots).await;
+            update_module
+                .update_metrics(&self.database_connection, &snapshots)
+                .await?;
         }
-
-        txn.commit().await?;
 
         if let Some(metrics) = self.metrics.as_ref() {
             metrics

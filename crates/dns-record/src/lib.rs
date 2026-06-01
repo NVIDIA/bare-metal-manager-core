@@ -72,7 +72,6 @@ pub enum DnsResourceRecordType {
     MX,
     TXT,
     PTR,
-    ANY,
 }
 
 impl Display for DnsResourceRecordType {
@@ -86,7 +85,6 @@ impl Display for DnsResourceRecordType {
             DnsResourceRecordType::MX => constants::DNS_TYPE_MX,
             DnsResourceRecordType::TXT => constants::DNS_TYPE_TXT,
             DnsResourceRecordType::PTR => constants::DNS_TYPE_PTR,
-            DnsResourceRecordType::ANY => constants::DNS_TYPE_ANY,
         };
         write!(f, "{record_type}")
     }
@@ -230,7 +228,6 @@ impl TryFrom<&str> for DnsResourceRecordType {
             constants::DNS_TYPE_MX => Ok(DnsResourceRecordType::MX),
             constants::DNS_TYPE_TXT => Ok(DnsResourceRecordType::TXT),
             constants::DNS_TYPE_PTR => Ok(DnsResourceRecordType::PTR),
-            constants::DNS_TYPE_ANY => Ok(DnsResourceRecordType::ANY),
             _ => Err(format!("RecordType {value} not implement")),
         }
     }
@@ -249,7 +246,6 @@ impl TryFrom<String> for DnsResourceRecordType {
             constants::DNS_TYPE_MX => Ok(DnsResourceRecordType::MX),
             constants::DNS_TYPE_TXT => Ok(DnsResourceRecordType::TXT),
             constants::DNS_TYPE_PTR => Ok(DnsResourceRecordType::PTR),
-            constants::DNS_TYPE_ANY => Ok(DnsResourceRecordType::ANY),
             _ => Err(format!("RecordType {value} not implement")),
         }
     }
@@ -266,7 +262,6 @@ impl From<DnsResourceRecordType> for String {
             DnsResourceRecordType::MX => constants::DNS_TYPE_MX.to_string(),
             DnsResourceRecordType::TXT => constants::DNS_TYPE_TXT.to_string(),
             DnsResourceRecordType::PTR => constants::DNS_TYPE_PTR.to_string(),
-            DnsResourceRecordType::ANY => constants::DNS_TYPE_ANY.to_string(),
         }
     }
 }
@@ -433,10 +428,6 @@ mod tests {
             DnsResourceRecordType::try_from("PTR".to_string()).unwrap(),
             DnsResourceRecordType::PTR
         );
-        assert_eq!(
-            DnsResourceRecordType::try_from("ANY".to_string()).unwrap(),
-            DnsResourceRecordType::ANY
-        );
     }
 
     #[test]
@@ -455,7 +446,6 @@ mod tests {
         assert_eq!(String::from(DnsResourceRecordType::MX), "MX".to_string());
         assert_eq!(String::from(DnsResourceRecordType::TXT), "TXT".to_string());
         assert_eq!(String::from(DnsResourceRecordType::PTR), "PTR".to_string());
-        assert_eq!(String::from(DnsResourceRecordType::ANY), "ANY".to_string());
     }
 
     #[test]

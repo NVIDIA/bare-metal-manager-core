@@ -53,8 +53,10 @@ vault:
     organization: ""
   ## Kubernetes auth role for nico-api to read and manage Vault KV
   ## credentials used by SiteExplorer and related credential flows.
+  ## Required by the carbide-api binary — without this role, SiteExplorer
+  ## cannot authenticate to Vault and BMC credential lookups fail every cycle.
   nicoApiK8sAuth:
-    enabled: false
+    enabled: true
     serviceAccountName: "nico-api"
     tokenTTL: "1h"
   kvMount: "secrets"
@@ -99,6 +101,29 @@ azureSSOClientSecretSecret:
 imagePullSecrets:
   ngcCarbidePull: ""     # nvcr.io/0837451325059433/carbide-dev
   ngcNvidianKey: ""      # nvcr.io/nvidian/nvforge (optional, for unbound)
+
+## ---------------------------------------------------------------------------
+## flow — NICo Flow (rack lifecycle orchestrator, formerly RLA).
+##
+## This toggle controls only the helm-prereqs side of Flow:
+##   - per-component databases (flow / psm / nsm) on nico-pg-cluster
+##   - ClusterExternalSecrets that sync those DB credentials into the flow
+##     namespace (eso-external-secrets.yaml)
+##   - psm/nsm Vault tokens (flow-vault-tokens-job post-install hook)
+##
+## The flow Deployment itself ships as a separate helm release from
+## helm/charts/nico-flow, installed by setup.sh phase 7i. That phase is NOT
+## driven by this value — it is unconditionally invoked unless setup.sh is
+## passed --skip-flow. If you set flow.enabled=false here you should also
+## pass --skip-flow on the setup.sh command line, otherwise phase 7i will
+## try to install a chart whose prerequisites (DB creds, Vault tokens) are
+## missing and fail.
+## ---------------------------------------------------------------------------
+flow:
+  enabled: true
+  ## Namespace flow runs in — must match the helm install -n flag for the
+  ## flow release.  ESO and the vault-config-job target this namespace.
+  namespace: flow
 
 ## ---------------------------------------------------------------------------
 ## PostgreSQL — Zalando postgres-operator HA cluster (3-node Patroni)

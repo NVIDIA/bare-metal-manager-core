@@ -26,9 +26,9 @@ use forge_secrets::credentials::TestCredentialManager;
 use model::switch::{ConfiguringState, SwitchControllerState};
 use rpc::forge::forge_server::Forge;
 use state_controller::config::IterationConfig;
+use state_controller::controller::StateController;
 use tokio_util::sync::CancellationToken;
 
-use crate::state_controller::controller::StateController;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_test_env;
 

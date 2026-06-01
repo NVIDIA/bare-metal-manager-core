@@ -1138,6 +1138,15 @@ impl NvlPartitionMonitor {
                                     .find(|p| {
                                         p.logical_partition_id == gpu_ctx.logical_partition_id
                                             && p.domain_uuid == info.domain_uuid
+                                            && p.nmx_m_id.parse::<u32>().ok().is_some_and(
+                                                |partition_id| {
+                                                    partition_ctx.nmx_c_partitions.contains_key(
+                                                        &libnmxc::nmxc_model::PartitionId {
+                                                            partition_id,
+                                                        },
+                                                    )
+                                                },
+                                            )
                                     })
                                     .cloned()
                                 {

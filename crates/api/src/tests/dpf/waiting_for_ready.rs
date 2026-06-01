@@ -30,7 +30,7 @@ use libredfish::SystemPowerControl;
 use model::machine::{DpfState, DpuInitState, ManagedHostState};
 use tokio::time::timeout;
 
-use crate::dpf::MockDpfOperations;
+use crate::state_controller::machine::dpf::{DpfOperations, MockDpfOperations};
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, TestManagedHost, create_managed_host_with_dpf,
     create_test_env_with_overrides, get_config, reboot_completed,
@@ -139,7 +139,7 @@ async fn test_waiting_for_ready_reboot_flow(pool: sqlx::PgPool) {
             Ok(())
         });
 
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(mock);
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(mock);
     let mut config = get_config();
     config.dpf = dpf_config();
 
@@ -220,7 +220,7 @@ async fn test_waiting_for_ready_no_reboot(pool: sqlx::PgPool) {
         .returning(|_| Ok(()));
     mock.expect_is_reboot_required().returning(|_| Ok(false));
 
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(mock);
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(mock);
     let mut config = get_config();
     config.dpf = dpf_config();
 
@@ -302,7 +302,7 @@ async fn test_waiting_for_ready_idempotent_reboot(pool: sqlx::PgPool) {
             Ok(())
         });
 
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(mock);
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(mock);
     let mut config = get_config();
     config.dpf = dpf_config();
 
@@ -396,7 +396,7 @@ async fn test_waiting_for_ready_host_already_off(pool: sqlx::PgPool) {
             Ok(())
         });
 
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(mock);
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(mock);
     let mut config = get_config();
     config.dpf = dpf_config();
 
@@ -522,7 +522,7 @@ async fn test_unknown_dpf_state_transitions_to_provisioning(pool: sqlx::PgPool) 
     mock.expect_release_maintenance_hold().returning(|_| Ok(()));
     mock.expect_is_reboot_required().returning(|_| Ok(false));
 
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(mock);
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(mock);
     let mut config = get_config();
     config.dpf = dpf_config();
 

@@ -183,12 +183,6 @@ service Forge {
   // Looks up a DNS record for DNS names assigned by Forge
   rpc LookupRecord(dns.DnsResourceRecordLookupRequest)returns (dns.DnsResourceRecordLookupResponse);
 
-  // DEPRECATED DNS Lookup RPC - for backward compatibility
-  // Use LookupRecord with DnsResourceRecordLookupRequest instead
-  rpc LookupRecordLegacy(DNSMessage.DNSQuestion)returns (DNSMessage.DNSResponse) {
-    option deprecated = true;
-  }
-
   // Get all DNS domains
   rpc GetAllDomains(dns.GetAllDomainsRequest) returns (dns.GetAllDomainsResponse);
   // Get metadata for a specific DNS domain

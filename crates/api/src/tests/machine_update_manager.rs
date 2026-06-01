@@ -36,9 +36,8 @@ use tokio_util::sync::CancellationToken;
 use crate::CarbideResult;
 use crate::cfg::file::CarbideConfig;
 use crate::machine_update_manager::MachineUpdateManager;
-use crate::machine_update_manager::machine_update_module::{
-    MachineUpdateModule, create_host_update_health_report,
-};
+use crate::machine_update_manager::machine_update_module::MachineUpdateModule;
+use crate::state_controller::machine::health_report::create_host_update_health_report;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::create_managed_host;
 
@@ -63,7 +62,7 @@ impl MachineUpdateModule for TestUpdateModule {
 
     async fn start_updates(
         &self,
-        _txn: &mut PgConnection,
+        _pool: &sqlx::Pool<sqlx::Postgres>,
         _available_updates: i32,
         _updating_machines: &HashSet<MachineId>,
         _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
@@ -84,9 +83,10 @@ impl MachineUpdateModule for TestUpdateModule {
 
     async fn update_metrics(
         &self,
-        _txn: &mut PgConnection,
+        _pool: &sqlx::Pool<sqlx::Postgres>,
         _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
-    ) {
+    ) -> CarbideResult<()> {
+        Ok(())
     }
 }
 

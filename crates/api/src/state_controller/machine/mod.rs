@@ -27,14 +27,16 @@ use model::attestation::EkCertVerificationStatus;
 use model::machine::{
     FailureCause, FailureDetails, FailureSource, MeasuringState, StateMachineArea,
 };
-
-use super::state_handler::StateHandlerError;
+use state_controller::state_handler::StateHandlerError;
 
 pub mod config;
 pub mod context;
+pub mod dpf;
 pub mod handler;
+pub mod health_report;
 pub mod io;
 pub mod metrics;
+pub mod redfish;
 pub mod write_ops;
 
 /// Fields of span that should be logged for each message.

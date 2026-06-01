@@ -37,6 +37,11 @@
 
 use std::sync::Arc;
 
+use carbide_power_shelf_controller::context::{
+    PowerShelfStateHandlerContextObjects, PowerShelfStateHandlerServices,
+};
+use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
+use carbide_power_shelf_controller::metrics::PowerShelfMetrics;
 use carbide_uuid::power_shelf::PowerShelfId;
 use carbide_uuid::rack::RackId;
 use db::{expected_power_shelf as db_expected_power_shelf, power_shelf as db_power_shelf};
@@ -47,16 +52,9 @@ use model::expected_power_shelf::ExpectedPowerShelf;
 use model::metadata::Metadata;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState, PowerShelfMaintenanceOperation};
 use sqlx::PgConnection;
+use state_controller::db_write_batch::DbWriteBatch;
+use state_controller::state_handler::{StateHandler, StateHandlerContext, StateHandlerOutcome};
 
-use crate::state_controller::db_write_batch::DbWriteBatch;
-use crate::state_controller::power_shelf::context::{
-    PowerShelfStateHandlerContextObjects, PowerShelfStateHandlerServices,
-};
-use crate::state_controller::power_shelf::handler::PowerShelfStateHandler;
-use crate::state_controller::power_shelf::metrics::PowerShelfMetrics;
-use crate::state_controller::state_handler::{
-    StateHandler, StateHandlerContext, StateHandlerOutcome,
-};
 use crate::tests::common::api_fixtures::site_explorer::new_power_shelf;
 use crate::tests::common::api_fixtures::{TestEnv, create_test_env};
 use crate::tests::power_shelf_state_controller::fixtures::power_shelf::set_power_shelf_controller_state;

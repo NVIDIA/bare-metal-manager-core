@@ -20,6 +20,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use carbide_rack_controller::context::RackStateHandlerContextObjects;
+use carbide_rack_controller::handler::RackStateHandler;
+use carbide_rack_controller::io::RackStateControllerIO;
 use carbide_uuid::rack::{RackId, RackProfileId};
 use db::db_read::DbReader;
 use db::{self, ObjectColumnFilter, machine as db_machine, rack as db_rack};
@@ -33,14 +36,12 @@ use model::rack::{
 use rpc::forge::StateHistoryRecord;
 use rpc::forge::forge_server::Forge;
 use state_controller::config::IterationConfig;
-use tokio_util::sync::CancellationToken;
-
-use crate::state_controller::controller::StateController;
-use crate::state_controller::rack::context::RackStateHandlerContextObjects;
-use crate::state_controller::rack::io::RackStateControllerIO;
-use crate::state_controller::state_handler::{
+use state_controller::controller::StateController;
+use state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
+use tokio_util::sync::CancellationToken;
+
 use crate::tests::common::api_fixtures::site_explorer::TestRackDbBuilder;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_test_env, create_test_env_with_overrides,
@@ -48,9 +49,8 @@ use crate::tests::common::api_fixtures::{
 
 mod fixtures;
 mod handler;
-use fixtures::rack::set_rack_controller_state;
 
-use crate::state_controller::rack::handler::RackStateHandler;
+use fixtures::rack::set_rack_controller_state;
 
 #[derive(Debug, Default, Clone)]
 pub struct TestRackStateHandler {

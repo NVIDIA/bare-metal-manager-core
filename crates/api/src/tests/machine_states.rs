@@ -57,17 +57,17 @@ use rpc::forge::{HealthReportEntry, InsertMachineHealthReportRequest, TpmCaCert,
 use rpc::forge_agent_control_response::{Action, LegacyAction};
 use rpc::machine_discovery::AttestKeyInfo;
 use rpc::{DiscoveryData, DiscoveryInfo};
+use state_controller::db_write_batch::DbWriteBatch;
+use state_controller::state_handler::StateHandlerContext;
 use tonic::{Code, Request};
 
 use crate::handlers::measured_boot::rpc_forge::MachineDiscoveryInfo;
 use crate::measured_boot::convert_vec;
-use crate::state_controller::db_write_batch::DbWriteBatch;
 use crate::state_controller::machine::context::MachineStateHandlerContextObjects;
 use crate::state_controller::machine::handler::{
     MachineStateHandlerBuilder, handler_host_power_control,
 };
 use crate::state_controller::machine::metrics::MachineMetrics;
-use crate::state_controller::state_handler::StateHandlerContext;
 use crate::tests::common;
 use crate::tests::common::api_fixtures::dpu::{
     TEST_DOCA_HBN_VERSION, TEST_DOCA_TELEMETRY_VERSION, TEST_DPU_AGENT_VERSION,

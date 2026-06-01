@@ -17,20 +17,14 @@
 use ::rpc::common::MachineIdList;
 use ::rpc::forge::{self as rpc};
 use carbide_uuid::machine::MachineId;
-use chrono::{DateTime, Utc};
-use config_version::ConfigVersion;
-use db::{AnnotatedSqlxError, ObjectFilter};
-use itertools::Itertools;
-use libredfish::model::component_integrity::{ComponentIntegrities, ComponentIntegrity};
-use model::attestation::spdm::{SpdmAttestationState, SpdmDeviceAttestation};
-use model::bmc_info::BmcInfo;
+use db::ObjectFilter;
 use model::machine::machine_search_config::MachineSearchConfig;
-use sqlx::PgPool;
 use tokio::time as tt;
 use tonic::{Request, Response, Status};
 
 use crate::CarbideError;
 use crate::api::{Api, log_machine_id, log_request_data};
+use crate::state_controller::machine::handler::attestation::trigger_attestation;
 
 pub(crate) async fn trigger_machine_attestation(
     api: &Api,
@@ -102,114 +96,13 @@ pub(crate) async fn trigger_machine_attestation(
         &machine_id,
         redfish_timeout_duration,
     )
-    .await?;
+    .await
+    .map_err(|e| CarbideError::AttestationError(format!("trigger error: {e}")))?;
 
     Ok(Response::new(rpc::SpdmMachineAttestationTriggerResponse {
         machine_id: Some(machine_id),
         devices_under_attestation: records_inserted as i32,
     }))
-}
-
-pub async fn trigger_attestation(
-    db_pool: &PgPool,
-    redfish_client: Box<dyn libredfish::Redfish>,
-    bmc_info: &BmcInfo,
-    machine_id: &MachineId,
-    redfish_timeout_duration: std::time::Duration,
-) -> Result<u64, CarbideError> {
-    // retrieve bmc info for a machine and create redfish client
-    // get service root
-    // - absent -> return NotSupported
-    // get component integrities and create/insert device attestations
-    // - if none, return NotSupported
-
-    let service_root_future = redfish_client.get_service_root();
-
-    let service_root = match tt::timeout(redfish_timeout_duration, service_root_future).await {
-        Ok(redfish_result) => redfish_result.map_err(CarbideError::RedfishError)?,
-        Err(_) => {
-            return Err(CarbideError::Internal {
-                message: format!(
-                    "redfish service_root could not finish in {} secods",
-                    redfish_timeout_duration.as_secs()
-                ),
-            });
-        }
-    };
-
-    if service_root.component_integrity.is_none() {
-        // let's treat 0 devices under attestation as NotSupported
-        return Ok(0);
-    }
-
-    let component_integrities_future = redfish_client.get_component_integrities();
-
-    let component_integrities =
-        match tt::timeout(redfish_timeout_duration, component_integrities_future).await {
-            Ok(redfish_result) => redfish_result.map_err(|e| {
-                CarbideError::AttestationError(format!(
-                    "Error getting component integrities: {}",
-                    e
-                ))
-            })?,
-            Err(_) => {
-                return Err(CarbideError::Internal {
-                    message: format!(
-                        "redfish get_component_integrities could not finish in {} secods",
-                        redfish_timeout_duration.as_secs()
-                    ),
-                });
-            }
-        };
-
-    let components = get_components_supporting_spdm(&component_integrities);
-
-    if components.is_empty() {
-        // let's treat 0 devices under attestation as NotSupported
-        return Ok(0);
-    }
-
-    // The validation that list is not changed is done by SKU validation. SKU
-    // validation checks that the device profile is not changed over time. If any
-    // device list is changed and SKU validation is passed, means SRE has approved the
-    // change request.
-    // Validating again is not needed.
-    // Remove existing device list and over-write with this list.
-    let time_now = Utc::now();
-    let device_attestations = components
-        .into_iter()
-        .map(|x| from_component_integrity(x.clone(), machine_id, &time_now, bmc_info))
-        .collect_vec();
-
-    let mut txn = db_pool
-        .begin()
-        .await
-        .map_err(|e| AnnotatedSqlxError::new("trigger_attestation begin", e))?;
-
-    let records_inserted = db::attestation::spdm::insert_device_attestations(
-        &mut txn,
-        machine_id,
-        device_attestations,
-    )
-    .await
-    .map_err(|e| {
-        CarbideError::AttestationError(format!(
-            "Error inserting device attestations into DB: {}",
-            e
-        ))
-    })?;
-
-    txn.commit()
-        .await
-        .map_err(|e| AnnotatedSqlxError::new("trigger_attestation commit", e))?;
-
-    tracing::info!(
-        "SPDM attestation commenced for machine {}, scheduled {} SPDM device attestations",
-        machine_id,
-        records_inserted
-    );
-
-    Ok(records_inserted)
 }
 
 pub(crate) async fn cancel_machine_attestation(
@@ -414,73 +307,6 @@ pub(crate) async fn attest_quote(
     }))
 }
 
-// Rules:
-// ComponentIntegrityTypeVersion should be >= 1.1.0.
-// ComponentIntegrityType should be SPDM.
-// ComponentIntegrityEnabled should be true.
-// Once these all conditions are true, a device can be proceed with attestation.
-fn get_components_supporting_spdm(integrities: &ComponentIntegrities) -> Vec<&ComponentIntegrity> {
-    let supported_versions = ["1.1.0"]; // This can be configurable value.
-    let mut supported_components = vec![];
-
-    for component in &integrities.members {
-        if !component.component_integrity_enabled {
-            // Component Integrity is not enabled
-            continue;
-        }
-
-        if component.component_integrity_type != "SPDM" {
-            // Not SPDM, may be TPM.
-            continue;
-        }
-
-        if !supported_versions.contains(&component.component_integrity_type_version.as_str()) {
-            continue;
-        }
-
-        supported_components.push(component);
-    }
-
-    supported_components
-}
-
-fn from_component_integrity(
-    integrity: ComponentIntegrity,
-    machine_id: &MachineId,
-    time_now: &DateTime<Utc>,
-    bmc_info: &BmcInfo,
-) -> SpdmDeviceAttestation {
-    let ca_certificate_link = integrity
-        .spdm
-        .map(|x| x.identity_authentication)
-        .map(|x| x.responder_authentication.component_certificate)
-        .map(|x| x.odata_id);
-
-    let evidence_target =
-        if let Some(Some(data)) = integrity.actions.map(|x| x.get_signed_measurements) {
-            Some(data.target)
-        } else {
-            None
-        };
-
-    SpdmDeviceAttestation {
-        machine_id: *machine_id,
-        device_id: integrity.id,
-        nonce: uuid::Uuid::new_v4(),
-        bmc_info: bmc_info.clone(),
-        state: SpdmAttestationState::FetchMetadata,
-        state_version: ConfigVersion::initial(),
-        state_outcome: None,
-        metadata: None,
-        ca_certificate_link,
-        ca_certificate: None,
-        evidence_target,
-        evidence: None,
-        started_at: *time_now,
-        cancelled_at: None,
-        completed_at: None,
-    }
-}
 #[cfg(not(feature = "linux-build"))]
 pub(crate) async fn attest_quote(
     _api: &Api,

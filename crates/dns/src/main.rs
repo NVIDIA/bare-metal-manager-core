@@ -14,15 +14,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::net::AddrParseError;
 use std::path::PathBuf;
 
+use carbide_dns::DnsServer;
 use carbide_dns::config::{Config, ConfigError};
-use carbide_dns::start;
 use clap::{CommandFactory, Parser};
 use eyre::WrapErr;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithExportConfig;
-use tonic::codegen::http;
+use tonic::codegen::http::uri::InvalidUri;
 use tracing::metadata::LevelFilter;
 use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::fmt;
@@ -56,14 +57,12 @@ async fn main() -> Result<(), eyre::Report> {
         .add_directive("hickory_proto=info".parse()?)
         .add_directive("hickory_resolver=info".parse()?)
         .add_directive("carbide_dns=info".parse()?)
-        .add_directive("carbide_dns::pdns=debug".parse()?)
         .add_directive("rpc=info".parse()?);
 
     match cmd {
         Command::Run(run_command) => {
             let config: Config = run_command.try_into()?;
 
-            // Configure OpenTelemetry if endpoint is set
             tracing::info!(
                 "OpenTelemetry tracing enabled, exporting to endpoint: {}",
                 &config.otlp_endpoint.to_string()
@@ -95,23 +94,9 @@ async fn main() -> Result<(), eyre::Report> {
                 .with(otel_layer)
                 .try_init()?;
 
-            // Check if legacy mode is configured
-            // TODO: Remove this after migration to PowerDNS backend
-            if let Some(listen_addr) = config.legacy_listen {
-                tracing::warn!(
-                    "Running in LEGACY DNS server mode on {}. This mode is deprecated and will be removed in future releases. Please migrate to PowerDNS backend.",
-                    listen_addr
-                );
-                carbide_dns::legacy::LegacyDnsServer::run(config, listen_addr)
-                    .await
-                    .wrap_err("Failed to start legacy DNS service")?;
-            } else {
-                // Default: PowerDNS backend mode
-                tracing::info!("Running in PowerDNS backend mode (Unix domain socket)");
-                start(config)
-                    .await
-                    .wrap_err("Failed to start DNS service")?;
-            }
+            DnsServer::run(config)
+                .await
+                .wrap_err("Failed to start DNS service")?;
         }
     }
 
@@ -129,55 +114,60 @@ pub struct Options {
 
 #[derive(Parser)]
 pub enum Command {
-    #[clap(about = "Start DNS Service")]
+    #[clap(about = "Start the DNS service")]
     Run(RunCommand),
 }
 
 #[derive(Parser)]
 pub struct RunCommand {
-    #[clap(long, short = 'f', help = "Path to TOML configuration file")]
+    #[clap(long, short = 'f', help = "Path to the TOML configuration file")]
     config_file: Option<PathBuf>,
-    #[clap(short = 's', long, help = "Path to the UNIX socket for the DNS server")]
-    pub socket_path: Option<PathBuf>,
 
-    #[clap(short = 'p', long, help = "UNIX Permissions for the socket")]
-    pub socket_permissions: Option<u32>,
+    #[clap(
+        long,
+        help = "Address for the DNS server to listen on (e.g., [::]:53)",
+        visible_alias = "listen_address"
+    )]
+    pub listen: Option<String>,
 
-    #[clap(short = 'u', long, help = "URI of the Forge API Server")]
-    pub carbide_uri: Option<http::Uri>,
+    #[clap(
+        long,
+        help = "Address for the metrics server to listen on (e.g., [::]:8053)"
+    )]
+    pub metrics_listen_address: Option<String>,
 
-    #[clap(short = 'r', long, help = "Path to the Forge Root CA certificate")]
-    pub forge_root_ca_path: Option<PathBuf>,
+    #[clap(short = 'u', long, help = "URI of the API server")]
+    pub api_uri: Option<String>,
+
+    #[clap(short = 'r', long, help = "Path to the root CA certificate")]
+    pub root_ca_path: Option<PathBuf>,
 
     #[clap(
         short = 'c',
         long,
-        help = "Path to the client certificate for Forge API"
+        help = "Path to the client certificate for the API server"
     )]
     pub client_cert_path: Option<PathBuf>,
 
-    #[clap(short = 'k', long, help = "Path to the client key for Forge API")]
+    #[clap(short = 'k', long, help = "Path to the client key for the API server")]
     pub client_key_path: Option<PathBuf>,
-
-    // Legacy mode support for migration
-    #[clap(
-        long,
-        help = "LEGACY MODE: Address for DNS server to listen on (e.g., [::]:1053). When set, runs as a direct DNS server instead of PowerDNS backend. This mode is deprecated and will be removed in future releases."
-    )]
-    pub listen: Option<std::net::SocketAddr>,
 
     // Backward compatibility alias
     #[clap(
         long,
-        help = "DEPRECATED: Use --carbide-uri instead. Will be removed in future releases."
+        help = "DEPRECATED: Use --api-uri instead. Will be removed in future releases."
     )]
     pub carbide_url: Option<String>,
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum CommandError {
-    #[error("Invalid socket path: {path}: {error}")]
-    InvalidSocketPath { path: String, error: std::io::Error },
+    #[error("Invalid listening address {addr}: {error}")]
+    InvalidListeningAddress { addr: String, error: AddrParseError },
+    #[error("Invalid metrics address {addr}: {error}")]
+    InvalidMetricsAddress { addr: String, error: AddrParseError },
+    #[error("Invalid URI: {uri}: {error}")]
+    InvalidUri { uri: String, error: InvalidUri },
     #[error("Configuration error: {0}")]
     Config(#[from] ConfigError),
 }
@@ -192,49 +182,54 @@ impl TryInto<Config> for RunCommand {
             Config::default()
         };
 
-        if let Some(socket_path) = self.socket_path {
-            if !socket_path.is_absolute() {
-                return Err(CommandError::InvalidSocketPath {
-                    path: socket_path.to_string_lossy().to_string(),
-                    error: std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        "Socket path must be an absolute path",
-                    ),
-                });
-            }
-            config.socket_path = socket_path;
+        if let Some(listen_address) = self.listen {
+            config.listen_address =
+                listen_address
+                    .parse()
+                    .map_err(|error| CommandError::InvalidListeningAddress {
+                        addr: listen_address,
+                        error,
+                    })?
         }
 
-        if let Some(socket_permissions) = self.socket_permissions {
-            config.socket_permissions = socket_permissions;
+        if let Some(address) = self.metrics_listen_address {
+            config.metrics_listen_address =
+                address
+                    .parse()
+                    .map_err(|error| CommandError::InvalidMetricsAddress {
+                        addr: address,
+                        error,
+                    })?
         }
 
-        if let Some(carbide_uri) = self.carbide_uri {
-            config.carbide_uri = carbide_uri;
+        if let Some(carbide_uri) = self.api_uri {
+            config.api_uri = carbide_uri
+                .parse()
+                .map_err(|error| CommandError::InvalidUri {
+                    uri: carbide_uri,
+                    error,
+                })?
         }
 
         // Backward compatibility for carbide_url
         if let Some(carbide_url) = self.carbide_url {
-            tracing::warn!("--carbide-url is deprecated, use --carbide-uri instead");
-            config.carbide_uri = carbide_url.try_into().expect("Invalid carbide URL");
+            tracing::warn!("--carbide-url is deprecated; use --api-uri instead");
+            config.api_uri = carbide_url
+                .parse()
+                .map_err(|error| CommandError::InvalidUri {
+                    uri: carbide_url,
+                    error,
+                })?
         }
 
-        if let Some(forge_root_ca_path) = self.forge_root_ca_path {
-            config.forge_root_ca = forge_root_ca_path;
+        if let Some(root_ca_path) = self.root_ca_path {
+            config.root_ca_path = root_ca_path;
         }
         if let Some(client_cert_path) = self.client_cert_path {
             config.client_cert_path = client_cert_path;
         }
         if let Some(client_key_path) = self.client_key_path {
             config.client_key_path = client_key_path;
-        }
-
-        // Set legacy listen mode if specified
-        if let Some(listen) = self.listen {
-            tracing::warn!(
-                "Legacy DNS server mode enabled via --listen flag. This will be removed in future releases."
-            );
-            config.legacy_listen = Some(listen);
         }
 
         Ok(config)

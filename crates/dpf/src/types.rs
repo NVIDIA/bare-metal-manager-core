@@ -70,6 +70,18 @@ impl Default for InitDpfResourcesConfig {
     }
 }
 
+/// A DPU CR whose installed BFB or `spec.dpuFlavor` does not match the
+/// expected one. Returned by [`crate::DpfSdk::find_outdated_dpus_dpf`]; the
+/// labels map is the DPU CR's `metadata.labels` so callers can map back to
+/// their own identifiers.
+#[derive(Debug, Clone)]
+pub struct DpuMismatch {
+    pub dpu_cr_name: String,
+    pub dpu_labels: std::collections::BTreeMap<String, String>,
+    /// Expected BFB filename (e.g. `<namespace>-bf-bundle-<sha256>.bfb`).
+    pub target_bfb: String,
+}
+
 /// Service type for configPorts (DPUServiceConfiguration).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigPortsServiceType {

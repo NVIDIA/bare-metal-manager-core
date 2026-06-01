@@ -32,7 +32,7 @@ use model::machine::{
 };
 use tokio::time::timeout;
 
-use crate::dpf::MockDpfOperations;
+use crate::state_controller::machine::dpf::{DpfOperations, MockDpfOperations};
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, TestManagedHost, create_managed_host_with_dpf,
     create_managed_host_with_dpf_multi, create_test_env_with_overrides, get_config,
@@ -165,7 +165,7 @@ async fn test_dpf_reprovisioning_transitions_to_provisioning(pool: sqlx::PgPool)
     let device_ready = Arc::new(AtomicBool::new(true));
     let mut mock = provisioning_mock(device_ready);
     mock.expect_reprovision_dpu().returning(|_, _| Ok(()));
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(mock);
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(mock);
     let mut config = get_config();
     config.dpf = dpf_config();
 
@@ -215,8 +215,7 @@ async fn test_dpf_provisioning_transitions_to_waiting_for_ready_during_reprovisi
     pool: sqlx::PgPool,
 ) {
     let device_ready = Arc::new(AtomicBool::new(true));
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> =
-        Arc::new(provisioning_mock(device_ready.clone()));
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(provisioning_mock(device_ready.clone()));
     let mut config = get_config();
     config.dpf = dpf_config();
 
@@ -273,7 +272,7 @@ async fn test_dpf_waiting_for_ready_exits_to_powering_off_host_during_reprovisio
     pool: sqlx::PgPool,
 ) {
     let device_ready = Arc::new(AtomicBool::new(true));
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(provisioning_mock(device_ready));
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(provisioning_mock(device_ready));
     let mut config = get_config();
     config.dpf = dpf_config();
 
@@ -383,7 +382,7 @@ async fn test_multi_dpu_provisioning_registers_all_devices(pool: sqlx::PgPool) {
     let device_ready = Arc::new(AtomicBool::new(true));
     let registered_devices = Arc::new(Mutex::new(Vec::new()));
     let reprovisioned_devices = Arc::new(Mutex::new(Vec::new()));
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(capturing_mock(
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(capturing_mock(
         device_ready.clone(),
         registered_devices.clone(),
         reprovisioned_devices.clone(),
@@ -437,7 +436,7 @@ async fn test_multi_dpu_reprovisioning_calls_all_dpus(pool: sqlx::PgPool) {
     let device_ready = Arc::new(AtomicBool::new(true));
     let registered_devices = Arc::new(Mutex::new(Vec::new()));
     let reprovisioned_devices = Arc::new(Mutex::new(Vec::new()));
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(capturing_mock(
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(capturing_mock(
         device_ready.clone(),
         registered_devices,
         reprovisioned_devices.clone(),
@@ -500,7 +499,7 @@ async fn test_assigned_dpf_reprovisioning_transitions_to_provisioning(pool: sqlx
     let device_ready = Arc::new(AtomicBool::new(true));
     let mut mock = provisioning_mock(device_ready);
     mock.expect_reprovision_dpu().returning(|_, _| Ok(()));
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(mock);
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(mock);
     let mut config = get_config();
     config.dpf = dpf_config();
 
@@ -560,7 +559,7 @@ async fn test_assigned_dpf_reprovisioning_transitions_to_provisioning(pool: sqlx
 #[crate::sqlx_test]
 async fn test_assigned_waiting_for_ready_exits_to_powering_off_host(pool: sqlx::PgPool) {
     let device_ready = Arc::new(AtomicBool::new(true));
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(provisioning_mock(device_ready));
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(provisioning_mock(device_ready));
     let mut config = get_config();
     config.dpf = dpf_config();
 
@@ -632,7 +631,7 @@ async fn test_multi_dpu_reprovisioning_per_dpu(pool: sqlx::PgPool) {
     let device_ready = Arc::new(AtomicBool::new(true));
     let registered_devices = Arc::new(Mutex::new(Vec::new()));
     let reprovisioned_devices = Arc::new(Mutex::new(Vec::new()));
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(capturing_mock(
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(capturing_mock(
         device_ready.clone(),
         registered_devices,
         reprovisioned_devices.clone(),
@@ -700,7 +699,7 @@ async fn test_multi_dpu_reprovisioning_per_dpu(pool: sqlx::PgPool) {
 #[crate::sqlx_test]
 async fn test_unknown_dpf_state_transitions_to_provisioning_during_reprovision(pool: sqlx::PgPool) {
     let device_ready = Arc::new(AtomicBool::new(true));
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(provisioning_mock(device_ready));
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(provisioning_mock(device_ready));
     let mut config = get_config();
     config.dpf = dpf_config();
 

@@ -899,54 +899,60 @@ struct RuleInfo {
 
 impl RuleInfo {
     pub fn new(principals: Vec<RulePrincipal>) -> Self {
+        // Helper: emit both the nico-* and carbide-* SPIFFE service identifiers
+        // for a renamed service. The matcher in `allowed()` walks this Vec with
+        // `.any(...)`, so any cert presenting either string is accepted. Drop
+        // the carbide-* alias once every deployed site has rotated to a cert
+        // with the nico-* identifier.
+        let svc_compat = |nico_name: &str, carbide_name: &str| {
+            vec![
+                Principal::SpiffeServiceIdentifier(nico_name.to_string()),
+                Principal::SpiffeServiceIdentifier(carbide_name.to_string()),
+            ]
+        };
         Self {
             principals: principals
                 .iter()
-                .map(|x| match *x {
-                    RulePrincipal::ForgeAdminCLI => Principal::ExternalUser(ExternalUserInfo::new(
-                        None,
-                        "Invalid".to_string(),
-                        None,
-                    )),
-                    RulePrincipal::Machineatron => {
-                        Principal::SpiffeServiceIdentifier("machine-a-tron".to_string())
+                .flat_map(|x| match *x {
+                    RulePrincipal::ForgeAdminCLI => {
+                        vec![Principal::ExternalUser(ExternalUserInfo::new(
+                            None,
+                            "Invalid".to_string(),
+                            None,
+                        ))]
                     }
-                    RulePrincipal::SiteAgent => {
-                        Principal::SpiffeServiceIdentifier("elektra-site-agent".to_string())
+                    RulePrincipal::Machineatron => vec![Principal::SpiffeServiceIdentifier(
+                        "machine-a-tron".to_string(),
+                    )],
+                    RulePrincipal::SiteAgent => vec![Principal::SpiffeServiceIdentifier(
+                        "elektra-site-agent".to_string(),
+                    )],
+                    RulePrincipal::Agent => {
+                        vec![Principal::SpiffeMachineIdentifier("".to_string())]
                     }
-                    RulePrincipal::Agent => Principal::SpiffeMachineIdentifier("".to_string()),
-                    RulePrincipal::Scout => Principal::SpiffeMachineIdentifier("".to_string()),
-                    RulePrincipal::Dns => {
-                        Principal::SpiffeServiceIdentifier("carbide-dns".to_string())
+                    RulePrincipal::Scout => {
+                        vec![Principal::SpiffeMachineIdentifier("".to_string())]
                     }
-                    RulePrincipal::Dhcp => {
-                        Principal::SpiffeServiceIdentifier("carbide-dhcp".to_string())
-                    }
-                    RulePrincipal::Ssh => {
-                        Principal::SpiffeServiceIdentifier("carbide-ssh-console".to_string())
-                    }
+                    RulePrincipal::Dns => svc_compat("nico-dns", "carbide-dns"),
+                    RulePrincipal::Dhcp => svc_compat("nico-dhcp", "carbide-dhcp"),
+                    RulePrincipal::Ssh => svc_compat("nico-ssh-console", "carbide-ssh-console"),
                     RulePrincipal::SshRs => {
-                        Principal::SpiffeServiceIdentifier("carbide-ssh-console-rs".to_string())
+                        svc_compat("nico-ssh-console-rs", "carbide-ssh-console-rs")
                     }
-                    RulePrincipal::Pxe => {
-                        Principal::SpiffeServiceIdentifier("carbide-pxe".to_string())
-                    }
-                    RulePrincipal::BmcProxy => {
-                        Principal::SpiffeServiceIdentifier("carbide-bmc-proxy".to_string())
-                    }
+                    RulePrincipal::Pxe => svc_compat("nico-pxe", "carbide-pxe"),
+                    RulePrincipal::BmcProxy => svc_compat("nico-bmc-proxy", "carbide-bmc-proxy"),
                     RulePrincipal::Health => {
-                        Principal::SpiffeServiceIdentifier("carbide-hardware-health".to_string())
+                        svc_compat("nico-hardware-health", "carbide-hardware-health")
                     }
-                    RulePrincipal::Flow => {
-                        Principal::SpiffeServiceIdentifier("carbide-flow".to_string())
-                    }
+                    RulePrincipal::Flow => svc_compat("nico-flow", "carbide-flow"),
                     RulePrincipal::MaintenanceJobs => {
-                        Principal::SpiffeServiceIdentifier("carbide-maintenance-jobs".to_string())
+                        svc_compat("nico-maintenance-jobs", "carbide-maintenance-jobs")
                     }
-                    RulePrincipal::DsxExchangeConsumer => Principal::SpiffeServiceIdentifier(
-                        "carbide-dsx-exchange-consumer".to_string(),
+                    RulePrincipal::DsxExchangeConsumer => svc_compat(
+                        "nico-dsx-exchange-consumer",
+                        "carbide-dsx-exchange-consumer",
                     ),
-                    RulePrincipal::Anonymous => Principal::Anonymous,
+                    RulePrincipal::Anonymous => vec![Principal::Anonymous],
                 })
                 .collect(),
         }
@@ -1033,15 +1039,11 @@ mod rbac_rule_tests {
         ));
         assert!(InternalRBACRules::allowed_from_static(
             "GetCloudInitInstructions",
-            &[Principal::SpiffeServiceIdentifier(
-                "carbide-pxe".to_string()
-            )]
+            &[Principal::SpiffeServiceIdentifier("nico-pxe".to_string())]
         ));
         assert!(!InternalRBACRules::allowed_from_static(
             "GetCloudInitInstructions",
-            &[Principal::SpiffeServiceIdentifier(
-                "carbide-dns".to_string()
-            )]
+            &[Principal::SpiffeServiceIdentifier("nico-dns".to_string())]
         ));
         assert!(!InternalRBACRules::allowed_from_static(
             "GetCloudInitInstructions",
@@ -1059,9 +1061,7 @@ mod rbac_rule_tests {
         ));
         assert!(!InternalRBACRules::allowed_from_static(
             "CreateVpc",
-            &[Principal::SpiffeServiceIdentifier(
-                "carbide-dns".to_string()
-            )]
+            &[Principal::SpiffeServiceIdentifier("nico-dns".to_string())]
         ));
 
         assert!(InternalRBACRules::allowed_from_static(
@@ -1086,7 +1086,7 @@ mod rbac_rule_tests {
         assert!(InternalRBACRules::allowed_from_static(
             "TrimTable",
             &[Principal::SpiffeServiceIdentifier(
-                "carbide-maintenance-jobs".to_string()
+                "nico-maintenance-jobs".to_string()
             )]
         ));
 
@@ -1109,34 +1109,26 @@ mod rbac_rule_tests {
 
         assert!(InternalRBACRules::allowed_from_static(
             "SetMaintenance",
-            &[Principal::SpiffeServiceIdentifier(
-                "carbide-flow".to_string()
-            )]
+            &[Principal::SpiffeServiceIdentifier("nico-flow".to_string())]
         ));
         assert!(InternalRBACRules::allowed_from_static(
             "InsertMachineHealthReport",
-            &[Principal::SpiffeServiceIdentifier(
-                "carbide-flow".to_string()
-            )]
+            &[Principal::SpiffeServiceIdentifier("nico-flow".to_string())]
         ));
         assert!(InternalRBACRules::allowed_from_static(
             "RemoveMachineHealthReport",
-            &[Principal::SpiffeServiceIdentifier(
-                "carbide-flow".to_string()
-            )]
+            &[Principal::SpiffeServiceIdentifier("nico-flow".to_string())]
         ));
         assert!(InternalRBACRules::allowed_from_static(
             "MachineSetAutoUpdate",
-            &[Principal::SpiffeServiceIdentifier(
-                "carbide-flow".to_string()
-            )]
+            &[Principal::SpiffeServiceIdentifier("nico-flow".to_string())]
         ));
         for method in ["FindMacAddressByBmcIp", "GetBmcCredentials"] {
             assert!(
                 InternalRBACRules::allowed_from_static(
                     method,
                     &[Principal::SpiffeServiceIdentifier(
-                        "carbide-bmc-proxy".to_string()
+                        "nico-bmc-proxy".to_string()
                     )]
                 ),
                 "{method} should allow bmc-proxy"
@@ -1148,9 +1140,36 @@ mod rbac_rule_tests {
         // SPIFFE identifiers, etc. We don't want to play any tricks by reusing principals here, so
         // we gotta list both, until we've fully migrated to ssh-console-rs.)
         ensure_identical_permissions(
-            &Principal::SpiffeServiceIdentifier("carbide-ssh-console".to_string()),
-            &Principal::SpiffeServiceIdentifier("carbide-ssh-console-rs".to_string()),
+            &Principal::SpiffeServiceIdentifier("nico-ssh-console".to_string()),
+            &Principal::SpiffeServiceIdentifier("nico-ssh-console-rs".to_string()),
         );
+
+        // Backward-compat: every renamed service's carbide-* SPIFFE identifier
+        // must have *identical* permissions to its nico-* counterpart across
+        // every rule. RuleInfo::new emits both names side-by-side; this guards
+        // against accidental skew while we keep accepting carbide-*. Drop this
+        // block (and the svc_compat() carbide-* entries) once every deployed
+        // site has rotated to a nico-* cert.
+        for (nico, carbide) in [
+            ("nico-dns", "carbide-dns"),
+            ("nico-dhcp", "carbide-dhcp"),
+            ("nico-ssh-console", "carbide-ssh-console"),
+            ("nico-ssh-console-rs", "carbide-ssh-console-rs"),
+            ("nico-pxe", "carbide-pxe"),
+            ("nico-bmc-proxy", "carbide-bmc-proxy"),
+            ("nico-hardware-health", "carbide-hardware-health"),
+            ("nico-flow", "carbide-flow"),
+            ("nico-maintenance-jobs", "carbide-maintenance-jobs"),
+            (
+                "nico-dsx-exchange-consumer",
+                "carbide-dsx-exchange-consumer",
+            ),
+        ] {
+            ensure_identical_permissions(
+                &Principal::SpiffeServiceIdentifier(nico.to_string()),
+                &Principal::SpiffeServiceIdentifier(carbide.to_string()),
+            );
+        }
 
         Ok(())
     }

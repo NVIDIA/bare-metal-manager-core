@@ -277,7 +277,7 @@ async fn test_dns_aaaa(pool: sqlx::PgPool) {
                 zone_id: uuid::Uuid::new_v4().to_string(),
                 local: None,
                 remote: None,
-                qtype: "ANY".to_string(),
+                qtype: "AAAA".to_string(),
                 real_remote: None,
             },
         ))
@@ -319,7 +319,7 @@ async fn test_dns_aaaa(pool: sqlx::PgPool) {
                 zone_id: uuid::Uuid::new_v4().to_string(),
                 local: None,
                 remote: None,
-                qtype: "ANY".to_string(),
+                qtype: "AAAA".to_string(),
                 real_remote: None,
             },
         ))
@@ -340,88 +340,6 @@ async fn test_dns_aaaa(pool: sqlx::PgPool) {
         .find(|r| r.qtype == "A")
         .expect("shortname view should still have an A record");
     assert!(shortname_a.content.parse::<IpAddr>().unwrap().is_ipv4());
-}
-
-// test_dns_aaaa_legacy verifies that the legacy DNS RPC (LookupRecordLegacy)
-// correctly returns AAAA records for IPv6 addresses. This exercises the legacy
-// compat adapter in handlers/dns.rs which converts numeric q_type (28 = AAAA)
-// to the string-based format used by the new lookup_record handler.
-#[crate::sqlx_test]
-async fn test_dns_aaaa_legacy(pool: sqlx::PgPool) {
-    let env = create_test_env(pool).await;
-    env.create_vpc_and_tenant_segment().await;
-    let api = &env.api;
-
-    let (host_id, _dpu_id) = create_managed_host(&env).await.into();
-
-    let mut txn = env.pool.begin().await.unwrap();
-    let interface = db::machine_interface::get_machine_interface_primary(&host_id, &mut txn)
-        .await
-        .unwrap();
-
-    let ipv6_addr: IpAddr = "fd00::1".parse().unwrap();
-    sqlx::query("INSERT INTO machine_interface_addresses (interface_id, address) VALUES ($1, $2)")
-        .bind(interface.id)
-        .bind(ipv6_addr)
-        .execute(&mut *txn)
-        .await
-        .unwrap();
-    txn.commit().await.unwrap();
-
-    let adm_qname = format!("{}.{}.", host_id, DNS_ADM_SUBDOMAIN);
-
-    // Test the legacy RPC with q_type=1 (A record).
-    let legacy_a_response = api
-        .lookup_record_legacy(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
-            q_name: Some(adm_qname.clone()),
-            q_class: Some(1),
-            q_type: Some(1), // A
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
-    // The legacy response returns all matching records regardless of q_type
-    // (it delegates to lookup_record which returns all types for ANY).
-    // At minimum, the IPv4 address should be present.
-    assert!(
-        !legacy_a_response.rrs.is_empty(),
-        "legacy A query should return records"
-    );
-    let a_rdata = legacy_a_response.rrs.iter().find(|rr| {
-        rr.rdata
-            .as_ref()
-            .and_then(|r| r.parse::<IpAddr>().ok())
-            .is_some_and(|ip| ip.is_ipv4())
-    });
-    assert!(
-        a_rdata.is_some(),
-        "legacy A query should include an IPv4 record"
-    );
-
-    // Test the legacy RPC with q_type=28 (AAAA record).
-    let legacy_aaaa_response = api
-        .lookup_record_legacy(tonic::Request::new(rpc::forge::dns_message::DnsQuestion {
-            q_name: Some(adm_qname.clone()),
-            q_class: Some(1),
-            q_type: Some(28), // AAAA
-        }))
-        .await
-        .unwrap()
-        .into_inner();
-
-    assert!(
-        !legacy_aaaa_response.rrs.is_empty(),
-        "legacy AAAA query should return records"
-    );
-    let aaaa_rdata = legacy_aaaa_response
-        .rrs
-        .iter()
-        .find(|rr| rr.rdata.as_deref() == Some("fd00::1"));
-    assert!(
-        aaaa_rdata.is_some(),
-        "legacy AAAA query should include the fd00::1 record"
-    );
 }
 
 // Get the current number of rows in the dns_records view,

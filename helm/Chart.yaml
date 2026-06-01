@@ -26,6 +26,9 @@ dependencies:
   - name: nico-dsx-exchange-consumer
     version: "0.1.0"
     condition: nico-dsx-exchange-consumer.enabled
+  - name: nico-flow
+    version: "0.1.0"
+    condition: nico-flow.enabled
   - name: nico-hardware-health
     version: "0.1.0"
     condition: nico-hardware-health.enabled

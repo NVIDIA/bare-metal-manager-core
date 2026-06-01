@@ -35,7 +35,7 @@ use libredfish::SystemPowerControl;
 use model::machine::{DpfState, DpuInitState, ManagedHostState};
 use tokio::time::timeout;
 
-use crate::dpf::MockDpfOperations;
+use crate::state_controller::machine::dpf::{DpfOperations, MockDpfOperations};
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, TestManagedHost, create_managed_host_with_dpf,
     create_test_env_with_overrides, get_config, reboot_completed,
@@ -126,7 +126,7 @@ async fn test_duplicate_ready_events_reach_ready(pool: sqlx::PgPool) {
     mock.expect_release_maintenance_hold().returning(|_| Ok(()));
     mock.expect_is_reboot_required().returning(|_| Ok(false));
 
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(mock);
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(mock);
     let mut config = get_config();
     config.dpf = dpf_config();
 
@@ -190,7 +190,7 @@ async fn test_duplicate_reboot_events_send_single_reboot(pool: sqlx::PgPool) {
             Ok(())
         });
 
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(mock);
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(mock);
     let mut config = get_config();
     config.dpf = dpf_config();
 
@@ -257,7 +257,7 @@ async fn test_duplicate_events_after_reboot_complete(pool: sqlx::PgPool) {
         Ok(())
     });
 
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(mock);
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(mock);
     let mut config = get_config();
     config.dpf = dpf_config();
 
@@ -323,7 +323,7 @@ async fn test_duplicate_events_while_not_ready(pool: sqlx::PgPool) {
     mock.expect_release_maintenance_hold().returning(|_| Ok(()));
     mock.expect_is_reboot_required().returning(|_| Ok(false));
 
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(mock);
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(mock);
     let mut config = get_config();
     config.dpf = dpf_config();
 

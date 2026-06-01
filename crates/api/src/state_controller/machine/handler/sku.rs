@@ -27,11 +27,12 @@ use state_controller::state_handler::{
     StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
 
-use super::{HostHandlerParams, discovered_after_state_transition};
 use crate::state_controller::machine::context::{
     MachineStateHandlerContextObjects, MachineStateHandlerServices,
 };
-use crate::state_controller::machine::handler::trigger_reboot_if_needed;
+use crate::state_controller::machine::handler::{
+    HostHandlerParams, discovered_after_state_transition, trigger_reboot_if_needed,
+};
 
 fn get_bom_validation_context(state: &ManagedHostState) -> BomValidatingContext {
     if let ManagedHostState::BomValidating {

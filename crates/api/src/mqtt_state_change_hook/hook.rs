@@ -24,13 +24,13 @@ use carbide_mqtt_common::metrics::MqttHookMetrics;
 use carbide_uuid::machine::MachineId;
 use model::machine::ManagedHostState;
 use opentelemetry::metrics::Meter;
+use state_controller::state_change_emitter::{StateChangeEvent, StateChangeHook};
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::mqtt_state_change_hook::message::ManagedHostStateChangeMessage;
-use crate::state_controller::state_change_emitter::{StateChangeEvent, StateChangeHook};
 
 /// MQTT hook that publishes `ManagedHostState` changes to the MQTT broker.
 ///

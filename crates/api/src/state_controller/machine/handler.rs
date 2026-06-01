@@ -95,21 +95,23 @@ use tokio::sync::Semaphore;
 use tracing::instrument;
 use version_compare::Cmp;
 
-use crate::CarbideError;
 use crate::cfg::file::{MachineValidationConfig, TimePeriod};
-use crate::dpf::DpfOperations;
-use crate::redfish::{
-    self, host_power_control, host_power_control_with_location, set_host_uefi_password,
-};
 use crate::state_controller::machine::config::{FirmwareGlobal, MachineStateHandlerSiteConfig};
 use crate::state_controller::machine::context::{
     MachineStateHandlerContextObjects, MachineStateHandlerServices,
+};
+use crate::state_controller::machine::dpf::DpfOperations;
+use crate::state_controller::machine::health_report::{
+    create_host_update_health_report_dpufw, create_host_update_health_report_hostfw,
+};
+use crate::state_controller::machine::redfish::{
+    did_dpu_finish_booting, host_power_control, host_power_control_with_location,
 };
 use crate::state_controller::machine::{
     MeasuringOutcome, get_measuring_prerequisites, handle_measuring_state,
 };
 
-mod attestation;
+pub mod attestation;
 mod dpf;
 mod helpers;
 mod machine_validation;
@@ -822,8 +824,7 @@ impl MachineStateHandler {
                         )
                         .await?;
                     if matches!(outcome, StateHandlerOutcome::Transition { .. }) {
-                        let health_report =
-                        crate::machine_update_manager::machine_update_module::create_host_update_health_report_hostfw();
+                        let health_report = create_host_update_health_report_hostfw();
                         let host_machine_id = *host_machine_id;
 
                         // The health report alert gets generated here, the machine update manager
@@ -892,7 +893,7 @@ impl MachineStateHandler {
                         dpus_for_reprov.iter().map(|x| &x.id).collect_vec(),
                     )?;
 
-                    let health_override = crate::machine_update_manager::machine_update_module::create_host_update_health_report_dpufw();
+                    let health_override = create_host_update_health_report_dpufw();
 
                     // Mark the Host as in update.
                     let mut txn = ctx.services.db_pool.begin().await?;
@@ -3828,7 +3829,7 @@ impl DpuMachineStateHandler {
             false
         } else {
             let (has_dpu_finished_booting, dpu_boot_progress) =
-                redfish::did_dpu_finish_booting(dpu_redfish_client)
+                did_dpu_finish_booting(dpu_redfish_client)
                     .await
                     .map_err(|e| redfish_error("did_dpu_finish_booting", e))?;
 
@@ -4615,11 +4616,11 @@ async fn handle_host_uefi_setup(
             ))
         }
         UefiSetupState::SetUefiPassword => {
-            match set_host_uefi_password(
-                redfish_client.as_ref(),
-                ctx.services.redfish_client_pool.clone(),
-            )
-            .await
+            match ctx
+                .services
+                .redfish_client_pool
+                .uefi_setup(redfish_client.as_ref(), false)
+                .await
             {
                 Ok(job_id) => Ok(StateHandlerOutcome::transition(
                     ManagedHostState::HostInit {
@@ -5752,8 +5753,7 @@ impl StateHandler for InstanceStateHandler {
                         };
 
                         if host_firmware_requested {
-                            let health_override =
-                                        crate::machine_update_manager::machine_update_module::create_host_update_health_report_hostfw();
+                            let health_override = create_host_update_health_report_hostfw();
                             let machine_id = *host_machine_id;
                             // The health report alert gets generated here, the machine update manager retains responsibilty for clearing it when we're done.
                             db::machine::insert_health_report(
@@ -5767,7 +5767,7 @@ impl StateHandler for InstanceStateHandler {
                         }
 
                         if reprov_can_be_started {
-                            let health_override = crate::machine_update_manager::machine_update_module::create_host_update_health_report_dpufw();
+                            let health_override = create_host_update_health_report_dpufw();
                             let machine_id = *host_machine_id;
                             // Mark the Host as in update.
                             db::machine::insert_health_report(
@@ -9741,7 +9741,7 @@ async fn handle_instance_host_platform_config(
                             },
                         ));
                     }
-                    Err(CarbideError::RedfishError(RedfishError::NotSupported(_))) => {
+                    Err(RedfishError::NotSupported(_)) => {
                         // if not supported, just power on
                         tracing::info!("AC Powercycle not supported, skipping to power on");
                     }

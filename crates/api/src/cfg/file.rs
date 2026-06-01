@@ -26,6 +26,7 @@ use carbide_firmware::FirmwareConfig;
 use carbide_ib_fabric::config::{IBFabricConfig, IbFabricDefinition};
 use carbide_nvlink_manager::config::NvLinkConfig;
 use carbide_preingestion_manager::PreingestionManagerConfig;
+use carbide_rack_controller::config::{RackValidationConfig, RmsConfig};
 use carbide_site_explorer::config::SiteExplorerConfig;
 use carbide_state_controller_common::config::StateControllerConfig;
 use carbide_utils::config::{as_duration, as_std_duration};
@@ -55,7 +56,6 @@ use crate::state_controller::machine::config::{
     BomValidationConfig, FirmwareGlobal, MachineStateControllerConfig,
     MachineStateHandlerSiteConfig, PowerManagerOptions,
 };
-use crate::state_controller::rack::config::{RackValidationConfig, RmsConfig};
 
 static BF2_NIC: &str = "24.47.2682";
 static BF2_BMC: &str = "BF-25.10-20";

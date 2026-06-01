@@ -46,18 +46,18 @@ use model::machine::Machine;
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::resource_pool::common::CommonPools;
 use sqlx::PgTransaction;
+use state_controller::controller::Enqueuer;
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status, Streaming};
 
 use self::metrics::ApiMetricsEmitter;
 use self::rpc::forge_server::Forge;
 use crate::cfg::file::CarbideConfig;
-use crate::dpf::DpfOperations;
 use crate::dynamic_settings::DynamicSettings;
 use crate::ethernet_virtualization::EthVirtData;
 use crate::logging::log_limiter::LogLimiter;
 use crate::scout_stream::ConnectionRegistry;
-use crate::state_controller::controller::Enqueuer;
+use crate::state_controller::machine::dpf::DpfOperations;
 use crate::state_controller::machine::io::MachineStateControllerIO;
 use crate::{CarbideError, CarbideResult};
 
@@ -641,14 +641,6 @@ impl Forge for Api {
         request: Request<DnsResourceRecordLookupRequest>,
     ) -> Result<Response<DnsResourceRecordLookupResponse>, Status> {
         crate::handlers::dns::lookup_record(self, request).await
-    }
-
-    // Legacy DNS lookup method for backward compatibility
-    async fn lookup_record_legacy(
-        &self,
-        request: Request<rpc::dns_message::DnsQuestion>,
-    ) -> Result<Response<rpc::dns_message::DnsResponse>, Status> {
-        crate::handlers::dns::lookup_record_legacy_compat(self, request).await
     }
 
     async fn invoke_instance_power(

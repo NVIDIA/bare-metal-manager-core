@@ -17,7 +17,7 @@
 
 //! DPF SDK - High-level interface for DPF operations.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -76,16 +76,20 @@ use crate::repository::{
 };
 use crate::types::{
     BmcPasswordProvider, ConfigPortsServiceType, DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME,
-    DPU_AGENT_SERVICE_NAME, DpuDeviceInfo, DpuDeviceSummary, DpuNodeInfo, DpuNodeSummary, DpuPhase,
-    DpuServiceInterfaceTemplateDefinition, DpuServiceInterfaceTemplateType, DpuSummary,
-    FMDS_SERVICE_NAME, HostDpfSnapshot, InitDpfResourcesConfig, OTEL_COLLECTOR_SERVICE_NAME,
-    ServiceConfigPortProtocol, ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
+    DPU_AGENT_SERVICE_NAME, DpuDeviceInfo, DpuDeviceSummary, DpuMismatch, DpuNodeInfo,
+    DpuNodeSummary, DpuPhase, DpuServiceInterfaceTemplateDefinition,
+    DpuServiceInterfaceTemplateType, DpuSummary, FMDS_SERVICE_NAME, HostDpfSnapshot,
+    InitDpfResourcesConfig, OTEL_COLLECTOR_SERVICE_NAME, ServiceConfigPortProtocol,
+    ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
 };
 use crate::watcher::DpuWatcherBuilder;
 
 const SECRET_NAME: &str = "bmc-shared-password";
 const BFB_NAME_PREFIX: &str = "bf-bundle";
 const DPF_OPERATOR_CONFIG: &str = "dpfoperatorconfig";
+/// Label set by the DPF operator on each DPU CR pointing back to its owning
+/// DPUDeployment. Value format: `<namespace>_<deployment_name>`.
+const DPU_OWNED_BY_DEPLOYMENT_LABEL: &str = "svc.dpu.nvidia.com/owned-by-dpudeployment";
 
 pub(crate) const RESTART_ANNOTATION: &str =
     "provisioning.dpu.nvidia.com/dpunode-external-reboot-required";
@@ -1396,6 +1400,133 @@ impl<R: DpuRepository, L> DpfSdk<R, L> {
         let cr_name = dpu_cr_name(dpu_device_name, dpf_id);
         DpuRepository::delete(&*self.repo, &cr_name, &self.namespace).await
     }
+}
+
+impl<R: DpuDeploymentRepository + DpuRepository, L> DpfSdk<R, L> {
+    /// Find DPUs whose installed BFB or `spec.dpuFlavor` no longer matches
+    /// the values declared on the DPUDeployment that owns them.
+    ///
+    /// Each DPU is expected to carry the
+    /// `svc.dpu.nvidia.com/owned-by-dpudeployment` label (set by the DPF
+    /// operator) whose value is `<namespace>_<deployment_name>`. We use that
+    /// label to look up the owning DPUDeployment and read `spec.dpus.bfb`
+    /// (BFB CR name) and `spec.dpus.flavor` from it for the comparison.
+    ///
+    /// Reading from the deployment — rather than from carbide config —
+    /// keeps the comparison correct when multiple DPUDeployments coexist,
+    /// each pinning their DPUs to a different BFB or flavor.
+    ///
+    /// The DPF operator stores the downloaded BFB on disk as
+    /// `/bfb/<namespace>-<bfb_cr_name>.bfb` and reflects that path in
+    /// `DPU.status.bfbFile`, so the expected filename is just
+    /// `<namespace>-<spec.dpus.bfb>.bfb`.
+    ///
+    /// DPUs are skipped (not flagged) when:
+    /// - the owned-by label is missing or points to an unknown deployment, or
+    /// - the owning DPUDeployment is not currently reconciled
+    ///   (`DPUSetsReconciled=True` with matching `observedGeneration`),
+    ///
+    /// to avoid acting on a partially-reconciled or mislabeled cluster.
+    ///
+    /// `dpu_label_selector` is forwarded to `DpuRepository::list` — pass the
+    /// caller's controlled-device selector to limit the scan to its own DPUs.
+    pub async fn find_outdated_dpus_dpf(
+        &self,
+        dpu_label_selector: Option<&str>,
+    ) -> Result<Vec<DpuMismatch>, DpfError> {
+        let deployments = DpuDeploymentRepository::list(&*self.repo, &self.namespace).await?;
+        let ready_deployments: HashMap<String, &DPUDeployment> = deployments
+            .iter()
+            .filter(|d| dpu_deployment_is_ready(d))
+            .filter_map(|d| {
+                let name = d.metadata.name.as_deref()?;
+                Some((format!("{}_{}", self.namespace, name), d))
+            })
+            .collect();
+
+        if ready_deployments.is_empty() {
+            tracing::debug!(
+                namespace = %self.namespace,
+                deployment_count = deployments.len(),
+                "No DPUDeployment has DPUSetsReconciled=True with current observedGeneration; skipping DPF outdated scan"
+            );
+            return Ok(vec![]);
+        }
+
+        let dpus = DpuRepository::list(&*self.repo, &self.namespace, dpu_label_selector).await?;
+        let mismatches = dpus
+            .into_iter()
+            .filter_map(|dpu| {
+                let cr_name = dpu.metadata.name.clone()?;
+                let owner_label = dpu
+                    .metadata
+                    .labels
+                    .as_ref()
+                    .and_then(|l| l.get(DPU_OWNED_BY_DEPLOYMENT_LABEL));
+                let Some(owner_label) = owner_label else {
+                    tracing::debug!(
+                        dpu = %cr_name,
+                        "DPU is missing {DPU_OWNED_BY_DEPLOYMENT_LABEL} label; skipping"
+                    );
+                    return None;
+                };
+                let Some(deployment) = ready_deployments.get(owner_label.as_str()) else {
+                    tracing::debug!(
+                        dpu = %cr_name,
+                        owner = %owner_label,
+                        "DPU's owning DPUDeployment is not ready or not found; skipping"
+                    );
+                    return None;
+                };
+
+                let expected_bfb_cr_name = deployment.spec.dpus.bfb.as_str();
+                let expected_flavor = deployment.spec.dpus.flavor.as_str();
+                let expected_filename = format!("{}-{}.bfb", self.namespace, expected_bfb_cr_name);
+
+                let current_basename = dpu
+                    .status
+                    .as_ref()
+                    .and_then(|s| s.bfb_file.as_deref())
+                    .map(bfb_file_basename);
+                let bfb_matches = current_basename == Some(expected_filename.as_str());
+                let flavor_matches = dpu.spec.dpu_flavor == expected_flavor;
+                if bfb_matches && flavor_matches {
+                    return None;
+                }
+                Some(DpuMismatch {
+                    dpu_cr_name: cr_name,
+                    dpu_labels: dpu.metadata.labels.clone().unwrap_or_default(),
+                    target_bfb: expected_filename,
+                })
+            })
+            .collect();
+
+        Ok(mismatches)
+    }
+}
+
+/// Extract the trailing filename from a `DPU.status.bfbFile` path
+/// (e.g. `/bfb/dpf-operator-system-bf-bundle-XXX.bfb` → `dpf-operator-system-bf-bundle-XXX.bfb`).
+fn bfb_file_basename(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+/// Returns true when `metadata.generation` matches the
+/// `DPUSetsReconciled` condition's `observedGeneration` and its status is `True`.
+fn dpu_deployment_is_ready(d: &DPUDeployment) -> bool {
+    let Some(generation) = d.metadata.generation else {
+        return false;
+    };
+    let Some(status) = d.status.as_ref() else {
+        return false;
+    };
+    let Some(conditions) = status.conditions.as_ref() else {
+        return false;
+    };
+    let Some(cond) = conditions.iter().find(|c| c.type_ == "DPUSetsReconciled") else {
+        return false;
+    };
+    cond.status == "True" && cond.observed_generation == Some(generation)
 }
 
 impl<R: DpuNodeMaintenanceRepository, L> DpfSdk<R, L> {

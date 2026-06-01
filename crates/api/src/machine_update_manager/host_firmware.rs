@@ -54,11 +54,12 @@ impl MachineUpdateModule for HostFirmwareUpdate {
 
     async fn start_updates(
         &self,
-        txn: &mut PgConnection,
+        pool: &sqlx::Pool<sqlx::Postgres>,
         available_updates: i32,
         updating_host_machines: &HashSet<MachineId>,
         _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
     ) -> CarbideResult<HashSet<MachineId>> {
+        let mut txn = db::Transaction::begin(pool).await?;
         if let Ok(mut firmware_dir_last_read) = self.firmware_dir_last_read.try_lock() {
             let firmware_dir_mod_time = self.firmware_config.config_update_time();
             if (firmware_dir_mod_time.is_none() && firmware_dir_last_read.is_none()) // Not using an auto firmware directory, one and done
@@ -70,13 +71,13 @@ impl MachineUpdateModule for HostFirmwareUpdate {
                 let fw_config_snapshot = self.firmware_config.create_snapshot();
                 tracing::info!("Firmware config now: {:?}", fw_config_snapshot);
                 let models = fw_config_snapshot.into_values().collect::<Vec<_>>();
-                desired_firmware::snapshot_desired_firmware(txn, &models).await?;
+                desired_firmware::snapshot_desired_firmware(&mut txn, &models).await?;
                 *firmware_dir_last_read =
                     Some(firmware_dir_mod_time.unwrap_or(std::time::SystemTime::now()));
             }
         }
 
-        let machine_updates = self.check_for_updates(txn, available_updates).await?;
+        let machine_updates = self.check_for_updates(&mut txn, available_updates).await?;
         let mut updates_started = HashSet::default();
         self.metrics
             .pending_firmware_updates
@@ -90,7 +91,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
             tracing::info!("Moving {} to host reprovision", machine_update);
 
             db::host_machine_update::trigger_host_reprovisioning_request(
-                txn,
+                &mut txn,
                 "Automated",
                 machine_update,
             )
@@ -99,6 +100,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
             updates_started.insert(*machine_update);
         }
 
+        txn.commit().await?;
         Ok(updates_started)
     }
 
@@ -123,11 +125,12 @@ impl MachineUpdateModule for HostFirmwareUpdate {
 
     async fn update_metrics(
         &self,
-        txn: &mut PgConnection,
+        pool: &sqlx::Pool<sqlx::Postgres>,
         _snapshots: &HashMap<MachineId, ManagedHostStateSnapshot>,
-    ) {
+    ) -> CarbideResult<()> {
+        let mut txn = db::Transaction::begin(pool).await?;
         match db::host_machine_update::find_upgrade_needed(
-            txn,
+            &mut txn,
             self.config.firmware_global.autoupdate,
             self.config.firmware_global.instance_updates_manual_tagging,
         )
@@ -140,7 +143,7 @@ impl MachineUpdateModule for HostFirmwareUpdate {
             }
             Err(e) => tracing::warn!(error=%e, "Error geting host upgrade needed for metrics"),
         };
-        match db::host_machine_update::find_upgrade_in_progress(txn).await {
+        match db::host_machine_update::find_upgrade_in_progress(&mut txn).await {
             Ok(upgrade_in_progress) => {
                 self.metrics
                     .active_firmware_updates
@@ -148,6 +151,8 @@ impl MachineUpdateModule for HostFirmwareUpdate {
             }
             Err(e) => tracing::warn!(error=%e, "Error geting host upgrade in progress for metrics"),
         };
+        txn.commit().await?;
+        Ok(())
     }
 }
 

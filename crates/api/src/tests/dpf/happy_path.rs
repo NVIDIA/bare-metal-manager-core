@@ -24,9 +24,11 @@ use carbide_dpf::DpuPhase;
 use model::machine::ManagedHostState;
 use tokio::time::timeout;
 
+use crate::state_controller::machine::dpf::DpfOperations;
+
 const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
-use crate::dpf::MockDpfOperations;
+use crate::state_controller::machine::dpf::MockDpfOperations;
 use crate::tests::common::api_fixtures::{
     TestEnvOverrides, create_managed_host_with_dpf, create_test_env_with_overrides, get_config,
 };
@@ -45,7 +47,7 @@ fn default_mock() -> MockDpfOperations {
 
 #[crate::sqlx_test]
 async fn test_dpu_and_host_till_ready(pool: sqlx::PgPool) {
-    let dpf_sdk: Arc<dyn crate::dpf::DpfOperations> = Arc::new(default_mock());
+    let dpf_sdk: Arc<dyn DpfOperations> = Arc::new(default_mock());
 
     let mut config = get_config();
     config.dpf = crate::cfg::file::DpfConfig {

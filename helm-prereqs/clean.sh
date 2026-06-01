@@ -38,8 +38,12 @@ cd "${SCRIPT_DIR}"
 #    cert-manager and ClusterIssuers.
 # ---------------------------------------------------------------------------
 echo "=== [0/8] Uninstalling NICo REST stack ==="
-helm uninstall nico-rest-site-agent -n nico-rest 2>/dev/null || true
-helm uninstall nico-rest            -n nico-rest 2>/dev/null || true
+# Flow goes first — it talks to Temporal + nico-api and depends on credentials
+# from both nico-prereqs (DB creds, vault tokens) and the REST stack.
+helm uninstall flow                 -n flow                            2>/dev/null || true
+kubectl delete ns flow --wait=false --ignore-not-found                 2>/dev/null || true
+helm uninstall nico-rest-site-agent -n nico-rest                       2>/dev/null || true
+helm uninstall nico-rest            -n nico-rest                       2>/dev/null || true
 helm uninstall temporal                -n temporal     2>/dev/null || true
 
 if kubectl get deploy keycloak -n nico-rest &>/dev/null; then
@@ -50,10 +54,10 @@ else
 fi
 
 kubectl delete clusterissuer nico-rest-ca-issuer --ignore-not-found 2>/dev/null || true
-kubectl delete ns nico-rest temporal \
+kubectl delete ns nico-rest temporal flow \
     --wait=false --ignore-not-found 2>/dev/null || true
-echo "Waiting for nico-rest and temporal namespaces to terminate..."
-kubectl wait --for=delete ns/nico-rest ns/temporal \
+echo "Waiting for nico-rest, temporal, and flow namespaces to terminate..."
+kubectl wait --for=delete ns/nico-rest ns/temporal ns/flow \
     --timeout=120s 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
@@ -153,13 +157,15 @@ kubectl delete clusterissuer \
 kubectl delete clustersecretstore \
     cert-manager-ns-secretstore postgres-ns-secretstore \
     --ignore-not-found 2>/dev/null || true
-kubectl delete clusterexternalsecret nico-roots-eso nico-db-eso \
+kubectl delete clusterexternalsecret \
+    nico-roots-eso nico-db-eso \
+    flow-db-eso psm-db-eso nsm-db-eso \
     --ignore-not-found 2>/dev/null || true
 kubectl delete clusterrole \
-    vault-pki-config-reader eso-postgres-ns-role \
+    vault-pki-config-reader eso-postgres-ns-role flow-vault-tokens-writer \
     --ignore-not-found 2>/dev/null || true
 kubectl delete clusterrolebinding \
-    vault-pki-config-reader eso-postgres-ns-rolebinding \
+    vault-pki-config-reader eso-postgres-ns-rolebinding flow-vault-tokens-writer \
     --ignore-not-found 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
