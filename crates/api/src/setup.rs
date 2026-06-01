@@ -629,6 +629,7 @@ pub async fn start_api(
         credential_manager.clone(),
         bmc_session_store,
         carbide_config.bmc_session_lockout_threshold,
+        carbide_config.allow_bmc_basic_auth_fallback,
     ));
 
     let bmc_explorer = carbide_site_explorer::new_bmc_explorer(

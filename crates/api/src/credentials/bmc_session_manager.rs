@@ -67,7 +67,7 @@
 //! timeouts, 5xx responses, and deserialization failures do **not** count
 //! against the threshold.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -112,6 +112,10 @@ pub enum BmcSessionError {
     #[error("BMC session store error: {0}")]
     Store(String),
 
+    /// The BMC's Redfish ServiceRoot does not expose a `SessionService`.
+    #[error("BMC at {bmc_addr} does not expose Redfish SessionService")]
+    NoSessionService { bmc_addr: SocketAddr },
+
     /// The lockout-avoidance circuit breaker is tripped for this BMC and
     /// we refuse to attempt another session creation until the BMC root
     /// credentials are deleted or updated.
@@ -144,6 +148,25 @@ impl fmt::Debug for SessionEntry {
             .field("token", &"[REDACTED]")
             .field("session_odata_id", &self.session_odata_id)
             .finish()
+    }
+}
+
+pub enum BmcAuthMaterial {
+    Session(SessionEntry),
+    Basic(Credentials),
+}
+
+impl fmt::Debug for BmcAuthMaterial {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Session(entry) => f.debug_tuple("Session").field(entry).finish(),
+            // `Credentials` does not yet implement a redacted Debug, so
+            // print only the variant name to keep credentials out of logs.
+            Self::Basic(_) => f
+                .debug_struct("Basic")
+                .field("creds", &"[REDACTED]")
+                .finish(),
+        }
     }
 }
 
@@ -241,6 +264,8 @@ pub struct BmcSessionManager {
     mac_locks: Mutex<HashMap<MacAddress, Arc<Mutex<()>>>>,
     lockouts: Mutex<HashMap<MacAddress, LockoutState>>,
     lockout_threshold: u32,
+    allow_basic_auth_fallback: bool,
+    no_session_service: Mutex<HashSet<MacAddress>>,
 }
 
 impl BmcSessionManager {
@@ -249,6 +274,7 @@ impl BmcSessionManager {
         credential_manager: Arc<dyn CredentialManager>,
         store: Arc<dyn BmcSessionStore>,
         lockout_threshold: u32,
+        allow_basic_auth_fallback: bool,
     ) -> Self {
         Self {
             redfish_pool,
@@ -257,6 +283,8 @@ impl BmcSessionManager {
             mac_locks: Mutex::new(HashMap::new()),
             lockouts: Mutex::new(HashMap::new()),
             lockout_threshold: lockout_threshold.max(1),
+            allow_basic_auth_fallback,
+            no_session_service: Mutex::new(HashSet::new()),
         }
     }
 
@@ -290,12 +318,7 @@ impl BmcSessionManager {
 
         let session_service = match service_root.session_service().await {
             Ok(Some(svc)) => svc,
-            Ok(None) => {
-                return Err(BmcSessionError::Redfish {
-                    bmc_addr,
-                    detail: "BMC does not expose Redfish SessionService".to_string(),
-                });
-            }
+            Ok(None) => return Err(BmcSessionError::NoSessionService { bmc_addr }),
             Err(err) => return Err(self.classify_and_map(err, bmc_mac, bmc_addr).await),
         };
 
@@ -401,6 +424,43 @@ impl BmcSessionManager {
         })
     }
 
+    pub async fn issue_credentials(
+        &self,
+        spiffe_service_id: &str,
+        bmc_mac: MacAddress,
+        bmc_addr: SocketAddr,
+    ) -> Result<BmcAuthMaterial, BmcSessionError> {
+        if !self.allow_basic_auth_fallback {
+            return self
+                .rotate(spiffe_service_id, bmc_mac, bmc_addr)
+                .await
+                .map(BmcAuthMaterial::Session);
+        }
+
+        // Fast path: we already discovered this BMC has no SessionService
+        if self.no_session_service.lock().await.contains(&bmc_mac) {
+            let creds = self.bmc_root_credentials(bmc_mac).await?;
+            return Ok(BmcAuthMaterial::Basic(creds));
+        }
+
+        match self.rotate(spiffe_service_id, bmc_mac, bmc_addr).await {
+            Ok(entry) => Ok(BmcAuthMaterial::Session(entry)),
+            Err(BmcSessionError::NoSessionService { .. }) => {
+                let newly_cached = self.no_session_service.lock().await.insert(bmc_mac);
+                if newly_cached {
+                    tracing::info!(
+                        %bmc_mac,
+                        %bmc_addr,
+                        "BMC does not expose Redfish SessionService; serving basic-auth credentials for the remainder of this process lifetime"
+                    );
+                }
+                let creds = self.bmc_root_credentials(bmc_mac).await?;
+                Ok(BmcAuthMaterial::Basic(creds))
+            }
+            Err(other) => Err(other),
+        }
+    }
+
     async fn classify_and_map(
         &self,
         err: NvError<RedfishBmc>,
@@ -428,11 +488,23 @@ impl BmcSessionManager {
             );
         }
         self.clear_lockout(bmc_mac).await;
+        self.clear_no_session_service(bmc_mac).await;
     }
 
     /// Reset Circtuit Breaker
     pub async fn note_credentials_updated(&self, bmc_mac: MacAddress) {
         self.clear_lockout(bmc_mac).await;
+        self.clear_no_session_service(bmc_mac).await;
+    }
+
+    async fn clear_no_session_service(&self, bmc_mac: MacAddress) {
+        if self.no_session_service.lock().await.remove(&bmc_mac) {
+            tracing::info!(
+                %bmc_mac,
+                "BmcSessionManager: forgetting cached `no SessionService` decision; \
+                 next issue_credentials will re-probe"
+            );
+        }
     }
 
     pub async fn check_not_locked_out(&self, bmc_mac: MacAddress) -> Option<BmcSessionError> {
@@ -556,7 +628,9 @@ mod tests {
     use sqlx::types::chrono::Utc;
     use tokio::sync::Mutex;
 
-    use super::{BmcSessionError, BmcSessionManager, BmcSessionStore, StoredSession};
+    use super::{
+        BmcAuthMaterial, BmcSessionError, BmcSessionManager, BmcSessionStore, StoredSession,
+    };
 
     fn mac(byte: u8) -> MacAddress {
         MacAddress::from([byte, 0, 0, 0, 0, 1])
@@ -621,6 +695,13 @@ mod tests {
     fn manager_with_creds_and_threshold(
         threshold: u32,
     ) -> (Arc<BmcSessionManager>, Arc<InMemoryBmcSessionStore>) {
+        manager_with_creds_threshold_and_fallback(threshold, false)
+    }
+
+    fn manager_with_creds_threshold_and_fallback(
+        threshold: u32,
+        allow_basic_auth_fallback: bool,
+    ) -> (Arc<BmcSessionManager>, Arc<InMemoryBmcSessionStore>) {
         let bmc_proxy = Arc::new(ArcSwap::new(Arc::new(None)));
         let redfish_pool = carbide_redfish::nv_redfish::new_pool(bmc_proxy);
         let credential_manager =
@@ -634,6 +715,7 @@ mod tests {
             credential_manager,
             store.clone(),
             threshold,
+            allow_basic_auth_fallback,
         ));
         (manager, store)
     }
@@ -722,6 +804,7 @@ mod tests {
             credential_manager,
             store,
             TEST_LOCKOUT_THRESHOLD,
+            false,
         );
 
         let bmc_mac = mac(0xCE);
@@ -919,6 +1002,7 @@ mod tests {
             credential_manager.clone(),
             store,
             TEST_LOCKOUT_THRESHOLD,
+            false,
         ));
 
         let bmc_mac = mac(0xAB);
@@ -1084,5 +1168,32 @@ mod tests {
             .expect("state present after concurrent records");
         assert!(state.tripped_at.is_some());
         assert!(state.consecutive_unauthorized >= 3);
+    }
+
+    #[tokio::test]
+    async fn issue_credentials_with_flag_off_surfaces_no_session_service_error() {
+        let bmc_proxy = Arc::new(ArcSwap::new(Arc::new(None)));
+        let redfish_pool = carbide_redfish::nv_redfish::new_pool(bmc_proxy);
+        let credential_manager = Arc::new(TestCredentialManager::default());
+        let store = InMemoryBmcSessionStore::new();
+        let manager = BmcSessionManager::new(
+            redfish_pool,
+            credential_manager,
+            store,
+            TEST_LOCKOUT_THRESHOLD,
+            false,
+        );
+
+        let bmc_mac = mac(0xA1);
+        let bmc_addr = "127.0.0.1:9999".parse().unwrap();
+        let err = manager
+            .issue_credentials("svc-x", bmc_mac, bmc_addr)
+            .await
+            .map(|_| ())
+            .expect_err("flag off must propagate the underlying rotate() error");
+        assert!(
+            matches!(err, BmcSessionError::MissingRootCredentials(_)),
+            "expected MissingRootCredentials passthrough, got {err:?}"
+        );
     }
 }

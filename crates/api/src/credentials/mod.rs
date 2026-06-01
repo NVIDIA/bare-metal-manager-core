@@ -24,7 +24,7 @@ use mac_address::MacAddress;
 pub mod bmc_session_manager;
 
 pub use bmc_session_manager::{
-    BmcSessionError, BmcSessionManager, BmcSessionStore, PgBmcSessionStore,
+    BmcAuthMaterial, BmcSessionError, BmcSessionManager, BmcSessionStore, PgBmcSessionStore,
 };
 
 use crate::{CarbideError, CarbideResult};

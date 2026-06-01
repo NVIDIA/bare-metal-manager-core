@@ -1200,6 +1200,7 @@ pub fn get_config() -> CarbideConfig {
         dpu_ipmi_tool_impl: None,
         dpu_ipmi_reboot_attempts: Some(0),
         bmc_session_lockout_threshold: default_bmc_session_lockout_threshold(),
+        allow_bmc_basic_auth_fallback: false,
         initial_domain_name: Some("test.com".to_string()),
         sitename: Some("testsite".to_string()),
         initial_dpu_agent_upgrade_policy: None,
@@ -1634,6 +1635,7 @@ pub async fn create_test_env_with_overrides(
         composite_manager.clone(),
         bmc_session_store,
         config.bmc_session_lockout_threshold,
+        config.allow_bmc_basic_auth_fallback,
     ));
     let bmc_explorer = carbide_site_explorer::new_bmc_explorer(
         redfish_sim.clone(),

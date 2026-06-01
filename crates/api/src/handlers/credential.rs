@@ -406,12 +406,15 @@ pub(crate) async fn update_machine_credentials(
     Ok(Response::new(response))
 }
 
-/// Issue (or rotate) a BMC Redfish session token for the SPIFFE service
-/// identity making this call.
+/// Issue BMC credentials for the SPIFFE service identity making this call.
 ///
-/// Every call from the same SPIFFE service against the same BMC MAC revokes
-/// the prior token and creates a new one. Callers without a SPIFFE service
-/// identity are rejected with `PermissionDenied`
+/// In the default configuration this rotates a Redfish session token (see
+/// [`crate::credentials::BmcSessionManager::rotate`]). When the runtime
+/// config enables `allow_bmc_basic_auth_fallback`, BMCs that do not expose
+/// Redfish `SessionService` instead receive their stored `UsernamePassword`
+/// credentials; the wire `oneof` already supports both shapes so callers do
+/// not need to opt in. Callers without a SPIFFE service identity are
+/// rejected with `PermissionDenied`.
 pub(crate) async fn get_bmc_credentals(
     api: &Api,
     request: tonic::Request<rpc::GetBmcCredentialsRequest>,
@@ -424,7 +427,7 @@ pub(crate) async fn get_bmc_credentals(
         .and_then(|ctx| ctx.get_spiffe_service_id())
         .ok_or_else(|| {
             Status::permission_denied(
-                "BMC session tokens are only issued to SPIFFE service identities",
+                "BMC credentials are only issued to SPIFFE service identities",
             )
         })?
         .to_owned();
@@ -455,23 +458,40 @@ pub(crate) async fn get_bmc_credentals(
 
     let bmc_addr = SocketAddr::new(bmc_ip, BMC_REDFISH_PORT);
 
-    let entry = api
+    let material = api
         .bmc_session_manager
-        .rotate(&spiffe_service_id, bmc_mac_address, bmc_addr)
+        .issue_credentials(&spiffe_service_id, bmc_mac_address, bmc_addr)
         .await
         .map_err(|err| match err {
-            crate::credentials::BmcSessionError::AvoidLockout { .. } => {
+            crate::credentials::BmcSessionError::AvoidLockout { .. }
+            | crate::credentials::BmcSessionError::NoSessionService { .. } => {
+                // Both are "we refuse to attempt session creation" outcomes
+                // that the operator can resolve (rotate creds, or flip the
+                // basic-auth-fallback flag). FailedPrecondition matches the
+                // gRPC semantics: the request is well-formed but the
+                // server-side state forbids it.
                 Status::failed_precondition(err.to_string())
             }
             crate::credentials::BmcSessionError::Store(_) => Status::internal(err.to_string()),
             other => CarbideError::internal(other.to_string()).into(),
         })?;
 
+    let credentials_type = match material {
+        crate::credentials::BmcAuthMaterial::Session(entry) => {
+            rpc::bmc_credentials::Type::SessionToken(rpc::SessionToken { token: entry.token })
+        }
+        crate::credentials::BmcAuthMaterial::Basic(Credentials::UsernamePassword {
+            username,
+            password,
+        }) => rpc::bmc_credentials::Type::UsernamePassword(rpc::UsernamePassword {
+            username,
+            password,
+        }),
+    };
+
     Ok(Response::new(rpc::GetBmcCredentialsResponse {
         credentials: Some(rpc::BmcCredentials {
-            r#type: Some(rpc::bmc_credentials::Type::SessionToken(
-                rpc::SessionToken { token: entry.token },
-            )),
+            r#type: Some(credentials_type),
         }),
     }))
 }

@@ -207,6 +207,16 @@ pub struct CarbideConfig {
     #[serde(default = "default_bmc_session_lockout_threshold")]
     pub bmc_session_lockout_threshold: u32,
 
+    /// When `true`, `GetBmcCredentials` may return
+    /// `UsernamePassword` credentials for BMCs whose Redfish ServiceRoot
+    /// does not expose `SessionService`. When `false` (the default), such
+    /// BMCs surface a `NoSessionService` error to the caller and no
+    /// basic-auth fallback is performed. See the "Basic-auth fallback"
+    /// section of `crates/api/src/credentials/bmc_session_manager.rs` for
+    /// the full semantics.
+    #[serde(default)]
+    pub allow_bmc_basic_auth_fallback: bool,
+
     /// Infiniband fabrics managed by the site
     /// Note: At the moment, only a single fabric is supported
     #[serde(default)]
@@ -2514,6 +2524,11 @@ mod tests {
         assert_eq!(
             config.bmc_session_lockout_threshold,
             default_bmc_session_lockout_threshold()
+        );
+        assert!(
+            !config.allow_bmc_basic_auth_fallback,
+            "allow_bmc_basic_auth_fallback must default to false to preserve \
+             the session-token-only contract for existing deployments"
         );
         assert!(config.vpc_peering_policy.is_none());
         assert!(config.site_explorer.enabled.load(AtomicOrdering::Relaxed));
