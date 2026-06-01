@@ -493,7 +493,7 @@ fn serve_request(
         "/metrics" => serve_prometheus(metrics_manager.export_metrics(), "service metrics"),
         "/telemetry" => serve_prometheus(metrics_manager.export_telemetry(), "telemetry metrics"),
         _ => Ok(Response::builder()
-            .status(http::StatusCode::NOT_FOUND)
+            .status(http::StatusCode::OK)
             .header(CONTENT_TYPE, "text/plain; charset=utf-8")
             .body("not found; use /metrics, /telemetry, or /livez".to_string())
             .expect("BUG: Response::builder error")),
