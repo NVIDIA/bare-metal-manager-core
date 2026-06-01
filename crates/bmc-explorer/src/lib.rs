@@ -260,14 +260,26 @@ pub(crate) fn hw_type<B: Bmc>(
 ) -> Option<hw::HwType> {
     let system = &explored_system.system;
     let oem_id = root.oem_id().map(|v| v.into_inner());
+
+    // GB300 is an NVIDIA HGX platform identity, recognized by the NVIDIA "NVIDIA GB300"
+    // GPU chassis (`is_gb300()`) independent of the host BMC vendor. Resolve it before the
+    // host-vendor match below so platform classification is not gated on the host ODM; the
+    // ODM (Lenovo / Supermicro / Wiwynn) only selects the ODM-specific variant.
+    //
+    // TODO(smc-scrape): a non-Lenovo GB300 (is_gb300() but not is_lenovo()) currently falls
+    // through to the host-vendor classification below, leaving behavior unchanged. Add a
+    // Supermicro GB300 arm here once an SMC BMC scrape confirms how it presents itself --
+    // either `oem_id == Some("Supermicro")` (Supermicro's usual OEM convention) or an AMI
+    // stack like the Lenovo GB300. See gb300-firmus-ingestion/triangulation-matrix.md.
+    if explored_chassis.is_gb300() && explored_chassis.is_lenovo() {
+        return Some(hw::HwType::LenovoGb300);
+    }
+
     root.vendor()
         .map(|v| v.into_inner())
         .or_else(|| (oem_id == Some("Supermicro")).then_some("Supermicro"))
         .and_then(|vendor_id| match vendor_id {
             "AMI" if system.id().into_inner() == "DGX" => Some(hw::HwType::Viking),
-            "AMI" if explored_chassis.is_gb300() && explored_chassis.is_lenovo() => {
-                Some(hw::HwType::LenovoGb300)
-            }
             "AMI" => Some(hw::HwType::Ami),
             "Dell" => Some(hw::HwType::Dell),
             "Lenovo" if oem_id == Some("Ami") => Some(hw::HwType::LenovoAmi),
