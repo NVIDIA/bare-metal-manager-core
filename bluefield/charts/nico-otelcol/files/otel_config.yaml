@@ -29,8 +29,13 @@ receivers:
   # written to stdout and captured by the container runtime under
   # /var/log/pods, not to a journald systemd unit. Read them from there.
   filelog/nico-dpu-agent:
+    # DPF names the pod <dpu-cluster>-nico-dpu-agent-<hash>-<podhash>, so the
+    # pod directory is /var/log/pods/<ns>_<dpu-cluster>-nico-dpu-agent-.../. The
+    # only stable anchor is the container directory, whose name is fixed by the
+    # DaemonSet container name (nico-dpu-agent; the init container lives in the
+    # separate nico-dpu-agent-init directory). Match on that instead.
     include:
-      - /var/log/pods/*_nico-dpu-agent-*/nico-dpu-agent/*.log
+      - /var/log/pods/*/nico-dpu-agent/*.log
     include_file_name: false
     include_file_path: true
     start_at: beginning
@@ -40,10 +45,14 @@ receivers:
       # partial log lines, leaving the agent's logfmt line in the body.
       - type: container
         add_metadata_from_filepath: true
-      # Extract the log level emitted by the agent (logfmt: level=info) for
-      # severity. To extract more key=value pairs, use key_value_parser in
-      # place of regex_parser then drop unwanted pairs in the transform.
+      # Extract the log level emitted by the agent (logfmt: level=INFO) for
+      # severity. The agent also writes non-logfmt lines to stderr (e.g.
+      # multi-line backtraces / JSON dumps); the `if` guard skips the parser
+      # for those so they pass through instead of logging a "does not match"
+      # error per line. To extract more key=value pairs, use key_value_parser
+      # in place of regex_parser then drop unwanted pairs in the transform.
       - type: regex_parser
+        if: 'body contains "level="'
         regex: 'level=(?P<level>\w+)'
         parse_from: body
         severity:
