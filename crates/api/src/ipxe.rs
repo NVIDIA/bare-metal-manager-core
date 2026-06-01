@@ -306,7 +306,7 @@ exit ||
         };
 
         static UNKNOWN_HOST_INSTRUCTIONS: &str = r#"
-echo this is an unknown ARM host, not PXE booting ||
+echo this is an unknown host interface, not PXE booting ||
 sleep 5 ||
 exit ||
         "#;
