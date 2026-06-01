@@ -34,6 +34,7 @@
 //! are fine dropping/losing lines in this case.
 
 use std::collections::{BTreeMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -51,14 +52,17 @@ use tracing_subscriber::registry::LookupSpan;
 /// blocking the sender.
 const BROADCAST_CAPACITY: usize = 1024;
 
-/// Number of recent lines retained for replay-on-connect, so a freshly opened
-/// viewer shows recent (but not all) history instead of a blank pane.
-const REPLAY_CAPACITY: usize = 500;
+/// Default in-memory byte budget for retained history, used when no config is
+/// supplied. Overridden by `CarbideConfig.log_history.max_megabytes`. 128 MiB.
+const DEFAULT_MAX_BYTES: usize = 128 * 1024 * 1024;
 
 /// A single structured log line, serialized to the browser as JSON. Produced
 /// both for `tracing` events and for span completions (`level == "SPAN"`).
 #[derive(Debug, Clone, Serialize)]
 pub struct LogLine {
+    /// Monotonic per-process sequence number, assigned at publish time.
+    /// Used as the cursor for scrollback pagination in the viewer.
+    pub seq: u64,
     /// RFC 3339 timestamp captured when the line was observed.
     pub timestamp: String,
     /// Log level, e.g. `"INFO"`, or `"SPAN"` for a span-completion summary.
@@ -82,18 +86,36 @@ pub struct LogLine {
 #[derive(Debug, Clone)]
 pub struct LogStream {
     tx: broadcast::Sender<Arc<LogLine>>,
-    recent: Arc<Mutex<VecDeque<Arc<LogLine>>>>,
-    replay_capacity: usize,
+    recent: Arc<Mutex<Recent>>,
+    /// Byte budget for `recent`; the oldest lines are evicted past this.
+    max_bytes: usize,
+    /// Source of monotonic `LogLine::seq` values.
+    next_seq: Arc<AtomicU64>,
+}
+
+/// The retained-history ring plus a running byte total, kept together under one
+/// lock so eviction stays consistent.
+#[derive(Debug, Default)]
+struct Recent {
+    lines: VecDeque<Arc<LogLine>>,
+    bytes: usize,
 }
 
 impl LogStream {
-    pub fn new(broadcast_capacity: usize, replay_capacity: usize) -> Self {
+    pub fn new(broadcast_capacity: usize, max_bytes: usize) -> Self {
         let (tx, _rx) = broadcast::channel(broadcast_capacity);
         Self {
             tx,
-            recent: Arc::new(Mutex::new(VecDeque::with_capacity(replay_capacity))),
-            replay_capacity,
+            recent: Arc::new(Mutex::new(Recent::default())),
+            max_bytes,
+            next_seq: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    /// Construct with the default broadcast capacity and the given history byte
+    /// budget (from `CarbideConfig.log_history.max_megabytes`).
+    pub fn with_max_bytes(max_bytes: usize) -> Self {
+        Self::new(BROADCAST_CAPACITY, max_bytes)
     }
 
     /// Subscribe to lines published from this point forward.
@@ -101,23 +123,56 @@ impl LogStream {
         self.tx.subscribe()
     }
 
-    /// Snapshot of recent lines, oldest first, for replay when a viewer connects.
-    pub fn recent(&self) -> Vec<Arc<LogLine>> {
+    /// The newest `limit` lines, oldest-first, for replay when a viewer connects.
+    pub fn latest(&self, limit: usize) -> Vec<Arc<LogLine>> {
         match self.recent.lock() {
-            Ok(q) => q.iter().cloned().collect(),
+            Ok(r) => {
+                let start = r.lines.len().saturating_sub(limit);
+                r.lines.iter().skip(start).cloned().collect()
+            }
             Err(_) => Vec::new(),
         }
     }
 
-    /// Record a lineby appending to the ring buffer (dropping the oldest
-    /// if full), and broadcast to live subscribers.
-    fn publish(&self, line: LogLine) {
-        let line = Arc::new(line);
-        if let Ok(mut q) = self.recent.lock() {
-            while q.len() >= self.replay_capacity {
-                q.pop_front();
+    /// Up to `limit` lines with `seq < before`, oldest-first — one page of
+    /// scrollback history older than the cursor the viewer already holds.
+    pub fn history(&self, before: u64, limit: usize) -> Vec<Arc<LogLine>> {
+        match self.recent.lock() {
+            Ok(r) => {
+                let end = r
+                    .lines
+                    .iter()
+                    .position(|line| line.seq >= before)
+                    .unwrap_or(r.lines.len());
+                let start = end.saturating_sub(limit);
+                r.lines
+                    .iter()
+                    .skip(start)
+                    .take(end - start)
+                    .cloned()
+                    .collect()
             }
-            q.push_back(Arc::clone(&line));
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Record a line: assign its sequence number, append to the ring buffer
+    /// (evicting the oldest lines once over the byte budget), and broadcast it
+    /// to live subscribers.
+    fn publish(&self, mut line: LogLine) {
+        line.seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
+        let size = line_size(&line);
+        let line = Arc::new(line);
+        if let Ok(mut r) = self.recent.lock() {
+            r.lines.push_back(Arc::clone(&line));
+            r.bytes += size;
+            // Evict oldest until back under budget, but always keep at least the
+            // newest line (so one oversized line can't empty the buffer).
+            while r.bytes > self.max_bytes && r.lines.len() > 1 {
+                if let Some(old) = r.lines.pop_front() {
+                    r.bytes = r.bytes.saturating_sub(line_size(&old));
+                }
+            }
         }
         // `send` errors when there are no subscribers, so we just
         // ignore the error.
@@ -127,7 +182,7 @@ impl LogStream {
 
 impl Default for LogStream {
     fn default() -> Self {
-        Self::new(BROADCAST_CAPACITY, REPLAY_CAPACITY)
+        Self::new(BROADCAST_CAPACITY, DEFAULT_MAX_BYTES)
     }
 }
 
@@ -182,6 +237,7 @@ where
         event.record(&mut visitor);
 
         self.stream.publish(LogLine {
+            seq: 0, // real value assigned in publish()
             timestamp: now_rfc3339(),
             level: meta.level().as_str(),
             target: meta.target().to_string(),
@@ -210,6 +266,7 @@ where
 
         let meta = span.metadata();
         self.stream.publish(LogLine {
+            seq: 0, // real value assigned in publish()
             timestamp: now_rfc3339(),
             level: "SPAN",
             target: meta.target().to_string(),
@@ -231,6 +288,25 @@ fn location_of(meta: &tracing::Metadata<'_>) -> Option<String> {
         (Some(file), None) => Some(file.to_string()),
         _ => None,
     }
+}
+
+/// Rough in-memory footprint of a line, for the history byte budget: the text it
+/// carries plus a small fixed overhead per line and per field (Arc, struct, and
+/// map-node bookkeeping).
+fn line_size(line: &LogLine) -> usize {
+    const PER_LINE_OVERHEAD: usize = 64;
+    const PER_FIELD_OVERHEAD: usize = 16;
+    let mut bytes = PER_LINE_OVERHEAD
+        + line.level.len()
+        + line.timestamp.len()
+        + line.target.len()
+        + line.message.len()
+        + line.location.as_deref().map_or(0, str::len)
+        + line.span_id.as_deref().map_or(0, str::len);
+    for (key, value) in &line.fields {
+        bytes += PER_FIELD_OVERHEAD + key.len() + value.len();
+    }
+    bytes
 }
 
 /// Walk from the event's span up through its ancestors and
@@ -305,7 +381,7 @@ mod tests {
 
     #[test]
     fn captures_event_level_target_message_and_fields() {
-        let stream = LogStream::new(16, 8);
+        let stream = LogStream::new(16, 64 * 1024);
         let mut rx = stream.subscribe();
         let subscriber = tracing_subscriber::registry().with(LogStreamLayer::new(stream.clone()));
 
@@ -319,33 +395,49 @@ mod tests {
         assert_eq!(line.message, "hello world");
         assert_eq!(line.fields.get("answer").map(String::as_str), Some("42"));
         assert_eq!(line.span_id, None);
+        assert_eq!(line.seq, 0);
 
         // The same line is retained for replay-on-connect.
-        let recent = stream.recent();
+        let recent = stream.latest(10);
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].message, "hello world");
     }
 
     #[test]
-    fn replay_buffer_drops_oldest_at_capacity() {
-        let stream = LogStream::new(8, 3);
+    fn ring_evicts_oldest_when_over_byte_budget() {
+        // A budget small enough to hold only a handful of the lines below.
+        let stream = LogStream::new(64, 512);
         let subscriber = tracing_subscriber::registry().with(LogStreamLayer::new(stream.clone()));
 
         tracing::subscriber::with_default(subscriber, || {
-            for i in 0..5 {
+            for i in 0..50 {
                 tracing::info!(target: "t", "line {i}");
             }
         });
 
-        let recent = stream.recent();
-        assert_eq!(recent.len(), 3, "ring buffer should cap at replay_capacity");
-        assert_eq!(recent[0].message, "line 2");
-        assert_eq!(recent[2].message, "line 4");
+        let recent = stream.latest(1000);
+        assert!(
+            !recent.is_empty(),
+            "buffer should retain the most recent lines"
+        );
+        assert!(
+            recent.len() < 50,
+            "older lines should have been evicted past the byte budget"
+        );
+        // Newest line kept, oldest evicted.
+        assert_eq!(recent.last().unwrap().message, "line 49");
+        assert_ne!(recent.first().unwrap().message, "line 0");
+        // Sequence numbers are contiguous and increasing.
+        let seqs: Vec<u64> = recent.iter().map(|l| l.seq).collect();
+        assert!(
+            seqs.windows(2).all(|w| w[1] == w[0] + 1),
+            "retained seqs should be contiguous"
+        );
     }
 
     #[test]
     fn carries_span_id_on_events_and_emits_span_summary() {
-        let stream = LogStream::new(32, 16);
+        let stream = LogStream::new(32, 64 * 1024);
         let mut rx = stream.subscribe();
         let subscriber = tracing_subscriber::registry().with(LogStreamLayer::new(stream));
 
@@ -359,17 +451,45 @@ mod tests {
         let event_line = rx.try_recv().expect("event line");
         assert_eq!(event_line.message, "inside span");
         assert_eq!(event_line.span_id.as_deref(), Some("0xabc"));
+        assert_eq!(event_line.seq, 0);
 
         // Closing the span produces a SPAN summary line carrying its fields.
         let span_line = rx.try_recv().expect("span summary line");
         assert_eq!(span_line.level, "SPAN");
         assert_eq!(span_line.message, "request");
         assert_eq!(span_line.span_id.as_deref(), Some("0xabc"));
+        assert_eq!(span_line.seq, 1);
         assert_eq!(
             span_line.fields.get("http_url").map(String::as_str),
             Some("/x")
         );
         assert!(span_line.fields.contains_key("elapsed_ms"));
         assert!(!span_line.fields.contains_key("span_id"));
+    }
+
+    #[test]
+    fn paginates_history_by_seq() {
+        let stream = LogStream::new(64, 64 * 1024);
+        let subscriber = tracing_subscriber::registry().with(LogStreamLayer::new(stream.clone()));
+
+        tracing::subscriber::with_default(subscriber, || {
+            for i in 0..10 {
+                tracing::info!(target: "t", "line {i}");
+            }
+        });
+
+        // Newest page.
+        let latest = stream.latest(3);
+        assert_eq!(latest.len(), 3);
+        assert_eq!(latest.first().unwrap().message, "line 7");
+        assert_eq!(latest.last().unwrap().message, "line 9");
+
+        // The page just older than the oldest line we already hold.
+        let cursor = latest.first().unwrap().seq;
+        let older = stream.history(cursor, 3);
+        assert_eq!(older.len(), 3);
+        assert_eq!(older.first().unwrap().message, "line 4");
+        assert_eq!(older.last().unwrap().message, "line 6");
+        assert!(older.iter().all(|line| line.seq < cursor));
     }
 }

@@ -24,9 +24,12 @@ use model::instance::config::extension_services::InstanceExtensionServicesConfig
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::InstanceNetworkConfig;
 use model::instance::config::nvlink::InstanceNvLinkConfig;
+use model::instance::config::spx::InstanceSpxConfig;
+use model::instance::status::spx::InstanceSpxStatus;
 use model::instance::status::{InstanceStatus, InstanceStatusObservations, SyncState};
 use model::machine::infiniband::MachineInfinibandStatusObservation;
 use model::machine::nvlink::MachineNvLinkStatusObservation;
+use model::machine::spx::MachineSpxStatusObservation;
 use model::machine::{ManagedHostState, ReprovisionRequest};
 
 use crate as rpc;
@@ -37,6 +40,7 @@ pub mod extension_service;
 pub mod infiniband;
 pub mod network;
 pub mod nvlink;
+pub mod spx;
 pub mod tenant;
 
 impl TryFrom<InstanceStatus> for rpc::InstanceStatus {
@@ -49,6 +53,7 @@ impl TryFrom<InstanceStatus> for rpc::InstanceStatus {
             infiniband: Some(status.infiniband.try_into()?),
             dpu_extension_services: Some(status.extension_services.try_into()?),
             nvlink: Some(status.nvlink.try_into()?),
+            spx_status: Some(status.spx_status.try_into()?),
             configs_synced: rpc::SyncState::try_from(status.configs_synced)? as i32,
             update: status.reprovision_request.map(|request| request.into()),
         })
@@ -71,12 +76,14 @@ pub fn instance_status_from_config_and_observation(
     ib_config: Versioned<&InstanceInfinibandConfig>,
     extension_services_config: Versioned<&InstanceExtensionServicesConfig>,
     nvlink_config: Versioned<&InstanceNvLinkConfig>,
+    spx_config: Versioned<&InstanceSpxConfig>,
     observations: &InstanceStatusObservations,
     machine_state: ManagedHostState,
     delete_requested: bool,
     reprovision_request: Option<ReprovisionRequest>,
     ib_status: Option<&MachineInfinibandStatusObservation>,
     nvlink_status: Option<&MachineNvLinkStatusObservation>,
+    spx_status: Option<&MachineSpxStatusObservation>,
     is_network_config_request_pending: bool,
     host_health: &model::health::HealthReportSources,
 ) -> Result<InstanceStatus, RpcDataConversionError> {
@@ -123,6 +130,8 @@ pub fn instance_status_from_config_and_observation(
         nvlink_status,
     );
 
+    let spx_status = InstanceSpxStatus::from_config_and_observation(spx_config, spx_status);
+
     let phone_home_last_contact = observations.phone_home_last_contact;
 
     // If additional configs are added, they need to be incorporated here
@@ -131,9 +140,11 @@ pub fn instance_status_from_config_and_observation(
         infiniband.configs_synced,
         extension_services.configs_synced,
         nvlink.configs_synced,
+        spx_status.configs_synced,
         instance_config_synced,
     ) {
         (
+            SyncState::Synced,
             SyncState::Synced,
             SyncState::Synced,
             SyncState::Synced,
@@ -171,6 +182,7 @@ pub fn instance_status_from_config_and_observation(
         infiniband,
         extension_services,
         nvlink,
+        spx_status,
         configs_synced,
         reprovision_request,
     })
@@ -229,6 +241,7 @@ mod tests {
             network_security_group_id: None,
             extension_services: InstanceExtensionServicesConfig::default(),
             nvlink: InstanceNvLinkConfig::default(),
+            spxconfig: InstanceSpxConfig::default(),
         }
     }
 
@@ -252,6 +265,7 @@ mod tests {
             Versioned::new(&config.infiniband, version),
             Versioned::new(&config.extension_services, version),
             Versioned::new(&config.nvlink, version),
+            Versioned::new(&config.spxconfig, version),
             &InstanceStatusObservations {
                 network: HashMap::new(),
                 extension_services: HashMap::new(),
@@ -261,6 +275,7 @@ mod tests {
                 instance_state: InstanceState::Ready,
             },
             false,
+            None,
             None,
             None,
             None,

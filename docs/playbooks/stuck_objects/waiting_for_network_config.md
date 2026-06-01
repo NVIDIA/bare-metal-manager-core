@@ -1,17 +1,17 @@
 # `WaitingForNetworkConfig` and DPU health
 
 Whenever the configuration of a ManagedHost changes (Instance gets created,
-Instance gets deleted, Provisioning), NICo requires the `forge-dpu-agent` to
+Instance gets deleted, Provisioning), NICo requires the `nico-dpu-agent` to
 acknowledge that the desired DPU configuration is applied and that the DPU and
 services running on it (like `HBN`) are in a healthy state.
 
 This feedback mechanism works in the following fashion:
-1. `forge-dpu-agent` periodically calls `GetManagedHostNetworkConfig`. It thereby
+1. `nico-dpu-agent` periodically calls `GetManagedHostNetworkConfig`. It thereby
    obtains the latest configuration for all interfaces, including the configuration
    which states whether the Host should get attached to an admin or tenant network.
    The configuration includes Version numbers, which increase whenever the
    configuration changes.
-2. `forge-dpu-agent` reports the version numbers of the currently applied
+2. `nico-dpu-agent` reports the version numbers of the currently applied
    configurations back to NICo using the `RecordDpuNetworkStatus` API.
    This report also includes the DPUs health in the form of a `HealthReport`.
 
@@ -20,23 +20,23 @@ desired configuration is applied, the state will not be advanced.
 
 If a ManagedHost is stuck due to this check, you can inspect which condition is
 not met by inspecting the last report from the Host and DPUs
-- via carbide-admin-cli:
+- via nico-admin-cli:
   - ```
-    carbide-admin-cli managed-host show fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
+    nico-admin-cli managed-host show fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
     ```
   - ```
-    carbide-admin-cli machine show fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
+    nico-admin-cli machine show fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
     ```
   - ```
-    carbide-admin-cli machine show fm100dsa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
+    nico-admin-cli machine show fm100dsa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
     ```
   - ```
-    carbide-admin-cli machine network status
+    nico-admin-cli machine network status
     ```
 
 E.g. in the following report
 ```
-/opt/carbide/carbide-admin-cli managed-host show fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
+/opt/nico/nico-admin-cli managed-host show fm100psa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg
 Hostname    : 192-168-18-95
 State       : DPUInitializing/WaitingForNetworkConfig
     Time in State : 296 days and 29 minutes
@@ -51,7 +51,7 @@ Host:
   Admin IP              : 192.168.18.95
   Admin MAC             : B8:3F:D2:B7:70:64
   Health
-    Probe Alerts        : HeartbeatTimeout [Target: forge-dpu-agent]:
+    Probe Alerts        : HeartbeatTimeout [Target: nico-dpu-agent]:
     Overrides
   BMC
     Version             : Unknown
@@ -78,31 +78,31 @@ DPU0:
     IP                  : 192.168.134.234
     MAC                 : B8:3F:D2:B7:70:66
   Health
-    Probe Alerts        : HeartbeatTimeout [Target: forge-dpu-agent]: No health data was received from DPU
+    Probe Alerts        : HeartbeatTimeout [Target: nico-dpu-agent]: No health data was received from DPU
 ```
 
-- The `Health` field indicates whether any of the health checks failed. In this case we can see an alert of the `HeartbeatTimeout` probe - with target `forge-dpu-agent`. That indicates no
-  `HealthReport` had been received from `forge-dpu-agent` via a `RecordDpuNetworkStatus`
+- The `Health` field indicates whether any of the health checks failed. In this case we can see an alert of the `HeartbeatTimeout` probe - with target `nico-dpu-agent`. That indicates no
+  `HealthReport` had been received from `nico-dpu-agent` via a `RecordDpuNetworkStatus`
   API call for a certain amount of time.
 - The aggregate `Health` of a Host is the aggregation of Health states from
-  monitoring by `forge-dpu-agent`, out of band BMC monitoring (`hardware-health`),
+  monitoring by `nico-dpu-agent`, out of band BMC monitoring (`hardware-health`),
   and the results of validation tests. If the health check failure also shows up
   in the `Health` field of the DPU, then the failure is related to the DPU,
-  and/or has been reported by `forge-dpu-agent`.
+  and/or has been reported by `nico-dpu-agent`.
   If a health-check has failed, then the root-caused for the failed health-check
   needs to be remediated.
-- "Last seen" indicates whether the DPU (and `forge-dpu-agent`) is up and running.
+- "Last seen" indicates whether the DPU (and `nico-dpu-agent`) is up and running.
   If the timestamp is too old, it might indicate the DPU agent has crashed or the
   whole DPU is no longer online. In such a case a `HeartbeatTimeout` alert on the
   DPU and Host would be raised too.
 
 The network status details show:
 ```
-/opt/carbide/carbide-admin-cli machine network status
+/opt/nico/nico-admin-cli machine network status
 +-------------------------+-------------------------------------------------------------+------------------------+----------+--------------------------------------------+---------------------------------+
 | Observed at             | DPU machine ID                                              | Network config version | Healthy? | Health Probe Alerts                        | Agent version                   |
 +=========================+=============================================================+========================+==========+============================================+=================================+
-| 2023-12-13 17:24:15.454 | fm100dsa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg | V2-T1702485344893918   | false    | HeartbeatTimeout [Target: forge-dpu-agent] | v2023.12-rc1-43-g3322d125f      |
+| 2023-12-13 17:24:15.454 | fm100dsa0aqpqvll7vi4jfrvtqv058mo8ifb0vtg761j06sqhq466b0slmg | V2-T1702485344893918   | false    | HeartbeatTimeout [Target: nico-dpu-agent] | v2023.12-rc1-43-g3322d125f      |
 +-------------------------+-------------------------------------------------------------+------------------------+----------+--------------------------------------------+---------------------------------+
 ```
 
@@ -111,8 +111,8 @@ this DPU. The target configuration for a DPU can be found on the `Network Config
 
 The summary for this example is that the Machine is stuck because the DPU
 - is either not healthy at all (e.g. not booted)
-- is not running `forge-dpu-agent`
-- `forge-dpu-agent` is not reporting back to NICo
+- is not running `nico-dpu-agent`
+- `nico-dpu-agent` is not reporting back to NICo
 
 ## Follow-up investigation steps
 
@@ -129,19 +129,19 @@ and rshim to investigate its state.
 
 ### Checking DPU agent logs
 
-In case the DPU is running, `forge-dpu-agent` logs can be inspected in order to
-learn why it can not communicate with carbide, or why the configuration application
+In case the DPU is running, `nico-dpu-agent` logs can be inspected in order to
+learn why it can not communicate with nico, or why the configuration application
 might have failed. There are various options for this.
 
 #### Checking logs via Grafana & Loki
 
-forge-dpu-agent logs are forwarded via OpenTelemetry to the site controller logging
+nico-dpu-agent logs are forwarded via OpenTelemetry to the site controller logging
 infrastructure. They can be queried from there via Loki.
 
 Search strings for DPU can be:
 ```
-{systemd_unit="forge-dpu-agent.service", machine_id="fm100ds006eliqt3u4h65ou9ebrqfq9th2jf39qqki68k9ueu2amearv47g"}
-{systemd_unit="forge-dpu-agent.service", host_name="192-168-155-135.nico.example.org"}
+{systemd_unit="nico-dpu-agent.service", machine_id="fm100ds006eliqt3u4h65ou9ebrqfq9th2jf39qqki68k9ueu2amearv47g"}
+{systemd_unit="nico-dpu-agent.service", host_name="192-168-155-135.nico.example.org"}
 ```
 
 **Note that the query using the MachineId will only work if the DPU once had been fully ingested
@@ -154,7 +154,7 @@ In case the DPU problem affects log forwarding, DPU logs need to be checked dire
 The dpu agent logs are stored in the systemd journal on the DPU.
 They can be queried using
 ```
-journalctl -u forge-dpu-agent.service -e --no-pager
+journalctl -u nico-dpu-agent.service -e --no-pager
 ```
 
 ### Checking additional logs
@@ -178,24 +178,24 @@ restart the DPU.
 
 The Host can be powercycled using the Explored-Endpoint view in the Admin Web UI, The DPU Machine details page will link to the explored endpoint by clicking on the DPU BMC IP.
 
-### Restarting forge-dpu-agent
+### Restarting nico-dpu-agent
 
-If forge-dpu-agent is not even started, then it needs to be started (`systemctl enable forge-dpu-agent.service`).
+If nico-dpu-agent is not even started, then it needs to be started (`systemctl enable nico-dpu-agent.service`).
 This should however never be necessary, since the agent gets restarted on all
 crashes.
 
-If `forge-dpu-agent` should just be restarted, use
+If `nico-dpu-agent` should just be restarted, use
 ```
-systemctl restart forge-dpu-agent.service
+systemctl restart nico-dpu-agent.service
 ```
 
-### Reloading forge-dpu-agent configurations
+### Reloading nico-dpu-agent configurations
 
-In rare situations, it might be useful to restart forge-dpu-agent using latest
+In rare situations, it might be useful to restart nico-dpu-agent using latest
 dpu-agent systemd config files. To do so:
 ```
 systemctl daemon-reload
-systemctl restart forge-dpu-agent.service
+systemctl restart nico-dpu-agent.service
 ```
 
 ## Mitigations for specific Health Probe Alerts
@@ -224,7 +224,7 @@ to respond to the DHCP requests from the Host are not running as intended.
 In these conditions, the Host would not be able to boot since nothing would respond
 to the DHCP request.
 
-Next steps in the investigation would be to check `forge-dpu-agent` logs for details.
+Next steps in the investigation would be to check `nico-dpu-agent` logs for details.
 
 ### `PostConfigCheckWait`
 

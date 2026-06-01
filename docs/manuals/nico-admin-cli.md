@@ -1,7 +1,7 @@
-# Carbide Admin CLI
+# NICo Admin CLI
 
-`carbide-admin-cli` is the command-line tool for managing a Carbide site. It communicates with
-`carbide-api` over gRPC with mutual TLS (mTLS).
+`nico-admin-cli` is the command-line tool for managing a NICo site. It communicates with
+`nico-api` over gRPC with mutual TLS (mTLS).
 
 ## Building
 
@@ -9,22 +9,22 @@ From the repository root:
 
 ```sh
 # Debug build (faster compile, larger binary)
-cargo build -p carbide-admin-cli
+cargo build -p nico-admin-cli
 
 # Release build (optimized, for deployment)
-cargo build -p carbide-admin-cli --release
+cargo build -p nico-admin-cli --release
 ```
 
 The binary is written to:
 
-- `target/debug/carbide-admin-cli` (debug)
-- `target/release/carbide-admin-cli` (release)
+- `target/debug/nico-admin-cli` (debug)
+- `target/release/nico-admin-cli` (release)
 
-## Connecting to carbide-api
+## Connecting to nico-api
 
 The CLI needs three things to connect:
 
-1. **API URL** -- where carbide-api is listening
+1. **API URL** -- where nico-api is listening
 2. **Root CA certificate** -- to verify the server's TLS certificate
 3. **Client certificate + key** -- to authenticate this client to the server
 
@@ -32,22 +32,22 @@ The CLI needs three things to connect:
 
 | Flag | Environment variable | Config file key | Description |
 |------|---------------------|-----------------|-------------|
-| `-c` / `--carbide-api` | `CARBIDE_API_URL` | `carbide_api_url` | carbide-api URL |
-| `--forge-root-ca-path` | `FORGE_ROOT_CA_PATH` | `forge_root_ca_path` | Root CA cert (PEM) used to verify the server |
+| `-c` / `--nico-api` | `NICO_API_URL` | `nico_api_url` | nico-api URL |
+| `--nico-root-ca-path` | `NICO_ROOT_CA_PATH` | `nico_root_ca_path` | Root CA cert (PEM) used to verify the server |
 | `--client-cert-path` | `CLIENT_CERT_PATH` | `client_cert_path` | Client certificate (PEM) |
 | `--client-key-path` | `CLIENT_KEY_PATH` | `client_key_path` | Client private key (PEM) |
 
 ### Config file
 
 Instead of passing flags every time, create
-`$HOME/.config/carbide_api_cli.json`:
+`$HOME/.config/nico_api_cli.json`:
 
 ```json
 {
-  "carbide_api_url": "https://carbide-api.example.com:1079",
-  "forge_root_ca_path": "/etc/carbide/certs/ca.crt",
-  "client_cert_path": "/etc/carbide/certs/client.crt",
-  "client_key_path": "/etc/carbide/certs/client.key"
+  "nico_api_url": "https://nico-api.example.com:1079",
+  "nico_root_ca_path": "/etc/nico/certs/ca.crt",
+  "client_cert_path": "/etc/nico/certs/client.crt",
+  "client_key_path": "/etc/nico/certs/client.key"
 }
 ```
 
@@ -55,26 +55,26 @@ Instead of passing flags every time, create
 
 ```sh
 # Explicit flags
-carbide-admin-cli \
-  -c https://carbide-api.example.com:1079 \
-  --forge-root-ca-path /etc/carbide/certs/ca.crt \
-  --client-cert-path /etc/carbide/certs/client.crt \
-  --client-key-path /etc/carbide/certs/client.key \
+nico-admin-cli \
+  -c https://nico-api.example.com:1079 \
+  --nico-root-ca-path /etc/nico/certs/ca.crt \
+  --client-cert-path /etc/nico/certs/client.crt \
+  --client-key-path /etc/nico/certs/client.key \
   version
 
 # With config file (no flags needed)
-carbide-admin-cli version
+nico-admin-cli version
 ```
 
 ### SOCKS5 proxy support
 
-If the CLI needs to reach carbide-api through a SOCKS5 proxy, set one
+If the CLI needs to reach nico-api through a SOCKS5 proxy, set one
 of: `http_proxy`, `https_proxy`, `HTTP_PROXY`, or `HTTPS_PROXY`. Only
 the `socks5://` scheme is supported.
 
 ## Generating client certificates
 
-carbide-api uses mTLS: the server verifies the client's certificate
+nico-api uses mTLS: the server verifies the client's certificate
 against a trusted CA.
 
 ### Creating an admin CA and client cert with OpenSSL
@@ -88,7 +88,7 @@ instead of a self-signed CA.
 openssl ecparam -name prime256v1 -genkey -noout -out admin-ca.key
 openssl req -x509 -new -key admin-ca.key -sha256 -days 3650 \
   -out admin-ca.crt \
-  -subj "/O=ExampleCo/CN=ExampleCo Carbide Admin CA"
+  -subj "/O=ExampleCo/CN=ExampleCo NICo Admin CA"
 
 # 2. Generate a client key
 openssl ecparam -name prime256v1 -genkey -noout -out client.key
@@ -121,19 +121,19 @@ This produces:
 
 | File | Purpose |
 |------|---------|
-| `admin-ca.crt` | Root CA -- configure as `admin_root_cafile_path` in carbide-api |
+| `admin-ca.crt` | Root CA -- configure as `admin_root_cafile_path` in nico-api |
 | `admin-ca.key` | CA private key -- keep offline/secured |
 | `client.crt` | Operator's client certificate |
 | `client.key` | Operator's client private key |
 
 ### Certificate subject fields and how they map to authorization
 
-The `[auth.cli_certs]` section in `carbide-api-config.toml` controls how
+The `[auth.cli_certs]` section in `nico-api-config.toml` controls how
 certificate fields are interpreted:
 
 | Config key | Purpose | Example |
 |------------|---------|---------|
-| `required_equals` | Issuer/subject fields that **must** match exactly for the cert to be accepted | `{ "IssuerO" = "ExampleCo", "IssuerCN" = "ExampleCo Carbide Admin CA" }` |
+| `required_equals` | Issuer/subject fields that **must** match exactly for the cert to be accepted | `{ "IssuerO" = "ExampleCo", "IssuerCN" = "ExampleCo NICo Admin CA" }` |
 | `group_from` | Which cert field to extract the authorization group from | `"SubjectOU"` |
 | `username_from` | Which cert field to extract the username from (for audit trails) | `"SubjectCN"` |
 | `username` | Fixed username for all certs of this type (alternative to `username_from`) | `"shared-admin"` |
@@ -143,11 +143,11 @@ The available `CertComponent` values are:
 - `IssuerO`, `IssuerOU`, `IssuerCN` -- from the certificate issuer
 - `SubjectO`, `SubjectOU`, `SubjectCN` -- from the certificate subject
 
-## Server-side configuration (carbide-api)
+## Server-side configuration (nico-api)
 
 ### TLS section
 
-The `[tls]` section of `carbide-api-config.toml` tells carbide-api
+The `[tls]` section of `nico-api-config.toml` tells nico-api
 where to find its own server certificate and which CAs to trust for
 client authentication:
 
@@ -166,18 +166,18 @@ admin_root_cafile_path = "/path/to/admin-ca.crt"
 | `root_cafile_path` | CA used to verify internal client certs |
 | `admin_root_cafile_path` | CA used to verify external admin client certs |
 
-carbide-api loads both `root_cafile_path` and `admin_root_cafile_path`
+nico-api loads both `root_cafile_path` and `admin_root_cafile_path`
 into its TLS trust store. A client presenting a certificate signed by
 either CA will pass the TLS handshake. 
 
 ### Configuring authorization
 
 Authorization is configured in the `[auth]` section of
-`carbide-api-config.toml`.
+`nico-api-config.toml`.
 
 #### Casbin policy
 
-carbide-api uses [Casbin](https://casbin.org/) with an RBAC model for
+nico-api uses [Casbin](https://casbin.org/) with an RBAC model for
 authorization. The model is compiled into the binary and uses two rule
 types:
 
@@ -218,61 +218,61 @@ Sample policy file:
 #
 
 
-# Map the carbide-dhcp SPIFFE ID to the carbide-dhcp role.
+# Map the nico-dhcp SPIFFE ID to the nico-dhcp role.
 # FIXME: verify that this is how these SPIFFE service identifiers look in reality.
-g, spiffe-service-id/carbide-dhcp, carbide-dhcp
-g, spiffe-service-id/carbide-dns, carbide-dns
+g, spiffe-service-id/nico-dhcp, nico-dhcp
+g, spiffe-service-id/nico-dns, nico-dns
 g, spiffe-machine-id, machine
 
-# Allow the carbide-dhcp role to call its methods.
-p, carbide-dhcp, forge/DiscoverDhcp
+# Allow the nico-dhcp role to call its methods.
+p, nico-dhcp, nico/DiscoverDhcp
 
-# Same idea for carbide-dns.
-p, carbide-dns, forge/LookupRecord
+# Same idea for nico-dns.
+p, nico-dns, nico/LookupRecord
 
 # Anonymous access to endpoints that don't modify state or expose any customer
 # or site data should be fine.
-p, anonymous, forge/Version
+p, anonymous, nico/Version
 
 # Allow anonymous access to methods used by machines that may not have their
 # certificates from us yet.
-p, anonymous, forge/DiscoverMachine
-p, anonymous, forge/ReportForgeScoutError
-p, anonymous, forge/AttestQuote
+p, anonymous, nico/DiscoverMachine
+p, anonymous, nico/ReportNicoScoutError
+p, anonymous, nico/AttestQuote
 
 # Allow anonymous access to methods used by dpu-agent. As of 2023-09-28 there
 # are probably a fair amount of agents across the environments that don't have a
 # certificate and are not ready for strict enforcement.
-p, anonymous, forge/FindInstanceByMachineID
-p, anonymous, forge/GetManagedHostNetworkConfig
-p, anonymous, forge/RecordDpuNetworkStatus
+p, anonymous, nico/FindInstanceByMachineID
+p, anonymous, nico/GetManagedHostNetworkConfig
+p, anonymous, nico/RecordDpuNetworkStatus
 
 # The client cert generated above has OU=site-admins in its subject.
 # With group_from = "SubjectOU" in [auth.cli_certs], that becomes the
 # principal "external-role/site-admins". Map it to a role and grant access.
 g, external-role/site-admins, site-admin
-p, site-admin, forge/*
+p, site-admin, nico/*
 
 # Example of a restricted role: a cert with OU=viewers would only get
 # read access to a handful of methods.
 g, external-role/viewers, viewer
-p, viewer, forge/Version
-p, viewer, forge/GetMachine
-p, viewer, forge/ListMachines
-p, viewer, forge/GetInstance
-p, viewer, forge/ListInstances
+p, viewer, nico/Version
+p, viewer, nico/GetMachine
+p, viewer, nico/ListMachines
+p, viewer, nico/GetInstance
+p, viewer, nico/ListInstances
 
 
-# Allow any certificate we trust to hit any Forge method.
+# Allow any certificate we trust to hit any NICo method.
 # FIXME: This should be removed once we have more fine-grained rule coverage.
-p, trusted-certificate, forge/*
+p, trusted-certificate, nico/*
 ```
 
-The method names in the `forge/<Method>` column correspond to the gRPC
+The method names in the `nico/<Method>` column correspond to the gRPC
 method names defined in the protobuf service definitions. Glob matching
 (`*`) is supported.
 
-##### Full example: carbide-api config with external admin certs
+##### Full example: nico-api config with external admin certs
 
 ```toml
 [tls]
@@ -286,24 +286,24 @@ permissive_mode = false
 casbin_policy_file = "/path/to/casbin-policy.csv"
 
 [auth.cli_certs]
-required_equals = { "IssuerO" = "ExampleCo", "IssuerCN" = "ExampleCo Carbide Admin CA" }
+required_equals = { "IssuerO" = "ExampleCo", "IssuerCN" = "ExampleCo NICo Admin CA" }
 group_from = "SubjectOU"
 username_from = "SubjectCN"
 
 [auth.trust]
-spiffe_trust_domain = "forge.local"
+spiffe_trust_domain = "nico.local"
 spiffe_service_base_paths = [
-  "/forge-system/sa/",
+  "/nico-system/sa/",
   "/default/sa/",
   "/elektra-site-agent/sa/",
 ]
-spiffe_machine_base_path = "/forge-system/machine/"
+spiffe_machine_base_path = "/nico-system/machine/"
 additional_issuer_cns = []
 ```
 
 With this configuration, a client certificate with subject
 `/O=ExampleCo/OU=site-admins/CN=jdoe` and issuer
-`/O=ExampleCo/CN=ExampleCo Carbide Admin CA` would:
+`/O=ExampleCo/CN=ExampleCo NICo Admin CA` would:
 
 1. Pass the `required_equals` check (IssuerO and IssuerCN match)
 2. Be assigned group `site-admins` (from SubjectOU)
@@ -313,7 +313,7 @@ With this configuration, a client certificate with subject
    principal
 
 
-You can see an example of a complete carbide-api configuration file 
+You can see an example of a complete nico-api configuration file 
 [here](https://github.com/NVIDIA/ncx-infra-controller-core/blob/main/crates/api/src/cfg/test_data/full_config.toml)
 
 ### Permissive mode
@@ -328,7 +328,7 @@ instead of being rejected:
 permissive_mode = true
 ```
 
-When permissive mode is active, carbide-api logs messages like:
+When permissive mode is active, nico-api logs messages like:
 
 ```
 WARN The policy engine denied this request, but --auth-permissive-mode overrides it.
@@ -350,5 +350,5 @@ You can also set permissive mode via environment variable without
 editing the config file:
 
 ```sh
-CARBIDE_API_AUTH="{permissive_mode=true}"
+NICO_API_AUTH="{permissive_mode=true}"
 ```

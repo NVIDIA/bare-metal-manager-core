@@ -45,17 +45,17 @@ restish <api-profile> delete-instance <repair-tenant-org-id> <repair-instance-id
 For example, in staging:
 
 ```bash
-restish carbide-stg create-instance <repair-tenant-org-id> < repair-instance.json
+restish nico-stg create-instance <repair-tenant-org-id> < repair-instance.json
 ```
 
-`carbide-stg` is the Restish API profile or environment. Replace it with the profile for your deployment.
+`nico-stg` is the Restish API profile or environment. Replace it with the profile for your deployment.
 
 Use Restish help to confirm operation signatures in the target environment:
 
 ```bash
-restish carbide-stg create-instance --help
-restish carbide-stg update-machine --help
-restish carbide-stg delete-instance --help
+restish nico-stg create-instance --help
+restish nico-stg update-machine --help
+restish nico-stg delete-instance --help
 ```
 
 Restish prints the HTTP status and JSON error body when a request fails. Use that response when troubleshooting validation, permission, or workflow errors.
@@ -66,7 +66,7 @@ Collect the following values:
 
 | Value | Description |
 |---|---|
-| `<api-profile>` | Restish profile, for example `carbide-stg`. |
+| `<api-profile>` | Restish profile, for example `nico-stg`. |
 | `<repair-tenant-org-id>` | Organization identifier for the dedicated repair tenant. |
 | `<repair-tenant-id>` | Tenant UUID used in the create instance request body. |
 | `<machine-id>` | Machine ID being repaired. |
@@ -117,7 +117,7 @@ Create `repair-instance.json`:
 Run:
 
 ```bash
-restish carbide-stg create-instance <repair-tenant-org-id> < repair-instance.json
+restish nico-stg create-instance <repair-tenant-org-id> < repair-instance.json
 ```
 
 Expected result:
@@ -135,7 +135,7 @@ After the repair instance is created, mark the machine as actively being repaire
 First inspect the machine and preserve any labels that should remain:
 
 ```bash
-restish carbide-stg get-machine <repair-tenant-org-id> <machine-id>
+restish nico-stg get-machine <repair-tenant-org-id> <machine-id>
 ```
 
 Create `repair-status-in-progress-labels.json` using the existing labels plus `repair_status: InProgress`:
@@ -154,7 +154,7 @@ Create `repair-status-in-progress-labels.json` using the existing labels plus `r
 Run:
 
 ```bash
-restish carbide-stg update-machine <repair-tenant-org-id> <machine-id> < repair-status-in-progress-labels.json
+restish nico-stg update-machine <repair-tenant-org-id> <machine-id> < repair-status-in-progress-labels.json
 ```
 
 ## Perform and Validate Repair
@@ -177,7 +177,7 @@ Supported values are case-insensitive:
 Before releasing the repair instance, inspect the machine again and preserve any labels that should remain:
 
 ```bash
-restish carbide-stg get-machine <repair-tenant-org-id> <machine-id>
+restish nico-stg get-machine <repair-tenant-org-id> <machine-id>
 ```
 
 Machine label updates replace the full label map. Labels not included in the update request are removed. Labels are limited to 10 key/value pairs, so keep repair labels short and preserve required placement labels such as rack, site, or pool hints.
@@ -198,7 +198,7 @@ When repair succeeds, create `repair-status-completed-labels.json`:
 Run:
 
 ```bash
-restish carbide-stg update-machine <repair-tenant-org-id> <machine-id> < repair-status-completed-labels.json
+restish nico-stg update-machine <repair-tenant-org-id> <machine-id> < repair-status-completed-labels.json
 ```
 
 When repair fails or the machine must not return to the ready pool, create `repair-status-failed-labels.json`:
@@ -217,7 +217,7 @@ When repair fails or the machine must not return to the ready pool, create `repa
 Run:
 
 ```bash
-restish carbide-stg update-machine <repair-tenant-org-id> <machine-id> < repair-status-failed-labels.json
+restish nico-stg update-machine <repair-tenant-org-id> <machine-id> < repair-status-failed-labels.json
 ```
 
 Use `repair_status: Completed` only after the repair team has validated that the machine can safely re-enter normal allocation. Use `repair_status: Failed` when the machine should move to repair-failed or manual intervention handling.
@@ -235,7 +235,7 @@ After setting `repair_status: Completed`, create `repair-release-completed.json`
 Run:
 
 ```bash
-restish carbide-stg delete-instance <repair-tenant-org-id> <repair-instance-id> < repair-release-completed.json
+restish nico-stg delete-instance <repair-tenant-org-id> <repair-instance-id> < repair-release-completed.json
 ```
 
 Expected result:
@@ -266,7 +266,7 @@ Create `repair-release-failed.json`:
 Run:
 
 ```bash
-restish carbide-stg delete-instance <repair-tenant-org-id> <repair-instance-id> < repair-release-failed.json
+restish nico-stg delete-instance <repair-tenant-org-id> <repair-instance-id> < repair-release-failed.json
 ```
 
 Expected result:
@@ -298,7 +298,7 @@ For machines that still have a `repair-request` override, NICo uses the followin
 After releasing the repair instance, inspect the machine and health overrides:
 
 ```bash
-restish carbide-stg get-machine <repair-tenant-org-id> <machine-id>
+restish nico-stg get-machine <repair-tenant-org-id> <machine-id>
 ```
 
 Check that:

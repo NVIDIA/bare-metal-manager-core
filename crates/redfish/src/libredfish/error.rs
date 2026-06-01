@@ -31,10 +31,6 @@ pub enum RedfishClientCreationError {
     InvalidHeader(String),
     #[error("Missing Arguments: {0}")]
     MissingArgument(String),
-    #[error("Missing BMC Information: {0}")]
-    MissingBmcEndpoint(String),
-    #[error("Database Error Loading Machine Interface")]
-    MachineInterfaceLoadError(#[from] db::DatabaseError),
 }
 
 impl From<SecretsError> for RedfishClientCreationError {

@@ -18,7 +18,7 @@ environment.
 
    Fedora - `sudo dnf -y install gcc-c++ systemd-devel binutils-aarch64-linux-gnu`
     - systemd-devel is needed for libudev-devel
-    - binutils-aarch64-linux-gnu is for stripping the cross-compiled forge-dpu-agent - don't worry if you don't have this
+    - binutils-aarch64-linux-gnu is for stripping the cross-compiled nico-dpu-agent - don't worry if you don't have this
 
 2. Install additional cargo utilities
 
@@ -90,7 +90,7 @@ environment.
 
    Fedora - `sudo dnf install -y direnv`
 
-9. Install golang using whatever method is most convenient for you. `forge-vpc` (which is in a subtree of the `forge-provisioner` repo uses golang)
+9. Install golang using whatever method is most convenient for you. `nico-vpc` (which is in a subtree of the `nico-provisioner` repo uses golang)
 
 10. Install GRPC client `grpcurl`.
 
@@ -189,7 +189,7 @@ of complications in the C lib linking between the IDE and your system and frankl
 
 ## Cross-compiling for aarch64 (rough notes)
 
-The DPU has an ARM core. To build software that runs there such as `forge-dpu-agent` you need an ARM8 machine. QEMU/libvirt can provide that.
+The DPU has an ARM core. To build software that runs there such as `nico-dpu-agent` you need an ARM8 machine. QEMU/libvirt can provide that.
 
 Here's how I did it.
 
@@ -212,7 +212,7 @@ Now that you're in the container go into `/infra-controller-core` and work norma
 
 The build may hang the first time. I don't know why. Ctrl-C and try again. You may want to `docker commit` after it succeeds to update the image.
 
-Remember to `strip` before you scp so that scp goes faster. scp to DPU example (`nvinit` first): `scp -v /path/to/target/release/forge-dpu-agent ubuntu@<DPU_OOB_IP>:.`
+Remember to `strip` before you scp so that scp goes faster. scp to DPU example (`nvinit` first): `scp -v /path/to/target/release/nico-dpu-agent ubuntu@<DPU_OOB_IP>:.`
 
 ## Next steps
 

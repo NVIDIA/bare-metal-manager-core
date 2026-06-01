@@ -54,6 +54,7 @@ pub mod spdm {
     use itertools::Itertools;
     use nras::{NrasError, NrasVerifierClient, ProcessedAttestationOutcome, RawAttestationOutcome};
     use serde::{Deserialize, Serialize};
+    use sha2::{Digest, Sha256};
     use sqlx::Row;
     use sqlx::postgres::PgRow;
 
@@ -94,6 +95,12 @@ pub mod spdm {
         pub started_at: DateTime<Utc>,
         pub cancelled_at: Option<DateTime<Utc>>,
         pub completed_at: Option<DateTime<Utc>>,
+    }
+
+    impl SpdmDeviceAttestation {
+        pub fn nonce_hex(&self) -> String {
+            hex::encode(Sha256::digest(self.nonce.as_bytes()))
+        }
     }
 
     /// Major state, associated with Machine.

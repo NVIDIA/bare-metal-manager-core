@@ -59,7 +59,7 @@ kubectl annotate storageclass local-path \
 
 ## Phase 1b — postgres-operator
 
-Installs the Zalando PostgreSQL Operator. Must be up before Phase 5 creates the `forge-pg-cluster` resource — the `postgresql.acid.zalan.do` CRD must be registered first.
+Installs the Zalando PostgreSQL Operator. Must be up before Phase 5 creates the `nico-pg-cluster` resource — the `postgresql.acid.zalan.do` CRD must be registered first.
 
 ```bash
 helmfile sync -l name=postgres-operator
@@ -99,13 +99,13 @@ Vault requires TLS to start — but the Vault-backed issuer can't exist before V
 ```bash
 kubectl create namespace vault --dry-run=client -o yaml | kubectl apply -f -
 # Run from the helm-prereqs/ directory (the chart root)
-helm template carbide-prereqs . \
+helm template nico-prereqs . \
     --show-only templates/site-root-certificate.yaml \
     --show-only templates/vault-tls-certs.yaml \
     | kubectl apply --server-side --field-manager=helm -f -
 # Wait for all three certs to be issued
 kubectl wait --for=condition=Ready certificate/site-root -n cert-manager --timeout=120s
-kubectl wait --for=condition=Ready certificate/forgeca-vault-client -n vault --timeout=120s
+kubectl wait --for=condition=Ready certificate/nicoca-vault-client -n vault --timeout=120s
 kubectl wait --for=condition=Ready certificate/vault-raft-tls -n vault --timeout=120s
 ```
 
@@ -130,8 +130,8 @@ helmfile sync -l name=vault
 
 `unseal_vault.sh` handles both first-run init and re-unseal on subsequent runs:
 - First run: `vault operator init -key-shares=5 -key-threshold=3`, stores init JSON as `vault-cluster-keys` secret, unseals all three pods
-- Creates the `forge-system` namespace with Helm ownership labels
-- Copies root token to `carbide-vault-token` in `forge-system` for the `vault-pki-config` Job
+- Creates the `nico-system` namespace with Helm ownership labels
+- Copies root token to `nico-vault-token` in `nico-system` for the `vault-pki-config` Job
 
 `bootstrap_ssh_host_key.sh` pre-creates the `ssh-host-key` Secret in OpenSSH PEM format (idempotent — skips if the secret already exists).
 
@@ -143,22 +143,22 @@ kubectl exec -n vault vault-0 -c vault -- vault status
 
 ---
 
-## Phase 5 — external-secrets + carbide-prereqs
+## Phase 5 — external-secrets + nico-prereqs
 
 ```bash
 helmfile sync -l name=external-secrets
-helmfile sync -l name=carbide-prereqs
+helmfile sync -l name=nico-prereqs
 ```
 
-After `carbide-prereqs` installs, wait for the PostgreSQL cluster to provision and for ESO to sync credentials:
+After `nico-prereqs` installs, wait for the PostgreSQL cluster to provision and for ESO to sync credentials:
 
 ```bash
 # Wait for the Patroni cluster to reach Running state (can take 3-5 minutes)
 kubectl wait --for=jsonpath='{.status.PostgresClusterStatus}'=Running \
-    postgresql/forge-pg-cluster -n postgres --timeout=600s
+    postgresql/nico-pg-cluster -n postgres --timeout=600s
 
-# Verify ESO synced the DB credentials into forge-system
-kubectl get secret forge-system.carbide.forge-pg-cluster.credentials -n forge-system
+# Verify ESO synced the DB credentials into nico-system
+kubectl get secret nico-system.nico.nico-pg-cluster.credentials -n nico-system
 ```
 
 ---
@@ -169,10 +169,10 @@ Deploys the main NCX Core application chart. Run from the **repo root** (`ncx-in
 
 ```bash
 cd ..   # repo root (ncx-infra-controller-core/)
-helm upgrade --install carbide ./helm \
-    --namespace forge-system \
+helm upgrade --install nico ./helm \
+    --namespace nico-system \
     -f helm-prereqs/values/ncx-core.yaml \
-    --set global.image.repository="${NCX_IMAGE_REGISTRY}/nvmetal-carbide" \
+    --set global.image.repository="${NCX_IMAGE_REGISTRY}/nvmetal-nico" \
     --set global.image.tag="${NCX_CORE_IMAGE_TAG}" \
     --timeout 600s --wait
 ```
@@ -180,24 +180,24 @@ helm upgrade --install carbide ./helm \
 Verify LoadBalancer IPs were assigned from your MetalLB pool:
 
 ```bash
-kubectl get svc -n forge-system | grep LoadBalancer
+kubectl get svc -n nico-system | grep LoadBalancer
 ```
 
 ---
 
-## Phase 7 — NCX REST (carbide-rest)
+## Phase 7 — NCX REST (nico-rest)
 
 All sub-steps run from the NCX REST repo directory (`$NCX_REPO`).
 
 ### 7a — CA signing secret
 
-Generates the `ca-signing-secret` used by the `carbide-rest-ca-issuer` ClusterIssuer for Temporal mTLS. Idempotent — skips if the secret already exists.
+Generates the `ca-signing-secret` used by the `nico-rest-ca-issuer` ClusterIssuer for Temporal mTLS. Idempotent — skips if the secret already exists.
 
 ```bash
 (cd "${NCX_REPO}" && bash scripts/gen-site-ca.sh)
 ```
 
-### 7b — carbide-rest-ca-issuer
+### 7b — nico-rest-ca-issuer
 
 ```bash
 (cd "${NCX_REPO}" && kubectl apply -k deploy/kustomize/base/cert-manager-io)
@@ -213,8 +213,8 @@ kubectl rollout status statefulset/postgres -n postgres --timeout=300s
 ### 7d — Keycloak
 
 ```bash
-(cd "${NCX_REPO}" && kubectl apply -k deploy/kustomize/base/keycloak -n carbide-rest)
-kubectl rollout status deployment/keycloak -n carbide-rest --timeout=300s
+(cd "${NCX_REPO}" && kubectl apply -k deploy/kustomize/base/keycloak -n nico-rest)
+kubectl rollout status deployment/keycloak -n nico-rest --timeout=300s
 ```
 
 ### 7e — Temporal TLS bootstrap
@@ -223,7 +223,7 @@ kubectl rollout status deployment/keycloak -n carbide-rest --timeout=300s
 (cd "${NCX_REPO}" && kubectl apply -f deploy/kustomize/base/temporal-helm/namespace.yaml)
 (cd "${NCX_REPO}" && kubectl apply -f deploy/kustomize/base/temporal-helm/db-creds.yaml)
 (cd "${NCX_REPO}" && kubectl apply -f deploy/kustomize/base/temporal-helm/certificates.yaml)
-# Wait for the three mTLS certs to be issued by carbide-rest-ca-issuer
+# Wait for the three mTLS certs to be issued by nico-rest-ca-issuer
 kubectl wait --for=condition=Ready certificate/server-interservice-cert -n temporal --timeout=120s
 kubectl wait --for=condition=Ready certificate/server-cloud-cert -n temporal --timeout=120s
 kubectl wait --for=condition=Ready certificate/server-site-cert -n temporal --timeout=120s
@@ -256,12 +256,12 @@ kubectl exec -n temporal deploy/temporal-admintools -- \
 _ncx_docker_cfg="$(printf '{"auths":{"nvcr.io":{"username":"$oauthtoken","password":"%s"}}}' \
     "${REGISTRY_PULL_SECRET}" | base64 | tr -d '\n')"
 
-helm upgrade --install carbide-rest "${NCX_REPO}/helm/charts/carbide-rest" \
-    --namespace carbide-rest \
+helm upgrade --install nico-rest "${NCX_REPO}/helm/charts/nico-rest" \
+    --namespace nico-rest \
     -f values/ncx-rest.yaml \
     --set global.image.repository="${NCX_IMAGE_REGISTRY}" \
     --set global.image.tag="${NCX_REST_IMAGE_TAG}" \
-    --set "carbide-rest-common.secrets.imagePullSecret.dockerconfigjson=${_ncx_docker_cfg}" \
+    --set "nico-rest-common.secrets.imagePullSecret.dockerconfigjson=${_ncx_docker_cfg}" \
     --timeout 600s --wait
 ```
 
@@ -271,22 +271,22 @@ The deployment order is critical — do not skip steps.
 
 ```bash
 NCX_SITE_UUID="${NCX_SITE_UUID:-a1b2c3d4-e5f6-4000-8000-000000000001}"
-NCX_SITE_AGENT_CHART="${NCX_REPO}/helm/charts/carbide-rest-site-agent"
+NCX_SITE_AGENT_CHART="${NCX_REPO}/helm/charts/nico-rest-site-agent"
 
 # Step 1 - pre-apply the gRPC client cert so it exists before the pod starts
-helm template carbide-rest-site-agent "${NCX_SITE_AGENT_CHART}" \
-    --namespace carbide-rest \
+helm template nico-rest-site-agent "${NCX_SITE_AGENT_CHART}" \
+    --namespace nico-rest \
     -f values/ncx-site-agent.yaml \
     --set global.image.repository="${NCX_IMAGE_REGISTRY}" \
     --set global.image.tag="${NCX_REST_IMAGE_TAG}" \
     --show-only templates/certificate.yaml | kubectl apply -f -
-kubectl annotate certificate/core-grpc-client-site-agent-certs -n carbide-rest \
-    "meta.helm.sh/release-name=carbide-rest-site-agent" \
-    "meta.helm.sh/release-namespace=carbide-rest" --overwrite
-kubectl label certificate/core-grpc-client-site-agent-certs -n carbide-rest \
+kubectl annotate certificate/core-grpc-client-site-agent-certs -n nico-rest \
+    "meta.helm.sh/release-name=nico-rest-site-agent" \
+    "meta.helm.sh/release-namespace=nico-rest" --overwrite
+kubectl label certificate/core-grpc-client-site-agent-certs -n nico-rest \
     "app.kubernetes.io/managed-by=Helm" --overwrite
 kubectl wait --for=condition=Ready certificate/core-grpc-client-site-agent-certs \
-    -n carbide-rest --timeout=120s
+    -n nico-rest --timeout=120s
 
 # Step 2 - create per-site Temporal namespace (site-agent panics without it)
 _TEMPORAL_ADDR="temporal-frontend.temporal:7233"
@@ -298,8 +298,8 @@ kubectl exec -n temporal deploy/temporal-admintools -- \
     sh -c "temporal operator namespace create -n '${NCX_SITE_UUID}' --address ${_TEMPORAL_ADDR} ${_TEMPORAL_TLS}" 2>/dev/null || true
 
 # Step 3 - install site-agent (pre-install hook registers site and creates site-registration secret)
-helm upgrade --install carbide-rest-site-agent "${NCX_SITE_AGENT_CHART}" \
-    --namespace carbide-rest \
+helm upgrade --install nico-rest-site-agent "${NCX_SITE_AGENT_CHART}" \
+    --namespace nico-rest \
     -f values/ncx-site-agent.yaml \
     --set global.image.repository="${NCX_IMAGE_REGISTRY}" \
     --set global.image.tag="${NCX_REST_IMAGE_TAG}" \
@@ -308,9 +308,9 @@ helm upgrade --install carbide-rest-site-agent "${NCX_SITE_AGENT_CHART}" \
     --set "envConfig.TEMPORAL_SUBSCRIBE_QUEUE=site" \
     --timeout 300s --wait
 
-# Step 4 - verify gRPC connection to carbide-api
-kubectl logs -n carbide-rest -l app.kubernetes.io/name=carbide-rest-site-agent --prefix \
-    | grep "CarbideClient:"
+# Step 4 - verify gRPC connection to nico-api
+kubectl logs -n nico-rest -l app.kubernetes.io/name=nico-rest-site-agent --prefix \
+    | grep "NicoClient:"
 ```
 
 ---
@@ -323,28 +323,28 @@ The PKI has three layers, built bottom-up:
 selfsigned-bootstrap ClusterIssuer
   └── site-root CA Certificate  (10-year self-signed CA, Secret "site-root" in cert-manager ns)
         └── site-issuer ClusterIssuer  (issues Vault's own TLS certs - no Vault dependency)
-              ├── forgeca-vault-client  (Vault port 8200 listener TLS, Secret in vault ns)
+              ├── nicoca-vault-client  (Vault port 8200 listener TLS, Secret in vault ns)
               └── vault-raft-tls        (Vault Raft port 8201 peer TLS, Secret in vault ns)
 
 vault (running, unsealed)
-  └── vault-pki-config Job  (imports site-root CA into Vault PKI engine "forgeca")
-        └── vault-forge-issuer ClusterIssuer  (issues all workload SPIFFE certs via Vault PKI)
+  └── vault-pki-config Job  (imports site-root CA into Vault PKI engine "nicoca")
+        └── vault-nico-issuer ClusterIssuer  (issues all workload SPIFFE certs via Vault PKI)
 ```
 
 NCX REST has its own parallel PKI chain for internal services:
 
 ```
-carbide-rest-ca-issuer ClusterIssuer  (backed by ca-signing-secret in carbide-rest ns)
+nico-rest-ca-issuer ClusterIssuer  (backed by ca-signing-secret in nico-rest ns)
   └── Temporal mTLS certificates      (server-interservice-cert, server-cloud-cert, server-site-cert)
 
-vault-forge-issuer ClusterIssuer      (same Vault PKI CA as NCX Core)
-  └── site-agent gRPC client cert     (core-grpc-client-site-agent-certs in carbide-rest ns)
-        SPIFFE URI: spiffe://forge.local/forge-system/sa/elektra-site-agent
+vault-nico-issuer ClusterIssuer      (same Vault PKI CA as NCX Core)
+  └── site-agent gRPC client cert     (core-grpc-client-site-agent-certs in nico-rest ns)
+        SPIFFE URI: spiffe://nico.local/nico-system/sa/elektra-site-agent
 ```
 
-The site-agent uses the Vault PKI CA for both directions of mTLS with carbide-api:
-- Site-agent presents its client cert (Vault-signed) — carbide-api trusts it via the same CA.
-- Site-agent verifies carbide-api's server cert using `ca.crt` from the issued secret (Vault PKI CA).
+The site-agent uses the Vault PKI CA for both directions of mTLS with nico-api:
+- Site-agent presents its client cert (Vault-signed) — nico-api trusts it via the same CA.
+- Site-agent verifies nico-api's server cert using `ca.crt` from the issued secret (Vault PKI CA).
 
 ### Layer 1 — Bootstrap (no external dependencies)
 
@@ -354,40 +354,40 @@ The site-agent uses the Vault PKI CA for both directions of mTLS with carbide-ap
 
 `site-issuer` is a `ca` ClusterIssuer backed by `site-root`. It can issue certificates without Vault being up.
 
-**This solves the Vault TLS chicken-and-egg problem.** Vault requires TLS to start — but `vault-forge-issuer` (the Vault-backed issuer) can't exist before Vault is running. `site-issuer` breaks the cycle by issuing Vault's own TLS secrets before Vault starts:
+**This solves the Vault TLS chicken-and-egg problem.** Vault requires TLS to start — but `vault-nico-issuer` (the Vault-backed issuer) can't exist before Vault is running. `site-issuer` breaks the cycle by issuing Vault's own TLS secrets before Vault starts:
 
 | Secret | Namespace | Purpose |
 |--------|-----------|---------|
-| `forgeca-vault-client` | `vault` | Port 8200 listener cert (mounted at `/vault/userconfig/forgeca-vault/`) |
+| `nicoca-vault-client` | `vault` | Port 8200 listener cert (mounted at `/vault/userconfig/nicoca-vault/`) |
 | `vault-raft-tls` | `vault` | Raft port 8201 peer cert (mounted at `/vault/userconfig/vault-raft-tls/`) |
 
 These secrets must exist **before** `helmfile sync -l name=vault` — setup.sh creates them explicitly in Phase 2 using `helm template | kubectl apply`.
 
-### Layer 3 — vault-forge-issuer (workload PKI)
+### Layer 3 — vault-nico-issuer (workload PKI)
 
 Once Vault is running and unsealed, the `vault-pki-config` Job (Helm post-install hook) configures Vault as a PKI backend:
 
-1. Enables the `forgeca` PKI secrets engine, tunes it to a 10-year max TTL.
+1. Enables the `nicoca` PKI secrets engine, tunes it to a 10-year max TTL.
 2. Imports `site-root` (cert + key) into Vault PKI — Vault becomes an intermediate CA under the same trust root.
-3. Creates PKI role `forge-cluster` — allows any name, allows SPIFFE URI SANs, 720h max TTL, EC P-256.
-4. Enables Kubernetes auth and writes two policies: `cert-manager-forge-policy` (sign via PKI) and `forge-vault-policy` (read KV secrets).
-5. Enables KV v2 at `secrets/` and AppRole auth for the `carbide` role.
+3. Creates PKI role `nico-cluster` — allows any name, allows SPIFFE URI SANs, 720h max TTL, EC P-256.
+4. Enables Kubernetes auth and writes two policies: `cert-manager-nico-policy` (sign via PKI) and `nico-vault-policy` (read KV secrets).
+5. Enables KV v2 at `secrets/` and AppRole auth for the `nico` role.
 
-`vault-forge-issuer` is then created as a cert-manager ClusterIssuer authenticating to Vault via Kubernetes auth. All NCX Core workload SPIFFE certificates and the site-agent's gRPC client certificate are issued through this issuer.
+`vault-nico-issuer` is then created as a cert-manager ClusterIssuer authenticating to Vault via Kubernetes auth. All NCX Core workload SPIFFE certificates and the site-agent's gRPC client certificate are issued through this issuer.
 
-### forge-roots — CA distribution
+### nico-roots — CA distribution
 
-The `forge-roots` Secret (containing `site-root`'s `ca.crt`) must be present in every namespace where NCX workloads run so pods can verify each other's SPIFFE certificates.
+The `nico-roots` Secret (containing `site-root`'s `ca.crt`) must be present in every namespace where NCX workloads run so pods can verify each other's SPIFFE certificates.
 
 ```
 site-root Secret (cert-manager ns)
   → ClusterSecretStore "cert-manager-ns-secretstore" (Kubernetes provider)
-    → ClusterExternalSecret "forge-roots-eso"
-      → ExternalSecret in every namespace labeled carbide.nvidia.com/managed=true
-        → Secret "forge-roots" (ca.crt)
+    → ClusterExternalSecret "nico-roots-eso"
+      → ExternalSecret in every namespace labeled nico.nvidia.com/managed=true
+        → Secret "nico-roots" (ca.crt)
 ```
 
-`creationPolicy: Orphan` prevents Kubernetes GC from cascading a delete to `forge-roots` if the ExternalSecret is recreated on helm upgrade.
+`creationPolicy: Orphan` prevents Kubernetes GC from cascading a delete to `nico-roots` if the ExternalSecret is recreated on helm upgrade.
 
 ---
 
@@ -397,45 +397,45 @@ PostgreSQL is deployed as a production-grade 3-node HA cluster managed by the **
 
 ```
 postgres-operator (postgres ns)
-  └── forge-pg-cluster postgresql CRD (postgres ns)        ← NCX Core
-        ├── forge-pg-cluster-0  (Patroni leader)
-        ├── forge-pg-cluster-1  (Patroni replica)
-        └── forge-pg-cluster-2  (Patroni replica)
+  └── nico-pg-cluster postgresql CRD (postgres ns)        ← NCX Core
+        ├── nico-pg-cluster-0  (Patroni leader)
+        ├── nico-pg-cluster-1  (Patroni replica)
+        └── nico-pg-cluster-2  (Patroni replica)
               each pod: postgres + postgres-exporter sidecar
 
 postgres StatefulSet (postgres ns, service: postgres)      ← NCX REST
-  └── Databases: forge, temporal, temporal_visibility, keycloak, elektratest
+  └── Databases: nico, temporal, temporal_visibility, keycloak, elektratest
 ```
 
 ### Credential flow (NCX Core)
 
 The operator automatically creates a per-user credential Secret in the `postgres` namespace:
 ```
-forge-system.carbide.forge-pg-cluster.credentials.postgresql.acid.zalan.do
-  username: forge-system.carbide
+nico-system.nico.nico-pg-cluster.credentials.postgresql.acid.zalan.do
+  username: nico-system.nico
   password: <operator-generated>
 ```
 
-ESO's `carbide-db-eso` ClusterExternalSecret mirrors this into `forge-system` as:
+ESO's `nico-db-eso` ClusterExternalSecret mirrors this into `nico-system` as:
 ```
-forge-system.carbide.forge-pg-cluster.credentials
-  username: forge-system.carbide
+nico-system.nico.nico-pg-cluster.credentials
+  username: nico-system.nico
   password: <same>
 ```
 
-### forge-pg-cluster-env ConfigMap
+### nico-pg-cluster-env ConfigMap
 
-The operator injects the `forge-pg-cluster-env` ConfigMap (in the `postgres` namespace) into every postgres pod as environment variables. Currently provides:
+The operator injects the `nico-pg-cluster-env` ConfigMap (in the `postgres` namespace) into every postgres pod as environment variables. Currently provides:
 
 ```
 TMP_SITE = <Values.siteName>
 ```
 
-The ConfigMap is rendered by the `carbide-prereqs` chart (from `Values.siteName`) so it flows in at install time and can be overridden per-site with `--set siteName=<name>`.
+The ConfigMap is rendered by the `nico-prereqs` chart (from `Values.siteName`) so it flows in at install time and can be overridden per-site with `--set siteName=<name>`.
 
 ### ssh-host-key format
 
-`ssh-console-rs` requires the SSH host key in **OpenSSH PEM format** (`-----BEGIN OPENSSH PRIVATE KEY-----`). Helm's `genPrivateKey "ed25519"` produces PKCS8 format which the binary rejects at startup. `bootstrap_ssh_host_key.sh` pre-creates the secret using `ssh-keygen` before `helmfile sync -l name=carbide-prereqs` runs. The `lookup` in `templates/_helpers.tpl` detects the existing secret and reuses it, so Helm never overwrites it.
+`ssh-console-rs` requires the SSH host key in **OpenSSH PEM format** (`-----BEGIN OPENSSH PRIVATE KEY-----`). Helm's `genPrivateKey "ed25519"` produces PKCS8 format which the binary rejects at startup. `bootstrap_ssh_host_key.sh` pre-creates the secret using `ssh-keygen` before `helmfile sync -l name=nico-prereqs` runs. The `lookup` in `templates/_helpers.tpl` detects the existing secret and reuses it, so Helm never overwrites it.
 
 ---
 
@@ -446,55 +446,55 @@ All secrets created by setup. The Vault unseal keys (`vault-cluster-keys`) are t
 | Secret | Namespace | Created by | Purpose |
 |--------|-----------|------------|---------|
 | `site-root` | `cert-manager` | cert-manager (selfsigned-bootstrap) | Self-signed root CA cert + key. Trust anchor for all PKI. |
-| `forgeca-vault-client` | `vault` | cert-manager (site-issuer) | Vault port 8200 TLS listener cert |
+| `nicoca-vault-client` | `vault` | cert-manager (site-issuer) | Vault port 8200 TLS listener cert |
 | `vault-raft-tls` | `vault` | cert-manager (site-issuer) | Vault Raft port 8201 TLS peer cert |
 | `vault-cluster-keys` | `vault` | `unseal_vault.sh` | Full Vault init JSON (5 unseal keys + root token). **Back this up.** |
 | `vaultunsealkeys` | `vault` | `unseal_vault.sh` | Individual unseal keys (0-4) for automated re-unseal |
 | `vaultroottoken` | `vault` | `unseal_vault.sh` | Vault root token. Limit use after setup. |
-| `forge-system.carbide.forge-pg-cluster.credentials.postgresql.acid.zalan.do` | `postgres` | Zalando operator | Operator-generated DB credentials (source of truth) |
-| `carbide-vault-token` | `forge-system` | `unseal_vault.sh` | Root token copy for `vault-pki-config` Job |
-| `carbide-vault-approle-tokens` | `forge-system` | `vault-pki-config` Job | AppRole role-id and secret-id for NCX Core services |
-| `nvcr-carbide-dev` | `forge-system` | `carbide-prereqs` chart | Image pull secret for NCX Core registry |
-| `ssh-host-key` | `forge-system` | `bootstrap_ssh_host_key.sh` | ed25519 host key for `carbide-ssh-console-rs` in OpenSSH format |
-| `forge-roots` | `forge-system` | ESO (forge-roots-eso) | Site-root CA cert (`ca.crt`) for SPIFFE cert verification |
-| `forge-system.carbide.forge-pg-cluster.credentials` | `forge-system` | ESO (carbide-db-eso) | DB credentials mirrored from `postgres` ns for `carbide-api` |
-| `ca-signing-secret` | `carbide-rest` | `gen-site-ca.sh` | NCX REST internal CA for Temporal mTLS |
-| `core-grpc-client-site-agent-certs` | `carbide-rest` | cert-manager (vault-forge-issuer) | Site-agent mTLS client cert for carbide-api gRPC |
+| `nico-system.nico.nico-pg-cluster.credentials.postgresql.acid.zalan.do` | `postgres` | Zalando operator | Operator-generated DB credentials (source of truth) |
+| `nico-vault-token` | `nico-system` | `unseal_vault.sh` | Root token copy for `vault-pki-config` Job |
+| `nico-vault-approle-tokens` | `nico-system` | `vault-pki-config` Job | AppRole role-id and secret-id for NCX Core services |
+| `nvcr-nico-dev` | `nico-system` | `nico-prereqs` chart | Image pull secret for NCX Core registry |
+| `ssh-host-key` | `nico-system` | `bootstrap_ssh_host_key.sh` | ed25519 host key for `nico-ssh-console-rs` in OpenSSH format |
+| `nico-roots` | `nico-system` | ESO (nico-roots-eso) | Site-root CA cert (`ca.crt`) for SPIFFE cert verification |
+| `nico-system.nico.nico-pg-cluster.credentials` | `nico-system` | ESO (nico-db-eso) | DB credentials mirrored from `postgres` ns for `nico-api` |
+| `ca-signing-secret` | `nico-rest` | `gen-site-ca.sh` | NCX REST internal CA for Temporal mTLS |
+| `core-grpc-client-site-agent-certs` | `nico-rest` | cert-manager (vault-nico-issuer) | Site-agent mTLS client cert for nico-api gRPC |
 
 ### ClusterIssuers
 
 | Name | Backed by | Issues |
 |------|-----------|--------|
 | `selfsigned-bootstrap` | cert-manager selfSigned | `site-root` CA only |
-| `site-issuer` | `site-root` CA Secret | Vault TLS certs (`forgeca-vault-client`, `vault-raft-tls`) |
-| `vault-forge-issuer` | Vault PKI engine (`forgeca/sign/forge-cluster`) | All NCX Core SPIFFE certs + site-agent gRPC client cert |
-| `carbide-rest-ca-issuer` | `ca-signing-secret` | Temporal mTLS certs |
+| `site-issuer` | `site-root` CA Secret | Vault TLS certs (`nicoca-vault-client`, `vault-raft-tls`) |
+| `vault-nico-issuer` | Vault PKI engine (`nicoca/sign/nico-cluster`) | All NCX Core SPIFFE certs + site-agent gRPC client cert |
+| `nico-rest-ca-issuer` | `ca-signing-secret` | Temporal mTLS certs |
 
 ### ClusterSecretStores
 
 | Name | Reads from | Used for |
 |------|------------|---------|
-| `cert-manager-ns-secretstore` | `cert-manager` namespace | Syncing `site-root` CA to `forge-roots` |
-| `postgres-ns-secretstore` | `postgres` namespace | Syncing operator DB credentials to `forge-system` |
+| `cert-manager-ns-secretstore` | `cert-manager` namespace | Syncing `site-root` CA to `nico-roots` |
+| `postgres-ns-secretstore` | `postgres` namespace | Syncing operator DB credentials to `nico-system` |
 
 ## Troubleshooting
 
-### carbide-api CrashLoopBackOff — siteConfig parse error
+### nico-api CrashLoopBackOff — siteConfig parse error
 
-If `carbide-api` crashes immediately after Phase 6 with a config parse error, the most common cause is empty required fields in the `carbideApiSiteConfig` TOML block. Fields that must be non-empty:
+If `nico-api` crashes immediately after Phase 6 with a config parse error, the most common cause is empty required fields in the `nicoApiSiteConfig` TOML block. Fields that must be non-empty:
 
 - `[networks.admin]` — `prefix` and `gateway` (empty string crashes the binary)
 - `[pools.lo-ip]`, `[pools.vlan-id]`, `[pools.vni]` — `ranges` must have at least one entry
 
 Check the pod logs for the specific field:
 ```bash
-kubectl logs -n forge-system -l app.kubernetes.io/name=carbide-api --previous
+kubectl logs -n nico-system -l app.kubernetes.io/name=nico-api --previous
 ```
 
 Fix the value in `values/ncx-core.yaml` and re-run:
 ```bash
-helm upgrade carbide ./helm --namespace forge-system -f helm-prereqs/values/ncx-core.yaml \
-    --set global.image.repository="${NCX_IMAGE_REGISTRY}/nvmetal-carbide" \
+helm upgrade nico ./helm --namespace nico-system -f helm-prereqs/values/ncx-core.yaml \
+    --set global.image.repository="${NCX_IMAGE_REGISTRY}/nvmetal-nico" \
     --set global.image.tag="${NCX_CORE_IMAGE_TAG}"
 ```
 
@@ -518,7 +518,7 @@ kubectl rollout restart deployment/coredns -n kube-system
 ```bash
 kubectl get certificate -n cert-manager
 kubectl get certificate -n vault
-kubectl describe certificate forgeca-vault-client -n vault
+kubectl describe certificate nicoca-vault-client -n vault
 ```
 
 Common cause: cert-manager webhook not ready yet. Wait 30 seconds and re-run Phase 2.
@@ -526,91 +526,91 @@ Common cause: cert-manager webhook not ready yet. Wait 30 seconds and re-run Pha
 ### Vault pods stuck in Init or CrashLoop
 
 ```bash
-kubectl get secret forgeca-vault-client vault-raft-tls -n vault
+kubectl get secret nicoca-vault-client vault-raft-tls -n vault
 kubectl logs vault-0 -n vault -c vault
 ```
 
 ### vault-pki-config Job failing
 
 ```bash
-kubectl logs -n forge-system job/vault-pki-config -c wait-vault
-kubectl logs -n forge-system job/vault-pki-config -c configure
+kubectl logs -n nico-system job/vault-pki-config -c wait-vault
+kubectl logs -n nico-system job/vault-pki-config -c configure
 ```
 
 Common causes:
 - Vault still sealed — `kubectl exec -n vault vault-0 -c vault -- vault status`
-- `carbide-vault-token` missing — re-run `./unseal_vault.sh`
+- `nico-vault-token` missing — re-run `./unseal_vault.sh`
 - `site-root` Secret not readable by the Job's service account
 
-### forge-pg-cluster not reaching Running state
+### nico-pg-cluster not reaching Running state
 
 ```bash
-kubectl get postgresql forge-pg-cluster -n postgres
-kubectl describe postgresql forge-pg-cluster -n postgres
+kubectl get postgresql nico-pg-cluster -n postgres
+kubectl describe postgresql nico-pg-cluster -n postgres
 kubectl get pods -n postgres
-kubectl logs -n postgres forge-pg-cluster-0 -c postgres
+kubectl logs -n postgres nico-pg-cluster-0 -c postgres
 ```
 
 Common causes:
 - `local-path-persistent` StorageClass missing — re-run Phase 1
-- `forge-pg-cluster-env` ConfigMap missing in `postgres` namespace — re-run Phase 5
+- `nico-pg-cluster-env` ConfigMap missing in `postgres` namespace — re-run Phase 5
 - Insufficient node resources — tune `postgresql.resources` in `values.yaml`
 
-### DB credentials not appearing in forge-system
+### DB credentials not appearing in nico-system
 
 ```bash
 kubectl get clustersecretstore postgres-ns-secretstore
-kubectl get clusterexternalsecret carbide-db-eso
-kubectl describe externalsecret -n forge-system
+kubectl get clusterexternalsecret nico-db-eso
+kubectl describe externalsecret -n nico-system
 ```
 
-The source secret (`forge-system.carbide.forge-pg-cluster.credentials.postgresql.acid.zalan.do`) is created by the operator only after the cluster reaches `Running` state. If the ClusterSecretStore shows `Invalid`, check that the `eso-postgres-ns` ServiceAccount token exists in the `postgres` namespace:
+The source secret (`nico-system.nico.nico-pg-cluster.credentials.postgresql.acid.zalan.do`) is created by the operator only after the cluster reaches `Running` state. If the ClusterSecretStore shows `Invalid`, check that the `eso-postgres-ns` ServiceAccount token exists in the `postgres` namespace:
 ```bash
 kubectl get secret eso-postgres-ns-token -n postgres
 ```
 
-### forge-roots Secret not appearing
+### nico-roots Secret not appearing
 
 ```bash
 kubectl get clustersecretstore cert-manager-ns-secretstore
-kubectl get clusterexternalsecret forge-roots-eso
-kubectl get namespace forge-system --show-labels
-# Should include: carbide.nvidia.com/managed=true
+kubectl get clusterexternalsecret nico-roots-eso
+kubectl get namespace nico-system --show-labels
+# Should include: nico.nvidia.com/managed=true
 ```
 
 If the label is missing:
 ```bash
-kubectl label namespace forge-system carbide.nvidia.com/managed=true
+kubectl label namespace nico-system nico.nvidia.com/managed=true
 ```
 
-### Site-agent gRPC connection to carbide-api failing (nil CarbideClient)
+### Site-agent gRPC connection to nico-api failing (nil NicoClient)
 
-The site-agent connects to carbide-api at startup with a 5-second deadline. If the connection fails, the `CarbideClient` stays nil permanently and all inventory activities panic with a nil-pointer dereference. setup.sh detects this and restarts the StatefulSet automatically, but you can also diagnose manually:
+The site-agent connects to nico-api at startup with a 5-second deadline. If the connection fails, the `NicoClient` stays nil permanently and all inventory activities panic with a nil-pointer dereference. setup.sh detects this and restarts the StatefulSet automatically, but you can also diagnose manually:
 
 ```bash
 # Check which pods connected successfully
-kubectl logs -n carbide-rest -l app.kubernetes.io/name=carbide-rest-site-agent --prefix \
-    | grep -E "CarbideClient: (successfully connected|failed to get version)"
+kubectl logs -n nico-rest -l app.kubernetes.io/name=nico-rest-site-agent --prefix \
+    | grep -E "NicoClient: (successfully connected|failed to get version)"
 
 # Check mTLS cert was issued
-kubectl get certificate core-grpc-client-site-agent-certs -n carbide-rest
+kubectl get certificate core-grpc-client-site-agent-certs -n nico-rest
 
 # Check the cert was projected into the pod
-kubectl exec -n carbide-rest carbide-rest-site-agent-0 -- ls /etc/carbide-certs/
+kubectl exec -n nico-rest nico-rest-site-agent-0 -- ls /etc/nico-certs/
 
-# Check DNS resolution of carbide-api from the pod
-kubectl exec -n carbide-rest carbide-rest-site-agent-0 -- \
-    nslookup carbide-api.forge-system.svc.cluster.local
+# Check DNS resolution of nico-api from the pod
+kubectl exec -n nico-rest nico-rest-site-agent-0 -- \
+    nslookup nico-api.nico-system.svc.cluster.local
 ```
 
 Common causes and fixes:
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `DeadlineExceeded` in pod logs | DNS cold cache on the node at startup | `kubectl rollout restart statefulset/carbide-rest-site-agent -n carbide-rest` |
-| `certificate signed by unknown authority` | Site-agent cert issued by wrong CA | Check `values/ncx-site-agent.yaml` — `global.certificate.issuerRef.name` must be `vault-forge-issuer` |
-| `Unauthenticated` from carbide-api | SPIFFE URI does not match `InternalRBACRules` | Check `values/ncx-site-agent.yaml` — `certificate.uris` must be `spiffe://forge.local/forge-system/sa/elektra-site-agent` |
-| `transport: error while dialing` | Wrong `CARBIDE_SEC_OPT` | Check `envConfig.CARBIDE_SEC_OPT: "2"` in `ncx-site-agent.yaml` (2 = MutualTLS) |
+| `DeadlineExceeded` in pod logs | DNS cold cache on the node at startup | `kubectl rollout restart statefulset/nico-rest-site-agent -n nico-rest` |
+| `certificate signed by unknown authority` | Site-agent cert issued by wrong CA | Check `values/ncx-site-agent.yaml` — `global.certificate.issuerRef.name` must be `vault-nico-issuer` |
+| `Unauthenticated` from nico-api | SPIFFE URI does not match `InternalRBACRules` | Check `values/ncx-site-agent.yaml` — `certificate.uris` must be `spiffe://nico.local/nico-system/sa/elektra-site-agent` |
+| `transport: error while dialing` | Wrong `NICO_SEC_OPT` | Check `envConfig.NICO_SEC_OPT: "2"` in `ncx-site-agent.yaml` (2 = MutualTLS) |
 | cert secret missing at pod start | Race: StatefulSet started before cert was issued | Re-run Phase 7h — pre-apply Certificate step ensures cert exists first |
 
 ### Temporal namespace not found (site-agent startup panic)
@@ -643,7 +643,7 @@ kubectl get ipaddresspool -n metallb-system
 kubectl get bgppeer -n metallb-system
 kubectl describe bgppeer -n metallb-system
 kubectl logs -n metallb-system -l app=metallb,component=speaker --tail=50
-kubectl get svc -n forge-system -l app.kubernetes.io/name=carbide-api
+kubectl get svc -n nico-system -l app.kubernetes.io/name=nico-api
 ```
 
 Common causes:
@@ -663,11 +663,11 @@ kubectl get clustersecretstore
 kubectl get pods -n metallb-system
 kubectl get ipaddresspool,bgppeer -n metallb-system
 kubectl get pods -n postgres
-kubectl get pods -n forge-system
-kubectl get jobs -n forge-system
-kubectl get secret forge-roots -n forge-system
-kubectl get secret forge-system.carbide.forge-pg-cluster.credentials -n forge-system
-kubectl get pods -n carbide-rest
+kubectl get pods -n nico-system
+kubectl get jobs -n nico-system
+kubectl get secret nico-roots -n nico-system
+kubectl get secret nico-system.nico.nico-pg-cluster.credentials -n nico-system
+kubectl get pods -n nico-rest
 kubectl get pods -n temporal
-kubectl get certificate core-grpc-client-site-agent-certs -n carbide-rest
+kubectl get certificate core-grpc-client-site-agent-certs -n nico-rest
 ```

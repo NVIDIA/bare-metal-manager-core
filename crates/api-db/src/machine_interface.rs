@@ -20,6 +20,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 use carbide_network::ip::{IdentifyAddressFamily, IpAddressFamily};
+use carbide_utils::redfish::BmcAccessInfo;
 use carbide_uuid::domain::DomainId;
 use carbide_uuid::machine::{MachineId, MachineInterfaceId};
 use carbide_uuid::network::{NetworkPrefixId, NetworkSegmentId};
@@ -293,6 +294,25 @@ pub async fn lookup_bmc_ip_by_mac_address(
         .fetch_all(db)
         .await
         .map_err(|e| DatabaseError::query(query, e))
+}
+
+pub async fn lookup_bmc_access_info(
+    db: impl DbReader<'_>,
+    ip: IpAddr,
+    port: Option<u16>,
+) -> DatabaseResult<BmcAccessInfo> {
+    let mac_address = find_by_ip(db, ip)
+        .await?
+        .ok_or_else(|| DatabaseError::NotFoundError {
+            kind: "Machine Interface",
+            id: ip.to_string(),
+        })?
+        .mac_address;
+    Ok(BmcAccessInfo {
+        host: ip.to_string(),
+        port,
+        mac_address,
+    })
 }
 
 pub async fn find_by_ip(

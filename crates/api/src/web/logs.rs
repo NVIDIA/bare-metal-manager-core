@@ -27,7 +27,7 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use askama::Template;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Response};
@@ -37,6 +37,10 @@ use tokio::sync::broadcast::error::RecvError;
 use super::Base;
 use crate::api::Api;
 use crate::logging::stream::LogLine;
+
+/// Hard cap on a single page, so a client can't request an unbounded slice
+/// regardless of the configured default page size.
+const MAX_PAGE_SIZE: usize = 5000;
 
 #[derive(Template)]
 #[template(path = "api_logs.html")]
@@ -60,11 +64,12 @@ pub async fn stream(State(state): State<Arc<Api>>, Path(source): Path<String>) -
             .into_response();
     }
 
+    let page_size = state.runtime_config.log_history.page_size;
     let log_stream = state.dynamic_settings.log_stream.clone();
     // Subscribe before snapshotting the backlog so no line slips through the gap
     // between the two.
     let rx = log_stream.subscribe();
-    let backlog = log_stream.recent();
+    let backlog = log_stream.latest(page_size);
 
     let replay = stream::iter(
         backlog
@@ -87,6 +92,49 @@ pub async fn stream(State(state): State<Arc<Api>>, Path(source): Path<String>) -
 
     Sse::new(replay.chain(live))
         .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+/// Query parameters for the scrollback history endpoint.
+#[derive(serde::Deserialize)]
+pub struct HistoryQuery {
+    /// Return lines older than this `seq` cursor. Absent = newest page.
+    before: Option<u64>,
+    /// Max lines to return; clamped to `MAX_PAGE_SIZE`. Absent = `DEFAULT_PAGE_SIZE`.
+    limit: Option<usize>,
+}
+
+/// `GET /admin/logs/{source}/history?before=<seq>&limit=<n>` — one page of
+/// buffered lines (oldest-first) for scrollback. With `before`, returns the
+/// page just older than that cursor; without it, the newest page.
+pub async fn history(
+    State(state): State<Arc<Api>>,
+    Path(source): Path<String>,
+    Query(query): Query<HistoryQuery>,
+) -> Response {
+    if source != "api" {
+        return (
+            StatusCode::NOT_FOUND,
+            format!("log source {source:?} is not available yet"),
+        )
+            .into_response();
+    }
+
+    let limit = query
+        .limit
+        .unwrap_or(state.runtime_config.log_history.page_size)
+        .min(MAX_PAGE_SIZE);
+    let log_stream = &state.dynamic_settings.log_stream;
+    let lines = match query.before {
+        Some(before) => log_stream.history(before, limit),
+        None => log_stream.latest(limit),
+    };
+
+    let body = serde_json::to_string(&lines).unwrap_or_else(|_| "[]".to_string());
+    (
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        body,
+    )
         .into_response()
 }
 

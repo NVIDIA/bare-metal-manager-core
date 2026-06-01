@@ -41,15 +41,15 @@ Test Case Management is the process of  adding, updating test cases. There are t
 
 #### Enable disable test
 
-If the test case is enabled then forge-scout selects the test case for running.
+If the test case is enabled then nico-scout selects the test case for running.
 
 #### Verify tests
 
-If site admin adds a test case, by default the test case verified flag will be set to false. The term verify means test case added to NICo datastore but not actually verified on hardware. By default the forge-scout never runs unverified test cases. Using on-demand machine validation, admin can run unverified test cases.
+If site admin adds a test case, by default the test case verified flag will be set to false. The term verify means test case added to NICo datastore but not actually verified on hardware. By default the nico-scout never runs unverified test cases. Using on-demand machine validation, admin can run unverified test cases.
 
 #### View tests results
 
-Once the forge-scout completes the test cases, the view results feature gives a detailed report of executed test cases.
+Once the nico-scout completes the test cases, the view results feature gives a detailed report of executed test cases.
 
 #### On Demand tests
 
@@ -63,87 +63,87 @@ If the machine is not allocated for long and the machine remains in ready state,
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_CpuBenchmarkingFp  | CpuBenchmarkingFp  | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | true      |
+| nico_CpuBenchmarkingFp  | CpuBenchmarkingFp  | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_CpuBenchmarkingInt | CpuBenchmarkingInt | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | true      |
+| nico_CpuBenchmarkingInt | CpuBenchmarkingInt | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_CudaSample         | CudaSample         | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | true      |
+| nico_CudaSample         | CudaSample         | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_FioFile            | FioFile            | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | true      |
+| nico_FioFile            | FioFile            | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_FioPath            | FioPath            | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | true      |
+| nico_FioPath            | FioPath            | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_FioSSD             | FioSSD             | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | true      |
+| nico_FioSSD             | FioSSD             | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_MmMemBandwidth     | MmMemBandwidth     | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | true      |
+| nico_MmMemBandwidth     | MmMemBandwidth     | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_MmMemLatency       | MmMemLatency       | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | true      |
+| nico_MmMemLatency       | MmMemLatency       | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_MmMemPeakBandwidth | MmMemPeakBandwidth | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | true      |
+| nico_MmMemPeakBandwidth | MmMemPeakBandwidth | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_Nvbandwidth        | Nvbandwidth        | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | true      |
+| nico_Nvbandwidth        | Nvbandwidth        | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_RaytracingVk       | RaytracingVk       | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | false     |
+| nico_RaytracingVk       | RaytracingVk       | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | false     |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_CPUTestLong        | CPUTestLong        | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
+| nico_CPUTestLong        | CPUTestLong        | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_CPUTestShort       | CPUTestShort       | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
+| nico_CPUTestShort       | CPUTestShort       | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_MemoryTestLong     | MemoryTestLong     | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
+| nico_MemoryTestLong     | MemoryTestLong     | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_MemoryTestShort    | MemoryTestShort    | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
+| nico_MemoryTestShort    | MemoryTestShort    | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_MqStresserLong     | MqStresserLong     | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
+| nico_MqStresserLong     | MqStresserLong     | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_MqStresserShort    | MqStresserShort    | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
+| nico_MqStresserShort    | MqStresserShort    | stress-ng                  | 7200    | true       | V1-T1731386879991534 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_DcgmFullShort      | DcgmFullShort      | dcgmi                      | 7200    | true       | V1-T1731384539962561 | true      |
+| nico_DcgmFullShort      | DcgmFullShort      | dcgmi                      | 7200    | true       | V1-T1731384539962561 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_DefaultTestCase    | DefaultTestCase    | echo                       | 7200    | false      | V1-T1731384539962561 | true      |
+| nico_DefaultTestCase    | DefaultTestCase    | echo                       | 7200    | false      | V1-T1731384539962561 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_DcgmFullLong       | DcgmFullLong       | dcgmi                      | 7200    | true       | V1-T1731383523746813 | true      |
+| nico_DcgmFullLong       | DcgmFullLong       | dcgmi                      | 7200    | true       | V1-T1731383523746813 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_ForgeRunBook       | ForgeRunBook       |                            | 7200    | true       | V1-T1731382251768493 | false     |
+| nico_NicoRunBook       | NicoRunBook       |                            | 7200    | true       | V1-T1731382251768493 | false     |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 ```
@@ -154,7 +154,7 @@ If the machine is not allocated for long and the machine remains in ready state,
 
 NICo has a Machine validation feature gate. By default the feature is disabled.
 
-To enable this feature, add the following section in the API site config TOML file (`/site/site-controller/files/carbide-api/carbide-api-site-config.toml`):
+To enable this feature, add the following section in the API site config TOML file (`/site/site-controller/files/nico-api/nico-api-site-config.toml`):
 
 ```toml
 [machine_validation_config]
@@ -166,17 +166,17 @@ Machine Validation allows site operators to configure the NGC container registry
 Finally add the config to the site:
 
 ```bash
-user:~$ carbide-admin-cli machine-validation external-config    add-update --name container_auth --description "NVCR description"  --file-name /tmp/config.json
+user:~$ nico-admin-cli machine-validation external-config    add-update --name container_auth --description "NVCR description"  --file-name /tmp/config.json
 ```
 
-> **Note**: You can copy the Imagepullsecret from Kubernetes with the command `kubectl get secrets -n forge-system imagepullsecret -o yaml | awk '$1==".dockerconfigjson:" {print $2}'`.
+> **Note**: You can copy the Imagepullsecret from Kubernetes with the command `kubectl get secrets -n nico-system imagepullsecret -o yaml | awk '$1==".dockerconfigjson:" {print $2}'`.
 
 ### Enable test cases
 
 By default all the test cases are disabled.
 
 ```bash
-user@host:admin$ carbide-admin-cli machine-validation tests show
+user@host:admin$ nico-admin-cli machine-validation tests show
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
@@ -184,15 +184,15 @@ user@host:admin$ carbide-admin-cli machine-validation tests show
 
 +==========================+====================+============================+=========+============+======================+===========+
 
-| forge_CpuBenchmarkingFp  | CpuBenchmarkingFp  | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | false     |
+| nico_CpuBenchmarkingFp  | CpuBenchmarkingFp  | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | false     |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_CpuBenchmarkingInt | CpuBenchmarkingInt | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | false     |
+| nico_CpuBenchmarkingInt | CpuBenchmarkingInt | /benchpress/benchpress     | 7200    | true       | V1-T1734600519831720 | false     |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
-| forge_CudaSample         | CudaSample         | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | false     |
+| nico_CudaSample         | CudaSample         | /opt/benchpress/benchpress | 7200    | true       | V1-T1734600519831720 | false     |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 ```
@@ -200,189 +200,189 @@ user@host:admin$ carbide-admin-cli machine-validation tests show
 To enable tests
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id <test_id> --version  <test version>
+nico-admin-cli machine-validation tests enable --test-id <test_id> --version  <test version>
 
-carbide-admin-cli machine-validation tests verify --test-id <test_id> --version  <test version>
+nico-admin-cli machine-validation tests verify --test-id <test_id> --version  <test version>
 ```
 
 Note: Due to a current limitation, enable and verify must be run as separate commands.
 
-For example, to enable forge_CudaSample, execute following steps:
+For example, to enable nico_CudaSample, execute following steps:
 
 ```
-user@host:admin$ carbide-admin-cli machine-validation tests enable --test-id forge_CudaSample  --version  V1-T1734600519831720
+user@host:admin$ nico-admin-cli machine-validation tests enable --test-id nico_CudaSample  --version  V1-T1734600519831720
 
-user@host:admin$ carbide-admin-cli machine-validation tests verify --test-id forge_CudaSample  --version  V1-T1734600519831720
+user@host:admin$ nico-admin-cli machine-validation tests verify --test-id nico_CudaSample  --version  V1-T1734600519831720
 ```
 
 Enabling different tests cases
 
 CPU Benchmarking test cases
 
-1) forge_CpuBenchmarkingFp
+1) nico_CpuBenchmarkingFp
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_CpuBenchmarkingFp  --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests enable --test-id nico_CpuBenchmarkingFp  --version  V1-T1734600519831720
 
-carbide-admin-cli machine-validation tests verify --test-id forge_CpuBenchmarkingFp  --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests verify --test-id nico_CpuBenchmarkingFp  --version  V1-T1734600519831720
 ```
 
-2) forge_CpuBenchmarkingInt
+2) nico_CpuBenchmarkingInt
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_CpuBenchmarkingInt --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests enable --test-id nico_CpuBenchmarkingInt --version  V1-T1734600519831720
 
-carbide-admin-cli machine-validation tests verify --test-id forge_CpuBenchmarkingInt --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests verify --test-id nico_CpuBenchmarkingInt --version  V1-T1734600519831720
 ```
 
 Cuda sample test cases
 
-3) forge_CudaSample
+3) nico_CudaSample
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_CudaSample --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests enable --test-id nico_CudaSample --version  V1-T1734600519831720
 
-carbide-admin-cli machine-validation tests verify --test-id forge_CudaSample --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests verify --test-id nico_CudaSample --version  V1-T1734600519831720
 ```
 
 FIO test cases
 
-4) forge_FioFile
+4) nico_FioFile
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_FioFile --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests enable --test-id nico_FioFile --version  V1-T1734600519831720
 
-carbide-admin-cli machine-validation tests verify --test-id forge_FioFile --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests verify --test-id nico_FioFile --version  V1-T1734600519831720
 ```
 
-5) forge_FioPath
+5) nico_FioPath
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_FioPath --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests enable --test-id nico_FioPath --version  V1-T1734600519831720
 
-carbide-admin-cli machine-validation tests verify --test-id forge_FioPath --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests verify --test-id nico_FioPath --version  V1-T1734600519831720
 ```
 
-6) forge_FioSSD
+6) nico_FioSSD
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_FioSSD --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests enable --test-id nico_FioSSD --version  V1-T1734600519831720
 
-carbide-admin-cli machine-validation tests verify --test-id forge_FioSSD --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests verify --test-id nico_FioSSD --version  V1-T1734600519831720
 ```
 
 Memory test cases
 
-7) forge_MmMemBandwidth
+7) nico_MmMemBandwidth
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_MmMemBandwidth --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests enable --test-id nico_MmMemBandwidth --version  V1-T1734600519831720
 
-carbide-admin-cli machine-validation tests verify --test-id forge_MmMemBandwidth --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests verify --test-id nico_MmMemBandwidth --version  V1-T1734600519831720
 ```
 
-8) forge_MmMemLatency
+8) nico_MmMemLatency
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_MmMemLatency --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests enable --test-id nico_MmMemLatency --version  V1-T1734600519831720
 
-carbide-admin-cli machine-validation tests verify --test-id forge_MmMemLatency --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests verify --test-id nico_MmMemLatency --version  V1-T1734600519831720
 ```
 
-9) forge_MmMemPeakBandwidth
+9) nico_MmMemPeakBandwidth
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_MmMemPeakBandwidth --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests enable --test-id nico_MmMemPeakBandwidth --version  V1-T1734600519831720
 
-carbide-admin-cli machine-validation tests verify --test-id forge_MmMemPeakBandwidth --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests verify --test-id nico_MmMemPeakBandwidth --version  V1-T1734600519831720
 ```
 
 NV test cases
 
-10) forge_Nvbandwidth
+10) nico_Nvbandwidth
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_Nvbandwidth --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests enable --test-id nico_Nvbandwidth --version  V1-T1734600519831720
 
-carbide-admin-cli machine-validation tests verify --test-id forge_Nvbandwidth --version  V1-T1734600519831720
+nico-admin-cli machine-validation tests verify --test-id nico_Nvbandwidth --version  V1-T1734600519831720
 ```
 
 Stress ng test cases
 
-11) forge_CPUTestLong
+11) nico_CPUTestLong
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_CPUTestLong --version  V1-T1731386879991534
+nico-admin-cli machine-validation tests enable --test-id nico_CPUTestLong --version  V1-T1731386879991534
 
-carbide-admin-cli machine-validation tests verify --test-id forge_CPUTestLong --version  V1-T1731386879991534
+nico-admin-cli machine-validation tests verify --test-id nico_CPUTestLong --version  V1-T1731386879991534
 ```
 
-12) forge_CPUTestShort
+12) nico_CPUTestShort
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_CPUTestShort --version  V1-T1731386879991534
+nico-admin-cli machine-validation tests enable --test-id nico_CPUTestShort --version  V1-T1731386879991534
 
-carbide-admin-cli machine-validation tests verify --test-id forge_CPUTestShort --version  V1-T1731386879991534
+nico-admin-cli machine-validation tests verify --test-id nico_CPUTestShort --version  V1-T1731386879991534
 ```
 
-13) forge_MemoryTestLong
+13) nico_MemoryTestLong
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_MemoryTestLong  --version  V1-T1731386879991534
+nico-admin-cli machine-validation tests enable --test-id nico_MemoryTestLong  --version  V1-T1731386879991534
 
-carbide-admin-cli machine-validation tests verify --test-id forge_MemoryTestLong  --version  V1-T1731386879991534
+nico-admin-cli machine-validation tests verify --test-id nico_MemoryTestLong  --version  V1-T1731386879991534
 ```
 
-14) forge_MemoryTestShort
+14) nico_MemoryTestShort
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_MemoryTestShort  --version  V1-T1731386879991534
+nico-admin-cli machine-validation tests enable --test-id nico_MemoryTestShort  --version  V1-T1731386879991534
 
-carbide-admin-cli machine-validation tests verify --test-id forge_MemoryTestShort  --version  V1-T1731386879991534
+nico-admin-cli machine-validation tests verify --test-id nico_MemoryTestShort  --version  V1-T1731386879991534
 ```
 
-15) forge_MqStresserLong
+15) nico_MqStresserLong
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_MqStresserLong  --version  V1-T1731386879991534
+nico-admin-cli machine-validation tests enable --test-id nico_MqStresserLong  --version  V1-T1731386879991534
 
-carbide-admin-cli machine-validation tests verify --test-id forge_MqStresserShort  --version  V1-T1731386879991534
+nico-admin-cli machine-validation tests verify --test-id nico_MqStresserShort  --version  V1-T1731386879991534
 ```
 
-16) forge_MqStresserShort
+16) nico_MqStresserShort
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_MqStresserShort  --version  V1-T1731386879991534
+nico-admin-cli machine-validation tests enable --test-id nico_MqStresserShort  --version  V1-T1731386879991534
 
-carbide-admin-cli machine-validation tests verify --test-id forge_MqStresserShort  --version  V1-T1731386879991534
+nico-admin-cli machine-validation tests verify --test-id nico_MqStresserShort  --version  V1-T1731386879991534
 ```
 
 DCGMI test cases
 
-17) forge_DcgmFullShort
+17) nico_DcgmFullShort
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_DcgmFullShort  --version  V1-T1731384539962561
+nico-admin-cli machine-validation tests enable --test-id nico_DcgmFullShort  --version  V1-T1731384539962561
 
-carbide-admin-cli machine-validation tests verify --test-id forge_DcgmFullLong  --version  V1-T1731384539962561
+nico-admin-cli machine-validation tests verify --test-id nico_DcgmFullLong  --version  V1-T1731384539962561
 ```
 
-18) forge_DcgmFullLong
+18) nico_DcgmFullLong
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_DcgmFullLong  --version  V1-T1731383523746813
+nico-admin-cli machine-validation tests enable --test-id nico_DcgmFullLong  --version  V1-T1731383523746813
 
-carbide-admin-cli machine-validation tests verify --test-id forge_DcgmFullLong  --version  V1-T1731383523746813
+nico-admin-cli machine-validation tests verify --test-id nico_DcgmFullLong  --version  V1-T1731383523746813
 ```
 
 Shoreline Agent test case
 
-19) forge_ForgeRunBook
+19) nico_NicoRunBook
 
 ```bash
-carbide-admin-cli machine-validation tests enable --test-id forge_ForgeRunBook --version  V1-T1731383523746813
+nico-admin-cli machine-validation tests enable --test-id nico_NicoRunBook --version  V1-T1731383523746813
 
-carbide-admin-cli machine-validation tests verify --test-id forge_ForgeRunBook  --version  V1-T1731383523746813
+nico-admin-cli machine-validation tests verify --test-id nico_NicoRunBook  --version  V1-T1731383523746813
 ```
 
 ### Verify tests
@@ -390,7 +390,7 @@ carbide-admin-cli machine-validation tests verify --test-id forge_ForgeRunBook  
 If a test is modified or added by site admin by default the test case verify flag is set to false
 
 ```bash
-user@host:admin$ carbide-admin-cli machine-validation tests show
+user@host:admin$ nico-admin-cli machine-validation tests show
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 
@@ -398,7 +398,7 @@ user@host:admin$ carbide-admin-cli machine-validation tests show
 
 +==========================+====================+============================+=========+============+======================+===========+
 
-| forge_site_admin         | site               | echo                       | 7200    | false      | V1-T1734009539861341 | true      |
+| nico_site_admin         | site               | echo                       | 7200    | false      | V1-T1734009539861341 | true      |
 
 +--------------------------+--------------------+----------------------------+---------+------------+----------------------+-----------+
 ```
@@ -406,13 +406,13 @@ user@host:admin$ carbide-admin-cli machine-validation tests show
 To mark test as verified
 
 ```bash
-carbide-admin-cli machine-validation tests verify --test-id <test_id> --version  <test version>
+nico-admin-cli machine-validation tests verify --test-id <test_id> --version  <test version>
 ```
 
-Eg:  To enable forge_CudaSample  execute following steps
+Eg:  To enable nico_CudaSample  execute following steps
 
 ```bash
-user@host:admin$ carbide-admin-cli machine-validation tests verify --test-id forge_site_admin --version  V1-T1734009539861341
+user@host:admin$ nico-admin-cli machine-validation tests verify --test-id nico_site_admin --version  V1-T1734009539861341
 ```
 
 ### Add test case
@@ -420,12 +420,12 @@ user@host:admin$ carbide-admin-cli machine-validation tests verify --test-id for
 Site admin can add test cases per site.
 
 ```bash
-user@host:admin$ carbide-admin-cli machine-validation tests add  --help
+user@host:admin$ nico-admin-cli machine-validation tests add  --help
 ```
 
 Add new test case
 
-Usage: `carbide-admin-cli machine-validation tests add [OPTIONS] --name <NAME> --command <COMMAND> --args <ARGS>`
+Usage: `nico-admin-cli machine-validation tests add [OPTIONS] --name <NAME> --command <COMMAND> --args <ARGS>`
 
 Options:
 
@@ -514,9 +514,9 @@ Options:
 Eg: add test case which prints **‘newtest’**
 
 ```bash
-user@host:admin$ carbide-admin-cli machine-validation tests add   --name NewTest --command echo --args newtest
+user@host:admin$ nico-admin-cli machine-validation tests add   --name NewTest --command echo --args newtest
 
-user@host:admin$ carbide-admin-cli machine-validation tests show --test-id forge_NewTest
+user@host:admin$ nico-admin-cli machine-validation tests show --test-id nico_NewTest
 
 +---------------+---------+---------+---------+------------+----------------------+-----------+
 
@@ -524,7 +524,7 @@ user@host:admin$ carbide-admin-cli machine-validation tests show --test-id forge
 
 +===============+=========+=========+=========+============+======================+===========+
 
-| forge_NewTest | NewTest | echo    | 7200    | false      | V1-T1736492939564126 | true      |
+| nico_NewTest | NewTest | echo    | 7200    | false      | V1-T1736492939564126 | true      |
 
 +---------------+---------+---------+---------+------------+----------------------+-----------+
 ```
@@ -532,9 +532,9 @@ user@host:admin$ carbide-admin-cli machine-validation tests show --test-id forge
 By default the test case’s verify flag is set to false. Set
 
 ```bash
-user@host:admin$ carbide-admin-cli machine-validation tests verify  --test-id forge_NewTest --version V1-T1736492939564126
+user@host:admin$ nico-admin-cli machine-validation tests verify  --test-id nico_NewTest --version V1-T1736492939564126
 
-user@host:admin$ carbide-admin-cli machine-validation tests show --test-id forge_NewTest
+user@host:admin$ nico-admin-cli machine-validation tests show --test-id nico_NewTest
 
 +---------------+---------+---------+---------+------------+----------------------+-----------+
 
@@ -542,7 +542,7 @@ user@host:admin$ carbide-admin-cli machine-validation tests show --test-id forge
 
 +===============+=========+=========+=========+============+======================+===========+
 
-| forge_NewTest | NewTest | echo    | 7200    | true       | V1-T1736492939564126 | true      |
+| nico_NewTest | NewTest | echo    | 7200    | true       | V1-T1736492939564126 | true      |
 
 +---------------+---------+---------+---------+------------+----------------------+-----------+
 ```
@@ -552,12 +552,12 @@ user@host:admin$ carbide-admin-cli machine-validation tests show --test-id forge
 Update existing testcases
 
 ```bash
-user@host:admin$ carbide-admin-cli machine-validation tests update --help
+user@host:admin$ nico-admin-cli machine-validation tests update --help
 ```
 
 Update existing test case
 
-Usage: `carbide-admin-cli machine-validation tests update [OPTIONS] --test-id <TEST_ID> --version <VERSION>`
+Usage: `nico-admin-cli machine-validation tests update [OPTIONS] --test-id <TEST_ID> --version <VERSION>`
 
 Options:
 
@@ -646,23 +646,9 @@ Options:
 We can selectively update fields of test cases. Once the test case is updated the verify flag is set to false. Site admin hs to explicitly set the flag as verified.
 
 ```bash
-user@host:admin$ carbide-admin-cli machine-validation tests update  --test-id forge_NewTest --version V1-T1736492939564126 --args updatenewtest
+user@host:admin$ nico-admin-cli machine-validation tests update  --test-id nico_NewTest --version V1-T1736492939564126 --args updatenewtest
 
-user@host:admin$ carbide-admin-cli machine-validation tests show --test-id forge_NewTest
-
-+---------------+---------+---------+---------+------------+----------------------+-----------+
-
-| TestId        | Name    | Command | Timeout | IsVerified | Version              | IsEnabled |
-
-+===============+=========+=========+=========+============+======================+===========+
-
-| forge_NewTest | NewTest | echo    | 7200    | false      | V1-T1736492939564126 | true      |
-
-+---------------+---------+---------+---------+------------+----------------------+-----------+
-
-user@host:admin$ carbide-admin-cli machine-validation tests verify  --test-id forge_NewTest --version V1-T1736492939564126
-
-user@host:admin$ carbide-admin-cli machine-validation tests show --test-id forge_NewTest
+user@host:admin$ nico-admin-cli machine-validation tests show --test-id nico_NewTest
 
 +---------------+---------+---------+---------+------------+----------------------+-----------+
 
@@ -670,7 +656,21 @@ user@host:admin$ carbide-admin-cli machine-validation tests show --test-id forge
 
 +===============+=========+=========+=========+============+======================+===========+
 
-| forge_NewTest | NewTest | echo    | 7200    | true       | V1-T1736492939564126 | true      |
+| nico_NewTest | NewTest | echo    | 7200    | false      | V1-T1736492939564126 | true      |
+
++---------------+---------+---------+---------+------------+----------------------+-----------+
+
+user@host:admin$ nico-admin-cli machine-validation tests verify  --test-id nico_NewTest --version V1-T1736492939564126
+
+user@host:admin$ nico-admin-cli machine-validation tests show --test-id nico_NewTest
+
++---------------+---------+---------+---------+------------+----------------------+-----------+
+
+| TestId        | Name    | Command | Timeout | IsVerified | Version              | IsEnabled |
+
++===============+=========+=========+=========+============+======================+===========+
+
+| nico_NewTest | NewTest | echo    | 7200    | true       | V1-T1736492939564126 | true      |
 
 +---------------+---------+---------+---------+------------+----------------------+-----------+
 ```
@@ -684,12 +684,12 @@ Machine validation has 3 Contexts
 3) On-Demand - Tests cases with context will be executed when on demand machine validation is triggered.
 
 ```bash
-user@host:admin$ carbide-admin-cli machine-validation on-demand start  --help
+user@host:admin$ nico-admin-cli machine-validation on-demand start  --help
 ```
 
 Start on demand machine validation
 
-Usage: `carbide-admin-cli machine-validation on-demand start [OPTIONS] --machine <MACHINE>`
+Usage: `nico-admin-cli machine-validation on-demand start [OPTIONS] --machine <MACHINE>`
 
 Options:
 
@@ -712,25 +712,25 @@ Options:
 Usecase 1 - Run tests whose context is on-demand
 
 ```bash
-user@host:admin$ carbide-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg
+user@host:admin$ nico-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg
 ```
 
 Usecase 2 - Run tests whose context is Discovery
 
 ```bash
-user@host:admin$ carbide-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg --contexts Discovery
+user@host:admin$ nico-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg --contexts Discovery
 ```
 
 Usecase 3 - Run a specific test case
 
 ```bash
-user@host:admin$ carbide-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg  --allowed-tests  forge_CudaSample
+user@host:admin$ nico-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg  --allowed-tests  nico_CudaSample
 ```
 
-Usecase 4 - Run un verified forge_CudaSample test case
+Usecase 4 - Run un verified nico_CudaSample test case
 
 ```bash
-user@host:admin$ carbide-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg   --run-unverfied-tests  --allowed-tests  forge_CudaSample
+user@host:admin$ nico-admin-cli machine-validation on-demand start -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg   --run-unverfied-tests  --allowed-tests  nico_CudaSample
 ```
 
 ### View results
@@ -738,13 +738,13 @@ user@host:admin$ carbide-admin-cli machine-validation on-demand start -m fm100ht
 Feature shows progress of the on-going machine validation
 
 ```bash
-user@host:admin$ carbide-admin-cli machine-validation runs show --help
+user@host:admin$ nico-admin-cli machine-validation runs show --help
 ```
 
 Show Runs
 
 
-Usage: `carbide-admin-cli machine-validation runs show [OPTIONS]`
+Usage: `nico-admin-cli machine-validation runs show [OPTIONS]`
 
 Options:
 ```bash
@@ -757,7 +757,7 @@ Options:
 
 -h, --help               Print help
 
-user@host:admin$ carbide-admin-cli machine-validation runs show   -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg
+user@host:admin$ nico-admin-cli machine-validation runs show   -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg
 
 +--------------------------------------+-------------------------------------------------------------+-----------------------------+-----------------------------+-----------+------------------------+
 
@@ -779,12 +779,12 @@ user@host:admin$ carbide-admin-cli machine-validation runs show   -m fm100htq54d
 To view individual completed test results, by default the result command shows only last run tests in each individual context**(Discovery,Ondemand, Cleanup)**.
 
 ```bash
-user@host:admin$ carbide-admin-cli machine-validation results show --help
+user@host:admin$ nico-admin-cli machine-validation results show --help
 ```
 
 Show results
 
-Usage: `carbide-admin-cli machine-validation results show [OPTIONS] <--validation-id <VALIDATION_ID>|--test-name <TEST_NAME>|--machine <MACHINE>>`
+Usage: `nico-admin-cli machine-validation results show [OPTIONS] <--validation-id <VALIDATION_ID>|--test-name <TEST_NAME>|--machine <MACHINE>>`
 
 Options:
 
@@ -801,7 +801,7 @@ Options:
 
 -h, --help                           Print help
 
-user@host:admin$ carbide-admin-cli machine-validation results   show   -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg
+user@host:admin$ nico-admin-cli machine-validation results   show   -m fm100htq54dmt805ck6k95dfd44itsufqiidd4acrdt811t92hvvlacm8gg
 
 +--------------------------------------+----------------+-----------+----------+-----------------------------+-----------------------------+
 
@@ -825,7 +825,7 @@ user@host:admin$ carbide-admin-cli machine-validation results   show   -m fm100h
 
 +--------------------------------------+----------------+-----------+----------+-----------------------------+-----------------------------+
 
-| b8df2faf-dc6e-402d-90ca-781c63e380b9 | ForgeRunBook   | Discovery | 0        | 2024-12-02T23:20:30.427153Z | 2024-12-02T23:22:00.202657Z |
+| b8df2faf-dc6e-402d-90ca-781c63e380b9 | NicoRunBook   | Discovery | 0        | 2024-12-02T23:20:30.427153Z | 2024-12-02T23:22:00.202657Z |
 
 +--------------------------------------+----------------+-----------+----------+-----------------------------+-----------------------------+
 
@@ -846,10 +846,10 @@ To add a new platform for individual tests
 2)
 
 ```bash
-# carbide-admin-cli machine-validation tests update  --test-id  <test_id> --version   <test version> --supported-platforms    <sku>
+# nico-admin-cli machine-validation tests update  --test-id  <test_id> --version   <test version> --supported-platforms    <sku>
 
 For example:
 ```
-# carbide-admin-cli machine-validation tests update  --test-id  forge_default  --version   V1-T1734009539861341   --supported-platforms    7d9ectOlww
+# nico-admin-cli machine-validation tests update  --test-id  nico_default  --version   V1-T1734009539861341   --supported-platforms    7d9ectOlww
 ```
 

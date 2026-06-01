@@ -170,11 +170,11 @@ nicocli machine list --output table
 nicocli machine get <machine-id>
 ```
 
-For deeper investigation, `carbide-api` logs filtered by the host BMC IP or DPU BMC IP are the fastest way to understand where ingestion or pairing is failing.
+For deeper investigation, `nico-api` logs filtered by the host BMC IP or DPU BMC IP are the fastest way to understand where ingestion or pairing is failing.
 
 ### Endpoint Exploration Errors
 
-Before pairing can occur, Site Explorer must successfully explore each BMC endpoint. Exploration failures are logged in `carbide-api` and the NICo Grafana dashboard. Common error types:
+Before pairing can occur, Site Explorer must successfully explore each BMC endpoint. Exploration failures are logged in `nico-api` and the NICo Grafana dashboard. Common error types:
 
 | Error type | Likely cause |
 |---|---|
@@ -183,7 +183,7 @@ Before pairing can occur, Site Explorer must successfully explore each BMC endpo
 | `Unauthorized` / `AvoidLockout` | BMC credentials do not match the Expected Machine entry or site vault; see [Adding New Machines: BMC Password Requirements](../playbooks/stuck_objects/adding_new_machines.md) |
 | `MissingCredentials` | Credentials not yet available in vault; check that site-wide BMC credentials are configured |
 | `UnsupportedVendor` | BMC vendor is not supported by this version of NICo |
-| `RedfishError` | Unexpected Redfish response; check BMC firmware version and `carbide-api` logs for the full response body |
+| `RedfishError` | Unexpected Redfish response; check BMC firmware version and `nico-api` logs for the full response body |
 | `InvalidDpuRedfishBiosResponse` | DPU BIOS endpoint returned an unexpected response; the DPU may need a fresh OS install |
 
 For a complete reference of all Redfish endpoints and required response fields, see [Redfish Endpoints Reference](../architecture/redfish/endpoints_reference.md).
@@ -197,9 +197,9 @@ The following are the conditions in which Site Explorer cannot complete pairing 
 | `dpu_nic_mode_unknown` | DPU mode cannot be determined; DPU BMC firmware is likely too old | Install a fresh DPU OS (which also upgrades firmware) |
 | `dpu_pf0_mac_missing` | DPU is in DPU mode but its pf0 MAC address is not retrievable | Install a fresh DPU OS |
 | `manual_power_cycle_required` | DPU mode was changed but the host vendor does not support automated power cycling | Manually power-cycle the host at the data center level |
-| `host_system_report_missing` | Host BMC Redfish returned no valid system report; likely a BMC firmware issue or transient error | Check `carbide-api` logs for the host BMC IP |
+| `host_system_report_missing` | Host BMC Redfish returned no valid system report; likely a BMC firmware issue or transient error | Check `nico-api` logs for the host BMC IP |
 | `no_dpu_reported_by_host` | Host BMC reports no BlueField PCIe devices | Check DPU seating and host BMC firmware version |
-| `boot_interface_mac_mismatch` | Host boot MAC does not match the pf0 MAC of any discovered DPU | Check exploration reports and `carbide-api` logs for both host and DPU BMC IPs |
+| `boot_interface_mac_mismatch` | Host boot MAC does not match the pf0 MAC of any discovered DPU | Check exploration reports and `nico-api` logs for both host and DPU BMC IPs |
 | `viking_cpld_version_issue` | NVIDIA Viking (DGX): `CPLDMB_0` firmware below minimum required version (`0.2.1.9`) | Contact the data center team for a full DC power cycle |
 
 For more DPU-specific troubleshooting (Secure Boot configuration, BMC password resets, firmware version checks), see [Adding New Machines to an Existing Site](../playbooks/stuck_objects/adding_new_machines.md).

@@ -80,12 +80,20 @@ pub(crate) async fn clear_host_uefi_password(
         id: machine_id.to_string(),
     })?;
 
+    let addr = snapshot.host_snapshot.bmc_addr().ok_or_else(|| {
+        CarbideError::InvalidArgument("Specified machine does not have BMC address".into())
+    })?;
+
+    let bmc_access_info =
+        db::machine_interface::lookup_bmc_access_info(&mut txn, addr.ip(), Some(addr.port()))
+            .await?;
+
     // Don't hold the transaction across an await point
     txn.commit().await?;
 
     let redfish_client = api
         .redfish_pool
-        .create_client_from_machine(&snapshot.host_snapshot, &api.database_connection)
+        .client_by_info(&bmc_access_info)
         .await
         .map_err(|e| {
             tracing::error!("unable to create redfish client: {}", e);
@@ -96,9 +104,16 @@ pub(crate) async fn clear_host_uefi_password(
             }
         })?;
 
-    let job_id: Option<String> =
-        crate::redfish::clear_host_uefi_password(redfish_client.as_ref(), api.redfish_pool.clone())
-            .await?;
+    let job_id: Option<String> = api
+        .redfish_pool
+        .clear_host_uefi_password(redfish_client.as_ref())
+        .await
+        .map_err(|e| {
+            tracing::error!(%e, "Failed to run clear_host_uefi_password call");
+            CarbideError::internal(format!(
+                "Failed redfish clear_host_uefi_password subtask: {e}"
+            ))
+        })?;
 
     Ok(Response::new(rpc::ClearHostUefiPasswordResponse { job_id }))
 }
@@ -158,12 +173,21 @@ pub(crate) async fn set_host_uefi_password(
         kind: "machine",
         id: machine_id.to_string(),
     })?;
+
+    let addr = snapshot.host_snapshot.bmc_addr().ok_or_else(|| {
+        CarbideError::InvalidArgument("Specified machine does not have BMC address".into())
+    })?;
+
+    let bmc_access_info =
+        db::machine_interface::lookup_bmc_access_info(&mut txn, addr.ip(), Some(addr.port()))
+            .await?;
+
     // Let txn drop so we don't hold it across a redfish request
     txn.commit().await?;
 
     let redfish_client = api
         .redfish_pool
-        .create_client_from_machine(&snapshot.host_snapshot, &api.database_connection)
+        .client_by_info(&bmc_access_info)
         .await
         .map_err(|e| {
             tracing::error!("unable to create redfish client: {}", e);
@@ -173,10 +197,14 @@ pub(crate) async fn set_host_uefi_password(
             }
         })?;
 
-    let job_id =
-        crate::redfish::set_host_uefi_password(redfish_client.as_ref(), api.redfish_pool.clone())
-            .await?;
-
+    let job_id = api
+        .redfish_pool
+        .uefi_setup(redfish_client.as_ref(), false)
+        .await
+        .map_err(|e| {
+            tracing::error!(%e, "Failed to run uefi_setup call");
+            CarbideError::internal(format!("Failed redfish uefi_setup subtask: {e}"))
+        })?;
     api.with_txn(|txn| db::machine::update_bios_password_set_time(&machine_id, txn).boxed())
         .await?
         .map_err(|e| {

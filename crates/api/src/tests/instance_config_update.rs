@@ -15,18 +15,25 @@
  * limitations under the License.
  */
 
+use std::collections::HashMap;
+
 use carbide_uuid::network::NetworkSegmentId;
 use common::api_fixtures::instance::{default_tenant_config, single_interface_network_config};
-use common::api_fixtures::{create_managed_host, create_test_env};
+use common::api_fixtures::{
+    TestEnvOverrides, create_managed_host, create_test_env, create_test_env_with_overrides,
+};
 use config_version::ConfigVersion;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::instance_interface_config::NetworkDetails;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use tonic::Request;
 
+use crate::cfg::file::{FnnConfig, FnnRoutingProfileConfig, PrefixFilterPolicyEntry};
 use crate::tests::common::api_fixtures::instance::advance_created_instance_into_ready_state;
 use crate::tests::common::api_fixtures::{create_managed_host_multi_dpu, get_vpc_fixture_id};
-use crate::tests::common::rpc_builder::{InstanceAllocationRequest, InstanceConfigUpdateRequest};
+use crate::tests::common::rpc_builder::{
+    InstanceAllocationRequest, InstanceConfigUpdateRequest, VpcCreationRequest,
+};
 use crate::tests::common::{self};
 
 /// Compares an expected instance configuration with the actual instance configuration
@@ -94,6 +101,7 @@ async fn test_update_instance_config(_: PgPoolOptions, options: PgConnectOptions
         network_security_group_id: None,
         dpu_extension_services: None,
         nvlink: None,
+        spxconfig: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -346,6 +354,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         network_security_group_id: None,
         dpu_extension_services: None,
         nvlink: None,
+        spxconfig: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -432,6 +441,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
         virtual_function_id: None,
         ip_address: Some("192.168.0.1".to_string()),
         ipv6_interface_config: None,
+        routing_profile: None,
     }];
 
     let err = env
@@ -476,6 +486,7 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         });
     let err = env
         .api
@@ -582,6 +593,121 @@ async fn test_reject_invalid_instance_config_updates(_: PgPoolOptions, options: 
 }
 
 #[crate::sqlx_test]
+async fn test_update_instance_config_rejects_interface_anycast_prefix_outside_vpc_profile(
+    _: PgPoolOptions,
+    options: PgConnectOptions,
+) {
+    let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
+    let profile_type = "ANYCAST_UPDATE_TEST";
+    let tenant_org = "anycast-update-test";
+
+    // Configure the operator-owned VPC profile with one allowed anycast prefix.
+    let env = create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::default().with_fnn_config(Some(FnnConfig {
+            admin_vpc: None,
+            common_internal_route_target: None,
+            additional_route_target_imports: vec![],
+            routing_profiles: HashMap::from([(
+                profile_type.to_string(),
+                FnnRoutingProfileConfig {
+                    internal: true,
+                    access_tier: 0,
+                    allowed_anycast_prefixes: vec![PrefixFilterPolicyEntry {
+                        prefix: "192.0.2.0/24".parse().unwrap(),
+                    }],
+                    ..Default::default()
+                },
+            )]),
+            use_vpc_vrf_loopback: false,
+        })),
+    )
+    .await;
+
+    // Create a tenant and FNN VPC that use that routing profile.
+    env.api
+        .create_tenant(tonic::Request::new(rpc::forge::CreateTenantRequest {
+            organization_id: tenant_org.to_string(),
+            routing_profile_type: Some(profile_type.to_string()),
+            metadata: Some(rpc::forge::Metadata {
+                name: tenant_org.to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap();
+    let segment_id = env
+        .create_vpc_and_tenant_segment_with_vpc_details(
+            VpcCreationRequest::builder(tenant_org)
+                .metadata(rpc::forge::Metadata {
+                    name: "anycast update vpc".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .routing_profile_type(profile_type.to_string())
+                .rpc(),
+        )
+        .await;
+
+    // Allocate a ready instance before requesting the invalid routing-profile update.
+    let mh = create_managed_host(&env).await;
+    let tinstance = mh
+        .instance_builer(&env)
+        .tenant_org(tenant_org)
+        .single_interface_network_config(segment_id)
+        .build()
+        .await;
+    let instance = tinstance.rpc_instance().await;
+
+    // Request an interface anycast prefix outside the owning VPC profile.
+    let mut network_config = single_interface_network_config(segment_id);
+    network_config.interfaces[0].routing_profile =
+        Some(rpc::forge::InstanceInterfaceRoutingProfile {
+            allowed_anycast_prefixes: vec![rpc::forge::PrefixFilterPolicyEntry {
+                prefix: "198.51.100.0/24".to_string(),
+            }],
+        });
+
+    // Update the instance and verify invalid tenant input is rejected before queuing work.
+    let err = env
+        .api
+        .update_instance_config(tonic::Request::new(
+            rpc::forge::InstanceConfigUpdateRequest {
+                if_version_match: None,
+                config: Some(rpc::InstanceConfig {
+                    tenant: Some(rpc::TenantConfig {
+                        tenant_organization_id: tenant_org.to_string(),
+                        tenant_keyset_ids: vec![],
+                        hostname: None,
+                    }),
+                    os: Some(common::api_fixtures::instance::default_os_config()),
+                    network: Some(network_config),
+                    infiniband: None,
+                    nvlink: None,
+                    spxconfig: None,
+                    network_security_group_id: None,
+                    dpu_extension_services: None,
+                }),
+                instance_id: instance.rpc_id(),
+                metadata: Some(rpc::forge::Metadata {
+                    name: "newinstance".to_string(),
+                    description: "desc".to_string(),
+                    labels: vec![],
+                }),
+            },
+        ))
+        .await
+        .expect_err("interface anycast prefix outside VPC profile should be rejected");
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(
+        err.message()
+            .contains("routing_profile.allowed_anycast_prefixes")
+    );
+}
+
+#[crate::sqlx_test]
 async fn test_update_instance_config_vpc_prefix_no_network_update(
     _: PgPoolOptions,
     options: PgConnectOptions,
@@ -640,6 +766,7 @@ async fn test_update_instance_config_vpc_prefix_no_network_update(
         network_security_group_id: None,
         dpu_extension_services: None,
         nvlink: None,
+        spxconfig: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -769,6 +896,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }],
         auto: false,
     };
@@ -781,6 +909,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
         network_security_group_id: None,
         dpu_extension_services: None,
         nvlink: None,
+        spxconfig: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -821,6 +950,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -831,6 +961,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
         ],
         auto: false,
@@ -888,6 +1019,7 @@ async fn test_update_instance_config_vpc_prefix_network_update(
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }],
         auto: false,
     };
@@ -972,6 +1104,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }],
         auto: false,
     };
@@ -984,6 +1117,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
         network_security_group_id: None,
         dpu_extension_services: None,
         nvlink: None,
+        spxconfig: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -1029,6 +1163,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -1039,6 +1174,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_post_instance_del
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
         ],
         auto: false,
@@ -1125,6 +1261,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }],
         auto: false,
     };
@@ -1137,6 +1274,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
         network_security_group_id: None,
         dpu_extension_services: None,
         nvlink: None,
+        spxconfig: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -1177,6 +1315,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1187,6 +1326,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu(
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
         ],
         auto: false,
@@ -1316,6 +1456,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }],
         auto: false,
     };
@@ -1328,6 +1469,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
         network_security_group_id: None,
         dpu_extension_services: None,
         nvlink: None,
+        spxconfig: None,
     };
 
     let initial_metadata = rpc::Metadata {
@@ -1368,6 +1510,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1378,6 +1521,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_multidpu_differen
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
         ],
         auto: false,
@@ -1493,6 +1637,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                             virtual_function_id: None,
                             ip_address: Some("5.5.5.1".to_string()),
                             ipv6_interface_config: None,
+                            routing_profile: None,
                         }],
                         auto: false,
                     }),
@@ -1500,6 +1645,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                     network_security_group_id: None,
                     dpu_extension_services: None,
                     nvlink: None,
+                    spxconfig: None,
                 })
                 .metadata(rpc::Metadata {
                     name: "test_instance".to_string(),
@@ -1531,6 +1677,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                             virtual_function_id: None,
                             ip_address: Some("192.1.4.0".to_string()),
                             ipv6_interface_config: None,
+                            routing_profile: None,
                         }],
                         auto: false,
                     }),
@@ -1538,6 +1685,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                     network_security_group_id: None,
                     dpu_extension_services: None,
                     nvlink: None,
+                    spxconfig: None,
                 })
                 .metadata(rpc::Metadata {
                     name: "test_instance".to_string(),
@@ -1571,6 +1719,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                             virtual_function_id: None,
                             ip_address: Some(expected_ip.to_string()),
                             ipv6_interface_config: None,
+                            routing_profile: None,
                         }],
                         auto: false,
                     }),
@@ -1578,6 +1727,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                     network_security_group_id: None,
                     dpu_extension_services: None,
                     nvlink: None,
+                    spxconfig: None,
                 })
                 .metadata(rpc::Metadata {
                     name: "test_instance".to_string(),
@@ -1693,6 +1843,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 virtual_function_id: None,
                                 ip_address: Some("5.5.5.5".to_string()),
                                 ipv6_interface_config: None,
+                                routing_profile: None,
                             },
                             rpc::InstanceInterfaceConfig {
                                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1703,6 +1854,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 virtual_function_id: None,
                                 ip_address: Some("6.6.6.6".to_string()),
                                 ipv6_interface_config: None,
+                                routing_profile: None,
                             },
                         ],
                         auto: false,
@@ -1711,6 +1863,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                     network_security_group_id: None,
                     dpu_extension_services: None,
                     nvlink: None,
+                    spxconfig: None,
                 })
                 .metadata(rpc::Metadata {
                     name: "test_instance".to_string(),
@@ -1748,6 +1901,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 virtual_function_id: None,
                                 ip_address: Some(expected_ip.to_string()),
                                 ipv6_interface_config: None,
+                                routing_profile: None,
                             },
                             rpc::InstanceInterfaceConfig {
                                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1758,6 +1912,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 virtual_function_id: None,
                                 ip_address: Some(expected_ip.to_string()),
                                 ipv6_interface_config: None,
+                                routing_profile: None,
                             },
                         ],
                         auto: false,
@@ -1766,6 +1921,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                     network_security_group_id: None,
                     dpu_extension_services: None,
                     nvlink: None,
+                    spxconfig: None,
                 })
                 .metadata(rpc::Metadata {
                     name: "test_instance".to_string(),
@@ -1803,6 +1959,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 virtual_function_id: None,
                                 ip_address: Some(expected_ip.to_string()),
                                 ipv6_interface_config: None,
+                                routing_profile: None,
                             },
                             rpc::InstanceInterfaceConfig {
                                 function_type: rpc::InterfaceFunctionType::Physical as i32,
@@ -1813,6 +1970,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                                 virtual_function_id: None,
                                 ip_address: Some(expected_ip2.to_string()),
                                 ipv6_interface_config: None,
+                                routing_profile: None,
                             },
                         ],
                         auto: false,
@@ -1821,6 +1979,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_different_prefix_
                     network_security_group_id: None,
                     dpu_extension_services: None,
                     nvlink: None,
+                    spxconfig: None,
                 })
                 .metadata(rpc::Metadata {
                     name: "test_instance".to_string(),

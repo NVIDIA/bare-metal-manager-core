@@ -98,6 +98,11 @@ message ComputeAllocationId {
   string value = 1;
 }
 
+
+message SpxPartitionId {
+  string value = 1;
+}
+
 message OperatingSystemId {
   string value = 1;
 }

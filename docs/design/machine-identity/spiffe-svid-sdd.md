@@ -64,20 +64,20 @@ This SDD covers the design for NICo issuing SPIFFE compliant JWTs to nodes it ma
 
 From a high level, the goal for NICo is to issue a JWT-SVID identity to the requesting nodes under NICo’s management. A NICo managed node will be part of a tenant (aka org), and the issued JWT-SVID embodies both tenant and machine identity that complies with the SPIFFE format.
 
-![](carbide-spiffe-jwt-svid-flow.svg)
+![](nico-spiffe-jwt-svid-flow.svg)
 
 *Figure-1 High-level architecture and flow diagram*
 
 1. The bare metal (BM) tenant process makes HTTP requests to the NICo meta-data service (IMDS) over a link-local address (169.254.169.254). IMDS is running inside the DPU as part of the NICo DPU agent (or standalone FMDS fed by the agent).   
 2. IMDS obtains a JWT-SVID for the workload in one of two ways (operator choice on the DPU agent):  
    a. **Default:** mTLS-authenticated `SignMachineIdentity` gRPC to the NICo site controller. Pull keys and machine/org metadata from the database, decrypt the private key, sign the JWT-SVID, return it (implicit path to the host workload).  
-   b. **Optional HTTP sign proxy:** when `[machine-identity].sign-proxy-url` is set on the agent, IMDS forwards `GET …/latest/meta-data/identity` (same query string for `aud`, same `Metadata` and `Accept` headers) to `{sign-proxy-url}/latest/meta-data/identity`; the upstream HTTP status and body are returned to the workload. Use this when signing must pass through an in-path HTTP service (e.g. corporate PKI or API gateway) instead of direct agent→Forge gRPC.
+   b. **Optional HTTP sign proxy:** when `[machine-identity].sign-proxy-url` is set on the agent, IMDS forwards `GET …/latest/meta-data/identity` (same query string for `aud`, same `Metadata` and `Accept` headers) to `{sign-proxy-url}/latest/meta-data/identity`; the upstream HTTP status and body are returned to the workload. Use this when signing must pass through an in-path HTTP service (e.g. corporate PKI or API gateway) instead of direct agent→NICo gRPC.
 3. The tenant process subsequently makes a request to a service (say OpenBao/Vault) with the JWT-SVID token passed in the authentication header.  
    a. The server-x using the prefetched public keys from NICo will validate JWT-SVID
 
 An additional requirement for NICo is to delegate the issuance of a JWT-SVID to an external system. The solution is to offer a callback API for NICo tenants to intercept the signing request, validate the NICo node identity, and issue new tenant specific JWT-SVID token (Figure-2). The delegation model offers tenants flexibility to customize their machine SVIDs.
 
-![](carbide-spiffe-svid-token-exchange-flow.svg)
+![](nico-spiffe-svid-token-exchange-flow.svg)
 
 *Figure-2 Token exchange delegation flow diagram*
 
@@ -87,7 +87,7 @@ The system is composed of the following major components:
 
 | Component | Description |
 | :---- | :---- |
-| Meta-data service (IMDS) | A service part of the NICo DPU agent running inside DPU, listening on port 80 (def). Serves `GET …/meta-data/identity`; may call Forge over gRPC or forward to an optional HTTP sign proxy configured under `[machine-identity]` |
+| Meta-data service (IMDS) | A service part of the NICo DPU agent running inside DPU, listening on port 80 (def). Serves `GET …/meta-data/identity`; may call NICo over gRPC or forward to an optional HTTP sign proxy configured under `[machine-identity]` |
 | NICo API (gRPC) server | Site controller NICo control plane API server  |
 | NICo REST | NICo REST API server, an aggregator service that controls multiple site controllers |
 | Database (Postgres) | Store NICo node-lifecycle and accounting data  |
@@ -144,11 +144,11 @@ SetTenantIdentityConfiguration (PUT identity/config)
 
 ## **3.2 Per-tenant SPIFFE Key Bundle Discovery**
 
-[SPIFFE bundles](https://spiffe.io/docs/latest/spiffe-specs/spiffe_trust_domain_and_bundle/#4-spiffe-bundle-format) are represented as an [RFC 7517](https://tools.ietf.org/html/rfc7517) compliant JWK Set. NICo exposes the signing public keys through Carbide-rest OIDC discovery and JWKS endpoints. Services that require JWT-SVID verification pull public keys to verify token signature. Review sequence diagrams Figure-4 and 5 for more details.
+[SPIFFE bundles](https://spiffe.io/docs/latest/spiffe-specs/spiffe_trust_domain_and_bundle/#4-spiffe-bundle-format) are represented as an [RFC 7517](https://tools.ietf.org/html/rfc7517) compliant JWK Set. NICo exposes the signing public keys through NICo-rest OIDC discovery and JWKS endpoints. Services that require JWT-SVID verification pull public keys to verify token signature. Review sequence diagrams Figure-4 and 5 for more details.
 
 ```
 ┌────────┐       ┌───────────────┐       ┌─────────────┐       ┌──────────┐      
-│ Client │       │ Carbide-rest  │       │  NICo API   │       │ Database │      
+│ Client │       │ NICo-rest  │       │  NICo API   │       │ Database │      
 │(e.g LL)│       │   (REST)      │       │   (gRPC)    │       │(Postgres)│      
 └───┬────┘       └──────┬────────┘       └──────┬──────┘       └────┬─────┘      
     │                   │                       │                   │                    
@@ -191,7 +191,7 @@ SetTenantIdentityConfiguration (PUT identity/config)
 
 ```
 ┌────────┐       ┌───────────────┐       ┌─────────────┐       ┌──────────┐       
-│ Client │       │ Carbide-rest  │       │  NICo API   │       │ Database │       
+│ Client │       │ NICo-rest  │       │  NICo API   │       │ Database │       
 │        │       │   (REST)      │       │   (gRPC)    │       │(Postgres)│       
 └───┬────┘       └──────┬────────┘       └──────┬──────┘       └────┬─────┘       
     │                   │                       │                   │                    
@@ -271,7 +271,7 @@ The embedded IMDS identity handler (`GET …/latest/meta-data/identity` and comp
 | `requests-per-second` | Sustained rate limit for identity GETs (bounded range, default 3) |
 | `burst` | Burst allowance for the limiter |
 | `wait-timeout-secs` | Max wait for a rate-limit permit before failing |
-| `sign-timeout-secs` | Wall-clock timeout for the signing leg: both Forge gRPC (`SignMachineIdentity`) and the optional HTTP sign-proxy request |
+| `sign-timeout-secs` | Wall-clock timeout for the signing leg: both NICo gRPC (`SignMachineIdentity`) and the optional HTTP sign-proxy request |
 
 **Optional HTTP sign proxy**
 
@@ -280,19 +280,19 @@ The embedded IMDS identity handler (`GET …/latest/meta-data/identity` and comp
 | `sign-proxy-url` | When set, the agent issues **`GET {url}/latest/meta-data/identity`** with the same query string as the workload request (e.g. repeated `aud=`). Scheme must be `http` or `https`. Trailing slashes on the base URL are normalized. |
 | `sign-proxy-tls-root-ca` | Optional path to a PEM file (one or more certs) added as trusted roots for **`https`** sign-proxy URLs (e.g. private CA). Ignored for `http:`. Requires `sign-proxy-url`. |
 
-When `sign-proxy-url` is **omitted**, the agent uses **Forge `SignMachineIdentity`** over mTLS as today. When it is **set**, the identity path uses **only** the HTTP forward for that request; the upstream response (status, `Content-Type`, body) is returned to the workload.
+When `sign-proxy-url` is **omitted**, the agent uses **NICo `SignMachineIdentity`** over mTLS as today. When it is **set**, the identity path uses **only** the HTTP forward for that request; the upstream response (status, `Content-Type`, body) is returned to the workload.
 
-**Standalone FMDS:** `carbide-dpu-agent` pushes `FmdsConfigUpdate.machine_identity` to the FMDS service as **`FmdsMachineIdentityConfig`** (`crates/rpc/proto/fmds.proto`), mirroring the same numeric fields and optional `sign_proxy_url` / `sign_proxy_tls_root_ca`. If a later `UpdateConfig` **omits** `machine_identity`, FMDS **retains** the previously applied settings.
+**Standalone FMDS:** `nico-dpu-agent` pushes `FmdsConfigUpdate.machine_identity` to the FMDS service as **`FmdsMachineIdentityConfig`** (`crates/rpc/proto/fmds.proto`), mirroring the same numeric fields and optional `sign_proxy_url` / `sign_proxy_tls_root_ca`. If a later `UpdateConfig` **omits** `machine_identity`, FMDS **retains** the previously applied settings.
 
 ```toml
-# DPU agent / carbide-agent config excerpt (see crates/agent/example_agent_config.toml)
+# DPU agent / nico-agent config excerpt (see crates/agent/example_agent_config.toml)
 [machine-identity]
 # requests-per-second = 3
 # burst = 8
 # wait-timeout-secs = 2
 # sign-timeout-secs = 5
-# sign-proxy-url = "https://sign-proxy.example.com/prefix"   # optional; if set, HTTP forward instead of Forge gRPC
-# sign-proxy-tls-root-ca = "/etc/forge/sign_proxy_root.pem" # optional; HTTPS private CA roots only
+# sign-proxy-url = "https://sign-proxy.example.com/prefix"   # optional; if set, HTTP forward instead of NICo gRPC
+# sign-proxy-tls-root-ca = "/etc/nico/sign_proxy_root.pem" # optional; HTTPS private CA roots only
 ```
 
 ```
@@ -364,7 +364,7 @@ token_ttl_min_sec = 60 # min ttl permitted in seconds
 token_ttl_max_sec = 86400 # max ttl permitted in seconds
 # Upper bound for per-request `signing_key_overlap_sec` on SetTenantIdentityConfiguration (rotate only).
 signing_key_overlap_max_sec = 604800
-token_endpoint_http_proxy = "https://carbide-ext.com" # optional, SSRF mitigation for token exchange
+token_endpoint_http_proxy = "https://nico-ext.com" # optional, SSRF mitigation for token exchange
 # Optional operator allowlists (hostname / DNS patterns only; not full URLs). Empty = no extra restriction.
 # Patterns: exact hostname, *.suffix (one label under suffix), **.suffix (suffix or any subdomain).
 trust_domain_allowlist = []           # JWT issuer trust domain (host from iss URL)
@@ -418,7 +418,7 @@ The subject format complies with the SPIFFE ID specification. The `iss` claim co
 ```json
 {
   "sub": "spiffe://{nico-domain}/{org-id}/machine-121",
-  "iss": "https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}",
+  "iss": "https://{nico-rest}/v2/org/{org-id}/nico/site/{site-id}",
   "aud": [
     "tenant-layer-exchange-token-service"
   ],
@@ -507,7 +507,7 @@ eyJhbGciOiJSUzI1NiIs...
 
 These APIs manage per-org identity configuration that controls how NICo issues JWT-SVIDs for machines in that org. Admins use them to enable or disable the feature per org, and to set the issuer URI, allowed audiences, token TTL, and SPIFFE subject prefix. The configuration applies to all JWT-SVID tokens issued for the org's machines (via IMDS or token exchange). GET retrieves the current config, PUT creates or replaces it, and DELETE removes it (org no longer has machine identity).
 
-**Carbide-rest config defaults:** Carbide-rest may still supply per-site defaults for `issuer`, `tokenTtlSec`, and related fields when a REST client omits them before calling the downstream gRPC `SetTenantIdentityConfiguration`. **`subjectPrefix` is optional in both REST and gRPC:** the NICo API (site controller) derives a default SPIFFE prefix when it is unset or empty — `spiffe://<trust-domain-from-issuer>` — where the trust domain is taken from `issuer` (HTTPS URL host, `spiffe://…` URI trust domain segment, or bare DNS hostname per implementation). When the client **does** send `subjectPrefix`, it must be a `spiffe://` URI whose trust domain matches the trust domain derived from `issuer`, with path segments and encoding rules enforced by the API (see validation below). If Carbide-rest cannot satisfy required fields (e.g. `issuer`) and the client omits them, PUT may return **400 Bad Request** so the caller can supply values explicitly.
+**NICo-rest config defaults:** NICo-rest may still supply per-site defaults for `issuer`, `tokenTtlSec`, and related fields when a REST client omits them before calling the downstream gRPC `SetTenantIdentityConfiguration`. **`subjectPrefix` is optional in both REST and gRPC:** the NICo API (site controller) derives a default SPIFFE prefix when it is unset or empty — `spiffe://<trust-domain-from-issuer>` — where the trust domain is taken from `issuer` (HTTPS URL host, `spiffe://…` URI trust domain segment, or bare DNS hostname per implementation). When the client **does** send `subjectPrefix`, it must be a `spiffe://` URI whose trust domain matches the trust domain derived from `issuer`, with path segments and encoding rules enforced by the API (see validation below). If NICo-rest cannot satisfy required fields (e.g. `issuer`) and the client omits them, PUT may return **400 Bad Request** so the caller can supply values explicitly.
 
 **Per-org key generation on PUT:** When PUT creates identity config for an org for the first time, NICo generates a new per-org signing key pair using the global `algorithm`, encrypts the private key with the site encryption key, and stores it in **slot 1** of `tenant_identity_config`. On subsequent PUTs, signing material is unchanged unless **`rotateKey`** is **`true`**. **Rotation** requires **`signingKeyOverlapSec`** (gRPC: `signing_key_overlap_sec`): seconds the **previous** key remains in JWKS. It must be **≥ `tokenTtlSec`**, **≤** global **`signing_key_overlap_max_sec`**, and must **not** be sent when **`rotateKey`** is false. Overlap is **not** persisted as its own column—the overlap window end is stored in **`non_active_slot_expires_at`** until GC. On DELETE, the identity config and keys are removed.
 
@@ -520,16 +520,16 @@ DELETE identity/config
 ```
 
 ```
-PUT https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/identity/config
+PUT https://{nico-rest}/v2/org/{org-id}/nico/site/{site-id}/identity/config
 ```
 
 ```json
 {
   "orgId": "org-id",
   "enabled": true,
-  "issuer": "https://carbide-rest.example.com/org/{org-id}/site/{site-id}",
-  "defaultAudience": "carbide-tenant-xxx",
-  "allowedAudiences": ["carbide-tenant-xxx", "tenant-a", "tenant-b"],
+  "issuer": "https://nico-rest.example.com/org/{org-id}/site/{site-id}",
+  "defaultAudience": "nico-tenant-xxx",
+  "allowedAudiences": ["nico-tenant-xxx", "tenant-a", "tenant-b"],
   "tokenTtlSec": 300,
   "subjectPrefix": "spiffe://trust-domain/workload-path",
   "rotateKey": false
@@ -542,9 +542,9 @@ Example **rotation** request (overlap must be **≥ `tokenTtlSec`**):
 {
   "orgId": "org-id",
   "enabled": true,
-  "issuer": "https://carbide-rest.example.com/org/{org-id}/site/{site-id}",
-  "defaultAudience": "carbide-tenant-xxx",
-  "allowedAudiences": ["carbide-tenant-xxx"],
+  "issuer": "https://nico-rest.example.com/org/{org-id}/site/{site-id}",
+  "defaultAudience": "nico-tenant-xxx",
+  "allowedAudiences": ["nico-tenant-xxx"],
   "tokenTtlSec": 300,
   "subjectPrefix": "spiffe://trust-domain/workload-path",
   "rotateKey": true,
@@ -574,9 +574,9 @@ Response:
 {
   "orgId": "org-id",
   "enabled": true,
-  "issuer": "https://carbide-rest.example.com/org/{org-id}/site/{site-id}",
-  "defaultAudience": "carbide-tenant-xxx",
-  "allowedAudiences": ["carbide-tenant-xxx", "tenant-a", "tenant-b"],
+  "issuer": "https://nico-rest.example.com/org/{org-id}/site/{site-id}",
+  "defaultAudience": "nico-tenant-xxx",
+  "allowedAudiences": ["nico-tenant-xxx", "tenant-a", "tenant-b"],
   "tokenTtlSec": 300,
   "subjectPrefix": "spiffe://trust-domain/workload-path",
   "rotateKey": false,
@@ -623,7 +623,7 @@ DELETE identity/token-delegation
 Request:
 
 ```bash
-PUT https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/identity/token-delegation
+PUT https://{nico-rest}/v2/org/{org-id}/nico/site/{site-id}/identity/token-delegation
 {
   "tokenEndpoint": "https://auth.acme.com/oauth2/token",
   "clientSecretBasic": {
@@ -698,7 +698,7 @@ The exchange service serves an [RFC 8693](https://datatracker.ietf.org/doc/html/
 
 ```bash
 GET
-https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/.well-known/jwks.json
+https://{nico-rest}/v2/org/{org-id}/nico/site/{site-id}/.well-known/jwks.json
 
 {
   "keys": [{
@@ -719,12 +719,12 @@ Discovery reuses common OpenID Provider field names where helpful, but **NICo do
 
 ```bash
 GET
-https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/.well-known/openid-configuration
+https://{nico-rest}/v2/org/{org-id}/nico/site/{site-id}/.well-known/openid-configuration
 
 {
-  "issuer": "https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}",
-  "jwks_uri": "https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/.well-known/jwks.json",
-  "spiffe_jwks_uri": "https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/.well-known/spiffe/jwks.json",
+  "issuer": "https://{nico-rest}/v2/org/{org-id}/nico/site/{site-id}",
+  "jwks_uri": "https://{nico-rest}/v2/org/{org-id}/nico/site/{site-id}/.well-known/jwks.json",
+  "spiffe_jwks_uri": "https://{nico-rest}/v2/org/{org-id}/nico/site/{site-id}/.well-known/spiffe/jwks.json",
   "response_types_supported": [
     "token"
   ],
@@ -763,7 +763,7 @@ https://{carbide-rest}/v2/org/{org-id}/carbide/site/{site-id}/.well-known/openid
 
 ```protobuf
 syntax = "proto3";
-// crates/rpc/proto/forge.proto
+// crates/rpc/proto/nico.proto
 
 // Machine Identity - JWT-SVID token signing
 message MachineIdentityRequest {
@@ -778,7 +778,7 @@ message MachineIdentityResponse {
 }
 
 // gRPC service
-service Forge {
+service NICo {
   // SPIFFE Machine Identity APIs
   // Signs a JWT-SVID token for machine identity, 
   // used by DPU agent meta-data (IMDS) service
@@ -788,7 +788,7 @@ service Forge {
 
 ```protobuf
 syntax = "proto3";
-// crates/rpc/proto/forge.proto
+// crates/rpc/proto/nico.proto
 
 // The structure used when CREATING or UPDATING a secret
 message ClientSecretBasic {
@@ -835,7 +835,7 @@ message TokenDelegationRequest {
 }
 
 // gRPC service
-service Forge {
+service NICo {
   rpc GetTokenDelegation(GetTokenDelegationRequest) returns (TokenDelegationResponse) {}
   rpc SetTokenDelegation(TokenDelegationRequest) returns (TokenDelegationResponse) {}
   rpc DeleteTokenDelegation(GetTokenDelegationRequest) returns (google.protobuf.Empty) {}
@@ -851,7 +851,7 @@ New auth methods can be added by extending the oneof.
 
 ```protobuf
 syntax = "proto3";
-// crates/rpc/proto/forge.proto
+// crates/rpc/proto/nico.proto
 
 // JWK (JSON Web Key)
 message JWK {
@@ -937,8 +937,8 @@ message TenantIdentityConfigResponse {
   repeated TenantIdentitySigningKey signing_keys = 11;
 }
 
-// gRPC service (extract; see crates/rpc/proto/forge.proto for full Forge service)
-service Forge {
+// gRPC service (extract; see crates/rpc/proto/nico.proto for full NICo service)
+service NICo {
   rpc GetTenantIdentityConfiguration(GetTenantIdentityConfigRequest) returns (TenantIdentityConfigResponse);
   rpc SetTenantIdentityConfiguration(SetTenantIdentityConfigRequest) returns (TenantIdentityConfigResponse);
   rpc DeleteTenantIdentityConfiguration(GetTenantIdentityConfigRequest) returns (google.protobuf.Empty);
@@ -951,15 +951,15 @@ service Forge {
 
 | REST Method & Endpoint | gRPC Method | Description |
 | ----- | ----- | ----- |
-| `GET /v2/org/{org-id}/carbide/site/{site-id}/.well-known/jwks.json` | `Forge.GetJWKS` | Fetch JSON Web Key Set (public, unauthenticated) |
-| `GET /v2/org/{org-id}/carbide/site/{site-id}/.well-known/spiffe/jwks.json` | `Forge.GetJWKS` (`kind=Spiffe`) | Fetch SPIFFE-style JWKS (public, unauthenticated) |
-| `GET /v2/org/{org-id}/carbide/site/{site-id}/.well-known/openid-configuration` | `Forge.GetOpenIDConfiguration` | Fetch OpenID Connect config (public, unauthenticated) |
-| `GET /v2/org/{org-id}/carbide/site/{site-id}/identity/config` | `Forge.GetTenantIdentityConfiguration` | Retrieve identity configuration |
-| `PUT /v2/org/{org-id}/carbide/site/{site-id}/identity/config` | `Forge.SetTenantIdentityConfiguration` | Create or replace identity configuration |
-| `DELETE /v2/org/{org-id}/carbide/site/{site-id}/identity/config` | `Forge.DeleteTenantIdentityConfiguration` | Delete identity configuration |
-| `GET /v2/org/{org-id}/carbide/site/{site-id}/identity/token-delegation` | `Forge.GetTokenDelegation` | Retrieve token delegation config |
-| `PUT /v2/org/{org-id}/carbide/site/{site-id}/identity/token-delegation` | `Forge.SetTokenDelegation` | Create or replace token delegation |
-| `DELETE /v2/org/{org-id}/carbide/site/{site-id}/identity/token-delegation` | `Forge.DeleteTokenDelegation` | Delete token delegation |
+| `GET /v2/org/{org-id}/nico/site/{site-id}/.well-known/jwks.json` | `NICo.GetJWKS` | Fetch JSON Web Key Set (public, unauthenticated) |
+| `GET /v2/org/{org-id}/nico/site/{site-id}/.well-known/spiffe/jwks.json` | `NICo.GetJWKS` (`kind=Spiffe`) | Fetch SPIFFE-style JWKS (public, unauthenticated) |
+| `GET /v2/org/{org-id}/nico/site/{site-id}/.well-known/openid-configuration` | `NICo.GetOpenIDConfiguration` | Fetch OpenID Connect config (public, unauthenticated) |
+| `GET /v2/org/{org-id}/nico/site/{site-id}/identity/config` | `NICo.GetTenantIdentityConfiguration` | Retrieve identity configuration |
+| `PUT /v2/org/{org-id}/nico/site/{site-id}/identity/config` | `NICo.SetTenantIdentityConfiguration` | Create or replace identity configuration |
+| `DELETE /v2/org/{org-id}/nico/site/{site-id}/identity/config` | `NICo.DeleteTenantIdentityConfiguration` | Delete identity configuration |
+| `GET /v2/org/{org-id}/nico/site/{site-id}/identity/token-delegation` | `NICo.GetTokenDelegation` | Retrieve token delegation config |
+| `PUT /v2/org/{org-id}/nico/site/{site-id}/identity/token-delegation` | `NICo.SetTokenDelegation` | Create or replace token delegation |
+| `DELETE /v2/org/{org-id}/nico/site/{site-id}/identity/token-delegation` | `NICo.DeleteTokenDelegation` | Delete token delegation |
 
 ### **3.5.2.2 Error Handling**
 
@@ -980,7 +980,7 @@ Use standard gRPC `Status` codes, aligned with REST:
 ## **4.1 Security**
 
 1. All internal API gRPC calls to the NICo API server use (existing) mTLS for authn/z and transport security. A future release also relies on attestation features.     
-2. Carbide-rest is served over HTTPS and supports SSO integration  
+2. NICo-rest is served over HTTPS and supports SSO integration  
 3. The IMDS service is exposed over link-local and is exposed only to the node instance. Short-lived tokens (configurable TTL) limit the replay window. Adding Metadata: true HTTP header to the requests to limit SSRF attacks. In order to ensure that requests are directly intended for IMDS and prevent unintended or unwanted redirection of requests, requests:  
   * Must contain the header `Metadata: true`  
   * Must not contain an `X-Forwarded-For` header
@@ -990,4 +990,4 @@ Use standard gRPC `Status` codes, aligned with REST:
 4. Requests to IMDS are limited to 3 requests per second. Requests exceeding this threshold will be rejected with 429 responses. This prevents DoS on DPU-agent and NICo API server due to frequent IMDS calls.  
 5. Input validation: The input such as machine id will be validated using the database before issuing the token.  
 6. HTTPS and optional HTTP proxy support for route token exchange call to limit SSRF attacks on internal systems.
-7. **IMDS HTTP sign proxy (DPU agent):** When `[machine-identity].sign-proxy-url` is set, the agent trusts that endpoint to return a valid identity response to the workload. The proxy must be operated and authenticated on the network path appropriate for your site; optional `sign-proxy-tls-root-ca` pins trust for private CAs only for that HTTP client. This path does not replace Forge mTLS for workloads that still use direct `SignMachineIdentity`—it is an **operator-chosen alternative transport** from IMDS to a signing-capable HTTP service. 
+7. **IMDS HTTP sign proxy (DPU agent):** When `[machine-identity].sign-proxy-url` is set, the agent trusts that endpoint to return a valid identity response to the workload. The proxy must be operated and authenticated on the network path appropriate for your site; optional `sign-proxy-tls-root-ca` pins trust for private CAs only for that HTTP client. This path does not replace NICo mTLS for workloads that still use direct `SignMachineIdentity`—it is an **operator-chosen alternative transport** from IMDS to a signing-capable HTTP service. 

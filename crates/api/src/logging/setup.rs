@@ -77,6 +77,7 @@ pub fn setup_logging(
     debug: u8,
     extra_logfmt_event_fields: Vec<String>,
     override_logging_subscriber: Option<impl SubscriberInitExt>,
+    log_history_max_bytes: usize,
 ) -> eyre::Result<Logging> {
     // This configures emission of logs in LogFmt syntax
     // and emission of metrics
@@ -107,7 +108,7 @@ pub fn setup_logging(
 
     // Used as part of a layer for collecting + brodcasting
     // log events to the admin web UI.
-    let log_stream = LogStream::default();
+    let log_stream = LogStream::with_max_bytes(log_history_max_bytes);
 
     // == Dynamic filter for tracing enabled/disabled ==
     // This doesn't track levels but instead just enabled/disabled (when we want tracing enabled, we

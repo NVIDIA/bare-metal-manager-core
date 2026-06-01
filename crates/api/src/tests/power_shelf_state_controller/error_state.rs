@@ -41,10 +41,9 @@ use crate::tests::power_shelf_state_controller::fixtures::power_shelf::{
 const TEST_ERROR_CAUSE: &str = "test error";
 
 fn services(env: &crate::tests::common::api_fixtures::TestEnv) -> PowerShelfStateHandlerServices {
-    let services = env.state_handler_services();
     PowerShelfStateHandlerServices {
-        db_pool: services.db_pool.clone(),
-        rms_client: services.rms_client.clone(),
+        db_pool: env.pool.clone(),
+        rms_client: env.rms_sim.as_rms_client(),
         credential_manager: Arc::new(TestCredentialManager::default()),
     }
 }

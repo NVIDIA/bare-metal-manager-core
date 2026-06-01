@@ -23,6 +23,7 @@ mod metrics;
 use std::collections::HashMap;
 use std::default::Default;
 use std::io;
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -38,7 +39,7 @@ use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialRea
 use futures_util::FutureExt;
 use libredfish::model::task::TaskState;
 use libredfish::model::update_service::TransferProtocolType;
-use libredfish::{PowerState, RedfishError, SystemPowerControl};
+use libredfish::{PowerState, Redfish, RedfishError, SystemPowerControl};
 use model::firmware::{Firmware, FirmwareComponentType, FirmwareEntry};
 use model::site_explorer::{
     ExploredEndpoint, InitialResetPhase, PowerDrainState, PreingestionState, TimeSyncResetPhase,
@@ -686,14 +687,9 @@ impl PreingestionManagerStatic {
 
         let redfish_client = match self
             .redfish_client_pool
-            .create_client_for_ingested_host(endpoint.address, None, db)
+            .create_client_for_ingested_host(endpoint.address, db)
             .await
-            .map_err(|e| match e {
-                RedfishClientCreationError::RedfishError(e) => {
-                    PreingestionManagerError::RedfishError(e)
-                }
-                _ => PreingestionManagerError::internal(format!("{e}")),
-            }) {
+        {
             Ok(redfish_client) => redfish_client,
             Err(e) => {
                 tracing::warn!("Redfish connection to {} failed: {e}", endpoint.address);
@@ -901,14 +897,9 @@ impl PreingestionManagerStatic {
 
         let redfish_client = match self
             .redfish_client_pool
-            .create_client_for_ingested_host(endpoint.address, None, db)
+            .create_client_for_ingested_host(endpoint.address, db)
             .await
-            .map_err(|e| match e {
-                RedfishClientCreationError::RedfishError(e) => {
-                    PreingestionManagerError::RedfishError(e)
-                }
-                _ => PreingestionManagerError::internal(format!("{e}")),
-            }) {
+        {
             Ok(redfish_client) => redfish_client,
             Err(e) => {
                 tracing::error!("Redfish connection to {} failed: {e}", endpoint.address);
@@ -1376,7 +1367,7 @@ impl PreingestionManagerStatic {
     ) -> Result<(), DatabaseError> {
         let redfish_client = match self
             .redfish_client_pool
-            .create_client_for_ingested_host(endpoint.address, None, db)
+            .create_client_for_ingested_host(endpoint.address, db)
             .await
         {
             Ok(redfish_client) => redfish_client,
@@ -1453,7 +1444,7 @@ impl PreingestionManagerStatic {
     ) -> PreingestionManagerResult<bool> {
         let redfish_client = match self
             .redfish_client_pool
-            .create_client_for_ingested_host(endpoint.address, None, db)
+            .create_client_for_ingested_host(endpoint.address, db)
             .await
         {
             Ok(redfish_client) => redfish_client,
@@ -1734,14 +1725,9 @@ impl PreingestionManagerStatic {
         tracing::debug!("Checking BMC time sync for {:?}", endpoint);
         let redfish_client = match self
             .redfish_client_pool
-            .create_client_for_ingested_host(endpoint.address, None, db)
+            .create_client_for_ingested_host(endpoint.address, db)
             .await
-            .map_err(|e| match e {
-                RedfishClientCreationError::RedfishError(e) => {
-                    PreingestionManagerError::RedfishError(e)
-                }
-                _ => PreingestionManagerError::internal(format!("{e}")),
-            }) {
+        {
             Ok(redfish_client) => redfish_client,
             Err(e) => {
                 return Err(e);
@@ -1840,7 +1826,7 @@ impl PreingestionManagerStatic {
             BfbPlatformPowercyclePhase::PowerOff => {
                 let redfish_client = match self
                     .redfish_client_pool
-                    .create_client_for_ingested_host(*host_bmc_ip, None, db)
+                    .create_client_for_ingested_host(*host_bmc_ip, db)
                     .await
                 {
                     Ok(c) => c,
@@ -1871,7 +1857,7 @@ impl PreingestionManagerStatic {
             BfbPlatformPowercyclePhase::PowerOn => {
                 let redfish_client = match self
                     .redfish_client_pool
-                    .create_client_for_ingested_host(*host_bmc_ip, None, db)
+                    .create_client_for_ingested_host(*host_bmc_ip, db)
                     .await
                 {
                     Ok(c) => c,
@@ -2351,7 +2337,7 @@ async fn initiate_update(
 
     // Setup the Redfish connection
     let redfish_client = match redfish_client_pool
-        .create_client_for_ingested_host(endpoint_clone.address, None, db_pool)
+        .create_client_for_ingested_host(endpoint_clone.address, db_pool)
         .await
     {
         Ok(redfish_client) => redfish_client,
@@ -2468,4 +2454,32 @@ async fn initiate_update(
         .await??;
 
     Ok(())
+}
+
+trait CreateClientForIngestedHost {
+    async fn create_client_for_ingested_host(
+        &self,
+        ip: IpAddr,
+        db_pool: &PgPool,
+    ) -> PreingestionManagerResult<Box<dyn Redfish>>;
+}
+
+impl CreateClientForIngestedHost for Arc<dyn RedfishClientPool> {
+    async fn create_client_for_ingested_host(
+        &self,
+        ip: IpAddr,
+        db_pool: &PgPool,
+    ) -> PreingestionManagerResult<Box<dyn Redfish>> {
+        let bmc_access_info =
+            db::machine_interface::lookup_bmc_access_info(db_pool, ip, None).await?;
+
+        self.client_by_info(&bmc_access_info)
+            .await
+            .map_err(|e| match e {
+                RedfishClientCreationError::RedfishError(e) => {
+                    PreingestionManagerError::RedfishError(e)
+                }
+                _ => PreingestionManagerError::internal(format!("{e}")),
+            })
+    }
 }

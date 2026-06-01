@@ -41,6 +41,7 @@ use strum_macros::EnumIter;
 use self::infiniband::MachineInfinibandStatusObservation;
 use self::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use self::nvlink::MachineNvLinkStatusObservation;
+use self::spx::MachineSpxStatusObservation;
 use super::StateSla;
 use super::bmc_info::BmcInfo;
 use super::hardware_info::MachineInventory;
@@ -75,6 +76,7 @@ pub mod machine_id;
 pub mod machine_search_config;
 pub mod network;
 pub mod nvlink;
+pub mod spx;
 pub mod topology;
 pub mod upgrade_policy;
 
@@ -678,6 +680,9 @@ pub struct Machine {
     // The most recent status of the nvlink GPUs.
     pub nvlink_status_observation: Option<MachineNvLinkStatusObservation>,
 
+    // The most recent status of the SPX attachments.
+    pub spx_status_observation: Option<MachineSpxStatusObservation>,
+
     /// A list of [StateHistoryRecord]s that this machine has experienced
     pub history: Vec<StateHistoryRecord>,
 
@@ -778,7 +783,7 @@ pub struct Machine {
     /// If host upgrades have been completed since the last start explicit start request or actual start
     pub update_complete: bool,
 
-    /// The NMX-M GPU info for this machine.
+    /// The NVLink GPU info for this machine.
     pub nvlink_info: Option<MachineNvLinkInfo>,
 
     /// Whether the DPF is enabled for this machine
@@ -2687,7 +2692,7 @@ pub enum HardwareHealthReportsConfig {
 pub fn dpf_based_dpu_provisioning_possible(
     state: &ManagedHostStateSnapshot,
     dpf_enabled_at_site: bool,
-    reprovisioing_case: bool,
+    reprovisioning_case: bool,
 ) -> bool {
     // DPF is disabled at site.
     if !dpf_enabled_at_site {
@@ -2703,11 +2708,19 @@ pub fn dpf_based_dpu_provisioning_possible(
         return false;
     }
 
-    // if it is reprovisioing case, initial ingestion should be done with dpf to continue
-    // reprovision.
-    if reprovisioing_case && !state.host_snapshot.dpf.used_for_ingestion {
+    // if it is reprovisioning case, initial ingestion should be done with dpf
+    // to continue or we should be trying to reprovision all the dpus (switching
+    // to DPF). Reprovisioning only a subset of DPUs cannot flip the host to DPF.
+    if reprovisioning_case
+        && !state.host_snapshot.dpf.used_for_ingestion
+        && !state
+            .dpu_snapshots
+            .iter()
+            .all(|dpu| dpu.reprovision_requested.is_some())
+    {
         tracing::info!(
-            "DPF based DPU reprovisioning is not possible because initial ingestion is not done with DPF - host {}.",
+            "DPF based DPU reprovisioning is not possible for host {} because initial ingestion is not done with DPF \
+            and not all DPUs are being reprovisioned.",
             state.host_snapshot.id
         );
         return false;

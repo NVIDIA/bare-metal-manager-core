@@ -19,6 +19,7 @@ pub mod extension_services;
 pub mod infiniband;
 pub mod network;
 pub mod nvlink;
+pub mod spx;
 pub mod tenant_config;
 
 use carbide_uuid::network_security_group::NetworkSecurityGroupId;
@@ -29,6 +30,7 @@ use crate::instance::config::extension_services::InstanceExtensionServicesConfig
 use crate::instance::config::infiniband::InstanceInfinibandConfig;
 use crate::instance::config::network::InstanceNetworkConfig;
 use crate::instance::config::nvlink::InstanceNvLinkConfig;
+use crate::instance::config::spx::InstanceSpxConfig;
 use crate::instance::config::tenant_config::TenantConfig;
 use crate::os::OperatingSystem;
 
@@ -61,6 +63,9 @@ pub struct InstanceConfig {
 
     /// configure instance nvlink
     pub nvlink: InstanceNvLinkConfig,
+
+    /// Configures instance spx
+    pub spxconfig: InstanceSpxConfig,
 }
 
 impl InstanceConfig {

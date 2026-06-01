@@ -25,7 +25,11 @@ mod sensors;
 
 pub use firmware::{FirmwareCollector, FirmwareCollectorConfig};
 pub use leak_detector::{LeakDetectorCollector, LeakDetectorCollectorConfig};
-pub use logs::{LogsCollector, LogsCollectorConfig, SseLogCollector, SseLogCollectorConfig};
+pub(crate) use logs::auto::{AutoFailureBudget, BudgetDecision, FailureKind};
+pub use logs::{
+    DowngradeEvent, DowngradeReason, LogDowngradeRegistry, LogsCollector, LogsCollectorConfig,
+    SseLogCollector, SseLogCollectorConfig,
+};
 pub use nmxt::{NmxtCollector, NmxtCollectorConfig};
 pub use nvue::rest::collector::{NvueRestCollector, NvueRestCollectorConfig};
 pub use runtime::{

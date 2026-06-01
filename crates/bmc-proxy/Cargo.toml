@@ -59,15 +59,18 @@ opentelemetry = { workspace = true, features = ["logs"] }
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
 opentelemetry-prometheus.workspace = true
 opentelemetry-semantic-conventions = { features = [
-    "semconv_experimental",
+  "semconv_experimental",
 ], workspace = true }
 opentelemetry_sdk = { workspace = true, features = [
-    "logs",
-    "rt-tokio",
-    "spec_unstable_metrics_views",
-    "testing",
+  "logs",
+  "rt-tokio",
+  "spec_unstable_metrics_views",
+  "testing",
 ] }
-reqwest = { workspace = true, default-features = false, features = ["rustls", "stream", ] }
+reqwest = { workspace = true, default-features = false, features = [
+  "rustls",
+  "stream",
+] }
 rustls-pemfile = { workspace = true }
 rustls-pki-types = { workspace = true }
 thiserror = { workspace = true }
@@ -78,14 +81,17 @@ tokio = { workspace = true }
 tonic = { workspace = true }
 tower = { workspace = true }
 tower-http = { features = [
-    "add-extension",
-    "auth",
-    "normalize-path",
+  "add-extension",
+  "auth",
+  "normalize-path",
 ], workspace = true }
 tracing = { workspace = true }
 tracing-log = { workspace = true }
 tracing-opentelemetry = { workspace = true }
-tracing-subscriber = { features = ["env-filter", "local-time", ], workspace = true }
+tracing-subscriber = { features = [
+  "env-filter",
+  "local-time",
+], workspace = true }
 urlencoding = { workspace = true }
 url = { features = ["serde"], workspace = true }
 uuid = { features = ["v4", "serde"], workspace = true }

@@ -79,29 +79,60 @@ const NETWORK_SECURITY_GROUP_RULE_PRIORITY_START: u32 = 2000;
 /// associations per interface._*
 const NETWORK_SECURITY_GROUP_RULE_COUNT_MAX: usize = 10000;
 
-/// split_prefixes_by_family splits a list of CIDR prefix strings
+/// `split_prefixes_by_family` splits a list of CIDR prefix strings
 /// into IPv4 and IPv6 buckets. Each bucket gets sequential indices
 /// starting at `start_index`. Unparseable prefixes are warned and
 /// dropped (because NVUE would fail on invalid addresses anyway).
 ///
-/// start_index should usually be set to 1 to avoid nvue config complaints when
+/// `filter` accepts a set of prefixes that can be compared to `prefixes`, and any prefix not
+/// found in `filter` will be removed.
+/// `start_index` should usually be set to 1 to avoid nvue config complaints when
 /// using the output as part of policy generation.
-fn split_prefixes_by_family(prefixes: &[String], start_index: usize) -> (Vec<Prefix>, Vec<Prefix>) {
-    let valid: Vec<_> = prefixes
-        .iter()
-        .filter_map(|s| match s.parse::<IpNet>() {
-            Ok(net) => Some((s.clone(), net)),
-            Err(e) => {
-                tracing::warn!(prefix = %s, error = %e, "dropping unparseable prefix");
-                None
-            }
-        })
-        .collect();
+fn split_prefixes_by_family(
+    prefixes: &[String],
+    filter: Option<&[IpNet]>,
+    start_index: usize,
+) -> (Vec<Prefix>, Vec<Prefix>) {
+    let valid: Vec<_> = if let Some(filter) = filter {
+        prefixes
+            .iter()
+            .filter_map(|s| match s.parse::<IpNet>() {
+                Ok(net) => {
+                    if filter.iter().any(|f| prefix_contains(f, &net)) {
+                        Some((s.clone(), net))
+                    } else {
+                        tracing::warn!(
+                            prefix = %net,
+                            "excluding prefix outside filter list");
+                        None
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(prefix = %s, error = %e, "dropping unparseable prefix");
+                    None
+                }
+            })
+            .collect()
+    } else {
+        prefixes
+            .iter()
+            .filter_map(|s| match s.parse::<IpNet>() {
+                Ok(net) => Some((s.clone(), net)),
+                Err(e) => {
+                    tracing::warn!(prefix = %s, error = %e, "dropping unparseable prefix");
+                    None
+                }
+            })
+            .collect()
+    };
 
     let (v4, v6): (Vec<_>, Vec<_>) = valid
         .into_iter()
         .partition(|(_, net)| matches!(net, IpNet::V4(_)));
 
+    // NOTE: The implicit assumption here is that v4 and v6 prefixes will always be listed separately (in policies, etc),
+    // and so they can share the same index starting point.
+    // This is probably true, but might be good to not work under that assumption.
     let make_prefixes = |items: Vec<(String, IpNet)>| -> Vec<Prefix> {
         items
             .into_iter()
@@ -116,10 +147,44 @@ fn split_prefixes_by_family(prefixes: &[String], start_index: usize) -> (Vec<Pre
     (make_prefixes(v4), make_prefixes(v6))
 }
 
+/// Returns whether `candidate` is equal to or narrower than `allowed`.
+fn prefix_contains(allowed: &IpNet, candidate: &IpNet) -> bool {
+    match (allowed, candidate) {
+        (IpNet::V4(allowed), IpNet::V4(candidate)) => {
+            allowed.prefix_len() <= candidate.prefix_len() && allowed.contains(&candidate.network())
+        }
+        (IpNet::V6(allowed), IpNet::V6(candidate)) => {
+            allowed.prefix_len() <= candidate.prefix_len() && allowed.contains(&candidate.network())
+        }
+        _ => false,
+    }
+}
+
+/// Parses a list of strings to a Vec of IpNet, dropping
+/// and warning about parse failures.
+fn parse_prefixes(prefixes: &[String]) -> Vec<IpNet> {
+    prefixes
+        .iter()
+        .filter_map(|prefix| match prefix.parse::<IpNet>() {
+            Ok(prefix) => Some(prefix),
+            Err(e) => {
+                tracing::warn!(
+                    prefix = %prefix,
+                    error = %e,
+                    "dropping unparseable VPC anycast prefix"
+                );
+                None
+            }
+        })
+        .collect()
+}
+
 pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     let template = template_for(conf.vpc_virtualization_type)?;
     let is_dpu_os = conf.is_dpu_os;
     let fmds_gateway_vlan = conf.fmds_gateway_vlan;
+    // HostInterfaces is the legacy template shape. The same host-facing values
+    // are mirrored into TmplConfigPort so templates can move off HostInterfaces.
     let host_interfaces: Vec<TmplHostInterfaces> = conf
         .ct_access_vlans
         .into_iter()
@@ -197,7 +262,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         .ct_port_configs
         .iter()
         .find(|p| !p.vpc_peer_prefixes.is_empty())
-        .map(|p| split_prefixes_by_family(&p.vpc_peer_prefixes, 1))
+        .map(|p| split_prefixes_by_family(&p.vpc_peer_prefixes, None, 1))
         .unwrap_or_default();
     let vpc_peer_vnis: Vec<TmplVni> = conf
         .ct_port_configs
@@ -225,21 +290,100 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
 
     let mut has_any_vpc_vrf_loopback = false;
     let mut fmds_gateway_matched = false;
+    let mut vpc_anycast_prefix_cache = HashMap::<u32, Vec<IpNet>>::new();
 
     for (base_i, network) in conf.ct_port_configs.into_iter().enumerate() {
         let l3_vni = network.l3_vni.unwrap_or_default();
-        let routing_profile = network
+        // Prefer the per-port VPC routing profile, falling back to the deprecated tenant-level profile.
+        let vpc_routing_profile = network
             .routing_profile
             .as_ref()
-            .or(deprecated_routing_profile.as_ref())
-            .map(TmplRoutingProfile::from);
+            .or(deprecated_routing_profile.as_ref());
+
+        // This check is already done in the primary caller, but it's cheap and it matters here,
+        // so just being extra defensive.
+        if conf.vpc_virtualization_type == VpcVirtualizationType::Fnn
+            && vpc_routing_profile.is_none()
+        {
+            return Err(eyre::eyre!(
+                "BUG: FNN config provided without routing-profile"
+            ));
+        }
+
+        // Cache the allowed_anycast_prefixes for the first VPC seen for this l3_vni
+        // so that we don't keep reparsing in the event that multiple interfaces are in the same VPC.
+        // l3_vni to VPC is 1:1, and the same l3_vni shouldn't see a different profile.
+        // This only matters for FNN, and we've just checked that a routing profile exists
+        // if this is an FNN config.
+        // Here's what we expect:
+        // - If a user wants to apply per-interface prefix filters, there must be a VPC-level
+        //   prefix list specified to compare for validity.
+        // - If the list in the VPC profile is empty, then we're going to end up intentionally
+        //   filtering out any per-interface anycast prefixes.
+        // - The template then, for now, provides a fallback that allows anything in site_anycast_prefixes,
+        //   which will soon be ignored for FNN.
+        // - Once that fallback is removed, an empty VPC profile prefix list filters out all interface-level prefixes.
+        // This continues the pattern of explicit opt-in for for anycast prefix filtering by VPC profile
+        // until we finally remove the site_anycast_prefix support for FNN.
+        vpc_anycast_prefix_cache.entry(l3_vni).or_insert_with(|| {
+            parse_prefixes(
+                vpc_routing_profile
+                    .map(|p| p.allowed_anycast_prefixes.as_slice())
+                    .unwrap_or_default(),
+            )
+        });
+
+        let routing_profile = vpc_routing_profile.map(TmplRoutingProfile::from);
+        let interface_profile = network.interface_routing_profile.as_ref();
+        let interface_routing_profile = {
+            match (vpc_routing_profile, interface_profile) {
+                // If there's an interface-specific profile, make sure it's a subset of what's
+                // on the VPC.
+                (Some(_), Some(interface_profile)) => {
+                    let filter = vpc_anycast_prefix_cache
+                        .get(&l3_vni)
+                        .map(|v| v.as_slice())
+                        .unwrap_or_default();
+
+                    let (v4, v6) = split_prefixes_by_family(
+                        &interface_profile.allowed_anycast_prefixes,
+                        Some(filter),
+                        1,
+                    );
+
+                    Some(TmplInterfaceRoutingProfile {
+                        HasAllowedAnycastPrefixesIpv4: !v4.is_empty(),
+                        HasAllowedAnycastPrefixesIpv6: !v6.is_empty(),
+                        AllowedAnycastPrefixesIpv4: v4,
+                        AllowedAnycastPrefixesIpv6: v6,
+                    })
+                }
+                // If there's no interface-specific profile, just inherit from the VPC.
+                // Let this happen in the template for now.
+                (Some(_), None) => None,
+
+                // If there's no VPC routing profile, then lock it down by default.
+                // For FNN, there should always be a routing profile.
+                // For the legacy ETV, it won't be referencing interface routing profiles.
+                (None, _) => None,
+            }
+        };
         let svi_mac = vni_to_svi_mac(network.vni.unwrap_or(0))?.to_string();
+
         let (vpc_ipv4, vpc_ipv6) =
-            split_prefixes_by_family(&network.vpc_prefixes, (base_i + 1) * 10);
+            split_prefixes_by_family(&network.vpc_prefixes, None, (base_i + 1) * 10);
+
         let port = TmplConfigPort {
             InterfaceName: network.interface_name.clone(),
             Index: format!("{}", (base_i + 1) * 10),
             VlanID: network.vlan,
+            HostIP: network.host_ip.clone(),
+            HostIPv6: network.host_ipv6.clone(),
+            HostRoute: network.host_route.clone(),
+            HostIPv6Route: network.host_ipv6_route.clone(),
+            // HasRoutingProfile means this port has an interface override; otherwise templates inherit from the VPC profile.
+            HasRoutingProfile: interface_routing_profile.is_some(),
+            RoutingProfile: interface_routing_profile.unwrap_or_default(),
             IsPhy: network.is_phy,
             L2VNI: network.vni.map(|x| x.to_string()).unwrap_or("".to_string()),
             IPs: {
@@ -269,6 +413,8 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                 .iter()
                 .any(|p| matches!(p.parse::<IpNet>(), Ok(IpNet::V6(_)))),
             HasVpcPrefixes: !vpc_ipv4.is_empty(),
+            // Only used directly by ETV template now.
+            // FNN template uses PortPrefixes, which is built from this.
             VpcPrefixes: vpc_ipv4,
             HasVpcPrefixesIpv6: !vpc_ipv6.is_empty(),
             VpcPrefixesIpv6: vpc_ipv6,
@@ -296,7 +442,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
         }
 
         let (vpc_peer_ipv4, vpc_peer_ipv6) =
-            split_prefixes_by_family(&network.vpc_peer_prefixes, 1);
+            split_prefixes_by_family(&network.vpc_peer_prefixes, None, 1);
 
         has_any_vpc_vrf_loopback =
             has_any_vpc_vrf_loopback || network.tenant_vrf_loopback_ip.is_some();
@@ -325,11 +471,6 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
                 L3VNI: l3_vni,
                 HasVrfLoopback: network.tenant_vrf_loopback_ip.is_some(),
                 VrfLoopback: network.tenant_vrf_loopback_ip.unwrap_or_default(),
-                // TODO: This is wasteful because it should be specific to a VPC.
-                // Otherwise, all VPCs will have a BGP peer config for each
-                // interface, regardless of whether the interface is owned by
-                // that VPC.
-                HostInterfaces: host_interfaces.clone(),
                 PortConfigs: vec![port.clone()],
                 HasVpcPeerPrefixes: !vpc_peer_ipv4.is_empty(),
                 VpcPeerPrefixes: vpc_peer_ipv4,
@@ -443,12 +584,13 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
     });
 
     let (traffic_intercept_ipv4, traffic_intercept_ipv6) =
-        split_prefixes_by_family(&conf.traffic_intercept_public_prefixes, 1);
-    let (anycast_ipv4, anycast_ipv6) = split_prefixes_by_family(&conf.anycast_site_prefixes, 1000);
+        split_prefixes_by_family(&conf.traffic_intercept_public_prefixes, None, 1);
+    let (anycast_ipv4, anycast_ipv6) =
+        split_prefixes_by_family(&conf.anycast_site_prefixes, None, 1000);
     let (site_fabric_ipv4, site_fabric_ipv6) =
-        split_prefixes_by_family(&conf.site_fabric_prefixes, 1000);
+        split_prefixes_by_family(&conf.site_fabric_prefixes, None, 1000);
     let (deny_ipv4, deny_ipv6) =
-        split_prefixes_by_family(&conf.deny_prefixes, 1000 + deny_prefix_index_offset);
+        split_prefixes_by_family(&conf.deny_prefixes, None, 1000 + deny_prefix_index_offset);
 
     let params = TmplNvue {
         HasBgpLeafSessionPassword: conf.bgp_leaf_session_password.is_some(),
@@ -521,6 +663,7 @@ pub fn build(conf: NvueConfig) -> eyre::Result<String> {
             PortConfigs: port_configs,
             HasHostASN: conf.tenant_host_asn.is_some(),
             HostASN: conf.tenant_host_asn.unwrap_or_default(),
+            // Keep legacy tenant-wide HostInterfaces for pre-FNN templates; new templates should use PortConfigs.
             HostInterfaces: host_interfaces,
             NetworkSecurityGroups: network_security_groups,
             HasNetworkSecurityGroup: has_network_security_group,
@@ -930,9 +1073,10 @@ pub struct RouteTargetConfig {
 impl From<&RoutingProfile> for TmplRoutingProfile {
     fn from(profile: &RoutingProfile) -> Self {
         // Split mixed-family prefix lists before passing them to the template.
-        let (v4leaks, v6leaks) = split_prefixes_by_family(&profile.accepted_leaks_from_underlay, 1);
+        let (v4leaks, v6leaks) =
+            split_prefixes_by_family(&profile.accepted_leaks_from_underlay, None, 1);
         let (v4allowed_anycast, v6allowed_anycast) =
-            split_prefixes_by_family(&profile.allowed_anycast_prefixes, 1);
+            split_prefixes_by_family(&profile.allowed_anycast_prefixes, None, 1);
         let has_leaks_from_underlay_ipv4 =
             profile.leak_default_route_from_underlay || !v4leaks.is_empty();
         let has_leaks_from_underlay_ipv6 =
@@ -1039,6 +1183,11 @@ pub struct RoutingProfile {
     pub tenant_leak_communities_accepted: bool,
     pub accepted_leaks_from_underlay: Vec<String>,
     #[serde(default)]
+    pub allowed_anycast_prefixes: Vec<String>,
+}
+
+#[derive(Clone, Deserialize, Debug, PartialEq)]
+pub struct InterfaceRoutingProfile {
     pub allowed_anycast_prefixes: Vec<String>,
 }
 
@@ -1151,6 +1300,10 @@ pub struct Ipv6PortConfig {
 pub struct PortConfig {
     pub interface_name: String,
     pub vlan: u16,
+    pub host_ip: String,
+    pub host_route: String,
+    pub host_ipv6: Option<String>,
+    pub host_ipv6_route: Option<String>,
     pub vni: Option<u32>, // In FNN, admin network has both an l2vni and an l3vni
     pub l3_vni: Option<u32>,
     pub gateway_cidr: String,
@@ -1167,6 +1320,7 @@ pub struct PortConfig {
     pub network_security_group_id: Option<String>,
     #[serde(default)]
     pub routing_profile: Option<RoutingProfile>,
+    pub interface_routing_profile: Option<InterfaceRoutingProfile>,
 }
 
 //
@@ -1342,6 +1496,15 @@ struct TmplRoutingProfile {
 }
 
 #[allow(non_snake_case)]
+#[derive(Clone, Gtmpl, Debug, PartialEq, Default)]
+struct TmplInterfaceRoutingProfile {
+    HasAllowedAnycastPrefixesIpv4: bool,
+    HasAllowedAnycastPrefixesIpv6: bool,
+    AllowedAnycastPrefixesIpv4: Vec<Prefix>,
+    AllowedAnycastPrefixesIpv6: Vec<Prefix>,
+}
+
+#[allow(non_snake_case)]
 #[derive(Clone, Gtmpl, Debug)]
 struct TmplComputeTenant {
     Vpcs: Vec<TmplVpc>,
@@ -1426,7 +1589,6 @@ struct TmplVpc {
     HasVrfLoopback: bool,
     VrfLoopback: String,
 
-    HostInterfaces: Vec<TmplHostInterfaces>,
     PortConfigs: Vec<TmplConfigPort>,
 
     HasVpcPeerPrefixes: bool,
@@ -1469,6 +1631,12 @@ struct TmplConfigPort {
     InterfaceName: String,
     Index: String,
     VlanID: u16,
+    HostIP: String,
+    HostIPv6: Option<String>,
+    HostRoute: String,
+    HostIPv6Route: Option<String>,
+    HasRoutingProfile: bool,
+    RoutingProfile: TmplInterfaceRoutingProfile,
 
     /// Format: 24bit integer (usable range: 4096 to 16777215).
     /// Empty string if no tenant
@@ -1547,7 +1715,7 @@ mod tests {
             "192.168.0.0/16".to_string(),
             "fd00::/8".to_string(),
         ];
-        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1000);
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, None, 1000);
 
         assert_eq!(ipv4.len(), 2);
         assert_eq!(ipv6.len(), 2);
@@ -1566,7 +1734,7 @@ mod tests {
     #[test]
     fn test_split_prefixes_ipv4_only() {
         let prefixes = vec!["10.0.0.0/8".to_string(), "172.16.0.0/12".to_string()];
-        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1);
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, None, 1);
 
         assert_eq!(ipv4.len(), 2);
         assert!(ipv6.is_empty());
@@ -1575,7 +1743,7 @@ mod tests {
     #[test]
     fn test_split_prefixes_ipv6_only() {
         let prefixes = vec!["2001:db8::/32".to_string(), "fd00::/8".to_string()];
-        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1);
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, None, 1);
 
         assert!(ipv4.is_empty());
         assert_eq!(ipv6.len(), 2);
@@ -1584,7 +1752,7 @@ mod tests {
     #[test]
     fn test_split_prefixes_empty() {
         let prefixes: Vec<String> = vec![];
-        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1000);
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, None, 1000);
 
         assert!(ipv4.is_empty());
         assert!(ipv6.is_empty());
@@ -1593,7 +1761,7 @@ mod tests {
     #[test]
     fn test_split_prefixes_unparseable_dropped() {
         let prefixes = vec!["not-a-cidr".to_string(), "10.0.0.0/8".to_string()];
-        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1);
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, None, 1);
 
         assert_eq!(ipv4.len(), 1);
         assert_eq!(ipv4[0].Prefix, "10.0.0.0/8");
@@ -1609,7 +1777,7 @@ mod tests {
             "10.0.0.0/8".to_string(),
             "2001:db8::/32".to_string(),
         ];
-        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, 1);
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, None, 1);
 
         assert_eq!(ipv4.len(), 1);
         assert_eq!(ipv4[0].Prefix, "10.0.0.0/8");
@@ -1617,6 +1785,30 @@ mod tests {
         assert_eq!(ipv6.len(), 2);
         assert_eq!(ipv6[0].Prefix, "::ffff:192.0.2.33/128");
         assert_eq!(ipv6[1].Prefix, "2001:db8::/32");
+    }
+
+    #[test]
+    fn test_split_prefixes_filters_to_containing_prefixes() {
+        // Build mixed-family inputs with one contained and one excluded prefix per family.
+        let prefixes = vec![
+            "192.0.2.64/26".to_string(),
+            "198.51.100.0/24".to_string(),
+            "2001:db8:1::/64".to_string(),
+            "2001:db9::/48".to_string(),
+        ];
+        let filter = parse_prefixes(&["192.0.2.0/24".to_string(), "2001:db8::/32".to_string()]);
+
+        // Filter through the VPC allow-list while preserving family-specific indexes.
+        let (ipv4, ipv6) = split_prefixes_by_family(&prefixes, Some(&filter), 1);
+
+        // Verify only prefixes contained by the filter remain.
+        let ipv4_prefixes: Vec<_> = ipv4.iter().map(|prefix| prefix.Prefix.as_str()).collect();
+        let ipv6_prefixes: Vec<_> = ipv6.iter().map(|prefix| prefix.Prefix.as_str()).collect();
+
+        assert_eq!(ipv4_prefixes, vec!["192.0.2.64/26"]);
+        assert_eq!(ipv6_prefixes, vec!["2001:db8:1::/64"]);
+        assert_eq!(ipv4[0].Index, "1");
+        assert_eq!(ipv6[0].Index, "1");
     }
 
     /// Helper to build a minimal NvueConfig for template rendering tests.
@@ -1714,6 +1906,10 @@ mod tests {
         conf.ct_port_configs = vec![PortConfig {
             interface_name: "pf0vf0_if".into(),
             vlan: 100,
+            host_ip: "10.0.1.2".into(),
+            host_route: "10.0.1.0/24".into(),
+            host_ipv6: None,
+            host_ipv6_route: None,
             vni: Some(1000),
             l3_vni: Some(100),
             gateway_cidr: "10.0.1.1/24".into(),
@@ -1726,6 +1922,7 @@ mod tests {
             is_phy: false,
             network_security_group_id: None,
             routing_profile: None,
+            interface_routing_profile: None,
             ipv6_port_config: None,
         }];
         conf.ct_access_vlans = vec![VlanConfig {
@@ -1760,6 +1957,10 @@ mod tests {
         conf.ct_port_configs = vec![PortConfig {
             interface_name: "pf0vf0_if".into(),
             vlan: 100,
+            host_ip: "10.0.1.2".into(),
+            host_route: "10.0.1.0/24".into(),
+            host_ipv6: None,
+            host_ipv6_route: None,
             vni: Some(1000),
             l3_vni: Some(100),
             gateway_cidr: "10.0.1.1/24".into(),
@@ -1772,6 +1973,7 @@ mod tests {
             is_phy: false,
             network_security_group_id: None,
             routing_profile: None,
+            interface_routing_profile: None,
             ipv6_port_config: None,
         }];
         conf.ct_access_vlans = vec![VlanConfig {
@@ -1795,6 +1997,10 @@ mod tests {
         conf.ct_port_configs = vec![PortConfig {
             interface_name: "pf0vf0_if".into(),
             vlan: 100,
+            host_ip: "10.0.1.2".into(),
+            host_route: "10.0.1.0/24".into(),
+            host_ipv6: None,
+            host_ipv6_route: None,
             vni: Some(1000),
             l3_vni: Some(100),
             gateway_cidr: "10.0.1.1/24".into(),
@@ -1807,6 +2013,7 @@ mod tests {
             is_phy: false,
             network_security_group_id: None,
             routing_profile: None,
+            interface_routing_profile: None,
             ipv6_port_config: None,
         }];
         conf.ct_access_vlans = vec![VlanConfig {
@@ -1844,6 +2051,10 @@ mod tests {
         conf.ct_port_configs = vec![PortConfig {
             interface_name: "pf0vf0_if".into(),
             vlan: 100,
+            host_ip: "10.0.1.2".into(),
+            host_route: "10.0.1.0/24".into(),
+            host_ipv6: None,
+            host_ipv6_route: None,
             vni: Some(1000),
             l3_vni: Some(100),
             gateway_cidr: "10.0.1.1/24".into(),
@@ -1856,6 +2067,7 @@ mod tests {
             is_phy: false,
             network_security_group_id: None,
             routing_profile: None,
+            interface_routing_profile: None,
             ipv6_port_config: None,
         }];
         conf.ct_access_vlans = vec![VlanConfig {
@@ -1884,6 +2096,10 @@ mod tests {
         conf.ct_port_configs = vec![PortConfig {
             interface_name: "pf0vf0_if".into(),
             vlan: 100,
+            host_ip: "10.0.1.2".into(),
+            host_route: "10.0.1.0/24".into(),
+            host_ipv6: None,
+            host_ipv6_route: None,
             vni: Some(1000),
             l3_vni: Some(100),
             gateway_cidr: "10.0.1.1/24".into(),
@@ -1896,6 +2112,7 @@ mod tests {
             is_phy: false,
             network_security_group_id: None,
             routing_profile: None,
+            interface_routing_profile: None,
             ipv6_port_config: None,
         }];
         conf.ct_access_vlans = vec![VlanConfig {
@@ -1932,6 +2149,10 @@ mod tests {
             PortConfig {
                 interface_name: "pf0vf0_if".into(),
                 vlan: 100,
+                host_ip: "10.0.1.2".into(),
+                host_route: "10.0.1.0/24".into(),
+                host_ipv6: None,
+                host_ipv6_route: None,
                 vni: Some(1000),
                 l3_vni: Some(200),
                 gateway_cidr: "10.0.1.1/24".into(),
@@ -1944,11 +2165,16 @@ mod tests {
                 is_phy: false,
                 network_security_group_id: None,
                 routing_profile: None,
+                interface_routing_profile: None,
                 ipv6_port_config: None,
             },
             PortConfig {
                 interface_name: "pf0hpf_if".into(),
                 vlan: 101,
+                host_ip: "10.0.2.2".into(),
+                host_route: "10.0.2.0/24".into(),
+                host_ipv6: None,
+                host_ipv6_route: None,
                 vni: Some(1001),
                 l3_vni: Some(200),
                 gateway_cidr: "10.0.2.1/24".into(),
@@ -1961,6 +2187,7 @@ mod tests {
                 is_phy: false,
                 network_security_group_id: None,
                 routing_profile: None,
+                interface_routing_profile: None,
                 ipv6_port_config: None,
             },
         ];
@@ -2005,6 +2232,10 @@ mod tests {
         conf.ct_port_configs = vec![PortConfig {
             interface_name: "pf0vf0_if".into(),
             vlan: 100,
+            host_ip: "10.0.1.1".into(),
+            host_route: "10.0.1.0/31".into(),
+            host_ipv6: Some("2001:db8::1".into()),
+            host_ipv6_route: Some("2001:db8::0/127".into()),
             vni: Some(1000),
             l3_vni: Some(100),
             gateway_cidr: "10.0.1.0/31".into(),
@@ -2021,6 +2252,7 @@ mod tests {
             is_phy: false,
             network_security_group_id: None,
             routing_profile: None,
+            interface_routing_profile: None,
         }];
         conf.ct_access_vlans = vec![VlanConfig {
             vlan_id: 100,
@@ -2079,6 +2311,10 @@ mod tests {
         PortConfig {
             interface_name: "pf0hpf_if".into(),
             vlan,
+            host_ip: "10.0.1.2".into(),
+            host_route: "10.0.1.0/24".into(),
+            host_ipv6: None,
+            host_ipv6_route: None,
             vni: Some(1000),
             l3_vni: Some(100),
             gateway_cidr: "10.0.1.1/24".into(),
@@ -2091,6 +2327,7 @@ mod tests {
             is_phy: true,
             network_security_group_id: None,
             routing_profile: None,
+            interface_routing_profile: None,
             ipv6_port_config: None,
         }
     }
@@ -2200,5 +2437,33 @@ mod tests {
             !output.contains("169.254.169.253/30") || output.contains("pf0dpu1_if"),
             "DPU-OS mode should not put 169.254.169.253/30 on the vlan SVI in FNN"
         );
+    }
+
+    #[test]
+    fn test_fnn_no_interface_routing_profile_uses_vpc_allowed_anycast_prefixes() {
+        // Build an FNN config with a VPC routing profile and no interface override.
+        let mut conf = minimal_nvue_config();
+        conf.is_fnn = true;
+        conf.vpc_virtualization_type = VpcVirtualizationType::Fnn;
+        conf.ct_routing_profile = Some(RoutingProfile {
+            allowed_anycast_prefixes: vec!["192.0.2.0/24".into(), "2001:db8::/32".into()],
+            ..minimal_fnn_routing_profile()
+        });
+        conf.ct_port_configs = vec![phy_port_config(274)];
+
+        // Render through the template to exercise the VPC-level fallback path.
+        let output = build(conf).expect("build should succeed");
+
+        // Verify the VPC allow-list is emitted for both IPv4 and IPv6.
+        assert!(
+            output.contains("DPU_FROM_INSTANCE_PREFIX_LIST_vpc_100_if_10:"),
+            "expected IPv4 VPC prefix-list in output:\n{output}"
+        );
+        assert!(output.contains("192.0.2.0/24:"));
+        assert!(
+            output.contains("DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_100_if_10:"),
+            "expected IPv6 VPC prefix-list in output:\n{output}"
+        );
+        assert!(output.contains("2001:db8::/32:"));
     }
 }

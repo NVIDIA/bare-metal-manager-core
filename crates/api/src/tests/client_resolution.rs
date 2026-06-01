@@ -75,6 +75,7 @@ async fn test_resolve_machine_interface_via_instance_address(pool: sqlx::PgPool)
         network_security_group_id: None,
         dpu_extension_services: None,
         nvlink: None,
+        spxconfig: None,
     };
     let tinstance = mh.instance_builer(&env).config(config).build().await;
 

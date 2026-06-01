@@ -172,12 +172,10 @@ fn waiting_for_ready_exit_state(
     }
 }
 
-/// Handle DpfState::Provisioning: register all DPU devices and the node, then
-/// transition all DPUs to WaitingForReady.
-async fn handle_dpf_provisioning(
+async fn create_and_register_dpudevices_and_dpunode(
     state: &ManagedHostStateSnapshot,
     dpf_sdk: &dyn DpfOperations,
-) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+) -> Result<(), StateHandlerError> {
     let primary_dpu_id = state
         .host_snapshot
         .interfaces
@@ -204,21 +202,10 @@ async fn handle_dpf_provisioning(
             dpu_machine_id: dpu.id.to_string(),
             is_primary: dpu.id == primary_dpu_id,
         };
-        if let Err(err) = dpf_sdk.register_dpu_device(device_info).await {
-            return Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
-                details: FailureDetails {
-                    cause: FailureCause::DpfProvisioning {
-                        err: format!(
-                            "DPUDevice creation failed. Force-delete again to clean old values. Wait until DPU CR are deleted. {err}"
-                        ),
-                    },
-                    failed_at: chrono::Utc::now(),
-                    source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
-                },
-                machine_id: dpu.id,
-                retry_count: 0,
-            }));
-        }
+        dpf_sdk
+            .register_dpu_device(device_info)
+            .await
+            .map_err(dpf_error)?;
     }
 
     let device_ids: Vec<String> = state
@@ -231,20 +218,41 @@ async fn handle_dpf_provisioning(
         host_bmc_ip: bmc_ip(&state.host_snapshot)?.to_string(),
         device_ids,
     };
-    if let Err(err) = dpf_sdk.register_dpu_node(node_info).await {
-        return Ok(StateHandlerOutcome::transition(ManagedHostState::Failed {
-            details: FailureDetails {
-                cause: FailureCause::DpfProvisioning {
-                    err: format!(
-                        "DPUNode creation failed. Force-delete again to clean old values. Wait until DPU CR are deleted. {err}"
-                    ),
-                },
-                failed_at: chrono::Utc::now(),
-                source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+    dpf_sdk
+        .register_dpu_node(node_info)
+        .await
+        .map_err(dpf_error)?;
+
+    Ok(())
+}
+
+fn dpf_cr_creation_failed(
+    machine_id: MachineId,
+    err: &StateHandlerError,
+) -> StateHandlerOutcome<ManagedHostState> {
+    StateHandlerOutcome::transition(ManagedHostState::Failed {
+        details: FailureDetails {
+            cause: FailureCause::DpfProvisioning {
+                err: format!(
+                    "DPUDevice/DPUNode creation failed. Force-delete again to clean old values. Wait until DPU CR are deleted. {err}"
+                ),
             },
-            machine_id: state.host_snapshot.id,
-            retry_count: 0,
-        }));
+            failed_at: chrono::Utc::now(),
+            source: FailureSource::StateMachineArea(StateMachineArea::MainFlow),
+        },
+        machine_id,
+        retry_count: 0,
+    })
+}
+
+/// Handle DpfState::Provisioning: register all DPU devices and the node, then
+/// transition all DPUs to WaitingForReady.
+async fn handle_dpf_provisioning(
+    state: &ManagedHostStateSnapshot,
+    dpf_sdk: &dyn DpfOperations,
+) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
+    if let Err(err) = create_and_register_dpudevices_and_dpunode(state, dpf_sdk).await {
+        return Ok(dpf_cr_creation_failed(state.host_snapshot.id, &err));
     }
 
     let next =
@@ -385,14 +393,36 @@ fn handle_dpf_device_ready(
     Ok(StateHandlerOutcome::transition(next))
 }
 
-/// Handle DpfState::Reprovisioning for a single DPU: call reprovision_dpu,
-/// then transition that DPU to WaitingForReady.
+/// Handle DpfState::Reprovisioning
+/// If the DPUNode and DPUDevice CRs do not exist, then create them
+/// and transition to the next state to reprovision all DPUs to DPF.
+/// Else handle the reprovisioning of a single DPU
 async fn handle_dpf_reprovisioning(
     state: &ManagedHostStateSnapshot,
     dpu_snapshot: &Machine,
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
+    let dpf_dpudevices_and_dpunode_crs_noexist =
+        crate::dpf::dpf_dpudevices_and_dpunode_crs_noexist(state, dpf_sdk)
+            .await
+            .map_err(dpf_error)?;
+    if dpf_dpudevices_and_dpunode_crs_noexist {
+        tracing::info!(
+            host = %state.host_snapshot.id,
+            "DPUDevice/DPUNode CRs do not exist, creating them before reprovisioning"
+        );
+        if let Err(err) = create_and_register_dpudevices_and_dpunode(state, dpf_sdk).await {
+            return Ok(dpf_cr_creation_failed(state.host_snapshot.id, &err));
+        }
+        let next = transition_all_dpus_to_dpf_state(
+            DpfState::WaitingForReady { phase_detail: None },
+            state,
+        )?;
+        return Ok(StateHandlerOutcome::transition(next));
+    }
+
+    tracing::info!("DPF initiate reprovision of DPU {}", dpu_snapshot.id);
     dpf_sdk
         .reprovision_dpu(&dpf_id(dpu_snapshot)?, &node_name)
         .await

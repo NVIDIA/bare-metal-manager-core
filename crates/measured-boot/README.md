@@ -1,6 +1,6 @@
 # measured-boot
 
-This crate contains models for measured boot, for common use between admin-cli and carbide-api. It will optionally
+This crate contains models for measured boot, for common use between admin-cli and nico-api. It will optionally
 derive sqlx metadata for each type if the `sqlx` feature is enabled, and will
 optionally contain code to render CLI tables through prettytable, if the `cli` feature is
 enabled.

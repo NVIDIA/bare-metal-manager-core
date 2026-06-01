@@ -62,7 +62,7 @@ The NICo deployment includes a number of core services:
   it can be queried using tools such as Grafana and `logcli`.
 - **DNS**: Provides domain name service (DNS) functionality
   using two services:
-  - `carbide-dns`: Handles DNS queries from the site controller and managed nodes.
+  - `nico-dns`: Handles DNS queries from the site controller and managed nodes.
   - `unbound`: Provides recursive DNS services to managed machines and instances.
 
 This set of services is also referred to as the **Site Controller**
@@ -80,8 +80,8 @@ NICo requires persistent, durable storage to maintain state for the following co
   uses three each (one per K8s control node) of the `data-vault` and `audit-vault` 10GB PVs to protect and distribute
   the data in the absence of a shared storage solution.
 - [Postgres](https://www.postgresql.org/): This database is used to store state for any NICo or site controller
-  components that require it, including the main "forgedb". There are three 10GB `pgdata` PVs deployed to protect
-  and distribute the data in the absence of a shared storage solution. The `forgedb` database is stored here.
+  components that require it, including the main "nicodb". There are three 10GB `pgdata` PVs deployed to protect
+  and distribute the data in the absence of a shared storage solution. The `nicodb` database is stored here.
 - Certificate Management Infrastructure: This is a set of components that manage the certificates for the site controller and managed hosts.
 
 #### Site Management

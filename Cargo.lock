@@ -2538,7 +2538,6 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "bmc-vendor",
- "carbide-api-db",
  "carbide-api-model",
  "carbide-secrets",
  "carbide-utils",
@@ -2550,7 +2549,6 @@ dependencies = [
  "reqwest 0.13.4",
  "serde",
  "serde_json",
- "sqlx",
  "state-controller",
  "thiserror 2.0.18",
  "tokio",
@@ -2948,6 +2946,7 @@ dependencies = [
  "chrono",
  "clap",
  "ipnetwork",
+ "mac_address",
  "opentelemetry",
  "opentelemetry-prometheus",
  "opentelemetry_sdk",
@@ -6446,7 +6445,7 @@ dependencies = [
 [[package]]
 name = "librms"
 version = "0.0.12"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.12-rc3#88797e64f4fbf072b5844ed7b8d7e1e987d4aef6"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.12-rc4#a870c06ee1483a46ef3fb01cc4ce7d73470c7d3c"
 dependencies = [
  "async-trait",
  "chrono",
@@ -11414,7 +11413,7 @@ dependencies = [
 [[package]]
 name = "tonic-client-wrapper"
 version = "1.0.0"
-source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.12-rc3#88797e64f4fbf072b5844ed7b8d7e1e987d4aef6"
+source = "git+https://github.com/NVIDIA/nv-rms-client.git?tag=v0.0.12-rc4#a870c06ee1483a46ef3fb01cc4ce7d73470c7d3c"
 dependencies = [
  "async-trait",
  "heck",

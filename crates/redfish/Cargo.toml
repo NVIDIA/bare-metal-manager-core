@@ -11,11 +11,10 @@ name = "carbide_redfish"
 
 [features]
 default = []
-test-support = [ "dep:chrono", "dep:serde_json", "dep:tokio" ]
+test-support = ["dep:chrono", "dep:serde_json", "dep:tokio"]
 
 [dependencies]
 bmc-vendor = { path = "../bmc-vendor" }
-carbide-api-db = { path = "../api-db", default-features = false }
 carbide-api-model = { path = "../api-model", default-features = false }
 carbide-secrets = { path = "../secrets" }
 carbide-utils = { path = "../utils", default-features = false }
@@ -35,7 +34,6 @@ nv-redfish = { workspace = true, features = ["bmc-http", "oem-hpe", "session-ser
 reqwest = { workspace = true, default-features = false }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
-sqlx = { workspace = true, features = [ "postgres" ] }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
 tracing = { workspace = true }

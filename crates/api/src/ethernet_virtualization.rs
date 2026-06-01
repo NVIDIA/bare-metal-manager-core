@@ -26,7 +26,10 @@ use db::vpc::{self};
 use db::vpc_peering::get_prefixes_by_vpcs;
 use db::{self, ObjectColumnFilter, network_security_group};
 use ipnetwork::{IpNetwork, Ipv4Network};
-use model::instance::config::network::{InstanceInterfaceConfig, InterfaceFunctionId};
+use model::instance::config::network::{
+    InstanceInterfaceConfig, InstanceInterfaceRoutingProfile, InstanceNetworkConfig,
+    InterfaceFunctionId,
+};
 use model::machine::ManagedHostStateSnapshot;
 use model::network_prefix::NetworkPrefix;
 use model::network_security_group::{
@@ -91,6 +94,95 @@ impl SiteFabricPrefixList {
                 _ => false,
             })
     }
+}
+
+/// Returns whether `candidate` is equal to or narrower than `allowed`.
+fn prefix_contains(allowed: IpNetwork, candidate: IpNetwork) -> bool {
+    match (candidate, allowed) {
+        (IpNetwork::V4(candidate), IpNetwork::V4(allowed)) => candidate.is_subnet_of(allowed),
+        (IpNetwork::V6(candidate), IpNetwork::V6(allowed)) => candidate.is_subnet_of(allowed),
+        _ => false,
+    }
+}
+
+/// Validates that an interface-level routing profile only narrows the owning VPC profile.
+fn validate_interface_routing_profile(
+    vpc_profile: &FnnRoutingProfileConfig,
+    interface_profile: &InstanceInterfaceRoutingProfile,
+) -> Result<(), CarbideError> {
+    // Validate every requested anycast prefix against the owning VPC profile.
+    // This helper is used when tenant input is accepted. DPU render-time
+    // validation is handled by the agent, which filters invalid prefixes and
+    // logs warnings so operator profile changes after instance creation do not
+    // block config rendering. If routing profiles become DB-backed, this
+    // should also be enforced on profile updates before committing changes
+    // that would invalidate existing interface overrides.
+    for prefix in &interface_profile.allowed_anycast_prefixes {
+        if !vpc_profile
+            .allowed_anycast_prefixes
+            .iter()
+            .any(|allowed| prefix_contains(allowed.prefix, *prefix))
+        {
+            return Err(CarbideError::InvalidArgument(format!(
+                "instance interface routing_profile.allowed_anycast_prefixes entry `{prefix}` is not within the owning VPC routing profile"
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+/// Validates all interface-level routing profiles in an instance network config.
+pub(crate) async fn validate_instance_interface_routing_profiles(
+    txn: &mut PgConnection,
+    network_config: &InstanceNetworkConfig,
+    fnn_config: Option<&FnnConfig>,
+) -> Result<(), CarbideError> {
+    for iface in &network_config.interfaces {
+        let Some(interface_profile) = iface.routing_profile.as_ref() else {
+            continue;
+        };
+
+        // Resolve the owning VPC after any VPC-prefix request has become a segment.
+        let segment_id = iface.network_segment_id.ok_or_else(|| {
+            CarbideError::InvalidArgument(
+                "instance interface routing_profile requires a network segment".to_string(),
+            )
+        })?;
+        let vpc = db::vpc::find_by_segment(&mut *txn, segment_id).await?;
+
+        // Interface routing profiles are only valid on FNN VPC interfaces.
+        if vpc.network_virtualization_type != VpcVirtualizationType::Fnn {
+            return Err(CarbideError::InvalidArgument(
+                "instance interface routing_profile is only supported for FNN VPC interfaces"
+                    .to_string(),
+            ));
+        }
+
+        let fnn = fnn_config.ok_or_else(|| {
+            CarbideError::InvalidArgument(
+                "instance interface routing_profile requires FNN routing profiles".to_string(),
+            )
+        })?;
+        let profile_type =
+            vpc.routing_profile_type
+                .as_ref()
+                .ok_or_else(|| CarbideError::Internal {
+                    message: "tenant routing profile type not found in VPC record".to_string(),
+                })?;
+        let vpc_profile =
+            fnn.routing_profiles
+                .get(profile_type)
+                .ok_or_else(|| CarbideError::NotFoundError {
+                    kind: "routing_profile_type",
+                    id: profile_type.to_string(),
+                })?;
+
+        // The interface profile must be a subset of the operator profile.
+        validate_interface_routing_profile(vpc_profile, interface_profile)?;
+    }
+
+    Ok(())
 }
 
 /// Groups the optional IPv4 prefix with the optional IPv6 prefix for a
@@ -416,7 +508,8 @@ pub async fn admin_network(
         internal_uuid: None,
         mtu: u32::try_from(admin_segment.config.mtu).ok(),
         ipv6_interface_config: None,
-        routing_profile: admin_vpc_routing_profile.map(rpc::RoutingProfile::from),
+        vpc_routing_profile: admin_vpc_routing_profile.map(rpc::RoutingProfile::from),
+        interface_routing_profile: None,
     };
     Ok((cfg, interface.id))
 }
@@ -556,7 +649,7 @@ pub async fn tenant_network(
         .unwrap_or_default() as u32;
 
     // Resolve the routing profile from the VPC attached to this interface.
-    let routing_profile = match (vpc.as_ref(), fnn_config) {
+    let (vpc_routing_profile, interface_routing_profile) = match (vpc.as_ref(), fnn_config) {
         (Some(vpc), Some(fnn)) if vpc.network_virtualization_type == VpcVirtualizationType::Fnn => {
             let profile_type =
                 vpc.routing_profile_type
@@ -571,9 +664,28 @@ pub async fn tenant_network(
                 }
             })?;
 
-            Some(rpc::RoutingProfile::from(profile))
+            (
+                Some(rpc::RoutingProfile::from(profile)),
+                iface
+                    .routing_profile
+                    .as_ref()
+                    .map(rpc::FlatInterfaceRoutingProfile::from),
+            )
         }
-        _ => None,
+        (Some(vpc), None) if vpc.network_virtualization_type == VpcVirtualizationType::Fnn => {
+            return Err(CarbideError::Internal {
+                message: "FNN VPC found but no FNN config found".to_string(),
+            }
+            .into());
+        }
+        _ if iface.routing_profile.is_some() => {
+            return Err(CarbideError::InvalidArgument(
+                "instance interface routing_profile is only supported for FNN VPC interfaces"
+                    .to_string(),
+            )
+            .into());
+        }
+        _ => (None, None),
     };
 
     let rpc_ft: rpc::InterfaceFunctionType = iface.function_id.function_type().into();
@@ -686,7 +798,8 @@ pub async fn tenant_network(
                 .unwrap_or_default(),
             svi_ip: svi_ip_v6,
         }),
-        routing_profile,
+        vpc_routing_profile,
+        interface_routing_profile,
     })
 }
 
@@ -714,6 +827,71 @@ pub fn resolve_security_group_rule(
 #[cfg(test)]
 mod test {
     use super::*;
+
+    /// Returns a test FNN routing profile with the provided allowed anycast prefixes.
+    fn routing_profile_with_anycast(prefixes: &[&str]) -> FnnRoutingProfileConfig {
+        FnnRoutingProfileConfig {
+            allowed_anycast_prefixes: prefixes
+                .iter()
+                .map(|prefix| crate::cfg::file::PrefixFilterPolicyEntry {
+                    prefix: prefix.parse().unwrap(),
+                })
+                .collect(),
+            leak_default_route_from_underlay: true,
+            ..Default::default()
+        }
+    }
+
+    /// Returns a test interface routing profile with the provided anycast prefixes.
+    fn interface_routing_profile(prefixes: &[&str]) -> InstanceInterfaceRoutingProfile {
+        InstanceInterfaceRoutingProfile {
+            allowed_anycast_prefixes: prefixes
+                .iter()
+                .map(|prefix| prefix.parse().unwrap())
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn test_interface_routing_profile_conversion_preserves_interface_anycast_prefixes() {
+        let vpc_profile = routing_profile_with_anycast(&["192.0.2.0/24", "2001:db8::/32"]);
+        let interface_profile = interface_routing_profile(&["192.0.2.64/26", "2001:db8:1::/64"]);
+
+        validate_interface_routing_profile(&vpc_profile, &interface_profile).unwrap();
+        let vpc_routing_profile = rpc::RoutingProfile::from(&vpc_profile);
+        let interface_routing_profile = rpc::FlatInterfaceRoutingProfile::from(&interface_profile);
+
+        assert!(vpc_routing_profile.leak_default_route_from_underlay);
+        assert_eq!(
+            vpc_routing_profile
+                .allowed_anycast_prefixes
+                .into_iter()
+                .map(|entry| entry.prefix)
+                .collect::<Vec<_>>(),
+            vec!["192.0.2.0/24".to_string(), "2001:db8::/32".to_string()]
+        );
+        assert_eq!(
+            interface_routing_profile
+                .allowed_anycast_prefixes
+                .into_iter()
+                .map(|entry| entry.prefix)
+                .collect::<Vec<_>>(),
+            vec!["192.0.2.64/26".to_string(), "2001:db8:1::/64".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_interface_routing_profile_rejects_anycast_prefix_outside_vpc_profile() {
+        let vpc_profile = routing_profile_with_anycast(&["192.0.2.0/24"]);
+        let interface_profile = interface_routing_profile(&["198.51.100.0/24"]);
+
+        // Attempt to validate an interface profile outside the VPC profile.
+        let err = validate_interface_routing_profile(&vpc_profile, &interface_profile)
+            .expect_err("interface profile should be rejected");
+
+        // Verify the API surfaces the violation as caller-provided invalid input.
+        assert!(matches!(err, CarbideError::InvalidArgument(_)));
+    }
 
     #[test]
     fn test_site_prefix_list() {

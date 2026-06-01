@@ -38,6 +38,7 @@ where
         _registry: PhantomData,
         make_writer: Arc::new(|| Box::new(std::io::stdout())),
         emit_span_logs: true,
+        write_end_time: false,
         extra_event_fields: Vec::new(),
     }
 }
@@ -54,6 +55,7 @@ pub struct LogFmtLayer<S> {
     _registry: std::marker::PhantomData<S>,
     make_writer: Arc<dyn Fn() -> Box<dyn Write> + Send + Sync>,
     emit_span_logs: bool,
+    write_end_time: bool,
     extra_event_fields: Vec<String>,
 }
 
@@ -77,6 +79,14 @@ where
         }
     }
 
+    /// Whether to write a timing_end_time field in spans
+    pub fn with_end_time(self, write_end_time: bool) -> Self {
+        Self {
+            write_end_time,
+            ..self
+        }
+    }
+
     /// Add extra span attribute keys to emit in event logs
     pub fn with_event_fields(self, extra_event_fields: Vec<String>) -> Self {
         Self {
@@ -88,6 +98,7 @@ where
 
 struct Timing {
     start_time: chrono::DateTime<chrono::Utc>,
+    start_time_monotonic: std::time::Instant,
     busy_ns: i64,
     idle_ns: i64,
     last: std::time::Instant,
@@ -95,11 +106,13 @@ struct Timing {
 
 impl Timing {
     pub fn new() -> Self {
+        let now = std::time::Instant::now();
         Self {
             busy_ns: 0,
             idle_ns: 0,
-            last: std::time::Instant::now(),
+            last: now,
             start_time: chrono::Utc::now(),
+            start_time_monotonic: now,
         }
     }
 }
@@ -285,13 +298,22 @@ where
             "timing_start_time".to_string(),
             format!("{:?}", data.timing.start_time),
         );
-        let end_time = chrono::Utc::now();
-        data.attributes
-            .insert("timing_end_time".to_string(), format!("{end_time:?}"));
-        let elapsed = end_time.signed_duration_since(data.timing.start_time);
+        if self.write_end_time {
+            let end_time = chrono::Utc::now();
+            data.attributes
+                .insert("timing_end_time".to_string(), format!("{end_time:?}"));
+        }
+
+        // We use the time when the span was exited the last time to calculate elapsed_us
+        // That prevents the time to look high in case any other piece of code held a reference to the span.
+        let elapsed = data
+            .timing
+            .last
+            .checked_duration_since(data.timing.start_time_monotonic)
+            .unwrap_or_default();
         data.attributes.insert(
             "timing_elapsed_us".to_string(),
-            elapsed.num_microseconds().unwrap_or_default().to_string(),
+            elapsed.as_micros().to_string(),
         );
         data.attributes.insert(
             "timing_busy_ns".to_string(),
@@ -620,10 +642,13 @@ mod tests {
             &std::io::Error::new(std::io::ErrorKind::Unsupported, "cc") as &dyn std::error::Error,
         );
 
-        // Write the span event
+        // Wait a bit before exiting the span. The busy time should be logged as part of timing_elapsed_us
         std::thread::sleep(std::time::Duration::from_millis(100));
         drop(_entered);
 
+        // Before closing the span, wait a bit more. This time should not be logged.
+        // It purely exists because something else still holds a reference to the span - even in case it might not be useful
+        std::thread::sleep(std::time::Duration::from_millis(500));
         drop(span);
 
         // Check the written data
@@ -648,7 +673,7 @@ mod tests {
         let elapsed_str = &elapsed_str[..elapsed_str_end_idx];
         let elapsed_us: u64 = elapsed_str.parse().unwrap();
         assert!(
-            (100_000..1_000_000).contains(&elapsed_us),
+            (100_000..400_000).contains(&elapsed_us),
             "Elapsed duration is {elapsed_us}us"
         );
     }

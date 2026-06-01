@@ -80,7 +80,7 @@ currently supported:
 sequenceDiagram
     autonumber
     participant Op as Operator
-    participant CLI as forge-admin-cli
+    participant CLI as nico-admin-cli
     participant API as NICo API (gRPC)
     participant DB as Database
     participant SC as PowerShelf State Controller
@@ -118,21 +118,21 @@ deletion the entire request is rejected and no shelves are mutated.
 
 ```bash
 # Single shelf
-forge-admin-cli power-shelf maintenance power-off \
+nico-admin-cli power-shelf maintenance power-off \
     --power-shelf-id <ID>
 
 # Multiple shelves, repeated flag
-forge-admin-cli power-shelf maintenance power-on \
+nico-admin-cli power-shelf maintenance power-on \
     --power-shelf-id <ID1> \
     --power-shelf-id <ID2> \
     --reference https://tracker/MAINT-123
 
 # Multiple shelves, single flag with several values
-forge-admin-cli power-shelf maintenance power-off \
+nico-admin-cli power-shelf maintenance power-off \
     --power-shelf-id <ID1> <ID2> <ID3>
 
 # Using the visible aliases
-forge-admin-cli power-shelf fix power-on --id <ID1> <ID2>
+nico-admin-cli power-shelf fix power-on --id <ID1> <ID2>
 ```
 
 | Flag | Required | Description |
@@ -142,7 +142,7 @@ forge-admin-cli power-shelf fix power-on --id <ID1> <ID2>
 
 ### gRPC interface
 
-The CLI is a thin wrapper over the `Forge.SetPowerShelfMaintenance` gRPC
+The CLI is a thin wrapper over the `NICo.SetPowerShelfMaintenance` gRPC
 method:
 
 ```proto

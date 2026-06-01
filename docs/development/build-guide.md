@@ -39,14 +39,14 @@ After building the `nico` release image, run a quick sanity check to confirm all
 present and start without crashing:
 
 ```bash
-for bin in carbide carbide-admin-cli carbide-api carbide-dns carbide-dsx-exchange-consumer \
-           forge-dhcp-server forge-dpu-agent forge-hw-health forge-log-parser ssh-console; do
-  echo "$bin: $(docker run --rm nico /opt/carbide/$bin --help 2>&1 | head -1)"
+for bin in nico nico-admin-cli nico-api nico-dns nico-dsx-exchange-consumer \
+           nico-dhcp-server nico-dpu-agent nico-hw-health nico-log-parser ssh-console; do
+  echo "$bin: $(docker run --rm nico /opt/nico/$bin --help 2>&1 | head -1)"
 done
 ```
 
 Each line should print a usage string or a startup log line. Services that don't implement
-`--help` (e.g. `carbide-dsx-exchange-consumer`, `forge-hw-health`) will log their startup config
+`--help` (e.g. `nico-dsx-exchange-consumer`, `nico-hw-health`) will log their startup config
 and then block waiting for connections — that is expected and counts as a pass. Any
 `exec format error` or `No such file` indicates a broken build.
 
@@ -62,7 +62,7 @@ understand why the build is structured the way it is.
 (`debug = 0`) or full debug info (`debug = true`). This embeds line-number tables in binaries but
 omits DWARF variable info (local variable names, types, values).
 
-**Why:** With `debug = true`, the `carbide-api` binary alone was ~1.46 GB, producing a 5.4 GB
+**Why:** With `debug = true`, the `nico-api` binary alone was ~1.46 GB, producing a 5.4 GB
 release image. `"line-tables-only"` reduced the binary to ~544 MB and the image to ~2.5 GB —
 a 58% reduction — while keeping stack traces useful (line numbers are preserved).
 
@@ -83,7 +83,7 @@ or `cargo clippy` once per crate. With `--no-workspace`, cargo-make runs the tas
 workspace root, which is equivalent to running `cargo build --workspace` — a single invocation
 that builds everything once.
 
-**Why:** The per-member iteration caused shared dependencies (`tonic`, `sqlx`, `carbide-rpc`, etc.)
+**Why:** The per-member iteration caused shared dependencies (`tonic`, `sqlx`, `nico-rpc`, etc.)
 to be recompiled repeatedly across members. Switching to `--no-workspace` reduced the build from
 ~98 minutes to ~21 minutes on a 72-core server.
 

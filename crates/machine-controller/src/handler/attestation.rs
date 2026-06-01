@@ -15,9 +15,8 @@
  * limitations under the License.
  */
 
-use std::sync::Arc;
+use std::collections::BTreeMap;
 
-use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::libredfish::error::state_handler_redfish_error as redfish_error;
 use carbide_uuid::machine::MachineId;
 use chrono::{DateTime, Utc};
@@ -39,6 +38,10 @@ use state_controller::state_handler::{
 };
 
 use crate::context::MachineStateHandlerContextObjects;
+use crate::handler::MachineStateHandlerServices;
+
+const PRODUCT_GB200: &str = "GB200 NVL";
+const PRODUCT_GB300: &str = "GB300 NVL";
 
 pub async fn trigger_attestation(
     db_pool: &PgPool,
@@ -61,7 +64,7 @@ pub async fn trigger_attestation(
         Ok(redfish_result) => redfish_result.map_err(|e| redfish_error("get service root", e))?,
         Err(_) => {
             return Err(StateHandlerError::GenericError(eyre::eyre!(
-                "redfish service_root could not finish in {} secods",
+                "redfish service_root could not finish in {} seconds",
                 redfish_timeout_duration.as_secs()
             )));
         }
@@ -69,6 +72,28 @@ pub async fn trigger_attestation(
 
     if service_root.component_integrity.is_none() {
         // let's treat 0 devices under attestation as NotSupported
+        return Ok(0);
+    }
+
+    // do we support attestation for a given machine type?
+    // check the ServiceRoot.Product
+    let product = match service_root.product {
+        Some(product_name) => product_name,
+        None => {
+            tracing::info!(
+                "ServiceRoot.Product is None, not scheduling SPDM attestation for machine: {}",
+                machine_id
+            );
+            return Ok(0);
+        }
+    };
+
+    if !is_supported_product(&product) {
+        tracing::info!(
+            "ServiceRoot.Product - {} - is not supported, not scheduling SPDM attestation for machine: {}",
+            product,
+            machine_id
+        );
         return Ok(0);
     }
 
@@ -81,13 +106,13 @@ pub async fn trigger_attestation(
             }
             Err(_) => {
                 return Err(StateHandlerError::GenericError(eyre::eyre!(
-                    "redfish get_component_integrities could not finish in {} secods",
+                    "redfish get_component_integrities could not finish in {} seconds",
                     redfish_timeout_duration.as_secs()
                 )));
             }
         };
 
-    let components = get_components_supporting_spdm(&component_integrities);
+    let components = get_supported_components(&product, &component_integrities);
 
     if components.is_empty() {
         // let's treat 0 devices under attestation as NotSupported
@@ -130,8 +155,14 @@ pub async fn trigger_attestation(
 // ComponentIntegrityTypeVersion should be >= 1.1.0.
 // ComponentIntegrityType should be SPDM.
 // ComponentIntegrityEnabled should be true.
+// A device must be of supported type.
 // Once these all conditions are true, a device can be proceed with attestation.
-fn get_components_supporting_spdm(integrities: &ComponentIntegrities) -> Vec<&ComponentIntegrity> {
+fn get_supported_components<'a>(
+    product: &str,
+    integrities: &'a ComponentIntegrities,
+) -> Vec<&'a ComponentIntegrity> {
+    let supported_devices = BTreeMap::from([(PRODUCT_GB200, ["HGX_IRoT_GPU"])]);
+
     let supported_versions = ["1.1.0"]; // This can be configurable value.
     let mut supported_components = vec![];
 
@@ -150,10 +181,25 @@ fn get_components_supporting_spdm(integrities: &ComponentIntegrities) -> Vec<&Co
             continue;
         }
 
+        let is_supported = match supported_devices.get(product) {
+            Some(device_id_stems) => device_id_stems
+                .iter()
+                .any(|device_id_stem| component.id.contains(device_id_stem)),
+            None => false,
+        };
+
+        if !is_supported {
+            continue;
+        }
+
         supported_components.push(component);
     }
 
     supported_components
+}
+
+fn is_supported_product(product: &str) -> bool {
+    matches!(product, PRODUCT_GB200 | PRODUCT_GB300)
 }
 
 fn from_component_integrity(
@@ -245,21 +291,19 @@ pub(crate) async fn handle_spdm_attestation_failed_recovery(
 }
 
 pub(crate) async fn handle_spdm_trigger_state(
-    db_pool: &PgPool,
-    redfish_client_pool: Arc<dyn RedfishClientPool>,
+    services: &MachineStateHandlerServices,
     mh_snapshot: &mut ManagedHostStateSnapshot,
     host_machine_id: &MachineId,
     next_spdm_state: ManagedHostState,
     next_skip_state: ManagedHostState,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     // create redfish client
-    let redfish_client = redfish_client_pool
-        .create_client_from_machine(&mh_snapshot.host_snapshot, db_pool)
-        .await
-        .map_err(StateHandlerError::from)?;
+    let redfish_client = services
+        .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+        .await?;
 
     let devices_scheduled = trigger_attestation(
-        db_pool,
+        &services.db_pool,
         redfish_client,
         &mh_snapshot.host_snapshot.bmc_info,
         host_machine_id,

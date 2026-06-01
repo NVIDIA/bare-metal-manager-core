@@ -132,36 +132,31 @@
                 action: deny
                 match:
                   any: {}
-          DPU_FROM_INSTANCE_PREFIX_LIST_vpc_1025186:
+          DPU_FROM_INSTANCE_PREFIX_LIST_vpc_1025186_if_20:
             rule:
-              '1':
-                action: permit
-                match:
-                  5.255.254.0/24:
-                    max-prefix-len: 32
               '65535':
                 action: deny
                 match:
                   any: {}
-          DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_1025186:
+          DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_1025186_if_20:
             type: ipv6
             rule:
               '65535':
                 action: deny
                 match:
                   any: {}
-          DPU_FROM_INSTANCE_PREFIX_LIST_vpc_1025197:
+          DPU_FROM_INSTANCE_PREFIX_LIST_vpc_1025197_if_10:
             rule:
               '1':
                 action: permit
                 match:
-                  5.255.254.0/24:
+                  5.255.254.67/32:
                     max-prefix-len: 32
               '65535':
                 action: deny
                 match:
                   any: {}
-          DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_1025197:
+          DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_1025197_if_10:
             type: ipv6
             rule:
               '65535':
@@ -351,15 +346,15 @@
                     none: {}
               '65535':
                 action:
-                  deny: {}   
-          dpu_from_instance_vpc_1025186:
+                  deny: {}
+          dpu_from_instance_vpc_1025186_if_20:
             rule:
               '9':
                 action:
                   permit: {}
                 match:
                   type: ipv4
-                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_vpc_1025186
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_vpc_1025186_if_20
                   community-list: BYOIP_LEAK_AND_DROP_EVPN_COMMUNITY_LIST
                 set:
                   tag: 65102
@@ -372,7 +367,7 @@
                   permit: {}
                 match:
                   type: ipv4
-                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_vpc_1025186
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_vpc_1025186_if_20
                   community-list: BYOIP_LEAK_COMMUNITY_LIST
                 set:
                   tag: 65100
@@ -385,7 +380,7 @@
                   permit: {}
                 match:
                   type: ipv4
-                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_vpc_1025186
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_vpc_1025186_if_20
                 set:
                   tag: 65101
                   community:
@@ -395,14 +390,14 @@
               '65535':
                 action:
                   deny: {}
-          dpu_from_instance_ipv6_vpc_1025186:
+          dpu_from_instance_ipv6_vpc_1025186_if_20:
             rule:
               '9':
                 action:
                   permit: {}
                 match:
                   type: ipv6
-                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_1025186
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_1025186_if_20
                   community-list: BYOIP_LEAK_AND_DROP_EVPN_COMMUNITY_LIST
                 set:
                   tag: 65102
@@ -415,7 +410,7 @@
                   permit: {}
                 match:
                   type: ipv6
-                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_1025186
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_1025186_if_20
                   community-list: BYOIP_LEAK_COMMUNITY_LIST
                 set:
                   tag: 65100
@@ -428,50 +423,7 @@
                   permit: {}
                 match:
                   type: ipv6
-                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_1025186
-                set:
-                  tag: 65101
-                  community:
-                      none: {}
-                  large-community:
-                    none: {}
-              '65535':
-                action:
-                  deny: {}   
-          dpu_from_instance_vpc_1025197:
-            rule:
-              '9':
-                action:
-                  permit: {}
-                match:
-                  type: ipv4
-                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_vpc_1025197
-                  community-list: BYOIP_LEAK_AND_DROP_EVPN_COMMUNITY_LIST
-                set:
-                  tag: 65102
-                  community:
-                      none: {}
-                  large-community:
-                    none: {}
-              '10':
-                action:
-                  permit: {}
-                match:
-                  type: ipv4
-                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_vpc_1025197
-                  community-list: BYOIP_LEAK_COMMUNITY_LIST
-                set:
-                  tag: 65100
-                  community:
-                      none: {}
-                  large-community:
-                    none: {}
-              '11':
-                action:
-                  permit: {}
-                match:
-                  type: ipv4
-                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_vpc_1025197
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_1025186_if_20
                 set:
                   tag: 65101
                   community:
@@ -481,14 +433,57 @@
               '65535':
                 action:
                   deny: {}
-          dpu_from_instance_ipv6_vpc_1025197:
+          dpu_from_instance_vpc_1025197_if_10:
+            rule:
+              '9':
+                action:
+                  permit: {}
+                match:
+                  type: ipv4
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_vpc_1025197_if_10
+                  community-list: BYOIP_LEAK_AND_DROP_EVPN_COMMUNITY_LIST
+                set:
+                  tag: 65102
+                  community:
+                      none: {}
+                  large-community:
+                    none: {}
+              '10':
+                action:
+                  permit: {}
+                match:
+                  type: ipv4
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_vpc_1025197_if_10
+                  community-list: BYOIP_LEAK_COMMUNITY_LIST
+                set:
+                  tag: 65100
+                  community:
+                      none: {}
+                  large-community:
+                    none: {}
+              '11':
+                action:
+                  permit: {}
+                match:
+                  type: ipv4
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_vpc_1025197_if_10
+                set:
+                  tag: 65101
+                  community:
+                      none: {}
+                  large-community:
+                    none: {}
+              '65535':
+                action:
+                  deny: {}
+          dpu_from_instance_ipv6_vpc_1025197_if_10:
             rule:
               '9':
                 action:
                   permit: {}
                 match:
                   type: ipv6
-                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_1025197
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_1025197_if_10
                   community-list: BYOIP_LEAK_AND_DROP_EVPN_COMMUNITY_LIST
                 set:
                   tag: 65102
@@ -501,7 +496,7 @@
                   permit: {}
                 match:
                   type: ipv6
-                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_1025197
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_1025197_if_10
                   community-list: BYOIP_LEAK_COMMUNITY_LIST
                 set:
                   tag: 65100
@@ -514,7 +509,7 @@
                   permit: {}
                 match:
                   type: ipv6
-                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_1025197
+                  ip-prefix-list: DPU_FROM_INSTANCE_PREFIX_LIST_IPV6_vpc_1025197_if_10
                 set:
                   tag: 65101
                   community:
@@ -736,14 +731,24 @@
                       default: {}
             enable: on
             neighbor:
-              10.217.5.170:
-                passive-mode: on
-                peer-group: tenant
-                type: numbered
               10.217.5.162:
                 passive-mode: on
                 peer-group: tenant
                 type: numbered
+                address-family:
+                  ipv4-unicast:
+                    policy:
+                      inbound:
+                        route-map: dpu_from_instance_vpc_1025186_if_20
+                      outbound:
+                        route-map: dpu_to_instance
+                  ipv6-unicast:
+                    enable: on
+                    policy:
+                      inbound:
+                        route-map: dpu_from_instance_ipv6_vpc_1025186_if_20
+                      outbound:
+                        route-map: dpu_to_instance
               10.10.10.3:
                 passive-mode: on
                 peer-group: traffic_intercept_gw_peer
@@ -772,20 +777,6 @@
                   keepalive: 3
                   route-advertisement: none
               tenant:
-                address-family:
-                  ipv4-unicast:
-                    policy:
-                      inbound:
-                        route-map: dpu_from_instance_vpc_1025186
-                      outbound:
-                        route-map: dpu_to_instance
-                  ipv6-unicast:
-                    enable: on
-                    policy:
-                      inbound:
-                        route-map: dpu_from_instance_ipv6_vpc_1025186
-                      outbound:
-                        route-map: dpu_to_instance
                 nexthop-connected-check: off
                 remote-as: 65100
                 timers:
@@ -851,10 +842,20 @@
                 passive-mode: on
                 peer-group: tenant
                 type: numbered
-              10.217.5.162:
-                passive-mode: on
-                peer-group: tenant
-                type: numbered
+                address-family:
+                  ipv4-unicast:
+                    policy:
+                      inbound:
+                        route-map: dpu_from_instance_vpc_1025197_if_10
+                      outbound:
+                        route-map: dpu_to_instance
+                  ipv6-unicast:
+                    enable: on
+                    policy:
+                      inbound:
+                        route-map: dpu_from_instance_ipv6_vpc_1025197_if_10
+                      outbound:
+                        route-map: dpu_to_instance
               10.10.10.3:
                 passive-mode: on
                 peer-group: traffic_intercept_gw_peer
@@ -883,20 +884,6 @@
                   keepalive: 3
                   route-advertisement: none
               tenant:
-                address-family:
-                  ipv4-unicast:
-                    policy:
-                      inbound:
-                        route-map: dpu_from_instance_vpc_1025197
-                      outbound:
-                        route-map: dpu_to_instance
-                  ipv6-unicast:
-                    enable: on
-                    policy:
-                      inbound:
-                        route-map: dpu_from_instance_ipv6_vpc_1025197
-                      outbound:
-                        route-map: dpu_to_instance
                 nexthop-connected-check: off
                 remote-as: 65100
                 timers:

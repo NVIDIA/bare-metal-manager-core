@@ -73,7 +73,7 @@ use the independent devices.
 ### NICo machine hardware enumeration
 
 When NICo discovers a machine that is intended to be managed by the NICo site controller,
-it enumerates its hardware details using the [forge-scout](https://github.com/NVIDIA/infra-controller-core/tree/main/crates/scout) tool.
+it enumerates its hardware details using the [nico-scout](https://github.com/NVIDIA/infra-controller-core/tree/main/crates/scout) tool.
 
 The tool reports all discovered hardware information (e.g. the number and type
 of CPUs, GPUs, and network interfaces), and this information gets persisted

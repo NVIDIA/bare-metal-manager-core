@@ -15,4 +15,18 @@
  * limitations under the License.
  */
 
-pub mod common_services;
+pub mod args;
+pub mod cmd;
+
+pub use args::Args;
+
+use crate::cfg::run::Run;
+use crate::cfg::runtime::RuntimeContext;
+use crate::errors::CarbideCliResult;
+
+impl Run for Args {
+    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+        cmd::power_control(self, ctx.config.format, &ctx.api_client).await?;
+        Ok(())
+    }
+}

@@ -16,33 +16,33 @@ reasons on why those might be failing. This section provides an overview for tho
 #### 4.1.1 Machine reboots
 
 Various state transitions require a machine (Host or DPU) to be rebooted.
-The reboot is indicated by the forge-scout performing a `ForgeAgentControl` call
+The reboot is indicated by the nico-scout performing a `NicoAgentControl` call
 on startup of the machine.
 
 The following issues might prevent this call from happening:
 - The reboot request never succeeds due to the Machine being powered down,
   not reachable via redfish, or due to issues during credential loading.
-  These errors should all show up in carbide-api logs.
+  These errors should all show up in nico-api logs.
 - The machine reboots, but can either not obtain an IP address via DHCP or
   can not PXE boot. The serial console that is accessible via the BMC of a machine
-  or via `forge-ssh-console` can be used to determine whether the Machine booted
+  or via `nico-ssh-console` can be used to determine whether the Machine booted
   successfully, or whether it bootloops and cannot obtain an IP or load an image.
-  If the boot process does not succeed, check carbide-dhcp and carbide-pxe for
+  If the boot process does not succeed, check nico-dhcp and nico-pxe for
   further logs.
   {/* TODO: Better runbooks for DHCP failures */}
 - The machine boots into the discovery image (or BFB for DPUs), but the execution
-  inside `forge-scout` will fail. For this case check the carbide-api logs on
-  whether scout was able to send a `ReportForgeScoutError` call which indicates
+  inside `nico-scout` will fail. For this case check the nico-api logs on
+  whether scout was able to send a `ReportNicoScoutError` call which indicates
   the source of the problem. If the machine is not able to enumerate
-  hardware, or if carbide-api is not accessible to the machine, such an error
+  hardware, or if nico-api is not accessible to the machine, such an error
   report will not be available. You can however access the host via serial console
-  and check the logfile that forge-scout generates (`/var/log/forge/forge-scout.log`)
+  and check the logfile that nico-scout generates (`/var/log/nico/nico-scout.log`)
   in order to further investigate the problem.
 
-#### 4.1.2 Feedback from forge-dpu-agent
+#### 4.1.2 Feedback from nico-dpu-agent
 
 Whenever the configuration of a ManagedHost changes (Instance gets created,
-Instance gets deleted, Provisioning), NICo requires the `forge-dpu-agent` to
+Instance gets deleted, Provisioning), NICo requires the `nico-dpu-agent` to
 acknowledge that the desired DPU configuration is applied and that the DPU and
 services running on it (like `HBN`) are in a healthy state.
 

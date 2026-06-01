@@ -29,8 +29,7 @@ use clap::CommandFactory;
 use errors::CarbideCliResult;
 use eyre::eyre;
 use forge_tls::client_config::{
-    get_carbide_api_url, get_client_cert_info, get_config_from_file, get_forge_root_ca_path,
-    get_proxy_info,
+    get_api_url, get_client_cert_info, get_config_from_file, get_proxy_info, get_root_ca_path,
 };
 use measured_boot::ToTable;
 use serde::Serialize;
@@ -102,6 +101,7 @@ mod scout_stream;
 mod set;
 mod site_explorer;
 mod sku;
+mod spx_partition;
 mod ssh;
 mod switch;
 mod tenant;
@@ -172,9 +172,8 @@ async fn main() -> color_eyre::Result<()> {
         return rms::action(rms.clone(), &config).await;
     }
 
-    let url = get_carbide_api_url(config.carbide_api, file_config.as_ref());
-    let forge_root_ca_path =
-        get_forge_root_ca_path(config.forge_root_ca_path, file_config.as_ref());
+    let url = get_api_url(config.api_url, file_config.as_ref());
+    let root_ca_path = get_root_ca_path(config.root_ca_path, file_config.as_ref());
 
     let command = match config.commands {
         None => {
@@ -183,7 +182,7 @@ async fn main() -> color_eyre::Result<()> {
         Some(s) => s,
     };
 
-    let forge_client_cert = if matches!(command, CliCommand::Version(_)) {
+    let client_cert = if matches!(command, CliCommand::Version(_)) {
         None
     } else {
         Some(get_client_cert_info(
@@ -195,7 +194,7 @@ async fn main() -> color_eyre::Result<()> {
 
     let proxy = get_proxy_info()?;
 
-    let mut client_config = ForgeClientConfig::new(forge_root_ca_path, forge_client_cert);
+    let mut client_config = ForgeClientConfig::new(root_ca_path, client_cert);
     client_config.socks_proxy(proxy);
 
     let ctx = RuntimeContext {
@@ -249,6 +248,7 @@ async fn main() -> color_eyre::Result<()> {
         CliCommand::NetworkSegment(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NvlinkNmxcEndpoints(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::NvlPartition(cmd) => cmd.dispatch(ctx).await?,
+        CliCommand::SpxPartition(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::IpxeTemplate(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::OsImage(cmd) => cmd.dispatch(ctx).await?,
         CliCommand::OperatingSystem(cmd) => cmd.dispatch(ctx).await?,
