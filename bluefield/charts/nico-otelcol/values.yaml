@@ -24,6 +24,16 @@ image:
   repository: ""
   pullPolicy: IfNotPresent
   tag: ""
+# node-exporter sidecar, scraped by the prometheus/node receiver on
+# localhost:9200 (see files/otel_config.yaml). Override repository/tag to a
+# registry reachable by the deployment (the imagePullSecrets below apply).
+nodeExporter:
+  image:
+    repository: quay.io/prometheus/node-exporter
+    tag: v1.8.2
+    pullPolicy: IfNotPresent
+  port: 9200
+  resources: {}
 imagePullSecrets: []
 podSecurityContext: {}
 securityContext:
