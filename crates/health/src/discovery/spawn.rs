@@ -432,7 +432,7 @@ mod tests {
         AutoModeConfig, Config, Configurable, LogsCollectorConfig, PeriodicLogConfig,
     };
     use crate::endpoint::test_support::endpoint_with_creds;
-use crate::endpoint::{
+    use crate::endpoint::{
         BmcAddr, BmcCredentials, EndpointMetadata, MachineData, SwitchData, SwitchEndpointRole,
     };
     use crate::limiter::{NoopLimiter, RateLimiter};

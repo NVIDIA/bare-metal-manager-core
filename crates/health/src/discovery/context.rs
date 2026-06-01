@@ -22,7 +22,6 @@ use std::sync::Arc;
 use prometheus::{Histogram, HistogramOpts};
 
 use crate::HealthError;
-use crate::bmc::AuthRefreshingBmc;
 use crate::collectors::{Collector, LogDowngradeRegistry};
 use crate::config::{
     Config, Configurable, FirmwareCollectorConfig as FirmwareCollectorOptions,
