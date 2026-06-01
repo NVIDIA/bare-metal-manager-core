@@ -628,9 +628,7 @@ mod tests {
     use sqlx::types::chrono::Utc;
     use tokio::sync::Mutex;
 
-    use super::{
-        BmcAuthMaterial, BmcSessionError, BmcSessionManager, BmcSessionStore, StoredSession,
-    };
+    use super::{BmcSessionError, BmcSessionManager, BmcSessionStore, StoredSession};
 
     fn mac(byte: u8) -> MacAddress {
         MacAddress::from([byte, 0, 0, 0, 0, 1])
