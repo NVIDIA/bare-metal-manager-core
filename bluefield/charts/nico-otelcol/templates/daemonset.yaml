@@ -86,6 +86,9 @@ spec:
             - name: journal
               mountPath: /var/log/journal
               readOnly: true
+            - name: pod-logs
+              mountPath: /var/log/pods
+              readOnly: true
             - name: doca-logs
               mountPath: /var/log/doca
               readOnly: true
@@ -109,6 +112,10 @@ spec:
         - name: journal
           hostPath:
             path: /var/log/journal
+            type: DirectoryOrCreate
+        - name: pod-logs
+          hostPath:
+            path: /var/log/pods
             type: DirectoryOrCreate
         - name: doca-logs
           hostPath:
