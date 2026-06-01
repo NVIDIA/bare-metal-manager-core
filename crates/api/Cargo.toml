@@ -36,6 +36,7 @@ carbide-api-model = { path = "../api-model", default-features = false }
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-authn = { path = "../authn" }
 carbide-dpa = { path = "../dpa" }
+carbide-dpa-manager = { path = "../dpa-manager" }
 carbide-dpf = { path = "../dpf" }
 carbide-firmware = { path = "../firmware" }
 carbide-health-report = { path = "../health-report" }

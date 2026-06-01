@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use carbide_dpa::DpaInfo;
+use carbide_dpa_manager::DpaMonitor;
 use carbide_firmware::FirmwareDownloader;
 use carbide_ib_fabric::IbFabricMonitor;
 use carbide_ib_fabric::ib::{self, IBFabricManager};
@@ -92,7 +93,6 @@ use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
 use crate::cfg::file::{CarbideConfig, InitialObjectsConfig, ListenMode};
 use crate::dpa::handler::start_dpa_handler;
-use crate::dpa_monitor::DpaMonitor;
 use crate::dynamic_settings::DynamicSettings;
 use crate::errors::CarbideError;
 use crate::handlers::machine_validation::apply_config_on_startup;
