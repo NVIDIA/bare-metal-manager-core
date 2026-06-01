@@ -1053,6 +1053,7 @@ dependencies = [
  "chrono",
  "clap",
  "clap_complete",
+ "clap_mangen",
  "color-eyre",
  "csv",
  "eyre",
@@ -1188,7 +1189,7 @@ dependencies = [
  "carbide-api-db",
  "carbide-api-model",
  "carbide-authn",
- "carbide-dpa-interface-controller",
+ "carbide-dpa",
  "carbide-dpf",
  "carbide-firmware",
  "carbide-health-report",
@@ -1645,7 +1646,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "carbide-dpa-interface-controller"
+name = "carbide-dpa"
 version = "0.0.0"
 dependencies = [
  "async-trait",
@@ -2298,7 +2299,7 @@ dependencies = [
 name = "carbide-mockdpa"
 version = "0.0.1"
 dependencies = [
- "carbide-dpa-interface-controller",
+ "carbide-dpa",
  "chrono",
  "clap",
  "mqttea",
@@ -3250,6 +3251,16 @@ name = "clap_lex"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
+
+[[package]]
+name = "clap_mangen"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d82842b45bf9f6a3be090dd860095ac30728042c08e0d6261ca7259b5d850f07"
+dependencies = [
+ "clap",
+ "roff",
+]
 
 [[package]]
 name = "client-ip"
@@ -9187,6 +9198,12 @@ dependencies = [
  "quote",
  "syn 1.0.109",
 ]
+
+[[package]]
+name = "roff"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "323c417e1d9665a65b263ec744ba09030cfb277e9daa0b018a4ab62e57bc8189"
 
 [[package]]
 name = "rsa"

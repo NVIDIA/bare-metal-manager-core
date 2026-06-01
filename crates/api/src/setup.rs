@@ -22,7 +22,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use carbide_dpa_interface_controller::DpaInfo;
+use carbide_dpa::DpaInfo;
 use carbide_firmware::FirmwareDownloader;
 use carbide_ib_fabric::IbFabricMonitor;
 use carbide_ib_fabric::ib::{self, IBFabricManager};

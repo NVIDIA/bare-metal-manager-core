@@ -81,9 +81,8 @@ pub async fn copy_bfb_to_bmc_rshim(
     username: String,
     password: String,
     bfb_path: String,
-    is_bf2: bool,
 ) -> Result<(), SshError> {
-    let timeout_secs: u64 = if is_bf2 { 80 * 60 } else { 30 * 60 };
+    let timeout_secs: u64 = 30 * 60;
 
     scp_cmd_write(
         &bfb_path,
@@ -132,7 +131,6 @@ async fn scp_cmd_write(
 
     let mut child = tokio::process::Command::new("scp")
         .args([
-            "-v",
             "-o",
             "StrictHostKeyChecking=no",
             "-o",
@@ -145,35 +143,23 @@ async fn scp_cmd_write(
         .env("SSH_ASKPASS", &askpass_path)
         .env("SSH_ASKPASS_REQUIRE", "force")
         .env("DISPLAY", "dummy")
-        .stdout(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(io_ssh_error)?;
 
     let stderr_pipe = child.stderr.take();
     let stderr_handle = tokio::spawn(async move {
-        let mut saw_truncate_error = false;
-        let mut saw_bytes_transferred = false;
-        if let Some(stderr) = stderr_pipe {
-            use tokio::io::{AsyncBufReadExt, BufReader};
-            let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if line.contains("truncate: Invalid argument") {
-                    saw_truncate_error = true;
-                }
-                if line.contains("Bytes per second:") || line.starts_with("Transferred: sent") {
-                    saw_bytes_transferred = true;
-                }
-            }
+        let mut buf = String::new();
+        if let Some(mut stderr) = stderr_pipe {
+            use tokio::io::AsyncReadExt;
+            let _ = stderr.read_to_string(&mut buf).await;
         }
-        (saw_truncate_error, saw_bytes_transferred)
+        buf
     });
 
-    let result = tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait()).await;
-
-    let (saw_truncate_error, saw_bytes_transferred) = stderr_handle.await.unwrap_or((false, false));
-
-    let status = result
+    let status = tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait())
+        .await
         .map_err(|_| {
             io_ssh_error(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
@@ -182,23 +168,16 @@ async fn scp_cmd_write(
         })?
         .map_err(io_ssh_error)?;
 
+    let stderr_output = stderr_handle.await.unwrap_or_default();
+
     if status.success() {
         tracing::info!(%ip_address, "scp copy to rshim completed");
         return Ok(());
     }
 
-    if saw_truncate_error || saw_bytes_transferred {
-        tracing::info!(
-            %ip_address,
-            saw_truncate_error,
-            saw_bytes_transferred,
-            "scp exited with {status} but transfer succeeded (device file write)",
-        );
-        return Ok(());
-    }
-
     Err(io_ssh_error(std::io::Error::other(format!(
-        "scp failed with {status} and no signs of successful transfer"
+        "scp failed with {status}: {}",
+        stderr_output.trim()
     ))))
 }
 

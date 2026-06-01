@@ -24,7 +24,7 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
-use carbide_dpa_interface_controller::rpc::SetVni;
+use carbide_dpa::rpc::SetVni;
 use carbide_uuid::spx::NULL_SPX_PARTITION_ID;
 use config_version::ConfigVersion;
 use db::ObjectColumnFilter;
