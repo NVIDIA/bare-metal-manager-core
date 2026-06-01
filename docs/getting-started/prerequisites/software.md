@@ -35,8 +35,8 @@ ESO syncs secrets from Vault into Kubernetes Secret objects.
 **Configuration required:**
 - A SecretStore or ClusterSecretStore pointing to Vault.
 - ExternalSecret objects for each NICo namespace:
-  - `forge-roots-eso`: target secret `forge-roots` with keys `site-root`, `forge-root`
-  - DB credentials ExternalSecrets per namespace (e.g. `clouddb-db-eso : forge.forge-pg-cluster.credentials`)
+  - `nico-roots-eso`: target secret `nico-roots` with keys `site-root`, `nico-root`
+  - DB credentials ExternalSecrets per namespace (e.g. `clouddb-db-eso : nico.nico-pg-cluster.credentials`)
 - An image pull secret (e.g. `imagepullsecret`) in namespaces that pull from your registry
 
 ### cert-manager
@@ -48,7 +48,7 @@ ESO syncs secrets from Vault into Kubernetes Secret objects.
 
 <Note>The cert-manager component issues and rotates the TLS certificates that NICo services use for mTLS/gRPC communication.</Note>
 
-**ClusterIssuers required**: `self-issuer`, `site-issuer`, `vault-issuer`, `vault-forge-issuer`
+**ClusterIssuers required**: `self-issuer`, `site-issuer`, `vault-issuer`, `vault-nico-issuer`
 
 **If you already have cert-manager:**
 - Ensure cert-manager is version v1.11.1 or later.
@@ -58,7 +58,7 @@ ESO syncs secrets from Vault into Kubernetes Secret objects.
 **If deploying the reference version:**
 - Install cert-manager version v1.11.1 and approver-policy version v0.6.3.
 - Create ClusterIssuers matching your PKI.
-- Typical SANs include internal service names (e.g. `carbide-api.<ns>.svc.cluster.local`, `carbide-api.forge`) and optional external FQDNs
+- Typical SANs include internal service names (e.g. `nico-api.<ns>.svc.cluster.local`, `nico-api.nico`) and optional external FQDNs
 
 ## State and Identity
 
@@ -69,7 +69,7 @@ ESO syncs secrets from Vault into Kubernetes Secret objects.
 | Zalando Postgres Operator | v1.10.1 |
 | Spilo-15 image | 3.0-p1 (Postgres 15) |
 
-PostgreSQL stores all NICo system state in the `forge_system_carbide` database. Only the API Service reads from and writes to it.
+PostgreSQL stores all NICo system state in the `nico_system_nico` database. Only the API Service reads from and writes to it.
 
 **Configuration required:**
 - Database and role with password
@@ -88,9 +88,9 @@ psql "postgres://<POSTGRES_USER>:<POSTGRES_PASSWORD>@<POSTGRES_HOST>:<POSTGRES_P
 ```
 
 - Make the DSN available to workloads via ESO targets (per-namespace credentials):
-  - `forge.forge-pg-cluster.credentials`
-  - `forge-system.carbide.forge-pg-cluster.credentials`
-  - `elektra-site-agent.elektra.forge-pg-cluster.credentials`
+  - `nico.nico-pg-cluster.credentials`
+  - `nico-system.nico.nico-pg-cluster.credentials`
+  - `elektra-site-agent.elektra.nico-pg-cluster.credentials`
 
 **If deploying the reference version:**
 - Deploy the Zalando operator and a Spilo-15 cluster sized for your SLOs
@@ -107,8 +107,8 @@ psql "postgres://<POSTGRES_USER>:<POSTGRES_PASSWORD>@<POSTGRES_HOST>:<POSTGRES_P
 Vault provides a PKI engine for certificate issuance and a KV secrets engine for credential storage.
 
 **Configuration required:**
-- PKI engine(s) for the root/intermediate CA chain (where your `forge-roots`/`site-root` are derived)
-- Kubernetes auth at path `auth/kubernetes` with roles mapping service accounts in: `forge-system`, `cert-manager`, `cloud-api`, `cloud-workflow`, `elektra-site-agent`
+- PKI engine(s) for the root/intermediate CA chain (where your `nico-roots`/`site-root` are derived)
+- Kubernetes auth at path `auth/kubernetes` with roles mapping service accounts in: `nico-system`, `cert-manager`, `cloud-api`, `cloud-workflow`, `elektra-site-agent`
 - KV v2 for application material: `<VAULT_PATH_PREFIX>/kv/*`
 - PKI for issuance: `<VAULT_PATH_PREFIX>/pki/*`
 
@@ -118,10 +118,10 @@ Vault provides a PKI engine for certificate issuance and a KV secrets engine for
   - `VAULT_ADDR` (cluster-internal URL, e.g. `https://vault.vault.svc:8200` or `http://vault.vault.svc:8200` if testing)
   - `VAULT_PKI_MOUNT_LOCATION`
   - `VAULT_KV_MOUNT_LOCATION`
-  - `VAULT_PKI_ROLE_NAME=forge-cluster`
+  - `VAULT_PKI_ROLE_NAME=nico-cluster`
 - Injector (optional) may be enabled for sidecar-based secret injection.
 
-Vault is consumed by carbide-api for PKI and secrets (env `VAULT_*`) and by credsmgr (cloud-cert-manager) for CA material exposed to the site bootstrap flow.
+Vault is consumed by nico-api for PKI and secrets (env `VAULT_*`) and by credsmgr (cloud-cert-manager) for CA material exposed to the site bootstrap flow.
 
 ## Workflow Orchestration
 
@@ -178,7 +178,7 @@ These prerequisites should be installed in the following order:
 
 1. **Cluster and networking**: Kubernetes, containerd, Calico (or conformant CNI), ingress controller (Contour/Envoy), load balancer (MetalLB or cloud LB), DNS recursive resolvers, NTP
 2. **Foundation services** (in order): ESO (optional) → cert-manager → PostgreSQL → Vault → Temporal
-3. **NICo Core** (forge-system): carbide-api and supporting services (DHCP/PXE/DNS as required)
+3. **NICo Core** (nico-system): nico-api and supporting services (DHCP/PXE/DNS as required)
 4. **NICo REST components**: Deploy cloud-api, cloud-workflow (cloud-worker & site-worker), and cloud-cert-manager (credsmgr). Seed DB and register Temporal namespaces (`cloud`, `site`, then site UUID). Create OTP and bootstrap secrets for elektra-site-agent; roll restart it.
 5. **Monitoring** (optional): Prometheus operator, Grafana, Loki, OTel, node exporter
 

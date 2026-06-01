@@ -22,7 +22,7 @@ use clap::{Parser, Subcommand};
 pub enum Args {
     #[clap(about = "Show existing NVLink info")]
     Show(NvlinkInfoArgs),
-    #[clap(about = "Build NVLink info from Redfish + NMX-M and populate DB")]
+    #[clap(about = "Build NVLink info from Redfish + NMX-C and populate DB")]
     Populate(NvlinkInfoPopulateArgs),
 }
 

@@ -1,6 +1,6 @@
-# carbide-ipxe-renderer
+# nico-ipxe-renderer
 
-Template-based iPXE script renderer for Carbide Core operating system management.
+Template-based iPXE script renderer for NICo Core operating system management.
 
 ## Overview
 
@@ -26,7 +26,7 @@ This crate provides a flexible, template-based approach to generating iPXE boot 
 ## Usage
 
 ```rust
-use carbide_ipxe_renderer::{
+use nico_ipxe_renderer::{
     IpxeScriptRenderer, DefaultIpxeScriptRenderer, IpxeScript, IpxeTemplateParameter
 };
 
@@ -71,16 +71,16 @@ This crate is designed to be tested independently without platform-specific depe
 
 ```bash
 # Run all tests
-cargo test --package carbide-ipxe-renderer
+cargo test --package nico-ipxe-renderer
 
 # Run specific test
-cargo test --package carbide-ipxe-renderer test_hash_computation
+cargo test --package nico-ipxe-renderer test_hash_computation
 
 # Run tests matching pattern
-cargo test --package carbide-ipxe-renderer render
+cargo test --package nico-ipxe-renderer render
 
 # Run with output
-cargo test --package carbide-ipxe-renderer -- --nocapture
+cargo test --package nico-ipxe-renderer -- --nocapture
 ```
 
 ## Template System
@@ -93,7 +93,7 @@ They can be defined multiple times as needed (example: console, crashkernel, ...
 Templates support three types of parameters:
 
 1. **Required**: Must be provided in OS definition (e.g., `image_url`)
-2. **Reserved**: Provided by carbide-core at render time (e.g., `base_url`, `console`)
+2. **Reserved**: Provided by nico-core at render time (e.g., `base_url`, `console`)
 3. **Optional**: Extra parameters added via `{{extra}}` placeholder
 
 ### Artifacts
@@ -120,7 +120,7 @@ The renderer validates:
 
 ## Design
 
-This implementation follows the design specified in `nvmetal/designs/designs/0076-Operating-System-Management-Move-to-Carbide-Core.md`.
+This implementation follows the design specified in `nvmetal/designs/designs/0076-Operating-System-Management-Move-to-NICo-Core.md`.
 
 **Usage hierarchy**:
 1. Templates (currently a static list)

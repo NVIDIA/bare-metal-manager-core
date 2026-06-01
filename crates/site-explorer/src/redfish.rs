@@ -1219,19 +1219,9 @@ pub(crate) fn map_redfish_client_creation_error(
                 details: format!("RedfishClientError::InvalidHeader: {original_error}"),
             }
         }
-        RedfishClientCreationError::MissingBmcEndpoint(argument)
-        | RedfishClientCreationError::MissingArgument(argument) => {
-            EndpointExplorationError::Other {
-                details: format!("Missing argument to RedFish client: {argument}"),
-            }
-        }
-        RedfishClientCreationError::MachineInterfaceLoadError(db_error) => {
-            EndpointExplorationError::Other {
-                details: format!(
-                    "Database error loading the machine interface for the redfish client: {db_error}"
-                ),
-            }
-        }
+        RedfishClientCreationError::MissingArgument(argument) => EndpointExplorationError::Other {
+            details: format!("Missing argument to RedFish client: {argument}"),
+        },
     }
 }
 

@@ -70,6 +70,10 @@ pub async fn run(
         }
     }
 
+    let log_history_max_bytes = carbide_config
+        .log_history
+        .max_megabytes
+        .saturating_mul(1024 * 1024);
     let tconf = if skip_logging_setup {
         Logging::default()
     } else {
@@ -77,6 +81,7 @@ pub async fn run(
             debug,
             carbide_machine_controller::extra_logfmt_logging_fields(),
             None::<NoSubscriber>,
+            log_history_max_bytes,
         )
         .wrap_err("setup_telemetry")?
     };
@@ -132,6 +137,7 @@ pub async fn run(
         create_machines: carbide_config.site_explorer.create_machines.clone(),
         bmc_proxy: carbide_config.site_explorer.bmc_proxy.clone(),
         tracing_enabled: tconf.tracing_enabled,
+        log_stream: tconf.log_stream,
     };
     dynamic_settings.start_reset_task(
         &mut join_set,

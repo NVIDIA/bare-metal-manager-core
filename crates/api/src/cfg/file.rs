@@ -643,6 +643,13 @@ pub struct CarbideConfig {
     /// hidden when the list is empty.
     #[serde(default)]
     pub web_ui_sidebar_tools: Vec<ToolLink>,
+
+    /// In-memory log history for the admin web live log viewer
+    /// (`/admin/logs`): how much recent log data to keep for
+    /// replay-on-connect and scrollback, and how many lines to send
+    /// per page to the browser.
+    #[serde(default)]
+    pub log_history: LogHistoryConfig,
 }
 
 impl CarbideConfig {
@@ -676,6 +683,40 @@ pub struct ToolLink {
     pub display_name: String,
     /// Absolute URL the link points to.
     pub url: String,
+}
+
+/// In-memory log history for the admin web live log viewer
+/// (`crate::web::logs`). Bounds memory use and the page size served
+/// to the browser.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LogHistoryConfig {
+    /// Maximum amount of recent log history to retain in memory, in
+    /// MiB. Oldest lines are evicted once the budget is exceeded.
+    /// Default 128.
+    #[serde(default = "default_log_history_max_megabytes")]
+    pub max_megabytes: usize,
+
+    /// Number of lines sent in the initial view and in each
+    /// scrollback page. Default 500.
+    #[serde(default = "default_log_history_page_size")]
+    pub page_size: usize,
+}
+
+impl Default for LogHistoryConfig {
+    fn default() -> Self {
+        Self {
+            max_megabytes: default_log_history_max_megabytes(),
+            page_size: default_log_history_page_size(),
+        }
+    }
+}
+
+fn default_log_history_max_megabytes() -> usize {
+    128
+}
+
+fn default_log_history_page_size() -> usize {
+    500
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -1232,7 +1273,7 @@ impl CarbideConfig {
         self.dpa_config.as_ref().map(|conf| conf.mqtt_broker_port)
     }
 
-    pub fn get_hb_interval(&self) -> Option<Duration> {
+    pub fn get_hb_interval(&self) -> Option<chrono::TimeDelta> {
         self.dpa_config.as_ref().map(|conf| conf.hb_interval)
     }
 
@@ -1400,8 +1441,12 @@ pub struct InitialObjectsConfig {
 }
 
 impl DpaConfig {
-    pub const fn default_hb_interval() -> chrono::Duration {
-        Duration::minutes(2)
+    pub const fn default_hb_interval() -> chrono::TimeDelta {
+        chrono::TimeDelta::minutes(2)
+    }
+
+    pub const fn default_monitor_run_interval() -> std::time::Duration {
+        std::time::Duration::from_secs(60)
     }
 
     pub const fn default_subnet_ip() -> Ipv4Addr {
@@ -1418,6 +1463,7 @@ impl Default for DpaConfig {
             subnet_ip: Self::default_subnet_ip(),
             subnet_mask: 0,
             hb_interval: Self::default_hb_interval(),
+            monitor_run_interval: Self::default_monitor_run_interval(),
             auth: MqttAuthConfig::default(),
         }
     }
@@ -2070,6 +2116,14 @@ pub struct DpaConfig {
         serialize_with = "as_duration"
     )]
     pub hb_interval: chrono::TimeDelta,
+
+    /// The interval at which we run the DPA monitor.
+    #[serde(
+        default = "DpaConfig::default_monitor_run_interval",
+        deserialize_with = "deserialize_duration",
+        serialize_with = "as_std_duration"
+    )]
+    pub monitor_run_interval: std::time::Duration,
 
     #[serde(default)]
     pub auth: MqttAuthConfig,
@@ -3336,7 +3390,8 @@ mqtt_endpoint = "mqtt.forge"
                 enabled: true,
                 mqtt_endpoint: "mqtt.forge".to_string(),
                 mqtt_broker_port: 1884,
-                hb_interval: Duration::minutes(2),
+                hb_interval: chrono::TimeDelta::minutes(2),
+                monitor_run_interval: std::time::Duration::from_secs(60),
                 subnet_ip: Ipv4Addr::UNSPECIFIED,
                 subnet_mask: 0_i32,
                 auth: MqttAuthConfig::default(),

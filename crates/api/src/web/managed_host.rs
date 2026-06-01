@@ -99,8 +99,11 @@ pub struct ManagedHostRowDisplay {
     pub dpus: Vec<AttachedDpuRowDisplay>,
 }
 
-impl From<ManagedHostStateSnapshot> for ManagedHostRowDisplay {
-    fn from(item: ManagedHostStateSnapshot) -> Self {
+impl ManagedHostRowDisplay {
+    pub(crate) fn from_snapshot(
+        item: ManagedHostStateSnapshot,
+        sla_config: &machine::slas::MachineSlaConfig,
+    ) -> Self {
         let ManagedHostStateSnapshot {
             host_snapshot,
             dpu_snapshots,
@@ -177,7 +180,7 @@ impl From<ManagedHostStateSnapshot> for ManagedHostRowDisplay {
                 &host_snapshot.state.value,
                 &host_snapshot.state.version,
                 &aggregate_health,
-                &machine::slas::MachineSlaConfig::default(),
+                sla_config,
             )
             .time_in_state_above_sla,
             state_reason: host_snapshot
@@ -443,9 +446,15 @@ pub async fn show_html(
     let mut gpus = HashSet::new();
     let mut ibs = HashSet::new();
     let mut mems = HashSet::new();
+    let sla_config = machine::slas::MachineSlaConfig::new(
+        state
+            .runtime_config
+            .machine_state_controller
+            .failure_retry_time,
+    );
 
     for mo in managed_hosts.into_iter() {
-        let m: ManagedHostRowDisplay = mo.into();
+        let m = ManagedHostRowDisplay::from_snapshot(mo, &sla_config);
 
         let vendor = m.vendor.to_lowercase().clone();
         let model = m.model.to_lowercase().clone();

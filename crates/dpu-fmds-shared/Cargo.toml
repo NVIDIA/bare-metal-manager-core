@@ -31,9 +31,7 @@ axum = { workspace = true, features = ["macros"] }
 carbide-dpu-agent-utils = { path = "../dpu-agent-utils" }
 carbide-rpc = { path = "../rpc" }
 governor = { workspace = true }
-reqwest = { default-features = false, features = [
-  "rustls",
-], workspace = true }
+reqwest = { default-features = false, features = ["rustls"], workspace = true }
 serde = { features = ["derive"], workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }

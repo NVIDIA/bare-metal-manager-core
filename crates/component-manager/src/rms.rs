@@ -18,6 +18,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use forge_secrets::credentials::Credentials;
 use librms::RmsApi;
 use librms::protos::rack_manager as rms;
 use mac_address::MacAddress;
@@ -157,6 +158,34 @@ fn power_shelf_target_name(c: &PowerShelfComponent) -> &'static str {
     }
 }
 
+/// Default BMC HTTPS port used when populating `rms::BmcEndpoint` for power
+/// shelves. Mirrors the value used by `crate::power_shelf_controller::maintenance`.
+const POWER_SHELF_BMC_PORT: i32 = 443;
+
+/// Build the `rms::NewNodeInfo` describing a power shelf for inclusion in a
+/// `SetPowerStateByDeviceList` request. The caller-supplied variant of the
+/// RPC requires the BMC connection details inline rather than relying on
+/// RMS's inventory; power shelves do not expose a host endpoint.
+fn build_power_shelf_node_info(
+    ep: &PowerShelfEndpoint,
+    identity: &RmsIdentity,
+) -> rms::NewNodeInfo {
+    rms::NewNodeInfo {
+        node_id: identity.node_id.clone(),
+        rack_id: identity.rack_id.clone(),
+        r#type: Some(rms::NodeType::Powershelf as i32),
+        bmc_endpoint: Some(rms::BmcEndpoint {
+            interface: Some(rms::NetworkInterface {
+                ip_address: ep.pmc_ip.to_string(),
+                mac_address: ep.pmc_mac.to_string(),
+            }),
+            port: POWER_SHELF_BMC_PORT,
+            credentials: Some(credentials_to_rms(&ep.pmc_credentials)),
+        }),
+        host_endpoint: None,
+    }
+}
+
 #[async_trait::async_trait]
 impl PowerShelfManager for RmsBackend {
     fn name(&self) -> &str {
@@ -184,24 +213,23 @@ impl PowerShelfManager for RmsBackend {
                 continue;
             };
 
-            let request = rms::SetPowerStateRequest {
-                node_id: identity.node_id.clone(),
-                rack_id: identity.rack_id.clone(),
+            let device = build_power_shelf_node_info(ep, identity);
+            let request = rms::SetPowerStateByDeviceListRequest {
+                nodes: Some(rms::NodeSet {
+                    devices: vec![device],
+                }),
                 operation,
                 ..Default::default()
             };
 
-            match self.client.set_power_state(request).await {
+            match self.client.set_power_state_by_device_list(request).await {
                 Ok(response) => {
-                    let success = response.status == rms::ReturnCode::Success as i32;
+                    let (success, error) =
+                        summarize_power_batch(response.response.unwrap_or_default());
                     results.push(PowerShelfComponentResult {
                         pmc_mac: ep.pmc_mac,
                         success,
-                        error: if success {
-                            None
-                        } else {
-                            Some("RMS power control failed".into())
-                        },
+                        error,
                     });
                 }
                 Err(e) => {
@@ -469,6 +497,82 @@ fn switch_target_name(c: &NvSwitchComponent) -> &'static str {
     }
 }
 
+/// Default BMC HTTPS port used when populating `rms::BmcEndpoint` for
+/// switches. Mirrors the value used by `crate::rack::firmware_update`.
+const SWITCH_BMC_PORT: i32 = 443;
+
+fn credentials_to_rms(creds: &Credentials) -> rms::Credentials {
+    let Credentials::UsernamePassword { username, password } = creds;
+    rms::Credentials {
+        auth: Some(rms::credentials::Auth::UserPass(rms::UsernamePassword {
+            username: username.clone(),
+            password: password.clone(),
+        })),
+    }
+}
+
+/// Build the `rms::NewNodeInfo` describing a switch for inclusion in a
+/// `SetPowerStateByDeviceList` request. The caller-supplied variant of the
+/// RPC requires the BMC connection details inline rather than relying on
+/// RMS's inventory; the NVOS host endpoint is included for completeness.
+fn build_switch_node_info(ep: &SwitchEndpoint, identity: &RmsIdentity) -> rms::NewNodeInfo {
+    rms::NewNodeInfo {
+        node_id: identity.node_id.clone(),
+        rack_id: identity.rack_id.clone(),
+        r#type: Some(rms::NodeType::Switch as i32),
+        bmc_endpoint: Some(rms::BmcEndpoint {
+            interface: Some(rms::NetworkInterface {
+                ip_address: ep.bmc_ip.to_string(),
+                mac_address: ep.bmc_mac.to_string(),
+            }),
+            port: SWITCH_BMC_PORT,
+            credentials: Some(credentials_to_rms(&ep.bmc_credentials)),
+        }),
+        host_endpoint: Some(rms::HostEndpoint {
+            interfaces: vec![rms::NetworkInterface {
+                ip_address: ep.nvos_ip.to_string(),
+                mac_address: ep.nvos_mac.to_string(),
+            }],
+            port: 0,
+            credentials: Some(credentials_to_rms(&ep.nvos_credentials)),
+        }),
+    }
+}
+
+/// Summarize a `NodeBatchResponse` into a `(success, error)` pair for a
+/// single-device `SetPowerStateByDeviceList` call. Prefers per-node error
+/// messages, then the batch-level message, and finally a generic fallback.
+fn summarize_power_batch(batch: rms::NodeBatchResponse) -> (bool, Option<String>) {
+    let success = batch.status == rms::ReturnCode::Success as i32 && batch.failed_nodes == 0;
+    if success {
+        return (true, None);
+    }
+
+    let node_error = batch
+        .node_results
+        .into_iter()
+        .find(|r| r.status != rms::ReturnCode::Success as i32 || !r.error_message.is_empty())
+        .and_then(|r| {
+            if r.error_message.is_empty() {
+                None
+            } else {
+                Some(r.error_message)
+            }
+        });
+
+    let error = node_error
+        .or({
+            if batch.message.is_empty() {
+                None
+            } else {
+                Some(batch.message)
+            }
+        })
+        .unwrap_or_else(|| "RMS power control failed".to_owned());
+
+    (false, Some(error))
+}
+
 #[async_trait::async_trait]
 impl NvSwitchManager for RmsBackend {
     fn name(&self) -> &str {
@@ -496,24 +600,23 @@ impl NvSwitchManager for RmsBackend {
                 continue;
             };
 
-            let request = rms::SetPowerStateRequest {
-                node_id: identity.node_id.clone(),
-                rack_id: identity.rack_id.clone(),
+            let device = build_switch_node_info(ep, identity);
+            let request = rms::SetPowerStateByDeviceListRequest {
+                nodes: Some(rms::NodeSet {
+                    devices: vec![device],
+                }),
                 operation,
                 ..Default::default()
             };
 
-            match self.client.set_power_state(request).await {
+            match self.client.set_power_state_by_device_list(request).await {
                 Ok(response) => {
-                    let success = response.status == rms::ReturnCode::Success as i32;
+                    let (success, error) =
+                        summarize_power_batch(response.response.unwrap_or_default());
                     results.push(SwitchComponentResult {
                         bmc_mac: ep.bmc_mac,
                         success,
-                        error: if success {
-                            None
-                        } else {
-                            Some("RMS power control failed".into())
-                        },
+                        error,
                     });
                 }
                 Err(e) => {
@@ -849,10 +952,14 @@ mod tests {
     #[carbide_macros::sqlx_test]
     async fn ps_power_control_success(pool: sqlx::PgPool) {
         let (mock, backend, rack_id, ps1, ps2, _, _) = make_backend(&pool).await;
-        mock.enqueue_set_power_state(Ok(MockRmsApi::power_ok()))
-            .await;
-        mock.enqueue_set_power_state(Ok(MockRmsApi::power_ok()))
-            .await;
+        mock.enqueue_set_power_state_by_device_list(Ok(MockRmsApi::power_by_device_list_ok(
+            &ps1.to_string(),
+        )))
+        .await;
+        mock.enqueue_set_power_state_by_device_list(Ok(MockRmsApi::power_by_device_list_ok(
+            &ps2.to_string(),
+        )))
+        .await;
 
         let eps = vec![make_ps_endpoint(PS_MAC_1), make_ps_endpoint(PS_MAC_2)];
         let results = PowerShelfManager::power_control(&backend, &eps, PowerAction::On)
@@ -863,21 +970,31 @@ mod tests {
         assert!(results[0].success);
         assert!(results[1].success);
 
-        let calls = mock.set_power_state_calls().await;
+        let calls = mock.set_power_state_by_device_list_calls().await;
         assert_eq!(calls.len(), 2);
-        assert_eq!(calls[0].node_id, ps1.to_string());
-        assert_eq!(calls[0].rack_id, rack_id.to_string());
         assert_eq!(calls[0].operation, rms::PowerOperation::PowerOn as i32);
-        assert_eq!(calls[1].node_id, ps2.to_string());
+        let dev0 = &calls[0].nodes.as_ref().unwrap().devices[0];
+        assert_eq!(dev0.node_id, ps1.to_string());
+        assert_eq!(dev0.rack_id, rack_id.to_string());
+        assert_eq!(dev0.r#type, Some(rms::NodeType::Powershelf as i32));
+        assert!(dev0.bmc_endpoint.is_some());
+        assert!(dev0.host_endpoint.is_none());
+        let dev1 = &calls[1].nodes.as_ref().unwrap().devices[0];
+        assert_eq!(dev1.node_id, ps2.to_string());
     }
 
     #[carbide_macros::sqlx_test]
     async fn ps_power_control_partial_failure(pool: sqlx::PgPool) {
-        let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
-        mock.enqueue_set_power_state(Ok(MockRmsApi::power_ok()))
-            .await;
-        mock.enqueue_set_power_state(Ok(MockRmsApi::power_fail()))
-            .await;
+        let (mock, backend, _, ps1, ps2, _, _) = make_backend(&pool).await;
+        mock.enqueue_set_power_state_by_device_list(Ok(MockRmsApi::power_by_device_list_ok(
+            &ps1.to_string(),
+        )))
+        .await;
+        mock.enqueue_set_power_state_by_device_list(Ok(MockRmsApi::power_by_device_list_fail(
+            &ps2.to_string(),
+            "rms reported failure",
+        )))
+        .await;
 
         let eps = vec![make_ps_endpoint(PS_MAC_1), make_ps_endpoint(PS_MAC_2)];
         let results = PowerShelfManager::power_control(&backend, &eps, PowerAction::On)
@@ -891,12 +1008,16 @@ mod tests {
 
     #[carbide_macros::sqlx_test]
     async fn ps_power_control_transport_error(pool: sqlx::PgPool) {
-        let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
-        mock.enqueue_set_power_state(Ok(MockRmsApi::power_ok()))
-            .await;
-        mock.enqueue_set_power_state(Err(librms::RackManagerError::ApiInvocationError(
-            tonic::Status::unavailable("connection refused"),
+        let (mock, backend, _, ps1, _, _, _) = make_backend(&pool).await;
+        mock.enqueue_set_power_state_by_device_list(Ok(MockRmsApi::power_by_device_list_ok(
+            &ps1.to_string(),
         )))
+        .await;
+        mock.enqueue_set_power_state_by_device_list(Err(
+            librms::RackManagerError::ApiInvocationError(tonic::Status::unavailable(
+                "connection refused",
+            )),
+        ))
         .await;
 
         let eps = vec![make_ps_endpoint(PS_MAC_1), make_ps_endpoint(PS_MAC_2)];
@@ -917,9 +1038,11 @@ mod tests {
 
     #[carbide_macros::sqlx_test]
     async fn ps_power_control_unknown_mac(pool: sqlx::PgPool) {
-        let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
-        mock.enqueue_set_power_state(Ok(MockRmsApi::power_ok()))
-            .await;
+        let (mock, backend, _, _, ps2, _, _) = make_backend(&pool).await;
+        mock.enqueue_set_power_state_by_device_list(Ok(MockRmsApi::power_by_device_list_ok(
+            &ps2.to_string(),
+        )))
+        .await;
 
         let eps = vec![make_ps_endpoint(UNKNOWN_MAC), make_ps_endpoint(PS_MAC_2)];
         let results =
@@ -930,7 +1053,7 @@ mod tests {
         assert!(!results[0].success);
         assert!(results[1].success);
 
-        let calls = mock.set_power_state_calls().await;
+        let calls = mock.set_power_state_by_device_list_calls().await;
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].operation, rms::PowerOperation::PowerOff as i32);
     }
@@ -1174,10 +1297,14 @@ mod tests {
     #[carbide_macros::sqlx_test]
     async fn sw_power_control_success(pool: sqlx::PgPool) {
         let (mock, backend, rack_id, _, _, sw1, sw2) = make_backend(&pool).await;
-        mock.enqueue_set_power_state(Ok(MockRmsApi::power_ok()))
-            .await;
-        mock.enqueue_set_power_state(Ok(MockRmsApi::power_ok()))
-            .await;
+        mock.enqueue_set_power_state_by_device_list(Ok(MockRmsApi::power_by_device_list_ok(
+            &sw1.to_string(),
+        )))
+        .await;
+        mock.enqueue_set_power_state_by_device_list(Ok(MockRmsApi::power_by_device_list_ok(
+            &sw2.to_string(),
+        )))
+        .await;
 
         let eps = vec![make_sw_endpoint(SW_MAC_1), make_sw_endpoint(SW_MAC_2)];
         let results = NvSwitchManager::power_control(&backend, &eps, PowerAction::On)
@@ -1188,18 +1315,25 @@ mod tests {
         assert!(results[0].success);
         assert!(results[1].success);
 
-        let calls = mock.set_power_state_calls().await;
-        assert_eq!(calls[0].node_id, sw1.to_string());
-        assert_eq!(calls[0].rack_id, rack_id.to_string());
+        let calls = mock.set_power_state_by_device_list_calls().await;
+        assert_eq!(calls.len(), 2);
         assert_eq!(calls[0].operation, rms::PowerOperation::PowerOn as i32);
-        assert_eq!(calls[1].node_id, sw2.to_string());
+        let dev0 = &calls[0].nodes.as_ref().unwrap().devices[0];
+        assert_eq!(dev0.node_id, sw1.to_string());
+        assert_eq!(dev0.rack_id, rack_id.to_string());
+        assert_eq!(dev0.r#type, Some(rms::NodeType::Switch as i32));
+        assert!(dev0.bmc_endpoint.is_some());
+        let dev1 = &calls[1].nodes.as_ref().unwrap().devices[0];
+        assert_eq!(dev1.node_id, sw2.to_string());
     }
 
     #[carbide_macros::sqlx_test]
     async fn sw_power_control_unknown_mac(pool: sqlx::PgPool) {
-        let (mock, backend, _, _, _, _, _) = make_backend(&pool).await;
-        mock.enqueue_set_power_state(Ok(MockRmsApi::power_ok()))
-            .await;
+        let (mock, backend, _, _, _, _, sw2) = make_backend(&pool).await;
+        mock.enqueue_set_power_state_by_device_list(Ok(MockRmsApi::power_by_device_list_ok(
+            &sw2.to_string(),
+        )))
+        .await;
 
         let eps = vec![make_sw_endpoint(UNKNOWN_MAC), make_sw_endpoint(SW_MAC_2)];
         let results = NvSwitchManager::power_control(&backend, &eps, PowerAction::ForceOff)
@@ -1209,8 +1343,9 @@ mod tests {
         assert!(!results[0].success);
         assert!(results[1].success);
 
-        let calls = mock.set_power_state_calls().await;
+        let calls = mock.set_power_state_by_device_list_calls().await;
         assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].operation, rms::PowerOperation::PowerOff as i32);
     }
 
     #[carbide_macros::sqlx_test]

@@ -502,11 +502,10 @@ pub(crate) async fn admin_force_delete_machine(
                         }
 
                         if machine.bios_password_set_time.is_some() {
-                            if let Err(e) = crate::redfish::clear_host_uefi_password(
-                                client.as_ref(),
-                                api.redfish_pool.clone(),
-                            )
-                            .await
+                            if let Err(e) = api
+                                .redfish_pool
+                                .clear_host_uefi_password(client.as_ref())
+                                .await
                             {
                                 tracing::warn!(%machine_id, error = %e, "Failed to clear host UEFI password while force deleting machine");
                             }

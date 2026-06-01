@@ -15,36 +15,51 @@
  * limitations under the License.
  */
 
+/*
+ * This file contains code that interacts with the SVPC agent on the DPA
+ * using MQTT =  Code to send commands via MQTT, code that handles messages
+ * received from the DPA via MQTT and code to start the MQTT client.
+ */
+
 use std::str::FromStr;
 use std::sync::Arc;
 
 use carbide_dpa_interface_controller::rpc::SetVni;
+use carbide_uuid::spx::NULL_SPX_PARTITION_ID;
 use config_version::ConfigVersion;
+use db::ObjectColumnFilter;
 use mac_address::MacAddress;
-use model::dpa_interface::DpaInterfaceNetworkStatusObservation;
+use model::instance::config::spx::SpxAttachmentType;
+use model::machine::machine_search_config::MachineSearchConfig;
+use model::machine::spx::{MachineSpxAttachmentStatusObservation, MachineSpxStatusObservation};
 use mqttea::client::{ClientOptions, MqtteaClient};
 use mqttea::registry::traits::ProtobufRegistration;
 use rumqttc::QoS;
 use tokio::task::JoinSet;
 use tokio::time::{Duration, sleep};
 use tokio_util::sync::CancellationToken;
-use tracing::error;
 
 use crate::api::Api;
 
 // We just received a message from a DPA via the MQTT broker. Handle that message here.
+// We figure out the DPA interface belonging to this message and update the observed
+// status of the DPA in the machine's spx_status_observation field.
 async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) {
     let tokens: Vec<&str> = topic.split("/").collect();
     if tokens.len() < 3 {
-        error!("handle_dpa_message - unusable topic: {}", topic);
+        tracing::error!(
+            "handle_dpa_message: token len {} is unusable topic: {}",
+            tokens.len(),
+            topic
+        );
         return;
     }
 
     let macaddr = match MacAddress::from_str(tokens[2]) {
         Ok(m) => m,
         Err(_e) => {
-            error!(
-                "handle_dpa_message - Unable to parse mac addr: {}",
+            tracing::error!(
+                "handle_dpa_message: Unable to parse mac addr: {}",
                 tokens[2]
             );
             return;
@@ -52,8 +67,8 @@ async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) 
     };
 
     if message.metadata.is_none() || message.pf_info.is_none() {
-        error!(
-            "handle_dpa_message - message metadata or pf_info is empty: {:#?}",
+        tracing::error!(
+            "handle_dpa_message: message metadata or pf_info is empty: {:#?}",
             message
         );
         return;
@@ -64,7 +79,7 @@ async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) 
     let mut txn = match services.database_connection.begin().await {
         Ok(t) => t,
         Err(e) => {
-            error!("handle_dpa_message - Unable to start txn: {:#?}", e);
+            tracing::error!("handle_dpa_message: Unable to start txn: {:#?}", e);
             return;
         }
     };
@@ -72,15 +87,17 @@ async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) 
     let mut dpa_ifs = match db::dpa_interface::find_by_mac_addr(txn.as_mut(), &macaddr).await {
         Ok(ifs) => ifs,
         Err(e) => {
-            error!("handle_dpa_message -  Error from find_by_mac_addr {e}");
+            tracing::error!(
+                "handle_dpa_message: Error for mac {macaddr} from find_by_mac_addr {:#?}",
+                e
+            );
             return;
         }
     };
 
     if dpa_ifs.len() != 1 {
-        error!(
-            "handle_dpa_message -  invalid dpa_ifs len from find_by_mac_addr maddr: {} len: {}",
-            macaddr,
+        tracing::error!(
+            "handle_dpa_message: invalid dpa_ifs len from find_by_mac_addr maddr {macaddr} len {:#?}",
             dpa_ifs.len()
         );
         return;
@@ -92,33 +109,145 @@ async fn handle_dpa_message(services: Arc<Api>, message: SetVni, topic: String) 
     let ncv = match ConfigVersion::from_str(&md.revision) {
         Ok(ncv) => ncv,
         Err(e) => {
-            error!(
-                "handle_dpa_message - Error parsing config version from DPA Ack msg {:#?} {e}",
-                message
+            tracing::error!(
+                "handle_dpa_message: Error parsing config version from DPA Ack msg {:#?} {:#?}",
+                message,
+                e
             );
             ConfigVersion::invalid()
         }
     };
 
+    // We checked that pf_info is not None above, so unwrap is safe.
+    // If vni is non-zero, then we are in a tenancy and the partition_id is not None.
+    // We need to get the partition_id correponding to this vni from the database.
+    let vni = message.pf_info.as_ref().unwrap().vni;
+
+    let mut spx_partition_id = NULL_SPX_PARTITION_ID;
+
+    if vni != 0 {
+        let partition = match db::spx_partition::find_by(
+            txn.as_mut(),
+            ObjectColumnFilter::List(db::spx_partition::VniColumn, &[vni]),
+        )
+        .await
+        {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!(
+                    "handle_dpa_message: Error for vni {vni} from find_by_vni {:#?}",
+                    e
+                );
+                return;
+            }
+        };
+
+        if partition.len() != 1 {
+            tracing::error!("handle_dpa_message: SPX partition with vni {vni} is not found");
+            return;
+        }
+
+        let spx_partition = &partition[0];
+        spx_partition_id = spx_partition.id;
+
+        tracing::debug!(
+            "handle_dpa_message: SPX partition with vni {vni} found: {:#?}",
+            spx_partition
+        );
+    } else {
+        tracing::debug!(
+            "handle_dpa_message: received vni 0 in DPA message {:#?}",
+            message
+        );
+    }
+
     let dpa_if = dpa_ifs.remove(0);
 
-    let observation = DpaInterfaceNetworkStatusObservation {
+    let at_status = MachineSpxAttachmentStatusObservation {
+        mac_address: macaddr,
+        partition_id: Some(spx_partition_id),
+        attachment_type: Some(SpxAttachmentType::Physical), // Only Physical attachments are supported at the moment
+        virtual_function_id: None,
+        config_version: Some(ncv),
         observed_at: chrono::Utc::now(),
-        network_config_version: Some(ncv),
     };
 
-    match db::dpa_interface::update_network_observation(&dpa_if, &mut txn, &observation).await {
+    // Get the machine corresponding to the DPA interface.
+    // The machine entry needs to be obtained with FOR UPDATE to avoid race conditions.
+    let machine = match db::machine::find_one(
+        txn.as_mut(),
+        &dpa_if.machine_id,
+        MachineSearchConfig {
+            for_update: true,
+            ..Default::default()
+        },
+    )
+    .await
+    {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::error!("handle_dpa_message: Error for machine {:#?}", e);
+            return;
+        }
+    };
+
+    if machine.is_none() {
+        tracing::error!(
+            "handle_dpa_message: Machine not found for DPA interface {:#?}",
+            dpa_if
+        );
+        return;
+    }
+
+    let machine = machine.unwrap();
+
+    let cur_spx_status_observations = machine.spx_status_observation.unwrap_or_default();
+    let mut new_spx_status_observations = MachineSpxStatusObservation::default();
+
+    let mut add_new_observation = true;
+
+    for obs in cur_spx_status_observations.spx_attachments.iter() {
+        if obs.mac_address != macaddr {
+            new_spx_status_observations
+                .spx_attachments
+                .push(obs.clone());
+        } else if obs.observed_at < at_status.observed_at {
+            new_spx_status_observations
+                .spx_attachments
+                .push(at_status.clone());
+            add_new_observation = false;
+        }
+    }
+
+    if add_new_observation {
+        new_spx_status_observations
+            .spx_attachments
+            .push(at_status.clone());
+    }
+
+    match db::machine::update_spx_status_observation(
+        &mut txn,
+        &dpa_if.machine_id,
+        &new_spx_status_observations,
+    )
+    .await
+    {
         Ok(_r) => {
             let res = txn.commit().await;
             if res.is_err() {
-                error!(
-                    "handle_dpa_message - txn commit error for msg: {:#?} res: {:#?}",
-                    message, res
+                tracing::error!(
+                    "handle_dpa_message: txn commit error for msg {:#?} res {:#?}",
+                    message,
+                    res
                 );
             }
         }
         Err(e) => {
-            error!("handle_dpa_message - update_network_observation error: {e}");
+            tracing::error!(
+                "handle_dpa_message: update_network_observation error for msg {:#?} {:#?}",
+                message,
+                e
+            );
         }
     }
 }
@@ -177,7 +306,7 @@ pub async fn start_dpa_handler(
                 })
                 .await
                 {
-                    println!("handle_dpa_message failed: {e}");
+                    tracing::error!("handle_dpa_message failed: {e}");
                 }
             }
         })

@@ -8,12 +8,12 @@ This guide describes what is in place for running Cargo (build, test, check) via
 
 | Item | Location | Purpose |
 |------|----------|--------|
-| **Makefile task: `cargo-docker-minimal`** | `Makefile.toml` | Run Cargo in the minimal image (`carbide-build-minimal`: Rust 1.95 + protoc). **Recommended on Mac.** Requires `build-cargo-docker-image-minimal` once. |
-| **Makefile task: `build-cargo-docker-image-minimal`** | `Makefile.toml` | Build the minimal image (Rust + protoc only). Quick (~2–5 min). Required once for workspace builds (e.g. `carbide-rpc` needs `protoc`). |
-| **Makefile task: `cargo-docker`** | `Makefile.toml` | Run Cargo inside the repo’s full build container (`carbide-build-x86_64`). Requires building that image first. |
+| **Makefile task: `cargo-docker-minimal`** | `Makefile.toml` | Run Cargo in the minimal image (`nico-build-minimal`: Rust 1.95 + protoc). **Recommended on Mac.** Requires `build-cargo-docker-image-minimal` once. |
+| **Makefile task: `build-cargo-docker-image-minimal`** | `Makefile.toml` | Build the minimal image (Rust + protoc only). Quick (~2–5 min). Required once for workspace builds (e.g. `nico-rpc` needs `protoc`). |
+| **Makefile task: `cargo-docker`** | `Makefile.toml` | Run Cargo inside the repo’s full build container (`nico-build-x86_64`). Requires building that image first. |
 | **Makefile task: `build-cargo-docker-image`** | `Makefile.toml` | Build the full Linux build image from `dev/docker/Dockerfile.build-container-x86_64`. Slow on Apple Silicon (45+ min). |
 | **This guide** | `docs/development/cargo-via-docker-macos.md` | How to use the above and when to choose which option. |
-| **Minimal Dockerfile** | `dev/docker/Dockerfile.cargo-docker-minimal` | Rust 1.95 + `protobuf-compiler` + `libprotobuf-dev` (well-known types). Used for `carbide-build-minimal`. |
+| **Minimal Dockerfile** | `dev/docker/Dockerfile.cargo-docker-minimal` | Rust 1.95 + `protobuf-compiler` + `libprotobuf-dev` (well-known types). Used for `nico-build-minimal`. |
 | **Full build Dockerfile** | `dev/docker/Dockerfile.build-container-x86_64` | Defines the full build image (Rust 1.95, PostgreSQL, protobuf, TSS, etc.). |
 
 All commands below are run from the **repository root** unless noted.
@@ -49,7 +49,7 @@ If you use **Colima** on an M3 (or M1/M2) Mac, these settings can make `cargo-do
 colima start --arch aarch64 --cpu 4 --memory 12 --disk 60 --vm-type=vz --mount-type=virtiofs
 ```
 
-Use `colima stop` first if Colima is already running, then run the command above. This gives native arm64, 4 CPUs, 12 GiB RAM (avoids linker OOM when building `carbide-api` tests), VZ virtualization, and virtiofs mounts. Adjust `--cpu` and `--memory` to match your machine.
+Use `colima stop` first if Colima is already running, then run the command above. This gives native arm64, 4 CPUs, 12 GiB RAM (avoids linker OOM when building `nico-api` tests), VZ virtualization, and virtiofs mounts. Adjust `--cpu` and `--memory` to match your machine.
 
 **1. Use native arm64 (default)**  
 Do **not** start Colima with `--arch x86_64`. The minimal image is built for your Mac’s architecture (arm64), so it runs natively. Forcing x86_64 would use emulation and be much slower.
@@ -103,7 +103,7 @@ cargo make build-cargo-docker-image-minimal
 |-------------|------------------------|------------------------------|
 | Architecture | arm64 (default)       | Native; avoid x86_64 emulation |
 | CPU         | 4–8                   | Parallel Rust compilation     |
-| Memory      | 8–12 GiB              | Avoid OOM during large builds; if **linker is killed (signal 9)** when building `carbide-api` tests, use 12 GiB |
+| Memory      | 8–12 GiB              | Avoid OOM during large builds; if **linker is killed (signal 9)** when building `nico-api` tests, use 12 GiB |
 | vmType      | `vz`                  | Faster than QEMU (macOS 13+)  |
 | mountType   | `virtiofs`            | Faster volume I/O             |
 
@@ -120,7 +120,7 @@ Use these to validate changes (e.g. IB partition update) before building the Doc
 | Goal | What to run | Time |
 |------|-------------|------|
 | Daily sanity check (Docker + Postgres work) | `cargo make test-docker-postgres-smoke` (set `DATABASE_URL`) | ~10–30 s |
-| IB partition / API behavior | `cargo make cargo-docker-minimal -- test -p carbide-api test_update --no-default-features --no-fail-fast` (set `DATABASE_URL`) | First run: long (compile); **later runs: much faster** (sccache + incremental) |
+| IB partition / API behavior | `cargo make cargo-docker-minimal -- test -p nico-api test_update --no-default-features --no-fail-fast` (set `DATABASE_URL`) | First run: long (compile); **later runs: much faster** (sccache + incremental) |
 
 Use the smoke test for quick feedback; run the IB partition tests when you need to validate that feature (e.g. before a PR). The minimal image uses **sccache** and a persistent cache dir (`~/.sccache` or `SCCACHE_DIR`), so the second and later runs of the same (or similar) commands are much faster.
 
@@ -130,7 +130,7 @@ Verifies that the API and deps compile. No Postgres needed.
 
 ```bash
 # From repo root
-cargo make cargo-docker-minimal -- check -p carbide-api --no-default-features
+cargo make cargo-docker-minimal -- check -p nico-api --no-default-features
 ```
 
 If you haven’t built the minimal image yet, build it first: `cargo make build-cargo-docker-image-minimal`.
@@ -144,7 +144,7 @@ Verifies that the minimal Docker setup can reach Postgres: `DATABASE_URL` is pas
 **2. Run the smoke test:**
 
 ```bash
-export DATABASE_URL="postgres://carbide_development:notforprod@host.docker.internal:5432/carbide_development"
+export DATABASE_URL="postgres://nico_development:notforprod@host.docker.internal:5432/nico_development"
 cargo make cargo-docker-minimal -- test -p postgres-smoke-test
 ```
 
@@ -153,11 +153,11 @@ Use the correct host/port (e.g. `host.docker.internal:30432` if Postgres is on p
 **Quick one-liner (recommended for a fast sanity check):**
 
 ```bash
-export DATABASE_URL="postgres://carbide_development:notforprod@host.docker.internal:5432/carbide_development"
+export DATABASE_URL="postgres://nico_development:notforprod@host.docker.internal:5432/nico_development"
 cargo make test-docker-postgres-smoke
 ```
 
-Takes ~10–30 seconds. Use this instead of the long `carbide-api` DB tests when you only need to confirm Docker + Postgres work.
+Takes ~10–30 seconds. Use this instead of the long `nico-api` DB tests when you only need to confirm Docker + Postgres work.
 
 ### Option B: IB partition tests (need PostgreSQL)
 
@@ -176,20 +176,20 @@ If you get an error about the `loki` logging plugin, use: `docker-compose -f doc
 **Locally (Rust 1.95 + `DATABASE_URL`):**
 
 ```bash
-export DATABASE_URL="postgres://carbide_development:notforprod@localhost:5432/carbide_development"
-cargo test -p carbide-api ib_partition --no-default-features --no-fail-fast
+export DATABASE_URL="postgres://nico_development:notforprod@localhost:5432/nico_development"
+cargo test -p nico-api ib_partition --no-default-features --no-fail-fast
 ```
 
 **Via minimal Docker image (after `build-cargo-docker-image-minimal`):**
 
 ```bash
-export DATABASE_URL="postgres://carbide_development:notforprod@host.docker.internal:5432/carbide_development"
-cargo make cargo-docker-minimal -- test -p carbide-api ib_partition --no-default-features --no-fail-fast
+export DATABASE_URL="postgres://nico_development:notforprod@host.docker.internal:5432/nico_development"
+cargo make cargo-docker-minimal -- test -p nico-api ib_partition --no-default-features --no-fail-fast
 ```
 
 Use `host.docker.internal` so the container can reach Postgres on the host (Docker Desktop for Mac supports this; the minimal image includes `libpq-dev` for the Postgres client).
 
-**DATABASE_URL format:** Use the full URL including the database name (e.g. `.../carbide_development`). The test harness connects to that database to create and drop per-test databases (e.g. `db0_carbide__tests__...`). The database you name in the URL must already exist (create it or use an existing one such as `carbide_development`).
+**DATABASE_URL format:** Use the full URL including the database name (e.g. `.../nico_development`). The test harness connects to that database to create and drop per-test databases (e.g. `db0_nico__tests__...`). The database you name in the URL must already exist (create it or use an existing one such as `nico_development`).
 
 **Other test filters:** The test name is a substring match. Examples:
 
@@ -203,22 +203,22 @@ Use `host.docker.internal` so the container can reach Postgres on the host (Dock
 
 ```bash
 # Examples (set DATABASE_URL first)
-cargo make cargo-docker-minimal -- test -p carbide-api test_create --no-default-features --no-fail-fast
-cargo make cargo-docker-minimal -- test -p carbide-api update_ib --no-default-features --no-fail-fast
-cargo make cargo-docker-minimal -- test -p carbide-api update_instance_ib --no-default-features --no-fail-fast
+cargo make cargo-docker-minimal -- test -p nico-api test_create --no-default-features --no-fail-fast
+cargo make cargo-docker-minimal -- test -p nico-api update_ib --no-default-features --no-fail-fast
+cargo make cargo-docker-minimal -- test -p nico-api update_instance_ib --no-default-features --no-fail-fast
 ```
 
 ### Suggested order before a build
 
 1. Run **Option A** (check) to ensure everything compiles.
 2. If you changed API or DB code, run **Option B** (ib_partition tests) with Postgres and `DATABASE_URL` set.
-3. Then run your full build (e.g. `cargo make cargo-docker-minimal -- build -p carbide-admin-cli --release`).
+3. Then run your full build (e.g. `cargo make cargo-docker-minimal -- build -p nico-admin-cli --release`).
 
 ---
 
 ## Quick start (recommended on Mac)
 
-Use the **minimal** path. The workspace (including `carbide-rpc`) needs **`protoc`** to compile `.proto` files, so you build a small image once (~2–5 min) that adds only Rust + protoc.
+Use the **minimal** path. The workspace (including `nico-rpc`) needs **`protoc`** to compile `.proto` files, so you build a small image once (~2–5 min) that adds only Rust + protoc.
 
 **First time only — build the minimal image:**
 
@@ -236,8 +236,8 @@ cargo make build-cargo-docker-image-minimal
 cargo make cargo-docker-minimal
 
 # Or pass a custom cargo command (each argument after --; do not wrap in quotes)
-cargo make cargo-docker-minimal -- build -p carbide-admin-cli --release
-cargo make cargo-docker-minimal -- check -p carbide-api --no-default-features
+cargo make cargo-docker-minimal -- build -p nico-admin-cli --release
+cargo make cargo-docker-minimal -- check -p nico-api --no-default-features
 ```
 
 Output binaries appear under `target/` in your repo as usual.
@@ -248,7 +248,7 @@ Output binaries appear under `target/` in your repo as usual.
 
 **When to use:** Day-to-day builds and checks on macOS when you don’t need the full API test stack (PostgreSQL, TSS, etc.).
 
-**What it uses:** The image `carbide-build-minimal` (Rust 1.95 + `protoc`). You must build it once with `build-cargo-docker-image-minimal` (~2–5 min). The `carbide-rpc` crate needs `protoc` and the Google well-known proto files (`libprotobuf-dev`), so the bare `rust:1.95.0-slim-bookworm` image is not enough for workspace builds.
+**What it uses:** The image `nico-build-minimal` (Rust 1.95 + `protoc`). You must build it once with `build-cargo-docker-image-minimal` (~2–5 min). The `nico-rpc` crate needs `protoc` and the Google well-known proto files (`libprotobuf-dev`), so the bare `rust:1.95.0-slim-bookworm` image is not enough for workspace builds.
 
 ### Usage
 
@@ -257,20 +257,20 @@ Output binaries appear under `target/` in your repo as usual.
 cargo make cargo-docker-minimal
 
 # Custom cargo command (pass each argument after --; do not wrap in quotes)
-cargo make cargo-docker-minimal -- build -p carbide-admin-cli --release
-cargo make cargo-docker-minimal -- check -p carbide-api --no-default-features
-cargo make cargo-docker-minimal -- build -p carbide-api --no-default-features
+cargo make cargo-docker-minimal -- build -p nico-admin-cli --release
+cargo make cargo-docker-minimal -- check -p nico-api --no-default-features
+cargo make cargo-docker-minimal -- build -p nico-api --no-default-features
 ```
 
 ### What works
 
-- Building **carbide-admin-cli**.
-- Building/checking **carbide-api** with `--no-default-features` (avoids `tss-esapi` and other heavy deps).
+- Building **nico-admin-cli**.
+- Building/checking **nico-api** with `--no-default-features` (avoids `tss-esapi` and other heavy deps).
 - Other crates that don’t need PostgreSQL, protobuf, or TSS.
 
 ### What doesn’t work
 
-- Full **carbide-api** with default features (needs TSS/measured-boot stack).
+- Full **nico-api** with default features (needs TSS/measured-boot stack).
 - API tests that require a database (slim image has no PostgreSQL client libs). For those, use the full image path below or run tests elsewhere (e.g. CI).
 
 ---
@@ -288,7 +288,7 @@ cargo make build-cargo-docker-image
 Or manually:
 
 ```bash
-docker build -f dev/docker/Dockerfile.build-container-x86_64 -t carbide-build-x86_64 dev/docker
+docker build -f dev/docker/Dockerfile.build-container-x86_64 -t nico-build-x86_64 dev/docker
 ```
 
 On Apple Silicon this runs under emulation and can take a long time; step 7 (installing cargo tools) alone often takes 45+ minutes.
@@ -297,11 +297,11 @@ On Apple Silicon this runs under emulation and can take a long time; step 7 (ins
 
 ```bash
 # Build admin-cli
-cargo make cargo-docker -- build -p carbide-admin-cli --release
+cargo make cargo-docker -- build -p nico-admin-cli --release
 
 # Run API tests (set DATABASE_URL if tests need Postgres)
-export DATABASE_URL="postgres://carbide_development:notforprod@host.docker.internal:5432/carbide_development"
-cargo make cargo-docker -- test -p carbide-api ib_partition --no-fail-fast
+export DATABASE_URL="postgres://nico_development:notforprod@host.docker.internal:5432/nico_development"
+cargo make cargo-docker -- test -p nico-api ib_partition --no-fail-fast
 ```
 
 For tests that need Postgres, start it first (e.g. `docker compose up -d postgresql`) and use `host.docker.internal` in `DATABASE_URL` so the container can reach the host’s Postgres.
@@ -314,12 +314,12 @@ For tests that need Postgres, start it first (e.g. `docker compose up -d postgre
 |------|--------|
 | Build minimal image once (Rust + protoc; ~2–5 min) | `cargo make build-cargo-docker-image-minimal` |
 | Build admin-cli (minimal) | `cargo make cargo-docker-minimal` |
-| Build admin-cli release (minimal) | `cargo make cargo-docker-minimal -- build -p carbide-admin-cli --release` |
-| Check API without default features (minimal) | `cargo make cargo-docker-minimal -- check -p carbide-api --no-default-features` |
+| Build admin-cli release (minimal) | `cargo make cargo-docker-minimal -- build -p nico-admin-cli --release` |
+| Check API without default features (minimal) | `cargo make cargo-docker-minimal -- check -p nico-api --no-default-features` |
 | Postgres connectivity smoke test (quick; set DATABASE_URL) | `cargo make test-docker-postgres-smoke` or `cargo make cargo-docker-minimal -- test -p postgres-smoke-test` |
 | Build full repo image (once, slow on Mac) | `cargo make build-cargo-docker-image` |
-| Build admin-cli (full image) | `cargo make cargo-docker -- build -p carbide-admin-cli --release` |
-| Run API tests (full image; set DATABASE_URL) | `cargo make cargo-docker -- test -p carbide-api ib_partition --no-fail-fast` |
+| Build admin-cli (full image) | `cargo make cargo-docker -- build -p nico-admin-cli --release` |
+| Run API tests (full image; set DATABASE_URL) | `cargo make cargo-docker -- test -p nico-api ib_partition --no-fail-fast` |
 
 ---
 
@@ -340,7 +340,7 @@ For tests that need Postgres, start it first (e.g. `docker compose up -d postgre
    The tasks mount `CARGO_HOME` (e.g. `$HOME/.cargo`) into the container so dependency builds are cached on your Mac.
 
 2. **sccache (faster repeat builds)**  
-   The minimal image uses `sccache` and mounts `~/.sccache` (or `SCCACHE_DIR`) so compiled Rust artifacts are reused across runs. Rebuild the minimal image once (`cargo make build-cargo-docker-image-minimal`) to get sccache; then the second and later runs of `test -p carbide-api ...` (and other cargo commands) are much faster.
+   The minimal image uses `sccache` and mounts `~/.sccache` (or `SCCACHE_DIR`) so compiled Rust artifacts are reused across runs. Rebuild the minimal image once (`cargo make build-cargo-docker-image-minimal`) to get sccache; then the second and later runs of `test -p nico-api ...` (and other cargo commands) are much faster.
 
 3. **File ownership**  
    **`cargo-docker-minimal`** runs the container as root and runs `chown -R` on `/code` after each run, so `target/` is left owned by your user and "Permission denied" when writing to `target/` should not recur.  
@@ -353,7 +353,7 @@ For tests that need Postgres, start it first (e.g. `docker compose up -d postgre
 4. **Postgres for API tests**  
    Start Postgres (e.g. `docker-compose up -d postgresql`; if the Loki plugin is missing, use `-f docker-compose.no-loki.yml` as well), then set:
    ```bash
-   export DATABASE_URL="postgres://carbide_development:notforprod@host.docker.internal:5432/carbide_development"
+   export DATABASE_URL="postgres://nico_development:notforprod@host.docker.internal:5432/nico_development"
    ```
    Use **`host.docker.internal`** (not `localhost`) so the container can reach Postgres on the host. `cargo-docker-minimal` passes `DATABASE_URL` into the container when set.
 
@@ -365,8 +365,8 @@ For tests that need Postgres, start it first (e.g. `docker compose up -d postgre
      - **macOS:** Install GNU coreutils then use `gtimeout`, or run without timeout and set `DATABASE_URL` so DB tests don’t hang:
        ```bash
        brew install coreutils   # one-time; provides gtimeout
-       export DATABASE_URL="postgres://carbide_development:notforprod@host.docker.internal:5432/carbide_development"
-       gtimeout 300 cargo make cargo-docker-minimal -- test -p carbide-api ib_partition --no-default-features --no-fail-fast
+       export DATABASE_URL="postgres://nico_development:notforprod@host.docker.internal:5432/nico_development"
+       gtimeout 300 cargo make cargo-docker-minimal -- test -p nico-api ib_partition --no-default-features --no-fail-fast
        ```
      (300 seconds = 5 minutes; adjust as needed.)
 
@@ -375,10 +375,10 @@ For tests that need Postgres, start it first (e.g. `docker compose up -d postgre
    **Colima:** For faster runs on M3, give the VM more resources and use the VZ runtime with virtiofs (see **Colima configuration** below).
 
 7. **`protoc` required for workspace builds**  
-   The `carbide-rpc` crate compiles `.proto` files and needs the Protocol Buffers compiler (`protoc`). The minimal image adds only that; the full image includes it as well.
+   The `nico-rpc` crate compiles `.proto` files and needs the Protocol Buffers compiler (`protoc`). The minimal image adds only that; the full image includes it as well.
 
 8. **Running without cargo-make**  
-   You can run the same `docker run` locally. The minimal variant (after building `carbide-build-minimal` once); add `-e DATABASE_URL="$DATABASE_URL"` when running tests that need the DB:
+   You can run the same `docker run` locally. The minimal variant (after building `nico-build-minimal` once); add `-e DATABASE_URL="$DATABASE_URL"` when running tests that need the DB:
    ```bash
    docker run --rm \
      -v "$(pwd)":/code \
@@ -387,6 +387,6 @@ For tests that need Postgres, start it first (e.g. `docker compose up -d postgre
      -u "$(id -u):$(id -g)" \
      -e CARGO_HOME=/cargo \
      ${DATABASE_URL:+-e DATABASE_URL="$DATABASE_URL"} \
-     carbide-build-minimal \
-     cargo build -p carbide-admin-cli --release
+     nico-build-minimal \
+     cargo build -p nico-admin-cli --release
    ```

@@ -40,7 +40,7 @@ use db::{self, ObjectColumnFilter, TransactionVending, machine};
 use errors::{NvLinkManagerError, NvLinkManagerResult};
 use libnmxc::nmxc_model::{GetPartitionInfoListRequest, PartitionInfo};
 use libnmxc::{Endpoint, NMX_C_GATEWAY_ID, Nmxc, NmxcPool};
-use metrics::{AppliedChange, NmxmPartitionOperationStatus, NvlPartitionMonitorMetrics};
+use metrics::{AppliedChange, NmxcMetricOperationStatus, NvlPartitionMonitorMetrics};
 use model::hardware_info::MachineNvLinkInfo;
 use model::instance::status::SyncState;
 use model::instance::status::nvlink::InstanceNvLinkStatus;
@@ -150,7 +150,7 @@ impl PartitionProcessingContext {
             .collect();
         let db_nvl_partitions = db_nvl_partitions
             .into_iter()
-            .filter_map(|p| p.nmx_m_id.parse::<u32>().ok().map(|id| (id, p)))
+            .filter_map(|p| u32::try_from(p.nmx_c_partition_id).ok().map(|id| (id, p)))
             .collect();
         Self {
             nmx_c_partitions,
@@ -217,7 +217,7 @@ impl PartitionProcessingContext {
     }
 
     // Get the list of GPUs that should remain in a partition after removing a specific GPU from a logical partition.
-    // To remove a GPU from a partition in NMX-M, we need to do an update op with every other GPU in the partition except the one
+    // To remove a GPU from a partition in NMX-C, we need to do an update op with every other GPU in the partition except the one
     // getting removed.
     fn get_gpus_to_keep_after_removal(
         &self,
@@ -546,7 +546,12 @@ impl PartitionProcessingContext {
         };
 
         // Get the GPU IDs that are already in the partition, plus the GPU being added.
-        let nmx_c_partition_id = partition.nmx_m_id.parse::<u32>().unwrap();
+        let Ok(nmx_c_partition_id) = u32::try_from(partition.nmx_c_partition_id) else {
+            return Err(NvLinkManagerError::internal(format!(
+                "NMX-C partition ID is required for DB partition {}",
+                partition.id
+            )));
+        };
         let gpu_uids: Vec<u64> = if let Some(nmx_c_partition) =
             self.nmx_c_partitions
                 .get(&libnmxc::nmxc_model::PartitionId {
@@ -958,7 +963,7 @@ impl NvlPartitionMonitor {
         Ok(num_completed_operations)
     }
 
-    // Check the passed NvLink partition "observations" (physical partition info from NMX-M supplemented by physical and logical partition info from DB)
+    // Check the passed NvLink partition "observations" (physical partition info from NMX-C supplemented by physical and logical partition info from DB)
     // against the instance config and generate NMX-C operations to bring the observations into alignment with the config.
     fn check_nv_link_partitions(
         &self,
@@ -1138,7 +1143,7 @@ impl NvlPartitionMonitor {
                                     .find(|p| {
                                         p.logical_partition_id == gpu_ctx.logical_partition_id
                                             && p.domain_uuid == info.domain_uuid
-                                            && p.nmx_m_id.parse::<u32>().ok().is_some_and(
+                                            && u32::try_from(p.nmx_c_partition_id).ok().is_some_and(
                                                 |partition_id| {
                                                     partition_ctx.nmx_c_partitions.contains_key(
                                                         &libnmxc::nmxc_model::PartitionId {
@@ -1157,7 +1162,7 @@ impl NvlPartitionMonitor {
                                         )
                                     {
                                         tracing::error!(
-                                            gpu_nmx_m_id = %gpu_ctx.gpu_guid,
+                                            gpu_guid = %gpu_ctx.gpu_guid,
                                             machine_id = %instance.machine_id,
                                             "Failed to handle GPU addition to existing partition: {e}"
                                         );
@@ -1168,7 +1173,7 @@ impl NvlPartitionMonitor {
                                         partition_ctx.handle_gpu_addition_new_partition(&gpu_ctx)
                                     {
                                         tracing::error!(
-                                            gpu_nmx_m_id = %gpu_ctx.gpu_guid,
+                                            gpu_guid = %gpu_ctx.gpu_guid,
                                             machine_id = %instance.machine_id,
                                             "Failed to handle GPU addition to new partition: {e}"
                                         );
@@ -1383,7 +1388,7 @@ impl NvlPartitionMonitor {
                 else {
                     if !is_nmx_c_default_partition(nmxc_partition) {
                         tracing::error!(
-                            "No partition found with nmx_m_id = {} while processing removal of GPU {gpu:?} in admin network",
+                            "No partition found with NMX-C ID = {} while processing removal of GPU {gpu:?} in admin network",
                             partition_id,
                         );
                     }
@@ -1423,7 +1428,7 @@ impl NvlPartitionMonitor {
         Ok(())
     }
 
-    // Use a separate transaction to record the observations to avoid blocking the main transaction when we poll NMX-M.
+    // Use a separate transaction to record the observations to avoid blocking the main transaction when we poll NMX-C.
     async fn record_nvlink_status_observation(
         &self,
         observations: HashMap<MachineId, MachineNvLinkStatusObservation>,
@@ -1629,9 +1634,9 @@ impl NvlPartitionMonitor {
                 let applied_change = AppliedChange {
                     operation: operation.operation_type.clone().into(),
                     status: if success {
-                        NmxmPartitionOperationStatus::Completed
+                        NmxcMetricOperationStatus::Completed
                     } else {
-                        NmxmPartitionOperationStatus::Failed
+                        NmxcMetricOperationStatus::Failed
                     },
                 };
                 *metrics
@@ -1665,27 +1670,47 @@ impl NvlPartitionMonitor {
             for operation in operations {
                 match operation.operation_type {
                     NmxcPartitionOperationType::Create => {
+                        let matching_partition = match nmx_c_partitions.values().find(|p| {
+                            let p_uids: HashSet<u64> = p.gpu_uid_list.iter().copied().collect();
+                            let op_uids: HashSet<u64> =
+                                operation.gpu_uids.iter().copied().collect();
+                            p_uids == op_uids
+                        }) {
+                            Some(p) => p,
+                            None => {
+                                tracing::error!(
+                                    "NMX-C partition not found for name {}",
+                                    operation.name
+                                );
+                                continue;
+                            }
+                        };
+                        let Some(nmx_c_partition_id) = matching_partition
+                            .partition_id
+                            .as_ref()
+                            .map(|id| id.partition_id)
+                        else {
+                            tracing::error!(
+                                "NMX-C partition ID not found for name {}",
+                                operation.name
+                            );
+                            continue;
+                        };
+                        let Ok(nmx_c_partition_id) = i32::try_from(nmx_c_partition_id) else {
+                            tracing::error!(
+                                "NMX-C partition ID does not fit in database column for name {}",
+                                operation.name
+                            );
+                            continue;
+                        };
+
                         // Create the nvl partition in the database
                         let new_partition = model::nvl_partition::NewNvlPartition {
                             id: NvLinkPartitionId::new(),
                             logical_partition_id,
                             name: NvlPartitionName::try_from(operation.name.clone())?,
                             domain_uuid: operation.domain_uuid.unwrap_or_default(),
-                            nmx_m_id: match nmx_c_partitions.values().find(|p| {
-                                let p_uids: HashSet<u64> = p.gpu_uid_list.iter().copied().collect();
-                                let op_uids: HashSet<u64> =
-                                    operation.gpu_uids.iter().copied().collect();
-                                p_uids == op_uids
-                            }) {
-                                Some(p) => nmx_c_partition_id_string(p),
-                                None => {
-                                    tracing::error!(
-                                        "NMX-C partition not found for name {}",
-                                        operation.name
-                                    );
-                                    continue;
-                                }
-                            },
+                            nmx_c_partition_id,
                         };
                         let _partition = db::nvl_partition::create(&new_partition, txn).await?;
                     }
@@ -1697,7 +1722,7 @@ impl NvlPartitionMonitor {
                         .await?;
                     }
                     NmxcPartitionOperationType::Update(_) => {
-                        // No-op, since partition membership is not tracked in the partitions table. The status observation of the
+                        // Partition membership is not tracked in the partitions table. The status observation of the
                         // added/removed GPUs will be updated.
                     }
                     NmxcPartitionOperationType::RemoveUnknownPartition(_) => {

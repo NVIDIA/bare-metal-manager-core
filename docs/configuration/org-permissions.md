@@ -2,7 +2,7 @@
 
 NICo does not maintain its own user directory. Identity, org membership, and role assignments are all managed in the upstream identity provider. The REST API reads role claims from the authentication token on every request. Adding or removing a user is done in the identity provider, not through nicocli.
 
-NICo accepts tokens from any OIDC-compatible IdP. The bundled dev Keycloak (deployed by `setup.sh` and documented in the [Quick Start Guide](../getting-started/quick-start.md)) is the recommended starting point and the reference implementation for IdP wiring -- you can use it as-is for evaluation, or model your production IdP setup after it. Configure additional or replacement IdPs via the `issuers` block in `carbide-rest-api`'s config; see the [Reference Installation](../getting-started/installation-options/reference-install.md) guide for the configuration surface and the claim mappings NICo expects (org name, display name, role claim).
+NICo accepts tokens from any OIDC-compatible IdP. The bundled dev Keycloak (deployed by `setup.sh` and documented in the [Quick Start Guide](../getting-started/quick-start.md)) is the recommended starting point and the reference implementation for IdP wiring -- you can use it as-is for evaluation, or model your production IdP setup after it. Configure additional or replacement IdPs via the `issuers` block in `nico-rest-api`'s config; see the [Reference Installation](../getting-started/installation-options/reference-install.md) guide for the configuration surface and the claim mappings NICo expects (org name, display name, role claim).
 
 ## Roles
 

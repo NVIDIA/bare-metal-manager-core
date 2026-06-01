@@ -1,6 +1,6 @@
 # libmlx
 
-Consolidated Mellanox NIC configuration, firmware, and device management library for NVIDIA Carbide.
+Consolidated Mellanox NIC configuration, firmware, and device management library for NVIDIA NICo.
 
 ## Overview
 
@@ -504,7 +504,7 @@ assert!(result.device_conf_applied);
 
 ### TOML Configuration
 
-For integration with Carbide API config or standalone use:
+For integration with NICo API config or standalone use:
 
 ```toml
 firmware_url = "https://artifacts.example.com/fw/prod-32.43.1014.signed.bin"
@@ -521,7 +521,7 @@ type = "ssh_agent"
 ```
 
 ```rust
-let flasher = FirmwareFlasher::from_config_file("4b:00.0", "/etc/carbide/firmware.toml")?;
+let flasher = FirmwareFlasher::from_config_file("4b:00.0", "/etc/nico/firmware.toml")?;
 let result = flasher.flash().await?;
 ```
 
@@ -567,13 +567,13 @@ Device discovery, information, and filtering for Mellanox NICs.
 
 ### Protobuf Integration
 
-Device types include `From`/`Into` conversions with `carbide-rpc` protobuf types for gRPC communication.
+Device types include `From`/`Into` conversions with `nico-rpc` protobuf types for gRPC communication.
 
 ---
 
 ## Embedded
 
-Example CLI tool and utilities for working with the hardware configuration registry. In practice, these capabilities are embedded into `scout` (DPA management), `forge_dpu_agent` (DPU management), and `carbide-api` (server-side validation).
+Example CLI tool and utilities for working with the hardware configuration registry. In practice, these capabilities are embedded into `scout` (DPA management), `nico_dpu_agent` (DPU management), and `nico-api` (server-side validation).
 
 ### Commands
 
@@ -629,7 +629,7 @@ mlxconfig-embedded firmware verify-version 4b:00.0 32.43.1014
 mlxconfig-embedded firmware reset 4b:00.0
 mlxconfig-embedded firmware verify-image 4b:00.0 /path/to/firmware.signed.bin
 mlxconfig-embedded firmware config-reset 4b:00.0
-mlxconfig-embedded firmware flash-config 4b:00.0 /etc/carbide/firmware.toml
+mlxconfig-embedded firmware flash-config 4b:00.0 /etc/nico/firmware.toml
 ```
 
 ---
@@ -682,5 +682,5 @@ databases/   Compile     registries.rs       Type-safe API    sudo commands    H
 
 ## Internal Dependencies
 
-- `carbide-rpc` — protobuf/gRPC type conversions
-- `carbide-uuid` — UUID generation
+- `nico-rpc` — protobuf/gRPC type conversions
+- `nico-uuid` — UUID generation

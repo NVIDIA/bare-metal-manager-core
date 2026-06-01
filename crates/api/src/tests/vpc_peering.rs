@@ -29,10 +29,14 @@ use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use super::common::api_fixtures::{self, TestEnv};
+use crate::tests::common::api_fixtures::instance::default_tenant_config;
 use crate::tests::common::api_fixtures::network_segment::{
     FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, create_network_segment, create_tenant_network_segment,
 };
-use crate::tests::common::api_fixtures::{create_managed_host, create_test_env};
+use crate::tests::common::api_fixtures::tenant::create_fixture_tenant;
+use crate::tests::common::api_fixtures::{
+    TestEnvOverrides, create_managed_host, create_test_env, create_test_env_with_overrides,
+};
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 async fn create_test_vpcs(
@@ -40,6 +44,15 @@ async fn create_test_vpcs(
     count: i32,
     vtype: Option<VpcVirtualizationType>,
 ) -> Result<MachineId, Box<dyn std::error::Error>> {
+    let default_tenant = default_tenant_config();
+    let tenant_organization_id =
+        if matches!(vtype, Some(VpcVirtualizationType::Fnn)) && env.config.fnn.is_some() {
+            create_fixture_tenant(env, default_tenant.tenant_organization_id.clone()).await?;
+            default_tenant.tenant_organization_id
+        } else {
+            String::new()
+        };
+
     let mut first_segment_id = None;
     for i in 0..count {
         let name = format!("test vpc {}", i + 1); // start from 1 for readability
@@ -48,7 +61,7 @@ async fn create_test_vpcs(
             Some(vtype) => env
                 .api
                 .create_vpc(
-                    VpcCreationRequest::builder("")
+                    VpcCreationRequest::builder(tenant_organization_id.clone())
                         .metadata(Metadata {
                             name,
                             ..Default::default()
@@ -105,6 +118,7 @@ async fn create_test_vpcs(
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }],
         auto: false,
     };
@@ -340,9 +354,29 @@ async fn create_vpc_peering(
     vtype1: VpcVirtualizationType,
     vtype2: VpcVirtualizationType,
 ) -> Result<(VpcId, VpcId, u32, u32, MachineId), Box<dyn std::error::Error>> {
-    let (vpc_id, vpc_vni, segment_id, peer_vpc_id, peer_vpc_vni, _peer_segment_id) = env
-        .create_vpc_and_peer_vpc_with_tenant_segments(vtype1, vtype2)
-        .await;
+    let default_tenant = default_tenant_config();
+    let peer_tenant_organization_id = "Tenant2";
+    let use_fixture_tenants = env.config.fnn.is_some()
+        && (vtype1 == VpcVirtualizationType::Fnn || vtype2 == VpcVirtualizationType::Fnn);
+
+    if use_fixture_tenants {
+        create_fixture_tenant(env, default_tenant.tenant_organization_id.clone()).await?;
+        create_fixture_tenant(env, peer_tenant_organization_id).await?;
+    }
+
+    let (vpc_id, vpc_vni, segment_id, peer_vpc_id, peer_vpc_vni, _peer_segment_id) =
+        if use_fixture_tenants {
+            env.create_vpc_and_peer_vpc_with_tenant_segments_for_tenants(
+                &default_tenant.tenant_organization_id,
+                vtype1,
+                peer_tenant_organization_id,
+                vtype2,
+            )
+            .await
+        } else {
+            env.create_vpc_and_peer_vpc_with_tenant_segments(vtype1, vtype2)
+                .await
+        };
     let vpc_id = vpc_id.expect("Expected vpc_id to be Some, but was None");
     let peer_vpc_id = peer_vpc_id.expect("Expected peer_vpc_id to be Some, but was None");
     let vpc_vni = vpc_vni.expect("Expected vpc_vni to be Some, but was None");
@@ -369,6 +403,7 @@ async fn create_vpc_peering(
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }],
         auto: false,
     };
@@ -385,7 +420,9 @@ async fn create_vpc_peering(
 async fn test_vpc_peering_network_config(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = api_fixtures::create_test_env(pool).await;
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().with_fnn_config(None))
+            .await;
     let (_, _, _, peer_vpc_vni, dpu_machine_id) =
         create_vpc_peering(&env, VpcVirtualizationType::Fnn, VpcVirtualizationType::Fnn).await?;
 
@@ -542,7 +579,9 @@ async fn test_vpc_peering_deletion_upon_vpc_deletion(
 async fn test_vpc_peering_network_config_ordered_peerings(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = api_fixtures::create_test_env(pool).await;
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().with_fnn_config(None))
+            .await;
 
     let dpu_machine_id = create_test_vpcs(&env, 4, Some(VpcVirtualizationType::Fnn)).await?;
     let vpc_id_1 = find_vpc_id_by_name(&env, "test vpc 1").await?;
@@ -741,13 +780,17 @@ async fn flat_vpc_can_peer_with_flat_under_exclusive_policy(
 async fn test_fnn_vpc_with_flat_peer_exchanges_prefixes_and_vnis(
     pool: sqlx::PgPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let env = api_fixtures::create_test_env(pool).await;
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().with_fnn_config(None))
+            .await;
+    let default_tenant = default_tenant_config();
+    create_fixture_tenant(&env, default_tenant.tenant_organization_id.clone()).await?;
 
     // FNN VPC + Tenant segment (the side the instance allocates on).
     let fnn_vpc = env
         .api
         .create_vpc(
-            VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+            VpcCreationRequest::builder(default_tenant.tenant_organization_id.clone())
                 .metadata(Metadata {
                     name: "test fnn vpc".to_string(),
                     ..Default::default()
@@ -771,7 +814,7 @@ async fn test_fnn_vpc_with_flat_peer_exchanges_prefixes_and_vnis(
     let (flat_vpc_id, _) = api_fixtures::vpc::create_flat_vpc(
         &env,
         "test flat vpc".to_string(),
-        Some("2829bbe3-c169-4cd9-8b2a-19a8b1618a93".to_string()),
+        Some(default_tenant.tenant_organization_id),
     )
     .await;
     // Use a different fixture-tenant gateway than the FNN side so the
@@ -812,6 +855,7 @@ async fn test_fnn_vpc_with_flat_peer_exchanges_prefixes_and_vnis(
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }],
         auto: false,
     };

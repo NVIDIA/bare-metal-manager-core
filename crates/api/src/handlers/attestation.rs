@@ -65,14 +65,16 @@ pub(crate) async fn trigger_machine_attestation(
             }));
         }
     };
+    let bmc_ip_addr = bmc_info.ip_addr().map_err(|e| CarbideError::Internal {
+        message: format!("{}", e),
+    })?;
 
-    let redfish_client_future = api.redfish_pool.create_client_for_ingested_host(
-        bmc_info.ip_addr().map_err(|e| CarbideError::Internal {
-            message: format!("{}", e),
-        })?,
-        bmc_info.port,
-        &api.database_connection,
-    );
+    let bmc_access_info =
+        db::machine_interface::lookup_bmc_access_info(&mut db_reader, bmc_ip_addr, bmc_info.port)
+            .await?;
+    drop(db_reader);
+
+    let redfish_client_future = api.redfish_pool.client_by_info(&bmc_access_info);
 
     let redfish_client = match tt::timeout(redfish_timeout_duration, redfish_client_future).await {
         Ok(redfish_result) => redfish_result.map_err(|e| CarbideError::RedfishClientCreation {

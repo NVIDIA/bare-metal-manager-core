@@ -14,6 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+use std::collections::HashMap;
 use std::ops::DerefMut;
 
 use ::rpc::forge::ManagedHostNetworkConfigRequest;
@@ -24,6 +25,7 @@ use itertools::Itertools;
 use model::machine::{ManagedHostState, ManagedHostStateSnapshot};
 use rpc::{Metadata, forge};
 
+use crate::cfg::file::{FnnConfig, FnnRoutingProfileConfig, PrefixFilterPolicyEntry};
 use crate::tests::common;
 use crate::tests::common::api_fixtures;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
@@ -187,6 +189,106 @@ async fn create_test_env_for_instance_allocation(
     env
 }
 
+#[crate::sqlx_test]
+async fn test_allocate_instance_rejects_interface_anycast_prefix_outside_vpc_profile(
+    pool: sqlx::PgPool,
+) {
+    let profile_type = "ANYCAST_ALLOC_TEST";
+    let tenant_org = "anycast-alloc-test";
+
+    // Configure the operator-owned VPC profile with one allowed anycast prefix.
+    let env = common::api_fixtures::create_test_env_with_overrides(
+        pool,
+        TestEnvOverrides::default().with_fnn_config(Some(FnnConfig {
+            admin_vpc: None,
+            common_internal_route_target: None,
+            additional_route_target_imports: vec![],
+            routing_profiles: HashMap::from([(
+                profile_type.to_string(),
+                FnnRoutingProfileConfig {
+                    internal: true,
+                    access_tier: 0,
+                    allowed_anycast_prefixes: vec![PrefixFilterPolicyEntry {
+                        prefix: "192.0.2.0/24".parse().unwrap(),
+                    }],
+                    ..Default::default()
+                },
+            )]),
+            use_vpc_vrf_loopback: false,
+        })),
+    )
+    .await;
+
+    // Create a tenant and FNN VPC that use that routing profile.
+    env.api
+        .create_tenant(tonic::Request::new(forge::CreateTenantRequest {
+            organization_id: tenant_org.to_string(),
+            routing_profile_type: Some(profile_type.to_string()),
+            metadata: Some(forge::Metadata {
+                name: tenant_org.to_string(),
+                description: "".to_string(),
+                labels: vec![],
+            }),
+        }))
+        .await
+        .unwrap();
+    let segment_id = env
+        .create_vpc_and_tenant_segment_with_vpc_details(
+            VpcCreationRequest::builder(tenant_org)
+                .metadata(Metadata {
+                    name: "anycast allocation vpc".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(forge::VpcVirtualizationType::Fnn as i32)
+                .routing_profile_type(profile_type.to_string())
+                .rpc(),
+        )
+        .await;
+
+    // Request an interface anycast prefix outside the owning VPC profile.
+    let mut network_config =
+        common::api_fixtures::instance::single_interface_network_config(segment_id);
+    network_config.interfaces[0].routing_profile = Some(forge::InstanceInterfaceRoutingProfile {
+        allowed_anycast_prefixes: vec![forge::PrefixFilterPolicyEntry {
+            prefix: "198.51.100.0/24".to_string(),
+        }],
+    });
+
+    // Allocate the instance and verify invalid tenant input is rejected before persistence.
+    let mh = api_fixtures::create_managed_host(&env).await;
+    let err = env
+        .api
+        .allocate_instance(tonic::Request::new(forge::InstanceAllocationRequest {
+            machine_id: Some(mh.host().id),
+            instance_type_id: None,
+            config: Some(forge::InstanceConfig {
+                tenant: Some(forge::TenantConfig {
+                    tenant_organization_id: tenant_org.to_string(),
+                    tenant_keyset_ids: vec![],
+                    hostname: None,
+                }),
+                os: Some(common::api_fixtures::instance::default_os_config()),
+                network: Some(network_config),
+                infiniband: None,
+                network_security_group_id: None,
+                dpu_extension_services: None,
+                nvlink: None,
+                spxconfig: None,
+            }),
+            instance_id: None,
+            metadata: None,
+            allow_unhealthy_machine: false,
+        }))
+        .await
+        .expect_err("interface anycast prefix outside VPC profile should be rejected");
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(
+        err.message()
+            .contains("routing_profile.allowed_anycast_prefixes")
+    );
+}
+
 /// Zero-DPU instance allocation that supplies explicit interfaces (instead
 /// of `auto: true`) must be rejected. The requirement on zero-DPU hosts is
 /// to send auto:true with empty interfaces, and we populate them. There's
@@ -238,12 +340,14 @@ async fn test_zero_dpu_instance_allocation_rejects_explicit_interfaces(
                         virtual_function_id: None,
                         ip_address: None,
                         ipv6_interface_config: None,
+                        routing_profile: None,
                     }],
                     auto: false,
                 }),
                 infiniband: None,
                 dpu_extension_services: None,
                 nvlink: None,
+                spxconfig: None,
             }),
             instance_id: None,
             metadata: None,
@@ -310,6 +414,7 @@ async fn test_zero_dpu_instance_allocation_auto(
                 infiniband: None,
                 dpu_extension_services: None,
                 nvlink: None,
+                spxconfig: None,
             }),
             instance_id: None,
             metadata: None,
@@ -400,6 +505,7 @@ async fn test_zero_dpu_instance_allocation_rejects_missing_auto(
                 network: None,
                 infiniband: None,
                 nvlink: None,
+                spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
             }),
@@ -490,6 +596,7 @@ async fn test_zero_dpu_instance_allocation_auto_multi_segment(
                 }),
                 infiniband: None,
                 nvlink: None,
+                spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
             }),
@@ -632,6 +739,7 @@ async fn test_reject_single_dpu_instance_allocation_no_network_config(
                 network: None,
                 infiniband: None,
                 nvlink: None,
+                spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
             }),
@@ -698,6 +806,7 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
                         virtual_function_id: None,
                         ip_address: None,
                         ipv6_interface_config: None,
+                        routing_profile: None,
                     }],
                     auto: false,
                 }),
@@ -705,6 +814,7 @@ async fn test_reject_single_dpu_instance_allocation_host_inband_network_config(
                 dpu_extension_services: None,
                 infiniband: None,
                 nvlink: None,
+                spxconfig: None,
             }),
             instance_id: None,
             metadata: None,
@@ -851,6 +961,7 @@ async fn test_reject_zero_dpu_instance_allocation_multiple_vpcs(
                 infiniband: None,
                 dpu_extension_services: None,
                 nvlink: None,
+                spxconfig: None,
             }),
             instance_id: None,
             metadata: None,
@@ -916,11 +1027,13 @@ async fn test_single_dpu_instance_allocation(
                         virtual_function_id: Some(0),
                         ip_address: None,
                         ipv6_interface_config: None,
+                        routing_profile: None,
                     }],
                     auto: false,
                 }),
                 infiniband: None,
                 nvlink: None,
+                spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
             }),
@@ -1061,12 +1174,14 @@ async fn test_reject_zero_dpu_instance_with_tenant_network_segment(
                         virtual_function_id: None,
                         ip_address: None,
                         ipv6_interface_config: None,
+                        routing_profile: None,
                     }],
                     auto: false,
                 }),
                 infiniband: None,
                 dpu_extension_services: None,
                 nvlink: None,
+                spxconfig: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1138,6 +1253,7 @@ async fn test_zero_dpu_instance_surfaces_underlay_ip_in_status(
                 infiniband: None,
                 dpu_extension_services: None,
                 nvlink: None,
+                spxconfig: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1265,6 +1381,7 @@ async fn test_reject_zero_dpu_instance_with_extension_services(
                     }],
                 }),
                 nvlink: None,
+                spxconfig: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1329,12 +1446,14 @@ async fn test_instance_allocation_rejects_auto_with_explicit_interfaces(
                         virtual_function_id: None,
                         ip_address: None,
                         ipv6_interface_config: None,
+                        routing_profile: None,
                     }],
                     auto: true,
                 }),
                 infiniband: None,
                 dpu_extension_services: None,
                 nvlink: None,
+                spxconfig: None,
             }),
             instance_id: None,
             metadata: None,
@@ -1397,6 +1516,7 @@ async fn test_instance_allocation_rejects_auto_on_dpu_host(
                 infiniband: None,
                 dpu_extension_services: None,
                 nvlink: None,
+                spxconfig: None,
             }),
             instance_id: None,
             metadata: None,

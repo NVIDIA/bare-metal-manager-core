@@ -28,6 +28,8 @@ pub struct Args {
     pub device_type: String,
     #[clap(help = "PCI name (e.g. 5e:00.0)")]
     pub pci_name: String,
+    #[clap(help = "Device description (e.g. NVIDIA BlueField-3 B3140L E-Series FHHL SuperNIC)")]
+    pub device_description: Option<String>,
 }
 
 impl From<Args> for ::rpc::forge::DpaInterfaceCreationRequest {
@@ -37,6 +39,7 @@ impl From<Args> for ::rpc::forge::DpaInterfaceCreationRequest {
             mac_addr: args.mac_addr,
             device_type: args.device_type,
             pci_name: args.pci_name,
+            device_description: args.device_description,
         }
     }
 }

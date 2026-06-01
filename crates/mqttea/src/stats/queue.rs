@@ -59,6 +59,10 @@ pub struct QueueStats {
     // received whose topic didn't have a registered handler
     // pattern match.
     pub total_unmatched_topics: usize,
+    // total_client_rebuilds is the number of times the event
+    // loop tore down its rumqttc AsyncClient/EventLoop pair
+    // after a persistent disconnect and stood up a new one.
+    pub total_client_rebuilds: usize,
 }
 
 // QueueStatsTracker enables thread-safe updates to queue
@@ -93,6 +97,10 @@ pub struct QueueStatsTracker {
     // unmatched_topics is incremented when a message
     // comes in for a topic that doesn't have a handler match.
     unmatched_topics: Arc<AtomicUsize>,
+    // client_rebuilds tracks how many times the event loop has
+    // rebuilt its underlying rumqttc client after a persistent
+    // disconnect.
+    client_rebuilds: Arc<AtomicUsize>,
 }
 
 impl Default for QueueStatsTracker {
@@ -116,6 +124,7 @@ impl QueueStatsTracker {
             failed_count: Arc::new(AtomicUsize::new(0)),
             event_loop_errors: Arc::new(AtomicUsize::new(0)),
             unmatched_topics: Arc::new(AtomicUsize::new(0)),
+            client_rebuilds: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -147,6 +156,13 @@ impl QueueStatsTracker {
     // registered pattern in the registry.
     pub fn increment_unmatched_topics(&self) {
         self.unmatched_topics.fetch_add(1, Ordering::Relaxed);
+    }
+
+    // increment_client_rebuilds is called by the event loop when
+    // it has torn down its rumqttc AsyncClient/EventLoop pair and
+    // stood up a fresh one in response to a persistent disconnect.
+    pub fn increment_client_rebuilds(&self) {
+        self.client_rebuilds.fetch_add(1, Ordering::Relaxed);
     }
 
     // decrement_pending_increment_processed will record successful message processing.
@@ -190,6 +206,7 @@ impl QueueStatsTracker {
         self.failed_count.store(0, Ordering::Relaxed);
         self.event_loop_errors.store(0, Ordering::Relaxed);
         self.unmatched_topics.store(0, Ordering::Relaxed);
+        self.client_rebuilds.store(0, Ordering::Relaxed);
     }
 
     // to_stats will create an immutable snapshot of current statistics.
@@ -207,6 +224,7 @@ impl QueueStatsTracker {
             total_dropped: self.dropped_count.load(Ordering::Relaxed),
             total_event_loop_errors: self.event_loop_errors.load(Ordering::Relaxed),
             total_unmatched_topics: self.unmatched_topics.load(Ordering::Relaxed),
+            total_client_rebuilds: self.client_rebuilds.load(Ordering::Relaxed),
         }
     }
 }

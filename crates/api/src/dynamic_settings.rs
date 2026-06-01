@@ -42,6 +42,9 @@ pub struct DynamicSettings {
 
     /// Whether log tracing should be enabled
     pub tracing_enabled: Arc<AtomicBool>,
+
+    /// Log stream used to feed the admin web UI.
+    pub log_stream: crate::logging::stream::LogStream,
 }
 
 /// How often to check if the log filter (RUST_LOG) needs resetting

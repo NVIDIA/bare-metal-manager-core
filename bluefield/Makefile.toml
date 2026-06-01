@@ -591,15 +591,6 @@ script = '''
     helm package ${REPO_ROOT}/bluefield/charts/carbide-dhcp-server -d ${REPO_ROOT}/target/charts/
 '''
 
-[tasks.helm-package-carbide-dpu-otel-agent]
-category = "Build"
-description = "Package the carbide-dpu-otel-agent Helm chart"
-workspace = false
-script = '''
-    mkdir -p ${REPO_ROOT}/target/charts/
-    helm package ${REPO_ROOT}/bluefield/charts/carbide-dpu-otel-agent -d ${REPO_ROOT}/target/charts/
-'''
-
 [tasks.helm-package-carbide-fmds]
 category = "Build"
 description = "Package the carbide-fmds Helm chart"
@@ -617,7 +608,6 @@ dependencies = [
   "helm-package-carbide-otelcol",
   "helm-package-carbide-dpu-agent",
   "helm-package-carbide-dhcp-server",
-  "helm-package-carbide-dpu-otel-agent",
   "helm-package-carbide-fmds",
 ]
 

@@ -20,8 +20,8 @@ of the bare-metal lifecycle to fast-track building next generation AI Cloud offe
 | Layer | What it installs | Helm release |
 |-------|-----------------|--------------|
 | **Common services** | MetalLB, cert-manager, Vault, external-secrets, PostgreSQL | via `helmfile` in `helm-prereqs/` |
-| **Carbide Core** | NVIDIA Infra Controller (this repo's `helm/` chart) | `carbide` in `forge-system` |
-| **Carbide REST** | NVIDIA Infra Controller's REST API, Temporal, Keycloak, site-agent | `carbide-rest` + `carbide-rest-site-agent` in `carbide-rest` |
+| **NICo Core** | NVIDIA Infra Controller (this repo's `helm/` chart) | `nico` in `nico-system` |
+| **NICo REST** | NVIDIA Infra Controller's REST API, Temporal, Keycloak, site-agent | `nico-rest` + `nico-rest-site-agent` in `nico-rest` |
 
 ### Prerequisites
 
@@ -33,20 +33,20 @@ of the bare-metal lifecycle to fast-track building next generation AI Cloud offe
 
 ```bash
 # 1. Build and push images to your registry
-#    Carbide Core image: <your-registry>/nvmetal-carbide:<tag>  (this repo)
-#    Carbide REST images: <your-registry>/carbide-rest-api:<tag>, etc.  (infra-controller-rest)
+#    NICo Core image: <your-registry>/nvmetal-nico:<tag>  (this repo)
+#    NICo REST images: <your-registry>/nico-rest-api:<tag>, etc.  (infra-controller-rest)
 
 # 2. Set environment variables
 export KUBECONFIG=/path/to/kubeconfig
 export REGISTRY_PULL_SECRET=<your-registry-pull-secret-or-ngc-api-key>
 export NCX_IMAGE_REGISTRY=<your-registry>        # e.g. my-registry.example.com/infra-controller
-export NCX_CORE_IMAGE_TAG=<carbide-core-tag>     # e.g. v2025.12.30
-export NCX_REST_IMAGE_TAG=<carbide-rest-tag>     # e.g. v1.0.4
+export NCX_CORE_IMAGE_TAG=<nico-core-tag>     # e.g. v2025.12.30
+export NCX_REST_IMAGE_TAG=<nico-rest-tag>     # e.g. v1.0.4
 
 # 3. Customize site-specific values
 #    Edit helm-prereqs/values/ncx-core.yaml:
-#      carbide-api.hostname      — your site's external API hostname
-#      carbide-api.siteConfig    — network pools, VLAN ranges, IB config, MetalLB VIPs
+#      nico-api.hostname      — your site's external API hostname
+#      nico-api.siteConfig    — network pools, VLAN ranges, IB config, MetalLB VIPs
 #    Edit helm-prereqs/values/metallb-config.yaml:
 #      IPAddressPool, BGPPeer    — your site's VIP ranges and TOR switch config
 #    Edit helm-prereqs/values.yaml:
@@ -55,7 +55,7 @@ export NCX_REST_IMAGE_TAG=<carbide-rest-tag>     # e.g. v1.0.4
 # 4. Point NCX_REPO at infra-controller-rest (auto-detected if a sibling directory)
 export NCX_REPO=/path/to/infra-controller-rest   # optional
 
-# 5. Run setup — installs common services, Carbide Core, and Carbide REST in order
+# 5. Run setup — installs common services, NICo Core, and NICo REST in order
 cd helm-prereqs
 ./setup.sh        # interactive
 ./setup.sh -y     # non-interactive (CI/CD)

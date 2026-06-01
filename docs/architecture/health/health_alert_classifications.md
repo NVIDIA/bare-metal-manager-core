@@ -36,17 +36,17 @@ Indicates a hardware-related issue and is used as a broad bucket for hardware/BM
 ### `SensorWarning`
 
 Indicates that a sensor reading violated a caution/warning threshold.
-In `carbide-hardware-health`, this corresponds to crossing `lower_caution`/`upper_caution` thresholds.
+In `nico-hardware-health`, this corresponds to crossing `lower_caution`/`upper_caution` thresholds.
 
 ### `SensorCritical`
 
 Indicates that a sensor reading violated a critical threshold.
-In `carbide-hardware-health`, this corresponds to crossing `lower_critical`/`upper_critical` thresholds.
+In `nico-hardware-health`, this corresponds to crossing `lower_critical`/`upper_critical` thresholds.
 
 ### `SensorFailure`
 
 Indicates that a sensor reading is outside the advertised valid range.
-In `carbide-hardware-health`, this corresponds to values outside `range_min`/`range_max` when that range is well-formed.
+In `nico-hardware-health`, this corresponds to values outside `range_min`/`range_max` when that range is well-formed.
 
 For `BmcSensor` alerts, severity is evaluated in this order:
 `SensorFailure` -> `SensorCritical` -> `SensorWarning`.

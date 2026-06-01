@@ -144,7 +144,6 @@ use crate::logging::level_filter::ActiveLevel;
 use crate::logging::log_limiter::LogLimiter;
 use crate::measured_boot::convert_vec;
 use crate::scout_stream;
-use crate::state_controller::common_services::CommonStateHandlerServices;
 use crate::tests::common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
 use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::api_fixtures::network_segment::{
@@ -407,24 +406,6 @@ impl TestEnv {
         self.admin_segments
             .first()
             .expect("test env should have an admin segment")
-    }
-
-    /// Creates an instance of CommonStateHandlerServices that are suitable for this
-    /// test environment
-    pub fn state_handler_services(&self) -> CommonStateHandlerServices {
-        CommonStateHandlerServices {
-            db_pool: self.pool.clone(),
-            db_reader: self.pool.clone().into(),
-            redfish_client_pool: self.redfish_sim.clone(),
-            ib_fabric_manager: self.ib_fabric_manager.clone(),
-            ib_pools: self.common_pools.infiniband.clone(),
-            ipmi_tool: self.ipmi_tool.clone(),
-            site_config: self.config.clone(),
-            dpa_info: None,
-            rms_client: self.rms_sim.as_rms_client(),
-            switch_system_image_rms_client: self.rms_sim.as_switch_system_image_rms_client(),
-            credential_manager: self.test_credential_manager.clone(),
-        }
     }
 
     /// Creates an instance of MachineStateHandlerServices that are suitable for this
@@ -920,7 +901,32 @@ impl TestEnv {
         Option<u32>,
         NetworkSegmentId,
     ) {
-        let vpc_details = VpcCreationRequest::builder("2829bbe3-c169-4cd9-8b2a-19a8b1618a93")
+        self.create_vpc_and_peer_vpc_with_tenant_segments_for_tenants(
+            "2829bbe3-c169-4cd9-8b2a-19a8b1618a93",
+            vtype1,
+            "e65a9d69-39d2-4872-a53e-e5cb87c84e75",
+            vtype2,
+        )
+        .await
+    }
+
+    /// Creates two VPCs for the provided tenants and attaches one tenant segment to each.
+    pub async fn create_vpc_and_peer_vpc_with_tenant_segments_for_tenants(
+        &self,
+        tenant_organization_id: &str,
+        vtype1: VpcVirtualizationType,
+        peer_tenant_organization_id: &str,
+        vtype2: VpcVirtualizationType,
+    ) -> (
+        Option<VpcId>,
+        Option<u32>,
+        NetworkSegmentId,
+        Option<VpcId>,
+        Option<u32>,
+        NetworkSegmentId,
+    ) {
+        // Create the primary VPC and tenant segment.
+        let vpc_details = VpcCreationRequest::builder(tenant_organization_id)
             .metadata(Metadata {
                 name: "test vpc".to_string(),
                 description: "".to_string(),
@@ -940,11 +946,12 @@ impl TestEnv {
         )
         .await;
 
-        // Get the tenant segment into ready state
+        // Drive the primary tenant segment to ready state.
         self.run_network_segment_controller_iteration().await;
         self.run_network_segment_controller_iteration().await;
 
-        let peer_vpc_details = VpcCreationRequest::builder("e65a9d69-39d2-4872-a53e-e5cb87c84e75")
+        // Create the peer VPC and tenant segment.
+        let peer_vpc_details = VpcCreationRequest::builder(peer_tenant_organization_id)
             .metadata(Metadata {
                 name: "test peer vpc".to_string(),
                 ..Default::default()
@@ -968,7 +975,7 @@ impl TestEnv {
         )
         .await;
 
-        // Get the tenant segment into ready state
+        // Drive the peer tenant segment to ready state.
         self.run_network_segment_controller_iteration().await;
         self.run_network_segment_controller_iteration().await;
 
@@ -1166,6 +1173,7 @@ pub fn get_config() -> CarbideConfig {
     CarbideConfig {
         default_tenant_routing_profile_type: "EXTERNAL".to_string(),
         web_ui_sidebar_tools: vec![],
+        log_history: Default::default(),
         bgp_leaf_session_password: None,
         rack_validation_config: RackValidationConfig {
             enabled: true,
@@ -1310,6 +1318,7 @@ pub fn get_config() -> CarbideConfig {
             subnet_ip: Ipv4Addr::UNSPECIFIED,
             subnet_mask: 0_i32,
             auth: MqttAuthConfig::default(),
+            monitor_run_interval: std::time::Duration::from_secs(10),
         }),
         power_manager_options: PowerManagerOptions {
             enabled: false,
@@ -1621,6 +1630,7 @@ pub async fn create_test_env_with_overrides(
         create_machines: config.site_explorer.create_machines.clone(),
         bmc_proxy: config.site_explorer.bmc_proxy.clone(),
         tracing_enabled: Arc::new(false.into()),
+        log_stream: Default::default(),
     };
 
     let bmc_proxy = Arc::new(ArcSwap::new(None.into()));
@@ -1714,20 +1724,6 @@ pub async fn create_test_env_with_overrides(
         ))),
     };
 
-    let handler_services = Arc::new(CommonStateHandlerServices {
-        db_pool: db_pool.clone(),
-        db_reader: db_pool.clone().into(),
-        redfish_client_pool: redfish_sim.clone(),
-        ib_fabric_manager: ib_fabric_manager.clone(),
-        ib_pools: common_pools.infiniband.clone(),
-        ipmi_tool: ipmi_tool.clone(),
-        site_config: config.clone(),
-        dpa_info: None,
-        rms_client: rms_sim.as_rms_client(),
-        switch_system_image_rms_client: rms_sim.as_switch_system_image_rms_client(),
-        credential_manager: credential_manager.clone(),
-    });
-
     let state_controller_id = uuid::Uuid::new_v4().to_string();
 
     let machine_controller = StateController::<MachineStateControllerIO>::builder()
@@ -1736,14 +1732,11 @@ pub async fn create_test_env_with_overrides(
         .processor_id(state_controller_id.clone())
         .services(
             MachineStateHandlerServices {
-                db_pool: handler_services.db_pool.clone(),
-                db_reader: handler_services.db_reader.clone(),
-                redfish_client_pool: handler_services.redfish_client_pool.clone(),
-                ipmi_tool: handler_services.ipmi_tool.clone(),
-                site_config: handler_services
-                    .site_config
-                    .machine_state_handler_site_config()
-                    .into(),
+                db_pool: db_pool.clone(),
+                db_reader: db_pool.clone().into(),
+                redfish_client_pool: redfish_sim.clone(),
+                ipmi_tool: ipmi_tool.clone(),
+                site_config: config.machine_state_handler_site_config().into(),
             }
             .into(),
         )
@@ -1763,8 +1756,8 @@ pub async fn create_test_env_with_overrides(
         .processor_id(state_controller_id.clone())
         .services(
             SpdmStateHandlerServices {
-                db_pool: handler_services.db_pool.clone(),
-                redfish_client_pool: handler_services.redfish_client_pool.clone(),
+                db_pool: db_pool.clone(),
+                redfish_client_pool: redfish_sim.clone(),
             }
             .into(),
         )
@@ -1783,9 +1776,9 @@ pub async fn create_test_env_with_overrides(
         .processor_id(state_controller_id.clone())
         .services(
             IBPartitionStateHandlerServices {
-                db_pool: handler_services.db_pool.clone(),
-                ib_fabric_manager: handler_services.ib_fabric_manager.clone(),
-                ib_pools: handler_services.ib_pools.clone(),
+                db_pool: db_pool.clone(),
+                ib_fabric_manager: ib_fabric_manager.clone(),
+                ib_pools: common_pools.infiniband.clone(),
             }
             .into(),
         )
@@ -1809,7 +1802,7 @@ pub async fn create_test_env_with_overrides(
         .processor_id(state_controller_id.clone())
         .services(
             NetworkSegmentStateHandlerServices {
-                db_pool: handler_services.db_pool.clone(),
+                db_pool: db_pool.clone(),
             }
             .into(),
         )
@@ -1823,9 +1816,9 @@ pub async fn create_test_env_with_overrides(
         .processor_id(state_controller_id.clone())
         .services(
             PowerShelfStateHandlerServices {
-                db_pool: handler_services.db_pool.clone(),
-                rms_client: handler_services.rms_client.clone(),
-                credential_manager: handler_services.credential_manager.clone(),
+                db_pool: db_pool.clone(),
+                rms_client: rms_sim.as_rms_client(),
+                credential_manager: credential_manager.clone(),
             }
             .into(),
         )
@@ -1839,9 +1832,9 @@ pub async fn create_test_env_with_overrides(
         .processor_id(state_controller_id.clone())
         .services(
             SwitchStateHandlerServices {
-                db_pool: handler_services.db_pool.clone(),
-                rms_client: handler_services.rms_client.clone(),
-                credential_manager: handler_services.credential_manager.clone(),
+                db_pool: db_pool.clone(),
+                rms_client: rms_sim.as_rms_client(),
+                credential_manager: credential_manager.clone(),
             }
             .into(),
         )
@@ -1855,21 +1848,16 @@ pub async fn create_test_env_with_overrides(
         .processor_id(state_controller_id.clone())
         .services(
             RackStateHandlerServices {
-                db_pool: handler_services.db_pool.clone(),
-                rms_client: handler_services.rms_client.clone(),
+                db_pool: db_pool.clone(),
+                rms_client: rms_sim.as_rms_client(),
                 site_config: RackConfig {
-                    rms: handler_services.site_config.rms.clone(),
-                    rack_validation_config: handler_services
-                        .site_config
-                        .rack_validation_config
-                        .clone(),
-                    rack_profiles: handler_services.site_config.rack_profiles.clone(),
+                    rms: config.rms.clone(),
+                    rack_validation_config: config.rack_validation_config.clone(),
+                    rack_profiles: config.rack_profiles.clone(),
                 }
                 .into(),
-                switch_system_image_rms_client: handler_services
-                    .switch_system_image_rms_client
-                    .clone(),
-                credential_manager: handler_services.credential_manager.clone(),
+                switch_system_image_rms_client: rms_sim.as_switch_system_image_rms_client(),
+                credential_manager: credential_manager.clone(),
             }
             .into(),
         )
@@ -2240,6 +2228,19 @@ fn pool_defs(fabric_len: u8) -> HashMap<String, resource_pool::ResourcePoolDef> 
             ranges: vec![resource_pool::Range {
                 start: 10_001.to_string(),
                 end: (10_001 + fabric_len as u16 - 1).to_string(),
+                auto_assign: true,
+            }],
+            prefix: None,
+            delegate_prefix_len: None,
+        },
+    );
+    defs.insert(
+        model::resource_pool::common::DPA_VNI.to_string(),
+        resource_pool::ResourcePoolDef {
+            pool_type: resource_pool::ResourcePoolType::Integer,
+            ranges: vec![resource_pool::Range {
+                start: 40001.to_string(),
+                end: (40001 + fabric_len as u16 - 1).to_string(),
                 auto_assign: true,
             }],
             prefix: None,

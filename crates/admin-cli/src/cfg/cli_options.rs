@@ -25,8 +25,8 @@ use crate::{
     machine_interfaces, machine_validation, managed_host, managed_switch, mlx, network_devices,
     network_security_group, network_segment, nvl_logical_partition, nvl_partition,
     nvlink_nmxc_endpoints, operating_system, os_image, ping, power_shelf, rack, redfish,
-    resource_pool, rms, route_server, scout_stream, set, site_explorer, sku, ssh, switch, tenant,
-    tenant_keyset, tpm_ca, trim_table, version, vpc, vpc_peering, vpc_prefix,
+    resource_pool, rms, route_server, scout_stream, set, site_explorer, sku, spx_partition, ssh,
+    switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc, vpc_peering, vpc_prefix,
 };
 
 #[derive(Parser, Debug)]
@@ -48,11 +48,11 @@ pub struct CliOptions {
     )]
     pub cloud_unsafe_op: Option<String>,
 
-    #[clap(short, long, env = "CARBIDE_API_URL")]
+    #[clap(short, long, env = "API_URL", visible_alias = "carbide-url")]
     #[clap(
-        help = "Default to CARBIDE_API_URL environment variable or $HOME/.config/carbide_api_cli.json file or https://carbide-api.forge-system.svc.cluster.local:1079."
+        help = "Default to API_URL environment variable or $HOME/.config/carbide_api_cli.json file or https://carbide-api.forge-system.svc.cluster.local:1079."
     )]
-    pub carbide_api: Option<String>,
+    pub api_url: Option<String>,
 
     #[clap(short, long, value_enum, default_value = "ascii-table")]
     pub format: OutputFormat,
@@ -60,11 +60,11 @@ pub struct CliOptions {
     #[clap(short, long)]
     pub output: Option<String>,
 
-    #[clap(long, env = "FORGE_ROOT_CA_PATH")]
+    #[clap(long, env = "ROOT_CA_PATH", visible_alias = "forge-root-ca-path")]
     #[clap(
-        help = "Default to FORGE_ROOT_CA_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
+        help = "Default to ROOT_CA_PATH environment variable or $HOME/.config/carbide_api_cli.json file."
     )]
-    pub forge_root_ca_path: Option<String>,
+    pub root_ca_path: Option<String>,
 
     #[clap(long, env = "CLIENT_CERT_PATH")]
     #[clap(
@@ -336,6 +336,13 @@ pub enum CliCommand {
         visible_alias = "nvp"
     )]
     NvlPartition(nvl_partition::Cmd),
+
+    #[clap(
+        about = "SPX Partition related handling",
+        subcommand,
+        visible_alias = "spx"
+    )]
+    SpxPartition(spx_partition::Cmd),
 
     #[clap(
         about = "Logical partition related handling",

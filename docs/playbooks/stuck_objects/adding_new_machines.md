@@ -21,22 +21,22 @@ You should check both the expected machines DB and the site vault pod data store
 If there is an existing data in expected machines for the machine, you can either update the password
 in expected machines or change the password on the Host BMC to match.
 
-1. Use `carbide-admin-cli` to check if there is an existing entry for the host BMC:
+1. Use `nico-admin-cli` to check if there is an existing entry for the host BMC:
 
     ```bash
-    carbide-admin-cli expected-machine show |grep <Host BMC IP Address|Host BMC MAC Address>
+    nico-admin-cli expected-machine show |grep <Host BMC IP Address|Host BMC MAC Address>
     ```
 
-2. If an entry exists for the machine, display the details using `carbide-admin-cli`:
+2. If an entry exists for the machine, display the details using `nico-admin-cli`:
 
     ```bash
-    carbide-admin-cli expected-machine show <Host BMC MAC address>
+    nico-admin-cli expected-machine show <Host BMC MAC address>
     ```
 
 3. To update an existing expected machines data:
 
     ```bash
-    carbide-admin-cli expected-machine add --bmc-mac-address <BMC MAC Address> --bmc-username <BMC Username> --bmc-password <BMC Password --chassis-serial-number <Chassis Serial Number>
+    nico-admin-cli expected-machine add --bmc-mac-address <BMC MAC Address> --bmc-username <BMC Username> --bmc-password <BMC Password --chassis-serial-number <Chassis Serial Number>
     ```
 
     > **Note**: If you only need to update the BMC password, you just need to supply the BMC MAC Address and BMC Password
@@ -44,7 +44,7 @@ in expected machines or change the password on the Host BMC to match.
 4. To add a new machine to the expected machines DB:
 
     ```bash
-    carbide-admin-cli expected-machine update --bmc-mac-address <BMC_MAC_ADDRESS> <--bmc-username <BMC_USERNAME> --bmc-password <BMC_PASSWORD> --chassis-serial-number <CHASSIS_SERIAL_NUMBER>
+    nico-admin-cli expected-machine update --bmc-mac-address <BMC_MAC_ADDRESS> <--bmc-username <BMC_USERNAME> --bmc-password <BMC_PASSWORD> --chassis-serial-number <CHASSIS_SERIAL_NUMBER>
     ```
 
 ### Checking site vault data
@@ -55,7 +55,7 @@ To check if the Host BMC has currently any passwords in vault on a site:
 2. Retrieve the decoded vault secret for the site:
 
     ```bash
-    kubectl get secret -n forge-system carbide-vault-token -oyaml | yq '.data.token' | base64 -d ; echo
+    kubectl get secret -n nico-system nico-vault-token -oyaml | yq '.data.token' | base64 -d ; echo
     ```
 
 3. Connect to the vault pod for the site and paste in the decoded vault secret at the Token prompt:
@@ -405,7 +405,7 @@ If the "SecureBootCurrentBoot" setting is not shown, attempt to install DOCA 2.5
     ```bash
     mkdir DOCA
     cd DOCA
-    wget https://image.azure.nvmetal.net/mirror/forge/DOCA_2.5.0_BSP_4.5.0_Ubuntu_22.04-1.23-10.prod.bfb --no-check-certificate
+    wget https://image.azure.nvmetal.net/mirror/nico/DOCA_2.5.0_BSP_4.5.0_Ubuntu_22.04-1.23-10.prod.bfb --no-check-certificate
     ```
 
 2. Install the BFB image to the DPU ARM OS via the DPU BMC from the server with the BFB image:

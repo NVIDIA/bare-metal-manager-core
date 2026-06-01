@@ -99,7 +99,7 @@ A firmware update for an already-supported model introduces regressions: removed
 
 **What to do:**
 
-1. **Compare old and new firmware Redfish responses.** Use `curl` or `carbide-admin-cli redfish browse` to `GET` endpoints on both versions and diff.
+1. **Compare old and new firmware Redfish responses.** Use `curl` or `nico-admin-cli redfish browse` to `GET` endpoints on both versions and diff.
 
 2. **Add defensive handling** where endpoints may no longer exist - catch `404` errors and fall through.
 
@@ -136,9 +136,9 @@ The state controller (`crates/api/src/state_controller/machine/handler.rs`) has 
 
 Review `handler.rs` for `bmc_vendor().is_*()` calls and add branches for the new vendor where its behavior differs.
 
-## Testing with `carbide-admin-cli redfish`
+## Testing with `nico-admin-cli redfish`
 
-The fastest way to validate libredfish changes against a real BMC is to compile `carbide-admin-cli` with a **local checkout of libredfish** and use the `redfish` subcommand to test specific operations directly, rather than waiting for Site Explorer or the state machine to exercise the code path.
+The fastest way to validate libredfish changes against a real BMC is to compile `nico-admin-cli` with a **local checkout of libredfish** and use the `redfish` subcommand to test specific operations directly, rather than waiting for Site Explorer or the state machine to exercise the code path.
 
 ### Setup: Use a local libredfish checkout
 
@@ -166,26 +166,26 @@ The `redfish` subcommand talks directly to a BMC - no NICo deployment needed:
 
 ```bash
 # Check if vendor detection and basic connectivity work
-./target/debug/carbide-admin-cli redfish --address <bmc-ip> --username <user> --password <pass> get-power-state
+./target/debug/nico-admin-cli redfish --address <bmc-ip> --username <user> --password <pass> get-power-state
 
 # Read BIOS attributes to see what the BMC exposes
-./target/debug/carbide-admin-cli redfish --address <bmc-ip> --username <user> --password <pass> bios-attrs
+./target/debug/nico-admin-cli redfish --address <bmc-ip> --username <user> --password <pass> bios-attrs
 
 # Test machine setup (the core provisioning step)
-./target/debug/carbide-admin-cli redfish --address <bmc-ip> --username <user> --password <pass> machine-setup
+./target/debug/nico-admin-cli redfish --address <bmc-ip> --username <user> --password <pass> machine-setup
 
 # Check if machine setup succeeded
-./target/debug/carbide-admin-cli redfish --address <bmc-ip> --username <user> --password <pass> machine-setup-status
+./target/debug/nico-admin-cli redfish --address <bmc-ip> --username <user> --password <pass> machine-setup-status
 
 # Test boot order (set DPU first)
-./target/debug/carbide-admin-cli redfish --address <bmc-ip> --username <user> --password <pass> set-boot-order-dpu-first --boot-interface-mac <dpu-mac>
+./target/debug/nico-admin-cli redfish --address <bmc-ip> --username <user> --password <pass> set-boot-order-dpu-first --boot-interface-mac <dpu-mac>
 
 # Test lockdown
-./target/debug/carbide-admin-cli redfish --address <bmc-ip> --username <user> --password <pass> lockdown-enable
-./target/debug/carbide-admin-cli redfish --address <bmc-ip> --username <user> --password <pass> lockdown-status
+./target/debug/nico-admin-cli redfish --address <bmc-ip> --username <user> --password <pass> lockdown-enable
+./target/debug/nico-admin-cli redfish --address <bmc-ip> --username <user> --password <pass> lockdown-status
 
 # Browse any Redfish endpoint directly
-./target/debug/carbide-admin-cli redfish --address <bmc-ip> --username <user> --password <pass> browse --uri /redfish/v1
+./target/debug/nico-admin-cli redfish --address <bmc-ip> --username <user> --password <pass> browse --uri /redfish/v1
 ```
 
 If all of these commands work correctly, there is a good chance the hardware will work end-to-end through Site Explorer and the state machine.
@@ -213,12 +213,12 @@ nico/
 ├── crates/bmc-vendor/src/lib.rs        # BMCVendor enum + From<RedfishVendor>
 ├── crates/bmc-explorer/src/hw/mod.rs   # HwType enum (nv-redfish exploration)
 ├── crates/api/src/state_controller/    # Vendor-specific state machine logic
-└── crates/admin-cli/src/redfish/       # carbide-admin-cli redfish subcommand
+└── crates/admin-cli/src/redfish/       # nico-admin-cli redfish subcommand
 ```
 
 ## Adding nv-redfish Quirks for Exploration and Health Monitoring
 
-nv-redfish is the preferred library for site exploration reports and is also used for health monitoring (`carbide-hw-health`). If the new hardware causes failures in either path, the fix goes into nv-redfish.
+nv-redfish is the preferred library for site exploration reports and is also used for health monitoring (`nico-hw-health`). If the new hardware causes failures in either path, the fix goes into nv-redfish.
 
 1. **Add a `Platform` variant** in `nv-redfish/redfish/src/bmc_quirks.rs` if the quirk is platform-specific.
 
@@ -240,5 +240,5 @@ Add vendor detection tests in `libredfish/src/model/service_root.rs`. For comple
 
 ### Testing Against Real Hardware
 
-Use `carbide-admin-cli redfish` with a local libredfish checkout (see [above](#testing-with-carbide-admin-cli-redfish)) to validate all key operations before deploying. Then test the full cycle through a NICo instance: discovery → ingestion → BIOS setup → boot order → lockdown → health monitoring.
+Use `nico-admin-cli redfish` with a local libredfish checkout (see [above](#testing-with-nico-admin-cli-redfish)) to validate all key operations before deploying. Then test the full cycle through a NICo instance: discovery → ingestion → BIOS setup → boot order → lockdown → health monitoring.
 

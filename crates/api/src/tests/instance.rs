@@ -35,6 +35,7 @@ use common::api_fixtures::instance::{
     single_interface_network_config_with_vpc_prefix, update_instance_network_status_observation,
 };
 use common::api_fixtures::managed_host::ManagedHostConfig;
+use common::api_fixtures::tenant::create_fixture_tenant;
 use common::api_fixtures::tpm_attestation::{CA_CERT_SERIALIZED, EK_CERT_SERIALIZED};
 use common::api_fixtures::{
     TestEnvOverrides, create_managed_host, create_test_env, create_test_env_with_overrides, dpu,
@@ -57,6 +58,7 @@ use model::instance::config::network::{
     DeviceLocator, InstanceNetworkConfig, InterfaceFunctionId, NetworkDetails,
 };
 use model::instance::config::nvlink::InstanceNvLinkConfig;
+use model::instance::config::spx::InstanceSpxConfig;
 use model::instance::status::network::{
     InstanceInterfaceStatusObservation, InstanceNetworkStatusObservation,
 };
@@ -68,7 +70,6 @@ use model::machine::{
 use model::metadata::Metadata;
 use model::network_security_group::NetworkSecurityGroupStatusObservation;
 use model::network_segment::{NetworkSegmentSearchConfig, NetworkSegmentSearchFilter};
-use model::vpc::UpdateVpcVirtualization;
 use model::vpc_prefix::VpcPrefixConfig;
 use rpc::forge::{
     DpuExtensionService, Issue, IssueCategory, ManagedHostQuarantineMode, TpmCaCert, TpmCaCertId,
@@ -380,6 +381,7 @@ async fn test_measurement_assigned_ready_to_waiting_for_measurements_to_ca_faile
         network_security_group_id: None,
         dpu_extension_services: None,
         nvlink: None,
+        spxconfig: None,
     };
     let instance_id = env
         .api
@@ -992,6 +994,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -1002,6 +1005,7 @@ async fn test_instance_dns_resolution(_: PgPoolOptions, options: PgConnectOption
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
         ],
         auto: false,
@@ -1732,6 +1736,7 @@ async fn test_can_not_create_instance_for_dpu(_: PgPoolOptions, options: PgConne
             network: InstanceNetworkConfig::for_segment_ids(&[segment_id], &Vec::default()),
             infiniband: InstanceInfinibandConfig::default(),
             nvlink: InstanceNvLinkConfig::default(),
+            spxconfig: InstanceSpxConfig::default(),
             network_security_group_id: None,
             extension_services: InstanceExtensionServicesConfig::default(),
         },
@@ -1788,6 +1793,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -1798,6 +1804,7 @@ async fn test_instance_address_creation(_: PgPoolOptions, options: PgConnectOpti
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
         ],
         auto: false,
@@ -2035,6 +2042,7 @@ async fn test_instance_phone_home(_: PgPoolOptions, options: PgConnectOptions) {
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         nvlink: None,
+        spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
     };
@@ -2192,6 +2200,7 @@ async fn test_create_instance_duplicate_keyset_ids(_: PgPoolOptions, options: Pg
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         nvlink: None,
+        spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
     };
@@ -2248,6 +2257,7 @@ async fn test_create_instance_keyset_ids_max(_: PgPoolOptions, options: PgConnec
         network: Some(single_interface_network_config(segment_id)),
         infiniband: None,
         nvlink: None,
+        spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
     };
@@ -2381,6 +2391,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }],
         auto: false,
     };
@@ -2395,6 +2406,7 @@ async fn test_allocate_network_vpc_prefix_id(_: PgPoolOptions, options: PgConnec
         network: Some(x),
         infiniband: None,
         nvlink: None,
+        spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
     };
@@ -2439,8 +2451,28 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     options: PgConnectOptions,
 ) {
     let pool = PgPoolOptions::new().connect_with(options).await.unwrap();
-    let env = create_test_env(pool).await;
-    let segment_id = env.create_vpc_and_tenant_segment().await;
+    let env =
+        create_test_env_with_overrides(pool, TestEnvOverrides::default().with_fnn_config(None))
+            .await;
+    let expected_tenant_config = default_tenant_config();
+
+    // Create the fixture tenant so the FNN VPC inherits a DPU-renderable routing profile.
+    create_fixture_tenant(&env, expected_tenant_config.tenant_organization_id.clone())
+        .await
+        .unwrap();
+
+    // Create the VPC as FNN up front so the routing profile is persisted with it.
+    let segment_id = env
+        .create_vpc_and_tenant_segment_with_vpc_details(
+            VpcCreationRequest::builder(expected_tenant_config.tenant_organization_id.clone())
+                .metadata(Metadata {
+                    name: "test vpc 1".to_string(),
+                    ..Default::default()
+                })
+                .network_virtualization_type(rpc::forge::VpcVirtualizationType::Fnn as i32)
+                .rpc(),
+        )
+        .await;
     let mh = create_managed_host(&env).await;
 
     let mut txn = env.db_txn().await;
@@ -2454,20 +2486,12 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
         mh.host().db_machine(&mut txn).await.current_state(),
         ManagedHostState::Ready
     ));
+    txn.commit().await.unwrap();
+
     let mut vpc = db::vpc::find_by_name(&env.pool, "test vpc 1")
         .await
         .unwrap();
     let vpc = vpc.remove(0);
-
-    let update_vpc = UpdateVpcVirtualization {
-        id: vpc.id,
-        if_version_match: None,
-        network_virtualization_type: carbide_network::virtualization::VpcVirtualizationType::Fnn,
-    };
-    db::vpc::update_virtualization(&update_vpc, &mut txn)
-        .await
-        .unwrap();
-    txn.commit().await.unwrap();
 
     let vpc_prefix_id = create_tenant_overlay_prefix(&env, vpc.id).await;
     let vpc_prefix = env
@@ -2515,7 +2539,6 @@ async fn test_allocate_and_release_instance_vpc_prefix_id(
     let os = instance.config().os();
     assert_eq!(os, &expected_os);
 
-    let expected_tenant_config = default_tenant_config();
     assert_eq!(tenant_config, &expected_tenant_config);
 
     let mut txn = env.db_txn().await;
@@ -2946,6 +2969,7 @@ fn dual_physical_network_config_with_vpc_prefixes(
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
         )
         .collect();
@@ -3334,6 +3358,7 @@ async fn test_network_details_migration(
                                 virtual_function_id: None,
                                 ip_address: None,
                                 ipv6_interface_config: None,
+                                routing_profile: None,
                             }],
                             auto: false,
                         })
@@ -3410,6 +3435,7 @@ async fn test_network_details_migration(
                     interfaces: vec![rpc::InstanceInterfaceConfig {
                         ip_address: None,
                         ipv6_interface_config: None,
+                        routing_profile: None,
 
                         function_type: rpc::InterfaceFunctionType::Physical as i32,
                         network_segment_id: None,
@@ -3426,6 +3452,7 @@ async fn test_network_details_migration(
                 }),
                 infiniband: None,
                 nvlink: None,
+                spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
             }),
@@ -3493,6 +3520,7 @@ async fn test_network_details_migration(
                     interfaces: vec![rpc::InstanceInterfaceConfig {
                         ip_address: None,
                         ipv6_interface_config: None,
+                        routing_profile: None,
 
                         function_type: rpc::InterfaceFunctionType::Physical as i32,
                         network_segment_id: None,
@@ -3509,6 +3537,7 @@ async fn test_network_details_migration(
                 }),
                 infiniband: None,
                 nvlink: None,
+                spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
             }),
@@ -3645,6 +3674,7 @@ async fn test_instance_cannot_allocate_requested_ip_with_network_segment(
                         interfaces: vec![rpc::InstanceInterfaceConfig {
                             ip_address: Some("192.168.0.1".to_string()),
                             ipv6_interface_config: None,
+                            routing_profile: None,
 
                             function_type: rpc::InterfaceFunctionType::Physical as i32,
                             network_segment_id: None,
@@ -3663,6 +3693,7 @@ async fn test_instance_cannot_allocate_requested_ip_with_network_segment(
                     network_security_group_id: None,
                     dpu_extension_services: None,
                     nvlink: None,
+                    spxconfig: None,
                 })
                 .metadata(rpc::Metadata {
                     name: "test_instance".to_string(),
@@ -3722,6 +3753,7 @@ async fn test_allocate_and_update_network_config_instance(
         interfaces: vec![rpc::InstanceInterfaceConfig {
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
             function_type: rpc::InterfaceFunctionType::Physical as i32,
             network_segment_id: None,
             network_details: Some(
@@ -3748,6 +3780,7 @@ async fn test_allocate_and_update_network_config_instance(
                     nvlink: None,
                     network_security_group_id: None,
                     dpu_extension_services: None,
+                    spxconfig: None,
                 }),
                 instance_id: instance.rpc_id(),
                 metadata: Some(rpc::forge::Metadata {
@@ -3850,6 +3883,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -3862,6 +3896,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
         ],
         auto: false,
@@ -3879,6 +3914,7 @@ async fn test_allocate_and_update_network_config_instance_add_vf(
                     network: Some(new_network_config),
                     infiniband: None,
                     nvlink: None,
+                    spxconfig: None,
                     network_security_group_id: None,
                     dpu_extension_services: None,
                 }),
@@ -3997,6 +4033,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -4009,6 +4046,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 virtual_function_id: Some(0),
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -4021,6 +4059,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 virtual_function_id: Some(1),
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -4033,6 +4072,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 virtual_function_id: Some(2),
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
         ],
         auto: false,
@@ -4044,6 +4084,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
         network: Some(network.clone()),
         infiniband: None,
         nvlink: None,
+        spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
     };
@@ -4101,6 +4142,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -4113,6 +4155,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 virtual_function_id: Some(0),
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             // VF 1 is deleted.
             rpc::InstanceInterfaceConfig {
@@ -4126,6 +4169,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_delete_vf(
                 virtual_function_id: Some(2),
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
         ],
         auto: false,
@@ -4266,6 +4310,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }],
         auto: false,
     };
@@ -4282,6 +4327,7 @@ async fn test_allocate_and_update_network_config_instance_state_machine(
                     network: Some(new_network_config),
                     infiniband: None,
                     nvlink: None,
+                    spxconfig: None,
                     network_security_group_id: None,
                     dpu_extension_services: None,
                 }),
@@ -4400,6 +4446,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }],
         auto: false,
     };
@@ -4410,6 +4457,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
         network: Some(network.clone()),
         infiniband: None,
         nvlink: None,
+        spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
     };
@@ -4449,6 +4497,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -4461,6 +4510,7 @@ async fn test_update_instance_config_vpc_prefix_network_update_state_machine(
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
         ],
         auto: false,
@@ -4599,6 +4649,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: 0,
@@ -4613,6 +4664,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
         ],
         auto: false,
@@ -4628,6 +4680,7 @@ async fn test_allocate_network_multi_dpu_vpc_prefix_id(
         network: Some(network_config),
         infiniband: None,
         nvlink: None,
+        spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
     };
@@ -4913,6 +4966,7 @@ async fn test_fnn_vrf_loopbacks_are_per_vpc_and_removed_on_network_update(pool: 
                 )),
                 infiniband: None,
                 nvlink: None,
+                spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
             }),
@@ -5035,6 +5089,7 @@ async fn test_fnn_vrf_loopbacks_are_per_vpc_for_pf_and_vf_on_one_dpu(pool: sqlx:
                 network: Some(single_interface_network_config(first_segment_id)),
                 infiniband: None,
                 nvlink: None,
+                spxconfig: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
             }),
@@ -5202,6 +5257,7 @@ async fn test_allocate_instance_rejects_dual_stack_prefixes_from_different_vpcs(
                                 vpc_prefix_id: Some(ipv6_prefix_id),
                                 ip_address: None,
                             }),
+                            routing_profile: None,
                         }],
                         auto: false,
                     },
@@ -6180,6 +6236,7 @@ async fn test_allocate_instance_with_extension_services(
         infiniband: None,
         network_security_group_id: None,
         nvlink: None,
+        spxconfig: None,
         dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
                 service_id: service.service_id.clone(),
@@ -6339,6 +6396,7 @@ async fn test_allocate_instance_with_duplicate_extension_services(
                 network: Some(single_interface_network_config(segment_id)),
                 infiniband: None,
                 nvlink: None,
+                spxconfig: None,
                 dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
                     service_configs: vec![
                         rpc::forge::InstanceDpuExtensionServiceConfig {
@@ -6418,6 +6476,7 @@ async fn test_update_instance_with_extension_services(
         infiniband: None,
         network_security_group_id: None,
         nvlink: None,
+        spxconfig: None,
         dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
                 service_id: service1.service_id.clone(),
@@ -6455,6 +6514,7 @@ async fn test_update_instance_with_extension_services(
         infiniband: None,
         network_security_group_id: None,
         nvlink: None,
+        spxconfig: None,
         dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![
                 rpc::forge::InstanceDpuExtensionServiceConfig {
@@ -6562,6 +6622,7 @@ async fn test_update_instance_with_extension_services(
         infiniband: None,
         network_security_group_id: None,
         nvlink: None,
+        spxconfig: None,
         dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![],
         }),
@@ -6640,6 +6701,7 @@ async fn test_update_instance_with_extension_services(
         infiniband: None,
         network_security_group_id: None,
         nvlink: None,
+        spxconfig: None,
         dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
                 service_id: service1.service_id.clone(),
@@ -6674,6 +6736,7 @@ async fn test_update_instance_with_extension_services(
         infiniband: None,
         network_security_group_id: None,
         nvlink: None,
+        spxconfig: None,
         dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![
                 rpc::forge::InstanceDpuExtensionServiceConfig {
@@ -6737,6 +6800,7 @@ async fn test_extension_service_removed_after_all_dpus_report_terminated(
         infiniband: None,
         network_security_group_id: None,
         nvlink: None,
+        spxconfig: None,
         dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
                 service_id: service2.service_id.clone(),
@@ -6762,6 +6826,7 @@ async fn test_extension_service_removed_after_all_dpus_report_terminated(
                 infiniband: None,
                 network_security_group_id: None,
                 nvlink: None,
+                spxconfig: None,
                 dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
                     service_configs: vec![],
                 }),
@@ -6903,6 +6968,7 @@ async fn test_extension_services_status_observation(
         infiniband: None,
         network_security_group_id: None,
         nvlink: None,
+        spxconfig: None,
         dpu_extension_services: Some(rpc::forge::InstanceDpuExtensionServicesConfig {
             service_configs: vec![rpc::forge::InstanceDpuExtensionServiceConfig {
                 service_id: service1.service_id.clone(),
@@ -7026,6 +7092,7 @@ async fn test_allocate_instance_with_invalid_os_image(
                 network: Some(single_interface_network_config(segment_id)),
                 infiniband: None,
                 nvlink: None,
+                spxconfig: None,
                 dpu_extension_services: None,
             }),
             instance_id: None,
@@ -7087,6 +7154,7 @@ async fn test_allocate_instance_with_invalid_ib_partition(
                 network: Some(single_interface_network_config(segment_id)),
                 infiniband: Some(ib_config),
                 nvlink: None,
+                spxconfig: None,
                 dpu_extension_services: None,
             }),
             instance_id: None,

@@ -53,7 +53,7 @@ Indicates that an already-ingested Managed Host's BMC MAC is no longer listed in
 
 ## Hardware/BMC health probe identifiers
 
-`carbide-hardware-health` currently reports sensor-based hardware health with a single probe ID:
+`nico-hardware-health` currently reports sensor-based hardware health with a single probe ID:
 
 ### `BmcSensor`
 

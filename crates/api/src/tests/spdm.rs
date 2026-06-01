@@ -99,12 +99,7 @@ pub mod tests {
             let (attestation_state, _) = get_state_from_db(&mut txn, &machine_id, device_id)
                 .await
                 .expect("Failed getting attestation state from the DB");
-            if device_id == "ERoT_BMC_0" {
-                // an unsupported device
-                assert_eq!(SpdmAttestationState::Passed, attestation_state);
-            } else {
-                assert_eq!(SpdmAttestationState::FetchCertificate, attestation_state);
-            }
+            assert_eq!(SpdmAttestationState::FetchCertificate, attestation_state);
         }
 
         // now proceed to FetchCertificate
@@ -113,8 +108,7 @@ pub mod tests {
         let object_ids = db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
             .await
             .expect("Failed getting object ids for attestation");
-        // ERoT_BMC_0 is in Passed state now, so should not be included anymore
-        assert_eq!(2, object_ids.len());
+        assert_eq!(3, object_ids.len());
 
         for object_id in &*object_ids {
             let SpdmObjectId(_, device_id) = object_id;
@@ -211,7 +205,7 @@ pub mod tests {
                 .await?;
         txn.commit().await.unwrap();
 
-        assert_eq!(devices_history.len(), 13);
+        assert_eq!(devices_history.len(), 18);
 
         Ok(())
     }
@@ -465,12 +459,7 @@ pub mod tests {
             let (attestation_state, _) = get_state_from_db(&mut txn, &machine_id, device_id)
                 .await
                 .expect("Failed getting attestation state from the DB");
-            if device_id == "ERoT_BMC_0" {
-                // an unsupported device
-                assert_eq!(SpdmAttestationState::Passed, attestation_state);
-            } else {
-                assert_eq!(SpdmAttestationState::FetchCertificate, attestation_state);
-            }
+            assert_eq!(SpdmAttestationState::FetchCertificate, attestation_state);
         }
 
         // now proceed to FetchCertificate
@@ -479,8 +468,7 @@ pub mod tests {
         let object_ids = db::attestation::spdm::find_machine_ids_for_attestation(&mut txn)
             .await
             .expect("Failed getting object ids for attestation");
-        // ERoT_BMC_0 is in Passed state now, so should not be included anymore
-        assert_eq!(2, object_ids.len());
+        assert_eq!(3, object_ids.len());
 
         for object_id in &*object_ids {
             let SpdmObjectId(_, device_id) = object_id;

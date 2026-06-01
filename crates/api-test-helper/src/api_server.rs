@@ -146,6 +146,13 @@ pub async fn start(
         start = "1024500"
         end = "1024550"
 
+        [pools.dpa-vni]
+        type = "integer"
+
+        [[pools.dpa-vni.ranges]]
+        start = "1024600"
+        end = "1024650"
+
         [pools.vpc-dpu-lo]
         type = "ipv4"
         prefix = "10.181.62.1/26"

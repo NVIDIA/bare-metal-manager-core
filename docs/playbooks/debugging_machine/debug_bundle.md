@@ -1,6 +1,6 @@
-# Collecting Machine Diagnostic Information using carbide-admin-cli
+# Collecting Machine Diagnostic Information using nico-admin-cli
 
-This guide describes how to use the `carbide-admin-cli` debug bundle command to collect diagnostic information for troubleshooting machines managed by NVIDIA Infra Controller (NICo). The command creates a ZIP file containing logs, health data, and machine state information.
+This guide describes how to use the `nico-admin-cli` debug bundle command to collect diagnostic information for troubleshooting machines managed by NVIDIA Infra Controller (NICo). The command creates a ZIP file containing logs, health data, and machine state information.
 
 ## What the Command Does
 
@@ -35,9 +35,9 @@ The generated ZIP file contains:
 
 Before running the debug bundle command, ensure you have:
 
-### 1. Access to `carbide-admin-cli`
+### 1. Access to `nico-admin-cli`
 
-You need `carbide-admin-cli` installed with valid client certificates to connect to the NICo API. Refer to your NICo installation documentation for setup instructions.
+You need `nico-admin-cli` installed with valid client certificates to connect to the NICo API. Refer to your NICo installation documentation for setup instructions.
 
 ### 2. Grafana Authentication Token (Optional)
 
@@ -59,7 +59,7 @@ If you are running from an environment that requires a SOCKS proxy, set the prox
 export https_proxy=socks5://127.0.0.1:8888
 ```
 
-***Note:*** When running from inside the cluster (carbide-api pod), the proxy is not required.
+***Note:*** When running from inside the cluster (nico-api pod), the proxy is not required.
 
 ### 4. Required Information
 
@@ -73,7 +73,7 @@ export https_proxy=socks5://127.0.0.1:8888
 ### Command Syntax
 
 ```bash
-carbide-admin-cli -c <API_URL> mh debug-bundle <MACHINE_ID> --start-time <TIME> [--grafana-url <URL>] [--end-time <TIME>] [--output-path <PATH>] [--batch-size <SIZE>] [--utc]
+nico-admin-cli -c <API_URL> mh debug-bundle <MACHINE_ID> --start-time <TIME> [--grafana-url <URL>] [--end-time <TIME>] [--output-path <PATH>] [--batch-size <SIZE>] [--utc]
 ```
 
 ### Parameters
@@ -101,7 +101,7 @@ carbide-admin-cli -c <API_URL> mh debug-bundle <MACHINE_ID> --start-time <TIME> 
 ```bash
 GRAFANA_AUTH_TOKEN=<your-token> \
 https_proxy=socks5://127.0.0.1:8888 \
-carbide-admin-cli -c https://<your-nico-api-url>/ mh debug-bundle \
+nico-admin-cli -c https://<your-nico-api-url>/ mh debug-bundle \
   <machine-id> \
   --start-time 06:00:00 \
   --grafana-url https://grafana.example.com
@@ -112,7 +112,7 @@ carbide-admin-cli -c https://<your-nico-api-url>/ mh debug-bundle \
 ```bash
 GRAFANA_AUTH_TOKEN=<your-token> \
 https_proxy=socks5://127.0.0.1:8888 \
-carbide-admin-cli -c https://<your-nico-api-url>/ mh debug-bundle \
+nico-admin-cli -c https://<your-nico-api-url>/ mh debug-bundle \
   <machine-id> \
   --start-time 06:00:00 \
   --end-time 18:00:00 \
@@ -123,7 +123,7 @@ carbide-admin-cli -c https://<your-nico-api-url>/ mh debug-bundle \
 **Without Grafana (metadata only):**
 
 ```bash
-carbide-admin-cli -c https://<your-nico-api-url>/ mh debug-bundle \
+nico-admin-cli -c https://<your-nico-api-url>/ mh debug-bundle \
   <machine-id> \
   --start-time 06:00:00
 ```
@@ -141,7 +141,7 @@ Step 0: Fetching Loki datasource UID...
 Step 1: Downloading host-specific logs...
    Processing batch 1/1 (500 records)
 
-Step 2: Downloading carbide-api logs...
+Step 2: Downloading nico-api logs...
    Processing batch 1/1 (250 records)
 
 Step 3: Downloading DPU agent logs...
@@ -161,7 +161,7 @@ Step 7: Fetching machine info...
 
 Debug Bundle Summary:
    Host Logs: 500 logs collected
-   Carbide-API Logs: 250 logs collected
+   NICo-API Logs: 250 logs collected
    DPU Agent Logs: 74 logs collected
    Health Alerts: 42 records
    Health Alert Overrides: 2 overrides

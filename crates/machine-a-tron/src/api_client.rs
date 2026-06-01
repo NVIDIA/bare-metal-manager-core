@@ -265,6 +265,7 @@ impl ApiClient {
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         };
 
         let tenant_config = rpc::TenantConfig {
@@ -291,6 +292,7 @@ impl ApiClient {
             infiniband: None,
             dpu_extension_services: None,
             nvlink: None,
+            spxconfig: None,
         };
 
         let instance_request = rpc::InstanceAllocationRequest {

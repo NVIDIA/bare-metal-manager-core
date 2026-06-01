@@ -8,7 +8,7 @@ These control plane services have to be deployed to a Kubernetes cluster with a 
 ![NICo Architecture Diagram](../static/nico_arch_diagram.png)
 
 The Kubernetes cluster needs to have a variety of services deployed:
-1. [The NICo control plane services](#carbide-control-plane-services). These services are specific to NICo, and must be deployed together in order to allow NICo to manage the lifecycle of hosts.
+1. [The NICo control plane services](#nico-control-plane-services). These services are specific to NICo, and must be deployed together in order to allow NICo to manage the lifecycle of hosts.
 2. [Dependency services](#dependency-services). NICo requires "off-the-shelf" dependencies like Postgres, Vault and telemetry services deployed and accessible.
 3. [Optional services](#optional-services). A variety of services and tools within the deployment that interact with the NICo deployment, but are not required continuously for the control plane to operate.
 
@@ -33,7 +33,7 @@ NICo deploys a set of binaries on these hosts during various points of their lif
 ### Scout
 
 [scout](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/scout) is an agent that NICo runs on the host and DPU of managed hosts for a variety of tasks:
-- "Inventory" collection: Scout collects and transmits hardware properties of the host to [NICo core](#carbide-core) which can not be determined through out-of-band tooling.
+- "Inventory" collection: Scout collects and transmits hardware properties of the host to [NICo core](#nico-core) which can not be determined through out-of-band tooling.
 - Execution of cleanup tasks whenever the bare metal instance using the host is released by a user
 - Execution of machine validation tests
 - Periodic Health checks
@@ -58,20 +58,20 @@ The DHCP server is configured by dpu-agent.
 
 The NICo control plane consists of a number of services which work together to orchestrate the lifecycle of a managed host:
 
-- [carbide-core](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/api): The NICo core service is the entrypoint into the control plane. It provides a [gRPC](https://grpc.io) API that all other components as well as users (site providers/tenants/site administrators) interact with, as well as implements the lifecycle management of all NICo managed resources (VPCs, prefixes, Infiniband and NVLink partitions and bare metal instances). The [NICo Core](#carbide_core_architecture) section describes it further in detail.
-- [carbide-dhcp (DHCP)](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/dhcp): The DHCP server responds to DHCP requests for all
-  devices on underlay networks. This includes Host BMCs, DPU BMCs and DPU OOB addresses. carbide-dhcp can be thought of as a stateless proxy: It does not actually perform any IP address management - it just converts DHCP requests into gRPC format and forwards the gRPC based DHCP requests to carbide core.
-- [carbide-pxe (iPXE)](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/pxe): The PXE server provides boot artifacts like iPXE scripts, iPXE user-data and OS images to managed hosts at boot time over HTTP. It determines which OS data to provide for a specific host by requesting the respective data from carbide core - therefore the PXE server is also stateless.
+- [nico-core](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/api): The NICo core service is the entrypoint into the control plane. It provides a [gRPC](https://grpc.io) API that all other components as well as users (site providers/tenants/site administrators) interact with, as well as implements the lifecycle management of all NICo managed resources (VPCs, prefixes, Infiniband and NVLink partitions and bare metal instances). The [NICo Core](#nico_core_architecture) section describes it further in detail.
+- [nico-dhcp (DHCP)](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/dhcp): The DHCP server responds to DHCP requests for all
+  devices on underlay networks. This includes Host BMCs, DPU BMCs and DPU OOB addresses. nico-dhcp can be thought of as a stateless proxy: It does not actually perform any IP address management - it just converts DHCP requests into gRPC format and forwards the gRPC based DHCP requests to nico core.
+- [nico-pxe (iPXE)](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/pxe): The PXE server provides boot artifacts like iPXE scripts, iPXE user-data and OS images to managed hosts at boot time over HTTP. It determines which OS data to provide for a specific host by requesting the respective data from nico core - therefore the PXE server is also stateless.
   Currently, managed hosts are configured to always boot from PXE. If a local
   bootable device is found, the host will boot it. Hosts can also be configured to always boot from a
   particular image for stateless configurations.
-- [carbide-hw-health (Hardware health)](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/health): This service scrapes all host and DPU BMCs known by NICo for system health information. It extracts measurements like fan speeds, temperatures and leak indicators. These measurements are emitted as prometheus metrics on a `/metrics` endpoint on port 9009. In addition to that, the service calls the carbide-core API `RecordHardwareHealthReport` to set health alerts based on issues identified within the metrics. These alerts are merged within carbide-core into the aggregated-host-health - which is emitted in overall health metrics and used to decide whether hosts are usable as bare metal instances for tenants.
+- [nico-hw-health (Hardware health)](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/health): This service scrapes all host and DPU BMCs known by NICo for system health information. It extracts measurements like fan speeds, temperatures and leak indicators. These measurements are emitted as prometheus metrics on a `/metrics` endpoint on port 9009. In addition to that, the service calls the nico-core API `RecordHardwareHealthReport` to set health alerts based on issues identified within the metrics. These alerts are merged within nico-core into the aggregated-host-health - which is emitted in overall health metrics and used to decide whether hosts are usable as bare metal instances for tenants.
 - [ssh-console](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/ssh-console): The SSH console provides bare metal-tenants and site-administrators virtual serial console access to hosts managed by NICo. The ssh-console service also sends the output of each hosts serial console to
   the logging system (Loki), from where it can be queried using Grafana and logcli. In order to provide this functionality, the ssh-console service *continuously* connects to all host BMCs. The ssh-console service only forwards logs to users ("bare metal tenants") if they connect to the service and get authenticated.
-- [carbide-dns (DNS)](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/dns): Domain name service (DNS) functionality
-  is handled by two services. The `carbide-dns` service handles DNS queries from the site controller and managed nodes and is authoritative for delegated zones.
+- [nico-dns (DNS)](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/dns): Domain name service (DNS) functionality
+  is handled by two services. The `nico-dns` service handles DNS queries from the site controller and managed nodes and is authoritative for delegated zones.
 
-## <a name="carbide_core_architecture"></a> NICo Core
+## <a name="nico_core_architecture"></a> NICo Core
 
 NICo core is the binary which provides the most essential services within the NICo control plane.
 It provides a [gRPC](https://grpc.io) API that all other components as well as users (site providers/tenants/site administrators) interact with, as well as implements the lifecycle management of all NICo managed resources (VPCs, prefixes, Infiniband and NVLink partitions and bare metal instances).
@@ -80,15 +80,15 @@ NICo core can be considered as a "collection of independent components that are 
 
 NICo core is the only component within NICo which interacts with the postgres database. This simplifies the rollout of database migrations throughout the product lifecycle.
 
-{/* Source drawio file at ../static/carbide-core.drawio */}
-![NICo site controller](../static/carbide-core.png)
+{/* Source drawio file at ../static/nico-core.drawio */}
+![NICo site controller](../static/nico-core.png)
 
 ### NICo Core Components
 
 ### [gRPC](https://grpc.io) API handlers
 
 The API handlers accept gRPC requests from NICo users and internal system components. They provide users the ability to inspect the current state of the system, and modify the desired state of various components (e.g. create or reconfigure bare metal instances).
-  API handlers are all implemented within the trait/interface `rpc::forge::forge_server::Forge`. Various implementations delegate to the `handlers` subdirectory. For resources managed by NICo, API handlers do not directly change the actual state of the resources (e.g. the provisioning state of a host). Instead, they only change the required state (e.g. "provisioning required", "termination required", etc). The state changes will be performed by state machines (details below). The carbide-core gRPC API supports
+  API handlers are all implemented within the trait/interface `rpc::nico::nico_server::NICo`. Various implementations delegate to the `handlers` subdirectory. For resources managed by NICo, API handlers do not directly change the actual state of the resources (e.g. the provisioning state of a host). Instead, they only change the required state (e.g. "provisioning required", "termination required", etc). The state changes will be performed by state machines (details below). The nico-core gRPC API supports
 [gRPC reflection](https://github.com/grpc/grpc/blob/master/doc/server-reflection.md) to provide a machine readable API
 description so clients can auto-generate code and RPC functions in the client.
 
@@ -117,7 +117,7 @@ Details about the NICo state handling implementation can be found [here](state_h
 
 ### Site Explorer
 
-Site Explorer is a background module within the `carbide-api` binary that continuously monitors the state of all BMCs detected on the underlay network. Its implementation lives in the separate `crates/site-explorer` crate to keep the `crates/api` crate smaller, but it is still started and run as part of NICo Core.
+Site Explorer is a background module within the `nico-api` binary that continuously monitors the state of all BMCs detected on the underlay network. Its implementation lives in the separate `crates/site-explorer` crate to keep the `crates/api` crate smaller, but it is still started and run as part of NICo Core.
 
 The process acts as a "crawler". It continuously tries to perform Redfish requests against all IPs on the underlay network that were provided by NICo Core and records information that NICo needs to manage hosts later. The information collected by NICo includes:
 - Serial Numbers
@@ -134,11 +134,11 @@ Beyond the basic BMC data collection, Site Explorer also performs the following 
 1. It matches hosts with associated DPUs based on the Redfish reports of both components - e.g. both the host and DPU need to reference the same DPU serial number.
 2. It kickstarts the ingestion process of the host once the host is in an "ingestable" state (all components are found and have up to date firmware versions).
 
-Site Explorer emits metrics with the prefix `carbide_endpoint_exploration_` and `carbide_site_explorer_`.
+Site Explorer emits metrics with the prefix `nico_endpoint_exploration_` and `nico_site_explorer_`.
 
 ### Preingestion Manager
 
-Preingestion Manager is a background module within the `carbide-api` binary. Its implementation lives in the separate `crates/preingestion-manager` crate to keep the `crates/api` crate smaller, but it is still started and run as part of NICo Core.
+Preingestion Manager is a background module within the `nico-api` binary. Its implementation lives in the separate `crates/preingestion-manager` crate to keep the `crates/api` crate smaller, but it is still started and run as part of NICo Core.
 
 Preingestion Manager updates hosts that are below the minimum firmware version required for ingestion. Usually firmware updates to hosts are deployed within the main machine lifecycle, as managed by the ManagedHost state machine.
 
@@ -172,11 +172,11 @@ In each run, IBFabricMonitor performs the following task:
 
 InfiniBand Fabric Monitor is an optional component. It only needs to be enabled in the case NICo managed InfiniBand is required.
 
-IB Fabric Monitor emits metrics with prefix `forge_ib_monitor_`.
+IB Fabric Monitor emits metrics with prefix `nico_ib_monitor_`.
 
 ### NVLink Manager
 
-NVLink Manager is a background module within the `carbide-api` binary. Its implementation lives in the separate `crates/nvlink-manager` crate to keep the `crates/api` crate smaller, but it is still started and run as part of NICo Core.
+NVLink Manager is a background module within the `nico-api` binary. Its implementation lives in the separate `crates/nvlink-manager` crate to keep the `crates/api` crate smaller, but it is still started and run as part of NICo Core.
 
 Its `NvlPartitionMonitor` reconciles NVLink logical partition desired state with the state reported by NMX-M. In each run, it loads MNNVL-capable machines and NVLink partition records from the database, queries NMX-M for GPU and partition state, records `MachineNvLinkStatusObservation` data, and creates, updates, or removes NMX-M partitions as needed.
 
@@ -196,19 +196,19 @@ pods. There are three different K8s statefulsets that run on the controller node
   uses three each (one per K8s control node) of the `data-vault` and `audit-vault` 10GB PVs to protect and distribute
   the data in the absence of a shared storage solution.
 - [Postgres](https://www.postgresql.org/) - Used to store state for any NICo or site controller components that
-  require it including the main "forgedb". There are three 10GB `pgdata` PVs deployed to protect and distribute
-  the data in the absence of a shared storage solution. The `forgedb` database is stored here.
+  require it including the main "nicodb". There are three 10GB `pgdata` PVs deployed to protect and distribute
+  the data in the absence of a shared storage solution. The `nicodb` database is stored here.
 
 ## Optional services
 
 The point of having a site controller is to administer a site that has been populated with tenant managed hosts.
 Each managed host is a pairing of a Bluefield (BF) 2/3 DPUs and a host server (only two DPUs have been tested).
 During initial deployment [scout](https://github.com/NVIDIA/infra-controller-core/blob/main/crates/scout) runs and
-informs carbide-api of any discovered DPUs. NICo completes the installation of services on the DPU and boots
-into regular operation mode. Thereafter the forge-dpu-agent starts as a daemon.
+informs nico-api of any discovered DPUs. NICo completes the installation of services on the DPU and boots
+into regular operation mode. Thereafter the nico-dpu-agent starts as a daemon.
 
-Each DPU runs the forge-dpu-agent which connects via gRPC to the API service in NICo to get configuration
+Each DPU runs the nico-dpu-agent which connects via gRPC to the API service in NICo to get configuration
 instructions.
 
-The forge-dpu-agent also runs the NICo metadata service (FMDS), which provides the users on the bare metal instance a HTTP based API to retrieve information about their running instance.
+The nico-dpu-agent also runs the NICo metadata service (FMDS), which provides the users on the bare metal instance a HTTP based API to retrieve information about their running instance.
 Users can e.g. use FMDS to determine their Machine ID or certain Boot/OS information.

@@ -10,7 +10,7 @@ To allow the QEMU VM to join the bridge network that is used
 for development, create or edit the file '/etc/qemu/bridge.conf' such that its contents are:
 ```
 $ cat /etc/qemu/bridge.conf
-allow carbide0
+allow nico0
 ```
 
 ## TPM setup
@@ -69,9 +69,9 @@ is restarted. You need to restart the tool if you are restarting the VM.
 ## Start the services and seed the database
 
 - `docker-compose up`
-- `cargo make bootstrap-forge-docker`
+- `cargo make bootstrap-nico-docker`
 
-If you see "No network segment defined for relay address: 172.20.0.11" in the carbide-dhcp output, you forgot to run `cargo make bootstrap-forge-docker`.
+If you see "No network segment defined for relay address: 172.20.0.11" in the nico-dhcp output, you forgot to run `cargo make bootstrap-nico-docker`.
 
 ## Start the VM
 
@@ -103,8 +103,8 @@ With TPM:
 sudo qemu-system-x86_64 -boot n -nographic -display none \
   -serial mon:stdio -cpu host \
   -accel kvm -device virtio-serial-pci \
-  -netdev bridge,id=carbidevm,br=carbide0 \
-  -device virtio-net-pci,netdev=carbidevm \
+  -netdev bridge,id=nicovm,br=nico0 \
+  -device virtio-net-pci,netdev=nicovm \
   -bios /usr/share/ovmf/OVMF.fd -m 4096 \
   -chardev socket,id=chrtpm,path=/tmp/emulated_tpm/swtpm-sock \
   -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0
@@ -116,8 +116,8 @@ Without TPM:
 sudo qemu-system-x86_64 -boot n -nographic -display none \
   -serial mon:stdio -cpu host \
   -accel kvm -device virtio-serial-pci \
-  -netdev bridge,id=carbidevm,br=carbide0 \
-  -device virtio-net-pci,netdev=carbidevm \
+  -netdev bridge,id=nicovm,br=nico0 \
+  -device virtio-net-pci,netdev=nicovm \
   -bios /usr/share/ovmf/OVMF.fd -m 4096
 ```
 

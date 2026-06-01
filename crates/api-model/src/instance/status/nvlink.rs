@@ -67,7 +67,7 @@ impl InstanceNvLinkStatus {
                     InstanceNvLinkGpuStatus {
                         logical_partition_id: obs.logical_partition_id,
                         domain_id: obs.domain_id,
-                        gpu_guid: obs.guid.to_string(), // This is the DeviceUID field returned from NMX-M, which I think matches nvidia-smi GUID
+                        gpu_guid: obs.guid.to_string(), // This is the DeviceUID field returned by the NVLink manager, which should match the nvidia-smi GUID.
                     }
                 }
                 None => {
