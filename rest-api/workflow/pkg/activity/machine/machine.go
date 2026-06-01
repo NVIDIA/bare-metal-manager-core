@@ -158,7 +158,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			Status:            &status,
 		})
 		if serr != nil {
-			logger.Error().Err(err).Msg("failed to update Site status in DB")
+			logger.Error().Err(serr).Msg("failed to update Site status in DB")
 		}
 
 		sdDAO := cdbm.NewStatusDetailDAO(mm.dbSession)
@@ -173,7 +173,7 @@ func (mm *ManageMachine) UpdateMachinesInDB(ctx context.Context, siteIDStr strin
 			InventoryReceived: &curTime,
 		})
 		if serr != nil {
-			logger.Error().Err(err).Msg("failed to update Site status in DB")
+			logger.Error().Err(serr).Msg("failed to update Site status in DB")
 		}
 	}
 
