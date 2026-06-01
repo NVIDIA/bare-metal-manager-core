@@ -1244,6 +1244,13 @@ impl Forge for Api {
         crate::handlers::rack::delete_rack(self, request).await
     }
 
+    async fn admin_force_delete_rack(
+        &self,
+        request: Request<rpc::AdminForceDeleteRackRequest>,
+    ) -> Result<Response<rpc::AdminForceDeleteRackResponse>, Status> {
+        crate::handlers::rack::admin_force_delete_rack(self, request).await
+    }
+
     async fn get_rack_profile(
         &self,
         request: Request<rpc::GetRackProfileRequest>,

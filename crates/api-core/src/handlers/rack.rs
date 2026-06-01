@@ -209,6 +209,68 @@ pub async fn delete_rack(
     Ok(Response::new(()))
 }
 
+/// Force deletes a rack from the database.
+/// Unlike `delete_rack` (soft delete), this immediately hard-deletes the rack
+/// and its state history.
+pub async fn admin_force_delete_rack(
+    api: &Api,
+    request: Request<rpc::AdminForceDeleteRackRequest>,
+) -> Result<Response<rpc::AdminForceDeleteRackResponse>, Status> {
+    log_request_data(&request);
+    let request = request.into_inner();
+
+    let rack_id = request
+        .rack_id
+        .ok_or_else(|| CarbideError::InvalidArgument("rack_id is required".to_string()))?;
+
+    let mut txn = api.txn_begin().await?;
+
+    let rack_list = db_rack::find_by(
+        &mut txn,
+        ObjectColumnFilter::One(db_rack::IdColumn, &rack_id),
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    if rack_list.is_empty() {
+        return Err(CarbideError::NotFoundError {
+            kind: "rack",
+            id: rack_id.to_string(),
+        }
+        .into());
+    }
+
+    db::state_history::delete_by_object_id(
+        &mut txn,
+        db::state_history::StateHistoryTableId::Rack,
+        &rack_id,
+    )
+    .await
+    .map_err(CarbideError::from)?;
+
+    db_rack::final_delete(&mut txn, &rack_id)
+        .await
+        .map_err(CarbideError::from)?;
+
+    txn.commit().await?;
+
+    if let Err(error) = api
+        .credential_manager
+        .delete_credentials(&rack_maintenance_access_token_key(&rack_id))
+        .await
+    {
+        tracing::warn!(
+            rack_id = %rack_id,
+            error = %error,
+            "failed to delete rack maintenance access token during force delete",
+        );
+    }
+
+    Ok(Response::new(rpc::AdminForceDeleteRackResponse {
+        rack_id: rack_id.to_string(),
+    }))
+}
+
 pub async fn list_rack_health_reports(
     api: &Api,
     request: Request<rpc::ListRackHealthReportsRequest>,

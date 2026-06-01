@@ -715,6 +715,8 @@ service Forge {
   // Deprecated: Use FindRackIds
   rpc GetRack(GetRackRequest) returns (GetRackResponse);
   rpc DeleteRack(DeleteRackRequest) returns (google.protobuf.Empty);
+  // Force deletes a Rack from the database.
+  rpc AdminForceDeleteRack(AdminForceDeleteRackRequest) returns (AdminForceDeleteRackResponse);
   rpc GetRackProfile(GetRackProfileRequest) returns (GetRackProfileResponse);
 
   //
@@ -7090,6 +7092,17 @@ message RackStateHistoriesRequest {
 
 message DeleteRackRequest {
   string id = 1;
+}
+
+// Force deletes a Rack from the database.
+message AdminForceDeleteRackRequest {
+  // The Rack ID to force delete.
+  common.RackId rack_id = 1;
+}
+
+message AdminForceDeleteRackResponse {
+  // The ID of the rack that was deleted.
+  string rack_id = 1;
 }
 
 // Rack Capabilities
