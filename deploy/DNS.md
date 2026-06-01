@@ -165,7 +165,7 @@ The DPU agent (`nico-agent`) issues DNS queries at startup and periodically ther
 
 How it finds its resolver:
 
-- The DPU's network interface receives an IP and DHCP options from `nico-dhcp` (the Kea + carbide hook combination).
+- The DPU's network interface receives an IP and DHCP options from `nico-dhcp` (the Kea + nico hook combination).
 - DHCP option 6 (Domain Name Server) is set to the `unbound.nico` VIP. This value comes from the Kea hook parameter `nico-nameserver`.
 - The DPU agent uses this as its sole resolver. The agent has no compiled-in resolver address; changing the resolver is a DHCP-side configuration change.
 

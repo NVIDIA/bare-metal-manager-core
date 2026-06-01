@@ -16,11 +16,11 @@
  */
 use axum::body::Body;
 use carbide_rpc_utils::ManagedHostOutput;
-use db::managed_host;
+use db::{machine, managed_host};
 use http_body_util::BodyExt;
 use hyper::http::StatusCode;
 use model::hardware_info::HardwareInfo;
-use model::machine::LoadSnapshotOptions;
+use model::machine::{InstanceState, LoadSnapshotOptions, ManagedHostState, RetryInfo};
 use tower::ServiceExt;
 
 use crate::tests::common::api_fixtures::dpu::DpuConfig;
@@ -174,7 +174,10 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
     let snapshot = snapshots.into_iter().next().unwrap();
     assert_eq!(snapshot.host_snapshot.id, machine_id);
 
-    let row = ManagedHostRowDisplay::from(snapshot.clone());
+    let sla_config = model::machine::slas::MachineSlaConfig::new(
+        env.config.machine_state_controller.failure_retry_time,
+    );
+    let row = ManagedHostRowDisplay::from_snapshot(snapshot.clone(), &sla_config);
 
     assert!(row.maintenance_start_time.is_empty());
     assert!(row.maintenance_reference.is_empty());
@@ -244,4 +247,57 @@ async fn test_managed_host_row_display(pool: sqlx::PgPool) -> eyre::Result<()> {
     assert!(!row.dpus[1].oob_ip.is_empty(), "dpu should show an oob ip");
 
     Ok(())
+}
+
+#[crate::sqlx_test]
+async fn test_managed_host_html_uses_runtime_sla_config(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+    let host = create_managed_host_multi_dpu(&env, 1).await;
+
+    let assigned_booting_state = ManagedHostState::Assigned {
+        instance_state: InstanceState::BootingWithDiscoveryImage {
+            retry: RetryInfo { count: 0 },
+        },
+    };
+    let state_changed_at = chrono::Utc::now() - chrono::Duration::minutes(5);
+    let state_version: config_version::ConfigVersion =
+        format!("V999-T{}", state_changed_at.timestamp_micros())
+            .parse()
+            .unwrap();
+
+    let mut txn = env.db_txn().await;
+    let host_machine = host.host().db_machine(&mut txn).await;
+    machine::advance(
+        &host_machine,
+        &mut txn,
+        &assigned_booting_state,
+        Some(state_version),
+    )
+    .await
+    .unwrap();
+    txn.commit().await.unwrap();
+
+    let app = make_test_app(&env);
+    let response = app
+        .oneshot(
+            web_request_builder()
+                .uri("/admin/managed-host?time-in-state-above-sla-filter=true")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("Empty response body?")
+        .to_bytes();
+    let body_str = std::str::from_utf8(&body_bytes).expect("Invalid UTF-8 in body");
+
+    assert!(body_str.contains("Filtered Managed Hosts (1)"));
+    assert!(body_str.contains("bubble warning"));
+    assert!(body_str.contains("Assigned/BootingWithDiscoveryImage"));
 }

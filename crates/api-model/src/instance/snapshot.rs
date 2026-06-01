@@ -32,6 +32,7 @@ use crate::instance::config::InstanceConfig;
 use crate::instance::config::extension_services::InstanceExtensionServicesConfig;
 use crate::instance::config::infiniband::InstanceInfinibandConfig;
 use crate::instance::config::nvlink::InstanceNvLinkConfig;
+use crate::instance::config::spx::InstanceSpxConfig;
 use crate::instance::config::tenant_config::TenantConfig;
 use crate::instance::status::InstanceStatusObservations;
 use crate::metadata::Metadata;
@@ -80,6 +81,8 @@ pub struct InstanceSnapshot {
 
     pub nvlink_config_version: ConfigVersion,
 
+    pub spx_config_version: ConfigVersion,
+
     /// Observed status of the instance
     pub observations: InstanceStatusObservations,
 
@@ -124,6 +127,8 @@ pub struct InstanceSnapshotPgJson {
     storage_config_version: String,
     nvlink_config: InstanceNvLinkConfig,
     nvlink_config_version: String,
+    spx_config: InstanceSpxConfig,
+    spx_config_version: String,
     config_version: String,
     phone_home_last_contact: Option<DateTime<Utc>>,
     use_custom_pxe_on_boot: bool,
@@ -184,6 +189,7 @@ pub fn from_pg_json_and_os(
         os,
         network: value.network_config,
         infiniband: value.ib_config,
+        spxconfig: value.spx_config,
         nvlink: value.nvlink_config,
         network_security_group_id: value.network_security_group_id,
         extension_services: value.extension_services_config,
@@ -216,6 +222,12 @@ pub fn from_pg_json_and_os(
         nvlink_config_version: value.nvlink_config_version.parse().map_err(|e| {
             sqlx::error::Error::ColumnDecode {
                 index: "nvl_config_version".to_string(),
+                source: Box::new(e),
+            }
+        })?,
+        spx_config_version: value.spx_config_version.parse().map_err(|e| {
+            sqlx::error::Error::ColumnDecode {
+                index: "spx_config_version".to_string(),
                 source: Box::new(e),
             }
         })?,
@@ -295,6 +307,7 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             nvlink: value.nvlink_config,
             network_security_group_id: value.network_security_group_id,
             extension_services: value.extension_services_config,
+            spxconfig: value.spx_config,
         };
 
         Ok(InstanceSnapshot {
@@ -324,6 +337,12 @@ impl TryFrom<InstanceSnapshotPgJson> for InstanceSnapshot {
             nvlink_config_version: value.nvlink_config_version.parse().map_err(|e| {
                 sqlx::error::Error::ColumnDecode {
                     index: "nvl_config_version".to_string(),
+                    source: Box::new(e),
+                }
+            })?,
+            spx_config_version: value.spx_config_version.parse().map_err(|e| {
+                sqlx::error::Error::ColumnDecode {
+                    index: "spx_config_version".to_string(),
                     source: Box::new(e),
                 }
             })?,
@@ -385,6 +404,8 @@ mod tests {
             storage_config_version: version.clone(),
             nvlink_config: InstanceNvLinkConfig::default(),
             nvlink_config_version: version.clone(),
+            spx_config: InstanceSpxConfig::default(),
+            spx_config_version: version.clone(),
             config_version: version.clone(),
             phone_home_last_contact: None,
             use_custom_pxe_on_boot: false,

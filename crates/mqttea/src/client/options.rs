@@ -67,6 +67,19 @@ pub struct ClientOptions {
     // processed concurrently. If unset, defaults to 1, which is
     // effectively sequential processing.
     pub max_concurrency: Option<usize>,
+    // rebuild_after_persistent_disconnect, if set, makes the event
+    // loop tear down the underlying rumqttc `AsyncClient`/`EventLoop`
+    // pair and stand up a fresh one (replaying tracked subscriptions)
+    // once it has gone this long without a successful poll. "Successful"
+    // here means SubAck, Publish, or PingResp -- events that prove the
+    // MQTT session is actually working end-to-end; transient
+    // ConnAck/Outgoing(Connect) don't count because the wedge in
+    // NVBug 6191840 produces those without ever subscribing. Backstop
+    // for the rare case where rumqttc gets fully stuck; the common case
+    // (broker outage, recovery) is handled by mqttea's auto-resubscribe
+    // on CONNACK without this watchdog ever firing. If unset, the event
+    // loop just keeps retrying with backoff (the existing behavior).
+    pub rebuild_after_persistent_disconnect: Option<Duration>,
 }
 
 impl ClientOptions {
@@ -103,6 +116,17 @@ impl ClientOptions {
 
     pub fn with_max_concurrency(mut self, max_concurrency: usize) -> Self {
         self.max_concurrency = Some(max_concurrency);
+        self
+    }
+
+    /// Make the event loop rebuild the underlying rumqttc client
+    /// (replaying tracked subscriptions) once it has gone `threshold`
+    /// without a successful SubAck/Publish/PingResp. Backstop for the
+    /// rare case where rumqttc gets fully wedged; the common case
+    /// (broker outage and recovery) is already handled by mqttea's
+    /// CONNACK-resubscribe path.
+    pub fn with_rebuild_after_persistent_disconnect(mut self, threshold: Duration) -> Self {
+        self.rebuild_after_persistent_disconnect = Some(threshold);
         self
     }
 

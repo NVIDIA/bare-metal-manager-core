@@ -27,6 +27,7 @@ use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
 use carbide_redfish::libredfish::RedfishClientPool;
 use carbide_redfish::libredfish::test_support::RedfishSimAction;
 use carbide_uuid::machine::MachineId;
+use db::TransactionVending;
 use libredfish::SystemPowerControl;
 use model::machine::{DpfState, DpuInitState, ManagedHostState};
 use tokio::time::timeout;
@@ -414,14 +415,14 @@ async fn test_waiting_for_ready_host_already_off(pool: sqlx::PgPool) {
     reset_host_to_waiting_for_ready(&pool, &mh.id, &mh.dpu_ids[0]).await;
 
     // Set the host BMC power state to Off before entering the reboot path.
-    let host_snapshot = {
-        let mut txn = env.pool.begin().await.unwrap();
-        let s = mh.host().db_machine(&mut txn).await;
+    let bmc_access_info = {
+        let mut txn = env.pool.txn_begin().await.unwrap();
+        let bmc_access_info = mh.host().bmc_access(&mut txn).await;
         txn.commit().await.unwrap();
-        s
+        bmc_access_info
     };
     env.redfish_sim
-        .create_client_from_machine(&host_snapshot, &env.pool)
+        .client_by_info(&bmc_access_info)
         .await
         .unwrap()
         .power(SystemPowerControl::ForceOff)

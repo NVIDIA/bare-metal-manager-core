@@ -32,6 +32,8 @@ use sqlx::{FromRow, Row};
 
 use crate::StateSla;
 use crate::controller_outcome::PersistentStateHandlerOutcome;
+use crate::instance::snapshot::InstanceSnapshot;
+use crate::machine::spx::MachineSpxStatusObservation;
 use crate::state_history::StateHistoryRecord;
 
 mod slas;
@@ -61,12 +63,8 @@ pub enum DpaInterfaceControllerState {
     ApplyProfile,
     /// Lock the card
     Locking,
-    /// The VNI associated with the DPA interface is being set
-    WaitingForSetVNI,
     /// The Dpa Interface has been configured with a non-zero VNI
     Assigned,
-    /// The VNI associated with the DPA interface is being reset
-    WaitingForResetVNI,
 }
 
 impl Display for DpaInterfaceControllerState {
@@ -104,18 +102,6 @@ pub struct DpaInterfaceQuarantineState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DpaInterfaceQuarantineMode {
     BlockAllTraffic,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DpaInterfaceNetworkStatusObservation {
-    pub observed_at: DateTime<Utc>,
-    pub network_config_version: Option<ConfigVersion>,
-}
-
-impl Display for DpaInterfaceNetworkStatusObservation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(self, f)
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -182,13 +168,7 @@ pub fn state_sla(state: &DpaInterfaceControllerState, state_version: &ConfigVers
         DpaInterfaceControllerState::Unlocking => {
             StateSla::with_sla(slas::UNLOCKING, time_in_state)
         }
-        DpaInterfaceControllerState::WaitingForSetVNI => {
-            StateSla::with_sla(slas::WAITINGFORSETVNI, time_in_state)
-        }
         DpaInterfaceControllerState::Assigned => StateSla::no_sla(),
-        DpaInterfaceControllerState::WaitingForResetVNI => {
-            StateSla::with_sla(slas::WAITINGFORRESETVNI, time_in_state)
-        }
     }
 }
 
@@ -216,7 +196,6 @@ pub struct DpaInterface {
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
 
     pub network_config: Versioned<DpaInterfaceNetworkConfig>,
-    pub network_status_observation: Option<DpaInterfaceNetworkStatusObservation>,
 
     pub card_state: Option<CardState>,
 
@@ -238,6 +217,8 @@ pub struct DpaInterface {
     pub mlxconfig_profile: Option<String>,
 
     pub history: Vec<StateHistoryRecord>,
+
+    pub device_description: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -246,6 +227,7 @@ pub struct NewDpaInterface {
     pub mac_address: MacAddress,
     pub device_type: String,
     pub pci_name: String,
+    pub device_description: Option<String>,
 }
 
 impl NewDpaInterface {
@@ -264,28 +246,49 @@ impl NewDpaInterface {
             mac_address: info.base_mac?,
             device_type: info.device_type.clone(),
             pci_name: info.pci_name.clone(),
+            device_description: info.device_description.clone(),
         })
     }
 }
 
 impl DpaInterface {
+    pub fn use_admin_network(&self) -> bool {
+        self.network_config.use_admin_network.unwrap_or(true)
+    }
+
     pub fn get_machine_id(&self) -> MachineId {
         self.machine_id
     }
 
-    pub fn managed_host_network_config_version_synced(&self) -> bool {
-        let dpa_expected_version = self.network_config.version;
-        let dpa_observation = self.network_status_observation.as_ref();
-
-        let dpa_observed_version: ConfigVersion = match dpa_observation {
-            Some(network_status) => match network_status.network_config_version {
-                Some(version) => version,
-                None => return false,
-            },
-            None => return false,
+    // If the DPA machine is an instance, the config version sent to the card will
+    // the spx_config_version of the instance.
+    // If the DPA machine is a managed host, the config version sent to the card will
+    // be the network_config.version of the DPA interface.
+    pub fn managed_host_network_config_version_synced(
+        &self,
+        instance: &Option<InstanceSnapshot>,
+        spx_status_observation: &Option<MachineSpxStatusObservation>,
+    ) -> bool {
+        let dpa_expected_version = match instance {
+            Some(instance) if !instance.config.spxconfig.spx_attachments.is_empty() => {
+                instance.spx_config_version
+            }
+            _ => self.network_config.version,
         };
 
-        dpa_expected_version == dpa_observed_version
+        let Some(spx_status_observation) = spx_status_observation else {
+            return false;
+        };
+
+        for obs in spx_status_observation.spx_attachments.iter() {
+            if obs.mac_address == self.mac_address
+                && let Some(config_version) = obs.config_version
+            {
+                return config_version == dpa_expected_version;
+            }
+        }
+
+        false
     }
 
     pub fn is_ready(&self) -> bool {
@@ -316,7 +319,6 @@ pub struct DpaInterfaceSnapshotPgJson {
     pub controller_state_outcome: Option<PersistentStateHandlerOutcome>,
     pub network_config: DpaInterfaceNetworkConfig,
     pub network_config_version: String,
-    pub network_status_observation: Option<DpaInterfaceNetworkStatusObservation>,
     pub card_state: Option<CardState>,
     pub pci_name: String,
     pub underlay_ip: Option<IpAddr>,
@@ -329,6 +331,8 @@ pub struct DpaInterfaceSnapshotPgJson {
     pub mlxconfig_profile: Option<String>,
     #[serde(default)]
     pub history: Vec<StateHistoryRecord>,
+    #[serde(default)]
+    pub device_description: Option<String>,
 }
 
 impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {
@@ -362,7 +366,6 @@ impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {
                     }
                 })?,
             },
-            network_status_observation: value.network_status_observation,
             card_state: value.card_state,
             device_info: value.device_info,
             device_info_ts: value.device_info_ts,
@@ -371,6 +374,7 @@ impl TryFrom<DpaInterfaceSnapshotPgJson> for DpaInterface {
             pci_name: value.pci_name,
             underlay_ip: value.underlay_ip,
             overlay_ip: value.overlay_ip,
+            device_description: value.device_description,
         })
     }
 }

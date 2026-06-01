@@ -11,10 +11,7 @@ admin_root_cafile_path = "/etc/forge/carbide-bmc-proxy/site/admin_root_cert_pem"
 
 [auth.trust]
 spiffe_trust_domain = "nico.local"
-spiffe_service_base_paths = [
-  "/nico-system/sa/",
-  "/default/sa/",
-]
+spiffe_service_base_paths = ["/nico-system/sa/", "/default/sa/"]
 spiffe_machine_base_path = "/nico-system/machine/"
 additional_issuer_cns = []
 

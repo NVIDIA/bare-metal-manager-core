@@ -20,7 +20,7 @@ DELETE /v2/org/{org}/nico/instance/{instanceId}
 Restish example:
 
 ```bash
-restish carbide-stg delete-instance <tenant-org-id> <instance-id> < release-for-repair.json
+restish nico-stg delete-instance <tenant-org-id> <instance-id> < release-for-repair.json
 ```
 
 The release request removes the tenant assignment. NICo then uses the reported issue and site configuration to decide whether the machine should wait for manual intervention or be made available to repair automation.
@@ -101,8 +101,8 @@ When repair is successful and the repair tenant reports completion:
 Provider verification:
 
 ```bash
-carbide-admin-cli machine show <machine-id>
-carbide-admin-cli machine health-override show <machine-id>
+nico-admin-cli machine show <machine-id>
+nico-admin-cli machine health-override show <machine-id>
 ```
 
 Expected state:
@@ -123,8 +123,8 @@ When repair fails or the repair tenant releases without a successful completion 
 Provider verification:
 
 ```bash
-carbide-admin-cli machine show <machine-id>
-carbide-admin-cli machine health-override show <machine-id>
+nico-admin-cli machine show <machine-id>
+nico-admin-cli machine health-override show <machine-id>
 ```
 
 Expected state:
@@ -139,33 +139,33 @@ Use admin tooling for provider-only recovery actions. The exact command syntax c
 Inspect machine state:
 
 ```bash
-carbide-admin-cli machine show <machine-id>
-carbide-admin-cli machine health-override show <machine-id>
+nico-admin-cli machine show <machine-id>
+nico-admin-cli machine health-override show <machine-id>
 ```
 
 Manually request repair:
 
 ```bash
-carbide-admin-cli machine health-override add <machine-id> --template RequestRepair \
+nico-admin-cli machine health-override add <machine-id> --template RequestRepair \
   --message "Manual repair trigger for tenant-reported issue"
 ```
 
 Clear a resolved tenant-reported issue:
 
 ```bash
-carbide-admin-cli machine health-override remove <machine-id> tenant-reported-issue
+nico-admin-cli machine health-override remove <machine-id> tenant-reported-issue
 ```
 
 Clear a stale repair request:
 
 ```bash
-carbide-admin-cli machine health-override remove <machine-id> repair-request
+nico-admin-cli machine health-override remove <machine-id> repair-request
 ```
 
 Escalate a machine that needs manual provider investigation:
 
 ```bash
-carbide-admin-cli machine health-override add <machine-id> --template OutForRepair \
+nico-admin-cli machine health-override add <machine-id> --template OutForRepair \
   --message "Repair unsuccessful, requires manual investigation"
 ```
 

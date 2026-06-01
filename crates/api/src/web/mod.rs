@@ -162,6 +162,7 @@ pub(crate) struct StateSlaDetail {
 #[template(path = "lifecycle_detail.html")]
 pub(crate) struct LifecycleDetail {
     pub state_display: StateDisplay,
+    pub associated_instance_id: Option<String>,
     pub json_state: Option<String>,
     pub version: String,
     pub time_in_state: String,
@@ -187,6 +188,7 @@ impl LifecycleDetail {
                 state,
                 time_in_state_above_sla,
             },
+            associated_instance_id: None,
             json_state,
             time_in_state: config_version::since_state_change_humanized(&version),
             version,
@@ -246,6 +248,7 @@ mod instance_type;
 mod interface;
 mod ipam;
 mod ipxe_template;
+mod logs;
 mod machine;
 mod machine_validation;
 pub mod managed_host;
@@ -264,6 +267,7 @@ mod redfish_browser;
 mod resource_pool;
 mod search;
 mod sku;
+mod spx_partition;
 mod state_history;
 mod switch;
 mod tenant;
@@ -727,6 +731,8 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 get(nvlink::show_nvlink_logical_partitions_json),
             )
             .route("/nvlink-partition/{id}", get(nvlink::detail))
+            .route("/spx-partition", get(spx_partition::show_html))
+            .route("/spx-partition.json", get(spx_partition::show_all_json))
             .route("/resource-pool", get(resource_pool::show_html))
             .route("/resource-pool.json", get(resource_pool::show_all_json))
             .route("/vpc", get(vpc::show_html))
@@ -774,6 +780,9 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 get(machine_validation::external_configs),
             )
             .route("/ufm-browser", get(ufm_browser::query))
+            .route("/logs", get(logs::page))
+            .route("/logs/{source}/stream", get(logs::stream))
+            .route("/logs/{source}/history", get(logs::history))
             .layer(axum::middleware::from_fn(auth_oauth2))
             .layer(Extension(oauth_extension_layer))
             .with_state(api),

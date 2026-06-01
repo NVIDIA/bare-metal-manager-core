@@ -25,7 +25,7 @@ info:
   contact:
     name: NCX Infra Controller Dev Team
 servers:
-  - url: 'https://carbide-rest-api.carbide.svc.cluster.local'
+  - url: 'https://nico-rest-api.nico.svc.cluster.local'
     description: Kubernetes Cluster
 tags:
   - name: Getting Started
@@ -54,7 +54,7 @@ tags:
       Once the Provider and the Tenant are initialized, the user can create resources by making calls to the appropriate endpoints.
 
       ### Creating Site Level IP Blocks
-      To utilize a NICo Site, the Provider or Service Account holder must create IP Blocks for each network overlay defined in NICo Core [Site configuration toml file](https://github.com/NVIDIA/ncx-infra-controller-core/blob/v0.5.8/deploy/files/carbide-api/carbide-api-site-config.toml#L30).
+      To utilize a NICo Site, the Provider or Service Account holder must create IP Blocks for each network overlay defined in NICo Core [Site configuration toml file](https://github.com/NVIDIA/ncx-infra-controller-core/blob/v0.5.8/deploy/files/nico-api/nico-api-site-config.toml#L30).
 
       To create an IP Block, the user must make a call to the [Create IP Block endpoint](#tag/IP-Block/operation/create-ipblock).
 
@@ -116,8 +116,8 @@ tags:
       Deprecation history:
 
       - `name` attribute was deprecated and was removed on August 17th, 2023 0:00 UTC. Please use `orgDisplayName` instead.
-      - `POST /org/:orgName/carbide/infrastructure-provider` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Providers are automatically created when retrieved by a Provider Admin.
-      - `PATCH /org/:orgName/carbide/infrastructure-provider/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Provider details are populated from Org information and cannot be updated by the user.
+      - `POST /org/:orgName/nico/infrastructure-provider` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Providers are automatically created when retrieved by a Provider Admin.
+      - `PATCH /org/:orgName/nico/infrastructure-provider/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Provider details are populated from Org information and cannot be updated by the user.
   - name: Tenant
     description: |-
       Tenant is the anchor entity for an organization that consumes Network and Compute resources on a Site.
@@ -126,8 +126,8 @@ tags:
 
       - `name` attribute was deprecated and was removed on August 17th, 2023. Please use `orgDisplayName` instead.
       - `enableSSHAccess` attribute was deprecated and was removed on August 17th, 2023 0:00 UTC. Please use 'isSerialConsoleSSHKeysEnabled' attribute of Site instead.
-      - `POST /org/:orgName/carbide/tenant` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenants are automatically created when retrieved by a Tenant Admin.
-      - `PATCH /org/:orgName/carbide/tenant/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenant details are populated from Org information and cannot be updated by the user.
+      - `POST /org/:orgName/nico/tenant` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenants are automatically created when retrieved by a Tenant Admin.
+      - `PATCH /org/:orgName/nico/tenant/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenant details are populated from Org information and cannot be updated by the user.
   - name: Tenant Account
     description: Tenant Account connects a Tenant with an Infrastructure Provider. It represents/contains any information pertaining to their relationship.
   - name: Site
@@ -250,14 +250,14 @@ tags:
 
       Infrastructure Provider:
       - `name` attribute was deprecated and was removed on August 17th, 2023 0:00 UTC. Please use `orgDisplayName` instead.
-      - `POST /org/:orgName/carbide/infrastructure-provider` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Providers are automatically created when retrieved by a Provider Admin.
-      - `PATCH /org/:orgName/carbide/infrastructure-provider/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Provider details are populated from Org information and cannot be updated by user.
+      - `POST /org/:orgName/nico/infrastructure-provider` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Providers are automatically created when retrieved by a Provider Admin.
+      - `PATCH /org/:orgName/nico/infrastructure-provider/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Infrastructure Provider details are populated from Org information and cannot be updated by user.
 
       Tenant:
       - `name` attribute was deprecated and was removed on August 17th, 2023. Please use `orgDisplayName` instead.
       - `enableSSHAccess` attribute was deprecated and was removed on August 17th, 2023 0:00 UTC. Please use 'isSerialConsoleSSHKeysEnabled' attribute of Site instead.
-      - `POST /org/:orgName/carbide/tenant` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenants are automatically created when retrieved by a Tenant Admin.
-      - `PATCH /org/:orgName/carbide/tenant/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenant details are populated from Org information and cannot be updated by user.
+      - `POST /org/:orgName/nico/tenant` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenants are automatically created when retrieved by a Tenant Admin.
+      - `PATCH /org/:orgName/nico/tenant/current` endpoint was deprecated and was removed on August 17th, 2023 0:00 UTC. Tenant details are populated from Org information and cannot be updated by user.
 
       Instance Type:
       - `includeMachineAssociation` was deprecated in favor of `includeMachineAssignment` and was removed on July 26th, 2023 0:00 UTC. Please use `includeMachineAssignment` instead.
@@ -274,7 +274,7 @@ tags:
       Subnet:
       - `ipBlockSize` was deprecated in favor of `prefixLength` and was removed on April 15th, 2023 0:00 UTC. Please use `prefixLength` instead.
 paths:
-  '/v2/org/{org}/carbide/service-account/current':
+  '/v2/org/{org}/nico/service-account/current':
     parameters:
       - schema:
           type: string
@@ -301,7 +301,7 @@ paths:
       parameters: []
       tags:
         - Service Account
-  '/v2/org/{org}/carbide/infrastructure-provider/current':
+  '/v2/org/{org}/nico/infrastructure-provider/current':
     parameters:
       - schema:
           type: string
@@ -332,11 +332,11 @@ paths:
       description: |-
         Retrieve Infrastructure Provider entity for current Org.
 
-        User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        User must have `NICO_PROVIDER_ADMIN` authorization role.
       parameters: []
       tags:
         - Infrastructure Provider
-  '/v2/org/{org}/carbide/infrastructure-provider/current/stats':
+  '/v2/org/{org}/nico/infrastructure-provider/current/stats':
     parameters:
       - schema:
           type: string
@@ -359,11 +359,11 @@ paths:
       description: |-
         Retrieve stats for current Infrastructure Provider.
 
-        User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        User must have `NICO_PROVIDER_ADMIN` authorization role.
       parameters: []
       tags:
         - Infrastructure Provider
-  '/v2/org/{org}/carbide/tenant/current':
+  '/v2/org/{org}/nico/tenant/current':
     parameters:
       - schema:
           type: string
@@ -398,9 +398,9 @@ paths:
       description: |-
         Retrieve Tenant entity for current Org.
 
-        User must have `FORGE_TENANT_ADMIN` authorization role.
+        User must have `NICO_TENANT_ADMIN` authorization role.
       parameters: []
-  '/v2/org/{org}/carbide/tenant/current/stats':
+  '/v2/org/{org}/nico/tenant/current/stats':
     parameters:
       - schema:
           type: string
@@ -425,9 +425,9 @@ paths:
       description: |-
         Retrieve stats for current Tenant.
 
-        User must have `FORGE_TENANT_ADMIN` authorization role.
+        User must have `NICO_TENANT_ADMIN` authorization role.
       parameters: []
-  '/v2/org/{org}/carbide/tenant/account':
+  '/v2/org/{org}/nico/tenant/account':
     parameters:
       - schema:
           type: string
@@ -486,9 +486,9 @@ paths:
 
         Either `infrastructureProviderId` or `tenantId` query param must be specified.
 
-        If `infrastructureProviderId` query param is provided, then org must have an Infrastructure Provider entity and its ID should match the query param value. User must have `FORGE_PROVIDER_ADMIN` role.
+        If `infrastructureProviderId` query param is provided, then org must have an Infrastructure Provider entity and its ID should match the query param value. User must have `NICO_PROVIDER_ADMIN` role.
 
-        If `tenantId` query param is provided, then org must have a Tenant entity and its ID should match the query param value. User must have `FORGE_TENANT_ADMIN` role.
+        If `tenantId` query param is provided, then org must have a Tenant entity and its ID should match the query param value. User must have `NICO_TENANT_ADMIN` role.
       parameters:
         - schema:
             type: string
@@ -594,7 +594,7 @@ paths:
       description: |-
         Create a Tenant Account.
 
-        Org must have an Infrastructure Provider entity and its ID must match the Infrastructure Provider ID in request data. User must have `FORGE_PROVIDER_ADMIN` authorization role
+        Org must have an Infrastructure Provider entity and its ID must match the Infrastructure Provider ID in request data. User must have `NICO_PROVIDER_ADMIN` authorization role
 
         Infrastructure Provider can create a Tenant Account by specifying the Tenant's UUID or Tenant's org name. This will set the status of the Tenant Account to "Invited". Then the Tenant can view this account information and are able to confirm/accept the account by updating the Tenant Account.
       requestBody:
@@ -609,7 +609,7 @@ paths:
                   tenantOrg: rf43bbtnb9c5
       tags:
         - Tenant Account
-  '/v2/org/{org}/carbide/tenant/account/{accountId}':
+  '/v2/org/{org}/nico/tenant/account/{accountId}':
     parameters:
       - schema:
           type: string
@@ -671,9 +671,9 @@ paths:
 
         Either `infrastructureProviderId` or `tenantId` query param must be specified.
 
-        If `infrastructureProviderId` query param is provided, then org must have an Infrastructure Provider entity and its ID should match the query param value. User must have `FORGE_PROVIDER_ADMIN` role.
+        If `infrastructureProviderId` query param is provided, then org must have an Infrastructure Provider entity and its ID should match the query param value. User must have `NICO_PROVIDER_ADMIN` role.
 
-        If `tenantId` query param is provided, then org must have a Tenant entity and its ID should match the query param value. User must have `FORGE_TENANT_ADMIN` role.
+        If `tenantId` query param is provided, then org must have a Tenant entity and its ID should match the query param value. User must have `NICO_TENANT_ADMIN` role.
       parameters:
         - schema:
             type: string
@@ -744,7 +744,7 @@ paths:
 
         Can be used to accept an invitation sent by Infrastructure Provider.
 
-        Org must have a tenant entity whose ID matches the `tenantId` of the Tenant Account object. User must have `FORGE_TENANT_ADMIN` role. Can only update a TenantAccount that has `Invited` status.
+        Org must have a tenant entity whose ID matches the `tenantId` of the Tenant Account object. User must have `NICO_TENANT_ADMIN` role. Can only update a TenantAccount that has `Invited` status.
       requestBody:
         content:
           application/json:
@@ -765,12 +765,12 @@ paths:
       description: |-
         Delete a Tenant Account by ID.
 
-        Org must have an Infrastructure Provider entity, specified Tenant Account must be created by said Provider. Requesting user must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity, specified Tenant Account must be created by said Provider. Requesting user must have `NICO_PROVIDER_ADMIN` role.
 
         Tenant cannot delete a Tenant Account.
       tags:
         - Tenant Account
-  '/v2/org/{org}/carbide/site':
+  '/v2/org/{org}/nico/site':
     parameters:
       - schema:
           type: string
@@ -803,7 +803,7 @@ paths:
       description: |-
         Retrieve all Sites for org.
 
-        User must have `FORGE_PROVIDER_ADMIN` or `FORGE_TENANT_ADMIN` role. `infrastructureProviderId` or `tenantId` query param may be required for older API versions.
+        User must have `NICO_PROVIDER_ADMIN` or `NICO_TENANT_ADMIN` role. `infrastructureProviderId` or `tenantId` query param may be required for older API versions.
       parameters:
         - schema:
             type: string
@@ -912,7 +912,7 @@ paths:
       description: |-
         Create a Site for the org.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
 
         Tenants cannot create Sites.
       requestBody:
@@ -933,7 +933,7 @@ paths:
                     email: johndoe@nvidia.com
       tags:
         - Site
-  '/v2/org/{org}/carbide/site/{siteId}':
+  '/v2/org/{org}/nico/site/{siteId}':
     parameters:
       - schema:
           type: string
@@ -965,7 +965,7 @@ paths:
       description: |-
         Retrieve a specific Site by ID.
 
-        User must have `FORGE_PROVIDER_ADMIN` or `FORGE_TENANT_ADMIN` role.
+        User must have `NICO_PROVIDER_ADMIN` or `NICO_TENANT_ADMIN` role.
 
         Access is granted if:
         - The Site is owned by the org's Infrastructure Provider
@@ -987,7 +987,7 @@ paths:
       description: |-
         Update a specific Site
 
-        User must have `FORGE_PROVIDER_ADMIN` role.
+        User must have `NICO_PROVIDER_ADMIN` role.
 
         Infrastructure Provider updating the Site must be the owner of the Site. At present, there are no Site specific configuration modifiable by Tenant.
       requestBody:
@@ -1001,7 +1001,7 @@ paths:
                   name: San Jose Central No.4
                   description: Datacenter 4 serving central San Jose
                   renewRegistrationToken: true
-                  serialConsoleHostname: sol.carbide.acme.com
+                  serialConsoleHostname: sol.nico.acme.com
                   location:
                     city: San Jose
                     state: CA
@@ -1024,7 +1024,7 @@ paths:
       description: |-
         Delete a specific Site
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
 
         Site can only be deleted if all Allocations have been deleted.
       parameters:
@@ -1033,7 +1033,7 @@ paths:
           in: query
           name: purgeMachines
           description: Scrub all Machine data associated with this Site to re-pair
-  '/v2/org/{org}/carbide/site/{siteId}/status-history':
+  '/v2/org/{org}/nico/site/{siteId}/status-history':
     parameters:
       - schema:
           type: string
@@ -1079,7 +1079,7 @@ paths:
       description: |-
         Retrieve a specific Site status history
 
-        User must have `FORGE_PROVIDER_ADMIN` or `FORGE_TENANT_ADMIN` role.
+        User must have `NICO_PROVIDER_ADMIN` or `NICO_TENANT_ADMIN` role.
 
         Access is granted if:
         - The Site is owned by the org's Infrastructure Provider
@@ -1101,7 +1101,7 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
-  '/v2/org/{org}/carbide/allocation':
+  '/v2/org/{org}/nico/allocation':
     parameters:
       - schema:
           type: string
@@ -1166,7 +1166,7 @@ paths:
       description: |-
         Retrieve all Allocations for the org.
 
-        Provider and Tenant roles are inferred from the org's membership. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_TENANT_ADMIN` role.
+        Provider and Tenant roles are inferred from the org's membership. User must have `NICO_PROVIDER_ADMIN` or `NICO_TENANT_ADMIN` role.
 
         Results are returned from both Provider and Tenant perspectives when the org has both roles.
       parameters:
@@ -1324,7 +1324,7 @@ paths:
       description: |-
         Create an Allocation for the org.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` role.
 
         Tenant management of Allocation is not supported in MVP.
       requestBody:
@@ -1346,7 +1346,7 @@ paths:
                       constraintValue: 10
       tags:
         - Allocation
-  '/v2/org/{org}/carbide/allocation/{allocationId}':
+  '/v2/org/{org}/nico/allocation/{allocationId}':
     parameters:
       - schema:
           type: string
@@ -1412,7 +1412,7 @@ paths:
 
         Provider and Tenant roles are inferred from the org's membership. Allocation must belong to the Provider or Tenant associated with the org.
 
-        User must have `FORGE_PROVIDER_ADMIN` or `FORGE_TENANT_ADMIN` role.
+        User must have `NICO_PROVIDER_ADMIN` or `NICO_TENANT_ADMIN` role.
       parameters:
         - schema:
             type: string
@@ -1446,7 +1446,7 @@ paths:
       description: |-
         Delete an Allocation by ID.
 
-        Org must have an Infrastructure Provider entity, specified Allocation must be created by said Provider. Requesting user must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity, specified Allocation must be created by said Provider. Requesting user must have `NICO_PROVIDER_ADMIN` role.
 
         Tenant management of Allocation is not supported in MVP.
       tags:
@@ -1491,7 +1491,7 @@ paths:
       description: |-
         Update an existing Allocation
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role. Provider must own the Allocation.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` role. Provider must own the Allocation.
 
         Tenant management of Allocation is not supported in MVP.
       tags:
@@ -1506,7 +1506,7 @@ paths:
                 value:
                   name: Echo Studios Compute
                   description: Echo Studios compute resource allocation in SJC4
-  '/v2/org/{org}/carbide/allocation/{allocationId}/constraint':
+  '/v2/org/{org}/nico/allocation/{allocationId}/constraint':
     parameters:
       - schema:
           type: string
@@ -1561,9 +1561,9 @@ paths:
       description: |-
         Retrieve all Allocation Constraints for a given Allocation ID.
 
-        If org has an Infrastructure Provider entity, then specified Allocation must have been created by the Provider and requesting user must have `FORGE_PROVIDER_ADMIN` role.
+        If org has an Infrastructure Provider entity, then specified Allocation must have been created by the Provider and requesting user must have `NICO_PROVIDER_ADMIN` role.
 
-        If org does not have an Infrastructure Provider entity but has a Tenant entity, then specified Allocation must belong to the Tenant and requesting user must have `FORGE_TENANT_ADMIN` role.
+        If org does not have an Infrastructure Provider entity but has a Tenant entity, then specified Allocation must belong to the Tenant and requesting user must have `NICO_TENANT_ADMIN` role.
       parameters:
         - schema:
             type: integer
@@ -1629,7 +1629,7 @@ paths:
       description: |-
         Create an Allocation Constraint for a given Allocation ID.
 
-        Org must have an Infrastructure Provider entity and specified Allocation must have been created by the Provider. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity and specified Allocation must have been created by the Provider. User must have `NICO_PROVIDER_ADMIN` role.
       requestBody:
         content:
           application/json:
@@ -1644,7 +1644,7 @@ paths:
                   constraintValue: 10
       tags:
         - Allocation
-  '/v2/org/{org}/carbide/allocation/{allocationId}/constraint/{allocationConstraintId}':
+  '/v2/org/{org}/nico/allocation/{allocationId}/constraint/{allocationConstraintId}':
     parameters:
       - schema:
           type: string
@@ -1701,9 +1701,9 @@ paths:
       description: |-
         Retrieve an Allocation Constraint for a given Allocation ID.
 
-        If org has an Infrastructure Provider entity, then specified Allocation must have been created by the Provider and requesting user must have `FORGE_PROVIDER_ADMIN` role.
+        If org has an Infrastructure Provider entity, then specified Allocation must have been created by the Provider and requesting user must have `NICO_PROVIDER_ADMIN` role.
 
-        If org does not have an Infrastructure Provider entity but has a Tenant entity, then specified Allocation must belong to the Tenant and requesting user must have `FORGE_TENANT_ADMIN` role.
+        If org does not have an Infrastructure Provider entity but has a Tenant entity, then specified Allocation must belong to the Tenant and requesting user must have `NICO_TENANT_ADMIN` role.
       parameters: []
     patch:
       summary: Update Allocation Constraint
@@ -1735,7 +1735,7 @@ paths:
       description: |
         Update an existing Allocation Constraint by ID
 
-        Org must have an Infrastructure Provider. Specified Allocation must have been created by the Provider and requesting user must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider. Specified Allocation must have been created by the Provider and requesting user must have `NICO_PROVIDER_ADMIN` role.
 
         Modifying allocations may not be possible if Tenant has started utilizing resources from this allocation.
 
@@ -1762,10 +1762,10 @@ paths:
       description: |
         Delete an existing Allocation Constraint by ID
 
-        Org must have an Infrastructure Provider. Specified Allocation must have been created by the Provider and requesting user must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider. Specified Allocation must have been created by the Provider and requesting user must have `NICO_PROVIDER_ADMIN` role.
       tags:
         - Allocation
-  '/v2/org/{org}/carbide/ipblock':
+  '/v2/org/{org}/nico/ipblock':
     parameters:
       - schema:
           type: string
@@ -1819,7 +1819,7 @@ paths:
       description: |-
         Retrieve all IP blocks for the org.
 
-        User must have `FORGE_PROVIDER_ADMIN` or `FORGE_TENANT_ADMIN` role. `infrastructureProviderId` or `tenantId` query param may be required for older API versions.
+        User must have `NICO_PROVIDER_ADMIN` or `NICO_TENANT_ADMIN` role. `infrastructureProviderId` or `tenantId` query param may be required for older API versions.
       parameters:
         - schema:
             type: string
@@ -1933,7 +1933,7 @@ paths:
       description: |-
         Create an IP block for the org.
 
-        Only Infrastructure Providers can create a root IP Block. User must have `FORGE_PROVIDER_ADMIN` role.
+        Only Infrastructure Providers can create a root IP Block. User must have `NICO_PROVIDER_ADMIN` role.
 
         Tenant IP Blocks are created via Allocation.
       requestBody:
@@ -1953,7 +1953,7 @@ paths:
                   protocolVersion: IPv4
       tags:
         - IP Block
-  '/v2/org/{org}/carbide/ipblock/{ipBlockId}':
+  '/v2/org/{org}/nico/ipblock/{ipBlockId}':
     parameters:
       - schema:
           type: string
@@ -2012,7 +2012,7 @@ paths:
       description: |-
         Retrieve an IP Block by ID.
 
-        User must have `FORGE_PROVIDER_ADMIN` or `FORGE_TENANT_ADMIN` role.
+        User must have `NICO_PROVIDER_ADMIN` or `NICO_TENANT_ADMIN` role.
       parameters:
         - schema:
             type: string
@@ -2053,7 +2053,7 @@ paths:
       description: |-
         Delete an IP block
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role. Only root IP Blocks can be deleted if there are no allocations associated with it.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` role. Only root IP Blocks can be deleted if there are no allocations associated with it.
 
         Tenant IP Blocks are managed via Allocation.
       tags:
@@ -2092,7 +2092,7 @@ paths:
       description: |-
         Update an existing IP Block
 
-        Org must have an Infrastructure Provider. Specified IP Block must have been created by the Provider and requesting user must have `FORGE_PROVIDER_ADMIN` role. Only root IP Blocks can be patched.
+        Org must have an Infrastructure Provider. Specified IP Block must have been created by the Provider and requesting user must have `NICO_PROVIDER_ADMIN` role. Only root IP Blocks can be patched.
 
         Tenant IP Blocks are managed via Allocation.
       requestBody:
@@ -2107,7 +2107,7 @@ paths:
                   description: This is the primary IP overlay for SJC-4. All IPs are publicly routable
       tags:
         - IP Block
-  '/v2/org/{org}/carbide/ipblock/{ipBlockId}/derived':
+  '/v2/org/{org}/nico/ipblock/{ipBlockId}/derived':
     parameters:
       - schema:
           type: string
@@ -2169,7 +2169,7 @@ paths:
 
         The IP Block in URL must belong to the Infrastructure Provider associated with the Org.
 
-        User must have `FORGE_PROVIDER_ADMIN` role.
+        User must have `NICO_PROVIDER_ADMIN` role.
       parameters:
         - schema:
             type: string
@@ -2222,7 +2222,7 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
-  '/v2/org/{org}/carbide/vpc':
+  '/v2/org/{org}/nico/vpc':
     parameters:
       - schema:
           type: string
@@ -2294,7 +2294,7 @@ paths:
       description: |-
         Retrieve all VPCs for the org.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role
       parameters:
         - schema:
             type: string
@@ -2405,7 +2405,7 @@ paths:
       description: |-
         Create a VPC for the org.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role
       requestBody:
         content:
           application/json:
@@ -2427,7 +2427,7 @@ paths:
         description: ''
       tags:
         - VPC
-  '/v2/org/{org}/carbide/vpc/{vpcId}':
+  '/v2/org/{org}/nico/vpc/{vpcId}':
     parameters:
       - schema:
           type: string
@@ -2498,7 +2498,7 @@ paths:
       description: |-
         Retrieve a specific VPC by ID.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` role.
       parameters:
         - schema:
             type: string
@@ -2521,7 +2521,7 @@ paths:
       description: |-
         Delete a specific VPC by ID.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       tags:
         - VPC
     patch:
@@ -2568,7 +2568,7 @@ paths:
       description: |-
         Update an existing VPC
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role
       requestBody:
         content:
           application/json:
@@ -2582,7 +2582,7 @@ paths:
                   labels:
                     region: us-west-1
                     env: dev
-  '/v2/org/{org}/carbide/vpc/{vpcId}/virtualization':
+  '/v2/org/{org}/nico/vpc/{vpcId}/virtualization':
     parameters:
       - schema:
           type: string
@@ -2641,7 +2641,7 @@ paths:
       description: |-
         Update network virtualization type for a VPC
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role
 
         Tenant must own the VPC
         Request is rejected if the VPC already has Subnets or Instances
@@ -2654,7 +2654,7 @@ paths:
               Example 1:
                 value:
                   networkVirtualizationType: FNN
-  '/v2/org/{org}/carbide/vpc-peering':
+  '/v2/org/{org}/nico/vpc-peering':
     parameters:
       - schema:
           type: string
@@ -2690,7 +2690,7 @@ paths:
         Get all VPC peerings.
         Tenant Admin can get all peerings where the tenant owns at least one VPC.
         Provider Admin can get all peerings in a site.
-        User must have `FORGE_TENANT_ADMIN` or `FORGE_PROVIDER_ADMIN` role.
+        User must have `NICO_TENANT_ADMIN` or `NICO_PROVIDER_ADMIN` role.
       parameters:
         - schema:
             type: string
@@ -2747,7 +2747,7 @@ paths:
         Tenant Admin can create single-tenant peerings (both VPCs belong to their tenant).
         Provider Admin can create multi-tenant peerings (VPCs from different tenants).
 
-        User must have `FORGE_TENANT_ADMIN` or `FORGE_PROVIDER_ADMIN` role.
+        User must have `NICO_TENANT_ADMIN` or `NICO_PROVIDER_ADMIN` role.
       requestBody:
         content:
           application/json:
@@ -2773,7 +2773,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
-  '/v2/org/{org}/carbide/vpc-peering/{id}':
+  '/v2/org/{org}/nico/vpc-peering/{id}':
     parameters:
       - schema:
           type: string
@@ -2799,7 +2799,7 @@ paths:
         Tenant Admin can get a peering if at least one VPC belongs to their tenant.
         Provider Admin can get a peering if it is in a site provided by their org.
 
-        User must have `FORGE_TENANT_ADMIN` or `FORGE_PROVIDER_ADMIN` role.
+        User must have `NICO_TENANT_ADMIN` or `NICO_PROVIDER_ADMIN` role.
       responses:
         '200':
           description: OK
@@ -2835,7 +2835,7 @@ paths:
         Tenant Admin can delete only peerings where both VPCs belong to their tenant.
         Provider Admin can delete only multi-tenant peerings in sites they provide.
 
-        User must have `FORGE_TENANT_ADMIN` or `FORGE_PROVIDER_ADMIN` role.
+        User must have `NICO_TENANT_ADMIN` or `NICO_PROVIDER_ADMIN` role.
       responses:
         '204':
           description: No Content
@@ -2845,7 +2845,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
-  '/v2/org/{org}/carbide/vpc-prefix':
+  '/v2/org/{org}/nico/vpc-prefix':
     parameters:
       - schema:
           type: string
@@ -2878,7 +2878,7 @@ paths:
       description: |-
         Retrieve all VPC Prefixes for the org
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` role.
       parameters:
         - schema:
             type: string
@@ -2958,7 +2958,7 @@ paths:
       description: |-
         Create a VPC Prefix for the org.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       requestBody:
         content:
           application/json:
@@ -2966,7 +2966,7 @@ paths:
               $ref: '#/components/schemas/VpcPrefixCreateRequest'
       tags:
         - VPC Prefix
-  '/v2/org/{org}/carbide/vpc-prefix/{vpcPrefixId}':
+  '/v2/org/{org}/nico/vpc-prefix/{vpcPrefixId}':
     parameters:
       - schema:
           type: string
@@ -2998,7 +2998,7 @@ paths:
       description: |-
         Retrieve a specific VPC Prefix
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` role.
       parameters:
         - schema:
             type: string
@@ -3020,7 +3020,7 @@ paths:
       description: |-
         Delete a specific VPC Prefix by ID.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` role.
       tags:
         - VPC Prefix
     patch:
@@ -3042,13 +3042,13 @@ paths:
       description: |
         Update an existing VPC Prefix
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       requestBody:
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/VpcPrefixUpdateRequest'
-  '/v2/org/{org}/carbide/subnet':
+  '/v2/org/{org}/nico/subnet':
     parameters:
       - schema:
           type: string
@@ -3110,7 +3110,7 @@ paths:
       description: |-
         Retrieve all Subnets for the org
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` role.
       parameters:
         - schema:
             type: string
@@ -3216,7 +3216,7 @@ paths:
       description: |-
         Create a Subnet for the org.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
 
         At least 1 IPv4 IP block or 1 IPv6 IP block must be specified.
       requestBody:
@@ -3233,7 +3233,7 @@ paths:
                   prefixLength: 20
       tags:
         - Subnet
-  '/v2/org/{org}/carbide/subnet/{subnetId}':
+  '/v2/org/{org}/nico/subnet/{subnetId}':
     parameters:
       - schema:
           type: string
@@ -3294,7 +3294,7 @@ paths:
       description: |-
         Retrieve a specific Subnet
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` role.
       parameters:
         - schema:
             type: string
@@ -3317,7 +3317,7 @@ paths:
       description: |-
         Delete a specific Subnet by ID.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` role.
       tags:
         - Subnet
     patch:
@@ -3365,7 +3365,7 @@ paths:
       description: |
         Update an existing Subnet
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       requestBody:
         content:
           application/json:
@@ -3376,7 +3376,7 @@ paths:
                 value:
                   name: spark-gpu-subnet
                   description: Subnet for dedicated GPU nodes
-  '/v2/org/{org}/carbide/expected-machine':
+  '/v2/org/{org}/nico/expected-machine':
     parameters:
       - schema:
           type: string
@@ -3390,7 +3390,7 @@ paths:
       description: |-
         Create an Expected Machine to pre-register Machines expected to be discovered at a Site.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` role.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also create Expected Machines if they have an account with the Site's Infrastructure Provider.
       requestBody:
@@ -3433,7 +3433,7 @@ paths:
       description: |-
         Retrieve all Expected Machines.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_PROVIDER_VIEWER` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` or `NICO_PROVIDER_VIEWER` role.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Machines if they have an account with the Site's Infrastructure Provider (siteId query parameter is required for Tenants).
       parameters:
@@ -3502,7 +3502,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Expected Machine
-  '/v2/org/{org}/carbide/expected-machine/{expectedMachineId}':
+  '/v2/org/{org}/nico/expected-machine/{expectedMachineId}':
     parameters:
       - schema:
           type: string
@@ -3522,7 +3522,7 @@ paths:
       description: |-
         Retrieve a specific Expected Machine by ID.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_PROVIDER_VIEWER` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` or `NICO_PROVIDER_VIEWER` role.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Machines if they have an account with the Site's Infrastructure Provider.
       parameters:
@@ -3555,7 +3555,7 @@ paths:
       description: |-
         Update an existing Expected Machine by ID.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` role.
 
         Infrastructure Provider must own the Expected Machine.
 
@@ -3598,7 +3598,7 @@ paths:
       description: |-
         Delete an existing Expected Machine by ID.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` role.
 
         Infrastructure Provider must own the Expected Machine.
 
@@ -3615,7 +3615,7 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Expected Machine
-  '/v2/org/{org}/carbide/expected-machine/batch':
+  '/v2/org/{org}/nico/expected-machine/batch':
     parameters:
       - schema:
           type: string
@@ -3629,7 +3629,7 @@ paths:
       description: |-
         Create multiple Expected Machines in a single request. All machines must belong to the same site.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` role.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also create Expected Machines if they have an account with the Site's Infrastructure Provider.
 
@@ -3691,7 +3691,7 @@ paths:
       description: |-
         Update multiple Expected Machines in a single request. All machines must belong to the same site.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` role.
 
         Infrastructure Provider must own the Expected Machines.
 
@@ -3744,10 +3744,10 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CarbideAPIError'
+                $ref: '#/components/schemas/NicoAPIError'
       tags:
         - Expected Machine
-  '/v2/org/{org}/carbide/expected-power-shelf':
+  '/v2/org/{org}/nico/expected-power-shelf':
     parameters:
       - schema:
           type: string
@@ -3761,7 +3761,7 @@ paths:
       description: |-
         Create an Expected Power Shelf to pre-register power shelves expected to be discovered at a Site.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` role.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also create Expected Power Shelves if they have an account with the Site's Infrastructure Provider.
       requestBody:
@@ -3802,7 +3802,7 @@ paths:
       description: |-
         Retrieve all Expected Power Shelves.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_PROVIDER_VIEWER` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` or `NICO_PROVIDER_VIEWER` role.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Power Shelves if they have an account with the Site's Infrastructure Provider (siteId query parameter is required for Tenants).
       parameters:
@@ -3870,7 +3870,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Expected Power Shelf
-  '/v2/org/{org}/carbide/expected-power-shelf/{expectedPowerShelfId}':
+  '/v2/org/{org}/nico/expected-power-shelf/{expectedPowerShelfId}':
     parameters:
       - schema:
           type: string
@@ -3890,7 +3890,7 @@ paths:
       description: |-
         Retrieve a specific Expected Power Shelf by ID.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_PROVIDER_VIEWER` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` or `NICO_PROVIDER_VIEWER` role.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Power Shelves if they have an account with the Site's Infrastructure Provider.
       parameters:
@@ -3922,7 +3922,7 @@ paths:
       description: |-
         Update an existing Expected Power Shelf by ID.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` role.
 
         Infrastructure Provider must own the Expected Power Shelf.
 
@@ -3966,7 +3966,7 @@ paths:
       description: |-
         Delete an existing Expected Power Shelf by ID.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` role.
 
         Infrastructure Provider must own the Expected Power Shelf.
 
@@ -3983,7 +3983,7 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Expected Power Shelf
-  '/v2/org/{org}/carbide/expected-switch':
+  '/v2/org/{org}/nico/expected-switch':
     parameters:
       - schema:
           type: string
@@ -3997,7 +3997,7 @@ paths:
       description: |-
         Create an Expected Switch to pre-register network switches expected to be discovered at a Site.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` role.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also create Expected Switches if they have an account with the Site's Infrastructure Provider.
       requestBody:
@@ -4039,7 +4039,7 @@ paths:
       description: |-
         Retrieve all Expected Switches.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_PROVIDER_VIEWER` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` or `NICO_PROVIDER_VIEWER` role.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Switches if they have an account with the Site's Infrastructure Provider (siteId query parameter is required for Tenants).
       parameters:
@@ -4107,7 +4107,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Expected Switch
-  '/v2/org/{org}/carbide/expected-switch/{expectedSwitchId}':
+  '/v2/org/{org}/nico/expected-switch/{expectedSwitchId}':
     parameters:
       - schema:
           type: string
@@ -4127,7 +4127,7 @@ paths:
       description: |-
         Retrieve a specific Expected Switch by ID.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_PROVIDER_VIEWER` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` or `NICO_PROVIDER_VIEWER` role.
 
         Alternatively, Tenant Admins with `TargetedInstanceCreation` capability can also retrieve Expected Switches if they have an account with the Site's Infrastructure Provider.
       parameters:
@@ -4159,7 +4159,7 @@ paths:
       description: |-
         Update an existing Expected Switch by ID.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` role.
 
         Infrastructure Provider must own the Expected Switch.
 
@@ -4204,7 +4204,7 @@ paths:
       description: |-
         Delete an existing Expected Switch by ID.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` role.
 
         Infrastructure Provider must own the Expected Switch.
 
@@ -4221,7 +4221,7 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Expected Switch
-  '/v2/org/{org}/carbide/sku':
+  '/v2/org/{org}/nico/sku':
     parameters:
       - schema:
           type: string
@@ -4239,9 +4239,9 @@ paths:
 
         A `siteId` query parameter is required for all requests.
 
-        For Infrastructure Providers: Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_PROVIDER_VIEWER` role.
+        For Infrastructure Providers: Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` or `NICO_PROVIDER_VIEWER` role.
 
-        For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled. User must have `FORGE_TENANT_ADMIN` role. The Tenant must have an account with the Site's Infrastructure Provider.
+        For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled. User must have `NICO_TENANT_ADMIN` role. The Tenant must have an account with the Site's Infrastructure Provider.
       parameters:
         - schema:
             type: string
@@ -4332,7 +4332,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - SKU
-  '/v2/org/{org}/carbide/sku/{skuId}':
+  '/v2/org/{org}/nico/sku/{skuId}':
     parameters:
       - schema:
           type: string
@@ -4354,9 +4354,9 @@ paths:
 
         SKUs represent unique hardware configurations discovered at sites. They are automatically derived from machine characteristics.
 
-        For Infrastructure Providers: Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_PROVIDER_VIEWER` role.
+        For Infrastructure Providers: Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` or `NICO_PROVIDER_VIEWER` role.
 
-        For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled. User must have `FORGE_TENANT_ADMIN` role. The Tenant must have an account with the SKU's Site's Infrastructure Provider.
+        For Tenants: Org must have a Tenant with `TargetedInstanceCreation` capability enabled. User must have `NICO_TENANT_ADMIN` role. The Tenant must have an account with the SKU's Site's Infrastructure Provider.
       responses:
         '200':
           description: OK
@@ -4405,7 +4405,7 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - SKU
-  '/v2/org/{org}/carbide/infiniband-partition':
+  '/v2/org/{org}/nico/infiniband-partition':
     parameters:
       - schema:
           type: string
@@ -4462,7 +4462,7 @@ paths:
       description: |-
         Retrieve all InfiniBand Partitions for the org
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` role.
       parameters:
         - schema:
             type: string
@@ -4564,7 +4564,7 @@ paths:
       description: |-
         Create an InfiniBand Partition for the org.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       requestBody:
         content:
           application/json:
@@ -4580,7 +4580,7 @@ paths:
                     team: devops
       tags:
         - InfiniBand Partition
-  '/v2/org/{org}/carbide/infiniband-partition/{infiniBandPartitionId}':
+  '/v2/org/{org}/nico/infiniband-partition/{infiniBandPartitionId}':
     parameters:
       - schema:
           type: string
@@ -4635,7 +4635,7 @@ paths:
       description: |-
         Retrieve a specific InfiniBand Partition
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` role.
 
         Tenant must own the Partition.
       parameters:
@@ -4661,7 +4661,7 @@ paths:
       description: |-
         Delete a specific InfiniBand Partition by ID.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` role.
 
         Tenant must own the Partition.
       tags:
@@ -4709,7 +4709,7 @@ paths:
       description: |-
         Update an existing InfiniBand Partition
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
 
         Tenant must own the Partition.
       requestBody:
@@ -4727,7 +4727,7 @@ paths:
                     team: devops
       tags:
         - InfiniBand Partition
-  '/v2/org/{org}/carbide/nvlink-logical-partition':
+  '/v2/org/{org}/nico/nvlink-logical-partition':
     parameters:
       - schema:
           type: string
@@ -4774,7 +4774,7 @@ paths:
       description: |-
         Retrieve all NVLink Logical Partitions for the org
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` role.
       parameters:
         - schema:
             type: string
@@ -4878,7 +4878,7 @@ paths:
       description: |-
         Create an NVLink Logical Partition for the org.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` NGC role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` NGC role.
       requestBody:
         content:
           application/json:
@@ -4891,7 +4891,7 @@ paths:
                   siteId: 69dae3c8-3554-4a1f-b391-858c6dc47fff
       tags:
         - NVLink Logical Partition
-  '/v2/org/{org}/carbide/nvlink-logical-partition/{nvLinkLogicalPartitionId}':
+  '/v2/org/{org}/nico/nvlink-logical-partition/{nvLinkLogicalPartitionId}':
     parameters:
       - schema:
           type: string
@@ -4920,7 +4920,7 @@ paths:
       description: |-
         Retrieve a specific NVLink Logical Partition by ID
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` NGC role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` NGC role.
       tags:
         - NVLink Logical Partition
       parameters:
@@ -4964,7 +4964,7 @@ paths:
       description: |-
         Update a specific NVLink Logical Partition
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` NGC role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` NGC role.
       requestBody:
         content:
           application/json:
@@ -4983,10 +4983,10 @@ paths:
       description: |-
         Delete an NVLink Logical Partition by ID
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` NGC role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` NGC role.
       tags:
         - NVLink Logical Partition
-  '/v2/org/{org}/carbide/instance/type':
+  '/v2/org/{org}/nico/instance/type':
     parameters:
       - schema:
           type: string
@@ -5117,7 +5117,7 @@ paths:
       description: |
         Get all Instance Types for the org.
 
-        Provider and Tenant roles are inferred from the org's membership. User must have `FORGE_PROVIDER_ADMIN` or `FORGE_TENANT_ADMIN` role.
+        Provider and Tenant roles are inferred from the org's membership. User must have `NICO_PROVIDER_ADMIN` or `NICO_TENANT_ADMIN` role.
 
         Results are returned from both Provider and Tenant perspectives when the org has both roles.
       parameters:
@@ -5261,7 +5261,7 @@ paths:
       description: |
         Create an Instance Type for Infrastructure Provider.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       requestBody:
         content:
           application/json:
@@ -5303,7 +5303,7 @@ paths:
                         - 3
       tags:
         - Instance Type
-  '/v2/org/{org}/carbide/instance/type/{instanceTypeId}':
+  '/v2/org/{org}/nico/instance/type/{instanceTypeId}':
     parameters:
       - schema:
           type: string
@@ -5376,9 +5376,9 @@ paths:
       description: |-
         Get an Instance Type by ID.
 
-        If the org has an Infrastructure Provider entity that owns the Instance Type, then the Instance Type detail is returned. User must have `FORGE_PROVIDER_ADMIN` role.
+        If the org has an Infrastructure Provider entity that owns the Instance Type, then the Instance Type detail is returned. User must have `NICO_PROVIDER_ADMIN` role.
 
-        If the org has a Tenant entity and it has a Tenant Account with the Infrastructure Provider of the Instance Type, then the Instance Type detail is returned. User must have `FORGE_TENANT_ADMIN` role.
+        If the org has a Tenant entity and it has a Tenant Account with the Infrastructure Provider of the Instance Type, then the Instance Type detail is returned. User must have `NICO_TENANT_ADMIN` role.
       parameters:
         - schema:
             type: boolean
@@ -5409,7 +5409,7 @@ paths:
       description: |-
         Delete an Instance Type by ID.
 
-        Org must have an Infrastructure Provider entity that owns the Instance Type. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity that owns the Instance Type. User must have `NICO_PROVIDER_ADMIN` authorization role.
       tags:
         - Instance Type
     patch:
@@ -5461,7 +5461,7 @@ paths:
       description: |-
         Update an Instance Type by ID.
 
-        Org must have an Infrastructure Provider entity that owns the Instance Type. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity that owns the Instance Type. User must have `NICO_PROVIDER_ADMIN` authorization role.
       requestBody:
         content:
           application/json:
@@ -5484,7 +5484,7 @@ paths:
         description: ''
       tags:
         - Instance Type
-  '/v2/org/{org}/carbide/instance/type/{instanceTypeId}/machine':
+  '/v2/org/{org}/nico/instance/type/{instanceTypeId}/machine':
     parameters:
       - schema:
           type: string
@@ -5537,7 +5537,7 @@ paths:
       description: |-
         Get all Machines for a given Instance Type
 
-        Org must have an Infrastructure Provider entity that owns the Instance Type and the Machine. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity that owns the Instance Type and the Machine. User must have `NICO_PROVIDER_ADMIN` authorization role.
       parameters:
         - schema:
             type: integer
@@ -5604,7 +5604,7 @@ paths:
       description: |-
         Associate a Machine to an Instance Type
 
-        Org must have an Infrastructure Provider entity that owns the Instance Type and the Machine. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity that owns the Instance Type and the Machine. User must have `NICO_PROVIDER_ADMIN` authorization role.
       requestBody:
         content:
           application/json:
@@ -5617,7 +5617,7 @@ paths:
                     - 497f6eca-6276-4993-bfeb-53cbbbba6f08
                     - 59c8d465-69f1-447f-80f8-1bc85627a03b
                     - 0a44ffc3-39ba-46c6-b483-be00a1e2cc27
-  '/v2/org/{org}/carbide/instance/type/{instanceTypeId}/machine/{machineAssociationId}':
+  '/v2/org/{org}/nico/instance/type/{instanceTypeId}/machine/{machineAssociationId}':
     parameters:
       - schema:
           type: string
@@ -5651,10 +5651,10 @@ paths:
 
         `machineAssociationId` path parameter has been renamed to `machineId`. The path parameter will continue to accept both Machine ID and Machine/Instance Type ID until July 9th, 2026 00:00 UTC. After that time, Machine/Instance Type ID will no longer be accepted.
 
-        Org must have an Infrastructure Provider entity that owns the Instance Type and the Machine. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity that owns the Instance Type and the Machine. User must have `NICO_PROVIDER_ADMIN` authorization role.
       tags:
         - Instance Type
-  '/v2/org/{org}/carbide/instance':
+  '/v2/org/{org}/nico/instance':
     parameters:
       - schema:
           type: string
@@ -5707,7 +5707,7 @@ paths:
                         relatedInstanceIds:
                           - 497f6eca-6276-4993-bfeb-53cbbbba6f08
                       networkSecurityGroupInherited: false
-                      serialConsoleUrl: 'ssh://user@carbide.acme.com'
+                      serialConsoleUrl: 'ssh://user@nico.acme.com'
                       interfaces:
                         - id: 64d2028c-ae87-4069-a624-66089d957ef9
                           instanceId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
@@ -5823,7 +5823,7 @@ paths:
                         region: portland
                         env: staging
                       isUpdatePending: false
-                      serialConsoleUrl: 'ssh://user@carbide.acme.com'
+                      serialConsoleUrl: 'ssh://user@nico.acme.com'
                       interfaces:
                         - id: 07cd865e-5512-4fe9-8063-8f4c8f442b1a
                           instanceId: 37804b21-0a00-4668-81cb-af9e1b07ad3e
@@ -5914,7 +5914,7 @@ paths:
                         region: portland
                         env: staging
                       isUpdatePending: false
-                      serialConsoleUrl: 'ssh://user@carbide.acme.com'
+                      serialConsoleUrl: 'ssh://user@nico.acme.com'
                       interfaces:
                         - id: fa84f327-cad4-458b-94b7-c320cdf48d4d
                           instanceId: bba44e11-facc-4d7f-a2b5-ffdca3935b8b
@@ -5979,7 +5979,7 @@ paths:
       description: |
         Get all Instances for Tenant.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -6140,7 +6140,7 @@ paths:
                       region: portland
                       env: staging
                     isUpdatePending: false
-                    serialConsoleUrl: 'ssh://user@carbide.acme.com'
+                    serialConsoleUrl: 'ssh://user@nico.acme.com'
                     interfaces:
                       - id: 64d2028c-ae87-4069-a624-66089d957ef9
                         instanceId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
@@ -6214,7 +6214,7 @@ paths:
                       region: portland
                       env: staging
                     isUpdatePending: false
-                    serialConsoleUrl: 'ssh://user@carbide.acme.com'
+                    serialConsoleUrl: 'ssh://user@nico.acme.com'
                     interfaces:
                       - id: 64d2028c-ae87-4069-a624-66089d957ef9
                         instanceId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
@@ -6263,7 +6263,7 @@ paths:
       description: |
         Create an Instance for Tenant.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       requestBody:
         content:
           application/json:
@@ -6386,7 +6386,7 @@ paths:
                     - a7bf2f9c-12f0-4673-be47-12be6d9e16c8
       tags:
         - Instance
-  '/v2/org/{org}/carbide/instance/batch':
+  '/v2/org/{org}/nico/instance/batch':
     parameters:
       - schema:
           type: string
@@ -6452,7 +6452,7 @@ paths:
 
         Instance names are automatically generated using the `namePrefix` with a random 6-character suffix (e.g., "worker" becomes "worker-abc123", "worker-def456").
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       requestBody:
         content:
           application/json:
@@ -6504,7 +6504,7 @@ paths:
                     - a7bf2f9c-12f0-4673-be47-12be6d9e16c8
       tags:
         - Instance
-  '/v2/org/{org}/carbide/instance/{instanceId}':
+  '/v2/org/{org}/nico/instance/{instanceId}':
     parameters:
       - schema:
           type: string
@@ -6562,7 +6562,7 @@ paths:
                       region: portland
                       env: staging
                     isUpdatePending: false
-                    serialConsoleUrl: 'ssh://user@carbide.acme.com'
+                    serialConsoleUrl: 'ssh://user@nico.acme.com'
                     interfaces:
                       - id: 64d2028c-ae87-4069-a624-66089d957ef9
                         instanceId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
@@ -6662,7 +6662,7 @@ paths:
       description: |
         Get an Instance by ID
 
-        Org must have a Tenant entity. Instance must belong to Tenant. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. Instance must belong to Tenant. User must have `NICO_TENANT_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -6687,7 +6687,7 @@ paths:
       description: |-
         Delete an Instance by ID
 
-        Org must have a Tenant entity. Instance must belong to Tenant. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. Instance must belong to Tenant. User must have `NICO_TENANT_ADMIN` authorization role.
       tags:
         - Instance
       requestBody:
@@ -6734,7 +6734,7 @@ paths:
                       region: portland
                       env: staging
                     isUpdatePending: false
-                    serialConsoleUrl: 'ssh://user@carbide.acme.com'
+                    serialConsoleUrl: 'ssh://user@nico.acme.com'
                     interfaces:
                       - id: 64d2028c-ae87-4069-a624-66089d957ef9
                         instanceId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
@@ -6844,7 +6844,7 @@ paths:
       description: |-
         Update an Instance by ID
 
-        Org must have a Tenant entity. Instance must belong to Tenant. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. Instance must belong to Tenant. User must have `NICO_TENANT_ADMIN` authorization role.
       requestBody:
         content:
           application/json:
@@ -6909,7 +6909,7 @@ paths:
         description: ''
       tags:
         - Instance
-  '/v2/org/{org}/carbide/instance/{instanceId}/status-history':
+  '/v2/org/{org}/nico/instance/{instanceId}/status-history':
     parameters:
       - schema:
           type: string
@@ -6954,7 +6954,7 @@ paths:
       description: |
         Get Instance status history
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       parameters:
         - schema:
             type: integer
@@ -6971,7 +6971,7 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
-  '/v2/org/{org}/carbide/instance/{instanceId}/interface':
+  '/v2/org/{org}/nico/instance/{instanceId}/interface':
     parameters:
       - schema:
           type: string
@@ -7035,7 +7035,7 @@ paths:
       description: |-
         Get all Interfaces for an Instance
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -7078,7 +7078,7 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
-  '/v2/org/{org}/carbide/instance/{instanceId}/infiniband-interface':
+  '/v2/org/{org}/nico/instance/{instanceId}/infiniband-interface':
     parameters:
       - schema:
           type: string
@@ -7142,7 +7142,7 @@ paths:
       description: |-
         Get all InfiniBand Interfaces for an Instance
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -7185,7 +7185,7 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
-  '/v2/org/{org}/carbide/instance/{instanceId}/nvlink-interface':
+  '/v2/org/{org}/nico/instance/{instanceId}/nvlink-interface':
     parameters:
       - schema:
           type: string
@@ -7245,7 +7245,7 @@ paths:
       description: |-
         Get all NVLink Interfaces for an Instance
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -7288,7 +7288,7 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
-  '/v2/org/{org}/carbide/infiniband-interface':
+  '/v2/org/{org}/nico/infiniband-interface':
     parameters:
       - schema:
           type: string
@@ -7336,7 +7336,7 @@ paths:
       description: |-
         Get all InfiniBand Interfaces
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -7395,7 +7395,7 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
-  '/v2/org/{org}/carbide/nvlink-interface':
+  '/v2/org/{org}/nico/nvlink-interface':
     parameters:
       - schema:
           type: string
@@ -7440,7 +7440,7 @@ paths:
       description: |-
         Get all NVLink Interfaces
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` NGC role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` NGC role.
       parameters:
         - schema:
             type: string
@@ -7503,7 +7503,7 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
-  '/v2/org/{org}/carbide/operating-system':
+  '/v2/org/{org}/nico/operating-system':
     parameters:
       - schema:
           type: string
@@ -7646,9 +7646,9 @@ paths:
       description: |-
         Get an Operating System by ID
 
-        If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have `NICO_PROVIDER_ADMIN` authorization role.
 
-        If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have `FORGE_TENANT_ADMIN` role.
+        If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have `NICO_TENANT_ADMIN` role.
       parameters:
         - schema:
             type: string
@@ -7777,9 +7777,9 @@ paths:
 
         Either `infrastructureProviderId` or `tenantId` must be provided in request data. Both cannot be provided at the same time.
 
-        If `infrastructureProviderId` is provided in request data, then org must have an Infrastructure Provider entity and its ID should match the query param value. User must have `FORGE_PROVIDER_ADMIN` role.
+        If `infrastructureProviderId` is provided in request data, then org must have an Infrastructure Provider entity and its ID should match the query param value. User must have `NICO_PROVIDER_ADMIN` role.
 
-        If `tenantId` is provided in request data, then org must have a Tenant entity and its ID should match the query param value. User must have `FORGE_TENANT_ADMIN` role.
+        If `tenantId` is provided in request data, then org must have a Tenant entity and its ID should match the query param value. User must have `NICO_TENANT_ADMIN` role.
 
         Only Tenants are allowed to create Operating System for MVP.
       requestBody:
@@ -7833,7 +7833,7 @@ paths:
                   allowOverride: false
       tags:
         - Operating System
-  '/v2/org/{org}/carbide/operating-system/{operatingSystemId}':
+  '/v2/org/{org}/nico/operating-system/{operatingSystemId}':
     parameters:
       - schema:
           type: string
@@ -7976,9 +7976,9 @@ paths:
       description: |-
         Get an Operating System by ID
 
-        If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have `NICO_PROVIDER_ADMIN` authorization role.
 
-        If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have `FORGE_TENANT_ADMIN` role.
+        If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have `NICO_TENANT_ADMIN` role.
       parameters:
         - schema:
             type: string
@@ -7999,9 +7999,9 @@ paths:
       description: |-
         Delete an Operating System by ID
 
-        If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have `NICO_PROVIDER_ADMIN` authorization role.
 
-        If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have `FORGE_TENANT_ADMIN` authorization role.
+        If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have `NICO_TENANT_ADMIN` authorization role.
       tags:
         - Operating System
     patch:
@@ -8068,9 +8068,9 @@ paths:
       description: |-
         Update an Operating System by ID
 
-        If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have `FORGE_PROVIDER_ADMIN` authorization role. Provider must own the Operating System.
+        If the Operating System has `infrastructureProviderId` set, then org must have an Infrastructure Provider entity and its ID should match the Operating System Infrastructure Provider ID. User must have `NICO_PROVIDER_ADMIN` authorization role. Provider must own the Operating System.
 
-        If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have `FORGE_TENANT_ADMIN` role. Tenant must own the Operating System.
+        If the Operating System has `tenantId` set, then org must have a Tenant entity and its ID should match the Operating System Tenant ID. User must have `NICO_TENANT_ADMIN` role. Tenant must own the Operating System.
       tags:
         - Operating System
       requestBody:
@@ -8084,7 +8084,7 @@ paths:
                   name: ubuntu-22.04-lts
                   description: Ubuntu 22.04 LTS
                   allowOverride: true
-  '/v2/org/{org}/carbide/machine':
+  '/v2/org/{org}/nico/machine':
     parameters:
       - schema:
           type: string
@@ -8193,7 +8193,7 @@ paths:
       description: |
         Get all Machines for Infrastructure Provider.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -8299,7 +8299,7 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
-  '/v2/org/{org}/carbide/machine/{machineId}':
+  '/v2/org/{org}/nico/machine/{machineId}':
     parameters:
       - schema:
           type: string
@@ -8647,7 +8647,7 @@ paths:
                             - PreventAllocations
                             - PreventHostStateChanges
                         - id: HeartbeatTimeout
-                          target: carbide-dpu-agent
+                          target: nico-dpu-agent
                           inAlertSince: '2024-10-07T18:08:46.716147472Z'
                           message: ''
                           tenantMessage: nil
@@ -8673,9 +8673,9 @@ paths:
       description: |
         Org must have either an Infrastructure Provider entity or a Tenant entity.
 
-        If org has an Infrastructure Provider entity, then a user with `FORGE_PROVIDER_ADMIN` role can request details for any Machine on any Site owned by the Provider.
+        If org has an Infrastructure Provider entity, then a user with `NICO_PROVIDER_ADMIN` role can request details for any Machine on any Site owned by the Provider.
 
-        If org has a Tenant entity, then a user with `FORGE_TENANT_ADMIN` role can request details for any Machine associated with Tenant's active Instances.
+        If org has a Tenant entity, then a user with `NICO_TENANT_ADMIN` role can request details for any Machine associated with Tenant's active Instances.
       parameters:
         - schema:
             type: string
@@ -8831,8 +8831,8 @@ paths:
         '500':
           description: Describes an error response for 500 Internal Server Error
           $ref: '#/components/responses/GenericHttpError'
-      description: Org must have an Infrastructure Provider entity. Machine must belong to the Provider. User must have FORGE_PROVIDER_ADMIN authorization role. Machine must meet certain criteria to be eligible for deletion.
-  '/v2/org/{org}/carbide/machine/{machineId}/status-history':
+      description: Org must have an Infrastructure Provider entity. Machine must belong to the Provider. User must have NICO_PROVIDER_ADMIN authorization role. Machine must meet certain criteria to be eligible for deletion.
+  '/v2/org/{org}/nico/machine/{machineId}/status-history':
     parameters:
       - schema:
           type: string
@@ -8877,9 +8877,9 @@ paths:
       description: |
         Org must have either an Infrastructure Provider entity or a Tenant entity.
 
-        If org has an Infrastructure Provider entity, then a user with `FORGE_PROVIDER_ADMIN` role can request details for any Machine on any Site owned by the Provider.
+        If org has an Infrastructure Provider entity, then a user with `NICO_PROVIDER_ADMIN` role can request details for any Machine on any Site owned by the Provider.
 
-        If org has a Tenant entity, then a user with `FORGE_TENANT_ADMIN` role can request details for any Machine associated with Tenant's active Instances.
+        If org has a Tenant entity, then a user with `NICO_TENANT_ADMIN` role can request details for any Machine associated with Tenant's active Instances.
       parameters:
         - schema:
             type: integer
@@ -8896,7 +8896,7 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
-  '/v2/org/{org}/carbide/machine/gpu/stats':
+  '/v2/org/{org}/nico/machine/gpu/stats':
     parameters:
       - schema:
           type: string
@@ -8923,7 +8923,7 @@ paths:
       description: |-
         Returns GPU summary stats grouped by GPU name for machines at the specified site.
 
-        User must have `FORGE_PROVIDER_ADMIN` authorization role. The specified site must belong to the Provider.
+        User must have `NICO_PROVIDER_ADMIN` authorization role. The specified site must belong to the Provider.
       parameters:
         - schema:
             type: string
@@ -8932,7 +8932,7 @@ paths:
           name: siteId
           required: true
           description: ID of the Site
-  '/v2/org/{org}/carbide/machine/instance-type/stats/summary':
+  '/v2/org/{org}/nico/machine/instance-type/stats/summary':
     parameters:
       - schema:
           type: string
@@ -8957,7 +8957,7 @@ paths:
       description: |-
         Returns machine counts grouped by assigned (has instance type) vs unassigned, broken down by status.
 
-        User must have `FORGE_PROVIDER_ADMIN` authorization role. The specified site must belong to the Provider.
+        User must have `NICO_PROVIDER_ADMIN` authorization role. The specified site must belong to the Provider.
       parameters:
         - schema:
             type: string
@@ -8966,7 +8966,7 @@ paths:
           name: siteId
           required: true
           description: ID of the Site
-  '/v2/org/{org}/carbide/machine/instance-type/stats':
+  '/v2/org/{org}/nico/machine/instance-type/stats':
     parameters:
       - schema:
           type: string
@@ -8993,7 +8993,7 @@ paths:
       description: |-
         Returns machine stats for each instance type including allocation details and tenant breakdown.
 
-        User must have `FORGE_PROVIDER_ADMIN` authorization role. The specified site must belong to the Provider.
+        User must have `NICO_PROVIDER_ADMIN` authorization role. The specified site must belong to the Provider.
       parameters:
         - schema:
             type: string
@@ -9002,7 +9002,7 @@ paths:
           name: siteId
           required: true
           description: ID of the Site
-  '/v2/org/{org}/carbide/tenant/instance-type/stats':
+  '/v2/org/{org}/nico/tenant/instance-type/stats':
     parameters:
       - schema:
           type: string
@@ -9029,7 +9029,7 @@ paths:
       description: |-
         Returns instance type allocation stats grouped by tenant for the specified site.
 
-        User must have `FORGE_PROVIDER_ADMIN` authorization role. The specified site must belong to the Provider.
+        User must have `NICO_PROVIDER_ADMIN` authorization role. The specified site must belong to the Provider.
       parameters:
         - schema:
             type: string
@@ -9038,7 +9038,7 @@ paths:
           name: siteId
           required: true
           description: ID of the Site
-  '/v2/org/{org}/carbide/machine-capability':
+  '/v2/org/{org}/nico/machine-capability':
     parameters:
       - schema:
           type: string
@@ -9098,7 +9098,7 @@ paths:
       description: |
         Get all distinct Machine Capabilities across all Machines
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -9174,7 +9174,7 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
-  '/v2/org/{org}/carbide/rack':
+  '/v2/org/{org}/nico/rack':
     parameters:
       - schema:
           type: string
@@ -9188,7 +9188,7 @@ paths:
       description: |-
         Get all Racks for the specified Site.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -9289,7 +9289,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Rack
-  '/v2/org/{org}/carbide/rack/{id}':
+  '/v2/org/{org}/nico/rack/{id}':
     parameters:
       - schema:
           type: string
@@ -9310,7 +9310,7 @@ paths:
       description: |-
         Get a Rack by ID.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -9367,7 +9367,7 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Rack
-  '/v2/org/{org}/carbide/rack/validation':
+  '/v2/org/{org}/nico/rack/validation':
     parameters:
       - schema:
           type: string
@@ -9385,7 +9385,7 @@ paths:
 
         Compares the expected component configuration against the actual state. Returns a detailed diff report showing missing, extra, and drifted components.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -9462,7 +9462,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Rack
-  '/v2/org/{org}/carbide/rack/{id}/validation':
+  '/v2/org/{org}/nico/rack/{id}/validation':
     parameters:
       - schema:
           type: string
@@ -9485,7 +9485,7 @@ paths:
 
         Compares the rack's expected component configuration against the actual state. Returns a detailed diff report showing missing, extra, and drifted components.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -9550,7 +9550,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Rack
-  '/v2/org/{org}/carbide/rack/power':
+  '/v2/org/{org}/nico/rack/power':
     parameters:
       - schema:
           type: string
@@ -9566,7 +9566,7 @@ paths:
 
         Supported power states: `on`, `off`, `cycle`, `forceoff`, `forcecycle`.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       requestBody:
         required: true
         content:
@@ -9605,7 +9605,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Rack
-  '/v2/org/{org}/carbide/rack/{id}/power':
+  '/v2/org/{org}/nico/rack/{id}/power':
     parameters:
       - schema:
           type: string
@@ -9628,7 +9628,7 @@ paths:
 
         Supported power states: `on`, `off`, `cycle`, `forceoff`, `forcecycle`.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       requestBody:
         required: true
         content:
@@ -9666,7 +9666,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Rack
-  '/v2/org/{org}/carbide/rack/firmware':
+  '/v2/org/{org}/nico/rack/firmware':
     parameters:
       - schema:
           type: string
@@ -9680,7 +9680,7 @@ paths:
       description: |-
         Update firmware on Racks with optional name filter. If no filter is specified, targets all racks in the Site.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       requestBody:
         required: true
         content:
@@ -9717,7 +9717,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Rack
-  '/v2/org/{org}/carbide/rack/{id}/firmware':
+  '/v2/org/{org}/nico/rack/{id}/firmware':
     parameters:
       - schema:
           type: string
@@ -9738,7 +9738,7 @@ paths:
       description: |-
         Update firmware on a Rack identified by Rack UUID.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       requestBody:
         required: true
         content:
@@ -9771,7 +9771,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Rack
-  '/v2/org/{org}/carbide/rack/bringup':
+  '/v2/org/{org}/nico/rack/bringup':
     parameters:
       - schema:
           type: string
@@ -9785,7 +9785,7 @@ paths:
       description: |-
         Bring up Racks with optional name filter. If no filter is specified, targets all racks in the Site.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       requestBody:
         required: true
         content:
@@ -9822,7 +9822,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Rack
-  '/v2/org/{org}/carbide/rack/{id}/bringup':
+  '/v2/org/{org}/nico/rack/{id}/bringup':
     parameters:
       - schema:
           type: string
@@ -9843,7 +9843,7 @@ paths:
       description: |-
         Bring up a Rack identified by Rack UUID.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       requestBody:
         required: true
         content:
@@ -9876,7 +9876,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Rack
-  '/v2/org/{org}/carbide/rack/task/{id}':
+  '/v2/org/{org}/nico/rack/task/{id}':
     parameters:
       - schema:
           type: string
@@ -9898,7 +9898,7 @@ paths:
         Get a Task by UUID.
 
         Tasks are site-scoped; `siteId` must be the Site where the task was created.
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -9929,7 +9929,7 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Rack
-  '/v2/org/{org}/carbide/tray':
+  '/v2/org/{org}/nico/tray':
     parameters:
       - schema:
           type: string
@@ -9943,7 +9943,7 @@ paths:
       description: |-
         Get all Trays (components) for the specified Site.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
 
         **Filter constraints:**
         - `rackId` and `rackName` are mutually exclusive
@@ -10055,7 +10055,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Tray
-  '/v2/org/{org}/carbide/tray/{id}':
+  '/v2/org/{org}/nico/tray/{id}':
     parameters:
       - schema:
           type: string
@@ -10076,7 +10076,7 @@ paths:
       description: |-
         Get a Tray by ID.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -10116,7 +10116,7 @@ paths:
           $ref: '#/components/responses/NotFoundError'
       tags:
         - Tray
-  '/v2/org/{org}/carbide/tray/validation':
+  '/v2/org/{org}/nico/tray/validation':
     parameters:
       - schema:
           type: string
@@ -10134,7 +10134,7 @@ paths:
 
         Compares the expected component configuration against the actual state. Returns a detailed diff report showing missing, extra, and drifted components.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -10206,7 +10206,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Tray
-  '/v2/org/{org}/carbide/tray/{id}/validation':
+  '/v2/org/{org}/nico/tray/{id}/validation':
     parameters:
       - schema:
           type: string
@@ -10229,7 +10229,7 @@ paths:
 
         Compares the expected component configuration against the actual state. Returns a detailed diff report showing missing, extra, and drifted components.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -10260,7 +10260,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Tray
-  '/v2/org/{org}/carbide/tray/power':
+  '/v2/org/{org}/nico/tray/power':
     parameters:
       - schema:
           type: string
@@ -10281,7 +10281,7 @@ paths:
         - `rackId`/`rackName` cannot be combined with `ids`/`componentIds` (rack-level vs component-level targeting)
         - `componentIds` requires `type` to be specified
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       requestBody:
         required: true
         content:
@@ -10317,7 +10317,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Tray
-  '/v2/org/{org}/carbide/tray/{id}/power':
+  '/v2/org/{org}/nico/tray/{id}/power':
     parameters:
       - schema:
           type: string
@@ -10340,7 +10340,7 @@ paths:
 
         Supported power states: `on`, `off`, `cycle`, `forceoff`, `forcecycle`.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       requestBody:
         required: true
         content:
@@ -10378,7 +10378,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Tray
-  '/v2/org/{org}/carbide/tray/firmware':
+  '/v2/org/{org}/nico/tray/firmware':
     parameters:
       - schema:
           type: string
@@ -10397,7 +10397,7 @@ paths:
         - `rackId`/`rackName` cannot be combined with `ids`/`componentIds` (rack-level vs component-level targeting)
         - `componentIds` requires `type` to be specified
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       requestBody:
         required: true
         content:
@@ -10432,7 +10432,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Tray
-  '/v2/org/{org}/carbide/tray/{id}/firmware':
+  '/v2/org/{org}/nico/tray/{id}/firmware':
     parameters:
       - schema:
           type: string
@@ -10453,7 +10453,7 @@ paths:
       description: |-
         Update firmware on a Tray identified by Tray UUID.
 
-        Org must have an Infrastructure Provider entity. User must have `FORGE_PROVIDER_ADMIN` authorization role.
+        Org must have an Infrastructure Provider entity. User must have `NICO_PROVIDER_ADMIN` authorization role.
       requestBody:
         required: true
         content:
@@ -10486,7 +10486,7 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
       tags:
         - Tray
-  '/v2/org/{org}/carbide/network-security-group':
+  '/v2/org/{org}/nico/network-security-group':
     parameters:
       - schema:
           type: string
@@ -10527,7 +10527,7 @@ paths:
       description: |
         Get all Network Security Groups for Tenant
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -10619,7 +10619,7 @@ paths:
       description: |
         Create a Network Security Group for Tenant.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       requestBody:
         content:
           application/json:
@@ -10627,7 +10627,7 @@ paths:
               $ref: '#/components/schemas/NetworkSecurityGroupCreateRequest'
       tags:
         - Network Security Group
-  '/v2/org/{org}/carbide/network-security-group/{networkSecurityGroupId}':
+  '/v2/org/{org}/nico/network-security-group/{networkSecurityGroupId}':
     parameters:
       - schema:
           type: string
@@ -10667,7 +10667,7 @@ paths:
       description: |
         Get a Network Security Group by ID
 
-        Org must have a Tenant entity. Instance must belong to Tenant. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. Instance must belong to Tenant. User must have `NICO_TENANT_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -10705,7 +10705,7 @@ paths:
       description: |-
         Update a Network Security Group by ID
 
-        Org must have a Tenant entity. Instance must belong to Tenant. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. Instance must belong to Tenant. User must have `NICO_TENANT_ADMIN` authorization role.
 
         After a group has been created, policy updates are absolute.  The complete desired policy set must be specified.
       requestBody:
@@ -10741,12 +10741,12 @@ paths:
       description: |-
         Delete a Network Security Group by ID
 
-        Org must have a Tenant entity. Instance must belong to Tenant. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. Instance must belong to Tenant. User must have `NICO_TENANT_ADMIN` authorization role.
 
         Deleting a Network Security Group will also delete all the associations and all policies.
       tags:
         - Network Security Group
-  '/v2/org/{org}/carbide/dpu-extension-service':
+  '/v2/org/{org}/nico/dpu-extension-service':
     parameters:
       - schema:
           type: string
@@ -10777,7 +10777,7 @@ paths:
       description: |-
         Retrieve all DPU Extension Services for the current Tenant
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -10856,7 +10856,7 @@ paths:
       description: |-
         Create a DPU Extension Service for the current Tenant.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       requestBody:
         content:
           application/json:
@@ -10864,7 +10864,7 @@ paths:
               $ref: '#/components/schemas/DpuExtensionServiceCreateRequest'
       tags:
         - DPU Extension Service
-  '/v2/org/{org}/carbide/dpu-extension-service/{dpuExtensionServiceId}':
+  '/v2/org/{org}/nico/dpu-extension-service/{dpuExtensionServiceId}':
     parameters:
       - schema:
           type: string
@@ -10895,7 +10895,7 @@ paths:
 
         DPU Extension Service must be owned by current Tenant.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       tags:
         - DPU Extension Service
     delete:
@@ -10911,7 +10911,7 @@ paths:
 
         DPU Extension Service must be owned by current Tenant. No versions of the DPU Extension Service can have active deployments.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       tags:
         - DPU Extension Service
     patch:
@@ -10935,7 +10935,7 @@ paths:
 
         DPU Extension Service must be owned by current Tenant. A new version will be created if data or credentials are modified.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       requestBody:
         content:
           application/json:
@@ -10943,7 +10943,7 @@ paths:
               $ref: '#/components/schemas/DpuExtensionServiceUpdateRequest'
       tags:
         - DPU Extension Service
-  '/v2/org/{org}/carbide/dpu-extension-service/{dpuExtensionServiceId}/version/{version}':
+  '/v2/org/{org}/nico/dpu-extension-service/{dpuExtensionServiceId}/version/{version}':
     parameters:
       - schema:
           type: string
@@ -10982,7 +10982,7 @@ paths:
 
         DPU Extension Service must be owned by current Tenant.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       tags:
         - DPU Extension Service
     delete:
@@ -10998,10 +10998,10 @@ paths:
 
         DPU Extension Service must be owned by current Tenant. The version being deleted cannot have active deployments.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       tags:
         - DPU Extension Service
-  '/v2/org/{org}/carbide/sshkeygroup':
+  '/v2/org/{org}/nico/sshkeygroup':
     parameters:
       - schema:
           type: string
@@ -11069,7 +11069,7 @@ paths:
       description: |-
         Retrieve all SSH Key Groups for the current Tenant.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       parameters:
         - schema:
             type: string
@@ -11192,7 +11192,7 @@ paths:
       description: |-
         Create an SSH Key Group for the current Tenant.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       requestBody:
         content:
           application/json:
@@ -11209,7 +11209,7 @@ paths:
                     - ff06da79-707a-4069-8623-211d49ae96c8
       tags:
         - SSH Key Group
-  '/v2/org/{org}/carbide/sshkeygroup/{sshKeyGroupId}':
+  '/v2/org/{org}/nico/sshkeygroup/{sshKeyGroupId}':
     parameters:
       - schema:
           type: string
@@ -11283,7 +11283,7 @@ paths:
 
         SSH Key Group must be owned by current Tenant.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       tags:
         - SSH Key Group
     delete:
@@ -11299,7 +11299,7 @@ paths:
 
         SSH Key Group must be owned by current Tenant. All Sites associated must be online to proceed.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       tags:
         - SSH Key Group
     patch:
@@ -11382,7 +11382,7 @@ paths:
 
         SSH Key Group must be owned by current Tenant. All Sites being added or removed must be online to proceed.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       requestBody:
         content:
           application/json:
@@ -11402,7 +11402,7 @@ paths:
                   version: fbc692b61ffef6fbfc38a3833f6b7e7ae508da75
       tags:
         - SSH Key Group
-  '/v2/org/{org}/carbide/sshkey':
+  '/v2/org/{org}/nico/sshkey':
     parameters:
       - schema:
           type: string
@@ -11437,7 +11437,7 @@ paths:
       description: |-
         Retrieve all SSH Keys for the current Tenant.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       tags:
         - SSH Key
       parameters:
@@ -11517,7 +11517,7 @@ paths:
       description: |-
         Create an SSH Key for the current Tenant. If an SSH Key Group is specified, all Sites associated with the SSH Key Group must be online.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       requestBody:
         content:
           application/json:
@@ -11529,7 +11529,7 @@ paths:
                   name: reno-sre-access
                   publicKey: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICip4hl6WjuVHs60PeikVUs0sWE/kPhk2D0rRHWsIuyL jdoe@test.com
                   sshKeyGroupId: 86ca8cab-b285-4c2d-9e00-25c88810dc2e
-  '/v2/org/{org}/carbide/sshkey/{sshKeyId}':
+  '/v2/org/{org}/nico/sshkey/{sshKeyId}':
     parameters:
       - schema:
           type: string
@@ -11570,7 +11570,7 @@ paths:
 
         SSH Key must be owned by current Tenant.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       tags:
         - SSH Key
     delete:
@@ -11586,7 +11586,7 @@ paths:
 
         SSH Key must be owned by current Tenant. All Site associated with the SSH Key Groups this SSH Key is part of must be online to proceed.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
       tags:
         - SSH Key
     patch:
@@ -11618,7 +11618,7 @@ paths:
 
         SSH Key must be owned by current Tenant.
 
-        Org must have a Tenant entity. User must have `FORGE_TENANT_ADMIN` authorization role.
+        Org must have a Tenant entity. User must have `NICO_TENANT_ADMIN` authorization role.
 
         To add this SSH Key to various SSH Key Groups or remove it from an SSH Key Group, please use SSH Key Group update endpoint.
       requestBody:
@@ -11632,7 +11632,7 @@ paths:
                   name: reno-sre-access-v2
       tags:
         - SSH Key
-  '/v2/org/{org}/carbide/user/current':
+  '/v2/org/{org}/nico/user/current':
     parameters:
       - schema:
           type: string
@@ -11662,7 +11662,7 @@ paths:
                     updated: '2019-08-24T14:15:22Z'
       operationId: get-user
       description: Retrieve details of the current user.
-  '/v2/org/{org}/carbide/metadata':
+  '/v2/org/{org}/nico/metadata':
     get:
       summary: Retrieve metadata about the API server
       tags:
@@ -11688,7 +11688,7 @@ paths:
         in: path
         required: true
         description: Name of the Org
-  '/v2/org/{org}/carbide/audit':
+  '/v2/org/{org}/nico/audit':
     parameters:
       - schema:
           type: string
@@ -11713,7 +11713,7 @@ paths:
                 Example 1:
                   value:
                     - id: e313b3ca-c47a-4ec1-a79b-a147fad51a50
-                      endpoint: /v2/org/test-org-1/carbide/ep
+                      endpoint: /v2/org/test-org-1/nico/ep
                       queryParams: '{"test":["1234"]}'
                       method: POST
                       body: '{"key1":"value1"}'
@@ -11730,7 +11730,7 @@ paths:
                       durationMs: 250
                       apiVersion: 0.1.91
                     - id: e313b3ca-c47a-4ec1-a79b-a147fad51a50
-                      endpoint: /v2/org/test-org-1/carbide/ep
+                      endpoint: /v2/org/test-org-1/nico/ep
                       queryParams: '{"test":["1234"]}'
                       method: POST
                       body: '{"key1":"value1"}'
@@ -11753,7 +11753,7 @@ paths:
       description: |
         Get all Audit Log entries
 
-        User must have `FORGE_PROVIDER_ADMIN` or `FORGE_TENANT_ADMIN` authorization role.
+        User must have `NICO_PROVIDER_ADMIN` or `NICO_TENANT_ADMIN` authorization role.
       parameters:
         - schema:
             type: boolean
@@ -11784,7 +11784,7 @@ paths:
           in: query
           name: orderBy
           description: Ordering for pagination query
-  '/v2/org/{org}/carbide/audit/{auditEntryId}':
+  '/v2/org/{org}/nico/audit/{auditEntryId}':
     parameters:
       - schema:
           type: string
@@ -11813,7 +11813,7 @@ paths:
                 example-1:
                   value:
                     id: e313b3ca-c47a-4ec1-a79b-a147fad51a50
-                    endpoint: /v2/org/test-org-1/carbide/ep
+                    endpoint: /v2/org/test-org-1/nico/ep
                     queryParams: '{"test":["1234"]}'
                     method: POST
                     body: '{"key1":"value1"}'
@@ -11835,7 +11835,7 @@ paths:
       description: |-
         Retrieve a specific Audit Log Entry by ID
 
-        User must have `FORGE_PROVIDER_ADMIN` or `FORGE_TENANT_ADMIN` authorization role
+        User must have `NICO_PROVIDER_ADMIN` or `NICO_TENANT_ADMIN` authorization role
 components:
   schemas:
     InfrastructureProvider:
@@ -12239,7 +12239,7 @@ components:
           siteAgentVersion: '0.1'
           registrationToken: J7KO-89RR-Y7WQ-AD90
           registrationTokenExpiration: '2019-08-25T12:00:00Z'
-          serialConsoleHostname: sjc.carbide.acme.com
+          serialConsoleHostname: sjc.nico.acme.com
           isSerialConsoleEnabled: true
           serialConsoleIdleTimeout: 60
           serialConsoleMaxSessionLength: 3600
@@ -12531,7 +12531,7 @@ components:
       examples:
         - name: sjc4
           description: Datacenter serving San Jose central region, zone 4
-          serialConsoleHostname: carbide.acme.com
+          serialConsoleHostname: nico.acme.com
           location:
             city: San Jose
             state: CA
@@ -12565,7 +12565,7 @@ components:
         - name: sjc04
           description: Datacenter 4 serving central San Jose
           renewRegistrationToken: true
-          serialConsoleHostname: sol.carbide.acme.com
+          serialConsoleHostname: sol.nico.acme.com
           location:
             city: San Jose
             state: CA
@@ -14718,7 +14718,7 @@ components:
             region: portland
             env: staging
           isUpdatePending: false
-          serialConsoleUrl: 'ssh://user@carbide.acme.com'
+          serialConsoleUrl: 'ssh://user@nico.acme.com'
           interfaces:
             - id: 64d2028c-ae87-4069-a624-66089d957ef9
               instanceId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
@@ -14820,7 +14820,7 @@ components:
             region: portland
             env: staging
           isUpdatePending: false
-          serialConsoleUrl: 'ssh://user@carbide.acme.com'
+          serialConsoleUrl: 'ssh://user@nico.acme.com'
           interfaces:
             - id: 64d2028c-ae87-4069-a624-66089d957ef9
               instanceId: 497f6eca-6276-4993-bfeb-53cbbbba6f08
@@ -19819,7 +19819,7 @@ components:
       description: Describes Audit Log Entry
       examples:
         - id: e313b3ca-c47a-4ec1-a79b-a147fad51a50
-          endpoint: /v2/org/test-org-1/carbide/ep
+          endpoint: /v2/org/test-org-1/nico/ep
           queryParams: '{"test":["1234"]}'
           method: POST
           body: '{"key1":"value1"}'
@@ -19836,7 +19836,7 @@ components:
           durationMs: 250
           apiVersion: 0.1.91
         - id: e313b3ca-c47a-4ec1-a79b-a147fad51a50
-          endpoint: /v2/org/test-org-1/carbide/ep
+          endpoint: /v2/org/test-org-1/nico/ep
           queryParams: '{"test":["1234"]}'
           method: POST
           body: '{"key1":"value1"}'
@@ -19952,16 +19952,16 @@ components:
           format: date-time
         notice:
           type: string
-    CarbideAPIError:
-      title: CarbideAPIError
+    NicoAPIError:
+      title: NicoAPIError
       type: object
       description: Describes the error response from NCX Infra Controller REST API
       properties:
         source:
           type: string
-          description: Source of the error. Only 'carbide' is supported
+          description: Source of the error. Only 'nico' is supported
           enum:
-            - carbide
+            - nico
         message:
           type: string
           description: Message describing the error
@@ -20129,7 +20129,7 @@ components:
         export ORG_NAME=<org-name>
 
         # Use the JWT bearer token in your API request auth header:
-        curl -v -X GET -H "Content-Type: application/json" -H "Authorization: Bearer $JWT_BEARER_TOKEN" https://carbide-rest-api.carbide.svc.cluster.local/v2/org/$ORG_NAME/carbide/user/current
+        curl -v -X GET -H "Content-Type: application/json" -H "Authorization: Bearer $JWT_BEARER_TOKEN" https://nico-rest-api.nico.svc.cluster.local/v2/org/$ORG_NAME/nico/user/current
         ```
   responses:
     GenericHttpError:
@@ -20137,11 +20137,11 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/CarbideAPIError'
+            $ref: '#/components/schemas/NicoAPIError'
           examples:
             Example 1:
               value:
-                source: carbide
+                source: nico
                 message: Error handling API request
                 data: null
     NotFoundError:
@@ -20149,11 +20149,11 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/CarbideAPIError'
+            $ref: '#/components/schemas/NicoAPIError'
           examples:
             example-1:
               value:
-                source: carbide
+                source: nico
                 message: Could not find resource with specified ID
                 data: null
     ForbiddenError:
@@ -20161,11 +20161,11 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/CarbideAPIError'
+            $ref: '#/components/schemas/NicoAPIError'
           examples:
             example-1:
               value:
-                source: carbide
+                source: nico
                 message: User is not allowed to perform this action
                 data: null
     ValidationError:
@@ -20173,11 +20173,11 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/CarbideAPIError'
+            $ref: '#/components/schemas/NicoAPIError'
           examples:
             example-1:
               value:
-                source: carbide
+                source: nico
                 message: Error validating request data
                 data:
                   name: A value is required

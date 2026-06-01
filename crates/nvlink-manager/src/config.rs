@@ -45,7 +45,7 @@ pub struct NvLinkConfig {
     /// TLS server name (SNI / cert verification hostname) for NMX-C HTTPS. Defaults to the endpoint URL host if unset.
     #[serde(default)]
     pub nmx_c_tls_authority: Option<String>,
-    /// Set to true if NMX-M doesn't adhere to security requirements. Defaults to false
+    /// Set to true if NMX-C doesn't adhere to security requirements. Defaults to false.
     pub allow_insecure: bool,
 }
 

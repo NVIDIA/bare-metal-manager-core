@@ -28,6 +28,7 @@ use carbide_dpf::{
 };
 use carbide_uuid::machine::MachineId;
 use model::dpu_machine_update::OutdatedDpfDpu;
+use model::machine::ManagedHostStateSnapshot;
 use sqlx::PgPool;
 use state_controller::controller::Enqueuer;
 use tokio::task::JoinSet;
@@ -104,6 +105,49 @@ pub trait DpfOperations: Send + Sync + std::fmt::Debug {
     /// from carbide config — see [`DpfSdk::find_outdated_dpus_dpf`] for
     /// details.
     async fn find_outdated_dpus_dpf(&self) -> Result<Vec<OutdatedDpfDpu>, DpfError>;
+}
+
+/// Check whether the DPUNode and DPUDevice CRs are missing for the given host.
+/// Registration is all-or-nothing: `create_and_register_dpudevices_and_dpunode`
+/// creates every DPUDevice followed by the DPUNode in one pass, and we never
+/// delete a subset. A partial CR set (node without all devices, or devices
+/// without a node) therefore indicates external tampering or a half-completed
+/// force-delete and requires operator intervention -- it is reported as
+/// `InvalidState` rather than silently re-registered.
+/// - `Ok(true)`  : neither the node nor any devices exist -- safe to register.
+/// - `Ok(false)` : node exists and device count matches DPU count -- nothing to do.
+/// - `Err`       : host has no DPF id, OR the CR set is partial/mismatched.
+pub async fn dpf_dpudevices_and_dpunode_crs_noexist(
+    managed_host_state: &ManagedHostStateSnapshot,
+    dpf_sdk: &dyn DpfOperations,
+) -> Result<bool, DpfError> {
+    let managed_host = &managed_host_state.host_snapshot;
+    let Some(dpf_id) = managed_host.dpf_id() else {
+        return Err(DpfError::InvalidState(format!(
+            "Host {} is missing a DPF id",
+            managed_host.id
+        )));
+    };
+
+    let dpu_count = managed_host_state.dpu_snapshots.len();
+
+    let node_name = carbide_dpf::dpu_node_cr_name(&dpf_id);
+    let dpf_sdk_host_snapshot = dpf_sdk.snapshot_host(&node_name).await?;
+    let dpunode_cr_exists = dpf_sdk_host_snapshot.dpu_node.is_some();
+    let dpfdevice_cr_count = dpf_sdk_host_snapshot.dpu_devices.len();
+
+    if !dpunode_cr_exists && dpfdevice_cr_count == 0 {
+        return Ok(true);
+    }
+
+    if dpunode_cr_exists && dpfdevice_cr_count == dpu_count {
+        return Ok(false);
+    }
+
+    Err(DpfError::InvalidState(format!(
+        "Host {} has inconsistent DPF CRs for {} DPU(s): dpu_node_present={}, dpu_device_count={}",
+        managed_host.id, dpu_count, dpunode_cr_exists, dpfdevice_cr_count,
+    )))
 }
 
 /// Applies carbide-specific labels to DPF resources.

@@ -35,7 +35,8 @@ impl TryFrom<NvlPartition> for rpc_forge::NvLinkPartition {
         Ok(rpc_forge::NvLinkPartition {
             id: Some(src.id),
             name: src.name.clone().into(),
-            nmx_m_id: src.nmx_m_id,
+            // Keep the existing proto field for wire compatibility; it now carries the NMX-C partition ID.
+            nmx_m_id: src.nmx_c_partition_id.to_string(),
             domain_uuid: Some(src.domain_uuid),
             logical_partition_id: src.logical_partition_id,
         })

@@ -959,7 +959,9 @@ cwd = "/tmp/bfb-dump"
 [tasks.bfb-extract-efi-sa]
 category = "iPXE Kernel"
 description = "Extract the BFB initramfs using fakeroot"
-script = ["gzip -d < /tmp/bfb-dump/dump-initramfs-v0 | fakeroot -s /tmp/bfb-dump/fakeroot.env cpio -id"]
+script = [
+  "gzip -d < /tmp/bfb-dump/dump-initramfs-v0 | fakeroot -s /tmp/bfb-dump/fakeroot.env cpio -id",
+]
 cwd = "${BUILD_LOCATION}"
 
 [tasks.bfb-extract-efi]

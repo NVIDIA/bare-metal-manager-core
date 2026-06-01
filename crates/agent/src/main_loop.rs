@@ -49,7 +49,7 @@ use crate::dpu::interface::Interface;
 use crate::dpu::route::{DpuRoutePlan, IpRoute, Route};
 use crate::duppet::{SummaryFormat, SyncOptions};
 use crate::ethernet_virtualization::{
-    InterfaceTranslationMode, NvueUpdateFlavor, ServiceAddresses,
+    InterfaceTranslationMode, NvueClientContext, NvueUpdateFlavor, ServiceAddresses,
 };
 use crate::fmds_client::FmdsUpdater;
 use crate::health::HealthCheckParams;
@@ -221,11 +221,12 @@ pub async fn setup_and_run(
         // We have eight cores. Letting ovs_vswitchd have one is OK.
     };
 
-    let nvue_client = match options.hbn_config_mode {
+    let nvue_context = match options.hbn_config_mode {
         HbnConfigMode::ContainerExec => None,
         HbnConfigMode::NvueRest => {
             let nvue_client = nvue_client::NvueClient::new_https_from_env()?;
-            Some(nvue_client)
+            let nvue_context = NvueClientContext::new(nvue_client);
+            Some(nvue_context)
         }
     };
 
@@ -376,7 +377,7 @@ pub async fn setup_and_run(
         close_sender,
         network_monitor_handle,
         extension_service_manager,
-        nvue_client,
+        nvue_context,
         dhcp_interface_translation_mode,
     };
 
@@ -409,7 +410,7 @@ struct MainLoop {
     network_monitor_handle: Option<JoinHandle<()>>,
     close_sender: watch::Sender<bool>,
     extension_service_manager: extension_services::ExtensionServiceManager,
-    nvue_client: Option<nvue_client::NvueClient>,
+    nvue_context: Option<NvueClientContext>,
     dhcp_interface_translation_mode: Option<InterfaceTranslationMode>,
 }
 
@@ -558,10 +559,11 @@ impl MainLoop {
                 if self.is_hbn_up {
                     // First thing is to read the existing HBN version and properly set the hbn device names
                     // associated with that version.
-                    let hbn_version = match self.nvue_client.as_mut() {
+                    let hbn_version = match self.nvue_context.as_mut() {
                         None => hbn::read_version().await?,
-                        Some(nvue_client) => {
-                            let nvue_system_build = nvue_client.system_build_info().await?;
+                        Some(nvue_context) => {
+                            let nvue_system_build =
+                                nvue_context.nvue_client.system_build_info().await?;
                             match nvue_system_build.strip_prefix("HBN ") {
                                 Some(hbn_version) => Ok(hbn_version.into()),
                                 None => Err(eyre::format_err!(
@@ -680,8 +682,8 @@ impl MainLoop {
                         };
 
                         if bridging_result.is_ok() {
-                            let update_flavor = match self.nvue_client.as_ref() {
-                                Some(nvue_client) => NvueUpdateFlavor::RestApi { nvue_client },
+                            let update_flavor = match self.nvue_context.as_mut() {
+                                Some(nvue_context) => NvueUpdateFlavor::RestApi { nvue_context },
                                 None => NvueUpdateFlavor::StartupFile {
                                     hbn_root: &self.agent_config.hbn.root_dir,
                                     skip_post: self.agent_config.hbn.skip_reload,
@@ -783,7 +785,7 @@ impl MainLoop {
                             match ethernet_virtualization::interfaces(
                                 &conf,
                                 self.factory_mac_address,
-                                self.nvue_client.as_ref(),
+                                self.nvue_context.as_ref().map(|c| &c.nvue_client),
                             )
                             .await
                             {
@@ -826,7 +828,7 @@ impl MainLoop {
                 current_instance_config_version = status_out.instance_config_version.clone();
                 current_instance_id = status_out.instance_id.as_ref().map(|id| id.to_string());
 
-                let health_report = match self.nvue_client.as_ref() {
+                let health_report = match self.nvue_context.as_ref() {
                     None => {
                         health::health_check(HealthCheckParams {
                             hbn_root: &self.agent_config.hbn.root_dir,
@@ -840,7 +842,7 @@ impl MainLoop {
                         })
                         .await
                     }
-                    Some(nvue_client) => health::nvue_api_health(nvue_client).await,
+                    Some(nvue_context) => health::nvue_api_health(&nvue_context.nvue_client).await,
                 };
                 is_healthy = !health_report.successes.is_empty() && health_report.alerts.is_empty();
                 self.is_hbn_up = health::is_up(&health_report);

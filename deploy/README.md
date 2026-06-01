@@ -5,28 +5,28 @@ The `deploy/kustomization.yaml` file drives the top‑level deployment. Populate
 
 | Value | Description |
 | --- | --- |
-| `yourdockerregistry.com/path/to/nico-core` | Registry URL that hosts the NICo core (`nvmetal-carbide`) image. |
-| `CARBIDE_REGISTRY_PATH` | URL to the registry that hosts all NICo components; shared path for component images. |
-| `CARBIDE_TAG` | Version tag for the `nvmetal-carbide` component. |
+| `yourdockerregistry.com/path/to/nico-core` | Registry URL that hosts the NICo core (`nvmetal-nico`) image. |
+| `NICO_REGISTRY_PATH` | URL to the registry that hosts all NICo components; shared path for component images. |
+| `NICO_TAG` | Version tag for the `nvmetal-nico` component. |
 | `yourdockerregistry.com/path/to/boot-artifacts-aarch64` | Registry URL for the `boot-artifacts-aarch64` image. |
 | `BOOT_ARTIFACTS_AARCH64_TAG` | Version tag for the `boot-artifacts-aarch64` component. |
 | `yourdockerregistry.com/path/to/boot-artifacts-x86_64` | Registry URL for the `boot-artifacts-x86_64` image. |
 | `BOOT_ARTIFACTS_X86_TAG` | Version tag for the `boot-artifacts-x86_64` component. |
 | `yourdockerregistry.com/path/to/nvmetal-scout-burn-in` | Registry URL for the `machine_validation` image. |
 | `MACHINE_VALIDATION_TAG` | Version tag for the `machine_validation` component. |
-| `CARBIDE_DHCP_EXTERNAL_IP` | IP address used by the NICo DHCP service. |
-| `CARBIDE_DNS_INSTANCE_0_IP` | First IP address for NICo DNS; allocate contiguous pair. |
-| `CARBIDE_DNS_INSTANCE_1_IP` | Second IP address for NICo DNS; allocate contiguous pair. |
-| `CARBIDE_PXE_IP` | IP address for the NICo PXE service. |
-| `CARBIDE_API_EXTERNAL_IP` | IP address for the API service; typically also mapped to `api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>`. |
-| `CARBIDE_SSH_CONSOLE_EXTERNAL_IP` | IP address for BMC console access service in NICo. |
-| `FORGE_UNBOUND_EXTERNAL_IP` | IP address for the Unbound recursive DNS service. |
+| `NICO_DHCP_EXTERNAL_IP` | IP address used by the NICo DHCP service. |
+| `NICO_DNS_INSTANCE_0_IP` | First IP address for NICo DNS; allocate contiguous pair. |
+| `NICO_DNS_INSTANCE_1_IP` | Second IP address for NICo DNS; allocate contiguous pair. |
+| `NICO_PXE_IP` | IP address for the NICo PXE service. |
+| `NICO_API_EXTERNAL_IP` | IP address for the API service; typically also mapped to `api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>`. |
+| `NICO_SSH_CONSOLE_EXTERNAL_IP` | IP address for BMC console access service in NICo. |
+| `NICO_UNBOUND_EXTERNAL_IP` | IP address for the Unbound recursive DNS service. |
 | `ENVIORNMENT_NAME` | Site name used to identify this NICo deployment. |
 | `SITE_DOMAIN_NAME` | Site domain name used for NICo endpoints (e.g., `api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME>`). |
-| `CARBIDE_NTP_SERVERS_IP_0` | First NTP service IP address. |
-| `CARBIDE_NTP_SERVERS_IP_1` | Second NTP service IP address. |
-| `CARBIDE_NTP_SERVERS_IP_2` | Third NTP service IP address. |
-| `CARBIDE_STATIC_PXE_IP` | IP address for the static boot asset server (`nico-static-pxe.nico`). |
+| `NICO_NTP_SERVERS_IP_0` | First NTP service IP address. |
+| `NICO_NTP_SERVERS_IP_1` | Second NTP service IP address. |
+| `NICO_NTP_SERVERS_IP_2` | Third NTP service IP address. |
+| `NICO_STATIC_PXE_IP` | IP address for the static boot asset server (`nico-static-pxe.nico`). |
 | `SOCKS_EXTERNAL_IP` | IP address for the SOCKS5 outbound proxy (`socks.nico`). |
 
 ## Files inputs (deploy/files/)
@@ -59,7 +59,7 @@ NICo is responsible for:
 - Inventorying hardware
 - Exposing a single **gRPC API** that all NICo services and external clients talk to.
 
-All examples below assume you have chosen a namespace such as **`forge-system`**; adjust as needed.
+All examples below assume you have chosen a namespace such as **`nico-system`**; adjust as needed.
 
 ---
 
@@ -70,7 +70,7 @@ The **nico‑api** deployment is the control‑plane API for all bare‑metal op
 
 ### What it deploys
 
-Path: `deploy/carbide-base/api/`
+Path: `deploy/nico-base/api/`
 
 - Deployment `nico-api` (gRPC API)
 - Job `nico-api-migrate` (database migrations)
@@ -90,16 +90,16 @@ Path: `deploy/carbide-base/api/`
 ### External inputs you must provide
 
 - **Database access**
-    - Secret with DB credentials: `<CARBIDE_DB_CREDENTIALS_SECRET>` (keys: `username`, `password`)
-    - ConfigMap for DB endpoint: `<CARBIDE_DB_CONFIGMAP>` (keys: `DB_HOST`, `DB_PORT`, `DB_NAME`)
+    - Secret with DB credentials: `<NICO_DB_CREDENTIALS_SECRET>` (keys: `username`, `password`)
+    - ConfigMap for DB endpoint: `<NICO_DB_CONFIGMAP>` (keys: `DB_HOST`, `DB_PORT`, `DB_NAME`)
 - **Vault access**
-    - Secret `<CARBIDE_VAULT_TOKEN_SECRET>` or AppRole secret with `VAULT_ROLE_ID` / `VAULT_SECRET_ID`
+    - Secret `<NICO_VAULT_TOKEN_SECRET>` or AppRole secret with `VAULT_ROLE_ID` / `VAULT_SECRET_ID`
     - ConfigMap `<VAULT_CLUSTER_INFO_CONFIGMAP>` with
         - `VAULT_SERVICE`
-        - `CARBIDE_VAULT_MOUNT`
-        - `CARBIDE_VAULT_PKI_MOUNT`
+        - `NICO_VAULT_MOUNT`
+        - `NICO_VAULT_PKI_MOUNT`
 - **Root CA bundle**
-    - Secret `<CARBIDE_ROOT_CA_SECRET>` mounted where `nico-api-config.toml` expects it.
+    - Secret `<NICO_ROOT_CA_SECRET>` mounted where `nico-api-config.toml` expects it.
 
 ### Configuration notes
 
@@ -120,7 +120,7 @@ Path: `deploy/carbide-base/api/`
 4. Apply the base (or your overlay):
 
    ```bash
-   kubectl apply -k deploy/carbide-base/api -n <CARBIDE_NAMESPACE>
+   kubectl apply -k deploy/nico-base/api -n <NICO_NAMESPACE>
    ```
 
 ---
@@ -132,7 +132,7 @@ Path: `deploy/carbide-base/api/`
 
 ### What it deploys
 
-Path: `deploy/carbide-base/dhcp/`
+Path: `deploy/nico-base/dhcp/`
 
 - Deployment `nico-dhcp`
 - Services
@@ -152,7 +152,7 @@ The pod:
 
 ### External inputs you must provide
 
-- ConfigMap `<CARBIDE_DHCP_CONFIGMAP>` with your Kea JSON config (key/file mapping to `/tmp/kea_config.json`).
+- ConfigMap `<NICO_DHCP_CONFIGMAP>` with your Kea JSON config (key/file mapping to `/tmp/kea_config.json`).
 - A cert‑manager `ClusterIssuer` capable of issuing `nico-dhcp-certificate` (for SPIFFE‑style mTLS to nico‑api or other services).
 
 ### Quick start
@@ -162,7 +162,7 @@ The pod:
 3. Deploy DHCP:
 
    ```bash
-   kubectl apply -k deploy/carbide-base/dhcp -n <CARBIDE_NAMESPACE>
+   kubectl apply -k deploy/nico-base/dhcp -n <NICO_NAMESPACE>
    ```
 
 ---
@@ -174,7 +174,7 @@ The pod:
 
 ### What it deploys
 
-Path: `deploy/carbide-base/dns/`
+Path: `deploy/nico-base/dns/`
 
 - StatefulSet `nico-dns`
 - Service `nico-dns` – UDP/TCP **53**
@@ -186,19 +186,19 @@ Path: `deploy/carbide-base/dns/`
 
 ### External inputs you must provide
 
-- ConfigMap `<CARBIDE_DNS_CONFIGMAP>` with at least:
-    - `CARBIDE_API` – URL for the nico‑api gRPC endpoint (e.g. `https://nico-api.<CARBIDE_NAMESPACE>.svc.cluster.local:1079`).
+- ConfigMap `<NICO_DNS_CONFIGMAP>` with at least:
+    - `NICO_API` – URL for the nico‑api gRPC endpoint (e.g. `https://nico-api.<NICO_NAMESPACE>.svc.cluster.local:1079`).
     - Any additional DNS or zone settings your environment requires.
 - A cert‑manager `ClusterIssuer` for `nico-dns-certificate`.
 
 ### Quick start
 
-1. Create the DNS ConfigMap with `CARBIDE_API` pointing at your nico‑api Service.
+1. Create the DNS ConfigMap with `NICO_API` pointing at your nico‑api Service.
 2. Ensure cert‑manager is running and the ClusterIssuer for `nico-dns-certificate` exists.
 3. Deploy DNS:
 
    ```bash
-   kubectl apply -k deploy/carbide-base/dns -n <CARBIDE_NAMESPACE>
+   kubectl apply -k deploy/nico-base/dns -n <NICO_NAMESPACE>
    ```
 
 ---
@@ -210,7 +210,7 @@ Path: `deploy/carbide-base/dns/`
 
 ### What it deploys
 
-Path: `deploy/carbide-base/hardware-health/`
+Path: `deploy/nico-base/hardware-health/`
 
 - Deployment `nico-hardware-health`
 - Service `nico-hardware-health` – HTTP metrics on TCP **9009**
@@ -233,11 +233,11 @@ The pod:
 
 ### Quick start
 
-1. Confirm nico‑api is running and reachable from `<CARBIDE_NAMESPACE>`.
+1. Confirm nico‑api is running and reachable from `<NICO_NAMESPACE>`.
 2. Deploy hardware health:
 
    ```bash
-   kubectl apply -k deploy/carbide-base/hardware-health -n <CARBIDE_NAMESPACE>
+   kubectl apply -k deploy/nico-base/hardware-health -n <NICO_NAMESPACE>
    ```
 
 3. Point Prometheus at `nico-hardware-health:9009` to ingest metrics.
@@ -251,16 +251,16 @@ The pod:
 
 ### What it deploys
 
-Path: `deploy/carbide-base/ntp/`
+Path: `deploy/nico-base/ntp/`
 
 - StatefulSet `nico-ntp` (3 replicas with pod anti‑affinity)
-- Headless Service `nico-ntp` – NTP on UDP **123** (pods reachable via `nico-ntp-<i>.nico-ntp.<CARBIDE_NAMESPACE>.svc`)
+- Headless Service `nico-ntp` – NTP on UDP **123** (pods reachable via `nico-ntp-<i>.nico-ntp.<NICO_NAMESPACE>.svc`)
 
 The container runs `dockurr/chrony` and reads `NTP_SERVERS` / `NTP_DIRECTIVES` from env vars.
 
 ### External inputs you must provide
 
-- Update `NTP_SERVERS` to point at your upstream time sources plus the peer pods (adjust the default `forge-system` namespace in an overlay).
+- Update `NTP_SERVERS` to point at your upstream time sources plus the peer pods (adjust the default `nico-system` namespace in an overlay).
 - Optionally set `NTP_DIRECTIVES` for additional chrony tuning.
 
 ### Quick start
@@ -269,7 +269,7 @@ The container runs `dockurr/chrony` and reads `NTP_SERVERS` / `NTP_DIRECTIVES` f
 2. Deploy NTP:
 
    ```bash
-   kubectl apply -k deploy/carbide-base/ntp -n <CARBIDE_NAMESPACE>
+   kubectl apply -k deploy/nico-base/ntp -n <NICO_NAMESPACE>
    ```
 
 3. Hand out the `nico-ntp` pod hostnames via DHCP option 42 or node configs.
@@ -283,7 +283,7 @@ The container runs `dockurr/chrony` and reads `NTP_SERVERS` / `NTP_DIRECTIVES` f
 
 ### What it deploys
 
-Path: `deploy/carbide-base/pxe/`
+Path: `deploy/nico-base/pxe/`
 
 - Deployment `nico-pxe`
 - Services
@@ -310,7 +310,7 @@ The pod mounts SPIFFE material at `/var/run/secrets/spiffe.io`, reads Rocket/pxe
 3. Deploy PXE:
 
    ```bash
-   kubectl apply -k deploy/carbide-base/pxe -n <CARBIDE_NAMESPACE>
+   kubectl apply -k deploy/nico-base/pxe -n <NICO_NAMESPACE>
    ```
 
 ---
@@ -322,7 +322,7 @@ The pod mounts SPIFFE material at `/var/run/secrets/spiffe.io`, reads Rocket/pxe
 
 ### What it deploys
 
-Path: `deploy/carbide-base/ssh-console-rs/`
+Path: `deploy/nico-base/ssh-console-rs/`
 
 - Deployment `nico-ssh-console-rs` (SSH server + OTel collector sidecar)
 - Services
@@ -353,7 +353,7 @@ Key settings live in `config-files/config.toml` (nico‑api URL, SPIFFE cert pat
 3. Deploy SSH console:
 
    ```bash
-   kubectl apply -k deploy/carbide-base/ssh-console-rs -n <CARBIDE_NAMESPACE>
+   kubectl apply -k deploy/nico-base/ssh-console-rs -n <NICO_NAMESPACE>
    ```
 
 ---
@@ -361,7 +361,7 @@ Key settings live in `config-files/config.toml` (nico‑api URL, SPIFFE cert pat
 ## NICo Base Kustomization
 
 **Role**  
-`deploy/carbide-base/kustomization.yaml` bundles the core NICo services into one base for overlays.
+`deploy/nico-base/kustomization.yaml` bundles the core NICo services into one base for overlays.
 
 ### What it includes
 
@@ -380,7 +380,7 @@ Key settings live in `config-files/config.toml` (nico‑api URL, SPIFFE cert pat
 - Apply the full base (optionally with your overlay):
 
    ```bash
-   kubectl apply -k deploy/carbide-base -n <CARBIDE_NAMESPACE>
+   kubectl apply -k deploy/nico-base -n <NICO_NAMESPACE>
    ```
 
 ---
@@ -388,14 +388,14 @@ Key settings live in `config-files/config.toml` (nico‑api URL, SPIFFE cert pat
 ## NICo Unbound Base
 
 **Role**  
-`carbide-unbound` provides a **recursive DNS resolver** for NICo deployments. Authoritative services (like `nico-dns`) can forward unknown lookups here, and the included exporter publishes Prometheus metrics for Unbound.
+`nico-unbound` provides a **recursive DNS resolver** for NICo deployments. Authoritative services (like `nico-dns`) can forward unknown lookups here, and the included exporter publishes Prometheus metrics for Unbound.
 
 ### What it deploys
 
-Path: `deploy/carbide-unbound-base/`
+Path: `deploy/nico-unbound-base/`
 
-- Deployment `carbide-unbound` with the Unbound server and `unbound_exporter` sidecar (config reload via Stakater reloader annotations).
-- Service `carbide-unbound` – DNS on UDP/TCP **53**, metrics on TCP **9167**.
+- Deployment `nico-unbound` with the Unbound server and `unbound_exporter` sidecar (config reload via Stakater reloader annotations).
+- Service `nico-unbound` – DNS on UDP/TCP **53**, metrics on TCP **9167**.
 - ConfigMaps
     - `unbound-envvars` from `unbound.env` (sets `LOCAL_CONFIG_DIR`, `BROKEN_DNSSEC`, `UNBOUND_CONTROL_DIR`).
     - `unbound-local-config` from `local.conf.d/*.conf`, including access controls, verbosity, extended statistics, and an `unknowndomain` blocklist plus a placeholder `forwarders.conf` you should replace with your upstream resolvers.
@@ -418,7 +418,7 @@ Path: `deploy/carbide-unbound-base/`
 3. Deploy Unbound:
 
    ```bash
-   kubectl apply -k deploy/carbide-unbound-base -n <CARBIDE_NAMESPACE>
+   kubectl apply -k deploy/nico-unbound-base -n <NICO_NAMESPACE>
    ```
 
 ---
@@ -451,39 +451,39 @@ Path: `deploy/components/`
    ```
 
 2. Ensure the boot artifact images are available and the `imagepullsecret` exists.
-3. Components are used in `forge-system` kustomization
+3. Components are used in `nico-system` kustomization
 ---
 
 ## NICo System
 
 **Role**  
-Reference overlay that deploys NICo + Unbound into the `forge-system` namespace with external access points and environment defaults.
+Reference overlay that deploys NICo + Unbound into the `nico-system` namespace with external access points and environment defaults.
 
 ### What it deploys
 
-Path: `deploy/forge-system/`
+Path: `deploy/nico-system/`
 
-- Namespace `forge-system` plus a Kustomize base that pulls in `../carbide-base` and `../carbide-unbound-base`.
+- Namespace `nico-system` plus a Kustomize base that pulls in `../nico-base` and `../nico-unbound-base`.
 - Components `../components/imagepullsecret` and `../components/boot-artifacts-containers`.
 - External `Service`s for DHCP, PXE (80/8080), API (443→1079), SSH console (22), DNS (per‑pod TCP/UDP 53), and NTP (per‑pod UDP 123).
-- ConfigMaps generated for `nico-dns`, `forge-system-nico-database-config`, and `vault-cluster-info` with default literals for this environment.
-- Certificate patches that add namespace‑specific DNSNames and SPIFFE URIs for all NICo cert-manager `Certificate`s, plus a patch targeting the `forge-pg-cluster` Postgres resource.
+- ConfigMaps generated for `nico-dns`, `nico-system-nico-database-config`, and `vault-cluster-info` with default literals for this environment.
+- Certificate patches that add namespace‑specific DNSNames and SPIFFE URIs for all NICo cert-manager `Certificate`s, plus a patch targeting the `nico-pg-cluster` Postgres resource.
 - Name suffix hashing disabled to keep stable names.
 
 ### External inputs you must provide
 
 - Assign LoadBalancer IPs / addresses for the external Services (for example via the parent `deploy/kustomization.yaml` Metallb patches) or adapt to your cloud LB configuration.
-- Ensure the `forge-pg-cluster` Postgres instance and the secret referenced by `SECRET_REF` exist, or update the literals.
+- Ensure the `nico-pg-cluster` Postgres instance and the secret referenced by `SECRET_REF` exist, or update the literals.
 - Point the Vault settings (`VAULT_SERVICE`, mounts) at your Vault cluster, or patch the ConfigMap.
-- Provide the `imagepullsecret` Secret in `forge-system` and publish the boot artifact images referenced by the components.
+- Provide the `imagepullsecret` Secret in `nico-system` and publish the boot artifact images referenced by the components.
 
 ### Quick start
 
-1. Update the literals and image overrides in `deploy/forge-system/kustomization.yaml` (and the top-level `deploy/kustomization.yaml` if you use the Metallb IP patches) to match your environment.
+1. Update the literals and image overrides in `deploy/nico-system/kustomization.yaml` (and the top-level `deploy/kustomization.yaml` if you use the Metallb IP patches) to match your environment.
 2. Apply the overlay:
 
    ```bash
-   kubectl apply -k deploy/forge-system
+   kubectl apply -k deploy/nico-system
    ```
 
 3. Confirm LoadBalancer IPs are assigned and cert-manager issues the NICo certificates.

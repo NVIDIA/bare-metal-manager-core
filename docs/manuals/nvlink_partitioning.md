@@ -19,9 +19,9 @@ NICo users can create NVLink Logical Partitions and plan GPU assignments using N
 
 In general, the steps are:
 
-1. The user creates a NVLink Logical Partition using the `POST /v2/org/{org}/carbide/nvlink-logical-partition` [REST API endpoint](https://nvidia.github.io/infra-controller-rest/#tag/NVLink-Logical-Partition/operation/create-nvlink-logical-partition). NICo creates an entry in the database and returns an NVLink Logical Partition ID. At this point, there is no underlying NVLink Partition associated with the NVLink Logical Partition.
+1. The user creates a NVLink Logical Partition using the `POST /v2/org/{org}/nico/nvlink-logical-partition` [REST API endpoint](https://nvidia.github.io/infra-controller-rest/#tag/NVLink-Logical-Partition/operation/create-nvlink-logical-partition). NICo creates an entry in the database and returns an NVLink Logical Partition ID. At this point, there is no underlying NVLink Partition associated with the NVLink Logical Partition.
 
-2. When creating an Instance, the user specifies NVLink Interface configuration for each GPU by referencing their preferred NVLink Logical Partition ID in the `POST /v2/org/{org}/carbide/instance` [REST API endpoint request](https://nvidia.github.io/infra-controller-rest/#tag/Instance/operation/create-instance).
+2. When creating an Instance, the user specifies NVLink Interface configuration for each GPU by referencing their preferred NVLink Logical Partition ID in the `POST /v2/org/{org}/nico/instance` [REST API endpoint request](https://nvidia.github.io/infra-controller-rest/#tag/Instance/operation/create-instance).
 
    a. If this is the first Instance to be added to specified NVLink Logical Partitions, NICo Core will create and assign NVLink Partitions for them and add the Instance GPUs to the NVLink Partitions.
 
@@ -41,7 +41,7 @@ In general, the steps are:
 
 ### Updating an Instance to change NVLink Logical Partition assignment for its GPUs
 
-If a NICo user wants to update an Instance to change NVLink Logical Partition assignment for its GPUs, they can do so by calling the `PATCH /v2/org/{org}/carbide/instance/{instance-id}` [REST API endpoint](https://nvidia.github.io/infra-controller-rest/#tag/Instance/operation/update-instance)
+If a NICo user wants to update an Instance to change NVLink Logical Partition assignment for its GPUs, they can do so by calling the `PATCH /v2/org/{org}/nico/instance/{instance-id}` [REST API endpoint](https://nvidia.github.io/infra-controller-rest/#tag/Instance/operation/update-instance)
 
 The user can specify the NVLink Logical Partition ID for each GPU in the Instance by passing the `nvLinkInterfaces` list.
 
@@ -53,11 +53,11 @@ If a user de-provisions an Instance, NICo will remove the Instance GPUs from the
 
 ### Deleting an NVLink Logical Partition
 
-A NICo user can call `DELETE /v2/org/{org}/carbide/nvlink-logical-partition/{nvLinkLogicalPartitionId}` to delete an NVLink Logical Partition. This call will only succeed if there are no active Instances associated with the NVLink Logical Partition.
+A NICo user can call `DELETE /v2/org/{org}/nico/nvlink-logical-partition/{nvLinkLogicalPartitionId}` to delete an NVLink Logical Partition. This call will only succeed if there are no active Instances associated with the NVLink Logical Partition.
 
 ### Retrieving NVLink Partition Information for an Instance
 
-A NICo user can call `GET /v2/org/{org}/carbide/instance/{instance-id}` to retrieve information about an Instance. As part of the `200` response body, NICo will return a `nvLinkInterfaces` list that includes both the `nvLinkLogicalPartitionId` and `nvLinkDomainId` for each GPU in the Instance.
+A NICo user can call `GET /v2/org/{org}/nico/instance/{instance-id}` to retrieve information about an Instance. As part of the `200` response body, NICo will return a `nvLinkInterfaces` list that includes both the `nvLinkLogicalPartitionId` and `nvLinkDomainId` for each GPU in the Instance.
 
 ### Default NVLink Logical Partition for a VPC
 
@@ -90,14 +90,14 @@ This section describes how to enable NVLink support via the [NMX-M platform](htt
 
 #### Prerequisites
 
-* carbide-core/NICo is deployed and running.
+* nico-core/NICo is deployed and running.
 * vault is running.
-* carbide-core can reach the NMX-M endpoint over the network.
+* nico-core can reach the NMX-M endpoint over the network.
 * NMX-M has an API user with permissions to read GPUs/partitions and create/update/delete partitions.
 
 #### Steps to Enable NMX-M
 
-1. Enable NVLink Partitioning in carbide-core config. Add or update the configmap carbide-api-site-config-files consumed by carbide-core:
+1. Enable NVLink Partitioning in nico-core config. Add or update the configmap nico-api-site-config-files consumed by nico-core:
 
     ```
       [nvlink_config]
@@ -110,12 +110,12 @@ This section describes how to enable NVLink support via the [NMX-M platform](htt
       allow_insecure = true
     ```
 
-2. Restart carbide-core
+2. Restart nico-core
 
-3. Configure the NMX-M credentials. Store the NMX-M username and password in vault through carbide admin CLI:
+3. Configure the NMX-M credentials. Store the NMX-M username and password in vault through nico admin CLI:
 
     ```
-      carbide-admin-cli credential add-nmx-m \
+      nico-admin-cli credential add-nmx-m \
         --username <nmx-m-username> \
         --password <nmx-m-password>
     ```
@@ -125,11 +125,11 @@ This section describes how to enable NVLink support via the [NMX-M platform](htt
    <Note>Machines discovered after enabling NVLink do not require this step.</Note>
 
     ```
-    carbide-admin-cli nvlink-info populate --update-db <machine-id>
+    nico-admin-cli nvlink-info populate --update-db <machine-id>
     ```
 
 5. Validate the NVLink configuration for NMX-M:
 
-    * carbide-core logs should not show "Failed to create NMXM client".
+    * nico-core logs should not show "Failed to create NMXM client".
     * Logs should not show failures getting NMX-M partitions or GPU list.
-    * Metrics show that `carbide_nvlink_partition_monitor_nmxm_connect_error_count` is `0`.
+    * Metrics show that `nico_nvlink_partition_monitor_nmxm_connect_error_count` is `0`.

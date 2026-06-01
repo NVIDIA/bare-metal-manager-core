@@ -32,6 +32,7 @@ use crate::machine::health_override::HealthReportSources;
 use crate::machine::infiniband::MachineInfinibandStatusObservation;
 use crate::machine::network::{MachineNetworkStatusObservation, ManagedHostNetworkConfig};
 use crate::machine::nvlink::MachineNvLinkStatusObservation;
+use crate::machine::spx::MachineSpxStatusObservation;
 use crate::machine::topology::MachineTopology;
 use crate::machine::{
     Dpf, FailureDetails, HostProfile, HostReprovisionRequest, Machine, MachineInterfaceSnapshot,
@@ -60,6 +61,7 @@ pub struct MachineSnapshotPgJson {
     pub network_status_observation: Option<MachineNetworkStatusObservation>,
     pub infiniband_status_observation: Option<MachineInfinibandStatusObservation>,
     pub nvlink_status_observation: Option<MachineNvLinkStatusObservation>,
+    pub spx_status_observation: Option<MachineSpxStatusObservation>,
     pub controller_state_version: String,
     pub controller_state: ManagedHostState,
     pub last_discovery_time: Option<DateTime<Utc>>,
@@ -173,6 +175,7 @@ impl TryFrom<MachineSnapshotPgJson> for Machine {
             network_status_observation: value.network_status_observation,
             infiniband_status_observation: value.infiniband_status_observation,
             nvlink_status_observation: value.nvlink_status_observation,
+            spx_status_observation: value.spx_status_observation,
             history,
             interfaces: value.interfaces,
             hardware_info,

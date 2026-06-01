@@ -54,8 +54,20 @@ impl MachineStateHandlerServices {
         &self,
         machine: &Machine,
     ) -> Result<Box<dyn Redfish>, StateHandlerError> {
+        let addr = machine
+            .bmc_addr()
+            .ok_or_else(|| StateHandlerError::MissingData {
+                object_id: machine.id.to_string(),
+                missing: "BMC Endpoint Information (bmc_info.ip)",
+            })?;
+        let bmc_access_info = db::machine_interface::lookup_bmc_access_info(
+            &self.db_pool,
+            addr.ip(),
+            Some(addr.port()),
+        )
+        .await?;
         self.redfish_client_pool
-            .create_client_from_machine(machine, &self.db_pool)
+            .client_by_info(&bmc_access_info)
             .await
             .map_err(StateHandlerError::from)
     }

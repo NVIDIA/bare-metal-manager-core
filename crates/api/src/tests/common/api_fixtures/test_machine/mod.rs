@@ -18,6 +18,7 @@ use std::net::IpAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use carbide_utils::redfish::BmcAccessInfo;
 use carbide_uuid::machine::MachineId;
 use model::machine::{Machine, ManagedHostState};
 use rpc::forge::forge_server::Forge;
@@ -66,6 +67,13 @@ impl TestMachine {
         db::machine::find_one(txn.as_mut(), &self.id, Default::default())
             .await
             .unwrap()
+            .unwrap()
+    }
+
+    pub async fn bmc_access(&self, txn: &mut Txn<'_>) -> BmcAccessInfo {
+        let addr = self.db_machine(txn).await.bmc_addr().unwrap();
+        db::machine_interface::lookup_bmc_access_info(txn.as_mut(), addr.ip(), Some(addr.port()))
+            .await
             .unwrap()
     }
 

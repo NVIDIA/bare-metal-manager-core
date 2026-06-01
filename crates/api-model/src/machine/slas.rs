@@ -43,7 +43,7 @@ pub const MEASUREMENT_WAIT_FOR_MEASUREMENT: Duration = Duration::from_secs(30 * 
 
 pub const SPDM_ATTESTATION_TRIGGER: Duration = Duration::from_secs(30);
 
-pub const SPDM_ATTESTATION_RESULT_POLL: Duration = Duration::from_secs(30 * 60);
+pub const SPDM_ATTESTATION_RESULT_POLL: Duration = Duration::from_secs(10 * 60);
 
 pub const START_ASSIGNMENT_CYCLE: Duration = Duration::from_secs(60);
 

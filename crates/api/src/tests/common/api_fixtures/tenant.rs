@@ -20,6 +20,32 @@ use rpc::forge_server::Forge;
 
 use super::TestEnv;
 
+/// Creates a tenant using the test site's default tenant routing behavior.
+pub async fn create_fixture_tenant(
+    env: &TestEnv,
+    organization_id: impl Into<String>,
+) -> Result<rpc::Tenant, tonic::Status> {
+    let organization_id = organization_id.into();
+
+    // Let the API apply the runtime default routing-profile behavior.
+    let response = env
+        .api
+        .create_tenant(tonic::Request::new(rpc::CreateTenantRequest {
+            organization_id: organization_id.clone(),
+            routing_profile_type: None,
+            metadata: Some(rpc::Metadata {
+                name: organization_id,
+                ..Default::default()
+            }),
+        }))
+        .await?;
+
+    Ok(response
+        .into_inner()
+        .tenant
+        .expect("created tenant response must include tenant"))
+}
+
 pub async fn create_tenant_keyset(
     env: &TestEnv,
     organization_id: String,

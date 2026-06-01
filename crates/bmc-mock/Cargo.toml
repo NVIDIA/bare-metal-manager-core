@@ -29,7 +29,7 @@ carbide-utils = { path = "../utils", default-features = false }
 
 arc-swap = { workspace = true }
 axum = { workspace = true }
-axum-extra = { features = [ "typed-header" ], workspace = true }
+axum-extra = { features = ["typed-header"], workspace = true }
 axum-server = { features = ["tls-rustls"], workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }

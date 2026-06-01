@@ -22,10 +22,6 @@ use std::sync::Arc;
 
 use mqttea::client::MqtteaClient;
 
-pub mod context;
-pub mod handler;
-pub mod io;
-pub mod metrics;
 pub mod rpc;
 
 pub struct DpaInfo {

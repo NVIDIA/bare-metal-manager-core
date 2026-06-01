@@ -31,4 +31,3 @@ prefix = "172.99.0.0/26"
 gateway = "172.99.0.1"
 mtu = 1500
 reserve_first = 5
-

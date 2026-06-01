@@ -43,6 +43,7 @@ pub const FMDS_SERVICE_NAME: &str = "carbide-fmds";
 
 pub const DPU_AGENT_SERVICE_NAME: &str = "carbide-dpu-agent";
 pub const OTEL_COLLECTOR_SERVICE_NAME: &str = "carbide-otelcol";
+pub const DTS_SERVICE_NAME: &str = "dts";
 
 /// Configuration for creating DPF operator resources (BFB, DPUFlavor,
 /// DPUDeployment, service templates, etc.) during initialization.

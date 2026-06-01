@@ -619,6 +619,7 @@ async fn assert_reprov_tenant_state(
             None,
             None,
             None,
+            None,
             &host.health_reports,
         )
         .unwrap()

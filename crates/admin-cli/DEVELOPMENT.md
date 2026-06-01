@@ -1,7 +1,7 @@
 # Admin CLI Development Guide
 
 This guide covers how to develop new subcommands, and work on existing
-subcommands, in the `admin-cli` crate (for `carbide-admin-cli`).
+subcommands, in the `admin-cli` crate (for `nico-admin-cli`).
 
 ## Table of Contents
 
@@ -78,14 +78,14 @@ handler in `cmd.rs`.
 pub mod args;
 pub mod cmd;
 
-use crate::errors::CarbideCliResult;
+use crate::errors::NicoCliResult;
 pub use args::Args;
 
 use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 
 impl Run for Args {
-    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+    async fn run(self, ctx: &mut RuntimeContext) -> NicoCliResult<()> {
         cmd::show(&ctx.api_client, self, ctx.config.format).await
     }
 }
@@ -114,7 +114,7 @@ Contains the actual command handler. Receives parsed arguments and
 only the specific dependencies it needs (not the full RuntimeContext):
 
 ```rust
-use ::rpc::admin_cli::{CarbideCliResult, OutputFormat};
+use ::rpc::admin_cli::{NicoCliResult, OutputFormat};
 
 use super::args::Args;
 use crate::rpc::ApiClient;
@@ -123,7 +123,7 @@ pub async fn show(
     api_client: &ApiClient,
     args: Args,
     format: OutputFormat,
-) -> CarbideCliResult<()> {
+) -> NicoCliResult<()> {
     // Implementation here.
     Ok(())
 }
@@ -146,7 +146,7 @@ pub(crate) trait Dispatch {
     fn dispatch(
         self,
         ctx: RuntimeContext,
-    ) -> impl std::future::Future<Output = CarbideCliResult<()>>;
+    ) -> impl std::future::Future<Output = NicoCliResult<()>>;
 }
 ```
 
@@ -161,7 +161,7 @@ pub(crate) trait Run {
     fn run(
         self,
         ctx: &mut RuntimeContext,
-    ) -> impl std::future::Future<Output = CarbideCliResult<()>>;
+    ) -> impl std::future::Future<Output = NicoCliResult<()>>;
 }
 ```
 
@@ -236,7 +236,7 @@ those specific values to `cmd.rs`:
 
 ```rust
 impl Run for Args {
-    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+    async fn run(self, ctx: &mut RuntimeContext) -> NicoCliResult<()> {
         // Simple handler -- just needs API client.
         cmd::show(&ctx.api_client, self).await
 
@@ -289,12 +289,12 @@ Create `src/my_command/show/cmd.rs`:
  * ..etc etc.
  */
 
-use crate::errors::CarbideCliResult;
+use crate::errors::NicoCliResult;
 
 use super::args::Args;
 use crate::rpc::ApiClient;
 
-pub async fn show(api_client: &ApiClient, args: Args) -> CarbideCliResult<()> {
+pub async fn show(api_client: &ApiClient, args: Args) -> NicoCliResult<()> {
     // Your implementation here.
     Ok(())
 }
@@ -312,14 +312,14 @@ Create `src/my_command/show/mod.rs`:
 pub mod args;
 pub mod cmd;
 
-use crate::errors::CarbideCliResult;
+use crate::errors::NicoCliResult;
 pub use args::Args;
 
 use crate::cfg::run::Run;
 use crate::cfg::runtime::RuntimeContext;
 
 impl Run for Args {
-    async fn run(self, ctx: &mut RuntimeContext) -> CarbideCliResult<()> {
+    async fn run(self, ctx: &mut RuntimeContext) -> NicoCliResult<()> {
         cmd::show(&ctx.api_client, self).await
     }
 }

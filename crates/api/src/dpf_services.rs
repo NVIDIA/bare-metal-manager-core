@@ -22,8 +22,8 @@ use std::fmt::Write;
 
 use carbide_dpf::sdk::build_dpu_interfaces_vec;
 use carbide_dpf::types::{
-    DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, DPU_AGENT_SERVICE_NAME, FMDS_SERVICE_NAME,
-    OTEL_COLLECTOR_SERVICE_NAME,
+    DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME, DPU_AGENT_SERVICE_NAME, DTS_SERVICE_NAME,
+    FMDS_SERVICE_NAME, OTEL_COLLECTOR_SERVICE_NAME,
 };
 use carbide_dpf::{
     ConfigPortsServiceType, ServiceConfigPort, ServiceConfigPortProtocol, ServiceDefinition,
@@ -58,7 +58,7 @@ pub const DHCP_SERVER_SERVICE_MTU: i64 = 1500;
 pub const DHCP_SERVER_SERVICE_IMAGE_NAME: &str = "forge-dhcp-server";
 
 /// DTS service definitions
-pub const DTS_SERVICE_NAME: &str = "dts";
+/// (DTS_SERVICE_NAME lives in carbide_dpf::types so the DPF SDK can wire its dependencies.)
 pub const DTS_SERVICE_HELM_NAME: &str = "doca-telemetry";
 pub const DTS_SERVICE_HELM_VERSION: &str = "1.22.1";
 

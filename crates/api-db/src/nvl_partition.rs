@@ -41,7 +41,7 @@ pub async fn create(
 ) -> Result<NvlPartition, DatabaseError> {
     let query = "INSERT INTO nvlink_partitions (
                 id,
-                nmx_m_id,
+                nmx_c_partition_id,
                 name,
                 domain_uuid,
                 logical_partition_id)
@@ -50,7 +50,7 @@ pub async fn create(
 
     let partition: NvlPartitionSnapshotPgJson = sqlx::query_as(query)
         .bind(value.id)
-        .bind(&value.nmx_m_id)
+        .bind(value.nmx_c_partition_id)
         .bind(value.name.as_str())
         .bind(value.domain_uuid)
         .bind(value.logical_partition_id)

@@ -25,8 +25,7 @@ use eyre::eyre;
 use libmlx::device::report::MlxDeviceReport;
 use libmlx::profile::serialization::SerializableProfile;
 use model::dpa_interface::{
-    CardState, DpaInterface, DpaInterfaceControllerState, DpaInterfaceNetworkStatusObservation,
-    DpaLockMode, NewDpaInterface,
+    CardState, DpaInterface, DpaInterfaceControllerState, DpaLockMode, NewDpaInterface,
 };
 use rpc::forge_agent_control_response as fac;
 use rpc::forge_agent_control_response::MlxDeviceAction;
@@ -182,47 +181,6 @@ pub(crate) async fn find_dpa_interfaces_by_ids(
     }))
 }
 
-// XXX TODO XXX
-// Remove before final commit
-// XXX TODO XXX
-pub(crate) async fn set_dpa_network_observation_status(
-    api: &Api,
-    request: Request<::rpc::forge::DpaNetworkObservationSetRequest>,
-) -> Result<Response<::rpc::forge::DpaInterface>, Status> {
-    log_request_data(&request);
-
-    let req = request.into_inner();
-
-    let id = req.id.ok_or(CarbideError::InvalidArgument(
-        "at least one ID must be provided to find_dpa_interfaces_by_ids".to_string(),
-    ))?;
-
-    // Prepare our txn to grab the dpa interfaces from the DB
-    let mut txn = api.txn_begin().await?;
-
-    let dpa_ifs_int = db::dpa_interface::find_by_ids(&mut txn, &[id], false).await?;
-
-    if dpa_ifs_int.len() != 1 {
-        return Err(CarbideError::InvalidArgument(
-            "ID could not be used to locate interface".to_string(),
-        )
-        .into());
-    }
-
-    let dpa_if_int = dpa_ifs_int[0].clone();
-
-    let observation = DpaInterfaceNetworkStatusObservation {
-        observed_at: chrono::Utc::now(),
-        network_config_version: Some(dpa_if_int.network_config.version),
-    };
-
-    db::dpa_interface::update_network_observation(&dpa_if_int, &mut txn, &observation).await?;
-
-    txn.commit().await?;
-
-    Ok(Response::new(dpa_if_int.into()))
-}
-
 // Scout is asking us what it should do. We found the machine in DpaProvisioning state.
 // So look at each DPA interface and make it progress through the state machine.
 // If there is work to be done, return an MLX action with per-device commands.
@@ -253,9 +211,7 @@ pub(crate) async fn process_scout_req(
         let dpa_cmd = match cstate {
             DpaInterfaceControllerState::Provisioning
             | DpaInterfaceControllerState::Ready
-            | DpaInterfaceControllerState::WaitingForSetVNI
-            | DpaInterfaceControllerState::Assigned
-            | DpaInterfaceControllerState::WaitingForResetVNI => continue,
+            | DpaInterfaceControllerState::Assigned => continue, // We are in the Assigned state, so we don't need to do anything
 
             DpaInterfaceControllerState::Unlocking => {
                 build_unlock_command(api, sn, machine_id, pci_name).await?
@@ -278,7 +234,7 @@ pub(crate) async fn process_scout_req(
             Ok(action) => device_actions.push(action),
             Err(e) => {
                 // Would only happen if the op is an ApplyProfile command with invalid YAML
-                tracing::info!("process_scout_req Error encoding DpaCommand for dpa: {e}");
+                tracing::error!("process_scout_req Error encoding DpaCommand for dpa: {e}");
             }
         }
     }
@@ -305,6 +261,7 @@ async fn build_unlock_command(
     })?;
 
     tracing::info!(%machine_id, %pci_name, "Unlocking DPA");
+
     Ok(DpaCommand {
         op: OpCode::Unlock { key },
     })
@@ -522,6 +479,17 @@ async fn process_mlx_observation(
         return Err(CarbideError::GenericErrorFromReport(eyre!(
             "process_mlx_observation no dpa snapshots for machine: {:#?}",
             machine_id
+        )));
+    }
+
+    if rep.observations.is_empty() {
+        tracing::error!(
+            "process_mlx_observation no observations in report: {:#?}",
+            rep
+        );
+        return Err(CarbideError::GenericErrorFromReport(eyre!(
+            "process_mlx_observation no observations in report: {:#?}",
+            rep
         )));
     }
 

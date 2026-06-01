@@ -60,6 +60,7 @@ impl<'a, 'b> TestInstanceBuilder<'a, 'b> {
                 network_security_group_id: None,
                 dpu_extension_services: None,
                 nvlink: None,
+                spxconfig: None,
             },
             tenant: default_tenant_config(),
             metadata: None,
@@ -204,6 +205,7 @@ pub fn single_interface_network_config(segment_id: NetworkSegmentId) -> rpc::Ins
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }],
         auto: false,
     }
@@ -223,6 +225,7 @@ pub fn single_interface_network_config_with_vfs(
         virtual_function_id: None,
         ip_address: None,
         ipv6_interface_config: None,
+        routing_profile: None,
     }];
 
     interfaces.extend(
@@ -235,6 +238,7 @@ pub fn single_interface_network_config_with_vfs(
             virtual_function_id: Some(function_id as u32),
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }),
     );
 
@@ -260,6 +264,7 @@ pub fn interface_network_config_with_devices(
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         })
         .collect();
     rpc::InstanceNetworkConfig {
@@ -281,6 +286,7 @@ pub fn single_interface_network_config_with_vpc_prefix(
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }],
         auto: false,
     }
@@ -317,6 +323,7 @@ pub fn config_for_ib_config(
         network: Some(single_interface_network_config(network_segment_id)),
         infiniband: Some(ib_config),
         nvlink: None,
+        spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
     }
@@ -332,6 +339,7 @@ pub fn config_for_nvlink_config(
         network: Some(single_interface_network_config(network_segment_id)),
         infiniband: None,
         nvlink: Some(nvl_config),
+        spxconfig: None,
         network_security_group_id: None,
         dpu_extension_services: None,
     }

@@ -39,6 +39,84 @@ use crate::tests::common::api_fixtures::TestEnvOverrides;
 use crate::tests::common::api_fixtures::nvl_logical_partition::NvlLogicalPartitionFixture;
 
 #[crate::sqlx_test]
+async fn test_nmx_c_partition_id_migration_deletes_legacy_nmx_m_rows(pool: sqlx::PgPool) {
+    let mut conn = pool.acquire().await.unwrap();
+
+    sqlx::query("ALTER TABLE nvlink_partitions RENAME COLUMN nmx_c_partition_id TO nmx_m_id")
+        .execute(conn.as_mut())
+        .await
+        .unwrap();
+    sqlx::query(
+        "ALTER TABLE nvlink_partitions ALTER COLUMN nmx_m_id TYPE VARCHAR USING nmx_m_id::VARCHAR",
+    )
+    .execute(conn.as_mut())
+    .await
+    .unwrap();
+    sqlx::query(
+        "ALTER TABLE nvlink_partitions ADD CONSTRAINT nvlink_partitions_nmx_m_id_key UNIQUE (nmx_m_id)",
+    )
+    .execute(conn.as_mut())
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "WITH lp AS (
+            INSERT INTO nvlink_logical_partitions (tenant_organization_id, config_version)
+            VALUES ('tenant', 'V1-T1666644937952267')
+            RETURNING id
+        )
+        INSERT INTO nvlink_partitions (nmx_m_id, name, domain_uuid, logical_partition_id)
+        SELECT '699c4bdb83acac93e9c1476f', 'legacy_partition', gen_random_uuid(), id
+        FROM lp",
+    )
+    .execute(conn.as_mut())
+    .await
+    .unwrap();
+
+    let row_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM nvlink_partitions")
+        .fetch_one(conn.as_mut())
+        .await
+        .unwrap();
+    assert_eq!(row_count, 1);
+
+    sqlx::raw_sql(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../api-db/migrations/20260526120000_nvlink_partitions_nmx_c_partition_id.sql"
+    )))
+    .execute(conn.as_mut())
+    .await
+    .unwrap();
+
+    let row_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM nvlink_partitions")
+        .fetch_one(conn.as_mut())
+        .await
+        .unwrap();
+    assert_eq!(row_count, 0);
+
+    let legacy_column_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)
+         FROM information_schema.columns
+         WHERE table_name = 'nvlink_partitions'
+             AND column_name = 'nmx_m_id'",
+    )
+    .fetch_one(conn.as_mut())
+    .await
+    .unwrap();
+    assert_eq!(legacy_column_count, 0);
+
+    let nmx_c_column_type: String = sqlx::query_scalar(
+        "SELECT data_type
+         FROM information_schema.columns
+         WHERE table_name = 'nvlink_partitions'
+             AND column_name = 'nmx_c_partition_id'",
+    )
+    .fetch_one(conn.as_mut())
+    .await
+    .unwrap();
+    assert_eq!(nmx_c_column_type, "integer");
+}
+
+#[crate::sqlx_test]
 async fn test_create_instance_with_nvl_config(pool: sqlx::PgPool) {
     let mut config = common::api_fixtures::get_config();
     if let Some(nvlink_config) = config.nvlink_config.as_mut() {
@@ -2273,7 +2351,7 @@ async fn test_update_nvlink_config_nmxm_existing_partitions_with_nmxc_simulator(
     // a pre-exisiting NMX-M partition
     const NMXC_PARTITION_ID: u32 = 666_666;
     let nmxc_partition_id = NMXC_PARTITION_ID;
-    let nmx_m_id = (u64::from(nmxc_partition_id) + 10_000_000).to_string();
+    let nmx_c_partition_id = i32::try_from(u64::from(nmxc_partition_id) + 10_000_000).unwrap();
     let domain_uuid = machine
         .nvlink_info
         .as_ref()
@@ -2284,7 +2362,7 @@ async fn test_update_nvlink_config_nmxm_existing_partitions_with_nmxc_simulator(
     db_nvl_partition::create(
         &NewNvlPartition {
             id: NvLinkPartitionId::new(),
-            nmx_m_id,
+            nmx_c_partition_id,
             domain_uuid,
             name: NvlPartitionName::try_from("test_partition".to_string()).unwrap(),
             logical_partition_id,

@@ -54,7 +54,9 @@ netlink-packet-route = { workspace = true }
 nonzero_ext = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-prometheus = { workspace = true }
-opentelemetry_sdk = { workspace = true, features = ["spec_unstable_metrics_views"] }
+opentelemetry_sdk = { workspace = true, features = [
+  "spec_unstable_metrics_views",
+] }
 opentelemetry-semantic-conventions = { workspace = true, features = [
   "semconv_experimental",
 ] }

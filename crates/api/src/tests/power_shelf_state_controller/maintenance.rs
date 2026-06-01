@@ -18,8 +18,7 @@
 //! Direct-invocation tests for the PowerShelf `Maintenance` state handler.
 //!
 //! These tests construct a `PowerShelfStateHandler` and a real
-//! `StateHandlerContext` (via the `state_handler_services()` test fixture,
-//! which wires up the local `RmsSim` mock as `rms_client`), then drive
+//! `StateHandlerContext`, then drive
 //! `handle_object_state` against a power shelf that has been parked in
 //! `Maintenance { PowerOn | PowerOff }`. The tests assert on:
 //!
@@ -70,7 +69,7 @@ fn services_with_rms_client(
     rms_client: Option<Arc<dyn librms::RmsApi>>,
 ) -> PowerShelfStateHandlerServices {
     PowerShelfStateHandlerServices {
-        db_pool: env.state_handler_services().db_pool,
+        db_pool: env.pool.clone(),
         rms_client,
         // Force a credential manager that always resolves BMC creds via the
         // site-wide fallback. This avoids relying on whatever the test-env

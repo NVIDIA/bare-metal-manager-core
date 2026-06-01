@@ -31,6 +31,7 @@ use model::instance::config::extension_services::InstanceExtensionServicesConfig
 use model::instance::config::infiniband::InstanceInfinibandConfig;
 use model::instance::config::network::{InstanceNetworkConfig, InstanceNetworkConfigUpdate};
 use model::instance::config::nvlink::InstanceNvLinkConfig;
+use model::instance::config::spx::InstanceSpxConfig;
 use model::instance::snapshot::{self, InstanceSnapshot, InstanceSnapshotPgJson};
 use model::metadata::Metadata;
 use model::os::{InlineIpxe, OperatingSystem, OperatingSystemVariant};
@@ -642,6 +643,22 @@ pub async fn update_nvlink_config(
     .await
 }
 
+/// Updates the desired spx configuration for an instance
+pub async fn update_spx_config(
+    txn: &mut PgConnection,
+    instance_id: InstanceId,
+    expected_version: ConfigVersion,
+    new_state: &InstanceSpxConfig,
+    increment_version: bool,
+) -> Result<(), DatabaseError> {
+    batch_update_spx_config(
+        txn,
+        &[(instance_id, expected_version, new_state)],
+        increment_version,
+    )
+    .await
+}
+
 pub async fn trigger_update_network_config_request(
     instance_id: &InstanceId,
     current: &InstanceNetworkConfig,
@@ -755,7 +772,9 @@ pub async fn batch_persist<'a>(
                         extension_services_config,
                         extension_services_config_version,
                         nvlink_config,
-                        nvlink_config_version
+                        nvlink_config_version,
+                        spx_config,
+                        spx_config_version
                     )
                     SELECT 
                             vals.id, vals.machine_id, vals.operating_system_id, vals.os_user_data, vals.os_ipxe_script,
@@ -767,7 +786,7 @@ pub async fn batch_persist<'a>(
                             vals.network_security_group_id, true,
                             vals.instance_type_id, vals.extension_services_config::json, 
                             vals.extension_services_config_version, vals.nvlink_config::json, 
-                            vals.nvlink_config_version
+                            vals.nvlink_config_version, vals.spx_config::json, vals.spx_config_version
                     FROM (VALUES ";
 
     let mut qb = sqlx::QueryBuilder::new(query);
@@ -850,6 +869,12 @@ pub async fn batch_persist<'a>(
             .push_bind_unseparated(serde_json::to_string(&value.config.nvlink).unwrap_or_default());
         separated.push_unseparated(",");
         separated.push_bind_unseparated(value.nvlink_config_version);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(
+            serde_json::to_string(&value.config.spxconfig).unwrap_or_default(),
+        );
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(value.spx_config_version);
         separated.push_unseparated(")");
     }
 
@@ -858,7 +883,7 @@ pub async fn batch_persist<'a>(
                        ib_config, ib_config_version, keyset_ids, os_phone_home_enabled, name, 
                        description, labels, config_version, hostname, network_security_group_id,
                        instance_type_id, extension_services_config, extension_services_config_version,
-                       nvlink_config, nvlink_config_version)
+                       nvlink_config, nvlink_config_version, spx_config, spx_config_version)
             INNER JOIN machines m ON m.id = vals.machine_id 
                 AND (vals.instance_type_id IS NULL OR m.instance_type_id = vals.instance_type_id)");
 
@@ -1064,6 +1089,70 @@ pub async fn batch_update_nvlink_config(
     if result.rows_affected() != expected_count {
         return Err(DatabaseError::FailedPrecondition(
             "NVLink config version mismatch during batch update".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Batch update spx configs for multiple instances
+/// Each update contains (instance_id, expected_version, config)
+pub async fn batch_update_spx_config(
+    txn: &mut PgConnection,
+    updates: &[(InstanceId, ConfigVersion, &InstanceSpxConfig)],
+    increment_version: bool,
+) -> Result<(), DatabaseError> {
+    if updates.is_empty() {
+        return Ok(());
+    }
+
+    let expected_count = updates.len() as u64;
+
+    let mut qb = sqlx::QueryBuilder::new(
+        "UPDATE instances SET 
+            spx_config_version = updates.new_version,
+            spx_config = updates.config::json
+        FROM (VALUES ",
+    );
+
+    let mut separated = qb.separated(", ");
+    for (instance_id, expected_version, config) in updates {
+        let new_version = if increment_version {
+            expected_version.increment()
+        } else {
+            *expected_version
+        };
+        separated.push("(");
+        separated.push_bind_unseparated(*instance_id);
+        separated.push_unseparated("::uuid,");
+        separated.push_bind_unseparated(*expected_version);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(new_version);
+        separated.push_unseparated(",");
+        separated.push_bind_unseparated(serde_json::to_string(config).unwrap_or_default());
+        separated.push_unseparated(")");
+    }
+
+    qb.push(
+        ") AS updates(id, expected_version, new_version, config) 
+        WHERE instances.id = updates.id 
+        AND instances.spx_config_version = updates.expected_version",
+    );
+
+    let result = qb
+        .build()
+        .execute(txn)
+        .await
+        .map_err(|e| DatabaseError::new("batch_update_spx_config", e))?;
+
+    // Verify all rows were updated (version check passed)
+    if result.rows_affected() != expected_count {
+        tracing::error!(
+            "batch_update_spx_config affected != expected: {:#?} != {expected_count}",
+            result.rows_affected()
+        );
+        return Err(DatabaseError::FailedPrecondition(
+            "Spx config version mismatch during batch update".to_string(),
         ));
     }
 

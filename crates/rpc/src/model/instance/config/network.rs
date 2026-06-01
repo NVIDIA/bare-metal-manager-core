@@ -20,8 +20,8 @@ use std::net::IpAddr;
 
 use itertools::Itertools;
 use model::instance::config::network::{
-    DeviceLocator, InstanceInterfaceConfig, InstanceNetworkConfig, InterfaceFunctionId,
-    InterfaceFunctionType, Ipv6InterfaceConfig, NetworkDetails,
+    DeviceLocator, InstanceInterfaceConfig, InstanceInterfaceRoutingProfile, InstanceNetworkConfig,
+    InterfaceFunctionId, InterfaceFunctionType, Ipv6InterfaceConfig, NetworkDetails,
 };
 
 use crate as rpc;
@@ -272,6 +272,23 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                 device_instance: iface.device_instance as usize,
             });
 
+            let routing_profile = iface
+                .routing_profile
+                .map(
+                    |profile| -> Result<InstanceInterfaceRoutingProfile, RpcDataConversionError> {
+                        let allowed_anycast_prefixes = profile
+                            .allowed_anycast_prefixes
+                            .into_iter()
+                            .map(|entry| entry.prefix.parse())
+                            .collect::<Result<Vec<_>, _>>()?;
+
+                        Ok(InstanceInterfaceRoutingProfile {
+                            allowed_anycast_prefixes,
+                        })
+                    },
+                )
+                .transpose()?;
+
             interfaces.push(InstanceInterfaceConfig {
                 function_id,
                 network_segment_id,
@@ -283,6 +300,7 @@ impl TryFrom<rpc::InstanceNetworkConfig> for InstanceNetworkConfig {
                     .transpose()
                     .map_err(|e| RpcDataConversionError::InvalidIpAddress(e.to_string()))?,
                 ipv6_interface_config,
+                routing_profile,
                 interface_prefixes: HashMap::default(),
                 network_segment_gateways: HashMap::new(),
                 host_inband_mac_address: None,
@@ -337,10 +355,35 @@ impl TryFrom<InstanceNetworkConfig> for rpc::InstanceNetworkConfig {
                         ip_address: v6.requested_ip_addr.map(|i| i.to_string()),
                     }
                 }),
+                routing_profile: iface.routing_profile.map(|profile| {
+                    rpc::forge::InstanceInterfaceRoutingProfile {
+                        allowed_anycast_prefixes: profile
+                            .allowed_anycast_prefixes
+                            .into_iter()
+                            .map(|prefix| rpc::forge::PrefixFilterPolicyEntry {
+                                prefix: prefix.to_string(),
+                            })
+                            .collect(),
+                    }
+                }),
             });
         }
 
         Ok(rpc::InstanceNetworkConfig { interfaces, auto })
+    }
+}
+
+impl From<&InstanceInterfaceRoutingProfile> for rpc::forge::FlatInterfaceRoutingProfile {
+    fn from(profile: &InstanceInterfaceRoutingProfile) -> Self {
+        Self {
+            allowed_anycast_prefixes: profile
+                .allowed_anycast_prefixes
+                .iter()
+                .map(|prefix| rpc::forge::PrefixFilterPolicyEntry {
+                    prefix: prefix.to_string(),
+                })
+                .collect(),
+        }
     }
 }
 
@@ -401,6 +444,7 @@ mod tests {
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             }],
             auto: false,
         };
@@ -414,6 +458,7 @@ mod tests {
                 ip_addrs: HashMap::new(),
                 requested_ip_addr: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
                 interface_prefixes: HashMap::new(),
                 network_segment_gateways: HashMap::new(),
                 host_inband_mac_address: None,
@@ -435,6 +480,7 @@ mod tests {
             virtual_function_id: None,
             ip_address: None,
             ipv6_interface_config: None,
+            routing_profile: None,
         }];
         for vfid in INTERFACE_VFID_MIN..=INTERFACE_VFID_MAX {
             interfaces.push(rpc::InstanceInterfaceConfig {
@@ -446,6 +492,7 @@ mod tests {
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             });
         }
 
@@ -462,6 +509,7 @@ mod tests {
             ip_addrs: HashMap::new(),
             requested_ip_addr: None,
             ipv6_interface_config: None,
+            routing_profile: None,
             interface_prefixes: HashMap::new(),
             network_segment_gateways: HashMap::new(),
             host_inband_mac_address: None,
@@ -478,6 +526,7 @@ mod tests {
                 ip_addrs: HashMap::new(),
                 requested_ip_addr: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
                 interface_prefixes: HashMap::new(),
                 network_segment_gateways: HashMap::new(),
                 host_inband_mac_address: None,
@@ -504,6 +553,7 @@ mod tests {
                 device_instance: 0u32,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -518,6 +568,7 @@ mod tests {
                 device_instance: 0u32,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -532,6 +583,7 @@ mod tests {
                 device_instance: 0u32,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
             rpc::InstanceInterfaceConfig {
                 function_type: rpc::InterfaceFunctionType::Virtual as i32,
@@ -546,6 +598,7 @@ mod tests {
                 device_instance: 0u32,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             },
         ]
     }
@@ -705,6 +758,7 @@ mod tests {
                     vpc_prefix_id: v6_id,
                     requested_ip_addr: Some("2001:db8::1".parse().unwrap()),
                 }),
+                routing_profile: None,
                 interface_prefixes: HashMap::default(),
                 network_segment_gateways: HashMap::default(),
                 host_inband_mac_address: None,
@@ -747,6 +801,89 @@ mod tests {
     }
 
     #[test]
+    fn test_interface_routing_profile_rpc_roundtrip() {
+        let segment_id = NetworkSegmentId::new();
+        let anycast_prefix = "192.0.2.0/24";
+
+        // Convert a wire interface profile into the internal model.
+        let rpc_config = rpc::InstanceNetworkConfig {
+            interfaces: vec![rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                network_segment_id: Some(segment_id),
+                network_details: Some(
+                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id),
+                ),
+                device: None,
+                device_instance: 0,
+                virtual_function_id: None,
+                ip_address: None,
+                ipv6_interface_config: None,
+                routing_profile: Some(rpc::forge::InstanceInterfaceRoutingProfile {
+                    allowed_anycast_prefixes: vec![rpc::forge::PrefixFilterPolicyEntry {
+                        prefix: anycast_prefix.to_string(),
+                    }],
+                }),
+            }],
+            auto: false,
+        };
+
+        let model: InstanceNetworkConfig = rpc_config.try_into().unwrap();
+        assert_eq!(
+            model.interfaces[0]
+                .routing_profile
+                .as_ref()
+                .unwrap()
+                .allowed_anycast_prefixes,
+            vec![anycast_prefix.parse::<ipnetwork::IpNetwork>().unwrap()]
+        );
+
+        // Convert the model back to the wire shape and verify the prefix is preserved.
+        let rpc_config: rpc::InstanceNetworkConfig = model.try_into().unwrap();
+        assert_eq!(
+            rpc_config.interfaces[0]
+                .routing_profile
+                .as_ref()
+                .unwrap()
+                .allowed_anycast_prefixes[0]
+                .prefix,
+            anycast_prefix
+        );
+    }
+
+    #[test]
+    fn test_interface_routing_profile_rejects_invalid_prefix() {
+        let segment_id = NetworkSegmentId::new();
+
+        // Invalid anycast prefixes should be rejected at the RPC boundary.
+        let rpc_config = rpc::InstanceNetworkConfig {
+            interfaces: vec![rpc::InstanceInterfaceConfig {
+                function_type: rpc::InterfaceFunctionType::Physical as i32,
+                network_segment_id: Some(segment_id),
+                network_details: Some(
+                    rpc::forge::instance_interface_config::NetworkDetails::SegmentId(segment_id),
+                ),
+                device: None,
+                device_instance: 0,
+                virtual_function_id: None,
+                ip_address: None,
+                ipv6_interface_config: None,
+                routing_profile: Some(rpc::forge::InstanceInterfaceRoutingProfile {
+                    allowed_anycast_prefixes: vec![rpc::forge::PrefixFilterPolicyEntry {
+                        prefix: "not-a-prefix".to_string(),
+                    }],
+                }),
+            }],
+            auto: false,
+        };
+
+        let result: Result<InstanceNetworkConfig, _> = rpc_config.try_into();
+        assert!(matches!(
+            result,
+            Err(RpcDataConversionError::NetworkParseError(_))
+        ));
+    }
+
+    #[test]
     fn test_ipv6_requires_vpc_prefix_id() {
         // ipv6 without vpc_prefix_id should be rejected.
         let v6_id = VpcPrefixId::new();
@@ -767,6 +904,7 @@ mod tests {
                     vpc_prefix_id: Some(v6_id),
                     ip_address: None,
                 }),
+                routing_profile: None,
             }],
             auto: false,
         };
@@ -790,6 +928,7 @@ mod tests {
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             }],
             auto: false,
         };
@@ -821,6 +960,7 @@ mod tests {
                     vpc_prefix_id: Some(v6_id),
                     ip_address: None,
                 }),
+                routing_profile: None,
             }],
             auto: false,
         };
@@ -848,6 +988,7 @@ mod tests {
                     vpc_prefix_id: Some(v6_id),
                     ip_address: None,
                 }),
+                routing_profile: None,
             }],
             auto: false,
         };
@@ -869,6 +1010,7 @@ mod tests {
                 virtual_function_id: None,
                 ip_address: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
             }],
             auto: true,
         };

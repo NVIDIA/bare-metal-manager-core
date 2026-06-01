@@ -16,6 +16,7 @@
  */
 
 pub(crate) mod common;
+mod power_control;
 mod status;
 mod update_firmware;
 mod versions;
@@ -40,4 +41,10 @@ pub enum Cmd {
         visible_alias = "versions"
     )]
     GetFirmwareVersions(versions::Args),
+
+    #[clap(
+        about = "Issue a power-control action against components (switches, power shelves, compute trays)",
+        visible_alias = "power-control"
+    )]
+    ComponentPowerControl(power_control::Args),
 }

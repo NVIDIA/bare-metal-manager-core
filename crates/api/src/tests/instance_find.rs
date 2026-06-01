@@ -74,6 +74,7 @@ async fn test_find_instance_ids(pool: sqlx::PgPool) {
                         network_security_group_id: None,
                         dpu_extension_services: None,
                         nvlink: None,
+                        spxconfig: None,
                     }),
                     metadata: None,
                     allow_unhealthy_machine: false,

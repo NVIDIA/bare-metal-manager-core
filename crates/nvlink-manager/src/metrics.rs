@@ -44,9 +44,9 @@ pub struct NvlPartitionMonitorMetrics {
     pub num_physical_partitions: usize,
     /// Number of completed operations in this run
     pub num_completed_operations: usize,
-    /// Number of NvLink GPU nmx_m_id mismatches between DB and NMX-M
+    /// Number of NVLink GPU partition ID mismatches between DB and NMX-C
     pub num_nvlink_info_mismatches: usize,
-    /// Number of stale partitions deleted from DB (not found in NMX-M)
+    /// Number of stale partitions deleted from DB (not found in NMX-C)
     pub num_stale_partitions_deleted: usize,
     pub applied_changes: HashMap<AppliedChange, usize>,
     pub operation_latencies: HashMap<AppliedChange, Vec<Duration>>,
@@ -55,7 +55,7 @@ pub struct NvlPartitionMonitorMetrics {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum NmxmPartitionOperations {
+pub enum NmxcMetricOperation {
     Create,
     Remove,
     RemoveDefaultPartition,
@@ -63,7 +63,7 @@ pub enum NmxmPartitionOperations {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum NmxmPartitionOperationStatus {
+pub enum NmxcMetricOperationStatus {
     Completed,
     Failed,
     Timedout,
@@ -73,9 +73,9 @@ pub enum NmxmPartitionOperationStatus {
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct AppliedChange {
     /// The operation that has been issued
-    pub operation: NmxmPartitionOperations,
+    pub operation: NmxcMetricOperation,
     /// Whether the operation succeeded or failed
-    pub status: NmxmPartitionOperationStatus,
+    pub status: NmxcMetricOperationStatus,
 }
 
 /// Metrics collected for NMX-C data
@@ -277,7 +277,9 @@ impl NvlPartitionMonitorInstruments {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_nvlink_partition_monitor_nvlink_info_mismatches")
-                .with_description("Number of NvLink GPU nmx_m_id mismatches between DB and NMX-M")
+                .with_description(
+                    "Number of NVLink GPU partition ID mismatches between DB and NMX-C",
+                )
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
                         o.observe(metrics.num_nvlink_info_mismatches as u64, attrs);
@@ -290,7 +292,7 @@ impl NvlPartitionMonitorInstruments {
             let metrics = shared_metrics;
             meter
                 .u64_observable_gauge("carbide_nvlink_partition_monitor_stale_partitions_deleted")
-                .with_description("Number of stale partitions deleted from DB (not found in NMX-M)")
+                .with_description("Number of stale partitions deleted from DB (not found in NMX-C)")
                 .with_callback(move |o| {
                     metrics.if_available(|metrics, attrs| {
                         o.observe(metrics.num_stale_partitions_deleted as u64, attrs);
@@ -341,8 +343,8 @@ impl NvlPartitionMonitorInstruments {
     }
 
     fn init_counters_and_histograms(&self) {
-        for status in [false, true] {
-            for operation in NmxmPartitionOperations::values() {
+        for status in NmxcMetricOperationStatus::values() {
+            for operation in NmxcMetricOperation::values() {
                 self.nmxc_changes_applied.add(
                     0u64,
                     &[
@@ -355,7 +357,7 @@ impl NvlPartitionMonitorInstruments {
     }
 }
 
-impl NmxmPartitionOperations {
+impl NmxcMetricOperation {
     pub fn values() -> impl Iterator<Item = Self> {
         [
             Self::Create,
@@ -367,45 +369,45 @@ impl NmxmPartitionOperations {
     }
 }
 
-impl From<NmxmPartitionOperations> for opentelemetry::Value {
-    fn from(value: NmxmPartitionOperations) -> Self {
+impl From<NmxcMetricOperation> for opentelemetry::Value {
+    fn from(value: NmxcMetricOperation) -> Self {
         let str_value = match value {
-            NmxmPartitionOperations::Create => "create",
-            NmxmPartitionOperations::Update => "update",
-            NmxmPartitionOperations::Remove => "remove",
-            NmxmPartitionOperations::RemoveDefaultPartition => "remove_default_partition",
+            NmxcMetricOperation::Create => "create",
+            NmxcMetricOperation::Update => "update",
+            NmxcMetricOperation::Remove => "remove",
+            NmxcMetricOperation::RemoveDefaultPartition => "remove_default_partition",
         };
 
         Self::from(str_value)
     }
 }
 
-impl From<NmxcPartitionOperationType> for NmxmPartitionOperations {
-    fn from(value: NmxcPartitionOperationType) -> NmxmPartitionOperations {
+impl From<NmxcPartitionOperationType> for NmxcMetricOperation {
+    fn from(value: NmxcPartitionOperationType) -> NmxcMetricOperation {
         match value {
-            NmxcPartitionOperationType::Create => NmxmPartitionOperations::Create,
-            NmxcPartitionOperationType::Remove(_) => NmxmPartitionOperations::Remove,
+            NmxcPartitionOperationType::Create => NmxcMetricOperation::Create,
+            NmxcPartitionOperationType::Remove(_) => NmxcMetricOperation::Remove,
             NmxcPartitionOperationType::RemoveUnknownPartition(_) => {
-                NmxmPartitionOperations::RemoveDefaultPartition
+                NmxcMetricOperation::RemoveDefaultPartition
             }
-            NmxcPartitionOperationType::Update(_) => NmxmPartitionOperations::Update,
+            NmxcPartitionOperationType::Update(_) => NmxcMetricOperation::Update,
         }
     }
 }
 
-impl NmxmPartitionOperationStatus {
+impl NmxcMetricOperationStatus {
     pub fn values() -> impl Iterator<Item = Self> {
         [Self::Completed, Self::Failed, Self::Timedout].into_iter()
     }
 }
 
-impl From<NmxmPartitionOperationStatus> for opentelemetry::Value {
-    fn from(value: NmxmPartitionOperationStatus) -> Self {
+impl From<NmxcMetricOperationStatus> for opentelemetry::Value {
+    fn from(value: NmxcMetricOperationStatus) -> Self {
         let str_value = match value {
-            NmxmPartitionOperationStatus::Completed => "completed",
-            NmxmPartitionOperationStatus::Failed => "failed",
-            NmxmPartitionOperationStatus::Timedout => "timedout",
-            NmxmPartitionOperationStatus::Cancelled => "cancelled",
+            NmxcMetricOperationStatus::Completed => "completed",
+            NmxcMetricOperationStatus::Failed => "failed",
+            NmxcMetricOperationStatus::Timedout => "timedout",
+            NmxcMetricOperationStatus::Cancelled => "cancelled",
         };
 
         Self::from(str_value)

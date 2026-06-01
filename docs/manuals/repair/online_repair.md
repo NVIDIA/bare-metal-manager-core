@@ -8,7 +8,7 @@ If online repair cannot fix the issue, clear online repair first and then releas
 
 This page is intended for tenant admins and platform operators writing tenant-facing runbooks.
 
-The caller must have access to the Infra Controller REST API through an API profile such as `carbide-stg`. The online repair operation is allowed for provider admins and privileged tenant admins. In tenant workflows, this means the tenant must have the required privileged capability for repair operations, such as targeted instance creation access.
+The caller must have access to the Infra Controller REST API through an API profile such as `nico-stg`. The online repair operation is allowed for provider admins and privileged tenant admins. In tenant workflows, this means the tenant must have the required privileged capability for repair operations, such as targeted instance creation access.
 
 ## What Online Repair Does
 
@@ -43,15 +43,15 @@ restish <api-profile> update-machine <tenant-org-id> <machine-id> < <request-bod
 For example, in staging:
 
 ```bash
-restish carbide-stg update-machine <tenant-org-id> <machine-id> < online-repair-on.json
+restish nico-stg update-machine <tenant-org-id> <machine-id> < online-repair-on.json
 ```
 
-`carbide-stg` is the Restish API profile or environment. Replace it with the profile for your deployment.
+`nico-stg` is the Restish API profile or environment. Replace it with the profile for your deployment.
 
 Use Restish help to confirm the operation signature in the target environment:
 
 ```bash
-restish carbide-stg update-machine --help
+restish nico-stg update-machine --help
 ```
 
 Restish prints the HTTP status and JSON error body when a request fails. Use that response body when troubleshooting validation or permission errors.
@@ -62,7 +62,7 @@ Collect the following values:
 
 | Value | Description |
 |---|---|
-| `<api-profile>` | Restish profile, for example `carbide-stg`. |
+| `<api-profile>` | Restish profile, for example `nico-stg`. |
 | `<tenant-org-id>` | Tenant organization identifier used by the REST API. |
 | `<machine-id>` | Machine ID assigned to the tenant instance. This is the `fm...` machine identifier, not the instance UUID. |
 
@@ -101,7 +101,7 @@ Create `online-repair-on.json`:
 Run:
 
 ```bash
-restish carbide-stg update-machine <tenant-org-id> <machine-id> < online-repair-on.json
+restish nico-stg update-machine <tenant-org-id> <machine-id> < online-repair-on.json
 ```
 
 Expected result:
@@ -140,7 +140,7 @@ After the repair team confirms that the issue is fixed, create `online-repair-of
 Run:
 
 ```bash
-restish carbide-stg update-machine <tenant-org-id> <machine-id> < online-repair-off.json
+restish nico-stg update-machine <tenant-org-id> <machine-id> < online-repair-off.json
 ```
 
 Expected result:
@@ -172,7 +172,7 @@ restish <api-profile> update-instance <tenant-org-id> <instance-id> < <request-b
 First inspect the instance and preserve any existing labels. Instance label updates replace the full label map; labels not included in the update request are removed. Labels are limited to 10 key/value pairs, so use the minimum failure labels if the instance is already near that limit.
 
 ```bash
-restish carbide-stg get-instance <tenant-org-id> <instance-id>
+restish nico-stg get-instance <tenant-org-id> <instance-id>
 ```
 
 Create `online-repair-failed-labels.json` using the existing labels plus the failure labels:
@@ -192,7 +192,7 @@ Create `online-repair-failed-labels.json` using the existing labels plus the fai
 Run:
 
 ```bash
-restish carbide-stg update-instance <tenant-org-id> <instance-id> < online-repair-failed-labels.json
+restish nico-stg update-instance <tenant-org-id> <instance-id> < online-repair-failed-labels.json
 ```
 
 Recommended labels:
@@ -210,7 +210,7 @@ After the label update succeeds, release the instance using [Release Instance fo
 Use the deployment's normal machine and instance inspection commands after each step. With Restish, the common pattern is:
 
 ```bash
-restish carbide-stg get-machine <tenant-org-id> <machine-id>
+restish nico-stg get-machine <tenant-org-id> <machine-id>
 ```
 
 Check that:

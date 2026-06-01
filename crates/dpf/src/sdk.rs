@@ -76,8 +76,8 @@ use crate::repository::{
 };
 use crate::types::{
     BmcPasswordProvider, ConfigPortsServiceType, DHCP_SERVER_SERVICE_NAME, DOCA_HBN_SERVICE_NAME,
-    DPU_AGENT_SERVICE_NAME, DpuDeviceInfo, DpuDeviceSummary, DpuMismatch, DpuNodeInfo,
-    DpuNodeSummary, DpuPhase, DpuServiceInterfaceTemplateDefinition,
+    DPU_AGENT_SERVICE_NAME, DTS_SERVICE_NAME, DpuDeviceInfo, DpuDeviceSummary, DpuMismatch,
+    DpuNodeInfo, DpuNodeSummary, DpuPhase, DpuServiceInterfaceTemplateDefinition,
     DpuServiceInterfaceTemplateType, DpuSummary, FMDS_SERVICE_NAME, HostDpfSnapshot,
     InitDpfResourcesConfig, OTEL_COLLECTOR_SERVICE_NAME, ServiceConfigPortProtocol,
     ServiceDefinition, ServiceNADResourceType, ServiceTemplateVersion,
@@ -664,6 +664,12 @@ pub fn build_deployment<L: ResourceLabeler>(
                             },
                             DpuDeploymentServicesDependsOn {
                                 name: FMDS_SERVICE_NAME.to_string(),
+                            },
+                            // otelcol templates the DTS scrape target from
+                            // `{{ (index .Services "dts").Name }}`; without this
+                            // dependency that lookup renders empty.
+                            DpuDeploymentServicesDependsOn {
+                                name: DTS_SERVICE_NAME.to_string(),
                             },
                         ]),
 
@@ -1828,6 +1834,53 @@ mod tests {
     }
 
     const TEST_NAMESPACE: &str = "test-namespace";
+
+    #[test]
+    fn otelcol_depends_on_includes_dts() {
+        // Regression: otelcol templates its DTS scrape target from
+        // `{{ (index .Services "dts").Name }}`. That lookup only resolves when
+        // dts is declared as a dependency of the otelcol service, otherwise the
+        // rendered target host is `carbide-dpf-cluster--doca-telemetry` (empty
+        // name) and DTS metrics never get scraped.
+        let svc = |name: &str| ServiceDefinition::new(name, "repo", "chart", "1.0.0");
+        let services = vec![
+            svc(OTEL_COLLECTOR_SERVICE_NAME),
+            svc(DTS_SERVICE_NAME),
+            svc(DPU_AGENT_SERVICE_NAME),
+            svc(FMDS_SERVICE_NAME),
+        ];
+
+        let deployment = build_deployment(
+            &services,
+            "dep",
+            "bfb",
+            "flavor",
+            TEST_NAMESPACE,
+            &NoLabels,
+            &[],
+        );
+
+        let otel = deployment
+            .spec
+            .services
+            .get(OTEL_COLLECTOR_SERVICE_NAME)
+            .expect("otelcol service present");
+        let deps: Vec<String> = otel
+            .depends_on
+            .as_ref()
+            .expect("otelcol should declare dependencies")
+            .iter()
+            .map(|d| d.name.clone())
+            .collect();
+
+        assert!(
+            deps.contains(&DTS_SERVICE_NAME.to_string()),
+            "otelcol must depend on dts so its scrape target resolves; got {deps:?}"
+        );
+        // The previously-working dependencies must remain.
+        assert!(deps.contains(&DPU_AGENT_SERVICE_NAME.to_string()));
+        assert!(deps.contains(&FMDS_SERVICE_NAME.to_string()));
+    }
 
     #[derive(Clone, Default)]
     struct SdkMock {

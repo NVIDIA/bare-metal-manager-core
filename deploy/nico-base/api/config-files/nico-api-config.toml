@@ -49,7 +49,7 @@ autoupdate = true
 [machine_identity]
 enabled = true
 current_encryption_key_id = "kv1" # must match a key under machine_identity.encryption_keys in credentials
-algorithm = "ES256" # must match tenant identity signing alg (ES256 only)
+algorithm = "ES256"               # must match tenant identity signing alg (ES256 only)
 
 [tls]
 identity_pemfile_path = "/var/run/secrets/spiffe.io/tls.crt"

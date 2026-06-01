@@ -108,6 +108,7 @@ pub struct InstanceConfig {
     pub dpu_extension_services:
         ::core::option::Option<::rpc::forge::InstanceDpuExtensionServicesConfig>,
     pub nvlink: ::core::option::Option<::rpc::forge::InstanceNvLinkConfig>,
+    pub spxconfig: ::core::option::Option<::rpc::forge::InstanceSpxConfig>,
 }
 
 impl InstanceConfig {

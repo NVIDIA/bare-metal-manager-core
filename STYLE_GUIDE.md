@@ -129,18 +129,18 @@ using interpolation if it makes sense.
 
 ### Core API handler Errors
 
-Inside API handlers, the `CarbideError` data type should be used to construct errors. It should then be converted into
-`tonic::Status` using `.into()`. All errors being derived from `CarbideError` assures that the errors will look uniform
+Inside API handlers, the `NicoError` data type should be used to construct errors. It should then be converted into
+`tonic::Status` using `.into()`. All errors being derived from `NicoError` assures that the errors will look uniform
 to tenants.
 
-The `CarbideError` variant that is used should be selected based on whether the error gets returned due to the user
+The `NicoError` variant that is used should be selected based on whether the error gets returned due to the user
 passing invalid arguments or due to the system not being able to handle the request correctly. Error variants that
 should be used if the user passing invalid arguments can be `InvalidArgument`, `InvalidConfiguration`, `NotFoundError`
 or `ConcurrentModificationError` - these will map to "4xx-like" gRPC error codes. An example of a system-side error
-would be `CarbideError::Internal`.
+would be `NicoError::Internal`.
 
 ```rust
-// Avoid — constructing Status directly, bypassing `CarbideError` error mapping
+// Avoid — constructing Status directly, bypassing `NicoError` error mapping
 pub async fn create_resource(
     api: &Api,
     request: Request<rpc::Resource>,
@@ -151,7 +151,7 @@ pub async fn create_resource(
         .ok_or_else(|| Status::invalid_argument("id is required"))?;
 }
 
-// Prefer — uses `CarbideError::InvalidArgument`
+// Prefer — uses `NicoError::InvalidArgument`
 pub async fn create_resource(
     api: &Api,
     request: Request<rpc::Resource>,
@@ -159,7 +159,7 @@ pub async fn create_resource(
     let resource = request.into_inner();
     let id = resource
         .id
-        .ok_or(CarbideError::InvalidArgument("id is required".into()))?;
+        .ok_or(NicoError::InvalidArgument("id is required".into()))?;
 }
 ```
 
@@ -172,14 +172,14 @@ checks for each meaningful combination of feature flags we support, which scales
 
 Cases where features *are* warranted:
 
-- For shared crates when only a subset of dependents need certain code: For example, the `carbide_uuid` is used by
-  several dependents, but only the `carbide_api` crate needs the sqlx conversions. We don't want e.g.
-  `carbide_admin_cli` to take a dependency on `sqlx`, so the sqlx conversions are behind a `sqlx` crate feature. But
+- For shared crates when only a subset of dependents need certain code: For example, the `nico_uuid` is used by
+  several dependents, but only the `nico_api` crate needs the sqlx conversions. We don't want e.g.
+  `nico_admin_cli` to take a dependency on `sqlx`, so the sqlx conversions are behind a `sqlx` crate feature. But
   this is covered by CI tests, since CI builds both the admin-cli and the api crate, both sets of features are
   exercised.
 
-- For supporting non-linux builds: The `carbide_api` crate needs to use types from the `tss-esapi` crate to support
-  validating secure-boot keys, but `tss-esapi` only builds on Linux. To support developers running `carbide_api` on
+- For supporting non-linux builds: The `nico_api` crate needs to use types from the `tss-esapi` crate to support
+  validating secure-boot keys, but `tss-esapi` only builds on Linux. To support developers running `nico_api` on
   their Mac for testing, the parts which require `tss-esapi` are carefully carved out into a `linux-build` feature
   (which is enabled by default). We do not run CI tests with this feature disabled, so supporting a build without
   `linux-build` enabled is best-effort.
@@ -217,10 +217,10 @@ Avoid spawning background tasks without joining them. Any panics that happen in 
 the rest of the process unless you join them via `JoinHandle::join()` or add them to a `JoinSet` which is later awaited
 with `JoinSet::join_all()`.
 
-For carbide-api, we use a single `JoinSet` to spawn all background tasks, and call `join_all()` to block "forever" until
+For nico-api, we use a single `JoinSet` to spawn all background tasks, and call `join_all()` to block "forever" until
 the process is shut down. This makes it so any panics in the JoinSet will propagate to the main task, and crash the
 process (which is what we want.) If you want to spawn background work, prefer accepting a `&mut JoinSet` and spawn your
-background task into it. Your task can be constructed it inside `carbide::setup::initialize_and_spawn_controllers`,
+background task into it. Your task can be constructed it inside `nico::setup::initialize_and_spawn_controllers`,
 which has a JoinSet it can pass to your `start()` function.
 
 Avoid using `oneshot::Sender<()>` as a cancellation signal, and prefer tokio_util's `CancellationToken`, which can
@@ -286,7 +286,7 @@ impl ClientlessBackgroundJob {
 ```
 
 Avoid mixing the approaches and returning an RAII handle for "client-less" background tasks, if it only exists to stop
-the task when dropped. In carbide-api, there are many such client-less background jobs, and storing each of their
+the task when dropped. In nico-api, there are many such client-less background jobs, and storing each of their
 handles for the correct lifetime is awkward and error-prone. Propagating a single top-level CancellationToken to each of
 them is the preferred approach.
 

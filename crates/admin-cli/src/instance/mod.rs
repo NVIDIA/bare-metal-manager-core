@@ -23,6 +23,7 @@ mod show;
 mod update_ib_config;
 mod update_nvlink_config;
 mod update_os;
+mod update_spx_config;
 
 // Cross-module re-exports for jump module
 // Cross-module re-export for rpc module
@@ -53,4 +54,6 @@ pub enum Cmd {
     UpdateIbConfig(update_ib_config::Args),
     #[clap(about = "Update instance NVLink configuration")]
     UpdateNvLinkConfig(update_nvlink_config::Args),
+    #[clap(about = "Update instance SPX configuration")]
+    UpdateSpxConfig(update_spx_config::Args),
 }

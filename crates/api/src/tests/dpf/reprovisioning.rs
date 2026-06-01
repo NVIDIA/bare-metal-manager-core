@@ -26,6 +26,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use carbide_dpf::DpuPhase;
+use carbide_dpf::types::{DpuDeviceSummary, DpuNodeSummary, HostDpfSnapshot};
 use carbide_machine_controller::dpf::{DpfOperations, MockDpfOperations};
 use carbide_uuid::machine::MachineId;
 use model::machine::{
@@ -40,16 +41,46 @@ use crate::tests::common::api_fixtures::{
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
+fn snapshot_with_crs_present(dpu_count: usize) -> HostDpfSnapshot {
+    HostDpfSnapshot {
+        dpu_node: Some(DpuNodeSummary {
+            name: "node-mock".to_string(),
+            labels: Default::default(),
+            annotations: Default::default(),
+            dpu_device_refs: (0..dpu_count).map(|i| format!("device-{i}")).collect(),
+        }),
+        dpu_devices: (0..dpu_count)
+            .map(|i| DpuDeviceSummary {
+                name: format!("device-{i}"),
+                labels: Default::default(),
+                bmc_ip: None,
+                bmc_port: None,
+                serial_number: String::new(),
+            })
+            .collect(),
+        dpus: vec![],
+    }
+}
+
 /// Build a `MockDpfOperations` with only the expectations needed for the
 /// initial provisioning flow triggered by `create_managed_host_with_dpf`.
 /// `dpu_ready` controls whether `get_dpu_phase` returns `Ready` or `Provisioning`.
 fn provisioning_mock(dpu_ready: Arc<AtomicBool>) -> MockDpfOperations {
+    provisioning_mock_with_dpu_count(dpu_ready, 1)
+}
+
+fn provisioning_mock_with_dpu_count(
+    dpu_ready: Arc<AtomicBool>,
+    dpu_count: usize,
+) -> MockDpfOperations {
     let mut mock = MockDpfOperations::new();
     mock.expect_register_dpu_device().returning(|_| Ok(()));
     mock.expect_register_dpu_node().returning(|_| Ok(()));
     mock.expect_release_maintenance_hold().returning(|_| Ok(()));
     mock.expect_is_reboot_required().returning(|_| Ok(false));
     mock.expect_verify_node_labels().returning(|_| Ok(true));
+    mock.expect_snapshot_host()
+        .returning(move |_| Ok(snapshot_with_crs_present(dpu_count)));
     mock.expect_get_dpu_phase().returning(move |_, _| {
         if dpu_ready.load(Ordering::SeqCst) {
             Ok(DpuPhase::Ready)
@@ -333,6 +364,7 @@ fn capturing_mock(
     dpu_ready: Arc<AtomicBool>,
     registered_devices: Arc<Mutex<Vec<String>>>,
     reprovisioned_devices: Arc<Mutex<Vec<String>>>,
+    dpu_count: usize,
 ) -> MockDpfOperations {
     let mut mock = MockDpfOperations::new();
 
@@ -345,6 +377,8 @@ fn capturing_mock(
     mock.expect_release_maintenance_hold().returning(|_| Ok(()));
     mock.expect_is_reboot_required().returning(|_| Ok(false));
     mock.expect_verify_node_labels().returning(|_| Ok(true));
+    mock.expect_snapshot_host()
+        .returning(move |_| Ok(snapshot_with_crs_present(dpu_count)));
 
     let reprovisioned_for_ready = reprovisioned_devices.clone();
     mock.expect_get_dpu_phase()
@@ -386,6 +420,7 @@ async fn test_multi_dpu_provisioning_registers_all_devices(pool: sqlx::PgPool) {
         device_ready.clone(),
         registered_devices.clone(),
         reprovisioned_devices.clone(),
+        2,
     ));
     let mut config = get_config();
     config.dpf = dpf_config();
@@ -440,6 +475,7 @@ async fn test_multi_dpu_reprovisioning_calls_all_dpus(pool: sqlx::PgPool) {
         device_ready.clone(),
         registered_devices,
         reprovisioned_devices.clone(),
+        2,
     ));
     let mut config = get_config();
     config.dpf = dpf_config();
@@ -635,6 +671,7 @@ async fn test_multi_dpu_reprovisioning_per_dpu(pool: sqlx::PgPool) {
         device_ready.clone(),
         registered_devices,
         reprovisioned_devices.clone(),
+        2,
     ));
     let mut config = get_config();
     config.dpf = dpf_config();

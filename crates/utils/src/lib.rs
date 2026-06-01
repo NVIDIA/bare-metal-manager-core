@@ -25,6 +25,7 @@ pub mod config;
 mod host_port_pair;
 pub mod metrics;
 pub mod periodic_timer;
+pub mod redfish;
 pub mod sku;
 #[cfg(feature = "test-support")]
 pub mod test_support;

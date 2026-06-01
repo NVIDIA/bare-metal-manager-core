@@ -15,9 +15,7 @@
  * limitations under the License.
  */
 use carbide_redfish::libredfish::RedfishClientPool;
-use db::managed_host::load_snapshot;
 use db::{self};
-use model::machine::LoadSnapshotOptions;
 use model::power_manager::PowerState;
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
@@ -130,26 +128,17 @@ async fn test_power_manager_state_machine_desired_on_machine_off(
     let env =
         create_test_env_with_overrides(pool, TestEnvOverrides::default().enable_power_manager())
             .await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
+    let mh = create_managed_host(&env).await;
 
     let mut txn = env.pool.begin().await?;
     let power_entry = db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::On);
-    let mh_snapshot = load_snapshot(
-        txn.as_mut(),
-        &host_machine_id,
-        LoadSnapshotOptions::default(),
-    )
-    .await?
-    .unwrap();
+    let bmc_access_info = mh.host().bmc_access(&mut txn).await;
     txn.commit().await?;
 
     // Create redfish client
-    let sim = env
-        .redfish_sim
-        .create_client_from_machine(&mh_snapshot.host_snapshot, &env.pool)
-        .await?;
+    let sim = env.redfish_sim.client_by_info(&bmc_access_info).await?;
 
     // Set power state Off.
     sim.power(libredfish::SystemPowerControl::ForceOff).await?;
@@ -160,7 +149,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off(
     );
 
     let mut txn = env.pool.begin().await?;
-    update_next_try_now(&host_machine_id, &mut txn).await;
+    update_next_try_now(&mh.host().id, &mut txn).await;
     txn.commit().await?;
 
     // Run a iteration.
@@ -198,26 +187,17 @@ async fn test_power_manager_state_machine_desired_on_machine_off_counter(
     let env =
         create_test_env_with_overrides(pool, TestEnvOverrides::default().enable_power_manager())
             .await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
+    let mh = create_managed_host(&env).await;
 
     let mut txn = env.pool.begin().await?;
     let power_entry = db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::On);
-    let mh_snapshot = load_snapshot(
-        txn.as_mut(),
-        &host_machine_id,
-        LoadSnapshotOptions::default(),
-    )
-    .await?
-    .unwrap();
+    let bmc_access_info = mh.host().bmc_access(&mut txn).await;
     txn.commit().await?;
 
     // Create redfish client
-    let sim = env
-        .redfish_sim
-        .create_client_from_machine(&mh_snapshot.host_snapshot, &env.pool)
-        .await?;
+    let sim = env.redfish_sim.client_by_info(&bmc_access_info).await?;
 
     // Set power state Off.
     sim.power(libredfish::SystemPowerControl::ForceOff).await?;
@@ -228,7 +208,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off_counter(
     );
 
     let mut txn = env.pool.begin().await?;
-    update_next_try_now(&host_machine_id, &mut txn).await;
+    update_next_try_now(&mh.host().id, &mut txn).await;
     txn.commit().await?;
 
     // Run a iteration.
@@ -256,7 +236,7 @@ async fn test_power_manager_state_machine_desired_on_machine_off_counter(
     let res = env
         .api
         .get_power_options(tonic::Request::new(PowerOptionRequest {
-            machine_id: vec![host_machine_id],
+            machine_id: vec![mh.host().id],
         }))
         .await?
         .into_inner();
@@ -273,26 +253,20 @@ async fn test_power_manager_state_machine_desired_off_machine_off(
     let env =
         create_test_env_with_overrides(pool, TestEnvOverrides::default().enable_power_manager())
             .await;
-    let (host_machine_id, _dpu_machine_id) = create_managed_host(&env).await.into();
+    let mh = create_managed_host(&env).await;
 
     let mut txn = env.pool.begin().await?;
     let power_entry = db::power_options::get_all(&mut txn).await?;
     assert_eq!(power_entry[0].desired_power_state, PowerState::On);
     assert_eq!(power_entry[0].last_fetched_power_state, PowerState::On);
-    let mh_snapshot = load_snapshot(
-        txn.as_mut(),
-        &host_machine_id,
-        LoadSnapshotOptions::default(),
-    )
-    .await?
-    .unwrap();
+    let bmc_access_info = mh.host().bmc_access(&mut txn).await;
     txn.commit().await?;
 
     // Set maintenance mode (required before setting desired=Off).
     env.api
         .set_maintenance(tonic::Request::new(MaintenanceRequest {
             operation: MaintenanceOperation::Enable as i32,
-            host_id: Some(host_machine_id),
+            host_id: Some(mh.host().id),
             reference: Some("testing".to_string()),
         }))
         .await?;
@@ -300,7 +274,7 @@ async fn test_power_manager_state_machine_desired_off_machine_off(
     // Set desired power state to Off.
     env.api
         .update_power_option(tonic::Request::new(PowerOptionUpdateRequest {
-            machine_id: Some(host_machine_id),
+            machine_id: Some(mh.host().id),
             power_state: rpc::forge::PowerState::Off as i32,
         }))
         .await?;
@@ -311,10 +285,7 @@ async fn test_power_manager_state_machine_desired_off_machine_off(
     txn.rollback().await?;
 
     // Simulate the host being powered off via BMC.
-    let sim = env
-        .redfish_sim
-        .create_client_from_machine(&mh_snapshot.host_snapshot, &env.pool)
-        .await?;
+    let sim = env.redfish_sim.client_by_info(&bmc_access_info).await?;
     sim.power(libredfish::SystemPowerControl::ForceOff).await?;
     assert_eq!(
         sim.get_power_state().await.unwrap(),
@@ -329,7 +300,7 @@ async fn test_power_manager_state_machine_desired_off_machine_off(
 
     // Advance next_try_at so the state controller will poll BMC.
     let mut txn = env.pool.begin().await?;
-    update_next_try_now(&host_machine_id, &mut txn).await;
+    update_next_try_now(&mh.host().id, &mut txn).await;
     txn.commit().await?;
 
     // Run state controller iteration — should poll BMC, see Off, and persist the update.

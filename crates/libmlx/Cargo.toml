@@ -88,3 +88,8 @@ serde_yaml = "0.9"
 carbide-libmlx-model = { path = "../libmlx-model", features = ["test-support"] }
 carbide-ssh = { path = "../ssh", features = ["test_support"] }
 russh = { workspace = true }
+
+[features]
+#default = ["mockdpa"]
+default = []
+mockdpa = []

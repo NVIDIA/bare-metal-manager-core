@@ -15,13 +15,13 @@ instance lifecycle.**
 
 The following steps can be used to reboot a machine:
 
-### 1. Obtain access to `carbide-admin-cli`
+### 1. Obtain access to `nico-admin-cli`
 
-See [carbide-admin-cli access on a NICo deployment](forge_admin_cli.md).
+See [nico-admin-cli access on a NICo deployment](nico_admin_cli.md).
 
-### 2. Execute the `carbide-admin-cli machine reboot` command
+### 2. Execute the `nico-admin-cli machine reboot` command
 
-`carbide-admin-cli machine reboot` can be used to restart a machine.
+`nico-admin-cli machine reboot` can be used to restart a machine.
 It always will require the machine's BMC IP and port to be specified.
 
 BMC credentials can either be explicitly passed, or the `--machine-id` parameter
@@ -35,11 +35,11 @@ the NICo site controller.
 **Example:**
 
 ```
-/opt/carbide/carbide-admin-cli -c https://127.0.0.1:1079 machine reboot --address 123.123.123.123 --port 9999 --machine-id="60cef902-9779-4666-8362-c9bb4b37184f"
+/opt/nico/nico-admin-cli -c https://127.0.0.1:1079 machine reboot --address 123.123.123.123 --port 9999 --machine-id="60cef902-9779-4666-8362-c9bb4b37184f"
 ```
 
 or using username and password:
 
 ```
-/opt/carbide/carbide-admin-cli -c https://127.0.0.1:1079 machine reboot --address 123.123.123.123 --port 9999 --username myhost --password mypassword
+/opt/nico/nico-admin-cli -c https://127.0.0.1:1079 machine reboot --address 123.123.123.123 --port 9999 --username myhost --password mypassword
 ```

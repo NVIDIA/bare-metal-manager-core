@@ -20,10 +20,10 @@ message BuildInfo {
 The `CodeGenerator::write_rpc_client_wrapper` method will provide wrapper functions like:
 
 ```rust
-pub async fn version<T: Into<crate::protos::forge::VersionRequest>>(
+pub async fn version<T: Into<crate::protos::nico::VersionRequest>>(
     &self,
     request: T,
-) -> Result<crate::protos::forge::BuildInfo, tonic::Status> {
+) -> Result<crate::protos::nico::BuildInfo, tonic::Status> {
     Ok(
         self
             .connection()
@@ -39,7 +39,7 @@ And the `CodeGenerator::write_rpc_convenience_converters` method will provide co
 like:
 
 ```rust
-impl<T: Into<bool>> From<T> for crate::protos::forge::VersionRequest {
+impl<T: Into<bool>> From<T> for crate::protos::nico::VersionRequest {
     fn from(t: T) -> Self {
         Self { display_config: t.into() }
     }

@@ -2625,6 +2625,7 @@ async fn test_scout_heartbeat_timeout_alert_cleared_on_instance_creation_transit
                 network_security_group_id: None,
                 dpu_extension_services: None,
                 nvlink: None,
+                spxconfig: None,
             }),
             metadata: Some(rpc::Metadata {
                 name: "test_instance".to_string(),
@@ -2706,6 +2707,7 @@ async fn test_scout_heartbeat_timeout_alert_not_cleared_when_unhealthy_allocatio
                 network_security_group_id: None,
                 dpu_extension_services: None,
                 nvlink: None,
+                spxconfig: None,
             }),
             metadata: Some(rpc::Metadata {
                 name: "test_instance".to_string(),

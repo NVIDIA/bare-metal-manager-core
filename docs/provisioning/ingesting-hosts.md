@@ -6,9 +6,9 @@ Once you have NVIDIA Infra Controller (NICo) up and running, you can begin inges
 
 Ensure you have the following prerequisites met before ingesting machines:
 
-1. You have the `carbide-admin-cli` command available: You can compile it from sources or you can use the pre-compiled binary. Another choice is to use a containerized version.
+1. You have the `nico-admin-cli` command available: You can compile it from sources or you can use the pre-compiled binary. Another choice is to use a containerized version.
 
-2. You can access the NICo site using the `carbide-admin-cli`.
+2. You can access the NICo site using the `nico-admin-cli`.
 
 3. The NICo API service is running at IP address `NICo_API_EXTERNAL`. It is recommended that you add this IP address to your trusted list.
    
@@ -36,7 +36,7 @@ The required credentials include the following:
 > The following commands use the `<api-url>` placeholder, which is typically the following:
 
 ```bash
-https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> --forge-root-ca-path <FORGE_ROOT_CA_PATH> --client-cert-path <CLIENT_CERT_PATH>  --client-key-path <CLIENT_KEY_PATH>
+https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> --nico-root-ca-path <NICO_ROOT_CA_PATH> --client-cert-path <CLIENT_CERT_PATH>  --client-key-path <CLIENT_KEY_PATH>
 ```
 
 ### Update Host and DPU BMC Password
@@ -44,7 +44,7 @@ https://api-<ENVIRONMENT_NAME>.<SITE_DOMAIN_NAME> --forge-root-ca-path <FORGE_RO
 Run this command to update the desired Host and DPU BMC password:
 
 ```bash
-carbide-admin-cli -c <api-url> credential add-bmc --kind=site-wide-root --password='x'
+nico-admin-cli -c <api-url> credential add-bmc --kind=site-wide-root --password='x'
 ```
 
 ### Update Host UEFI Password
@@ -52,19 +52,19 @@ carbide-admin-cli -c <api-url> credential add-bmc --kind=site-wide-root --passwo
 Run this command to generate the desired host UEFI password:
 
 ```bash
-carbide-admin-cli -c <api-url> host generate-host-uefi-password
+nico-admin-cli -c <api-url> host generate-host-uefi-password
 ```
 
 
 Run this command to update host uefi password:
 
 ```bash
-carbide-admin-cli -c <api-url> credential add-uefi --kind=host --password='<password-gemerated-in-previous-step>'
+nico-admin-cli -c <api-url> credential add-uefi --kind=host --password='<password-gemerated-in-previous-step>'
 ```
 
 Run this command to update DPU uefi password:
 ```bash
-carbide-admin-cli -c <api-url> credential add-uefi --kind=dpu --password='x'
+nico-admin-cli -c <api-url> credential add-uefi --kind=dpu --password='x'
 ```
 
 ## Add Expected Machines Table
@@ -125,7 +125,7 @@ Each entry supports additional optional fields:
 When the file is ready, upload it to the site with the following command:
 
 ```bash
-carbide-admin-cli -c <api-url> em replace-all --filename expected_machines.json
+nico-admin-cli -c <api-url> em replace-all --filename expected_machines.json
 ```
 
 ## Approve all Machines for Ingestion
@@ -134,7 +134,7 @@ NICo uses Measured Boot using the on-host Trusted Platform Module (TPM) v2.0 to 
 The following command configures NICo to approve all pending machines based on PCR Registers 0, 3, 5, and 6.
 
 ```bash
-carbide-admin-cli -c <api-url> att mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
+nico-admin-cli -c <api-url> att mb site trusted-machine approve \* persist --pcr-registers="0,3,5,6"
 ```
 
 ## What Happens After Approval: Ingestion to Ready
@@ -157,20 +157,20 @@ For the full DPU lifecycle — OS installation, firmware upgrades, health monito
 
 ## Troubleshooting: Host and DPU Ingestion Issues
 
-When a machine is not being created or is stuck in a pre-`Ready` state, `carbide-api` logs are the primary investigation tool. Filtering logs by the host BMC IP or DPU BMC IP is often the fastest way to understand where ingestion or pairing is failing.
+When a machine is not being created or is stuck in a pre-`Ready` state, `nico-api` logs are the primary investigation tool. Filtering logs by the host BMC IP or DPU BMC IP is often the fastest way to understand where ingestion or pairing is failing.
 
 You can check the current detailed state of any managed host using:
 
 ```bash
-carbide-admin-cli -c <api-url> managed-host show --all
-carbide-admin-cli -c <api-url> managed-host show <machine-id>
+nico-admin-cli -c <api-url> managed-host show --all
+nico-admin-cli -c <api-url> managed-host show <machine-id>
 ```
 
 For a full guide on diagnosing stuck objects, including how to use the NICo Grafana dashboard and how to read state handler error logs, see [Stuck Objects Runbook](../playbooks/stuck_objects/stuck_objects.md).
 
 ### Endpoint Exploration Errors
 
-Before pairing can occur, Site Explorer must successfully explore each BMC endpoint. Exploration failures are logged and surfaced in `carbide-api` logs and the NICo Grafana dashboard. Common error types:
+Before pairing can occur, Site Explorer must successfully explore each BMC endpoint. Exploration failures are logged and surfaced in `nico-api` logs and the NICo Grafana dashboard. Common error types:
 
 | Error type | Likely cause |
 |---|---|
@@ -179,7 +179,7 @@ Before pairing can occur, Site Explorer must successfully explore each BMC endpo
 | `Unauthorized` / `AvoidLockout` | BMC credentials do not match the expected machines table or site vault; see [Adding New Machines: BMC Password Requirements](../playbooks/stuck_objects/adding_new_machines.md) |
 | `MissingCredentials` | Credentials not yet available in vault; check that site-wide BMC credentials are configured |
 | `UnsupportedVendor` | BMC vendor is not supported by this version of NICo |
-| `RedfishError` | Unexpected Redfish response; check BMC firmware version and `carbide-api` logs for the full response body |
+| `RedfishError` | Unexpected Redfish response; check BMC firmware version and `nico-api` logs for the full response body |
 | `InvalidDpuRedfishBiosResponse` | DPU BIOS endpoint returned an unexpected response; the DPU may need a fresh OS install |
 
 For a complete reference of all Redfish endpoints and required response fields, see [Redfish Endpoints Reference](../architecture/redfish/endpoints_reference.md).
@@ -193,9 +193,9 @@ The following are the conditions in which Site Explorer cannot complete pairing 
 | `dpu_nic_mode_unknown` | DPU mode cannot be determined; DPU BMC firmware is likely too old. | Install a fresh DPU OS (which also upgrades firmware); see [Installing a Fresh DPU OS](#dpu-related-issues-installing-a-fresh-dpu-os) below |
 | `dpu_pf0_mac_missing` | DPU is in DPU mode but its pf0 MAC address is not retrievable. | Install a fresh DPU OS; see [Installing a Fresh DPU OS](#dpu-related-issues-installing-a-fresh-dpu-os) below |
 | `manual_power_cycle_required` | DPU mode was changed but the host vendor does not support automated power cycling. | Manually power-cycle the host at the data center level |
-| `host_system_report_missing` | Host BMC Redfish returned no valid system report; likely a BMC firmware issue or transient error. | Check `carbide-api` logs for the host BMC IP |
+| `host_system_report_missing` | Host BMC Redfish returned no valid system report; likely a BMC firmware issue or transient error. | Check `nico-api` logs for the host BMC IP |
 | `no_dpu_reported_by_host` | Host BMC reports no BlueField PCIe devices. | Check DPU seating and host BMC firmware version |
-| `boot_interface_mac_mismatch` | Host boot MAC does not match the pf0 MAC of any discovered DPU. | Check exploration reports and `carbide-api` logs for both the host and DPU BMC IPs |
+| `boot_interface_mac_mismatch` | Host boot MAC does not match the pf0 MAC of any discovered DPU. | Check exploration reports and `nico-api` logs for both the host and DPU BMC IPs |
 | `viking_cpld_version_issue` | NVIDIA Viking (DGX): `CPLDMB_0` firmware below minimum required version (`0.2.1.9`). | Contact the data center team for a full DC power cycle |
 
 ### DPU-Related Issues: Installing a Fresh DPU OS
@@ -203,7 +203,7 @@ The following are the conditions in which Site Explorer cannot complete pairing 
 For DPU pairing failures, including `dpu_pf0_mac_missing` and cases where the DPU is in an unknown or corrupt state, a common fix is to install a vanilla pre-ingestion BFB image via rshim to return the DPU to a clean state. This runs as part of the preingestion state machine:
 
 ```bash
-carbide-admin-cli -c <api-url> site-explorer copy-bfb-to-dpu-rshim \
+nico-admin-cli -c <api-url> site-explorer copy-bfb-to-dpu-rshim \
   --host-bmc-ip <host-bmc-ip> \
   <dpu-bmc-ip>
 ```
@@ -218,7 +218,7 @@ For additional DPU-specific troubleshooting including Secure Boot configuration,
 
 ## Managing the Expected Machines Table
 
-The expected machines table in the carbide-api database holds the following fields per host:
+The expected machines table in the nico-api database holds the following fields per host:
 - Chassis Serial Number
 - BMC MAC Address
 - BMC manufacturer's set login
@@ -227,12 +227,12 @@ The expected machines table in the carbide-api database holds the following fiel
 
 ### Individual operations
 
-Use `carbide-admin-cli` to operate on individual entries:
+Use `nico-admin-cli` to operate on individual entries:
 
 ```bash
-carbide-admin-cli -c <api-url> em update ...
-carbide-admin-cli -c <api-url> em add ...
-carbide-admin-cli -c <api-url> em delete ...
+nico-admin-cli -c <api-url> em update ...
+nico-admin-cli -c <api-url> em add ...
+nico-admin-cli -c <api-url> em delete ...
 ```
 
 ### Bulk operations
@@ -240,13 +240,13 @@ carbide-admin-cli -c <api-url> em delete ...
 Replace all entries from a JSON file:
 
 ```bash
-carbide-admin-cli -c <api-url> em replace-all --filename expected_machines.json
+nico-admin-cli -c <api-url> em replace-all --filename expected_machines.json
 ```
 
 Erase all entries:
 
 ```bash
-carbide-admin-cli -c <api-url> em erase
+nico-admin-cli -c <api-url> em erase
 ```
 
 ### Export
@@ -254,5 +254,5 @@ carbide-admin-cli -c <api-url> em erase
 Export the current table as JSON:
 
 ```bash
-carbide-admin-cli -c <api-url> -f json em show
+nico-admin-cli -c <api-url> -f json em show
 ```

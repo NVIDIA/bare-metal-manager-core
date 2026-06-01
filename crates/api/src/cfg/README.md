@@ -1,20 +1,20 @@
-# Carbide API Configuration Reference
+# NICo API Configuration Reference
 
 This document describes every section and field in the `nico-api-config.toml`
-configuration file, which is deserialized into `CarbideConfig` (defined in
+configuration file, which is deserialized into `NicoConfig` (defined in
 `file.rs`). Fields are listed in declaration order. Defaults are noted where
 applicable.
 
 ---
 
-## `CarbideConfig` (top-level)
+## `NicoConfig` (top-level)
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `listen` | `SocketAddr` | `[::]:1079` | Socket address for the gRPC API server. |
 | `listen_only` | `bool` | `false` | Run passively (no background services, RPC/web only). Used in dev mode. |
 | `metrics_endpoint` | `Option<SocketAddr>` | — | Socket address for the Prometheus `/metrics` HTTP server. |
-| `alt_metric_prefix` | `Option<String>` | — | Alternative metric prefix emitted alongside `carbide_` for dashboard migration. |
+| `alt_metric_prefix` | `Option<String>` | — | Alternative metric prefix emitted alongside `nico_` for dashboard migration. |
 | `database_url` | `String` | **required** | Postgres connection string for all persistent state. |
 | `max_database_connections` | `u32` | `1000` | Maximum database connection pool size. |
 | `ib_config` | `Option<IBFabricConfig>` | — | InfiniBand fabric configuration (see [IBFabricConfig](#ibfabricconfig)). |
@@ -74,7 +74,7 @@ applicable.
 | `dpa_config` | `Option<DpaConfig>` | — | Cluster Interconnect (east-west Ethernet) config (see [DpaConfig](#dpaconfig)). |
 | `dsx_exchange_event_bus` | `Option<DsxExchangeEventBusConfig>` | — | MQTT event bus for managed-host state publishing plus BMS metadata subscription and rack/isolation/heartbeat publishing (see [DsxExchangeEventBusConfig](#dsxexchangeeventbusconfig)). |
 | `datacenter_asn` | `u32` | `11414` | Datacenter ASN used by FNN for DC-specific route targets. |
-| `nvlink_config` | `Option<NvLinkConfig>` | — | NvLink partitioning via NMX-M (see [NvLinkConfig](#nvlinkconfig)). |
+| `nvlink_config` | `Option<NvLinkConfig>` | — | NvLink partitioning via NMX-C (see [NvLinkConfig](#nvlinkconfig)). |
 | `power_manager_options` | `PowerManagerOptions` | *(see below)* | Power management timing (see [PowerManagerOptions](#powermanageroptions)). |
 | `sitename` | `Option<String>` | — | Human-readable site name exposed to tenants via FMDS. |
 | `auto_machine_repair_plugin` | `AutoMachineRepairPluginConfig` | *(default)* | Auto-repair configuration for failed machines. |
@@ -89,7 +89,7 @@ applicable.
 | `dpf` | `DpfConfig` | *(see below)* | DPF (DPU Platform Framework) Kubernetes deployment (see [DpfConfig](#dpfconfig)). |
 | `x86_pxe_boot_url_override` | `Option<String>` | — | Override PXE boot URL for x86 machines. |
 | `arm_pxe_boot_url_override` | `Option<String>` | — | Override PXE boot URL for ARM machines. |
-| `set_http_boot_uri_for_vendors` | `Vec<BMCVendor>` | `[]` | Vendors for which the state controller pins the UEFI HTTP boot URL on the BMC via Redfish `HttpBootUri`. Empty = all machines rely on carbide-dhcp option 67 for the URL. |
+| `set_http_boot_uri_for_vendors` | `Vec<BMCVendor>` | `[]` | Vendors for which the state controller pins the UEFI HTTP boot URL on the BMC via Redfish `HttpBootUri`. Empty = all machines rely on nico-dhcp option 67 for the URL. |
 | `compute_allocation_enforcement` | `ComputeAllocationEnforcement` | `WarnOnly` | Controls enforcement of compute allocations on new instance requests. |
 | `supernic_firmware_profiles` | nested `HashMap` | `{}` | SuperNIC firmware profiles keyed by `part_number` then `PSID`. |
 | `component_manager` | `Option<ComponentManagerConfig>` | — | Component manager for NvLink switches and power shelves. |
@@ -134,9 +134,11 @@ applicable.
 |-------|------|---------|-------------|
 | `enabled` | `bool` | `false` | Enables NvLink partitioning. |
 | `monitor_run_interval` | `Duration` | `60s` | NvLink monitor polling interval. |
-| `nmx_m_operation_timeout` | `Duration` | `10s` | Timeout for pending NMX-M operations. |
-| `nmx_m_endpoint` | `String` | `"localhost"` | NMX-M endpoint (host:port). |
-| `allow_insecure` | `bool` | `false` | Skip TLS verification for NMX-M. |
+| `nmx_c_tls_ca_cert_path` | `Option<String>` | — | Extra CA bundle for verifying the NMX-C server over HTTPS. |
+| `nmx_c_tls_client_cert_path` | `Option<String>` | — | Client certificate for mTLS to NMX-C. |
+| `nmx_c_tls_client_key_path` | `Option<String>` | — | Client private key for mTLS to NMX-C. |
+| `nmx_c_tls_authority` | `Option<String>` | — | TLS server name used for SNI and certificate verification. |
+| `allow_insecure` | `bool` | `false` | Skip TLS verification for NMX-C. |
 
 ### `SiteExplorerConfig`
 
@@ -212,7 +214,7 @@ Extends `StateControllerConfig` with:
 | `run_interval` | `Duration` | `30s` | Firmware manager polling interval. |
 | `max_uploads` | `usize` | `4` | Max concurrent firmware uploads. |
 | `concurrency_limit` | `usize` | `16` | Max concurrent firmware flashing operations. |
-| `firmware_directory` | `PathBuf` | `/opt/carbide/firmware` | Firmware binary storage directory. |
+| `firmware_directory` | `PathBuf` | `/opt/nico/firmware` | Firmware binary storage directory. |
 | `host_firmware_upgrade_retry_interval` | `Duration` | `60m` | Retry delay for failed host firmware upgrades. |
 | `instance_updates_manual_tagging` | `bool` | `true` | Require manual tagging before firmware updates. |
 | `no_reset_retries` | `bool` | `false` | Disable retry logic after BMC resets. |

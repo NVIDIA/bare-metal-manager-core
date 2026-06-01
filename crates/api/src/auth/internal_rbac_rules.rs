@@ -808,6 +808,10 @@ impl InternalRBACRules {
         x.perm("MlxAdminConfigSet", vec![ForgeAdminCLI]);
         x.perm("MlxAdminConfigSync", vec![ForgeAdminCLI]);
         x.perm("MlxAdminConfigCompare", vec![ForgeAdminCLI]);
+        x.perm("CreateSpxPartition", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("DeleteSpxPartition", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("FindSpxPartitionIds", vec![ForgeAdminCLI, SiteAgent]);
+        x.perm("FindSpxPartitionsByIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindNVLinkPartitionIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("FindNVLinkPartitionsByIds", vec![ForgeAdminCLI, SiteAgent]);
         x.perm("NVLinkPartitionsForTenant", vec![ForgeAdminCLI, SiteAgent]);

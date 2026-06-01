@@ -91,6 +91,7 @@ async fn allocate_instance(
                 nvlink: None,
                 network_security_group_id: None,
                 dpu_extension_services: None,
+                spxconfig: None,
             }),
             metadata: None,
             allow_unhealthy_machine: false,

@@ -52,4 +52,5 @@ pub struct NewInstance<'a> {
     pub ib_config_version: ConfigVersion,
     pub extension_services_config_version: ConfigVersion,
     pub nvlink_config_version: ConfigVersion,
+    pub spx_config_version: ConfigVersion,
 }

@@ -22,11 +22,11 @@ driver = ["dep:clap", "dep:tracing-subscriber", "dep:libredfish"]
 [dependencies]
 hex = { workspace = true }
 kube = { default-features = false, features = [
-    "runtime",
-    "derive",
-    "client",
-    "rustls-tls",
-    "aws-lc-rs",
+  "runtime",
+  "derive",
+  "client",
+  "rustls-tls",
+  "aws-lc-rs",
 ], workspace = true }
 rustls = { workspace = true }
 k8s-openapi = { features = ["latest", "schemars"], workspace = true }
@@ -50,7 +50,7 @@ carbide-uuid = { path = "../uuid", features = ["sqlx"] }
 # Optional dependencies for carbide-dpf-api-harness binary
 clap = { workspace = true, features = ["derive"], optional = true }
 tracing-subscriber = { workspace = true, features = [
-    "env-filter",
+  "env-filter",
 ], optional = true }
 libredfish = { workspace = true, optional = true }
 

@@ -159,6 +159,7 @@ impl InstanceNetworkConfig {
                     ip_addrs: HashMap::default(),
                     requested_ip_addr: None,
                     ipv6_interface_config: None,
+                    routing_profile: None,
                     interface_prefixes: HashMap::default(),
                     network_segment_gateways: HashMap::default(),
                     host_inband_mac_address: None,
@@ -181,6 +182,7 @@ impl InstanceNetworkConfig {
                         ip_addrs: HashMap::default(),
                         requested_ip_addr: None,
                         ipv6_interface_config: None,
+                        routing_profile: None,
                         interface_prefixes: HashMap::default(),
                         network_segment_gateways: HashMap::default(),
                         host_inband_mac_address: None,
@@ -206,6 +208,7 @@ impl InstanceNetworkConfig {
                 ip_addrs: HashMap::default(),
                 requested_ip_addr: None,
                 ipv6_interface_config: None,
+                routing_profile: None,
                 interface_prefixes: HashMap::default(),
                 network_segment_gateways: HashMap::default(),
                 host_inband_mac_address: None,
@@ -522,6 +525,14 @@ pub struct Ipv6InterfaceConfig {
     pub requested_ip_addr: Option<std::net::Ipv6Addr>,
 }
 
+/// Routing-profile options that can be narrowed for an instance interface.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstanceInterfaceRoutingProfile {
+    /// Prefixes this interface is allowed to announce as anycast routes.
+    #[serde(default)]
+    pub allowed_anycast_prefixes: Vec<IpNetwork>,
+}
+
 /// The configuration that a customer desires for an instances network interface
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstanceInterfaceConfig {
@@ -550,6 +561,10 @@ pub struct InstanceInterfaceConfig {
     /// VpcPrefixId in network_details, both prefixes are allocated to a single segment.
     #[serde(rename = "ipv6")]
     pub ipv6_interface_config: Option<Ipv6InterfaceConfig>,
+
+    /// Optional routing-profile settings that narrow the owning VPC profile for this interface.
+    #[serde(default)]
+    pub routing_profile: Option<InstanceInterfaceRoutingProfile>,
 
     /// The interface-specific prefix allocation we carved out from each
     /// network prefix for this interface (e.g. in FNN we might carve out
@@ -726,6 +741,7 @@ mod tests {
             ip_addrs,
             requested_ip_addr,
             ipv6_interface_config: None,
+            routing_profile: None,
             interface_prefixes,
             network_segment_gateways,
             host_inband_mac_address: None,
@@ -736,7 +752,7 @@ mod tests {
         let serialized = serde_json::to_string(&interface).unwrap();
         assert_eq!(
             serialized,
-            r#"{"function_id":{"type":"physical"},"network_details":null,"network_segment_id":"91609f10-c91d-470d-a260-6293ea0c1200","ip_addrs":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2"},"requested_ip_addr":"192.168.1.2","ipv6":null,"interface_prefixes":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2/32"},"network_segment_gateways":{},"host_inband_mac_address":null,"device_locator":null,"internal_uuid":"37c3dc65-9aef-4439-b7ca-d532a0a41d7f"}"#
+            r#"{"function_id":{"type":"physical"},"network_details":null,"network_segment_id":"91609f10-c91d-470d-a260-6293ea0c1200","ip_addrs":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2"},"requested_ip_addr":"192.168.1.2","ipv6":null,"routing_profile":null,"interface_prefixes":{"91609f10-c91d-470d-a260-6293ea0c1201":"192.168.1.2/32"},"network_segment_gateways":{},"host_inband_mac_address":null,"device_locator":null,"internal_uuid":"37c3dc65-9aef-4439-b7ca-d532a0a41d7f"}"#
         );
 
         assert_eq!(
@@ -763,6 +779,7 @@ mod tests {
                     ip_addrs: HashMap::default(),
                     requested_ip_addr: None,
                     ipv6_interface_config: None,
+                    routing_profile: None,
                     interface_prefixes: HashMap::default(),
                     network_segment_gateways: HashMap::default(),
                     host_inband_mac_address: None,

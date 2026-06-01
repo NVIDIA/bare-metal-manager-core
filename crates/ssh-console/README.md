@@ -2,12 +2,12 @@
 
 An SSH server that acts as a proxy to BMC (Baseboard Management Controller) serial consoles, and logs their output. It
 supports multiple BMC vendors (Dell, Lenovo, HPE, NVIDIA) and handles authentication through either OpenSSH certificates
-or public key validation via a carbide-api.
+or public key validation via a nico-api.
 
 This is a rust reimplementation of the old [ssh-console](https://gitlab-master.nvidia.com/nvmetal/ssh-console/),
-focusing on simplicity, security, and re-using existing carbide libraries whenever possible.
+focusing on simplicity, security, and re-using existing nico libraries whenever possible.
 
-It is part of the carbide repo so that we can take advantage of the `rpc` crate and get an instance of `ForgeApiClient`
+It is part of the nico repo so that we can take advantage of the `rpc` crate and get an instance of `NicoApiClient`
 without needing to publish a crate anywhere.
 
 # Code organization
@@ -16,10 +16,10 @@ High-level module overview:
 
 - [`ssh_server`](src/ssh_server.rs): Responsible for running the SSH server itself
 - [`frontend`](src/frontend.rs): Handles SSH client connections and authentication
-- [`bmc::client_pool`](src/bmc/client_pool.rs): Queries carbide-api for what BMC's are available and spawns clients for
+- [`bmc::client_pool`](src/bmc/client_pool.rs): Queries nico-api for what BMC's are available and spawns clients for
   each one, making them available for frontends
 - [`bmc::client`](src/bmc/client.rs): Maintains a connection to a given BMC, reconnecting if it fails
-- [`bmc::connection`](src/bmc/connection.rs): Types for BMC connections, and looking them up from carbide-api
+- [`bmc::connection`](src/bmc/connection.rs): Types for BMC connections, and looking them up from nico-api
 - [`bmc::connection_impl`](src/bmc/connection_impl/mod.rs): Manages individual connections to BMC devices and serial
   console activation
 - [`bmc::message_proxy`](src/bmc/message_proxy.rs): Logic for proxying messages from the SSH frontend to the BMC and
@@ -54,7 +54,7 @@ orphaned tasks running in the background.
 - [x] Support IMPI-based connections (currently only works with SSH'able BMC's)
 - [x] Implement metrics similarly to legacy SSH console
 - [x] Better architecture docs/diagram in this README file
-- [ ] (Forge UI) Deploy to production environments, offer up the new ssh-console URL to users as a beta URL to use
+- [ ] (NICo UI) Deploy to production environments, offer up the new ssh-console URL to users as a beta URL to use
 - [ ] Decommission old ssh-console once we're satisfied/confident
 
 ## Testing
@@ -73,16 +73,16 @@ which will launch a mock BMC server for each mocked machine. Then this example c
 ## What address to listen on.
 listen_address = "[::]:3222"
 
-## Address for carbide-api
-carbide_url = "https://carbide-api.forge"
+## Address for nico-api
+nico_url = "https://nico-api.nico"
 
-## Path to root CA cert for carbide-api
-forge_root_ca_path = "/tmp/localdev-certs/ca.crt"
+## Path to root CA cert for nico-api
+nico_root_ca_path = "/tmp/localdev-certs/ca.crt"
 
-## Client cert path to communicate with carbide-api
+## Client cert path to communicate with nico-api
 client_cert_path = "/tmp/localdev-certs/tls.crt"
 
-## Client key path to communicate with carbide-api
+## Client key path to communicate with nico-api
 client_key_path = "/tmp/localdev-certs/tls.key"
 
 ## Path to the SSH host key path.

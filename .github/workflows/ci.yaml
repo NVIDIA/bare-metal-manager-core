@@ -1109,23 +1109,6 @@ jobs:
       download_artifacts: true
     secrets: inherit
 
-  build-bluefield-forge-dpu-otel-agent:
-    needs:
-      - prepare
-      - build-bluefield-binaries
-    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' && needs.build-bluefield-binaries.result == 'success' }}
-    uses: ./.github/workflows/docker-build.yml
-    with:
-      dockerfile_path: bluefield/containers/forge-dpu-otel-agent/Dockerfile
-      image_name: nvcr.io/0837451325059433/carbide-dev/forge-dpu-otel-agent
-      image_tag: ${{ needs.prepare.outputs.version }}
-      platforms: linux/arm64
-      runner: linux-arm64-cpu4
-      push: ${{ !contains(github.ref, 'pull-request/') }}
-      load: false
-      download_artifacts: true
-    secrets: inherit
-
   build-bluefield-carbide-fmds:
     needs:
       - prepare
@@ -1177,13 +1160,6 @@ jobs:
           lint: 'true'
           template: 'true'
 
-      - name: Validate nico-dpu-otel-agent chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
-        with:
-          chart-path: bluefield/charts/nico-dpu-otel-agent
-          lint: 'true'
-          template: 'true'
-
       - name: Validate nico-fmds chart
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-validate@94bde998f5d7965576b0c663db7d5d709c918167
         with:
@@ -1227,17 +1203,6 @@ jobs:
         uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
         with:
           chart-path: bluefield/charts/nico-dhcp-server
-          chart-version: ${{ needs.prepare.outputs.helm_version }}
-          app-version: ${{ needs.prepare.outputs.version }}
-          lint: 'false'
-          ngc-key: ${{ secrets.NVCR_TOKEN }}
-          ngc-path: 0837451325059433/carbide-dev
-          ngc-duplicate: fail
-
-      - name: Package and push nico-dpu-otel-agent chart
-        uses: NVIDIA/dsx-github-actions/.github/actions/helm-package-push@7de619729962a6bd5e8355b6fb3582a22517d7e5
-        with:
-          chart-path: bluefield/charts/nico-dpu-otel-agent
           chart-version: ${{ needs.prepare.outputs.helm_version }}
           app-version: ${{ needs.prepare.outputs.version }}
           lint: 'false'
@@ -1309,7 +1274,6 @@ jobs:
       - build-bluefield-otelcol-contrib
       - build-bluefield-forge-dpu-agent
       - build-bluefield-forge-dhcp-server
-      - build-bluefield-forge-dpu-otel-agent
       - build-bluefield-carbide-fmds
       - build-validate-bluefield-helm-charts
       - build-push-bluefield-helm-charts
@@ -1413,7 +1377,6 @@ jobs:
       - build-bluefield-otelcol-contrib
       - build-bluefield-forge-dpu-agent
       - build-bluefield-forge-dhcp-server
-      - build-bluefield-forge-dpu-otel-agent
       - build-bluefield-carbide-fmds
       - build-validate-bluefield-helm-charts
       - build-push-bluefield-helm-charts

@@ -121,8 +121,12 @@ navigation:
 
     - section: Operations
       contents:
+        - page: nicocli Reference
+          path: manuals/nicocli-reference.md
         - page: NVLink Partitioning
           path: manuals/nvlink_partitioning.md
+        - page: Rack-Level Administration (RLA)
+          path: manuals/rack_level_admin.md
         - section: Repair Workflows
           contents:
             - page: Overview
@@ -157,7 +161,7 @@ navigation:
     - section: Playbooks
       contents:
         - page: Azure OIDC for Infra Controller Web UI
-          path: playbooks/carbide_web_oauth2.md
+          path: playbooks/nico_web_oauth2.md
         - page: Force Deleting and Rebuilding Hosts
           path: playbooks/force_delete.md
         - page: Rebooting a Machine
@@ -194,7 +198,7 @@ navigation:
         - page: TLS and SPIFFE Certificates
           path: development/tls.md
         - page: SPIFFE and casbin policies with admin-cli
-          path: manuals/carbide-admin-cli.md
+          path: manuals/nico-admin-cli.md
         - page: Re-creating Issuer/CA in Local Dev
           path: development/issuer_ca_recreate.md
         - page: Visual Studio Code Remote Development

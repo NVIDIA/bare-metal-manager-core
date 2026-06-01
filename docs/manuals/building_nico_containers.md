@@ -63,7 +63,7 @@ docker build --build-arg CONTAINER_RUNTIME_X86_64=nico-runtime-container-x86_64 
 docker save --output crates/machine-validation/images/machine-validation-runner.tar machine-validation-runner:latest 
 
 // This copies `machine-validation-runner.tar` into the `/images` directory on the `machine-validation-config` container.  When using a kubernetes deployment model
-// this is the only `machine-validation` container you need to configure on the `carbide-pxe` pod.
+// this is the only `machine-validation` container you need to configure on the `nico-pxe` pod.
 
 docker build --build-arg CONTAINER_RUNTIME_X86_64=nico-runtime-container-x86_64 -t machine-validation-config -f dev/docker/Dockerfile.machine-validation-config .
 
@@ -86,7 +86,7 @@ docker build --file dev/docker/Dockerfile.build-artifacts-container-cross-aarch6
 ## Building the admin-cli
 The `admin-cli` build does not produce a container. It produces a binary:
 
-`$REPO_ROOT/target/release/carbide-admin-cli`
+`$REPO_ROOT/target/release/nico-admin-cli`
 
 ```
 BUILD_CONTAINER_X86_URL="nico-buildcontainer-x86_64" cargo make build-cli

@@ -34,7 +34,7 @@ errors. Extract the latest boot artifacts (available from your NICo distribution
 into `$NICo_ROOT_DIR/pxe/static/blobs/internal/x86_64/` (you'll need
 to create the hierarchy).
 
-`build-boot-artifacts-x86_64` will also rebuild binaries we package as part of the boot artifacts (like `forge-scout`), while
+`build-boot-artifacts-x86_64` will also rebuild binaries we package as part of the boot artifacts (like `nico-scout`), while
 the latter command will only package already existing artifacts.
 Therefore prefer the former if you change applications.
 
@@ -45,8 +45,8 @@ $ exa -alh pxe/static/blobs/internal/x86_64/
 Permissions Size User      Date Modified Name
 .rw-rw-r--    44 $USER     18 Aug 15:35  .gitignore
 drwxr-xr-x     - $USER     24 Aug 09:59  .mkosi-t40tggmu
-.rw-r--r--   55M $USER     24 Aug 10:01  carbide.efi
-.rw-r--r--   26k $USER     24 Aug 10:01  carbide.manifest
+.rw-r--r--   55M $USER     24 Aug 10:01  nico.efi
+.rw-r--r--   26k $USER     24 Aug 10:01  nico.manifest
 .rw-r--r--  298M $USER     24 Aug 10:01  NICo.root
 .rw-rw-r--  1.1M $USER     24 Aug 10:05  ipxe.efi
 .rw-rw-r--  402k $USER     24 Aug 10:03  ipxe.kpxe

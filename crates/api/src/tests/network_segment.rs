@@ -514,6 +514,17 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
                 allocation_strategy: Default::default(),
             },
         ),
+        (
+            "ZERO-DPU-HOST-01-SWP7".to_string(),
+            NetworkDefinition {
+                segment_type: NetworkDefinitionSegmentType::HostInband,
+                prefix: "10.217.18.192/30".to_string(),
+                gateway: "10.217.18.193".to_string(),
+                mtu: 1500,
+                reserve_first: 1,
+                allocation_strategy: Default::default(),
+            },
+        ),
     ]);
 
     // Create them the first time, they should exist
@@ -527,6 +538,14 @@ pub async fn test_create_initial_networks(db_pool: sqlx::PgPool) -> Result<(), e
     let underlay = db::network_segment::find_by_name(&mut txn, "DEV1-C09-IPMI-01").await?;
     assert_eq!(underlay.config.mtu, 1500);
     assert_eq!(underlay.config.segment_type, NetworkSegmentType::Underlay);
+
+    let host_inband = db::network_segment::find_by_name(&mut txn, "ZERO-DPU-HOST-01-SWP7").await?;
+    assert_eq!(host_inband.config.mtu, 1500);
+    assert_eq!(
+        host_inband.config.segment_type,
+        NetworkSegmentType::HostInband
+    );
+    assert_eq!(host_inband.config.vpc_id, None);
     txn.commit().await?;
 
     // Now create them again. It should succeed but not create any more

@@ -158,6 +158,10 @@ pub mod test_support {
 
         fn build_mock_client(&self) -> MockRmsClient {
             MockRmsClient {
+                submitted_get_power_state_by_device_list_requests: Arc::new(Mutex::new(Vec::new())),
+                queued_get_power_state_by_device_list_responses: Arc::new(Mutex::new(
+                    VecDeque::new(),
+                )),
                 fail_add_node: self.fail_add_node.clone(),
                 fail_inventory_get: self.fail_inventory_get.clone(),
                 registered_nodes: self.registered_nodes.clone(),
@@ -452,6 +456,10 @@ pub mod test_support {
         switch_system_image_job_statuses:
             Arc<Mutex<HashMap<String, rms::GetSwitchSystemImageJobStatusResponse>>>,
         switch_system_image_job_errors: Arc<Mutex<HashMap<String, String>>>,
+        submitted_get_power_state_by_device_list_requests:
+            Arc<Mutex<Vec<rms::GetPowerStateByDeviceListRequest>>>,
+        queued_get_power_state_by_device_list_responses:
+            Arc<Mutex<VecDeque<Result<rms::GetPowerStateByDeviceListResponse, RackManagerError>>>>,
         submitted_get_device_info_by_device_list_requests:
             Arc<Mutex<Vec<rms::GetDeviceInfoByDeviceListRequest>>>,
         queued_get_device_info_by_device_list_responses:
@@ -473,6 +481,21 @@ pub mod test_support {
 
     #[async_trait::async_trait]
     impl RmsApi for MockRmsClient {
+        async fn get_power_state_by_device_list(
+            &self,
+            cmd: rms::GetPowerStateByDeviceListRequest,
+        ) -> Result<rms::GetPowerStateByDeviceListResponse, RackManagerError> {
+            self.submitted_get_power_state_by_device_list_requests
+                .lock()
+                .await
+                .push(cmd);
+            self.queued_get_power_state_by_device_list_responses
+                .lock()
+                .await
+                .pop_front()
+                .unwrap_or(Ok(rms::GetPowerStateByDeviceListResponse::default()))
+        }
+
         async fn get_device_info_by_device_list(
             &self,
             cmd: rms::GetDeviceInfoByDeviceListRequest,

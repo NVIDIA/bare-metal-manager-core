@@ -158,6 +158,7 @@ pub async fn remove_machine_health_report(
 
     let rpc::RemoveMachineHealthReportRequest { machine_id, source } = request.into_inner();
     let machine_id = convert_and_log_machine_id(machine_id.as_ref())?;
+
     remove_by_source(&mut txn, machine_id, source).await?;
     txn.commit().await?;
 

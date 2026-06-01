@@ -26,7 +26,7 @@ use prometheus::{Histogram, HistogramOpts};
 
 use crate::HealthError;
 use crate::bmc::AuthRefreshingBmc;
-use crate::collectors::Collector;
+use crate::collectors::{Collector, LogDowngradeRegistry};
 use crate::config::{
     Config, Configurable, FirmwareCollectorConfig as FirmwareCollectorOptions,
     LeakDetectorCollectorConfig as LeakDetectorCollectorOptions,
@@ -150,6 +150,20 @@ impl CollectorState {
             .cloned()
             .collect()
     }
+
+    pub(super) fn prune_finished_logs(&mut self) {
+        self.logs.retain(|key, collector| {
+            if collector.is_finished() {
+                tracing::info!(
+                    endpoint_key = %key,
+                    "pruning finished logs collector (task exited); discovery will respawn"
+                );
+                false
+            } else {
+                true
+            }
+        });
+    }
 }
 
 pub struct DiscoveryLoopContext {
@@ -166,6 +180,7 @@ pub struct DiscoveryLoopContext {
     pub(crate) leak_detector_config: Configurable<LeakDetectorCollectorOptions>,
     pub(crate) nmxt_config: Configurable<NmxtCollectorOptions>,
     pub(crate) nvue_config: Configurable<NvueCollectorOptions>,
+    pub(crate) log_downgrade_registry: Arc<LogDowngradeRegistry>,
 }
 
 impl DiscoveryLoopContext {
@@ -221,6 +236,7 @@ impl DiscoveryLoopContext {
             leak_detector_config,
             nmxt_config,
             nvue_config,
+            log_downgrade_registry: Arc::new(LogDowngradeRegistry::new()),
         })
     }
 }
