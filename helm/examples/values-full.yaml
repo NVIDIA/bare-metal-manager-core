@@ -224,6 +224,12 @@ nico-hardware-health:
     interval: 30s
     scrapeTimeout: 25s
 
+  ## Optional: scrape /telemetry for per-endpoint sensor gauges (high cardinality).
+  telemetryServiceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 25s
+
 ## ---------------------------------------------------------------------------
 ## nico-pxe — PXE boot server
 ## ---------------------------------------------------------------------------
