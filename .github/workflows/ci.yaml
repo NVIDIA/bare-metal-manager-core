@@ -1058,6 +1058,22 @@ jobs:
       load: false
     secrets: inherit
 
+  build-bluefield-transceiver-exporter:
+    needs:
+      - prepare
+    if: ${{ !cancelled() && github.event_name != 'schedule' && needs.prepare.result == 'success' }}
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      dockerfile_path: bluefield/containers/transceiver-exporter/Dockerfile
+      context_path: .
+      image_name: nvcr.io/0837451325059433/carbide-dev/transceiver-exporter
+      image_tag: ${{ needs.prepare.outputs.version }}
+      platforms: linux/arm64
+      runner: linux-arm64-cpu4
+      push: ${{ !contains(github.ref, 'pull-request/') }}
+      load: false
+    secrets: inherit
+
   download-mft-aarch64:
     needs:
       - prepare
@@ -1273,6 +1289,7 @@ jobs:
       - build-release-artifacts-arm-host
       - build-bluefield-binaries
       - build-bluefield-otelcol-contrib
+      - build-bluefield-transceiver-exporter
       - build-bluefield-forge-dpu-agent
       - build-bluefield-forge-dhcp-server
       - build-bluefield-carbide-fmds
@@ -1376,6 +1393,7 @@ jobs:
       - build-release-artifacts-arm-host
       - build-bluefield-binaries
       - build-bluefield-otelcol-contrib
+      - build-bluefield-transceiver-exporter
       - build-bluefield-forge-dpu-agent
       - build-bluefield-forge-dhcp-server
       - build-bluefield-carbide-fmds
