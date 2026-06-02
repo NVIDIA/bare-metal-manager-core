@@ -1,7 +1,136 @@
 # Changelog
 
-All notable changes to **NCX Infra Controller REST** are documented in this file.
+All notable changes to **NVIDIA Infra Controller REST** are documented in this file.
 Each release lists pull requests grouped by category, with the most recent version first.
+
+---
+
+## [v1.6.0](https://github.com/NVIDIA/infra-controller-rest/releases/tag/v1.6.0)
+
+> [!NOTE]
+> This release is compatible with Core **v0.10.x**.
+
+> [!IMPORTANT]
+> This is the last independent release of NICo REST. Future releases will be part of the unified NICo repository located at [infra-controller](https://github.com/NVIDIA/infra-controller).
+
+
+### Features
+
+- **Add support for online repair of Machines, allowing repair without Instance deletion** ([#415](https://github.com/NVIDIA/infra-controller-rest/pull/415))
+  Introduces Machine online repair, enabling operators to perform maintenance on machines without first deleting the associated Instance. The repair workflow transitions the machine through a maintenance state and back, preserving the instance assignment throughout. See [Machine](https://nvidia.github.io/infra-controller-rest/#tag/Machine) endpoints.
+
+- **Support IP Usage stats in VPC Prefix and Subnet** ([#480](https://github.com/NVIDIA/infra-controller-rest/pull/480))
+  VPC Prefix and Subnet responses now include IP usage statistics showing total, used, and available IP addresses, giving operators visibility into address pool utilization without external IPAM queries. See the updated response fields on [VPC Prefix](https://nvidia.github.io/infra-controller-rest/#tag/VPC-Prefix) and [Subnet](https://nvidia.github.io/infra-controller-rest/#tag/Subnet) endpoints.
+
+- **Add Flow task-list endpoints and root /task endpoints** ([#543](https://github.com/NVIDIA/infra-controller-rest/pull/543))
+  Exposes new REST API endpoints for listing and querying Flow (formerly RLA) tasks, including a root `/task` endpoint that provides a unified view of all task types. See the [Task](https://nvidia.github.io/infra-controller-rest/#tag/Task) section in the API schema.
+
+- **Add tray-level firmware update target selection in Tray FW Update API** ([#541](https://github.com/NVIDIA/infra-controller-rest/pull/541))
+  The Tray firmware update endpoint now supports selecting specific firmware update targets at the tray level, allowing operators to target individual components within a tray rather than updating all at once. See the updated [Tray](https://nvidia.github.io/infra-controller-rest/#tag/Tray) firmware update endpoint.
+
+- **Support filter by location info in Flow Tray API** ([#545](https://github.com/NVIDIA/infra-controller-rest/pull/545))
+  Adds location-based filtering to the Flow Tray API, enabling queries by physical rack position and other location metadata. See the updated query parameters on the [Tray](https://nvidia.github.io/infra-controller-rest/#tag/Tray) endpoints.
+
+- **Support filter ListTasks by component_id in Flow** ([#542](https://github.com/NVIDIA/infra-controller-rest/pull/542))
+  Adds a `component_id` filter to the Flow task list endpoint, enabling operators to retrieve all tasks associated with a specific hardware component.
+
+- **Add switch leak detection and powering off switches on detection** ([#566](https://github.com/NVIDIA/infra-controller-rest/pull/566))
+  Extends the leak detection subsystem to NVLink Switches. When a coolant leak is detected on a switch, the system automatically triggers a power-off operation through the Flow task manager.
+
+- **Add component manager capability aware task dispatch** ([#554](https://github.com/NVIDIA/infra-controller-rest/pull/554))
+  Flow task dispatch now checks component manager capabilities before scheduling operations, ensuring tasks are only dispatched to managers that support the requested operation type.
+
+- **Add component manager capability metadata** ([#547](https://github.com/NVIDIA/infra-controller-rest/pull/547))
+  Introduces structured capability metadata for component managers, enabling the system to discover and advertise what operations each manager supports.
+
+- **Allow Flow AddComponent without a rack assignment** ([#514](https://github.com/NVIDIA/infra-controller-rest/pull/514))
+  Components can now be added to the Flow inventory without requiring an immediate rack assignment, supporting scenarios where hardware is staged before being placed into a rack.
+
+- **Add rack and tray lifecycle and task commands to TUI** ([#535](https://github.com/NVIDIA/infra-controller-rest/pull/535))
+  Adds interactive TUI commands for rack and tray operations including power control, firmware update, bringup, validation, and task listing, bringing rack-level administration into the interactive CLI experience.
+
+- **Add TUI parity commands and surface machine blocking alerts** ([#534](https://github.com/NVIDIA/infra-controller-rest/pull/534))
+  Extends the TUI with additional commands for feature parity with the auto-generated CLI, and surfaces machine blocking alerts (health issues preventing provisioning) directly in machine list output.
+
+- **Improve TUI forms for instance create, instance update, and ssh-key-group create** ([#517](https://github.com/NVIDIA/infra-controller-rest/pull/517))
+  Enhances the interactive instance and SSH key group creation flows with better form layouts, field validation, and guided selection for complex fields.
+
+- **Package nicocli in nico-rest-api image** ([#522](https://github.com/NVIDIA/infra-controller-rest/pull/522))
+  The `nicocli` binary is now included in the `nico-rest-api` Docker image, enabling operators to run CLI commands directly from the API container for debugging and administration.
+
+- **Add --api-name flag and OIDC username/password env vars** ([#576](https://github.com/NVIDIA/infra-controller-rest/pull/576))
+  Adds a `--api-name` CLI flag for overriding the API path segment and supports `NICO_OIDC_USERNAME`/`NICO_OIDC_PASSWORD` environment variables for non-interactive OIDC authentication.
+
+- **Support env var overrides for every CLI config field** ([#575](https://github.com/NVIDIA/infra-controller-rest/pull/575))
+  Every field in the CLI configuration file can now be overridden via environment variables using a `NICO_` prefix convention, enabling containerized and CI/CD-friendly deployments without config file management.
+
+### Bug Fixes
+
+- **Create status detail for Instance when online repair is enabled/disabled for Machine** ([#573](https://github.com/NVIDIA/infra-controller-rest/pull/573))
+  Adds Instance status detail entries when a Machine enters or exits online repair, providing clear audit trail visibility into repair-driven state changes. Also updates Instance status checks to verify health override alerts before removal and aligns mode/source info with Core conventions.
+
+- **Delete InfiniBand Interfaces based on config sync flag instead of Instance status** ([#567](https://github.com/NVIDIA/infra-controller-rest/pull/567))
+  Fixes InfiniBand Interface cleanup to use the Site's configuration sync flag rather than Instance status, ensuring interfaces are properly deleted when the Site reports a completed configuration sync regardless of instance state.
+
+- **Add create verb for forge.nvidia.io/sites in site-manager RBAC** ([#548](https://github.com/NVIDIA/infra-controller-rest/pull/548))
+  Adds the missing `create` verb to the site-manager's RBAC ClusterRole for the `forge.nvidia.io/sites` resource, fixing permission errors when the site-manager attempts to register a new site.
+
+- **Run nico-rest DB migrations as Helm hooks** ([#546](https://github.com/NVIDIA/infra-controller-rest/pull/546))
+  Converts database migration jobs from regular Kubernetes resources to Helm pre-install/pre-upgrade hooks, ensuring migrations run before the API and workflow services start and preventing race conditions during upgrades.
+
+- **Ensure DPU Extension Service deployments are deleted on Instance deletion** ([#536](https://github.com/NVIDIA/infra-controller-rest/pull/536))
+  Fixes Instance deletion to properly cascade and remove all associated DPU Extension Service deployments, preventing orphaned deployment records.
+
+- **Fix debug flag for nicocli** ([#532](https://github.com/NVIDIA/infra-controller-rest/pull/532))
+  Corrects the `--debug` flag handling in nicocli so that debug-level logging is properly enabled when the flag is set.
+
+### Refactoring
+
+- **Complete WithTx migration for remaining API handlers** ([#475](https://github.com/NVIDIA/infra-controller-rest/pull/475), [#479](https://github.com/NVIDIA/infra-controller-rest/pull/479), [#496](https://github.com/NVIDIA/infra-controller-rest/pull/496), [#499](https://github.com/NVIDIA/infra-controller-rest/pull/499), [#557](https://github.com/NVIDIA/infra-controller-rest/pull/557), [#558](https://github.com/NVIDIA/infra-controller-rest/pull/558), [#559](https://github.com/NVIDIA/infra-controller-rest/pull/559), [#560](https://github.com/NVIDIA/infra-controller-rest/pull/560), [#562](https://github.com/NVIDIA/infra-controller-rest/pull/562), [#563](https://github.com/NVIDIA/infra-controller-rest/pull/563), [#564](https://github.com/NVIDIA/infra-controller-rest/pull/564), [#565](https://github.com/NVIDIA/infra-controller-rest/pull/565))
+  Completes the `WithTx` transaction helper migration for all remaining API handlers: Machine, Allocation, Instance Type, SSH Key Group, ExpectedMachine, Machine InstanceType, Tenant, Tenant Account, Site, Subnet, Machine online-repair, and VPC Peering. All API write operations now use consistent closure-based transaction scoping with automatic rollback on error.
+
+- **Split component manager operation interfaces and registry wiring** ([#571](https://github.com/NVIDIA/infra-controller-rest/pull/571), [#530](https://github.com/NVIDIA/infra-controller-rest/pull/530))
+  Decomposes the monolithic component manager interface into granular per-operation interfaces and separates registry wiring from business logic, improving testability and enabling capability-aware dispatch.
+
+- **Improve readability for terminology and NVSwitch naming in Flow** ([#544](https://github.com/NVIDIA/infra-controller-rest/pull/544))
+  Standardizes variable naming and terminology across the Flow service, aligning NVSwitch references with the official product naming convention. See the updated naming in the [API reference](https://nvidia.github.io/infra-controller-rest/).
+
+- **Apply layered ToProto convention to MachineInstanceType and VPC handlers** ([#533](https://github.com/NVIDIA/infra-controller-rest/pull/533), [#505](https://github.com/NVIDIA/infra-controller-rest/pull/505))
+  Extends the layered proto conversion pattern to MachineInstanceType and VPC handlers, moving protobuf request construction onto DB models for consistent separation between API and data layers.
+
+### Documentation
+
+- **Add Core compatibility matrix, image rename and repo migration notice** ([#572](https://github.com/NVIDIA/infra-controller-rest/pull/572))
+  Documents the compatibility matrix between NICo REST and Core versions, announces the Docker image rename from `carbide-rest-*` to `nico-rest-*`, and adds a notice regarding the REST repository migration from [https://github.com/NVIDIA/infra-controller-rest](https://github.com/NVIDIA/infra-controller-rest) to [https://github.com/NVIDIA/infra-controller/tree/main/rest-api](https://github.com/NVIDIA/infra-controller/tree/main/rest-api).
+
+- **Add DB transaction handling guidance to AGENTS.md** ([#551](https://github.com/NVIDIA/infra-controller-rest/pull/551))
+  Adds comprehensive guidance for AI coding agents on the `WithTx` transaction helper pattern, including when to use each variant and best practices for closure scoping.
+
+### Chores
+
+- **Allow privileged Tenants to retrieve Machines without specifying Site ID** ([#568](https://github.com/NVIDIA/infra-controller-rest/pull/568))
+  Privileged Tenants (those with targeted Instance creation capability) can now list Machines across all accessible sites without providing a Site ID filter, simplifying cross-site capacity queries.
+
+- **Maintain Forge gRPC service name until Core proto is updated** ([#528](https://github.com/NVIDIA/infra-controller-rest/pull/528), [#552](https://github.com/NVIDIA/infra-controller-rest/pull/552))
+  Preserves the legacy Forge gRPC service name in Site Agent and Flow to maintain compatibility with Core until the corresponding rename is completed on the Core side. *(#528 also in v1.5.1)*
+
+- **Rename default Flow config path rlaconfig.yaml to flowconfig.yaml** ([#527](https://github.com/NVIDIA/infra-controller-rest/pull/527))
+  Completes the RLA-to-Flow config file path rename. *(Also in v1.5.1)*
+
+- **Finish RLA to Flow rename in site-agent default and handler tests** ([#531](https://github.com/NVIDIA/infra-controller-rest/pull/531))
+  Updates remaining test files in the site-agent module to use Flow naming.
+
+- **Add logic to retry Core/Flow gRPC connection** ([#549](https://github.com/NVIDIA/infra-controller-rest/pull/549))
+  Adds retry logic with backoff for establishing gRPC connections to Core and Flow, improving resilience during startup when dependent services may not yet be available.
+
+- **Revise Core and Flow gRPC client and config structures** ([#539](https://github.com/NVIDIA/infra-controller-rest/pull/539))
+  Restructures the gRPC client configuration for Core and Flow services, separating connection and authentication concerns for clearer configuration management.
+
+- **Apply the ToProto modeling convention to InstanceType** ([#540](https://github.com/NVIDIA/infra-controller-rest/pull/540))
+  Adds `ToProto` receiver methods to the InstanceType DB model, following the established convention for proto conversion.
+
+- **Remove Git LFS Tracking** ([#550](https://github.com/NVIDIA/infra-controller-rest/pull/550))
+  Removes Git LFS tracking configuration from the repository, simplifying the clone and build process.
 
 ---
 
@@ -9,6 +138,9 @@ Each release lists pull requests grouped by category, with the most recent versi
 
 > [!NOTE]
 > This release is compatible with Core **v0.9.x**.
+
+> [!IMPORTANT]
+> In our effort to unify the product name, starting from `v1.5.0` the image names are now prefixed with `nico-` instead of `carbide-`. Docker images produced by the make commands will now have the `nico-` prefix.
 
 ### Features
 - **Rename carbide/forge to NVIDIA Infrastructure Controller (NICo)** ([#432](https://github.com/NVIDIA/infra-controller-rest/pull/432))

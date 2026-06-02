@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package mock
 
@@ -24,6 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
+	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/capability"
 	cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
@@ -72,8 +59,19 @@ func FactoryFor(componentType devicetypes.ComponentType) componentmanager.Manage
 // type.
 func DescriptorFor(componentType devicetypes.ComponentType) cmcatalog.Descriptor {
 	return cmcatalog.Descriptor{
-		Type:           componentType,
-		Implementation: ImplementationName,
+		DescriptorIdentity: cmcatalog.DescriptorIdentity{
+			Type:           componentType,
+			Implementation: ImplementationName,
+		},
+		Capabilities: capability.CapabilitySet{
+			capability.CapabilityBringUpControl,
+			capability.CapabilityBringUpStatus,
+			capability.CapabilityFirmwareControl,
+			capability.CapabilityFirmwareStatus,
+			capability.CapabilityInjectExpectation,
+			capability.CapabilityPowerControl,
+			capability.CapabilityPowerStatus,
+		},
 	}
 }
 
@@ -87,12 +85,12 @@ func FactorySpecFor(componentType devicetypes.ComponentType) componentmanager.Fa
 }
 
 // Descriptors returns mock descriptors for all component types currently
-// supported by the RLA service.
+// supported by the Flow service.
 func Descriptors() []cmcatalog.Descriptor {
 	descriptors := make([]cmcatalog.Descriptor, 0, 3)
 	for _, ct := range []devicetypes.ComponentType{
 		devicetypes.ComponentTypeCompute,
-		devicetypes.ComponentTypeNVLSwitch,
+		devicetypes.ComponentTypeNVSwitch,
 		devicetypes.ComponentTypePowerShelf,
 	} {
 		descriptors = append(descriptors, DescriptorFor(ct))
@@ -101,12 +99,12 @@ func Descriptors() []cmcatalog.Descriptor {
 }
 
 // FactorySpecs returns mock runtime factory specs for all component types
-// currently supported by the RLA service.
+// currently supported by the Flow service.
 func FactorySpecs() []componentmanager.FactorySpec {
 	factorySpecs := make([]componentmanager.FactorySpec, 0, 3)
 	for _, ct := range []devicetypes.ComponentType{
 		devicetypes.ComponentTypeCompute,
-		devicetypes.ComponentTypeNVLSwitch,
+		devicetypes.ComponentTypeNVSwitch,
 		devicetypes.ComponentTypePowerShelf,
 	} {
 		factorySpecs = append(factorySpecs, FactorySpecFor(ct))
@@ -205,10 +203,13 @@ func (m *Manager) FirmwareControl(
 	return nil
 }
 
-// BringUpControl simulates opening the bring-up gate.
+// BringUpControl simulates opening the bring-up gate. The info argument is
+// accepted to satisfy the BringUpController interface; the mock ignores its
+// contents.
 func (m *Manager) BringUpControl(
 	ctx context.Context,
 	target common.Target,
+	_ operations.BringUpTaskInfo,
 ) error {
 	log.Debug().
 		Str("component_type", m.componentType.String()).

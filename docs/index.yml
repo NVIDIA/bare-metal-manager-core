@@ -61,8 +61,8 @@ navigation:
           path: provisioning/ingesting-hosts.md
         - page: Ingesting Hosts (REST API)
           path: provisioning/ingesting-hosts-rest-api.md
-        - page: Host Validation
-          path: provisioning/host-validation.md
+        - page: Machine Validation
+          path: provisioning/machine-validation.md
         - page: SKU Validation
           path: provisioning/sku-validation.md
         - page: Measured Boot Attestation
@@ -123,6 +123,12 @@ navigation:
 
     - section: Operations
       contents:
+        - page: Network Isolation
+          path: manuals/network_isolation.md
+        - page: Network Security Groups
+          path: manuals/networking/network_security_groups.md
+        - page: InfiniBand Partitioning
+          path: manuals/networking/infiniband_partitioning.md
         - page: nicocli Reference
           path: manuals/nicocli-reference.md
         - page: NVLink Partitioning

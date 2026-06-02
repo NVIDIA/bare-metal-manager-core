@@ -371,7 +371,7 @@ pub async fn find_by_extension_service(
         .build_query_as()
         .fetch_all(&mut *txn)
         .await
-        .map_err(|e| DatabaseError::query(builder.sql(), e))?;
+        .map_err(|e| DatabaseError::query(builder.sql().as_str(), e))?;
     resolve_snapshots_from_json_rows(txn, rows).await
 }
 

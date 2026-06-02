@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package machine
 
@@ -215,7 +201,7 @@ func testMachineBuildMachine(t *testing.T, dbSession *cdb.Session, ip uuid.UUID,
 	return m
 }
 
-func testMachineBuildMachineCapability(t *testing.T, dbSession *cdb.Session, mID *string, typ string, name string, capacity *string, count *int) *cdbm.MachineCapability {
+func testMachineBuildMachineCapability(t *testing.T, dbSession *cdb.Session, mID *string, typ cdbm.MachineCapabilityType, name string, capacity *string, count *int) *cdbm.MachineCapability {
 	mc := &cdbm.MachineCapability{
 		ID:             uuid.New(),
 		MachineID:      mID,
@@ -1084,7 +1070,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 
 				// Verify reported DPU count is correct
 				if tt.args.isDPUCountReported != nil && *tt.args.isDPUCountReported {
-					mctd1s, mctd1Total, mtdserr := mcDAO.GetAll(tt.args.ctx, nil, []string{um1.ID}, nil, nil, cdb.GetStrPtr(cdbm.MachineCapabilityTypeDPU), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+					mctd1s, mctd1Total, mtdserr := mcDAO.GetAll(tt.args.ctx, nil, []string{um1.ID}, nil, nil, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeDPU), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 					assert.Nil(t, mtdserr)
 					if mctd1Total > 0 {
 						assert.Equal(t, *mctd1s[0].Count, 2)
@@ -1179,7 +1165,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 
 			if tt.args.newControllerMachineID != nil {
 				// Check if a new Machine got created in DB based on machineInfo2
-				sms, _, serr := mDAO.GetAll(tt.args.ctx, nil, cdbm.MachineFilterInput{SiteID: &tt.args.siteID}, cdbp.PageInput{}, nil)
+				sms, _, serr := mDAO.GetAll(tt.args.ctx, nil, cdbm.MachineFilterInput{SiteIDs: []uuid.UUID{tt.args.siteID}}, cdbp.PageInput{}, nil)
 				assert.Nil(t, serr)
 
 				var m4 *cdbm.Machine
@@ -1327,7 +1313,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				if tt.args.machineInventory.InventoryPage.CurrentPage == 1 {
 					// Check that the first 10 Machines now have status `Ready`
 					filterInput := cdbm.MachineFilterInput{
-						SiteID:     &tt.args.siteID,
+						SiteIDs:    []uuid.UUID{tt.args.siteID},
 						MachineIDs: pagedInvIds[0:10],
 					}
 					tms, _, serr := mDAO.GetAll(tt.args.ctx, nil, filterInput, cdbp.PageInput{}, nil)
@@ -1338,7 +1324,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 
 					// Check that no Machine status is Error due to being missing
 					filterInput = cdbm.MachineFilterInput{
-						SiteID:   &tt.args.siteID,
+						SiteIDs:  []uuid.UUID{tt.args.siteID},
 						Statuses: []string{cdbm.MachineStatusError},
 					}
 					_, missingCount, serr := mDAO.GetAll(tt.args.ctx, nil, filterInput, cdbp.PageInput{}, nil)
@@ -1349,7 +1335,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 				if tt.args.machineInventory.InventoryPage.CurrentPage == tt.args.machineInventory.InventoryPage.TotalPages {
 					// Check that the last 4 Machines now have status `Ready`
 					filterInput := cdbm.MachineFilterInput{
-						SiteID:     &tt.args.siteID,
+						SiteIDs:    []uuid.UUID{tt.args.siteID},
 						MachineIDs: pagedInvIds[30:34],
 					}
 					tms, _, serr := mDAO.GetAll(tt.args.ctx, nil, filterInput, cdbp.PageInput{}, nil)
@@ -1360,7 +1346,7 @@ func TestManageMachine_UpdateMachinesInDB(t *testing.T) {
 
 					// Check that no Machine status is Error due to being missing
 					filterInput = cdbm.MachineFilterInput{
-						SiteID:   &tt.args.siteID,
+						SiteIDs:  []uuid.UUID{tt.args.siteID},
 						Statuses: []string{cdbm.MachineStatusError},
 					}
 					_, missingCount, serr := mDAO.GetAll(tt.args.ctx, nil, filterInput, cdbp.PageInput{}, nil)
@@ -1427,6 +1413,7 @@ func TestGetForgeMachineStatus(t *testing.T) {
 		name                   string
 		args                   args
 		wantStatus             string
+		wantMessage            string
 		wantMachineAllocatable bool
 	}{
 		{
@@ -1498,6 +1485,75 @@ func TestGetForgeMachineStatus(t *testing.T) {
 				},
 			},
 			wantStatus:             cdbm.MachineStatusError,
+			wantMachineAllocatable: false,
+		},
+		{
+			name: "test get forge machine status - with automatic DPU firmware update alert",
+			args: args{
+				controllerMachine: &cwssaws.Machine{
+					State: controllerMachineStatePrefixReady,
+					Health: &cwssaws.HealthReport{
+						Alerts: []*cwssaws.HealthProbeAlert{
+							{
+								Id:      MachineDPUFirmwareUpdateAlertID,
+								Target:  cdb.GetStrPtr(MachineDPUFirmwareUpdateAlertTarget),
+								Message: "AutomaticDpuFirmwareUpdate//",
+								Classifications: []string{
+									MachinePreventAllocations,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantStatus:             cdbm.MachineStatusInitializing,
+			wantMessage:            MachineDPUFirmwareUpdateStatusMessage,
+			wantMachineAllocatable: false,
+		},
+		{
+			name: "test get forge machine status - with non-automatic DPU firmware update alert",
+			args: args{
+				controllerMachine: &cwssaws.Machine{
+					State: controllerMachineStatePrefixAssigned,
+					Health: &cwssaws.HealthReport{
+						Alerts: []*cwssaws.HealthProbeAlert{
+							{
+								Id:      MachineDPUFirmwareUpdateAlertID,
+								Target:  cdb.GetStrPtr(MachineDPUFirmwareUpdateAlertTarget),
+								Message: "ManualDpuFirmwareUpdate//",
+								Classifications: []string{
+									MachinePreventAllocations,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantStatus:             cdbm.MachineStatusInitializing,
+			wantMessage:            MachineDPUFirmwareUpdateStatusMessage,
+			wantMachineAllocatable: false,
+		},
+		{
+			name: "test get forge machine status - non-DPU firmware prevent alert remains error",
+			args: args{
+				controllerMachine: &cwssaws.Machine{
+					State: controllerMachineStatePrefixReady,
+					Health: &cwssaws.HealthReport{
+						Alerts: []*cwssaws.HealthProbeAlert{
+							{
+								Id:      MachineDPUFirmwareUpdateAlertID,
+								Target:  cdb.GetStrPtr("HostFirmware"),
+								Message: "HostFirmwareUpdate//",
+								Classifications: []string{
+									MachinePreventAllocations,
+								},
+							},
+						},
+					},
+				},
+			},
+			wantStatus:             cdbm.MachineStatusError,
+			wantMessage:            MachinePreventAllocationStatusMessage,
 			wantMachineAllocatable: false,
 		},
 		{
@@ -1649,7 +1705,11 @@ func TestGetForgeMachineStatus(t *testing.T) {
 			status, message, isAllocatable := getNICoMachineStatus(tt.args.controllerMachine, log.Logger)
 			assert.Equal(t, tt.wantMachineAllocatable, isAllocatable)
 			assert.Equal(t, tt.wantStatus, status)
-			assert.NotEmpty(t, message)
+			if tt.wantMessage != "" {
+				assert.Equal(t, tt.wantMessage, message)
+			} else {
+				assert.NotEmpty(t, message)
+			}
 		})
 	}
 }

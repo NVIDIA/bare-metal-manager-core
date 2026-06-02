@@ -2,12 +2,12 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: nico-dhcp-config
+  name: {{ include "nico-dhcp.name" . }}-config
   namespace: {{ include "nico-dhcp.namespace" . }}
   labels:
     {{- include "nico-dhcp.labels" . | nindent 4 }}
 data:
   kea_config.json: |
     {{- /* Replace __NAMESPACE__ placeholder with actual global.namespace */ -}}
-    {{- .Values.config.keaConfigJson | replace "__NAMESPACE__" (include "nico-dhcp.namespace" .) | nindent 4 }}
+    {{- .Values.config.keaConfigJson | replace "__NAMESPACE__" (include "nico-dhcp.namespace" .) | replace "__API_HOST__" .Values.apiServiceName | nindent 4 }}
 {{- end }}

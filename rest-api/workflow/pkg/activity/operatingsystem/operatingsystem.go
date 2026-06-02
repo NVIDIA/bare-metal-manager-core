@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package operatingsystem
 
@@ -188,7 +174,7 @@ func (mskg ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UU
 			if ossaStatus != ossa.Status {
 				serr := mskg.updateOperatingSystemSiteAssociationStatusInDB(ctx, nil, ossa.ID, cdb.GetStrPtr(ossaStatus), ossaStatusMessage)
 				if serr != nil {
-					slogger.Error().Err(err).Msg("failed to update OS Image Site Association status detail in DB")
+					slogger.Error().Err(serr).Msg("failed to update OS Image Site Association status detail in DB")
 				}
 				updatedOperatingSystemMap[ossa.OperatingSystemID] = true
 			}
@@ -225,7 +211,7 @@ func (mskg ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UU
 			// Trigger re-evaluation of Operating System status (delete if no association exists)
 			serr = mskg.UpdateOperatingSystemStatusInDB(ctx, ossa.OperatingSystemID)
 			if serr != nil {
-				slogger.Error().Err(err).Msg("failed to trigger Operating System status update in DB")
+				slogger.Error().Err(serr).Msg("failed to trigger Operating System status update in DB")
 			}
 		} else {
 			// Was this created within inventory receipt interval? If so, we may be processing an older inventory
@@ -249,7 +235,7 @@ func (mskg ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UU
 
 			serr = mskg.updateOperatingSystemSiteAssociationStatusInDB(ctx, nil, ossa.ID, cdb.GetStrPtr(cdbm.OperatingSystemSiteAssociationStatusError), cdb.GetStrPtr("Operating System is missing on Site"))
 			if serr != nil {
-				slogger.Error().Err(err).Msg("failed to update Operating System Site Association status detail in DB")
+				slogger.Error().Err(serr).Msg("failed to update Operating System Site Association status detail in DB")
 			}
 
 			updatedOperatingSystemMap[ossa.OperatingSystemID] = true

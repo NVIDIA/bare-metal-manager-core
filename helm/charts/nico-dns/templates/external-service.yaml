@@ -5,12 +5,12 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: nico-dns-external-udp-{{ $i }}
+  name: {{ include "nico-dns.name" . }}-external-udp-{{ $i }}
   namespace: {{ include "nico-dns.namespace" $ }}
   labels:
-    app.kubernetes.io/part-of: nico-dns-instance-{{ $i }}
+    app.kubernetes.io/part-of: {{ include "nico-dns.name" . }}-instance-{{ $i }}
   annotations:
-    metallb.universe.tf/allow-shared-ip: "nico-dns-instance-{{ $i }}"
+    metallb.universe.tf/allow-shared-ip: "{{ include "nico-dns.name" . }}-instance-{{ $i }}"
     {{- $annotations := "" }}
     {{- if and $.Values.externalService.perPodAnnotations (gt (len $.Values.externalService.perPodAnnotations) $i) }}
     {{- $annotations = index $.Values.externalService.perPodAnnotations $i }}
@@ -21,8 +21,8 @@ metadata:
 spec:
   type: {{ $.Values.externalService.type | default "LoadBalancer" }}
   selector:
-    app.kubernetes.io/name: nico-dns
-    statefulset.kubernetes.io/pod-name: nico-dns-{{ $i }}
+    app.kubernetes.io/name: {{ include "nico-dns.name" . }}
+    statefulset.kubernetes.io/pod-name: {{ include "nico-dns.name" . }}-{{ $i }}
   ports:
     - port: 53
       targetPort: 53
@@ -32,12 +32,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: nico-dns-external-tcp-{{ $i }}
+  name: {{ include "nico-dns.name" . }}-external-tcp-{{ $i }}
   namespace: {{ include "nico-dns.namespace" $ }}
   labels:
-    app.kubernetes.io/part-of: nico-dns-instance-{{ $i }}
+    app.kubernetes.io/part-of: {{ include "nico-dns.name" . }}-instance-{{ $i }}
   annotations:
-    metallb.universe.tf/allow-shared-ip: "nico-dns-instance-{{ $i }}"
+    metallb.universe.tf/allow-shared-ip: "{{ include "nico-dns.name" . }}-instance-{{ $i }}"
     {{- $annotations := "" }}
     {{- if and $.Values.externalService.perPodAnnotations (gt (len $.Values.externalService.perPodAnnotations) $i) }}
     {{- $annotations = index $.Values.externalService.perPodAnnotations $i }}
@@ -48,8 +48,8 @@ metadata:
 spec:
   type: {{ $.Values.externalService.type | default "LoadBalancer" }}
   selector:
-    app.kubernetes.io/name: nico-dns
-    statefulset.kubernetes.io/pod-name: nico-dns-{{ $i }}
+    app.kubernetes.io/name: {{ include "nico-dns.name" . }}
+    statefulset.kubernetes.io/pod-name: {{ include "nico-dns.name" . }}-{{ $i }}
   ports:
     - port: 53
       targetPort: 53

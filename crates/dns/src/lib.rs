@@ -26,6 +26,13 @@ use std::time::{Duration, Instant};
 
 use dns_record::DnsResourceRecordType;
 use eyre::Report;
+use hickory_resolver::proto::op::ResponseCode;
+use hickory_resolver::proto::rr::{DNSClass, Name, RData};
+use hickory_server::net::runtime::Time;
+use hickory_server::proto::op::Metadata;
+use hickory_server::proto::rr::Record;
+use hickory_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
+use hickory_server::zone_handler::MessageResponseBuilder;
 use metrics_endpoint::{MetricsEndpointConfig, new_metrics_setup, run_metrics_endpoint};
 use opentelemetry::KeyValue;
 use opentelemetry::metrics::{Counter, Meter};
@@ -34,12 +41,6 @@ use rpc::protos::dns::DnsResourceRecordLookupRequest;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
-use trust_dns_resolver::proto::op::{Header, ResponseCode};
-use trust_dns_resolver::proto::rr::{DNSClass, Name, RData};
-use trust_dns_server::ServerFuture;
-use trust_dns_server::authority::MessageResponseBuilder;
-use trust_dns_server::proto::rr::{Record, RecordType};
-use trust_dns_server::server::{Request, RequestHandler, ResponseHandler, ResponseInfo};
 
 pub mod config;
 mod negative_cache;
@@ -89,13 +90,24 @@ pub struct DnsServer {
 
 #[async_trait::async_trait]
 impl RequestHandler for DnsServer {
-    async fn handle_request<R: ResponseHandler>(
+    async fn handle_request<R: ResponseHandler, T: Time>(
         &self,
         request: &Request,
         mut response_handle: R,
     ) -> ResponseInfo {
-        let request_info = request.request_info();
-        let qtype = request.query().query_type();
+        let request_info = match request.request_info() {
+            Ok(request_info) => request_info,
+            Err(_) => {
+                return response_handle
+                    .send_response(
+                        MessageResponseBuilder::new(&request.queries, None)
+                            .error_msg(&request.metadata, ResponseCode::FormErr),
+                    )
+                    .await
+                    .unwrap();
+            }
+        };
+        let qtype = request_info.query.query_type();
         let qname = request_info.query.name().to_string();
 
         let span = tracing::info_span!("dns_request", %qname, %qtype);
@@ -112,7 +124,7 @@ impl RequestHandler for DnsServer {
                 warn!(%qname, %qtype, "Unsupported query type");
                 let response = MessageResponseBuilder::from_message_request(request);
                 return response_handle
-                    .send_response(response.error_msg(request.header(), ResponseCode::NotImp))
+                    .send_response(response.error_msg(request_info.metadata, ResponseCode::NotImp))
                     .await
                     .unwrap();
             }
@@ -127,7 +139,7 @@ impl RequestHandler for DnsServer {
 
         let record_name = Name::from(request_info.query.name());
         let message = MessageResponseBuilder::from_message_request(request);
-        let mut response_header = Header::response_from_request(request.header());
+        let mut response_header = Metadata::response_from_request(request_info.metadata);
 
         let (response_code, records) = if let Some(code) = cached {
             self.metrics
@@ -189,7 +201,7 @@ impl RequestHandler for DnsServer {
             "Request completed"
         );
 
-        response_header.set_response_code(response_code);
+        response_header.response_code = response_code;
         let message = message.build(
             response_header,
             records.iter(),
@@ -250,33 +262,27 @@ impl DnsServer {
             // The API returns all record types for the qname; keep only the requested type.
             .filter(|r| DnsResourceRecordType::try_from(r.qtype.as_str()).ok() == Some(qtype))
             .filter_map(|r| {
-                let (record_type, rdata) = match qtype {
+                let rdata = match qtype {
                     DnsResourceRecordType::A => {
                         let ip = r.content.parse::<std::net::Ipv4Addr>().map_err(|e| {
                             warn!(content = %r.content, error = %e, "Failed to parse IPv4 address");
                             e
                         }).ok()?;
-                        (RecordType::A, RData::A(ip.into()))
+                        RData::A(ip.into())
                     }
                     DnsResourceRecordType::AAAA => {
                         let ip = r.content.parse::<std::net::Ipv6Addr>().map_err(|e| {
                             warn!(content = %r.content, error = %e, "Failed to parse IPv6 address");
                             e
                         }).ok()?;
-                        (RecordType::AAAA, RData::AAAA(ip.into()))
+                        RData::AAAA(ip.into())
                     }
                     // Unreachable: handle_request only dispatches A and AAAA to this function.
                     _ => return None,
                 };
-                Some(
-                    Record::new()
-                        .set_ttl(r.ttl)
-                        .set_name(record_name.clone())
-                        .set_record_type(record_type)
-                        .set_dns_class(DNSClass::IN)
-                        .set_data(Some(rdata))
-                        .clone(),
-                )
+                let mut record = Record::from_rdata(record_name.clone(), r.ttl, rdata);
+                record.dns_class = DNSClass::IN;
+                Some(record)
             })
             .collect::<Vec<_>>();
 
@@ -346,12 +352,14 @@ impl DnsServer {
             }
         });
 
-        let mut srv = ServerFuture::new(server);
+        let mut srv = hickory_server::Server::new(server);
         let udp_socket = UdpSocket::bind(&listen).await?;
         srv.register_socket(udp_socket);
 
         let tcp_socket = TcpListener::bind(&listen).await?;
-        srv.register_listener(tcp_socket, Duration::new(5, 0));
+        // Note: 32 is hickory_server's default response buffer size when running it as a binary, so
+        // use that size here.
+        srv.register_listener(tcp_socket, Duration::new(5, 0), 32);
 
         info!(
             "Started DNS server on {} version {}",

@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -137,9 +123,9 @@ func (ascr APIVpcCreateRequest) Validate() error {
 
 	// NetworkVirtualizationType validation
 	if ascr.NetworkVirtualizationType != nil {
-		if (*ascr.NetworkVirtualizationType != cdbm.VpcEthernetVirtualizer) && (*ascr.NetworkVirtualizationType != cdbm.VpcFNN) {
+		if !cdbm.VpcNetworkVirtualzationTypeMap[*ascr.NetworkVirtualizationType] {
 			return validation.Errors{
-				"networkVirtualizationType": errors.New("either ETHERNET_VIRTUALIZER or FNN are currently supported"),
+				"networkVirtualizationType": errors.New("ETHERNET_VIRTUALIZER, FNN, and FLAT are currently supported"),
 			}
 		}
 	}
@@ -151,7 +137,7 @@ func (ascr APIVpcCreateRequest) Validate() error {
 			}
 		}
 
-		if ascr.NetworkVirtualizationType != nil && *ascr.NetworkVirtualizationType != cdbm.VpcFNN {
+		if ascr.NetworkVirtualizationType != nil && !cdbm.VpcTypeSupportsRoutingProfile(ascr.NetworkVirtualizationType) {
 			return validation.Errors{
 				"routingProfile": errors.New("`routingProfile` is only supported when `networkVirtualizationType` is FNN"),
 			}

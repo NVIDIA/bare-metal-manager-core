@@ -73,19 +73,17 @@ tests:
       bootArtifacts:
         servePath: /custom-boot-path
     asserts:
-      - equal:
-          path: spec.template.spec.containers[0].args
-          value:
-            - -s
-            - /custom-boot-path
+      # The container runs a shell binary-picker, so the serve path is rendered
+      # into the command script as `-s <path>` rather than into container args.
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: '-s /custom-boot-path'
 
   - it: should default serve path to /boot-artifacts
     asserts:
-      - equal:
-          path: spec.template.spec.containers[0].args
-          value:
-            - -s
-            - /boot-artifacts
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: '-s /boot-artifacts'
 
   - it: should merge bootArtifactContainers and initContainers
     set:

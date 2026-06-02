@@ -19,13 +19,9 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use nv_redfish::bmc_http::reqwest::{
-    BmcError, Client as ReqwestClient, ClientParams as ReqwestClientParams,
-};
 use prometheus::{Histogram, HistogramOpts};
 
 use crate::HealthError;
-use crate::bmc::AuthRefreshingBmc;
 use crate::collectors::{Collector, LogDowngradeRegistry};
 use crate::config::{
     Config, Configurable, FirmwareCollectorConfig as FirmwareCollectorOptions,
@@ -35,8 +31,6 @@ use crate::config::{
 };
 use crate::limiter::RateLimiter;
 use crate::metrics::{MetricsManager, operation_duration_buckets_seconds};
-
-pub(crate) type BmcClient = AuthRefreshingBmc;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub(super) enum CollectorKind {
@@ -170,10 +164,8 @@ pub struct DiscoveryLoopContext {
     pub(super) collectors: CollectorState,
     pub(crate) discovery_iteration_histogram: Histogram,
     pub(crate) discovery_endpoint_fetch_histogram: Histogram,
-    pub(crate) client: ReqwestClient,
     pub(crate) limiter: Arc<dyn RateLimiter>,
     pub(crate) metrics_manager: Arc<MetricsManager>,
-    pub(crate) config: Arc<Config>,
     pub(crate) sensors_config: Configurable<SensorCollectorOptions>,
     pub(crate) logs_config: Configurable<LogsCollectorOptions>,
     pub(crate) firmware_config: Configurable<FirmwareCollectorOptions>,
@@ -211,31 +203,18 @@ impl DiscoveryLoopContext {
         )?;
         registry.register(Box::new(discovery_endpoint_fetch_histogram.clone()))?;
 
-        let client =
-            ReqwestClient::with_params(ReqwestClientParams::new().accept_invalid_certs(true))
-                .map_err(BmcError::ReqwestError)?;
-
-        let sensors_config = config.collectors.sensors.clone();
-        let logs_config = config.collectors.logs.clone();
-        let firmware_config = config.collectors.firmware.clone();
-        let leak_detector_config = config.collectors.leak_detector.clone();
-        let nmxt_config = config.collectors.nmxt.clone();
-        let nvue_config = config.collectors.nvue.clone();
-
         Ok(Self {
             collectors: CollectorState::new(),
             discovery_iteration_histogram,
             discovery_endpoint_fetch_histogram,
-            client,
             limiter,
             metrics_manager,
-            config,
-            sensors_config,
-            logs_config,
-            firmware_config,
-            leak_detector_config,
-            nmxt_config,
-            nvue_config,
+            sensors_config: config.collectors.sensors.clone(),
+            logs_config: config.collectors.logs.clone(),
+            firmware_config: config.collectors.firmware.clone(),
+            leak_detector_config: config.collectors.leak_detector.clone(),
+            nmxt_config: config.collectors.nmxt.clone(),
+            nvue_config: config.collectors.nvue.clone(),
             log_downgrade_registry: Arc::new(LogDowngradeRegistry::new()),
         })
     }

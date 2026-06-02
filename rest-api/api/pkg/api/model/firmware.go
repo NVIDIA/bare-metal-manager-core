@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -29,6 +15,22 @@ import (
 type APIUpdateFirmwareRequest struct {
 	SiteID  string  `json:"siteId"`
 	Version *string `json:"version,omitempty"`
+	// Targets, when non-empty, restricts the update to a subset of
+	// firmware sub-parts within the targeted tray (e.g. ["bmc", "nvos"]
+	// for switch trays). Names are lowercase. The authoritative supported
+	// set per tray type is derived from the Flow service's NICo proto
+	// bindings (mirroring Core's per-tray-type enums in
+	// carbide-core/crates/rpc/proto/forge.proto); see
+	// flow/pkg/common/firmwarecomponents for the resolution logic and
+	// helpers like SupportedNICoNVSwitchNames.
+	// Empty/nil means "update everything in the bundle". When non-empty,
+	// requires Version.
+	//
+	// REST surface intentionally calls these "targets" to avoid confusion
+	// with carbide's tray-level "Component" vocabulary; the downstream
+	// Flow proto field is named `sub_targets` and represents the same
+	// enum subset.
+	Targets []string `json:"targets,omitempty"`
 }
 
 // Validate validates the firmware update request
@@ -36,7 +38,7 @@ func (r *APIUpdateFirmwareRequest) Validate() error {
 	if r.SiteID == "" {
 		return fmt.Errorf("siteId is required")
 	}
-	return nil
+	return validateFirmwareTargets(r.Targets, r.Version)
 }
 
 // ========== Firmware Update Response ==========
@@ -89,6 +91,10 @@ type APIBatchTrayFirmwareUpdateRequest struct {
 	SiteID  string      `json:"siteId"`
 	Filter  *TrayFilter `json:"filter,omitempty"`
 	Version *string     `json:"version,omitempty"`
+	// Targets, when non-empty, restricts the update to a subset of
+	// firmware sub-parts within each matched tray. Same semantics as the
+	// single-tray variant. When non-empty, requires Version.
+	Targets []string `json:"targets,omitempty"`
 }
 
 // Validate checks required fields and filter constraints.
@@ -96,5 +102,29 @@ func (r *APIBatchTrayFirmwareUpdateRequest) Validate() error {
 	if r.SiteID == "" {
 		return fmt.Errorf("siteId is required")
 	}
-	return r.Filter.Validate()
+	if r.Filter != nil {
+		if err := r.Filter.Validate(); err != nil {
+			return err
+		}
+	}
+	return validateFirmwareTargets(r.Targets, r.Version)
+}
+
+// validateFirmwareTargets enforces the cross-field constraint that a
+// firmware-target subset selection is only meaningful when a target version
+// is also supplied. Per-tray-type name validation is delegated to Flow,
+// where the mapping from string to component-manager enum lives.
+func validateFirmwareTargets(targets []string, version *string) error {
+	if len(targets) == 0 {
+		return nil
+	}
+	for _, t := range targets {
+		if t == "" {
+			return fmt.Errorf("targets must not contain empty strings")
+		}
+	}
+	if version == nil || *version == "" {
+		return fmt.Errorf("targets requires version to be set")
+	}
+	return nil
 }

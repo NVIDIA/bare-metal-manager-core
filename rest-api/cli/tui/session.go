@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package tui
 
@@ -109,10 +95,14 @@ func (s *Session) registerFetchers() {
 	s.Resolver.RegisterFetcher("tenant-account", s.fetchTenantAccounts)
 	s.Resolver.RegisterFetcher("allocation", s.fetchAllocations)
 	s.Resolver.RegisterFetcher("expected-machine", s.fetchExpectedMachines)
+	s.Resolver.RegisterFetcher("expected-rack", s.fetchExpectedRacks)
+	s.Resolver.RegisterFetcher("expected-switch", s.fetchExpectedSwitches)
+	s.Resolver.RegisterFetcher("expected-power-shelf", s.fetchExpectedPowerShelves)
 	s.Resolver.RegisterFetcher("infiniband-partition", s.fetchInfiniBandPartitions)
 	s.Resolver.RegisterFetcher("nvlink-logical-partition", s.fetchNVLinkLogicalPartitions)
 	s.Resolver.RegisterFetcher("instance-type", s.fetchInstanceTypes)
 	s.Resolver.RegisterFetcher("dpu-extension-service", s.fetchDPUExtensionServices)
+	s.Resolver.RegisterFetcher("tray", s.fetchTrays)
 }
 
 // fetchAll fetches all pages from a list endpoint and returns raw JSON objects.
@@ -458,11 +448,12 @@ func (s *Session) fetchSSHKeyGroups(_ context.Context) ([]NamedItem, error) {
 	return result, nil
 }
 
-func (s *Session) fetchAllocations(_ context.Context) ([]NamedItem, error) {
+func (s *Session) fetchAllocations(ctx context.Context) ([]NamedItem, error) {
 	q := map[string]string{}
 	if s.Scope.SiteID != "" {
 		q["siteId"] = s.Scope.SiteID
 	}
+	addOwnerScopeFilter(s, ctx, q)
 	items, err := s.fetchAll(apiPath(s, "allocation"), q)
 	if err != nil {
 		return nil, err
@@ -699,6 +690,112 @@ func (s *Session) fetchExpectedMachines(_ context.Context) ([]NamedItem, error) 
 	return result, nil
 }
 
+func (s *Session) fetchExpectedRacks(_ context.Context) ([]NamedItem, error) {
+	q := map[string]string{}
+	if s.Scope.SiteID != "" {
+		q["siteId"] = s.Scope.SiteID
+	}
+	items, err := s.fetchAll(apiPath(s, "expected-rack"), q)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]NamedItem, len(items))
+	for i, m := range items {
+		name := strings.TrimSpace(str(m, "name"))
+		if name == "" {
+			name = strings.TrimSpace(str(m, "rackId"))
+		}
+		if name == "" {
+			name = str(m, "id")
+		}
+		result[i] = NamedItem{
+			Name: name, ID: str(m, "id"),
+			Labels: extractLabels(m),
+			Extra: map[string]string{
+				"siteId":        str(m, "siteId"),
+				"rackId":        str(m, "rackId"),
+				"rackProfileId": str(m, "rackProfileId"),
+			},
+			Raw: m,
+		}
+	}
+	return result, nil
+}
+
+func (s *Session) fetchExpectedSwitches(_ context.Context) ([]NamedItem, error) {
+	q := map[string]string{}
+	if s.Scope.SiteID != "" {
+		q["siteId"] = s.Scope.SiteID
+	}
+	items, err := s.fetchAll(apiPath(s, "expected-switch"), q)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]NamedItem, len(items))
+	for i, m := range items {
+		name := strings.TrimSpace(str(m, "name"))
+		if name == "" {
+			name = strings.TrimSpace(str(m, "switchSerialNumber"))
+		}
+		if name == "" {
+			name = strings.TrimSpace(str(m, "bmcMacAddress"))
+		}
+		if name == "" {
+			name = str(m, "id")
+		}
+		result[i] = NamedItem{
+			Name: name, ID: str(m, "id"),
+			Labels: extractLabels(m),
+			Extra: map[string]string{
+				"siteId":             str(m, "siteId"),
+				"bmcMacAddress":      str(m, "bmcMacAddress"),
+				"switchSerialNumber": str(m, "switchSerialNumber"),
+				"rackId":             str(m, "rackId"),
+				"manufacturer":       str(m, "manufacturer"),
+			},
+			Raw: m,
+		}
+	}
+	return result, nil
+}
+
+func (s *Session) fetchExpectedPowerShelves(_ context.Context) ([]NamedItem, error) {
+	q := map[string]string{}
+	if s.Scope.SiteID != "" {
+		q["siteId"] = s.Scope.SiteID
+	}
+	items, err := s.fetchAll(apiPath(s, "expected-power-shelf"), q)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]NamedItem, len(items))
+	for i, m := range items {
+		name := strings.TrimSpace(str(m, "name"))
+		if name == "" {
+			name = strings.TrimSpace(str(m, "shelfSerialNumber"))
+		}
+		if name == "" {
+			name = strings.TrimSpace(str(m, "bmcMacAddress"))
+		}
+		if name == "" {
+			name = str(m, "id")
+		}
+		result[i] = NamedItem{
+			Name: name, ID: str(m, "id"),
+			Labels: extractLabels(m),
+			Extra: map[string]string{
+				"siteId":            str(m, "siteId"),
+				"bmcMacAddress":     str(m, "bmcMacAddress"),
+				"shelfSerialNumber": str(m, "shelfSerialNumber"),
+				"rackId":            str(m, "rackId"),
+				"manufacturer":      str(m, "manufacturer"),
+			},
+			Raw: m,
+		}
+	}
+	return result, nil
+}
+
 func (s *Session) fetchInfiniBandPartitions(_ context.Context) ([]NamedItem, error) {
 	q := map[string]string{}
 	if s.Scope.SiteID != "" {
@@ -754,6 +851,41 @@ func (s *Session) fetchInstanceTypes(ctx context.Context) ([]NamedItem, error) {
 			Name: str(m, "name"), ID: str(m, "id"), Status: str(m, "status"),
 			Labels: extractLabels(m),
 			Extra:  map[string]string{"siteId": str(m, "siteId")}, Raw: m,
+		}
+	}
+	return result, nil
+}
+
+func (s *Session) fetchTrays(_ context.Context) ([]NamedItem, error) {
+	q := map[string]string{}
+	if s.Scope.SiteID != "" {
+		q["siteId"] = s.Scope.SiteID
+	}
+	items, err := s.fetchAll(apiPath(s, "tray"), q)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]NamedItem, len(items))
+	for i, m := range items {
+		name := strings.TrimSpace(str(m, "name"))
+		if name == "" {
+			name = strings.TrimSpace(str(m, "serialNumber"))
+		}
+		if name == "" {
+			name = str(m, "id")
+		}
+		result[i] = NamedItem{
+			Name: name, ID: str(m, "id"), Status: str(m, "powerState"),
+			Extra: map[string]string{
+				"componentId":     str(m, "componentId"),
+				"type":            str(m, "type"),
+				"manufacturer":    str(m, "manufacturer"),
+				"model":           str(m, "model"),
+				"serialNumber":    str(m, "serialNumber"),
+				"firmwareVersion": str(m, "firmwareVersion"),
+				"rackId":          str(m, "rackId"),
+			},
+			Raw: m,
 		}
 	}
 	return result, nil

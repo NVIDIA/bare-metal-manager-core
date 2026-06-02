@@ -31,7 +31,14 @@ service:
 
 certificate:
   ## serviceName is used to auto-generate dnsNames and SPIFFE URIs based on the release namespace
-  serviceName: nico-dsx-exchange-consumer
+  serviceName: ""
+  spiffeServiceName: ""
+  identityNamespace: ""
+  ## Fully override the auto-generated dnsNames/uris. When empty, dnsNames and
+  ## uris are generated from serviceName + namespace (extraDnsNames/extraUris
+  ## are appended to the generated list).
+  dnsNames: []
+  uris: []
   extraDnsNames: []
   extraUris: []
 

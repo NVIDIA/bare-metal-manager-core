@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package activity
 
@@ -41,7 +27,7 @@ import (
 // ManageExpectedRackInventory is an activity wrapper for Expected Rack inventory collection and publishing
 type ManageExpectedRackInventory struct {
 	siteID                uuid.UUID
-	nicoCoreAtomicClient  *cclient.NICoCoreAtomicClient
+	coreGrpcAtomicClient  *cclient.CoreGrpcAtomicClient
 	temporalPublishClient tClient.Client
 	temporalPublishQueue  string
 	cloudPageSize         int
@@ -59,16 +45,16 @@ func (meri *ManageExpectedRackInventory) DiscoverExpectedRackInventory(ctx conte
 	}
 
 	// Get Site Controller gRPC client
-	nicoClient := meri.nicoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cclient.ErrClientNotConnected
+	grpcClient := meri.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cclient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
 	// Call GetAllExpectedRacks to get full list of ExpectedRacks on Site
-	erList, err := rpcClient.GetAllExpectedRacks(ctx, &emptypb.Empty{})
+	erList, err := grpcServiceClient.GetAllExpectedRacks(ctx, &emptypb.Empty{})
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to retrieve ExpectedRacks using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to retrieve ExpectedRacks using Core gRPC API")
 
 		// Error encountered before we've published anything, report inventory collection error to Cloud
 		inventory := &cwssaws.ExpectedRackInventory{
@@ -193,10 +179,10 @@ func getPagedExpectedRackInventory(
 }
 
 // NewManageExpectedRackInventory returns a ManageInventory implementation for Expected Rack activity
-func NewManageExpectedRackInventory(siteID uuid.UUID, nicoCoreAtomicClient *cclient.NICoCoreAtomicClient, temporalPublishClient tClient.Client, temporalPublishQueue string, cloudPageSize int) ManageExpectedRackInventory {
+func NewManageExpectedRackInventory(siteID uuid.UUID, coreGrpcAtomicClient *cclient.CoreGrpcAtomicClient, temporalPublishClient tClient.Client, temporalPublishQueue string, cloudPageSize int) ManageExpectedRackInventory {
 	return ManageExpectedRackInventory{
 		siteID:                siteID,
-		nicoCoreAtomicClient:  nicoCoreAtomicClient,
+		coreGrpcAtomicClient:  coreGrpcAtomicClient,
 		temporalPublishClient: temporalPublishClient,
 		temporalPublishQueue:  temporalPublishQueue,
 		cloudPageSize:         cloudPageSize,
@@ -205,15 +191,15 @@ func NewManageExpectedRackInventory(siteID uuid.UUID, nicoCoreAtomicClient *ccli
 
 // ManageExpectedRack is an activity wrapper for Expected Rack management
 type ManageExpectedRack struct {
-	NICoCoreAtomicClient *cclient.NICoCoreAtomicClient
-	FlowAtomicClient     *cclient.FlowAtomicClient
+	coreGrpcAtomicClient *cclient.CoreGrpcAtomicClient
+	flowGrpcAtomicClient *cclient.FlowGrpcAtomicClient
 }
 
 // NewManageExpectedRack returns a new ManageExpectedRack client
-func NewManageExpectedRack(nicoClient *cclient.NICoCoreAtomicClient, flowClient *cclient.FlowAtomicClient) ManageExpectedRack {
+func NewManageExpectedRack(coreGrpcAtomicClient *cclient.CoreGrpcAtomicClient, flowGrpcAtomicClient *cclient.FlowGrpcAtomicClient) ManageExpectedRack {
 	return ManageExpectedRack{
-		NICoCoreAtomicClient: nicoClient,
-		FlowAtomicClient:     flowClient,
+		coreGrpcAtomicClient: coreGrpcAtomicClient,
+		flowGrpcAtomicClient: flowGrpcAtomicClient,
 	}
 }
 
@@ -238,16 +224,16 @@ func (mer *ManageExpectedRack) CreateExpectedRackOnSite(ctx context.Context, req
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mer.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cclient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mer.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cclient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.AddExpectedRack(ctx, request)
+	_, err = grpcServiceClient.AddExpectedRack(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create Expected Rack using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to create Expected Rack using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -277,16 +263,16 @@ func (mer *ManageExpectedRack) UpdateExpectedRackOnSite(ctx context.Context, req
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mer.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cclient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mer.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cclient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.UpdateExpectedRack(ctx, request)
+	_, err = grpcServiceClient.UpdateExpectedRack(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to update Expected Rack using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to update Expected Rack using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -314,16 +300,16 @@ func (mer *ManageExpectedRack) DeleteExpectedRackOnSite(ctx context.Context, req
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mer.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cclient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mer.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cclient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.DeleteExpectedRack(ctx, request)
+	_, err = grpcServiceClient.DeleteExpectedRack(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to delete Expected Rack using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to delete Expected Rack using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -358,16 +344,16 @@ func (mer *ManageExpectedRack) ReplaceAllExpectedRacksOnSite(ctx context.Context
 		}
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mer.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cclient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mer.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cclient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err := rpcClient.ReplaceAllExpectedRacks(ctx, request)
+	_, err := grpcServiceClient.ReplaceAllExpectedRacks(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to replace all Expected Racks using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to replace all Expected Racks using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -382,16 +368,16 @@ func (mer *ManageExpectedRack) DeleteAllExpectedRacksOnSite(ctx context.Context)
 
 	logger.Info().Msg("Starting activity")
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mer.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cclient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mer.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cclient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err := rpcClient.DeleteAllExpectedRacks(ctx, &emptypb.Empty{})
+	_, err := grpcServiceClient.DeleteAllExpectedRacks(ctx, &emptypb.Empty{})
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to delete all Expected Racks using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to delete all Expected Racks using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -415,19 +401,20 @@ func (mer *ManageExpectedRack) CreateExpectedRackOnFlow(ctx context.Context, req
 	}
 
 	// If Flow client is not configured, skip gracefully
-	if mer.FlowAtomicClient == nil {
+	if mer.flowGrpcAtomicClient == nil {
 		logger.Warn().Msg("Flow client not configured, skipping Flow expected rack creation")
 		return nil
 	}
 
-	flowClient := mer.FlowAtomicClient.GetClient()
-	if flowClient == nil {
+	grpcClient := mer.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
 		logger.Warn().Msg("Flow client not connected, skipping Flow expected rack creation")
 		return nil
 	}
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
 	rack := expectedRackToFlowRack(request)
-	_, err := flowClient.Flow().CreateExpectedRack(ctx, &flowv1.CreateExpectedRackRequest{Rack: rack})
+	_, err := grpcServiceClient.CreateExpectedRack(ctx, &flowv1.CreateExpectedRackRequest{Rack: rack})
 	if err != nil {
 		logger.Warn().Err(err).Msg("Failed to create Expected Rack on Flow")
 		return swe.WrapErr(err)

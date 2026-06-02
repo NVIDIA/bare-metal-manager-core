@@ -1,25 +1,16 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package operationrules
 
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
 )
 
 func TestActionConfig_Validate(t *testing.T) {
@@ -104,7 +95,7 @@ func TestActionConfig_Validate(t *testing.T) {
 				Timeout:      3 * time.Minute,
 				PollInterval: 10 * time.Second,
 				Parameters: map[string]any{
-					ParamComponentTypes: []string{"compute", "nvlswitch"},
+					ParamComponentTypes: []string{"compute", "nvswitch"},
 				},
 			},
 			wantErr: false,
@@ -143,24 +134,14 @@ func TestActionConfig_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.config.Validate()
 			if tt.wantErr {
-				if err == nil {
-					t.Errorf("ActionConfig.Validate() error = nil, wantErr %v",
-						tt.wantErr)
-					return
+				require.Error(t, err)
+				if tt.errMsg != "" {
+					assert.ErrorContains(t, err, tt.errMsg)
 				}
-				if tt.errMsg != "" && !contains(err.Error(), tt.errMsg) {
-					t.Errorf(
-						"ActionConfig.Validate() error = %v, want error containing %q",
-						err,
-						tt.errMsg,
-					)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("ActionConfig.Validate() error = %v, wantErr %v",
-						err, tt.wantErr)
-				}
+				return
 			}
+
+			require.NoError(t, err)
 		})
 	}
 }
@@ -199,7 +180,7 @@ func TestActionConfig_ValidateParameters(t *testing.T) {
 				Timeout:      3 * time.Minute,
 				PollInterval: 10 * time.Second,
 				Parameters: map[string]any{
-					ParamComponentTypes: []any{"compute", "nvlswitch"},
+					ParamComponentTypes: []any{"compute", "nvswitch"},
 				},
 			},
 			wantErr: false,
@@ -223,43 +204,104 @@ func TestActionConfig_ValidateParameters(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.config.Validate()
 			if tt.wantErr {
-				if err == nil {
-					t.Errorf(
-						"ActionConfig.Validate() error = nil, wantErr %v",
-						tt.wantErr,
-					)
-					return
+				require.Error(t, err)
+				if tt.errMsg != "" {
+					assert.ErrorContains(t, err, tt.errMsg)
 				}
-				if tt.errMsg != "" && !contains(err.Error(), tt.errMsg) {
-					t.Errorf(
-						"ActionConfig.Validate() error = %v, want error containing %q", //nolint
-						err,
-						tt.errMsg,
-					)
-				}
-			} else {
-				if err != nil {
-					t.Errorf(
-						"ActionConfig.Validate() error = %v, wantErr %v",
-						err,
-						tt.wantErr,
-					)
-				}
+				return
 			}
+
+			require.NoError(t, err)
 		})
 	}
 }
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr ||
-		len(s) > len(substr) && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
+func TestActionConfig_ComponentTypes(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  ActionConfig
+		want    []devicetypes.ComponentType
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "no component type parameters",
+			config: ActionConfig{
+				Name: ActionPowerControl,
+			},
+			want: nil,
+		},
+		{
+			name: "string slice",
+			config: ActionConfig{
+				Name: ActionVerifyReachability,
+				Parameters: map[string]any{
+					ParamComponentTypes: []string{"Compute", "PowerShelf"},
+				},
+			},
+			want: []devicetypes.ComponentType{
+				devicetypes.ComponentTypeCompute,
+				devicetypes.ComponentTypePowerShelf,
+			},
+		},
+		{
+			name: "any slice",
+			config: ActionConfig{
+				Name: ActionVerifyReachability,
+				Parameters: map[string]any{
+					ParamComponentTypes: []any{"Compute", "NVSwitch"},
+				},
+			},
+			want: []devicetypes.ComponentType{
+				devicetypes.ComponentTypeCompute,
+				devicetypes.ComponentTypeNVSwitch,
+			},
+		},
+		{
+			name: "invalid component type",
+			config: ActionConfig{
+				Name: ActionVerifyReachability,
+				Parameters: map[string]any{
+					ParamComponentTypes: []string{"missing"},
+				},
+			},
+			wantErr: true,
+			errMsg:  "invalid component type",
+		},
+		{
+			name: "component types not array",
+			config: ActionConfig{
+				Name: ActionVerifyReachability,
+				Parameters: map[string]any{
+					ParamComponentTypes: "Compute",
+				},
+			},
+			wantErr: true,
+			errMsg:  "must be array",
+		},
+		{
+			name: "required component types missing",
+			config: ActionConfig{
+				Name: ActionVerifyReachability,
+			},
+			wantErr: true,
+			errMsg:  "missing required parameter",
+		},
 	}
-	return false
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.config.ComponentTypes()
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errMsg != "" {
+					assert.ErrorContains(t, err, tt.errMsg)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
 }

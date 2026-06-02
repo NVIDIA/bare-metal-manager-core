@@ -60,13 +60,13 @@ permissive_mode = false
 casbin_policy_file = "/etc/forge/carbide-api/casbin-policy.csv"
 
 [auth.trust]
-spiffe_trust_domain = "nico.local"
+spiffe_trust_domain = "{{ .Values.global.spiffe.trustDomain }}"
 spiffe_service_base_paths = [
-  "/nico-system/sa/",
+  "/{{ .Values.auth.namespace | default (include "nico-api.namespace" .) }}/sa/",
   "/default/sa/",
   "/elektra-site-agent/sa/",
 ]
-spiffe_machine_base_path = "/nico-system/machine/"
+spiffe_machine_base_path = "/{{ .Values.auth.namespace | default (include "nico-api.namespace" .) }}/machine/"
 additional_issuer_cns = []
 
 [machine_state_controller]

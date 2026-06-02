@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package api
 
@@ -48,44 +34,47 @@ func TestNewAPIRoutes(t *testing.T) {
 	scp := sc.NewClientPool(tcfg)
 
 	routeCount := map[string]int{
-		"metadata":                 1,
-		"service-account":          1,
-		"infrastructure-provider":  4,
-		"tenant":                   4,
-		"tenant-account":           5,
-		"site":                     6,
-		"vpc":                      6,
-		"vpcpeering":               4,
-		"vpcprefix":                5,
-		"ip-block":                 6,
-		"instance":                 8,
-		"interface":                1,
-		"infiniband-interface":     2,
-		"infiniband-partition":     5,
-		"nvlink-interface":         2,
-		"nvlink-logical-partition": 4,
-		"expected-machine":         7,
-		"expected-power-shelf":     5,
-		"expected-rack":            7,
-		"expected-switch":          5,
-		"instance-type":            5,
-		"machine":                  5,
-		"allocation":               6,
-		"subnet":                   5,
-		"machine-instance-type":    3,
-		"user":                     1,
-		"operating-system":         5,
-		"sshkey":                   5,
-		"sshkeygroup":              5,
-		"machine-capability":       1,
-		"audit":                    2,
-		"network-security-group":   5,
-		"machine-validation":       11,
-		"dpu-extension-service":    7,
-		"sku":                      2,
-		"rack":                     12,
-		"tray":                     8,
-		"stats":                    4,
+		"metadata":                  1,
+		"service-account":           1,
+		"infrastructure-provider":   4,
+		"tenant":                    4,
+		"tenant-account":            5,
+		"site":                      6,
+		"vpc":                       6,
+		"vpcpeering":                4,
+		"vpcprefix":                 5,
+		"ip-block":                  6,
+		"instance":                  8,
+		"interface":                 1,
+		"infiniband-interface":      2,
+		"infiniband-partition":      5,
+		"nvlink-interface":          2,
+		"nvlink-logical-partition":  4,
+		"expected-machine":          7,
+		"expected-power-shelf":      5,
+		"expected-rack":             7,
+		"expected-switch":           5,
+		"instance-type":             5,
+		"machine":                   5,
+		"allocation":                6,
+		"subnet":                    5,
+		"machine-instance-type":     3,
+		"user":                      1,
+		"operating-system":          5,
+		"sshkey":                    5,
+		"sshkeygroup":               5,
+		"machine-capability":        1,
+		"audit":                     2,
+		"network-security-group":    5,
+		"machine-validation":        11,
+		"dpu-extension-service":     7,
+		"sku":                       2,
+		"task":                      2,
+		"rack":                      13,
+		"tray":                      9,
+		"stats":                     4,
+		"identity-config":           3,
+		"identity-token-delegation": 3,
 	}
 
 	totalRouteCount := 0
@@ -155,4 +144,33 @@ func assertRouteBefore(t *testing.T, routes []Route, firstMethod, firstPath, sec
 	assert.NotEqual(t, -1, firstIndex, "missing %s %s", firstMethod, firstPath)
 	assert.NotEqual(t, -1, secondIndex, "missing %s %s", secondMethod, secondPath)
 	assert.Less(t, firstIndex, secondIndex, "%s %s must be registered before %s %s", firstMethod, firstPath, secondMethod, secondPath)
+}
+
+// TestNewWellKnownRoutes guards the unauthenticated .well-known/* surface
+// returned by NewWellKnownRoutes. These routes are mounted on the root echo
+// (before the versioned auth middleware in server.go) so that JWT verifiers
+// without credentials can fetch JWKS / OIDC discovery; any drift in the count
+// or path shape of this set is security-relevant and must fail loudly.
+func TestNewWellKnownRoutes(t *testing.T) {
+	cfg := common.GetTestConfig()
+	tcfg, _ := cfg.GetTemporalConfig()
+	scp := sc.NewClientPool(tcfg)
+
+	got := NewWellKnownRoutes(&cdb.Session{}, scp, cfg)
+
+	wantPaths := map[string]string{
+		"/org/:orgName/" + cfg.GetAPIName() + "/site/:siteID/.well-known/jwks.json":            "GET",
+		"/org/:orgName/" + cfg.GetAPIName() + "/site/:siteID/.well-known/openid-configuration": "GET",
+		"/org/:orgName/" + cfg.GetAPIName() + "/site/:siteID/.well-known/spiffe/jwks.json":     "GET",
+	}
+
+	assert.Equal(t, len(wantPaths), len(got))
+
+	gotByPath := make(map[string]string, len(got))
+	for _, r := range got {
+		gotByPath[r.Path] = r.Method
+	}
+	for path, method := range wantPaths {
+		assert.Equal(t, method, gotByPath[path], "well-known route %s missing or wrong method", path)
+	}
 }

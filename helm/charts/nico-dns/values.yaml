@@ -27,7 +27,7 @@ namespaceOverride: ""
 
 replicas: 2
 annotations:
-  configmap.reloader.stakater.com/reload: "nico-dns, nico-dns-config"
+  configmap.reloader.stakater.com/reload: '{{ include "nico-dns.name" . }}, {{ include "nico-dns.name" . }}-config'
 
 ## DNS server bind address. Default keeps the existing dual-stack/IPv6
 ## listener; set to "0.0.0.0:53" for IPv4-only Kubernetes clusters.
@@ -42,9 +42,18 @@ service:
       name: udp
       protocol: UDP
 
+apiServiceName: nico-api
+
 certificate:
   ## serviceName is used to auto-generate dnsNames and SPIFFE URIs based on the release namespace
-  serviceName: nico-dns
+  serviceName: ""
+  spiffeServiceName: ""
+  identityNamespace: ""
+  ## Fully override the auto-generated dnsNames/uris. When empty, dnsNames and
+  ## uris are generated from serviceName + namespace (extraDnsNames/extraUris
+  ## are appended to the generated list).
+  dnsNames: []
+  uris: []
   extraDnsNames: []
   extraUris: []
 

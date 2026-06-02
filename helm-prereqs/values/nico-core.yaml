@@ -52,6 +52,21 @@ nico-api:
     annotations:
       metallb.universe.tf/loadBalancerIPs: "10.180.126.177"  # EXAMPLE - nico-api external VIP
 
+  ## TLS cert SANs.
+  ##
+  ## The chart auto-includes `nico-api.<release-ns>.svc.cluster.local` and the
+  ## short DNS name. Add every external hostname clients use here, so the
+  ## TLS handshake validates the cert against whichever name was used to
+  ## reach the service. For dual-deployment compatibility with existing DPU
+  ## agents (which are hardcoded to look up `carbide-api.forge`) include the
+  ## `.forge` aliases below. See helm-prereqs/README.md → "DPU compatibility
+  ## DNS (.forge zone)" for the full hostname list.
+  certificate:
+    extraDnsNames:
+      - "api-examplesite.example.com"  # EXAMPLE - your external hostname (match nico-api.hostname above)
+      - "carbide-api.forge"            # legacy hardcoded lookup in deployed DPU agents
+      - "carbide-api.forge-system.svc.cluster.local"  # legacy cluster-internal name from forged kustomize
+
   siteConfig:
     enabled: true
     nicoApiSiteConfig: |
@@ -220,6 +235,15 @@ nico-pxe:
     annotations:
       metallb.universe.tf/loadBalancerIPs: "10.180.126.162"  # EXAMPLE - PXE VIP (internal pool)
 
+  ## TLS cert SANs — DPU agents are hardcoded to fetch boot artifacts from
+  ## `carbide-pxe.forge` / `carbide-static-pxe.forge`. If the cert doesn't
+  ## include those names, BMC HttpBootUri / agent calls fail TLS validation.
+  certificate:
+    extraDnsNames:
+      - "carbide-pxe.forge"            # legacy hardcoded lookup in deployed DPU agents
+      - "carbide-static-pxe.forge"     # legacy hardcoded lookup in host PXE loaders
+      - "carbide-pxe.forge-system.svc.cluster.local"  # legacy cluster-internal name
+
 nico-ssh-console-rs:
   externalService:
     enabled: true    # must be explicitly enabled - defaults to false in chart
@@ -243,9 +267,48 @@ nico-dsx-exchange-consumer:
   enabled: false
 
 ## ---------------------------------------------------------------------------
-## unbound - disabled by default (enable if you need recursive DNS)
+## unbound - recursive DNS + DPU-compatibility .forge zone
+##
+## REQUIRED for DPU bring-up. Existing DPU agent binaries are hardcoded to
+## look up `carbide-pxe.forge`, `carbide-ntp.forge`, `carbide-api.forge`, etc.
+## Those names will not exist in cluster DNS, so they must be resolved by an
+## authoritative DNS server reachable from the OOB management network. This
+## chart deploys unbound with a `nico_forge_zone.conf` local-data block that
+## maps each legacy hostname to the corresponding MetalLB VIP assigned above.
+##
+## If you point your own external DNS at the same VIPs and serve the .forge
+## records there, you can leave this disabled. Otherwise enable it and fill
+## the VIPs to match the externalService.annotations entries above.
+##
+## Verify after install: `helm-prereqs/health-check.sh` reports per-record
+## status under the ".forge DNS Endpoint Reference" section.
 ## ---------------------------------------------------------------------------
 unbound:
   enabled: false
   # imagePullSecrets:
   #   - name: nvcr-nvidian-nvforge
+
+  ## Uncomment + fill in VIPs to serve the DPU compatibility .forge zone.
+  ## The IPs below must match the loadBalancerIPs you set above (nico-api,
+  ## nico-pxe, nico-ntp). The unbound chart turns each entry into a
+  ## `local-data` line in `local_data.conf`. Existing DPU agents look up these
+  ## hostnames verbatim; the rename to .nico is deferred per the dual-
+  ## deployment POR, so we serve both old and new under the same VIPs.
+  # localData:
+  #   - name: carbide-api.forge        # nico-api external VIP — legacy DPU agent lookup
+  #     addresses: ["10.180.126.177"]
+  #   - name: nico-api.forge           # same VIP, renamed-binary alias
+  #     addresses: ["10.180.126.177"]
+  #   - name: carbide-pxe.forge        # nico-pxe VIP — hardcoded in DPU agent + boot images
+  #     addresses: ["10.180.126.162"]
+  #   - name: carbide-static-pxe.forge
+  #     addresses: ["10.180.126.162"]
+  #   - name: carbide-ntp.forge        # nico-ntp VIPs — hardcoded in DPU agent
+  #     addresses: ["10.180.126.165", "10.180.126.166", "10.180.126.167"]
+  #   - name: unbound.forge            # distributed to DPUs via DHCP option 6
+  #     addresses: ["10.180.126.180"]
+  #   # Optional: otel-receiver / socks if you run those services
+  #   # - name: otel-receiver.forge
+  #   #   addresses: ["10.180.126.181"]
+  #   # - name: socks.forge
+  #   #   addresses: ["10.180.126.182"]

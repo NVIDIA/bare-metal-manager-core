@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -368,8 +354,15 @@ type APIInstanceCreateRequest struct {
 	PhoneHomeEnabled *bool `json:"phoneHomeEnabled"`
 	// UserData is the ID of the Operating System
 	UserData *string `json:"userData"`
-	// Interfaces is the list of Interfaces to create for the Instance
+	// Interfaces is the list of Interfaces to create for the Instance.
+	// Mutually exclusive with `AutoNetwork`: when `AutoNetwork` is true this MUST be empty.
 	Interfaces []APIInterfaceCreateOrUpdateRequest `json:"interfaces"`
+	// AutoNetwork, when true, asks NICo to auto-resolve the Instance's network
+	// interfaces from the host's HostInband network segments. Intended for
+	// instances on zero-DPU hosts (or hosts with their DPU in NIC mode).
+	// When true, `Interfaces` MUST be empty. The resolved per-interface
+	// details surface in the Instance's status.
+	AutoNetwork bool `json:"autoNetwork"`
 	// InfiniBandInterfaces is the list of InfiniBandInterface to create for the Instance
 	InfiniBandInterfaces []APIInfiniBandInterfaceCreateOrUpdateRequest `json:"infinibandInterfaces"`
 	// DpuExtensionServiceDeployments is the list of DpuExtensionServiceDeployments to create for the Instance
@@ -421,8 +414,14 @@ type APIBatchInstanceCreateRequest struct {
 	PhoneHomeEnabled *bool `json:"phoneHomeEnabled"`
 	// UserData is the user data for the instances
 	UserData *string `json:"userData"`
-	// Interfaces is the list of Interfaces to create for each instance (shared across all instances)
+	// Interfaces is the list of Interfaces to create for each instance (shared across all instances).
+	// Mutually exclusive with `AutoNetwork`: when `AutoNetwork` is true this MUST be empty.
 	Interfaces []APIInterfaceCreateOrUpdateRequest `json:"interfaces"`
+	// AutoNetwork, when true, asks NICo to auto-resolve each Instance's network
+	// interfaces from the host's HostInband network segments. Intended for
+	// instances on zero-DPU hosts (or hosts with their DPU in NIC mode).
+	// When true, `Interfaces` MUST be empty.
+	AutoNetwork bool `json:"autoNetwork"`
 	// InfiniBandInterfaces is the list of InfiniBandInterface to create for each instance (shared across all instances)
 	InfiniBandInterfaces []APIInfiniBandInterfaceCreateOrUpdateRequest `json:"infinibandInterfaces"`
 	// NVLinkInterfaces is the list of NVLinkInterface to create for each instance (shared across all instances)
@@ -461,8 +460,15 @@ func (icr APIInstanceCreateRequest) Validate() error {
 		validation.Field(&icr.OperatingSystemID,
 			validationis.UUID.Error(validationErrorInvalidUUID)),
 		validation.Field(&icr.Interfaces,
-			validation.Required.Error("at least one Interface must be specified"),
-			validation.Length(1, MaxInterfaceCount).Error(fmt.Sprintf("at most %v Interfaces can be specified", MaxInterfaceCount))),
+			// When AutoNetwork is true, the Instance has NICo auto-resolve interfaces
+			// from the host's HostInband segments, so the explicit list MUST
+			// be empty. Otherwise at least one interface is required.
+			validation.When(icr.AutoNetwork,
+				validation.Length(0, 0).Error("`interfaces` must be empty when `autoNetwork` is true"),
+			).Else(
+				validation.Required.Error("at least one Interface must be specified"),
+				validation.Length(1, MaxInterfaceCount).Error(fmt.Sprintf("at most %v Interfaces can be specified", MaxInterfaceCount)),
+			)),
 	)
 
 	if err != nil {
@@ -470,6 +476,11 @@ func (icr APIInstanceCreateRequest) Validate() error {
 	}
 
 	if icr.SecondaryVpcIDs != nil {
+		if icr.AutoNetwork {
+			return validation.Errors{
+				"secondaryVpcIds": errors.New("`secondaryVpcIds` is not supported when `autoNetwork` is true"),
+			}
+		}
 		for _, iface := range icr.Interfaces {
 			if iface.VpcPrefixID == nil {
 				return validation.Errors{
@@ -533,6 +544,22 @@ func (icr APIInstanceCreateRequest) Validate() error {
 	}
 
 	return err
+}
+
+// ValidateForVpc validates request fields whose legality depends on the
+// resolved VPC the Instance will be created in. It is separate from
+// Validate() because the VPC is only known after a DB lookup in the
+// handler. Core enforces the same rule; this is defense in depth that
+// also avoids round-tripping the Site for an obviously bad request.
+func (icr APIInstanceCreateRequest) ValidateForVpc(vpc *cdbm.Vpc) error {
+	// `autoNetwork` asks NICo to resolve interfaces from the host's
+	// HostInband segments, which only makes sense on a Flat VPC.
+	if icr.AutoNetwork && !cdbm.VpcTypeSupportsAutoInterface(vpc.NetworkVirtualizationType) {
+		return validation.Errors{
+			"autoNetwork": errors.New("`autoNetwork` is only supported when the VPC has `networkVirtualizationType` set to `FLAT`"),
+		}
+	}
+	return nil
 }
 
 // Validate the OS against any additional option combinations specified.
@@ -790,8 +817,15 @@ func (bicr APIBatchInstanceCreateRequest) Validate() error {
 		validation.Field(&bicr.OperatingSystemID,
 			validationis.UUID.Error(validationErrorInvalidUUID)),
 		validation.Field(&bicr.Interfaces,
-			validation.Required.Error("at least one Interface must be specified"),
-			validation.Length(1, MaxInterfaceCount).Error(fmt.Sprintf("at most %v Interfaces can be specified", MaxInterfaceCount))),
+			// When AutoNetwork is true, the batch has NICo auto-resolve interfaces
+			// from the host's HostInband segments, so the explicit list MUST
+			// be empty. Otherwise at least one interface is required.
+			validation.When(bicr.AutoNetwork,
+				validation.Length(0, 0).Error("`interfaces` must be empty when `autoNetwork` is true"),
+			).Else(
+				validation.Required.Error("at least one Interface must be specified"),
+				validation.Length(1, MaxInterfaceCount).Error(fmt.Sprintf("at most %v Interfaces can be specified", MaxInterfaceCount)),
+			)),
 	)
 
 	if err != nil {
@@ -799,6 +833,11 @@ func (bicr APIBatchInstanceCreateRequest) Validate() error {
 	}
 
 	if bicr.SecondaryVpcIDs != nil {
+		if bicr.AutoNetwork {
+			return validation.Errors{
+				"secondaryVpcIds": errors.New("`secondaryVpcIds` is not supported when `autoNetwork` is true"),
+			}
+		}
 		for _, iface := range bicr.Interfaces {
 			if iface.VpcPrefixID == nil {
 				return validation.Errors{
@@ -863,6 +902,18 @@ func (bicr APIBatchInstanceCreateRequest) Validate() error {
 
 	// err should be nil at this point
 	return err
+}
+
+// ValidateForVpc validates request fields whose legality depends on the
+// resolved VPC the batch's Instances will be created in. See
+// APIInstanceCreateRequest.ValidateForVpc for rationale.
+func (bicr APIBatchInstanceCreateRequest) ValidateForVpc(vpc *cdbm.Vpc) error {
+	if bicr.AutoNetwork && !cdbm.VpcTypeSupportsAutoInterface(vpc.NetworkVirtualizationType) {
+		return validation.Errors{
+			"autoNetwork": errors.New("`autoNetwork` is only supported when the VPC has `networkVirtualizationType` set to `FLAT`"),
+		}
+	}
+	return nil
 }
 
 // Validate the OS against any additional option combinations specified.
@@ -1071,8 +1122,14 @@ type APIInstanceUpdateRequest struct {
 	// vpcPrefixId. The update handler then verifies that the supplied UUIDs
 	// exactly match the VPCs resolved from those prefix-backed interfaces.
 	SecondaryVpcIDs []string `json:"secondaryVpcIds"`
-	// Interfaces is the list of Interfaces to update for the Instance
+	// Interfaces is the list of Interfaces to update for the Instance.
+	// Mutually exclusive with `AutoNetwork`: when `AutoNetwork` is true this MUST be empty.
 	Interfaces []APIInterfaceCreateOrUpdateRequest `json:"interfaces"`
+	// AutoNetwork, when set, asks NICo to auto-resolve the Instance's network
+	// interfaces from the host's HostInband network segments. `nil` leaves
+	// the value unchanged; `true` re-resolves; `false` returns to explicit
+	// interface configuration. When `true`, `Interfaces` MUST be empty.
+	AutoNetwork *bool `json:"autoNetwork"`
 	// InfiniBandInterfaces is the list of InfiniBandInterface to update for the Instance
 	InfiniBandInterfaces []APIInfiniBandInterfaceCreateOrUpdateRequest `json:"infinibandInterfaces"`
 	// DpuExtensionServiceDeployments is the list of DpuExtensionServiceDeployments to update for the Instance
@@ -1361,6 +1418,7 @@ func (iur *APIInstanceUpdateRequest) IsUpdateRequest() bool {
 		iur.AlwaysBootWithCustomIpxe != nil ||
 		iur.SecondaryVpcIDs != nil ||
 		iur.Interfaces != nil ||
+		iur.AutoNetwork != nil ||
 		iur.InfiniBandInterfaces != nil ||
 		iur.NVLinkInterfaces != nil ||
 		iur.SSHKeyGroupIDs != nil ||
@@ -1369,7 +1427,7 @@ func (iur *APIInstanceUpdateRequest) IsUpdateRequest() bool {
 
 // IsInterfaceUpdateRequest checks if the request is an instance interface update request
 func (iur *APIInstanceUpdateRequest) IsInterfaceUpdateRequest() bool {
-	return iur.Interfaces != nil || iur.InfiniBandInterfaces != nil || iur.NVLinkInterfaces != nil
+	return iur.Interfaces != nil || iur.AutoNetwork != nil || iur.InfiniBandInterfaces != nil || iur.NVLinkInterfaces != nil
 }
 
 // IsRebootRequest checks if the request is an instance reboot request
@@ -1399,7 +1457,20 @@ func (iur APIInstanceUpdateRequest) Validate() error {
 		return err
 	}
 
+	// AutoNetwork/interfaces exclusivity: if the caller is explicitly switching
+	// to auto, an explicit interface list cannot also be supplied.
+	if iur.AutoNetwork != nil && *iur.AutoNetwork && len(iur.Interfaces) > 0 {
+		return validation.Errors{
+			"interfaces": errors.New("`interfaces` must be empty when `autoNetwork` is true"),
+		}
+	}
+
 	if iur.SecondaryVpcIDs != nil {
+		if iur.AutoNetwork != nil && *iur.AutoNetwork {
+			return validation.Errors{
+				"secondaryVpcIds": errors.New("`secondaryVpcIds` is not supported when `autoNetwork` is true"),
+			}
+		}
 		if len(iur.Interfaces) == 0 {
 			return validation.Errors{
 				"secondaryVpcIds": errors.New("`secondaryVpcIds` can only be specified when `interfaces` is specified and non-empty"),
@@ -1473,21 +1544,42 @@ func (iur APIInstanceUpdateRequest) Validate() error {
 	return err
 }
 
+// ValidateForVpc validates network fields whose legality depends on the
+// resolved VPC and the Instance's currently-persisted auto state.
+// `currentAutoNetwork` is the Instance's persisted AutoNetwork value.
+//
+//   - Explicitly setting `autoNetwork: true` requires a Flat VPC.
+//   - Explicit `interfaces` may not be sent while the *effective*
+//     post-update auto state is true (the request value if supplied,
+//     otherwise the persisted value). Validate() already rejects
+//     `autoNetwork: true` + interfaces in the same payload; this also
+//     catches a PATCH that omits `autoNetwork` against an
+//     already-auto Instance, which would otherwise persist Interface
+//     rows the workflow drops -- leaving DB/Site state diverged.
+func (iur APIInstanceUpdateRequest) ValidateForVpc(vpc *cdbm.Vpc, currentAutoNetwork bool) error {
+	if iur.AutoNetwork != nil && *iur.AutoNetwork && !cdbm.VpcTypeSupportsAutoInterface(vpc.NetworkVirtualizationType) {
+		return validation.Errors{
+			"autoNetwork": errors.New("`autoNetwork: true` is only supported when the Instance's VPC has `networkVirtualizationType` set to `FLAT`"),
+		}
+	}
+
+	effectiveAuto := currentAutoNetwork
+	if iur.AutoNetwork != nil {
+		effectiveAuto = *iur.AutoNetwork
+	}
+	if effectiveAuto && len(iur.Interfaces) > 0 {
+		return validation.Errors{
+			"interfaces": errors.New("`interfaces` cannot be set while `autoNetwork` is true; disable `autoNetwork` first or omit `interfaces`"),
+		}
+	}
+	return nil
+}
+
 // APIInstanceDeleteRequest is the data structure to capture request to delete an Instance
 type APIInstanceDeleteRequest struct {
 	// MachineHealthIssue is the report of a machine health issue
-	MachineHealthIssue *APIMachineHealthIssueReport `json:"machineHealthIssue"`
-	IsRepairTenant     *bool                        `json:"isRepairTenant"`
-}
-
-// APIMachineHealthIssueReport is the data structure to capture a machine health issue report
-type APIMachineHealthIssueReport struct {
-	// Category is the type of the issue
-	Category string `json:"category"`
-	// Summary is the summary of the issue
-	Summary *string `json:"summary"`
-	// Details is the message of the issue
-	Details *string `json:"details"`
+	MachineHealthIssue *APIMachineHealthIssue `json:"machineHealthIssue"`
+	IsRepairTenant     *bool                  `json:"isRepairTenant"`
 }
 
 // Validate ensures the values passed in request are acceptable
@@ -1597,6 +1689,11 @@ type APIInstance struct {
 	TpmEkCertificate *string `json:"tpmEkCertificate"`
 	// Status is the status of the Instance
 	Status string `json:"status"`
+	// AutoNetwork is true when this Instance had its network interfaces
+	// auto-resolved by NICo from the host's HostInband segments. When
+	// true, `Interfaces` reflects the resolved set; the caller's request
+	// list was empty.
+	AutoNetwork bool `json:"autoNetwork"`
 	// Interfaces are list of the subnet associated with the Instance
 	Interfaces []APIInterface `json:"interfaces"`
 	// InfiniBandInterfaces are list of the InfiniBandInterface associated with the Instance
@@ -1643,6 +1740,7 @@ func NewAPIInstance(dbinst *cdbm.Instance, dbSite *cdbm.Site, dbiss []cdbm.Inter
 		AlwaysBootWithCustomIpxe:               dbinst.AlwaysBootWithCustomIpxe,
 		PhoneHomeEnabled:                       dbinst.PhoneHomeEnabled,
 		UserData:                               dbinst.UserData,
+		AutoNetwork:                            dbinst.AutoNetwork,
 		Labels:                                 dbinst.Labels,
 		IsUpdatePending:                        dbinst.IsUpdatePending,
 		Created:                                dbinst.Created,
@@ -1805,8 +1903,6 @@ type APIInstanceStats struct {
 	Terminating int `json:"terminating"`
 	// Ready is the total number of ready Instances
 	Ready int `json:"ready"`
-	// Repairing is the total number of Instances undergoing online repair
-	Repairing int `json:"repairing"`
 	// Updating is the total number of Instances receiving system updates
 	Updating int `json:"updating"`
 	// Registering is the total number of registering Instances
@@ -1823,9 +1919,7 @@ func getAggregatedInstanceStatus(status string, powerStatus *string) string {
 		return agStatus
 	}
 
-	// Repairing is only stored when the instance is otherwise tenant-ready (same as Ready).
-	// Overlay reboot/error power state for Ready and Repairing; other statuses keep DB status.
-	if status != cdbm.InstanceStatusReady && status != cdbm.InstanceStatusRepairing {
+	if status != cdbm.InstanceStatusReady {
 		return agStatus
 	}
 

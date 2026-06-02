@@ -2517,8 +2517,31 @@ pub struct BomValidatingContext {
     // so that machine validation works properly.  Additionally, "None" may be
     // used to skip machine validation.  Note that "None" is not a valid
     // context for machine validation, but only services to skip it.
-    pub machine_validation_context: Option<String>,
+    pub machine_validation_context: Option<MachineValidationContext>,
     pub reboot_retry_count: Option<i64>,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub enum MachineValidationContext {
+    Discovery,
+    Cleanup,
+    OnDemand,
+}
+
+impl AsRef<str> for MachineValidationContext {
+    fn as_ref(&self) -> &str {
+        match self {
+            MachineValidationContext::Discovery => "Discovery",
+            MachineValidationContext::Cleanup => "Cleanup",
+            MachineValidationContext::OnDemand => "OnDemand",
+        }
+    }
+}
+
+impl Display for MachineValidationContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_ref())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

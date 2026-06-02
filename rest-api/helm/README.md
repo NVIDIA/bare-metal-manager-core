@@ -32,7 +32,7 @@ The following must be running before installing charts:
 - **cert-manager.io** with ClusterIssuer `nico-rest-ca-issuer`
 - **Keycloak** (optional) — only if using Keycloak for authentication
 
-> The Site CRD (`sites.nico.nvidia.io`) is bundled in `nico-rest-site-manager/crds/` and installed automatically by Helm.
+> The Site CRD (`sites.forge.nvidia.io`) is bundled in `nico-rest-site-manager/crds/` and installed automatically by Helm.
 
 ## Authentication
 

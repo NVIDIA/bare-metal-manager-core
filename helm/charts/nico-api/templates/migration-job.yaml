@@ -1,11 +1,11 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: nico-api-migrate
+  name: {{ include "nico-api.name" . }}-migrate
   namespace: {{ include "nico-api.namespace" . }}
   labels:
     {{- include "nico-api.labels" . | nindent 4 }}
-    app: nico-api-migrate
+    app: {{ include "nico-api.name" . }}-migrate
   annotations:
     argocd.argoproj.io/hook: Sync
     argocd.argoproj.io/sync-wave: "-5"
@@ -16,10 +16,10 @@ metadata:
 spec:
   template:
     metadata:
-      name: nico-api-migrate
+      name: {{ include "nico-api.name" . }}-migrate
       labels:
         {{- include "nico-api.labels" . | nindent 8 }}
-        app: nico-api-migrate
+        app: {{ include "nico-api.name" . }}-migrate
     spec:
       restartPolicy: OnFailure
       {{- with .Values.global.imagePullSecrets }}
@@ -27,7 +27,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-        - name: nico-api-migrate
+        - name: {{ include "nico-api.name" . }}-migrate
           image: "{{ include "nico-api.image" . }}"
           imagePullPolicy: {{ .Values.global.image.pullPolicy }}
           command:

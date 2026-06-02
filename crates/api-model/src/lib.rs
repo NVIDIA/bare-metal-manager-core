@@ -37,6 +37,7 @@ pub mod address_selection_strategy;
 pub mod allocation_type;
 pub mod attestation;
 pub mod bmc_info;
+pub mod bmc_redfish_session;
 pub mod component_manager;
 pub mod compute_allocation;
 pub mod controller_outcome;

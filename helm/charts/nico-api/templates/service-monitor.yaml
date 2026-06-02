@@ -2,12 +2,12 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: nico-api-metrics
+  name: {{ include "nico-api.name" . }}-metrics
   namespace: {{ include "nico-api.namespace" . }}
   labels:
     {{- include "nico-api.labels" . | nindent 4 }}
-    app: nico-api
+    app: {{ include "nico-api.name" . }}
     prometheus: nico-monitoring
 spec:
-  {{- include "nico-api.serviceMonitorSpec" (dict "name" "nico-api" "port" "http" "monitor" .Values.serviceMonitor "namespace" (include "nico-api.namespace" .)) | nindent 2 }}
+  {{- include "nico-api.serviceMonitorSpec" (dict "name" (include "nico-api.name" .) "port" "http" "monitor" .Values.serviceMonitor "namespace" (include "nico-api.namespace" .)) | nindent 2 }}
 {{- end }}

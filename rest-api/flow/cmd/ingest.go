@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package cmd
 
@@ -32,10 +18,9 @@ var (
 		Short: "Ingest rack components to component manager services",
 		Long: `Inject expected component configurations to their respective component manager services.
 
-Components are routed to the appropriate service based on type:
-  - Compute    → NICo AddExpectedMachine API
-  - NVLSwitch  → NICo AddExpectedSwitch API
-  - PowerShelf → PSM RegisterPowershelves API
+Components are routed to the appropriate service based on type. Today every
+component type is dispatched through Core (NICo); Core's per-tray-type backends
+(NSM, PSM, RMS, ...) handle the underlying hardware registration.
 
 Specify racks by ID or name:
   --rack-ids   : Comma-separated list of rack UUIDs

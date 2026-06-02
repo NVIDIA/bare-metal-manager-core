@@ -398,6 +398,13 @@ impl<T: Authorization> AuthContext<T> {
         })
     }
 
+    pub fn get_spiffe_service_id(&self) -> Option<&str> {
+        self.principals.iter().find_map(|p| match p {
+            Principal::SpiffeServiceIdentifier(identifier) => Some(identifier.as_str()),
+            _ => None,
+        })
+    }
+
     pub fn get_external_user_info(&self) -> Option<&ExternalUserInfo> {
         self.principals.iter().find_map(|p| match p {
             Principal::ExternalUser(external_user_info)

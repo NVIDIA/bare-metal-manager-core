@@ -21,7 +21,7 @@ use axum::Router;
 use axum::body::Body;
 use axum::extract::{Request, State};
 use axum::http::header::WWW_AUTHENTICATE;
-use axum::http::{HeaderValue, StatusCode};
+use axum::http::{HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::any;
 use axum_extra::TypedHeader;
@@ -31,15 +31,18 @@ use tracing::instrument;
 
 use crate::http::call_router_with_new_request;
 use crate::redfish::account_service::AccountServiceState;
-use crate::redfish::{account_service, service_root};
+use crate::redfish::session_service::SessionServiceState;
+use crate::redfish::{account_service, service_root, session_service};
 
 const WWW_AUTHENTICATE_VALUE: HeaderValue = HeaderValue::from_static("Basic realm=\"bmc-mock\"");
+const X_AUTH_TOKEN_HEADER: &str = "x-auth-token";
 
 pub fn append(router: Router, authorizer: Authorizer) -> Router {
     let service_root_path = service_root::resource().odata_id.to_string();
     let service_root_path_with_trailing_slash = format!("{service_root_path}/");
     let account_service_path = account_service::resource().odata_id.to_string();
     let account_service_subtree_path = format!("{account_service_path}/{{*all}}");
+    let sessions_collection_path = session_service::sessions_collection().odata_id.to_string();
 
     Router::new()
         .route(&service_root_path, any(process_without_auth))
@@ -47,6 +50,7 @@ pub fn append(router: Router, authorizer: Authorizer) -> Router {
             &service_root_path_with_trailing_slash,
             any(process_without_auth),
         )
+        .route(&sessions_collection_path, any(process_sessions_collection))
         .route(&account_service_path, any(process_account_service))
         .route(&account_service_subtree_path, any(process_account_service))
         .route("/{*all}", any(process))
@@ -65,21 +69,40 @@ async fn process_without_auth(
 }
 
 #[instrument(skip_all)]
+async fn process_sessions_collection(
+    State(mut state): State<AuthMiddleware>,
+    authorization: Option<TypedHeader<Authorization<Basic>>>,
+    request: Request<Body>,
+) -> Response {
+    if request.method() == Method::POST {
+        return state.call_inner_router(request).await;
+    }
+    match state
+        .authorizer
+        .authorize(&request, authorization.as_ref(), true)
+    {
+        AuthorizationResult::Authorized => state.call_inner_router(request).await,
+        AuthorizationResult::Unauthorized => unauthorized_log_and_response(request),
+        AuthorizationResult::FactoryDefaultPasswordForbidden => {
+            unreachable!(
+                "session collection authorization does not forbid factory-default passwords"
+            )
+        }
+    }
+}
+
+#[instrument(skip_all)]
 async fn process_account_service(
     State(mut state): State<AuthMiddleware>,
     authorization: Option<TypedHeader<Authorization<Basic>>>,
     request: Request<Body>,
 ) -> Response {
-    match state.authorizer.authorize(authorization.as_ref(), true) {
+    match state
+        .authorizer
+        .authorize(&request, authorization.as_ref(), true)
+    {
         AuthorizationResult::Authorized => state.call_inner_router(request).await,
-        AuthorizationResult::Unauthorized => {
-            tracing::warn!(
-                method = request.method().as_str(),
-                path = request.uri().path(),
-                "Unauthorized request",
-            );
-            unauthorized_response()
-        }
+        AuthorizationResult::Unauthorized => unauthorized_log_and_response(request),
         AuthorizationResult::FactoryDefaultPasswordForbidden => {
             unreachable!("account service authorization does not forbid factory-default passwords")
         }
@@ -92,16 +115,12 @@ async fn process(
     authorization: Option<TypedHeader<Authorization<Basic>>>,
     request: Request<Body>,
 ) -> Response {
-    match state.authorizer.authorize(authorization.as_ref(), false) {
+    match state
+        .authorizer
+        .authorize(&request, authorization.as_ref(), false)
+    {
         AuthorizationResult::Authorized => state.call_inner_router(request).await,
-        AuthorizationResult::Unauthorized => {
-            tracing::warn!(
-                method = request.method().as_str(),
-                path = request.uri().path(),
-                "Unauthorized request",
-            );
-            unauthorized_response()
-        }
+        AuthorizationResult::Unauthorized => unauthorized_log_and_response(request),
         AuthorizationResult::FactoryDefaultPasswordForbidden => {
             tracing::warn!(
                 method = request.method().as_str(),
@@ -111,6 +130,15 @@ async fn process(
             StatusCode::FORBIDDEN.into_response()
         }
     }
+}
+
+fn unauthorized_log_and_response(request: Request<Body>) -> Response {
+    tracing::warn!(
+        method = request.method().as_str(),
+        path = request.uri().path(),
+        "Unauthorized request",
+    );
+    unauthorized_response()
 }
 
 fn unauthorized_response() -> Response {
@@ -136,21 +164,36 @@ impl AuthMiddleware {
 #[derive(Clone)]
 pub struct Authorizer {
     account_service_state: Arc<AccountServiceState>,
+    session_service_state: Arc<SessionServiceState>,
 }
 
 impl Authorizer {
     /// Builds the factory-default authorizer for a mock BMC state.
-    pub fn new(account_service_state: Arc<AccountServiceState>) -> Self {
+    pub fn new(
+        account_service_state: Arc<AccountServiceState>,
+        session_service_state: Arc<SessionServiceState>,
+    ) -> Self {
         Self {
             account_service_state,
+            session_service_state,
         }
     }
 
     fn authorize(
         &self,
+        request: &Request<Body>,
         authorization: Option<&TypedHeader<Authorization<Basic>>>,
         permit_factory_default: bool,
     ) -> AuthorizationResult {
+        if let Some(token) = request
+            .headers()
+            .get(X_AUTH_TOKEN_HEADER)
+            .and_then(|v| v.to_str().ok())
+            && self.session_service_state.is_token_valid(token)
+        {
+            return AuthorizationResult::Authorized;
+        }
+
         let Some(authorization) = authorization else {
             return AuthorizationResult::Unauthorized;
         };

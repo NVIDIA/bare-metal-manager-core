@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package activity
 
@@ -58,9 +44,9 @@ func NewManageDpuExtensionServiceInventory(config ManageInventoryConfig) ManageD
 	}
 }
 
-func dpuExtensionServiceFindIDs(ctx context.Context, nicoClient *cclient.NICoCoreClient) ([]string, error) {
-	rpcClient := nicoClient.NICo()
-	result, err := rpcClient.FindDpuExtensionServiceIds(ctx, &cwssaws.DpuExtensionServiceSearchFilter{})
+func dpuExtensionServiceFindIDs(ctx context.Context, grpcClient *cclient.CoreGrpcClient) ([]string, error) {
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+	result, err := grpcServiceClient.FindDpuExtensionServiceIds(ctx, &cwssaws.DpuExtensionServiceSearchFilter{})
 	if err != nil {
 		return nil, err
 	}
@@ -68,9 +54,9 @@ func dpuExtensionServiceFindIDs(ctx context.Context, nicoClient *cclient.NICoCor
 	return result.ServiceIds, nil
 }
 
-func dpuExtensionServiceFindByIDs(ctx context.Context, nicoClient *cclient.NICoCoreClient, ids []string) ([]*cwssaws.DpuExtensionService, error) {
-	rpcClient := nicoClient.NICo()
-	result, err := rpcClient.FindDpuExtensionServicesByIds(ctx, &cwssaws.DpuExtensionServicesByIdsRequest{
+func dpuExtensionServiceFindByIDs(ctx context.Context, grpcClient *cclient.CoreGrpcClient, ids []string) ([]*cwssaws.DpuExtensionService, error) {
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+	result, err := grpcServiceClient.FindDpuExtensionServicesByIds(ctx, &cwssaws.DpuExtensionServicesByIdsRequest{
 		ServiceIds: ids,
 	})
 	if err != nil {
@@ -104,7 +90,7 @@ func dpuExtensionServicePagedInventory(allItemIDs []string, pagedItems []*cwssaw
 
 // ManageDpuExtensionService is an activity wrapper for DPU Extension Service management
 type ManageDpuExtensionService struct {
-	NICoCoreAtomicClient *cclient.NICoCoreAtomicClient
+	coreGrpcAtomicClient *cclient.CoreGrpcAtomicClient
 }
 
 // CreateDpuExtensionServiceOnSite is an activity to create a new DPU Extension Service on Site
@@ -130,16 +116,16 @@ func (mdes *ManageDpuExtensionService) CreateDpuExtensionServiceOnSite(ctx conte
 		return nil, temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mdes.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return nil, cclient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mdes.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cclient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	createdDpuExtensionService, err := rpcClient.CreateDpuExtensionService(ctx, request)
+	createdDpuExtensionService, err := grpcServiceClient.CreateDpuExtensionService(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create DPU Extension Service using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to create DPU Extension Service using Core gRPC API")
 		return nil, swe.WrapErr(err)
 	}
 
@@ -167,16 +153,16 @@ func (mdes *ManageDpuExtensionService) UpdateDpuExtensionServiceOnSite(ctx conte
 		return nil, temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mdes.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return nil, cclient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mdes.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cclient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	updatedDpuExtensionService, err := rpcClient.UpdateDpuExtensionService(ctx, request)
+	updatedDpuExtensionService, err := grpcServiceClient.UpdateDpuExtensionService(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to update DPU Extension Service using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to update DPU Extension Service using Core gRPC API")
 		return nil, swe.WrapErr(err)
 	}
 
@@ -204,16 +190,16 @@ func (mdes *ManageDpuExtensionService) DeleteDpuExtensionServiceOnSite(ctx conte
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mdes.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cclient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mdes.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cclient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.DeleteDpuExtensionService(ctx, request)
+	_, err = grpcServiceClient.DeleteDpuExtensionService(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to delete DPU Extension Service using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to delete DPU Extension Service using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -241,16 +227,16 @@ func (mdes *ManageDpuExtensionService) GetDpuExtensionServiceVersionsInfoOnSite(
 		return nil, temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mdes.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return nil, cclient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mdes.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cclient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	versionInfos, err := rpcClient.GetDpuExtensionServiceVersionsInfo(ctx, request)
+	versionInfos, err := grpcServiceClient.GetDpuExtensionServiceVersionsInfo(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to get DPU Extension Service versions info using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to get DPU Extension Service versions info using Core gRPC API")
 		return nil, swe.WrapErr(err)
 	}
 
@@ -260,8 +246,8 @@ func (mdes *ManageDpuExtensionService) GetDpuExtensionServiceVersionsInfoOnSite(
 }
 
 // NewManageDpuExtensionService returns a new ManageDpuExtensionService activity
-func NewManageDpuExtensionService(nicoClient *cclient.NICoCoreAtomicClient) ManageDpuExtensionService {
+func NewManageDpuExtensionService(coreGrpcAtomicClient *cclient.CoreGrpcAtomicClient) ManageDpuExtensionService {
 	return ManageDpuExtensionService{
-		NICoCoreAtomicClient: nicoClient,
+		coreGrpcAtomicClient: coreGrpcAtomicClient,
 	}
 }

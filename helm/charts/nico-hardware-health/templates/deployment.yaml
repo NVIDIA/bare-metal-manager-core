@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: nico-hardware-health
+  name: {{ include "nico-hardware-health.name" . }}
   namespace: {{ include "nico-hardware-health.namespace" . }}
   labels:
     {{- include "nico-hardware-health.labels" . | nindent 4 }}
@@ -17,13 +17,13 @@ spec:
       labels:
         {{- include "nico-hardware-health.labels" . | nindent 8 }}
     spec:
-      serviceAccountName: nico-hardware-health
+      serviceAccountName: {{ include "nico-hardware-health.name" . }}
       {{- with .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
-        - name: nico-hardware-health
+        - name: {{ include "nico-hardware-health.name" . }}
           image: "{{ include "nico-hardware-health.image" . }}"
           imagePullPolicy: {{ .Values.global.image.pullPolicy }}
           securityContext:
@@ -57,4 +57,4 @@ spec:
       volumes:
         - name: spiffe
           secret:
-            secretName: nico-hardware-health-certificate
+            secretName: {{ include "nico-hardware-health.name" . }}-certificate

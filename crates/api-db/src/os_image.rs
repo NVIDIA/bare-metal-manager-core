@@ -26,23 +26,16 @@ pub async fn list(
     txn: &mut PgConnection,
     tenant_organization_id: Option<TenantOrganizationId>,
 ) -> Result<Vec<OsImage>, DatabaseError> {
-    let query = "SELECT * from os_images l {where}".to_string();
-    let mut where_clause = String::new();
-    let mut filter = String::new();
-
     if let Some(tenant_organization_id) = tenant_organization_id {
-        where_clause = "WHERE l.organization_id=$1".to_string();
-        filter = tenant_organization_id.to_string();
-    }
-
-    if filter.is_empty() {
-        sqlx::query_as(&query.replace("{where}", ""))
+        let query = "SELECT * from os_images l WHERE l.organization_id=$1";
+        sqlx::query_as(query)
+            .bind(tenant_organization_id.to_string())
             .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new("os_images All", e))
     } else {
-        sqlx::query_as(&query.replace("{where}", &where_clause))
-            .bind(filter)
+        let query = "SELECT * from os_images l";
+        sqlx::query_as(query)
             .fetch_all(txn)
             .await
             .map_err(|e| DatabaseError::new("os_images All", e))
@@ -50,8 +43,8 @@ pub async fn list(
 }
 
 pub async fn get(txn: &mut PgConnection, os_image_id: Uuid) -> Result<OsImage, DatabaseError> {
-    let query = "SELECT * from os_images l WHERE l.id = $1".to_string();
-    sqlx::query_as(&query)
+    let query = "SELECT * from os_images l WHERE l.id = $1";
+    sqlx::query_as(query)
         .bind(os_image_id)
         .fetch_one(txn)
         .await

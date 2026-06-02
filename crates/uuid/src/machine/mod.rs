@@ -184,7 +184,7 @@ impl Debug for MachineId {
 impl sqlx::Encode<'_, sqlx::Postgres> for MachineId {
     fn encode_by_ref(
         &self,
-        buf: &mut <Postgres as Database>::ArgumentBuffer<'_>,
+        buf: &mut <Postgres as Database>::ArgumentBuffer,
     ) -> Result<IsNull, BoxDynError> {
         buf.extend(self.to_string().as_bytes());
         Ok(sqlx::encode::IsNull::No)

@@ -1,11 +1,11 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: nico-bmc-proxy
+  name: {{ include "nico-bmc-proxy.name" . }}
   namespace: {{ include "nico-bmc-proxy.namespace" . }}
   labels:
     {{- include "nico-bmc-proxy.labels" . | nindent 4 }}
-    app: nico-bmc-proxy
+    app: {{ include "nico-bmc-proxy.name" . }}
 spec:
   selector:
     {{- include "nico-bmc-proxy.selectorLabels" . | nindent 4 }}

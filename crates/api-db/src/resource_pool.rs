@@ -319,7 +319,7 @@ pub async fn all(txn: &mut PgConnection) -> Result<Vec<ResourcePoolSnapshot>, Da
                 FROM resource_pool WHERE value_type = 'ipv4' GROUP BY name
             ) snapshot";
 
-    for query in &[query_int, query_ipv4] {
+    for query in [query_int, query_ipv4] {
         let mut rows: Vec<ResourcePoolSnapshot> = sqlx::query_as(query)
             .fetch_all(&mut *txn)
             .await
