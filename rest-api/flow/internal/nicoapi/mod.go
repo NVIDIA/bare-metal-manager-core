@@ -35,6 +35,21 @@ type Client interface {
 	// FindMachinesByIds returns detailed machine information for the given machine IDs
 	FindMachinesByIds(ctx context.Context, machineIds []string) ([]MachineDetail, error)
 
+	// FindHostMachineIdsByRack returns the IDs of host (non-DPU) machines that
+	// belong to the given rack. Empty rackID is rejected. Returns nil when the
+	// rack has no host machines.
+	FindHostMachineIdsByRack(ctx context.Context, rackID string) ([]string, error)
+
+	// FindSwitchRackIDs returns the mapping from switch ID to rack ID for the
+	// given switches. A switch without a rack assignment is omitted from the
+	// result rather than reported as an empty string.
+	FindSwitchRackIDs(ctx context.Context, switchIds []string) (map[string]string, error)
+
+	// FindPowerShelfRackIDs returns the mapping from power-shelf ID to rack ID
+	// for the given shelves. A shelf without a rack assignment is omitted from
+	// the result rather than reported as an empty string.
+	FindPowerShelfRackIDs(ctx context.Context, shelfIds []string) (map[string]string, error)
+
 	// GetMachinePositionInfo returns position information for the given machine IDs
 	GetMachinePositionInfo(ctx context.Context, machineIds []string) ([]MachinePosition, error)
 
@@ -114,4 +129,7 @@ type Client interface {
 	AddExpectedSwitchInfo(info ExpectedSwitchInfo)
 	SetLeakingMachineIds(ids []string)
 	SetLeakingSwitchIds([]string)
+	SetSwitchRackID(switchID, rackID string)
+	SetPowerShelfRackID(shelfID, rackID string)
+	SetRackHostMachineIDs(rackID string, machineIDs []string)
 }

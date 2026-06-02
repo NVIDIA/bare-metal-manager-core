@@ -650,7 +650,8 @@ func (rs *FlowServerImpl) PowerOnRack(
 		req.GetQueueOptions(),
 		req.GetRuleId(),
 		&operations.PowerControlTaskInfo{
-			Operation: operations.PowerOperationPowerOn,
+			Operation:               operations.PowerOperationPowerOn,
+			OverrideAssignmentCheck: req.GetOverrideAssignmentCheck(),
 		},
 	)
 }
@@ -670,8 +671,9 @@ func (rs *FlowServerImpl) PowerOffRack(
 		req.GetQueueOptions(),
 		req.GetRuleId(),
 		&operations.PowerControlTaskInfo{
-			Operation: op,
-			Forced:    req.GetForced(),
+			Operation:               op,
+			Forced:                  req.GetForced(),
+			OverrideAssignmentCheck: req.GetOverrideAssignmentCheck(),
 		},
 	)
 }
@@ -691,8 +693,9 @@ func (rs *FlowServerImpl) PowerResetRack(
 		req.GetQueueOptions(),
 		req.GetRuleId(),
 		&operations.PowerControlTaskInfo{
-			Operation: op,
-			Forced:    req.GetForced(),
+			Operation:               op,
+			Forced:                  req.GetForced(),
+			OverrideAssignmentCheck: req.GetOverrideAssignmentCheck(),
 		},
 	)
 }
@@ -715,7 +718,8 @@ func (rs *FlowServerImpl) BringUpRack(
 	}
 
 	info := &operations.BringUpTaskInfo{
-		RuleID: protobuf.UUIDStringFrom(req.GetRuleId()),
+		RuleID:                  protobuf.UUIDStringFrom(req.GetRuleId()),
+		OverrideAssignmentCheck: req.GetOverrideAssignmentCheck(),
 	}
 	opReq, err := rs.convertTargetSpecToOperationRequest(
 		targetSpec, req.GetDescription(), info,
@@ -1233,10 +1237,11 @@ func (rs *FlowServerImpl) UpgradeFirmware(
 
 	// Build FirmwareControlTaskInfo
 	info := &operations.FirmwareControlTaskInfo{
-		Operation:     operations.FirmwareOperationUpgrade,
-		TargetVersion: req.GetTargetVersion(),
-		RuleID:        protobuf.UUIDStringFrom(req.GetRuleId()),
-		SubTargets:    req.GetSubTargets(),
+		Operation:               operations.FirmwareOperationUpgrade,
+		TargetVersion:           req.GetTargetVersion(),
+		RuleID:                  protobuf.UUIDStringFrom(req.GetRuleId()),
+		SubTargets:              req.GetSubTargets(),
+		OverrideAssignmentCheck: req.GetOverrideAssignmentCheck(),
 	}
 
 	// Parse optional time parameters for scheduled upgrade

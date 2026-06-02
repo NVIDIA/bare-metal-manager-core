@@ -445,7 +445,7 @@ func TestServiceCatalog(t *testing.T) {
 			name:              "nvswitch nvswitchmanager",
 			componentType:     devicetypes.ComponentTypeNVSwitch,
 			implementation:    nvswitchnsm.ImplementationName,
-			requiredProviders: []string{nsmprovider.ProviderName},
+			requiredProviders: []string{nsmprovider.ProviderName, nicoprovider.ProviderName},
 			capabilities: capability.CapabilitySet{
 				capability.CapabilityFirmwareControl,
 				capability.CapabilityFirmwareStatus,
