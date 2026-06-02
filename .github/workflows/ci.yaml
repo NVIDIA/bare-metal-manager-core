@@ -893,7 +893,7 @@ jobs:
 
       - name: Run clippy
         env:
-          DATABASE_URL: "postgresql://root@%2Fvar%2Frun%2Fpostgresql/root"
+          DATABASE_URL: "postgresql://%2Fvar%2Frun%2Fpostgresql"
         run: cargo make --no-workspace clippy-flow
 
       - name: Run carbide lints
