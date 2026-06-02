@@ -158,6 +158,10 @@ pub struct MockRmsApi {
         Mutex<VecDeque<Result<rms::ApplySwitchSystemImageResponse, RackManagerError>>>,
     apply_switch_system_image_calls: Mutex<Vec<rms::ApplySwitchSystemImageRequest>>,
 
+    get_switch_system_image_job_status_responses:
+        Mutex<VecDeque<Result<rms::GetSwitchSystemImageJobStatusResponse, RackManagerError>>>,
+    get_switch_system_image_job_status_calls: Mutex<Vec<rms::GetSwitchSystemImageJobStatusRequest>>,
+
     get_firmware_object_history_responses:
         Mutex<VecDeque<Result<rms::GetFirmwareObjectHistoryResponse, RackManagerError>>>,
     get_firmware_object_history_calls: Mutex<Vec<rms::GetFirmwareObjectHistoryRequest>>,
@@ -296,6 +300,8 @@ impl MockRmsApi {
             apply_switch_system_image_from_json_calls: Default::default(),
             apply_switch_system_image_responses: Default::default(),
             apply_switch_system_image_calls: Default::default(),
+            get_switch_system_image_job_status_responses: Default::default(),
+            get_switch_system_image_job_status_calls: Default::default(),
             get_firmware_object_history_responses: Default::default(),
             get_firmware_object_history_calls: Default::default(),
             update_node_firmware_async_responses: Default::default(),
@@ -546,6 +552,14 @@ impl MockRmsApi {
         rms::ApplySwitchSystemImageResponse
     );
     impl_enqueue_inspect!(
+        enqueue_get_switch_system_image_job_status,
+        get_switch_system_image_job_status_calls,
+        get_switch_system_image_job_status_responses,
+        get_switch_system_image_job_status_calls,
+        rms::GetSwitchSystemImageJobStatusRequest,
+        rms::GetSwitchSystemImageJobStatusResponse
+    );
+    impl_enqueue_inspect!(
         enqueue_get_firmware_object_history,
         get_firmware_object_history_calls,
         get_firmware_object_history_responses,
@@ -760,6 +774,106 @@ impl MockRmsApi {
         }
     }
 
+    /// Success response for `apply_firmware_object_from_json` with a child job ID.
+    pub fn firmware_object_apply_ok(
+        node_id: &str,
+        job_id: &str,
+    ) -> rms::ApplyFirmwareObjectResponse {
+        rms::ApplyFirmwareObjectResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Success as i32,
+                total_nodes: 1,
+                successful_nodes: 1,
+                failed_nodes: 0,
+                node_results: vec![rms::NodeResult {
+                    node_id: node_id.to_owned(),
+                    status: rms::ReturnCode::Success as i32,
+                    error_message: String::new(),
+                }],
+                ..Default::default()
+            }),
+            node_jobs: vec![rms::NodeFirmwareJobInfo {
+                node_id: node_id.to_owned(),
+                job_id: job_id.to_owned(),
+            }],
+            object_id: "fw-json".to_owned(),
+        }
+    }
+
+    /// Failure response for `apply_firmware_object_from_json`.
+    pub fn firmware_object_apply_fail(
+        node_id: &str,
+        msg: &str,
+    ) -> rms::ApplyFirmwareObjectResponse {
+        rms::ApplyFirmwareObjectResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Failure as i32,
+                total_nodes: 1,
+                successful_nodes: 0,
+                failed_nodes: 1,
+                node_results: vec![rms::NodeResult {
+                    node_id: node_id.to_owned(),
+                    status: rms::ReturnCode::Failure as i32,
+                    error_message: msg.to_owned(),
+                }],
+                ..Default::default()
+            }),
+            node_jobs: Vec::new(),
+            object_id: "fw-json".to_owned(),
+        }
+    }
+
+    /// Success response for `apply_switch_system_image_from_json` with a child job ID.
+    pub fn switch_system_image_apply_ok(
+        node_id: &str,
+        job_id: &str,
+    ) -> rms::ApplySwitchSystemImageResponse {
+        rms::ApplySwitchSystemImageResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Success as i32,
+                total_nodes: 1,
+                successful_nodes: 1,
+                failed_nodes: 0,
+                node_results: vec![rms::NodeResult {
+                    node_id: node_id.to_owned(),
+                    status: rms::ReturnCode::Success as i32,
+                    error_message: String::new(),
+                }],
+                ..Default::default()
+            }),
+            node_jobs: vec![rms::SwitchSystemImageUpdateJobInfo {
+                node_id: node_id.to_owned(),
+                job_id: job_id.to_owned(),
+            }],
+            object_id: "fw-json".to_owned(),
+            image_filename: "nvos.img".to_owned(),
+        }
+    }
+
+    /// Failure response for `apply_switch_system_image_from_json`.
+    pub fn switch_system_image_apply_fail(
+        node_id: &str,
+        msg: &str,
+    ) -> rms::ApplySwitchSystemImageResponse {
+        rms::ApplySwitchSystemImageResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Failure as i32,
+                total_nodes: 1,
+                successful_nodes: 0,
+                failed_nodes: 1,
+                node_results: vec![rms::NodeResult {
+                    node_id: node_id.to_owned(),
+                    status: rms::ReturnCode::Failure as i32,
+                    error_message: msg.to_owned(),
+                }],
+                ..Default::default()
+            }),
+            node_jobs: Vec::new(),
+            object_id: "fw-json".to_owned(),
+            image_filename: "nvos.img".to_owned(),
+        }
+    }
+
     /// Success response for `get_firmware_job_status`.
     pub fn firmware_job_status_ok(
         state: rms::FirmwareJobState,
@@ -769,6 +883,42 @@ impl MockRmsApi {
             job_state: state as i32,
             ..Default::default()
         }
+    }
+
+    /// Success response for `poll_job_status`.
+    pub fn poll_job_status_ok(state: &str) -> rms::PollJobStatusResponse {
+        rms::PollJobStatusResponse {
+            status: rms::ReturnCode::Success as i32,
+            state: state.to_owned(),
+            ..Default::default()
+        }
+    }
+
+    /// Success response for `get_switch_system_image_job_status`.
+    pub fn switch_system_image_job_status_ok(
+        state: &str,
+    ) -> rms::GetSwitchSystemImageJobStatusResponse {
+        rms::GetSwitchSystemImageJobStatusResponse {
+            status: rms::ReturnCode::Success as i32,
+            state: state.to_owned(),
+            ..Default::default()
+        }
+    }
+
+    pub async fn get_switch_system_image_job_status_for_test(
+        &self,
+        cmd: rms::GetSwitchSystemImageJobStatusRequest,
+    ) -> Result<rms::GetSwitchSystemImageJobStatusResponse, RackManagerError> {
+        self.get_switch_system_image_job_status_calls
+            .lock()
+            .await
+            .push(cmd);
+        pop_or_err(
+            &mut self
+                .get_switch_system_image_job_status_responses
+                .lock()
+                .await,
+        )
     }
 
     /// Success response for `get_node_firmware_inventory`.

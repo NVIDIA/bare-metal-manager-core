@@ -223,6 +223,7 @@ impl PowerShelfManager for PsmPowerShelfBackend {
         endpoints: &[PowerShelfEndpoint],
         target_version: &str,
         components: &[PowerShelfComponent],
+        _options: &crate::types::FirmwareUpdateOptions,
     ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError> {
         register_with_psm(&mut self.client.clone(), endpoints).await?;
 

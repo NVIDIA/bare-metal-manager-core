@@ -220,6 +220,7 @@ impl NvSwitchManager for NsmSwitchBackend {
         endpoints: &[SwitchEndpoint],
         bundle_version: &str,
         components: &[NvSwitchComponent],
+        _options: &crate::types::FirmwareUpdateOptions,
     ) -> Result<Vec<SwitchComponentResult>, ComponentManagerError> {
         let (mac_to_uuid, uuid_to_mac) =
             register_and_map(&mut self.client.clone(), endpoints).await?;

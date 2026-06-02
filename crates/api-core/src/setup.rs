@@ -495,7 +495,7 @@ pub async fn start_api(
     )
     .await?;
 
-    let rms_client = match carbide_config.rms.api_url.clone() {
+    let (rms_client, switch_system_image_rms_api) = match carbide_config.rms.api_url.clone() {
         Some(url) if !url.is_empty() => {
             let rms_client_config = librms::client_config::RmsClientConfig::new(
                 carbide_config.rms.root_ca_path.clone(),
@@ -506,9 +506,11 @@ pub async fn start_api(
             let rms_api_config = librms::client::RmsApiConfig::new(&url, &rms_client_config);
             let rms_client_pool = librms::RmsClientPool::new(&rms_api_config);
             let shared_rms_client = rms_client_pool.create_client().await;
-            Some(shared_rms_client)
+            let switch_system_image_rms_api =
+                Arc::new(librms::RackManagerApi::new(&rms_api_config));
+            (Some(shared_rms_client), Some(switch_system_image_rms_api))
         }
-        _ => None,
+        _ => (None, None),
     };
     let ib_config = carbide_config.ib_config.clone().unwrap_or_default();
     let fabric_manager_type = match ib_config.enabled {
@@ -707,6 +709,9 @@ pub async fn start_api(
         match component_manager::component_manager::build_component_manager(
             cd_config,
             rms_client.clone(),
+            switch_system_image_rms_api.clone().map(|client| {
+                client as Arc<dyn component_manager::rms::RmsSwitchSystemImageStatusApi>
+            }),
             Some(db_pool.clone()),
             Some(shared_redfish_pool.clone()),
         )

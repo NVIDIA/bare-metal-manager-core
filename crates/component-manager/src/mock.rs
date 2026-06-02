@@ -17,6 +17,7 @@ use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
     PowerShelfFirmwareVersions, PowerShelfManager,
 };
+use crate::types::FirmwareUpdateOptions;
 
 #[derive(Debug, Default)]
 pub struct MockNvSwitchManager;
@@ -47,6 +48,7 @@ impl NvSwitchManager for MockNvSwitchManager {
         endpoints: &[SwitchEndpoint],
         _bundle_version: &str,
         _components: &[NvSwitchComponent],
+        _options: &FirmwareUpdateOptions,
     ) -> Result<Vec<SwitchComponentResult>, ComponentManagerError> {
         Ok(endpoints
             .iter()
@@ -107,6 +109,7 @@ impl PowerShelfManager for MockPowerShelfManager {
         endpoints: &[PowerShelfEndpoint],
         _target_version: &str,
         _components: &[PowerShelfComponent],
+        _options: &FirmwareUpdateOptions,
     ) -> Result<Vec<PowerShelfComponentResult>, ComponentManagerError> {
         Ok(endpoints
             .iter()
@@ -181,6 +184,7 @@ impl ComputeTrayManager for MockComputeTrayManager {
         endpoints: &[ComputeTrayEndpoint],
         _target_version: &str,
         _components: &[ComputeTrayComponent],
+        _options: &FirmwareUpdateOptions,
     ) -> Result<Vec<ComputeTrayResult>, ComponentManagerError> {
         Ok(endpoints
             .iter()
