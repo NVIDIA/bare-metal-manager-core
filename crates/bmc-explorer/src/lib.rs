@@ -179,7 +179,7 @@ pub async fn nv_generate_exploration_report<B: Bmc>(
             ) => chassis.chassis.id().into_inner() == explored_system.system.id().into_inner(),
             // Provides only one Chassis.
             Some(hw::HwType::LenovoAmi) => true,
-            Some(hw::HwType::LenovoGb300) => {
+            Some(hw::HwType::LenovoGb300 | hw::HwType::DgxGb300) => {
                 let chassis_id = chassis.chassis.id().into_inner();
                 chassis_id.starts_with("HGX_GPU_")
             }
@@ -264,15 +264,26 @@ pub(crate) fn hw_type<B: Bmc>(
     // GB300 is an NVIDIA HGX platform identity, recognized by the NVIDIA "NVIDIA GB300"
     // GPU chassis (`is_gb300()`) independent of the host BMC vendor. Resolve it before the
     // host-vendor match below so platform classification is not gated on the host ODM; the
-    // ODM (Lenovo / Supermicro / Wiwynn) only selects the ODM-specific variant.
-    //
-    // TODO(smc-scrape): a non-Lenovo GB300 (is_gb300() but not is_lenovo()) currently falls
-    // through to the host-vendor classification below, leaving behavior unchanged. Add a
-    // Supermicro GB300 arm here once an SMC BMC scrape confirms how it presents itself --
-    // either `oem_id == Some("Supermicro")` (Supermicro's usual OEM convention) or an AMI
-    // stack like the Lenovo GB300. See gb300-firmus-ingestion/triangulation-matrix.md.
-    if explored_chassis.is_gb300() && explored_chassis.is_lenovo() {
-        return Some(hw::HwType::LenovoGb300);
+    // ODM only selects the ODM-specific variant.
+    if explored_chassis.is_gb300() {
+        // Lenovo GB300: AMI host BMC + Lenovo host chassis.
+        if explored_chassis.is_lenovo() {
+            return Some(hw::HwType::LenovoGb300);
+        }
+        // DGX GB300: NVIDIA "GB BMC" host (same BMC family as GB200). Resolved here, ahead of
+        // the GB200 arm below, since it shares GB200's ServiceRoot signature -- the GB300 GPU
+        // chassis (`is_gb300()`) is what distinguishes it from a real GB200.
+        if root.vendor() == Some(Vendor::new("NVIDIA"))
+            && root.product() == Some(Product::new("GB BMC"))
+        {
+            return Some(hw::HwType::DgxGb300);
+        }
+        // TODO(smc-scrape): Supermicro GB300 arm. Engineers expect SMC to start on an AMI BMC
+        // (like the Lenovo GB300) rather than its usual `Oem.Supermicro` convention; a scrape
+        // will confirm. Under that assumption it presents as vendor "AMI" with a Supermicro
+        // host chassis -- add `if explored_chassis.is_supermicro() { return SupermicroGb300 }`
+        // once confirmed. Until then a non-Lenovo/non-NVIDIA GB300 falls through unchanged.
+        // See gb300-firmus-ingestion/triangulation-matrix.md.
     }
 
     root.vendor()
@@ -842,6 +853,37 @@ fn machine_setup_status<B: Bmc>(
             if let Some(mac) = boot_interface_mac {
                 // Looking for UEFI Device path:
                 // VenHw(REDACTED)/MemoryMapped(REDACTED)/PciRoot(0x6)/Pci(0x0,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)/Pci(0x0,0x0)/MAC(020304050607,0x1)/IPv4(0.0.0.0)/Uri()
+                let actual = explored_system.boot_order_first_option();
+                let mac_str = format!("/MAC({},", mac.to_string().replace(":", ""));
+                let expected = explored_system.boot_options.iter().find(|option| {
+                    option.uefi_device_path().is_some_and(|path| {
+                        path.inner().contains(&mac_str)
+                            && path.inner().contains("/IPv4(")
+                            && path.inner().ends_with("/Uri()")
+                    })
+                });
+                if let Some(diff) = compare_boot_options(expected, actual) {
+                    diffs.push(diff)
+                }
+            }
+        }
+
+        hw::HwType::DgxGb300 => {
+            // DGX GB300 runs on the NVIDIA "GB BMC" (GB200 family), so it shares GB200's
+            // setup expectations: secure boot off and boot order by MAC.
+            // TODO(dgx-gb300): add a GB300-specific EXPECTED_BIOS_ATTRS table once the DGX
+            // GB300 BIOS is characterized; until then no BIOS-attr verification is applied.
+            if explored_system
+                .secure_boot_status()
+                .is_ok_and(|s| s.is_enabled)
+            {
+                diffs.push(MachineSetupDiff {
+                    key: "SecureBoot".to_string(),
+                    expected: "false".to_string(),
+                    actual: "true".to_string(),
+                })
+            }
+            if let Some(mac) = boot_interface_mac {
                 let actual = explored_system.boot_order_first_option();
                 let mac_str = format!("/MAC({},", mac.to_string().replace(":", ""));
                 let expected = explored_system.boot_options.iter().find(|option| {

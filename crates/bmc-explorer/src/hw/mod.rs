@@ -35,6 +35,7 @@ pub enum HwType {
     Bluefield,
     Dell,
     Gb200,
+    DgxGb300,
     Hpe,
     Lenovo,
     LenovoAmi,
@@ -52,6 +53,8 @@ impl HwType {
             Self::Bluefield => Some(bmc_vendor::BMCVendor::Nvidia),
             Self::Dell => Some(bmc_vendor::BMCVendor::Dell),
             Self::Gb200 => Some(bmc_vendor::BMCVendor::Nvidia),
+            // DGX GB300 uses the NVIDIA "GB BMC" (same BMC family as GB200).
+            Self::DgxGb300 => Some(bmc_vendor::BMCVendor::Nvidia),
             Self::Hpe => Some(bmc_vendor::BMCVendor::Hpe),
             Self::Lenovo => Some(bmc_vendor::BMCVendor::Lenovo),
             Self::LenovoAmi => Some(bmc_vendor::BMCVendor::LenovoAMI),
@@ -69,6 +72,8 @@ impl HwType {
             Self::Bluefield => None,
             Self::Dell => Some(BiosAttr::new_str("BootSeqRetry", "Enabled")),
             Self::Gb200 => Some(BiosAttr::new_str("EmbeddedUefiShell", "Disabled")),
+            // DGX GB300 carries the same EmbeddedUefiShell knob as GB200 (confirmed in its BIOS).
+            Self::DgxGb300 => Some(BiosAttr::new_str("EmbeddedUefiShell", "Disabled")),
             Self::Hpe => None,
             Self::Lenovo => Some(BiosAttr::new_str("BootModes_InfiniteBootRetry", "Enabled")),
             Self::LenovoAmi => Some(BiosAttr::new_str("EndlessBoot", "Enabled")),
