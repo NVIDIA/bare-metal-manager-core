@@ -73,12 +73,10 @@ flowchart TB
     subgraph componentmgr [Component Managers]
         cmRegistry[CM Registry]
         nicoCM[NICo Manager]
-        psmCM[PSM Manager]
     end
 
     subgraph external_apis [External APIs]
         nicoAPI[NICo API]
-        psmAPI[PSM API]
     end
 
     grpcClient --> grpcServer
@@ -95,9 +93,7 @@ flowchart TB
     temporal --> activities
     activities --> cmRegistry
     cmRegistry --> nicoCM
-    cmRegistry --> psmCM
     nicoCM --> nicoAPI
-    psmCM --> psmAPI
 ```
 
 ---
@@ -120,7 +116,7 @@ Hardware components within a rack. Supported types:
 |------|-------------|-----------------|
 | `Compute` | GPU compute trays | NICo API |
 | `NVSwitch` | NVLink switches | NICo API |
-| `PowerShelf` | Power distribution units | PSM API |
+| `PowerShelf` | Power distribution units | NICo API |
 | `TorSwitch` | Top-of-rack network switches | - |
 | `UMS` | Unit Management System | - |
 | `CDU` | Cooling Distribution Unit | - |
@@ -363,7 +359,7 @@ type ComponentManager interface {
 |----------------|----------------|----------|
 | Compute | `compute/nico/` | NICo |
 | NVSwitch | `nvswitch/nico/` | NICo |
-| PowerShelf | `powershelf/psm/` | PSM |
+| PowerShelf | `powershelf/nico/` | NICo |
 
 ---
 
@@ -426,7 +422,6 @@ flowchart LR
 
     subgraph external [External Systems]
         nico[NICo API]
-        psm[PSM API]
     end
 
     subgraph result [Result]
@@ -437,9 +432,7 @@ flowchart LR
     server --> invStore
     invStore -->|Expected| server
     server --> nico
-    server --> psm
     nico -->|Actual| server
-    psm -->|Actual| server
     server -->|Compare| diff
 ```
 
@@ -472,21 +465,6 @@ type Client interface {
     // ...
 }
 ```
-
-### PSM API (Powershelf Manager)
-
-**Location**: `internal/psmapi/`
-
-PSM runs as a sidecar container in the Flow pod, managing power shelf units.
-
-**Used for**:
-
-- Powershelf registration
-- Power control for PSUs
-- Firmware management
-- Health and status monitoring
-
-**Configuration**: `PSM_API_URL` environment variable (default: `localhost:50052`)
 
 ### Temporal
 
@@ -681,12 +659,6 @@ Stores task execution records.
 | `TEMPORAL_PORT` | Temporal server port | 7233 |
 | `TEMPORAL_NAMESPACE` | Workflow namespace | flow |
 
-#### PSM
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PSM_API_URL` | PSM sidecar URL | localhost:50052 |
-
 ### Component Manager Configuration
 
 **File**: `configs/componentmanager.prod.yaml` (or set via `COMPONENT_MANAGER_CONFIG`)
@@ -695,7 +667,7 @@ Stores task execution records.
 component_managers:
   compute: nico
   nvswitch: nico
-  powershelf: psm
+  powershelf: nico
 
 manager_configs:
   compute:
@@ -705,8 +677,6 @@ manager_configs:
 providers:
   nico:
     timeout: "1m"
-  psm:
-    timeout: "30s"
 ```
 
 See [Component Manager Configuration](component-manager-config.md) for details.
@@ -754,8 +724,7 @@ flow/
 │   │   │   └── temporalworkflow/
 │   │   ├── componentmanager/     # Component-specific operations
 │   │   └── operations/           # Operation definitions
-│   ├── nicoapi/               # NICo client
-│   ├── psmapi/                   # PSM client
+│   ├── nicoapi/                  # NICo client
 │   ├── clients/                  # External clients
 │   │   └── temporal/
 │   └── proto/v1/                 # Protobuf definitions

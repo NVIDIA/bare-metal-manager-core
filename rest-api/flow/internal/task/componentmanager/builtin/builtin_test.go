@@ -21,13 +21,9 @@ import (
 	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/mock"
 	nvswitchnico "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/nvswitch/nico"
-	nvswitchnsm "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/nvswitch/nvswitchmanager"
 	powershelfnico "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/powershelf/nico"
-	powershelfpsm "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/powershelf/psm"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
 	nicoprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nico"
-	nsmprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nvswitchmanager"
-	psmprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/psm"
 	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
 )
 
@@ -108,7 +104,6 @@ func TestLoadConfigUsesDefaultsWithoutPath(t *testing.T) {
 		config.ComponentManagers,
 	)
 	assert.True(t, config.HasProvider(nicoprovider.ProviderName))
-	assert.False(t, config.HasProvider(psmprovider.ProviderName))
 
 	nicoConfig, ok := config.ProviderConfigs[nicoprovider.ProviderName].(*nicoprovider.Config)
 	require.True(t, ok)
@@ -306,38 +301,6 @@ func TestNewComponentManagerRegistryInitializesBuiltInMockManagers(t *testing.T)
 	}
 }
 
-func TestNewComponentManagerRegistryRejectsImplementationForWrongType(t *testing.T) {
-	config := cmconfig.Config{
-		ComponentManagers: map[devicetypes.ComponentType]string{
-			devicetypes.ComponentTypeCompute: nvswitchnsm.ImplementationName,
-		},
-	}
-
-	registry, err := NewComponentManagerRegistry(
-		config,
-		providerapi.NewProviderRegistry(),
-	)
-
-	require.Nil(t, registry)
-	require.Error(t, err)
-	require.True(t, errors.Is(err, componentmanager.ErrUnknownComponentManagerImplementation))
-
-	var implErr componentmanager.UnknownComponentManagerImplementationError
-	require.True(t, errors.As(err, &implErr))
-	assert.Equal(t, devicetypes.ComponentTypeCompute, implErr.ComponentType)
-	assert.Equal(t, nvswitchnsm.ImplementationName, implErr.Implementation)
-	assert.ElementsMatch(
-		t,
-		[]string{computenico.ImplementationName, mock.ImplementationName},
-		implErr.Available,
-	)
-	assert.Equal(
-		t,
-		[]devicetypes.ComponentType{devicetypes.ComponentTypeNVSwitch},
-		implErr.RegisteredFor,
-	)
-}
-
 func TestServiceProviderConfigDecoderRegistry(t *testing.T) {
 	registry, err := newProviderDecoderRegistry()
 	require.NoError(t, err)
@@ -346,19 +309,11 @@ func TestServiceProviderConfigDecoderRegistry(t *testing.T) {
 		t,
 		[]string{
 			nicoprovider.ProviderName,
-			psmprovider.ProviderName,
-			nsmprovider.ProviderName,
 		},
 		registry.List(),
 	)
 
 	_, ok := registry.Get(nicoprovider.ProviderName)
-	assert.True(t, ok)
-
-	_, ok = registry.Get(psmprovider.ProviderName)
-	assert.True(t, ok)
-
-	_, ok = registry.Get(nsmprovider.ProviderName)
 	assert.True(t, ok)
 }
 
@@ -391,7 +346,6 @@ func TestServiceCatalog(t *testing.T) {
 		[]string{
 			mock.ImplementationName,
 			nvswitchnico.ImplementationName,
-			nvswitchnsm.ImplementationName,
 		},
 		implementations[devicetypes.ComponentTypeNVSwitch],
 	)
@@ -400,7 +354,6 @@ func TestServiceCatalog(t *testing.T) {
 		[]string{
 			mock.ImplementationName,
 			powershelfnico.ImplementationName,
-			powershelfpsm.ImplementationName,
 		},
 		implementations[devicetypes.ComponentTypePowerShelf],
 	)
@@ -442,34 +395,10 @@ func TestServiceCatalog(t *testing.T) {
 			},
 		},
 		{
-			name:              "nvswitch nvswitchmanager",
-			componentType:     devicetypes.ComponentTypeNVSwitch,
-			implementation:    nvswitchnsm.ImplementationName,
-			requiredProviders: []string{nsmprovider.ProviderName, nicoprovider.ProviderName},
-			capabilities: capability.CapabilitySet{
-				capability.CapabilityFirmwareControl,
-				capability.CapabilityFirmwareStatus,
-				capability.CapabilityPowerControl,
-			},
-		},
-		{
 			name:              "powershelf nico",
 			componentType:     devicetypes.ComponentTypePowerShelf,
 			implementation:    powershelfnico.ImplementationName,
 			requiredProviders: []string{nicoprovider.ProviderName},
-			capabilities: capability.CapabilitySet{
-				capability.CapabilityFirmwareControl,
-				capability.CapabilityFirmwareStatus,
-				capability.CapabilityInjectExpectation,
-				capability.CapabilityPowerControl,
-				capability.CapabilityPowerStatus,
-			},
-		},
-		{
-			name:              "powershelf psm",
-			componentType:     devicetypes.ComponentTypePowerShelf,
-			implementation:    powershelfpsm.ImplementationName,
-			requiredProviders: []string{psmprovider.ProviderName},
 			capabilities: capability.CapabilitySet{
 				capability.CapabilityFirmwareControl,
 				capability.CapabilityFirmwareStatus,

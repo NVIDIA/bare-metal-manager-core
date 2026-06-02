@@ -10,13 +10,9 @@ import (
 	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/mock"
 	nvswitchnico "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/nvswitch/nico"
-	nvswitchnsm "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/nvswitch/nvswitchmanager"
 	powershelfnico "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/powershelf/nico"
-	powershelfpsm "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/powershelf/psm"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
 	nicoprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nico"
-	nsmprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nvswitchmanager"
-	psmprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/psm"
 	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
 )
 
@@ -40,8 +36,6 @@ func defaultServiceComponentManagers() map[devicetypes.ComponentType]string {
 func serviceProviderConfigDecoders() []providerapi.ProviderConfigDecoder {
 	return []providerapi.ProviderConfigDecoder{
 		nicoprovider.ConfigDecoder{},
-		psmprovider.ConfigDecoder{},
-		nsmprovider.ConfigDecoder{},
 	}
 }
 
@@ -63,9 +57,7 @@ func serviceDescriptors() []cmcatalog.Descriptor {
 	descriptors := []cmcatalog.Descriptor{
 		computenico.Descriptor(),
 		nvswitchnico.Descriptor(),
-		nvswitchnsm.Descriptor(),
 		powershelfnico.Descriptor(),
-		powershelfpsm.Descriptor(),
 	}
 
 	descriptors = append(descriptors, mock.Descriptors()...)
@@ -88,9 +80,7 @@ func serviceFactorySpecs(
 	factorySpecs := []componentmanager.FactorySpec{
 		computenico.FactorySpec(computePowerDelay),
 		nvswitchnico.FactorySpec(),
-		nvswitchnsm.FactorySpec(),
 		powershelfnico.FactorySpec(),
-		powershelfpsm.FactorySpec(),
 	}
 
 	factorySpecs = append(factorySpecs, mock.FactorySpecs()...)

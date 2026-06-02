@@ -271,11 +271,12 @@ message ComponentTarget {
 }
 
 // ExternalRef identifies a component by its external system ID.
-// The component type determines which external system to query
-// (e.g., COMPUTE -> NICo, POWERSHELF -> PSM)
+// All component types are routed through Core (NICo); the ID is the
+// identifier expected by NICo for that component type (e.g. machine_id
+// for compute, PMC MAC for power shelf).
 message ExternalRef {
     ComponentType type = 1;  // Component type determines the source system
-    string id = 2;           // ID in that system (e.g., NICo machine_id, PSM PMC MAC)
+    string id = 2;           // ID expected by NICo for this component type
 }
 
 message NVLDomain {

@@ -18,10 +18,10 @@ The Component Manager system uses two main patterns:
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                      ProviderRegistry                               │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │
-│  │   nico   │  │     psm     │  │   (new...)  │                 │
-│  │  Provider   │  │  Provider   │  │  Provider   │                 │
-│  └─────────────┘  └─────────────┘  └─────────────┘                 │
+│  ┌─────────────┐  ┌─────────────┐                                  │
+│  │    nico     │  │  (new...)   │                                  │
+│  │  Provider   │  │  Provider   │                                  │
+│  └─────────────┘  └─────────────┘                                  │
 └─────────────────────────────────────────────────────────────────────┘
                                   │
                                   ▼
@@ -29,16 +29,16 @@ The Component Manager system uses two main patterns:
 │                    ComponentManager Registry                        │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │ ComponentType: Compute                                       │   │
-│  │   ├── "nico" → Factory → Manager (uses nico.Provider)  │   │
-│  │   └── "mock"    → Factory → Manager (no provider needed)     │   │
+│  │   ├── "nico" → Factory → Manager (uses nico.Provider)        │   │
+│  │   └── "mock" → Factory → Manager (no provider needed)        │   │
 │  ├─────────────────────────────────────────────────────────────┤   │
-│  │ ComponentType: NVSwitch                                     │   │
-│  │   ├── "nico" → Factory → Manager                          │   │
-│  │   └── "mock"    → Factory → Manager                          │   │
+│  │ ComponentType: NVSwitch                                      │   │
+│  │   ├── "nico" → Factory → Manager (uses nico.Provider)        │   │
+│  │   └── "mock" → Factory → Manager                             │   │
 │  ├─────────────────────────────────────────────────────────────┤   │
 │  │ ComponentType: PowerShelf                                    │   │
-│  │   ├── "psm"     → Factory → Manager (uses psm.Provider)      │   │
-│  │   └── "mock"    → Factory → Manager                          │   │
+│  │   ├── "nico" → Factory → Manager (uses nico.Provider)        │   │
+│  │   └── "mock" → Factory → Manager                             │   │
 │  └─────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -159,19 +159,17 @@ internal/task/componentmanager/
 ├── mock/
 │   └── mock.go              # Generic mock implementation
 ├── providers/
-│   ├── nico/
-│   │   └── provider.go      # NICo API provider
-│   └── psm/
-│       └── provider.go      # PSM API provider
+│   └── nico/
+│       └── provider.go      # NICo API provider
 ├── compute/
 │   └── nico/
-│       └── nico.go       # NICo-based compute manager
+│       └── nico.go          # NICo-based compute manager
 ├── nvswitch/
 │   └── nico/
-│       └── nico.go       # NICo-based NVSwitch manager
+│       └── nico.go          # NICo-based NVSwitch manager
 └── powershelf/
-    └── psm/
-        └── psm.go           # PSM-based power shelf manager
+    └── nico/
+        └── nico.go          # NICo-based power shelf manager
 ```
 
 ---
@@ -277,7 +275,6 @@ Update the service-supported provider catalog in
 func serviceProviderConfigDecoders() []providerapi.ProviderConfigDecoder {
     return []providerapi.ProviderConfigDecoder{
         nico.ConfigDecoder{},
-        psm.ConfigDecoder{},
         myapi.ConfigDecoder{},
     }
 }
@@ -423,7 +420,7 @@ Now you can use the new implementation in YAML config:
 component_managers:
   compute: myimpl
   nvswitch: nico
-  powershelf: psm
+  powershelf: nico
 
 manager_configs:
   compute:
@@ -435,8 +432,6 @@ providers:
     timeout: "30s"
   nico:
     timeout: "1m"
-  psm:
-    timeout: "30s"
 ```
 
 ---

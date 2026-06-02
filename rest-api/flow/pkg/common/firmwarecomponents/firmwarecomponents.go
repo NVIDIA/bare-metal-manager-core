@@ -27,8 +27,6 @@ import (
 	"strings"
 
 	nicopb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/nsmapi"
-	"github.com/NVIDIA/infra-controller-rest/flow/internal/psmapi"
 )
 
 // === NICo (Core) per-tray enums. ==========================================
@@ -94,39 +92,6 @@ func SupportedNICoPowerShelfNames() []string {
 // ParseNICoComputeTray in deterministic order.
 func SupportedNICoComputeTrayNames() []string {
 	return append([]string(nil), nicoComputeTrayNames...)
-}
-
-// === Legacy NSM-direct path. nsmapi.NVSwitchComponent is a hand-rolled Go
-//     enum (not a proto enum), so we keep an explicit map here. ===
-
-var (
-	nsmNVSwitchByName = map[string]nsmapi.NVSwitchComponent{
-		"bmc":  nsmapi.NVSwitchComponentBMC,
-		"cpld": nsmapi.NVSwitchComponentCPLD,
-		"bios": nsmapi.NVSwitchComponentBIOS,
-		"nvos": nsmapi.NVSwitchComponentNVOS,
-	}
-	nsmNVSwitchNames = sortedKeys(nsmNVSwitchByName)
-)
-
-// ParseNSMNVSwitch maps lowercase names to nsmapi.NVSwitchComponent values.
-func ParseNSMNVSwitch(names []string) ([]nsmapi.NVSwitchComponent, error) {
-	return lookup(names, nsmNVSwitchByName, nsmNVSwitchNames, "nvswitch")
-}
-
-// === Legacy PSM-direct path. Same story as NSM. ===
-
-var (
-	psmPowerShelfByName = map[string]psmapi.PowershelfComponent{
-		"pmc": psmapi.PowershelfComponentPMC,
-		"psu": psmapi.PowershelfComponentPSU,
-	}
-	psmPowerShelfNames = sortedKeys(psmPowerShelfByName)
-)
-
-// ParsePSMPowerShelf maps lowercase names to psmapi.PowershelfComponent values.
-func ParsePSMPowerShelf(names []string) ([]psmapi.PowershelfComponent, error) {
-	return lookup(names, psmPowerShelfByName, psmPowerShelfNames, "powershelf")
 }
 
 // === internal helpers ====================================================

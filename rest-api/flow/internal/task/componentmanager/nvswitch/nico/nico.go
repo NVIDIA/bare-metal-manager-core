@@ -522,8 +522,7 @@ func (m *Manager) GetFirmwareStatus(ctx context.Context, target common.Target) (
 	}
 
 	// Ensure every requested component ID is present in the result,
-	// even if Core returned no statuses for it. This mirrors the
-	// nvswitchmanager path which queries each switch individually.
+	// even if Core returned no statuses for it.
 	result := make(map[string]operations.FirmwareUpdateStatus, len(target.ComponentIDs))
 	for _, compID := range target.ComponentIDs {
 		result[compID] = aggregateNICoStatuses(compID, grouped[compID])

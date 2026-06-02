@@ -300,7 +300,6 @@ func (s *Service) startScheduler(ctx context.Context) error {
 		&s.conf.DBConf,
 		s.conf.ProviderRegistry,
 		s.conf.FlowConfig,
-		s.conf.CMConfig,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create inventory sync job: %w", err)

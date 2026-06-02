@@ -88,7 +88,7 @@ func init() {
 //     Uses the component manager implementation map defined by builtin.
 //
 // The config specifies:
-//   - Which component manager implementations to use (nico, psm, mock)
+//   - Which component manager implementations to use (nico, mock)
 //   - Provider settings (timeouts, endpoints)
 func loadComponentManagerConfig() (cmconfig.Config, error) {
 	// Priority 1: CLI flag

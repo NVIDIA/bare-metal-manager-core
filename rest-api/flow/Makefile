@@ -28,18 +28,6 @@ gen-nicoapi-pb: ## Generate protobuf files for nico-api access, only needed for 
 	rm -f internal/nicoapi/gen/*.pb.go
 	cd internal/nicoapi && buf generate
 
-gen-psmapi-pb: ## Generate protobuf files for PSM client access
-	cp ../powershelf-manager/internal/proto/v1/powershelf-manager.proto internal/psmapi/psmproto/
-# Specify version of buf for consistency in pipeline builds
-	which buf || go install github.com/bufbuild/buf/cmd/buf@v1.57.2
-	cd internal/psmapi && buf generate
-
-gen-nsmapi-pb: ## Generate protobuf files for NSM client access
-# Specify version of buf for consistency in pipeline builds
-	which buf || go install github.com/bufbuild/buf/cmd/buf@v1.57.2
-	rm -f internal/nsmapi/gen/*.pb.go
-	cd internal/nsmapi && buf generate
-
 gen-doc: ## Generate gRPC API documentation (Markdown for GitLab, HTML for local)
 	@which protoc-gen-doc > /dev/null || go install github.com/pseudomuto/protoc-gen-doc/cmd/protoc-gen-doc@latest
 	@mkdir -p docs
@@ -73,4 +61,4 @@ test-local:
 	DB_ADDR=localhost DB_PORT=30432 DB_USER=postgres DB_PASSWORD=postgres DB_DATABASE=flow_test go run . db migrate
 	DB_ADDR=localhost DB_PORT=30432 DB_USER=postgres DB_PASSWORD=postgres DB_DATABASE=flow_test go test -v -p 1 ./...
 
-.PHONY: gen-pb gen-nicoapi-pb gen-psmapi-pb gen-nsmapi-pb gen-doc flow container releasecontainer runcontainer releasetest test test-local
+.PHONY: gen-pb gen-nicoapi-pb gen-doc flow container releasecontainer runcontainer releasetest test test-local

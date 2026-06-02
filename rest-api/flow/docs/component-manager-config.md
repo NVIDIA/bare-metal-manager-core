@@ -47,18 +47,14 @@ Available implementations:
 | Component Type | Available Implementations | Description |
 |----------------|---------------------------|-------------|
 | `compute` | `nico`, `mock` | Manages compute nodes |
-| `nvswitch` | `nico`, `nvswitchmanager`, `mock` | Manages NVLink switches |
-| `powershelf` | `nico`, `psm`, `mock` | Manages power shelves |
+| `nvswitch` | `nico`, `mock` | Manages NVLink switches |
+| `powershelf` | `nico`, `mock` | Manages power shelves |
 
 ### Providers
 
 ```yaml
 providers:
   nico:
-    timeout: "<duration>"
-  nvswitchmanager:
-    timeout: "<duration>"
-  psm:
     timeout: "<duration>"
 ```
 
@@ -70,9 +66,7 @@ equivalent to omitting the section for provider-backed component managers.
 
 | Provider | Used By | Description |
 |----------|---------|-------------|
-| `nico` | compute, nvswitch, powershelf/nico | NICo API for machine management |
-| `nvswitchmanager` | nvswitch/nvswitchmanager | NV-Switch Manager API for NVLink switch management |
-| `psm` | powershelf/psm | Power Shelf Manager API |
+| `nico` | compute, nvswitch, powershelf | NICo API for component management |
 
 ### Manager Configs
 
@@ -95,7 +89,7 @@ must match the selected `component_managers` implementation.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `timeout` | duration string | `1m` (nico, nvswitchmanager), `30s` (psm) | gRPC call timeout |
+| `timeout` | duration string | `1m` | gRPC call timeout |
 
 Duration strings use Go format: `30s`, `1m`, `2m30s`, etc.
 
@@ -135,14 +129,14 @@ component_managers:
 ### Mixed Configuration (e.g., partial testing)
 
 ```yaml
-# Real power shelf management, mock compute/nvswitch
+# Real power shelf management via NICo, mock compute/nvswitch
 component_managers:
   compute: mock
   nvswitch: mock
-  powershelf: psm
+  powershelf: nico
 
 providers:
-  psm:
+  nico:
     timeout: "30s"
 ```
 
@@ -151,33 +145,28 @@ providers:
 Providers are automatically enabled based on the component manager implementations:
 
 - If any component uses `nico` → NICo provider is enabled with defaults
-- If `nvswitch` uses `nvswitchmanager` → NV-Switch Manager provider is enabled with defaults
-- If `powershelf` uses `psm` → PSM provider is enabled with defaults
 
 This allows minimal configuration:
 
 ```yaml
 component_managers:
   compute: nico
-  nvswitch: nvswitchmanager
-  powershelf: psm
-# Providers auto-enabled based on implementations above
+  nvswitch: nico
+  powershelf: nico
+# nico provider auto-enabled based on implementations above
 ```
 
-Provider entries can override only the providers that need non-default settings:
+Provider entries can override settings:
 
 ```yaml
 component_managers:
   compute: nico
-  nvswitch: nvswitchmanager
-  powershelf: psm
+  nvswitch: nico
+  powershelf: nico
 
 providers:
-  nvswitchmanager:
+  nico:
     timeout: "1m30s"
-  psm:
-    timeout: "45s"
-# nico is still added with defaults
 ```
 
 ## Usage

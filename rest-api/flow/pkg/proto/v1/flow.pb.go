@@ -1772,12 +1772,13 @@ func (*ComponentTarget_Id) isComponentTarget_Identifier() {}
 func (*ComponentTarget_External) isComponentTarget_Identifier() {}
 
 // ExternalRef identifies a component by its external system ID.
-// The component type determines which external system to query
-// (e.g., COMPUTE -> NICo, POWERSHELF -> PSM)
+// All component types are routed through Core (NICo); the ID is the
+// identifier expected by NICo for that component type (e.g. machine_id
+// for compute, PMC MAC for power shelf).
 type ExternalRef struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Type          ComponentType          `protobuf:"varint,1,opt,name=type,proto3,enum=v1.ComponentType" json:"type,omitempty"` // Component type determines the source system
-	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`                            // ID in that system (e.g., NICo machine_id, PSM PMC MAC)
+	Id            string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`                            // ID expected by NICo for this component type
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
