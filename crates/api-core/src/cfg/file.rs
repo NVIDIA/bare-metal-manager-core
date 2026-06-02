@@ -2139,13 +2139,11 @@ pub struct TrafficInterceptBridging {
     /// within the DPU.
     pub internal_bridge_routing_prefix: Ipv4Network,
 
-    /// The name of the bridge (aka br-host) that sits between host PF and br-hbn
-    /// It will be connected to br-hbn or the hbn pod via a patch_point or
-    /// patch port of some kind.
-    #[serde(default = "default_host_intercept_bridge_name")]
-    pub host_intercept_bridge_name: String,
+    /// The HBN/SFC bridge that intercept patch ports attach to during provisioning.
+    #[serde(default = "default_hbn_bridge")]
+    pub hbn_bridge: String,
 
-    /// The name of the bridge that sits between VFs and br-hbn.
+    /// The name of the bridge that sits between VFs and br-hbn _**for VM-owned VFs**_.
     /// This bridge will be assigned an address from <internal_bridge_routing_prefix>
     /// so that we can route traffic to a /32 bound to it and used as a VTEP for
     /// an additional GENEVE VPN.
@@ -2153,21 +2151,55 @@ pub struct TrafficInterceptBridging {
     pub vf_intercept_bridge_name: String,
 
     /// The <vf_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
-    /// This will be the side owned by the <vf_intercept_bridge_name> bridge
+    /// This will be the side owned by the <vf_intercept_bridge_name> bridge _**for VM-owned VFs**_
     #[serde(default = "default_vf_intercept_bridge_port")]
     pub vf_intercept_bridge_port: String,
 
-    /// The <host_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
-    /// This will be the side owned by the <host_intercept_bridge_name> bridge.
-    #[serde(default = "default_host_intercept_bridge_port")]
-    pub host_intercept_bridge_port: String,
-
     /// The SF used for internal routing of VF traffic.
     pub vf_intercept_bridge_sf: String,
+
+    /// The layout of host-owned representors that will have intermediary bridges.
+    /// E.g., [{"pf0hpf" => {bridge: "br-host", patch_port: "brh"}}]
+    #[serde(default)]
+    pub host_representor_intercept_bridging: HashMap<String, HostInterceptBridging>,
 }
 
-pub fn default_host_intercept_bridge_name() -> String {
-    "br-host".to_string()
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct HostInterceptBridging {
+    /// The name of the bridge (e.g., br-host) that will sit between host PF/VF and br-hbn.
+    /// It will be connected to br-hbn or br-sfc.
+    pub bridge: String,
+
+    /// The patch port on this bridge that connects it toward HBN or SFC.
+    pub patch_port: String,
+
+    /// Control whether this bridging should be created during DPU (re)provisioning or not.
+    /// By default, we expect to create these bridges.
+    #[serde(default)]
+    pub skip_create: bool,
+}
+
+impl TrafficInterceptBridging {
+    /// Formats host-owned representor bridge config for BlueField provisioning.
+    pub fn host_representor_intercept_bridging_provisioning_config(&self) -> Option<String> {
+        // Keep bf.cfg input stable and omit entries that should not be provisioned.
+        let config = self
+            .host_representor_intercept_bridging
+            .iter()
+            .filter(|(_, bridge)| !bridge.skip_create)
+            .sorted_by(|(left, _), (right, _)| left.cmp(right))
+            .map(|(representor, bridge)| {
+                format!("{representor}:{}:{}", bridge.bridge, bridge.patch_port)
+            })
+            .join(",");
+
+        // An empty map, or one with only skipped entries, means no provisioning config.
+        (!config.is_empty()).then_some(config)
+    }
+}
+
+pub fn default_hbn_bridge() -> String {
+    "br-hbn".to_string()
 }
 
 pub fn default_vf_intercept_bridge_name() -> String {
@@ -2176,10 +2208,6 @@ pub fn default_vf_intercept_bridge_name() -> String {
 
 pub fn default_vf_intercept_bridge_port() -> String {
     "patch-br-dpu-to-hbn".to_string()
-}
-
-pub fn default_host_intercept_bridge_port() -> String {
-    "patch-br-host-to-hbn".to_string()
 }
 
 #[cfg(test)]
