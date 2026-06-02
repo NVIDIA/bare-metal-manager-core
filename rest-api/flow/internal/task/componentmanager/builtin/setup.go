@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 // Package builtin wires the component manager extensions compiled into the
 // Flow binary.
@@ -42,6 +28,14 @@ func LoadConfig(path string) (cmconfig.Config, error) {
 		)
 	}
 
+	managerDecoderRegistry, err := newManagerConfigDecoderRegistry()
+	if err != nil {
+		return cmconfig.Config{}, fmt.Errorf(
+			"initialize service manager config decoders: %w",
+			err,
+		)
+	}
+
 	catalog, err := newCatalog()
 	if err != nil {
 		return cmconfig.Config{}, err
@@ -53,6 +47,7 @@ func LoadConfig(path string) (cmconfig.Config, error) {
 			path,
 			decoders,
 			catalog,
+			managerDecoderRegistry,
 		)
 		if err != nil {
 			return cmconfig.Config{}, fmt.Errorf("load config from file: %w", err)
@@ -62,13 +57,15 @@ func LoadConfig(path string) (cmconfig.Config, error) {
 			defaultServiceComponentManagers(),
 			decoders,
 			catalog,
+			managerDecoderRegistry,
 		)
 		if err != nil {
 			return cmconfig.Config{}, fmt.Errorf("get default config: %w", err)
 		}
 	}
 
-	if err := config.Validate(decoders, catalog); err != nil {
+	err = config.Validate(decoders, catalog, managerDecoderRegistry)
+	if err != nil {
 		return cmconfig.Config{}, fmt.Errorf("validate loaded config: %w", err)
 	}
 
@@ -135,11 +132,6 @@ func NewComponentManagerRegistry(
 	config cmconfig.Config,
 	providers *providerapi.ProviderRegistry,
 ) (*componentmanager.Registry, error) {
-	catalog, err := newCatalog()
-	if err != nil {
-		return nil, err
-	}
-
 	factorySpecs, err := serviceFactorySpecs(config)
 	if err != nil {
 		return nil, err
@@ -148,14 +140,6 @@ func NewComponentManagerRegistry(
 	registry, err := componentmanager.NewRegistry(factorySpecs, config, providers)
 	if err != nil {
 		return nil, fmt.Errorf("initialize component managers: %w", err)
-	}
-
-	impls := catalog.ListImplementations()
-	for compType, names := range impls {
-		log.Debug().
-			Str("component_type", compType.String()).
-			Strs("implementations", names).
-			Msg("Registered component manager implementations")
 	}
 
 	return registry, nil

@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package operationrules
 
@@ -66,7 +52,7 @@ func TestRuleDefinition_CalculateWorkflowTimeout(t *testing.T) {
 						Timeout:       10 * time.Minute,
 					},
 					{
-						ComponentType: devicetypes.ComponentTypeNVLSwitch,
+						ComponentType: devicetypes.ComponentTypeNVSwitch,
 						Stage:         1,
 						Timeout:       15 * time.Minute, // Max in stage
 					},
@@ -90,7 +76,7 @@ func TestRuleDefinition_CalculateWorkflowTimeout(t *testing.T) {
 						Timeout:       10 * time.Minute,
 					},
 					{
-						ComponentType: devicetypes.ComponentTypeNVLSwitch,
+						ComponentType: devicetypes.ComponentTypeNVSwitch,
 						Stage:         2,
 						Timeout:       15 * time.Minute,
 					},
@@ -115,7 +101,7 @@ func TestRuleDefinition_CalculateWorkflowTimeout(t *testing.T) {
 						Timeout:       10 * time.Minute,
 					},
 					{
-						ComponentType: devicetypes.ComponentTypeNVLSwitch,
+						ComponentType: devicetypes.ComponentTypeNVSwitch,
 						Stage:         1,
 						Timeout:       12 * time.Minute, // Max in stage 1
 					},
@@ -140,7 +126,7 @@ func TestRuleDefinition_CalculateWorkflowTimeout(t *testing.T) {
 						Timeout:       0, // Zero timeout
 					},
 					{
-						ComponentType: devicetypes.ComponentTypeNVLSwitch,
+						ComponentType: devicetypes.ComponentTypeNVSwitch,
 						Stage:         2,
 						Timeout:       10 * time.Minute,
 					},

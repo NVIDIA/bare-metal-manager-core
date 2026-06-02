@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -120,9 +106,10 @@ func (gamch GetAllMachineCapabilityHandler) Handle(c echo.Context) error {
 	qSiteID := c.QueryParam("siteId")
 
 	// Validate site id if provided
-	var siteIDPtr *uuid.UUID
+	var site *cdbm.Site
 	if qSiteID != "" {
-		site, serr := common.GetSiteFromIDString(ctx, nil, qSiteID, gamch.dbSession)
+		var serr error
+		site, serr = common.GetSiteFromIDString(ctx, nil, qSiteID, gamch.dbSession)
 		if serr != nil {
 			if serr == cdb.ErrDoesNotExist {
 				return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not find Site specified in query", nil)
@@ -135,8 +122,6 @@ func (gamch GetAllMachineCapabilityHandler) Handle(c echo.Context) error {
 			logger.Error().Msg("Site's Infrastructure Provider doesn't match org's Infrastructure Provider")
 			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Site specified in query doesn't belong to org's Infrastructure provider", nil)
 		}
-
-		siteIDPtr = &site.ID
 	}
 
 	// Check if `hasInstanceType` query params
@@ -153,10 +138,14 @@ func (gamch GetAllMachineCapabilityHandler) Handle(c echo.Context) error {
 
 	// Get Machines
 	filterInput := cdbm.MachineFilterInput{
-		InfrastructureProviderID: &orgInfrastructureProvider.ID,
-		SiteID:                   siteIDPtr,
-		HasInstanceType:          hasInstanceType,
+		InfrastructureProviderIDs: []uuid.UUID{orgInfrastructureProvider.ID},
+		HasInstanceType:           hasInstanceType,
+		ExcludeMetadata:           true, // Exclude metadata since we're only retrieving Machines for the IDs
 	}
+	if site != nil {
+		filterInput.SiteIDs = []uuid.UUID{site.ID}
+	}
+
 	ms, _, err := mDAO.GetAll(ctx, nil, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error getting Machines from DB")

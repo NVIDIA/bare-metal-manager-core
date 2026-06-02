@@ -25,18 +25,36 @@ receivers:
     start_at: beginning
     storage: file_storage/cursors
 
-  journald/nico-dpu-agent:
-    directory: /var/log/journal
-    units:
-      - nico-dpu-agent
+  # nico-dpu-agent runs as a containerized DaemonSet pod, so its logs are
+  # written to stdout and captured by the container runtime under
+  # /var/log/pods, not to a journald systemd unit. Read them from there.
+  filelog/nico-dpu-agent:
+    # DPF names the pod <dpu-cluster>-nico-dpu-agent-<hash>-<podhash>, so the
+    # pod directory is /var/log/pods/<ns>_<dpu-cluster>-nico-dpu-agent-.../. The
+    # only stable anchor is the container directory, whose name is fixed by the
+    # DaemonSet container name (nico-dpu-agent; the init container lives in the
+    # separate nico-dpu-agent-init directory). Match on that instead.
+    include:
+      - /var/log/pods/*/nico-dpu-agent/*.log
+    include_file_name: false
+    include_file_path: true
+    start_at: beginning
     storage: file_storage/cursors
     operators:
-      # If you want to extract more than a few key=value pairs, use
-      # key_value_parser in place of regex_parser to just parse them all then
-      # drop unwanted pairs in the transform processor.
+      # Strip the container runtime (CRI / docker) framing and recombine
+      # partial log lines, leaving the agent's logfmt line in the body.
+      - type: container
+        add_metadata_from_filepath: true
+      # Extract the log level emitted by the agent (logfmt: level=INFO) for
+      # severity. The agent also writes non-logfmt lines to stderr (e.g.
+      # multi-line backtraces / JSON dumps); the `if` guard skips the parser
+      # for those so they pass through instead of logging a "does not match"
+      # error per line. To extract more key=value pairs, use key_value_parser
+      # in place of regex_parser then drop unwanted pairs in the transform.
       - type: regex_parser
+        if: 'body contains "level="'
         regex: 'level=(?P<level>\w+)'
-        parse_from: body.MESSAGE
+        parse_from: body
         severity:
           parse_from: attributes.level
           mapping:
@@ -317,15 +335,15 @@ processors:
           enabled: false
         host.id:
           enabled: false
-  # Remove all but the "MESSAGE" and "_SYSTEMD_UNIT" keys from each log record
-  transform/journald:
+  # The agent's logs now arrive via filelog (body is the plain message), so the
+  # journald-specific body extraction does not apply. Preserve the systemd.unit
+  # label so existing dashboards and telemetry_stats groupings keep working.
+  transform/nico-dpu-agent:
     error_mode: ignore
     log_statements:
       - context: log
         statements:
-          - keep_keys(body, ["MESSAGE", "_SYSTEMD_UNIT"])
-          - set(attributes["systemd.unit"], body["_SYSTEMD_UNIT"])
-          - set(body, body["MESSAGE"])
+          - set(attributes["systemd.unit"], "nico-dpu-agent")
           - delete_key(attributes, "level")
   transform/journald-kernel:
     error_mode: ignore
@@ -379,14 +397,14 @@ exporters:
 
 service:
   pipelines:
-    logs/journald:
-      receivers: [journald/nico-dpu-agent]
+    logs/nico-dpu-agent:
+      receivers: [filelog/nico-dpu-agent]
       processors:
         - memory_limiter
         - resourcedetection
         - fileresource
         - resource/logs-journald
-        - transform/journald
+        - transform/nico-dpu-agent
         - telemetry_stats
         - batch/logs
       exporters: [otlp/site]

@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package workflow
 
@@ -268,76 +254,6 @@ func BringUpRack(ctx workflow.Context, request *flowv1.BringUpRackRequest) (*flo
 	}
 
 	logger.Info().Int("TaskCount", len(response.GetTaskIds())).Msg("Completing workflow")
-
-	return &response, nil
-}
-
-// GetRackTask is a workflow to get a rack task by its UUID
-func GetRackTask(ctx workflow.Context, request *flowv1.GetTasksByIDsRequest) (*flowv1.GetTasksByIDsResponse, error) {
-	logger := log.With().Str("Workflow", "Rack").Str("Action", "GetRackTask").Logger()
-
-	logger.Info().Msg("Starting workflow")
-
-	retrypolicy := &temporal.RetryPolicy{
-		InitialInterval:    1 * time.Second,
-		BackoffCoefficient: 2.0,
-		MaximumInterval:    10 * time.Second,
-		MaximumAttempts:    2,
-	}
-	options := workflow.ActivityOptions{
-		StartToCloseTimeout: 2 * time.Minute,
-		RetryPolicy:         retrypolicy,
-	}
-
-	ctx = workflow.WithActivityOptions(ctx, options)
-
-	var rackManager activity.ManageRack
-	var response flowv1.GetTasksByIDsResponse
-
-	err := workflow.ExecuteActivity(ctx, rackManager.GetTaskByID, request).Get(ctx, &response)
-	if err != nil {
-		logger.Error().Err(err).Str("Activity", "GetTaskByID").Msg("Failed to execute activity from workflow")
-		return nil, err
-	}
-
-	logger.Info().Int("TaskCount", len(response.GetTasks())).Msg("Completing workflow")
-
-	return &response, nil
-}
-
-// CancelRackTask is a workflow to cancel a rack task by its UUID via Flow.
-//
-// Cancel is best-effort: Flow marks the task Terminated and terminates the
-// underlying Temporal workflow if one was scheduled. The returned task carries
-// the post-cancel status reported by Flow.
-func CancelRackTask(ctx workflow.Context, request *flowv1.CancelTaskRequest) (*flowv1.CancelTaskResponse, error) {
-	logger := log.With().Str("Workflow", "Rack").Str("Action", "CancelRackTask").Logger()
-
-	logger.Info().Msg("Starting workflow")
-
-	retrypolicy := &temporal.RetryPolicy{
-		InitialInterval:    1 * time.Second,
-		BackoffCoefficient: 2.0,
-		MaximumInterval:    10 * time.Second,
-		MaximumAttempts:    2,
-	}
-	options := workflow.ActivityOptions{
-		StartToCloseTimeout: 2 * time.Minute,
-		RetryPolicy:         retrypolicy,
-	}
-
-	ctx = workflow.WithActivityOptions(ctx, options)
-
-	var rackManager activity.ManageRack
-	var response flowv1.CancelTaskResponse
-
-	err := workflow.ExecuteActivity(ctx, rackManager.CancelTask, request).Get(ctx, &response)
-	if err != nil {
-		logger.Error().Err(err).Str("Activity", "CancelTask").Msg("Failed to execute activity from workflow")
-		return nil, err
-	}
-
-	logger.Info().Msg("Completing workflow")
 
 	return &response, nil
 }

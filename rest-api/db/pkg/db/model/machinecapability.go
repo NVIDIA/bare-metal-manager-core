@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -26,28 +12,53 @@ import (
 	"strings"
 	"time"
 
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/uptrace/bun"
 
 	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 )
 
-// MachineCapabilityType
-const (
-	MachineCapabilityTypeCPU           = "CPU"
-	MachineCapabilityTypeMemory        = "Memory"
-	MachineCapabilityTypeGPU           = "GPU"
-	MachineCapabilityTypeStorage       = "Storage"
-	MachineCapabilityTypeNetwork       = "Network"
-	MachineCapabilityTypeInfiniBand    = "InfiniBand"
-	MachineCapabilityTypeDPU           = "DPU"
-	MachineCapabilityDeviceTypeDPU     = "DPU"
-	MachineCapabilityDeviceTypeNVLink  = "NVLink"
-	MachineCapabilityDeviceTypeUnknown = "Unknown"
+// MachineCapabilityType is the domain enum for the kind of capability a
+// `MachineCapability` describes. Defining it as a named string lets us
+// hang the workflow-proto conversion on it as methods (`(t).ToProto`,
+// `(*t).FromProto`), and keeps the DB column comparable as a plain
+// string at the storage layer.
+type MachineCapabilityType string
 
+// MachineCapabilityType values. Stored as plain strings in the DB
+// column `machine_capability.type`.
+const (
+	MachineCapabilityTypeCPU        MachineCapabilityType = "CPU"
+	MachineCapabilityTypeMemory     MachineCapabilityType = "Memory"
+	MachineCapabilityTypeGPU        MachineCapabilityType = "GPU"
+	MachineCapabilityTypeStorage    MachineCapabilityType = "Storage"
+	MachineCapabilityTypeNetwork    MachineCapabilityType = "Network"
+	MachineCapabilityTypeInfiniBand MachineCapabilityType = "InfiniBand"
+	MachineCapabilityTypeDPU        MachineCapabilityType = "DPU"
+)
+
+// MachineCapabilityDeviceType is the domain enum for the device class a
+// capability targets when the capability type alone is ambiguous (e.g.
+// a Network capability against a DPU vs. against an NVLink). Defined
+// as a named string for the same reason as `MachineCapabilityType`.
+type MachineCapabilityDeviceType string
+
+// MachineCapabilityDeviceType values. Stored as plain strings in the DB
+// column `machine_capability.device_type`.
+const (
+	MachineCapabilityDeviceTypeDPU     MachineCapabilityDeviceType = "DPU"
+	MachineCapabilityDeviceTypeNVLink  MachineCapabilityDeviceType = "NVLink"
+	MachineCapabilityDeviceTypeUnknown MachineCapabilityDeviceType = "Unknown"
+)
+
+const (
 	// MachineCapabilityRelationName is the relation name for the MachineCapability model
 	MachineCapabilityRelationName = "MachineCapability"
 
@@ -58,7 +69,7 @@ const (
 var (
 
 	// MachineCapabilityTypeChoiceMap is a map of valid MachineCapability types
-	MachineCapabilityTypeChoiceMap = map[string]bool{
+	MachineCapabilityTypeChoiceMap = map[MachineCapabilityType]bool{
 		MachineCapabilityTypeCPU:        true,
 		MachineCapabilityTypeMemory:     true,
 		MachineCapabilityTypeGPU:        true,
@@ -72,17 +83,97 @@ var (
 	MachineCapabilityOrderByFields = []string{"type", "created", "updated"}
 
 	// MachineCapabilityDeviceTypeChoiceMap is a map of valid MachineCapability device types
-	MachineCapabilityDeviceTypeChoiceMap = map[string]bool{
+	MachineCapabilityDeviceTypeChoiceMap = map[MachineCapabilityDeviceType]bool{
 		MachineCapabilityDeviceTypeDPU:    true,
 		MachineCapabilityDeviceTypeNVLink: true,
 	}
 )
 
+// ToProto converts a `MachineCapabilityType` into its workflow proto
+// enum. Returns the zero proto value (`MACHINE_CAPABILITY_TYPE_UNSPECIFIED`)
+// for an unknown DB value with a warning logged; `MachineCapability.Validate`
+// is the gate that rejects such values upstream of the wire.
+func (t MachineCapabilityType) ToProto() cwssaws.MachineCapabilityType {
+	switch t {
+	case MachineCapabilityTypeCPU:
+		return cwssaws.MachineCapabilityType_CAP_TYPE_CPU
+	case MachineCapabilityTypeMemory:
+		return cwssaws.MachineCapabilityType_CAP_TYPE_MEMORY
+	case MachineCapabilityTypeGPU:
+		return cwssaws.MachineCapabilityType_CAP_TYPE_GPU
+	case MachineCapabilityTypeStorage:
+		return cwssaws.MachineCapabilityType_CAP_TYPE_STORAGE
+	case MachineCapabilityTypeNetwork:
+		return cwssaws.MachineCapabilityType_CAP_TYPE_NETWORK
+	case MachineCapabilityTypeInfiniBand:
+		return cwssaws.MachineCapabilityType_CAP_TYPE_INFINIBAND
+	case MachineCapabilityTypeDPU:
+		return cwssaws.MachineCapabilityType_CAP_TYPE_DPU
+	}
+	log.Warn().Str("Type", string(t)).Msg("unsupported MachineCapabilityType requested")
+	return cwssaws.MachineCapabilityType(0)
+}
+
+// FromProto populates the receiver from a workflow proto enum,
+// mirroring `(MachineCapabilityType).ToProto`. An unknown proto enum
+// silently leaves the receiver as the empty string; `(*MachineCapability).Validate`
+// rejects that downstream.
+func (t *MachineCapabilityType) FromProto(p cwssaws.MachineCapabilityType) {
+	switch p {
+	case cwssaws.MachineCapabilityType_CAP_TYPE_CPU:
+		*t = MachineCapabilityTypeCPU
+	case cwssaws.MachineCapabilityType_CAP_TYPE_MEMORY:
+		*t = MachineCapabilityTypeMemory
+	case cwssaws.MachineCapabilityType_CAP_TYPE_GPU:
+		*t = MachineCapabilityTypeGPU
+	case cwssaws.MachineCapabilityType_CAP_TYPE_STORAGE:
+		*t = MachineCapabilityTypeStorage
+	case cwssaws.MachineCapabilityType_CAP_TYPE_NETWORK:
+		*t = MachineCapabilityTypeNetwork
+	case cwssaws.MachineCapabilityType_CAP_TYPE_INFINIBAND:
+		*t = MachineCapabilityTypeInfiniBand
+	case cwssaws.MachineCapabilityType_CAP_TYPE_DPU:
+		*t = MachineCapabilityTypeDPU
+	default:
+		log.Warn().Str("MachineCapabilityType", p.String()).Msg("unsupported MachineCapabilityType requested")
+		*t = ""
+	}
+}
+
+// ToProto converts a `MachineCapabilityDeviceType` into its workflow
+// proto enum. Returns the zero proto value with a warning logged for
+// unknown DB values; `MachineCapability.Validate` is the upstream gate.
+func (d MachineCapabilityDeviceType) ToProto() cwssaws.MachineCapabilityDeviceType {
+	switch d {
+	case MachineCapabilityDeviceTypeDPU:
+		return cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU
+	case MachineCapabilityDeviceTypeNVLink:
+		return cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK
+	}
+	log.Warn().Str("DeviceType", string(d)).Msg("unsupported MachineCapabilityDeviceType requested")
+	return cwssaws.MachineCapabilityDeviceType(0)
+}
+
+// FromProto populates the receiver from a workflow proto enum,
+// mirroring `(MachineCapabilityDeviceType).ToProto`. An unknown proto
+// enum leaves the receiver as the empty string with a warning logged.
+func (d *MachineCapabilityDeviceType) FromProto(p cwssaws.MachineCapabilityDeviceType) {
+	switch p {
+	case cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU:
+		*d = MachineCapabilityDeviceTypeDPU
+	case cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_NVLINK:
+		*d = MachineCapabilityDeviceTypeNVLink
+	default:
+		log.Warn().Str("DeviceType", p.String()).Msg("unsupported MachineCapabilityDeviceType requested")
+		*d = ""
+	}
+}
+
 // MachineCapabilityCreateInput input parameters for Create method
 type MachineCapabilityCreateInput struct {
 	MachineID        *string
 	InstanceTypeID   *uuid.UUID
-	Type             string
+	Type             MachineCapabilityType
 	Name             string
 	Frequency        *string
 	Capacity         *string
@@ -91,7 +182,7 @@ type MachineCapabilityCreateInput struct {
 	Threads          *int
 	Vendor           *string
 	Count            *int
-	DeviceType       *string
+	DeviceType       *MachineCapabilityDeviceType
 	InactiveDevices  []int
 	Index            int
 	Info             map[string]interface{}
@@ -102,7 +193,7 @@ type MachineCapabilityUpdateInput struct {
 	ID               uuid.UUID
 	MachineID        *string
 	InstanceTypeID   *uuid.UUID
-	Type             *string
+	Type             *MachineCapabilityType
 	Name             *string
 	Frequency        *string
 	Capacity         *string
@@ -111,7 +202,7 @@ type MachineCapabilityUpdateInput struct {
 	Threads          *int
 	Vendor           *string
 	Count            *int
-	DeviceType       *string
+	DeviceType       *MachineCapabilityDeviceType
 	InactiveDevices  []int
 	Index            *int
 	Info             map[string]interface{}
@@ -122,31 +213,211 @@ type MachineCapabilityUpdateInput struct {
 type MachineCapability struct {
 	bun.BaseModel `bun:"table:machine_capability,alias:mc"`
 
-	ID               uuid.UUID              `bun:"type:uuid,pk"`
-	MachineID        *string                `bun:"machine_id"`
-	InstanceTypeID   *uuid.UUID             `bun:"instance_type_id,type:uuid"`
-	InstanceType     *InstanceType          `bun:"rel:belongs-to,join:instance_type_id=id"`
-	Type             string                 `bun:"type,notnull"`
-	Name             string                 `bun:"name,notnull"`
-	Frequency        *string                `bun:"frequency"`
-	Capacity         *string                `bun:"capacity"`
-	HardwareRevision *string                `bun:"hardware_revision"`
-	Cores            *int                   `bun:"cores"`
-	Threads          *int                   `bun:"threads"`
-	Vendor           *string                `bun:"vendor"`
-	Count            *int                   `bun:"count"`
-	DeviceType       *string                `bun:"device_type"`
-	InactiveDevices  []int                  `bun:"inactive_devices"`
-	Index            int                    `bun:"index"`
-	Info             map[string]interface{} `bun:"info,json_use_number"` // Any other attribute of the capability
-	Created          time.Time              `bun:"created,nullzero,notnull,default:current_timestamp"`
-	Updated          time.Time              `bun:"updated,nullzero,notnull,default:current_timestamp"`
-	Deleted          *time.Time             `bun:"deleted,soft_delete"`
+	ID               uuid.UUID                    `bun:"type:uuid,pk"`
+	MachineID        *string                      `bun:"machine_id"`
+	InstanceTypeID   *uuid.UUID                   `bun:"instance_type_id,type:uuid"`
+	InstanceType     *InstanceType                `bun:"rel:belongs-to,join:instance_type_id=id"`
+	Type             MachineCapabilityType        `bun:"type,notnull"`
+	Name             string                       `bun:"name,notnull"`
+	Frequency        *string                      `bun:"frequency"`
+	Capacity         *string                      `bun:"capacity"`
+	HardwareRevision *string                      `bun:"hardware_revision"`
+	Cores            *int                         `bun:"cores"`
+	Threads          *int                         `bun:"threads"`
+	Vendor           *string                      `bun:"vendor"`
+	Count            *int                         `bun:"count"`
+	DeviceType       *MachineCapabilityDeviceType `bun:"device_type"`
+	InactiveDevices  []int                        `bun:"inactive_devices"`
+	Index            int                          `bun:"index"`
+	Info             map[string]interface{}       `bun:"info,json_use_number"` // Any other attribute of the capability
+	Created          time.Time                    `bun:"created,nullzero,notnull,default:current_timestamp"`
+	Updated          time.Time                    `bun:"updated,nullzero,notnull,default:current_timestamp"`
+	Deleted          *time.Time                   `bun:"deleted,soft_delete"`
 
 	// Deprecated fields: To be deleted
 	ValueStr    *string `bun:"value_str"`
 	ValueInt    *int    `bun:"value_int"`
 	Description *string `bun:"description"`
+}
+
+// ToProto converts this MachineCapability to its workflow proto
+// representation used in InstanceType filter attributes.
+//
+// Per the proto-conversion convention, this is a pure mapper and does
+// not return errors. Per-enum mapping lives on `MachineCapabilityType`
+// and `MachineCapabilityDeviceType`; numeric width casts trust the
+// request-side `Validate` upstream.
+func (mc *MachineCapability) ToProto() *cwssaws.InstanceTypeMachineCapabilityFilterAttributes {
+	var inactiveDevices *cwssaws.Uint32List
+	if mc.InactiveDevices != nil {
+		inactiveDevices = &cwssaws.Uint32List{}
+		for _, d := range mc.InactiveDevices {
+			u := cutil.IntPtrToUint32Ptr(&d)
+			inactiveDevices.Items = append(inactiveDevices.Items, *u)
+		}
+	}
+
+	var deviceType *cwssaws.MachineCapabilityDeviceType
+	if mc.DeviceType != nil {
+		if dt := mc.DeviceType.ToProto(); dt != cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_UNKNOWN {
+			deviceType = &dt
+		}
+	}
+
+	return &cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
+		CapabilityType:   mc.Type.ToProto(),
+		Name:             &mc.Name,
+		Frequency:        mc.Frequency,
+		Capacity:         mc.Capacity,
+		Vendor:           mc.Vendor,
+		Count:            cutil.IntPtrToUint32Ptr(mc.Count),
+		DeviceType:       deviceType,
+		HardwareRevision: mc.HardwareRevision,
+		InactiveDevices:  inactiveDevices,
+		Cores:            cutil.IntPtrToUint32Ptr(mc.Cores),
+		Threads:          cutil.IntPtrToUint32Ptr(mc.Threads),
+	}
+}
+
+// FromProto populates this MachineCapability from workflow proto filter
+// attributes. idx is the per-InstanceType ordering index (NICo rejects
+// updates that re-order capabilities).
+//
+// Per the proto-conversion convention, this is a pure mapper and does
+// not return errors. Per-enum mapping lives on `MachineCapabilityType`
+// and `MachineCapabilityDeviceType`. An unknown CapabilityType or nil
+// Name silently leaves Type / Name as their zero values; callers that
+// need to reject such cases should call `(*MachineCapability).Validate()`
+// after `FromProto`. A nil attrs is a no-op (receiver untouched).
+func (mc *MachineCapability) FromProto(attrs *cwssaws.InstanceTypeMachineCapabilityFilterAttributes, idx int) {
+	if attrs == nil {
+		return
+	}
+
+	mc.Type.FromProto(attrs.CapabilityType)
+
+	var name string
+	if attrs.Name != nil {
+		name = *attrs.Name
+	}
+
+	var inactiveDevices []int
+	if attrs.InactiveDevices != nil {
+		for _, d := range attrs.InactiveDevices.Items {
+			inactiveDevices = append(inactiveDevices, int(d))
+		}
+	}
+
+	var deviceType *MachineCapabilityDeviceType
+	if attrs.DeviceType != nil {
+		var dt MachineCapabilityDeviceType
+		dt.FromProto(*attrs.DeviceType)
+		// Preserve presence even when the proto enum is unsupported
+		// (dt stays the empty string) so the post-`FromProto`
+		// `Validate()` can reject it instead of silently dropping it.
+		deviceType = &dt
+	}
+
+	mc.Name = name
+	mc.Frequency = attrs.Frequency
+	mc.Capacity = attrs.Capacity
+	mc.Vendor = attrs.Vendor
+	mc.Count = cutil.Uint32PtrToIntPtr(attrs.Count)
+	mc.HardwareRevision = attrs.HardwareRevision
+	mc.Cores = cutil.Uint32PtrToIntPtr(attrs.Cores)
+	mc.Threads = cutil.Uint32PtrToIntPtr(attrs.Threads)
+	mc.InactiveDevices = inactiveDevices
+	mc.DeviceType = deviceType
+	mc.Index = idx
+}
+
+// Validate checks that the populated MachineCapability is wire-safe
+// for the workflow proto conversion. Pairs with `FromProto`: callers
+// that build a MachineCapability from site-supplied proto data should
+// run `Validate` afterwards to reject unknown CapabilityType enums
+// (which `FromProto` leaves as the empty Type), missing Names, and
+// cross-field combinations the wire shape can't represent — DeviceType
+// must pair with Network (DPU) or GPU (NVLink), and InactiveDevices is
+// only valid on InfiniBand. These mirror the API-side
+// `(APIMachineCapability).Validate` rules so the workflow-inventory
+// path and the API path enforce the same invariants.
+func (mc *MachineCapability) Validate() error {
+	mctypes := make([]any, 0, len(MachineCapabilityTypeChoiceMap))
+	for mctype := range MachineCapabilityTypeChoiceMap {
+		mctypes = append(mctypes, mctype)
+	}
+	return validation.ValidateStruct(mc,
+		validation.Field(&mc.Type,
+			validation.Required.Error("MachineCapability Type must be specified"),
+			validation.In(mctypes...).Error(fmt.Sprintf("invalid MachineCapability Type: %q", mc.Type))),
+		validation.Field(&mc.Name,
+			validation.Required.Error("MachineCapability Name must be specified"),
+			validation.Length(2, 256).Error("MachineCapability Name must be at least 2 characters and maximum 256 characters"),
+			validation.By(mc.validateNameWhitespace)),
+		validation.Field(&mc.DeviceType, validation.By(mc.validateDeviceType)),
+		validation.Field(&mc.InactiveDevices, validation.By(mc.validateInactiveDevices)),
+	)
+}
+
+// validateNameWhitespace rejects Names with leading or trailing
+// whitespace, mirroring the API-side `util.ValidateNameCharacters`
+// rule so the wire-bound DB-model gate matches the API one.
+func (mc *MachineCapability) validateNameWhitespace(value interface{}) error {
+	s, ok := value.(string)
+	if !ok {
+		return errors.New("MachineCapability Name must be a string")
+	}
+	if strings.TrimSpace(s) != s {
+		return errors.New("MachineCapability Name must not contain leading or trailing whitespace")
+	}
+	return nil
+}
+
+// validateDeviceType enforces the Type/DeviceType compatibility rules:
+// Network capabilities require DPU, GPU capabilities require NVLink,
+// every other Type must not carry a DeviceType. A nil DeviceType is
+// always allowed.
+func (mc *MachineCapability) validateDeviceType(value interface{}) error {
+	dt, ok := value.(*MachineCapabilityDeviceType)
+	if !ok || dt == nil {
+		return nil
+	}
+	switch mc.Type {
+	case MachineCapabilityTypeNetwork:
+		if *dt != MachineCapabilityDeviceTypeDPU {
+			return fmt.Errorf("Unsupported Device Type specified for Network Capability %s", *dt)
+		}
+	case MachineCapabilityTypeGPU:
+		if *dt != MachineCapabilityDeviceTypeNVLink {
+			return fmt.Errorf("Unsupported Device Type specified for GPU Capability %s", *dt)
+		}
+	default:
+		return fmt.Errorf("Unsupported Device Type: %s specified for Capability type %s", *dt, mc.Type)
+	}
+	return nil
+}
+
+// validateInactiveDevices enforces that InactiveDevices is only set on
+// InfiniBand capabilities.
+func (mc *MachineCapability) validateInactiveDevices(value interface{}) error {
+	ids, ok := value.([]int)
+	if !ok || len(ids) == 0 {
+		return nil
+	}
+	if mc.Type != MachineCapabilityTypeInfiniBand {
+		return errors.New("InactiveDevices specified for non-InfiniBand Capability Type")
+	}
+	return nil
+}
+
+// MapKey returns the canonical `Type-Name` string used as a map key
+// when callers need to dedupe or look up capabilities by their
+// `(Type, Name)` pair (e.g. cloud↔site diffing during instance-type
+// sync, instance-type update planning). Centralizing the format here
+// avoids drift across the call sites and keeps the typed-string cast
+// in one place.
+func (mc *MachineCapability) MapKey() string {
+	return string(mc.Type) + "-" + mc.Name
 }
 
 // GetStrInfo returns the string value of the given key in the Info map
@@ -275,8 +546,11 @@ func (mcd MachineCapabilitySQLDAO) Create(
 		mcd.tracerSpan.SetAttribute(MachineCapabilityDAOSpan, "name", input.Name)
 	}
 
-	if len(strings.TrimSpace(input.Type)) == 0 {
+	if len(strings.TrimSpace(string(input.Type))) == 0 {
 		return nil, errors.New("capabilityType is empty")
+	}
+	if !MachineCapabilityTypeChoiceMap[input.Type] {
+		return nil, fmt.Errorf("invalid capabilityType: %q", input.Type)
 	}
 
 	if input.MachineID == nil && input.InstanceTypeID == nil {
@@ -618,8 +892,11 @@ func (mcd MachineCapabilitySQLDAO) Update(
 		}
 	}
 	if input.Type != nil {
-		if len(strings.TrimSpace(*input.Type)) == 0 {
+		if len(strings.TrimSpace(string(*input.Type))) == 0 {
 			return nil, errors.New("capabilityType is empty")
+		}
+		if !MachineCapabilityTypeChoiceMap[*input.Type] {
+			return nil, fmt.Errorf("invalid capabilityType: %q", *input.Type)
 		}
 		m.Type = *input.Type
 		updatedFields = append(updatedFields, "type")

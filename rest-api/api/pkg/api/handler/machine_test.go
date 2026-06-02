@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -146,7 +132,7 @@ func testMachineBuildMachine(t *testing.T, dbSession *cdb.Session, ip uuid.UUID,
 	return m
 }
 
-func testMachineBuildMachineCapability(t *testing.T, dbSession *cdb.Session, mID *string, capabilityType string, name string, capacity *string, count *int) *cdbm.MachineCapability {
+func testMachineBuildMachineCapability(t *testing.T, dbSession *cdb.Session, mID *string, capabilityType cdbm.MachineCapabilityType, name string, capacity *string, count *int) *cdbm.MachineCapability {
 	mc := &cdbm.MachineCapability{
 		ID:             uuid.New(),
 		MachineID:      mID,
@@ -808,7 +794,6 @@ func TestMachineHandler_GetAll(t *testing.T) {
 	}
 
 	// Build Targeted Instance
-
 	tnOrg4 := "test-tn-org-4"
 	tnu4 := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg4}, tnRoles)
 
@@ -917,6 +902,17 @@ func TestMachineHandler_GetAll(t *testing.T) {
 	)
 	assert.Nil(t, err)
 	assert.NotNil(t, ins34)
+
+	tnOrg7 := "test-tn-org-7"
+	tnu7 := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg7}, tnRoles)
+	tenant7 := testMachineBuildTenant(t, dbSession, tnOrg7, "test-tenant7")
+	_ = testMachineUpdateTenantCapability(t, dbSession, tenant7)
+	_ = common.TestBuildTenantAccount(t, dbSession, ip, &tenant7.ID, tnOrg7, cdbm.TenantAccountStatusReady, tnu7)
+
+	tnOrg8 := "test-tn-org-8"
+	tnu8 := testMachineBuildUser(t, dbSession, uuid.NewString(), []string{tnOrg8}, tnRoles)
+	tenant8 := testMachineBuildTenant(t, dbSession, tnOrg8, "test-tenant8")
+	_ = testMachineUpdateTenantCapability(t, dbSession, tenant8)
 
 	cfg := common.GetTestConfig()
 	tempClient := &tmocks.Client{}
@@ -1052,7 +1048,7 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			verifyChildSpanner: true,
 		},
 		{
-			name:               "success case when tenant has TenantAdmin role and has TargetedInstanceCreation capability",
+			name:               "success case when Tenant has TargetedInstanceCreation capability and filters by Site ID",
 			reqOrgName:         tnOrg2,
 			user:               tnu2,
 			querySiteID:        cdb.GetStrPtr(siteT2.ID.String()),
@@ -1062,6 +1058,24 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			expectedTotal:      cdb.GetIntPtr(0),
 			expectInstance:     false,
 			verifyChildSpanner: true,
+		},
+		{
+			name:           "success case when Tenant has TargetedInstanceCreation capability",
+			reqOrgName:     tnOrg7,
+			user:           tnu7,
+			expectedErr:    false,
+			expectedStatus: http.StatusOK,
+			expectedCnt:    totalCount / 2,
+			expectedTotal:  cdb.GetIntPtr(totalCount / 2),
+		},
+		{
+			name:           "empty result when Tenant has TargetedInstanceCreation capability but no Tenant Account",
+			reqOrgName:     tnOrg8,
+			user:           tnu8,
+			expectedErr:    false,
+			expectedStatus: http.StatusOK,
+			expectedCnt:    0,
+			expectedTotal:  cdb.GetIntPtr(0),
 		},
 		{
 			name:                "success case when Instance Type ID specified in query",
@@ -1248,7 +1262,7 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			name:                "success when valid capability type is specified in query",
 			reqOrgName:          ipOrg1,
 			user:                ipu,
-			queryCapabilityType: cdb.GetStrPtr(cdbm.MachineCapabilityTypeCPU),
+			queryCapabilityType: cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeCPU),
 			expectedErr:         false,
 			expectedStatus:      http.StatusOK,
 			expectedCnt:         totalCount / 2,
@@ -1338,7 +1352,7 @@ func TestMachineHandler_GetAll(t *testing.T) {
 			expectedCnt:    0,
 		},
 		{
-			name:           "failure case when Tenant ID specified in query does not belong to the current infrastructure provider",
+			name:           "failure case when Tenant ID specified in query does have an account with current org's Provider",
 			reqOrgName:     ipOrg4,
 			user:           ipu,
 			queryTenantID:  []string{tenant2.ID.String()},
@@ -1616,6 +1630,7 @@ func TestMachineHandler_Update(t *testing.T) {
 
 	tenant := testMachineBuildTenant(t, dbSession, ipOrg1, "testTenant1")
 	tenant2 := testMachineBuildTenant(t, dbSession, tnOrg2, "testTenant2")
+	_ = testMachineUpdateTenantCapability(t, dbSession, tenant2)
 	_ = common.TestBuildTenantAccount(t, dbSession, ip, &tenant2.ID, tnOrg2, cdbm.TenantAccountStatusReady, tnu2)
 
 	instanceType1 := testMachineBuildInstanceType(t, dbSession, ip, site, "testInstanceType1")
@@ -1702,6 +1717,119 @@ func TestMachineHandler_Update(t *testing.T) {
 	assert.Nil(t, err)
 	assert.NotNil(t, i1)
 
+	mOnlineRepairReady := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(instanceType2.ID), cdb.GetStrPtr("mcType"), true, false, cdbm.MachineStatusReady)
+	_ = common.TestBuildMachineInstanceType(t, dbSession, mOnlineRepairReady, instanceType2)
+	iOnlineRepairReady, err := isd.Create(
+		context.Background(), nil,
+		cdbm.InstanceCreateInput{
+			Name:                     "testOnlineRepairReady",
+			TenantID:                 tenant.ID,
+			InfrastructureProviderID: ip.ID,
+			SiteID:                   site.ID,
+			InstanceTypeID:           &instanceType2.ID,
+			VpcID:                    vpc.ID,
+			MachineID:                &mOnlineRepairReady.ID,
+			Hostname:                 cdb.GetStrPtr("or-ready.example.com"),
+			OperatingSystemID:        cdb.GetUUIDPtr(operatingSystem.ID),
+			IpxeScript:               cdb.GetStrPtr("ipxe"),
+			AlwaysBootWithCustomIpxe: true,
+			UserData:                 cdb.GetStrPtr("userdata"),
+			Status:                   cdbm.InstanceStatusReady,
+			CreatedBy:                tnu.ID,
+		},
+	)
+	require.NoError(t, err)
+
+	mOnlineRepairMissing := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(instanceType2.ID), cdb.GetStrPtr("mcType"), true, true, cdbm.MachineStatusReady)
+	_ = common.TestBuildMachineInstanceType(t, dbSession, mOnlineRepairMissing, instanceType2)
+
+	mOnlineRepairPending := testMachineBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetUUIDPtr(instanceType2.ID), cdb.GetStrPtr("mcType"), true, false, cdbm.MachineStatusReady)
+	_ = common.TestBuildMachineInstanceType(t, dbSession, mOnlineRepairPending, instanceType2)
+	_, err = isd.Create(
+		context.Background(), nil,
+		cdbm.InstanceCreateInput{
+			Name:                     "testOnlineRepairPending",
+			TenantID:                 tenant.ID,
+			InfrastructureProviderID: ip.ID,
+			SiteID:                   site.ID,
+			InstanceTypeID:           &instanceType2.ID,
+			VpcID:                    vpc.ID,
+			MachineID:                &mOnlineRepairPending.ID,
+			Hostname:                 cdb.GetStrPtr("or-pending.example.com"),
+			OperatingSystemID:        cdb.GetUUIDPtr(operatingSystem.ID),
+			IpxeScript:               cdb.GetStrPtr("ipxe"),
+			AlwaysBootWithCustomIpxe: true,
+			UserData:                 cdb.GetStrPtr("userdata"),
+			Status:                   cdbm.InstanceStatusPending,
+			CreatedBy:                tnu.ID,
+		},
+	)
+	require.NoError(t, err)
+
+	buildOnlineRepairEnterRequest := func(allowAutoInstanceDeletion bool) *model.APIMachineUpdateRequest {
+		return &model.APIMachineUpdateRequest{
+			OnlineRepair: &model.APIMachineOnlineRepair{
+				Enabled: cdb.GetBoolPtr(true),
+				Policy: &model.APIMachineOnlineRepairPolicy{
+					AllowAutoInstanceDeletionOnFailure: cdb.GetBoolPtr(allowAutoInstanceDeletion),
+				},
+				Acknowledgments: &model.APIMachineOnlineRepairAcknowledgments{
+					AcceptDataCorruptionRisk:   cdb.GetBoolPtr(true),
+					AcceptRepairTeamAccess:     cdb.GetBoolPtr(true),
+					AcceptInstanceDeletionRisk: cdb.GetBoolPtr(true),
+				},
+			},
+			HealthIssue: &model.APIMachineHealthIssue{
+				Category: model.HealthIssueStorage,
+				Summary:  cdb.GetStrPtr("tenant summary"),
+				Details:  cdb.GetStrPtr("tenant details"),
+			},
+		}
+	}
+
+	buildOnlineRepairExitRequest := func() *model.APIMachineUpdateRequest {
+		return &model.APIMachineUpdateRequest{
+			OnlineRepair: &model.APIMachineOnlineRepair{
+				Enabled: cdb.GetBoolPtr(false),
+			},
+		}
+	}
+
+	machineRepairResetReady := func(t *testing.T) {
+		t.Helper()
+		_, uerr := isd.Update(context.Background(), nil, cdbm.InstanceUpdateInput{
+			InstanceID: iOnlineRepairReady.ID,
+			InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{
+				Status: cdb.GetStrPtr(cdbm.InstanceStatusReady),
+				Labels: map[string]string{},
+			},
+		})
+		require.NoError(t, uerr)
+	}
+
+	machineRepairSetRepairing := func(t *testing.T) {
+		t.Helper()
+		_, uerr := isd.Update(context.Background(), nil, cdbm.InstanceUpdateInput{
+			InstanceID: iOnlineRepairReady.ID,
+			InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{
+				Status: cdb.GetStrPtr(cdbm.InstanceStatusRepairing),
+				Labels: map[string]string{model.InstanceLabelOnlineRepairAllowAutoDeletion: "false"},
+			},
+		})
+		require.NoError(t, uerr)
+	}
+
+	assertOnlineRepairLatestStatusDetail := func(t *testing.T, instanceID uuid.UUID, wantStatus, wantMessage string) {
+		t.Helper()
+		sdDAO := cdbm.NewStatusDetailDAO(dbSession)
+		recent, rerr := sdDAO.GetRecentByEntityIDs(context.Background(), nil, []string{instanceID.String()}, 1)
+		require.NoError(t, rerr)
+		require.Len(t, recent, 1)
+		assert.Equal(t, wantStatus, recent[0].Status)
+		require.NotNil(t, recent[0].Message)
+		assert.Equal(t, wantMessage, *recent[0].Message)
+	}
+
 	mit1 := common.TestBuildMachineInstanceType(t, dbSession, m, instanceType1)
 	assert.NotNil(t, mit1)
 
@@ -1733,6 +1861,8 @@ func TestMachineHandler_Update(t *testing.T) {
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "AssociateMachinesWithInstanceType", mock.Anything).Return(wrun, nil)
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "RemoveMachineInstanceTypeAssociation", mock.Anything).Return(wrun, nil)
 	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "UpdateMachineMetadata", mock.Anything).Return(wrun, nil)
+	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "CreateMachineHealthReportOverride", mock.Anything).Return(wrun, nil)
+	tsc.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "DeleteMachineHealthReportOverride", mock.Anything).Return(wrun, nil)
 
 	// Mock timeout error
 	wruntimeout := &tmocks.WorkflowRun{}
@@ -1744,6 +1874,8 @@ func TestMachineHandler_Update(t *testing.T) {
 	tsc1.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "AssociateMachinesWithInstanceType", mock.Anything).Return(wruntimeout, nil)
 	tsc1.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "RemoveMachineInstanceTypeAssociation", mock.Anything).Return(wruntimeout, nil)
 	tsc1.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "UpdateMachineMetadata", mock.Anything).Return(wruntimeout, nil)
+	tsc1.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "CreateMachineHealthReportOverride", mock.Anything).Return(wruntimeout, nil)
+	tsc1.Mock.On("ExecuteWorkflow", mock.Anything, mock.AnythingOfType("internal.StartWorkflowOptions"), "DeleteMachineHealthReportOverride", mock.Anything).Return(wruntimeout, nil)
 
 	tsc1.Mock.On("TerminateWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
@@ -1774,6 +1906,8 @@ func TestMachineHandler_Update(t *testing.T) {
 		reqOldMachineInstanceType   *cdbm.MachineInstanceType
 		reqClearInstanceType        bool
 		reqLabels                   map[string]string
+		beforeHandle                func(t *testing.T)
+		verifyOnlineRepair          func(t *testing.T)
 	}
 
 	machineDAO := cdbm.NewMachineDAO(dbSession)
@@ -2264,6 +2398,259 @@ func TestMachineHandler_Update(t *testing.T) {
 			},
 		},
 		{
+			name: "test Machine update API online repair failure, Machine is missing on Site",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData:    buildOnlineRepairEnterRequest(false),
+				reqMachine: mOnlineRepairMissing,
+				reqOrg:     ipOrg1,
+				reqUser:    ipu,
+				respCode:   http.StatusBadRequest,
+			},
+		},
+		{
+			name: "test Machine update API online repair failure, Machine has no assigned Instance",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData:    buildOnlineRepairEnterRequest(false),
+				reqMachine: m7,
+				reqOrg:     ipOrg1,
+				reqUser:    ipu,
+				respCode:   http.StatusBadRequest,
+			},
+		},
+		{
+			name: "test Machine update API online repair failure, Instance must be Ready to enter",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData:    buildOnlineRepairEnterRequest(false),
+				reqMachine: mOnlineRepairPending,
+				reqOrg:     ipOrg1,
+				reqUser:    ipu,
+				respCode:   http.StatusBadRequest,
+			},
+		},
+		{
+			name: "test Machine update API online repair failure, exit without Repairing status, marker label, or machine OnLineRepair health alert",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData:    buildOnlineRepairExitRequest(),
+				reqMachine: mOnlineRepairReady,
+				reqOrg:     ipOrg1,
+				reqUser:    ipu,
+				respCode:   http.StatusBadRequest,
+				beforeHandle: func(t *testing.T) {
+					machineRepairResetReady(t)
+				},
+			},
+		},
+		{
+			name: "test Machine update API online repair success, enter repair (Provider Admin)",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData:    buildOnlineRepairEnterRequest(false),
+				reqMachine: mOnlineRepairReady,
+				reqOrg:     ipOrg1,
+				reqUser:    ipu,
+				respCode:   http.StatusOK,
+				beforeHandle: func(t *testing.T) {
+					machineRepairResetReady(t)
+				},
+				verifyOnlineRepair: func(t *testing.T) {
+					inst, gerr := isd.GetByID(context.Background(), nil, iOnlineRepairReady.ID, nil)
+					require.NoError(t, gerr)
+					assert.Equal(t, cdbm.InstanceStatusRepairing, inst.Status)
+					assert.Equal(t, "false", inst.Labels[model.InstanceLabelOnlineRepairAllowAutoDeletion])
+					assertOnlineRepairLatestStatusDetail(t, iOnlineRepairReady.ID, cdbm.InstanceStatusRepairing, "Instance is currently being repaired")
+				},
+			},
+		},
+		{
+			name: "test Machine update API online repair success, enter repair with allowAutoInstanceDeletionOnFailure",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData:    buildOnlineRepairEnterRequest(true),
+				reqMachine: mOnlineRepairReady,
+				reqOrg:     ipOrg1,
+				reqUser:    ipu,
+				respCode:   http.StatusOK,
+				beforeHandle: func(t *testing.T) {
+					machineRepairResetReady(t)
+				},
+				verifyOnlineRepair: func(t *testing.T) {
+					inst, gerr := isd.GetByID(context.Background(), nil, iOnlineRepairReady.ID, nil)
+					require.NoError(t, gerr)
+					assert.Equal(t, cdbm.InstanceStatusRepairing, inst.Status)
+					assert.Equal(t, "true", inst.Labels[model.InstanceLabelOnlineRepairAllowAutoDeletion])
+					assertOnlineRepairLatestStatusDetail(t, iOnlineRepairReady.ID, cdbm.InstanceStatusRepairing, "Instance is currently being repaired")
+				},
+			},
+		},
+		{
+			name: "test Machine update API online repair success, exit repair",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData:    buildOnlineRepairExitRequest(),
+				reqMachine: mOnlineRepairReady,
+				reqOrg:     ipOrg1,
+				reqUser:    ipu,
+				respCode:   http.StatusOK,
+				beforeHandle: func(t *testing.T) {
+					machineRepairSetRepairing(t)
+				},
+				verifyOnlineRepair: func(t *testing.T) {
+					inst, gerr := isd.GetByID(context.Background(), nil, iOnlineRepairReady.ID, nil)
+					require.NoError(t, gerr)
+					assert.Equal(t, cdbm.InstanceStatusReady, inst.Status)
+					_, has := inst.Labels[model.InstanceLabelOnlineRepairAllowAutoDeletion]
+					assert.False(t, has)
+					assertOnlineRepairLatestStatusDetail(t, iOnlineRepairReady.ID, cdbm.InstanceStatusReady, "Instance repair has been completed, ready for use")
+				},
+			},
+		},
+		{
+			name: "test Machine update API online repair success, exit when instance Ready but online repair marker label remains",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData:    buildOnlineRepairExitRequest(),
+				reqMachine: mOnlineRepairReady,
+				reqOrg:     ipOrg1,
+				reqUser:    ipu,
+				respCode:   http.StatusOK,
+				beforeHandle: func(t *testing.T) {
+					t.Helper()
+					_, uerr := isd.Update(context.Background(), nil, cdbm.InstanceUpdateInput{
+						InstanceID: iOnlineRepairReady.ID,
+						InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{
+							Status: cdb.GetStrPtr(cdbm.InstanceStatusReady),
+							Labels: map[string]string{model.InstanceLabelOnlineRepairAllowAutoDeletion: "false"},
+						},
+					})
+					require.NoError(t, uerr)
+				},
+				verifyOnlineRepair: func(t *testing.T) {
+					inst, gerr := isd.GetByID(context.Background(), nil, iOnlineRepairReady.ID, nil)
+					require.NoError(t, gerr)
+					assert.Equal(t, cdbm.InstanceStatusReady, inst.Status)
+					_, has := inst.Labels[model.InstanceLabelOnlineRepairAllowAutoDeletion]
+					assert.False(t, has)
+					assertOnlineRepairLatestStatusDetail(t, iOnlineRepairReady.ID, cdbm.InstanceStatusReady, "Instance repair has been completed, ready for use")
+				},
+			},
+		},
+		{
+			name: "test Machine update API online repair success, exit when Ready without marker but Machine health lists OnLineRepair alert",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData:    buildOnlineRepairExitRequest(),
+				reqMachine: mOnlineRepairReady,
+				reqOrg:     ipOrg1,
+				reqUser:    ipu,
+				respCode:   http.StatusOK,
+				beforeHandle: func(t *testing.T) {
+					t.Helper()
+					machineRepairResetReady(t)
+					health := map[string]interface{}{
+						"alerts": []map[string]interface{}{
+							{
+								"id":      model.MachineHealthAlertIDOnlineRepair,
+								"message": `{}`,
+							},
+						},
+					}
+					_, uerr := machineDAO.Update(ctx, nil, cdbm.MachineUpdateInput{
+						MachineID: mOnlineRepairReady.ID,
+						Health:    health,
+					})
+					require.NoError(t, uerr)
+				},
+				verifyOnlineRepair: func(t *testing.T) {
+					t.Helper()
+					inst, gerr := isd.GetByID(context.Background(), nil, iOnlineRepairReady.ID, nil)
+					require.NoError(t, gerr)
+					assert.Equal(t, cdbm.InstanceStatusReady, inst.Status)
+					_, has := inst.Labels[model.InstanceLabelOnlineRepairAllowAutoDeletion]
+					assert.False(t, has)
+					assertOnlineRepairLatestStatusDetail(t, iOnlineRepairReady.ID, cdbm.InstanceStatusReady, "Instance repair has been completed, ready for use")
+					_, cerr := machineDAO.Clear(context.Background(), nil, cdbm.MachineClearInput{
+						MachineID: mOnlineRepairReady.ID,
+						Health:    true,
+					})
+					require.NoError(t, cerr)
+				},
+			},
+		},
+		{
+			name: "test Machine update API online repair success, enter repair (privileged Tenant Admin)",
+			fields: fields{
+				dbSession: dbSession,
+				tc:        tc,
+				scp:       scp,
+				cfg:       cfg,
+			},
+			args: args{
+				reqData:    buildOnlineRepairEnterRequest(false),
+				reqMachine: mOnlineRepairReady,
+				reqOrg:     tnOrg2,
+				reqUser:    tnu2,
+				respCode:   http.StatusOK,
+				beforeHandle: func(t *testing.T) {
+					machineRepairResetReady(t)
+				},
+				verifyOnlineRepair: func(t *testing.T) {
+					inst, gerr := isd.GetByID(context.Background(), nil, iOnlineRepairReady.ID, nil)
+					require.NoError(t, gerr)
+					assert.Equal(t, cdbm.InstanceStatusRepairing, inst.Status)
+					assertOnlineRepairLatestStatusDetail(t, iOnlineRepairReady.ID, cdbm.InstanceStatusRepairing, "Instance is currently being repaired")
+				},
+			},
+		},
+		{
 			name: "test Machine update API endpoint failure, Instance Type is being cleared by Tenant Admin with TargetedInstanceCreation capability",
 			fields: fields{
 				dbSession: dbSession,
@@ -2308,6 +2695,10 @@ func TestMachineHandler_Update(t *testing.T) {
 			ctx = context.WithValue(ctx, otelecho.TracerKey, tracer)
 			ec.SetRequest(ec.Request().WithContext(ctx))
 
+			if tt.args.beforeHandle != nil {
+				tt.args.beforeHandle(t)
+			}
+
 			err := umh.Handle(ec)
 			require.NoError(t, err)
 
@@ -2351,7 +2742,10 @@ func TestMachineHandler_Update(t *testing.T) {
 					}
 				}
 
-				assert.NotEqual(t, rst.Updated.String(), tt.args.reqMachine.Updated.String())
+				// Online repair updates Instance (and Site workflow); Machine row may not be touched, so Updated can match.
+				if tt.args.verifyOnlineRepair == nil {
+					assert.NotEqual(t, rst.Updated.String(), tt.args.reqMachine.Updated.String())
+				}
 
 				mitDAO := cdbm.NewMachineInstanceTypeDAO(dbSession)
 
@@ -2408,6 +2802,10 @@ func TestMachineHandler_Update(t *testing.T) {
 				// Verify that Machine labels are updated
 				if tt.args.reqLabels != nil {
 					assert.Equal(t, rst.Labels, tt.args.reqLabels)
+				}
+
+				if tt.args.verifyOnlineRepair != nil {
+					tt.args.verifyOnlineRepair(t)
 				}
 			}
 

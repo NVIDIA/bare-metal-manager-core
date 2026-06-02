@@ -98,6 +98,7 @@ pub struct NetworkDefinition {
 pub enum NetworkDefinitionSegmentType {
     Admin,
     Underlay,
+    HostInband,
     // Tenant networks are created via the API, not the config file
 }
 
@@ -339,6 +340,7 @@ impl NewNetworkSegment {
             segment_type: match value.segment_type {
                 NetworkDefinitionSegmentType::Admin => NetworkSegmentType::Admin,
                 NetworkDefinitionSegmentType::Underlay => NetworkSegmentType::Underlay,
+                NetworkDefinitionSegmentType::HostInband => NetworkSegmentType::HostInband,
             },
             can_stretch: None,
             allocation_strategy: value.allocation_strategy,

@@ -139,7 +139,7 @@ A schedule's scope is the set of racks it targets. Each scope entry
 | Filter | Meaning |
 |---|---|
 | `null` (absent) | All components in the rack |
-| `{"kind":"types","types":["COMPUTE","NVLSWITCH"]}` | Only components of the listed types |
+| `{"kind":"types","types":["COMPUTE","NVSWITCH"]}` | Only components of the listed types |
 | `{"kind":"components","components":["<uuid>","<uuid>"]}` | Specific components by UUID |
 
 ### Scope management RPCs

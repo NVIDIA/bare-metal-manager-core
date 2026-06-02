@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -24,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"strings"
 	"testing"
@@ -50,7 +37,55 @@ import (
 	"go.temporal.io/api/enums/v1"
 	tmocks "go.temporal.io/sdk/mocks"
 	tp "go.temporal.io/sdk/temporal"
+
+	"go4.org/netipx"
 )
+
+func testVPCPrefixCIDREntity(t *testing.T, vp *cdbm.VpcPrefix) string {
+	t.Helper()
+	require.NotNil(t, vp)
+	p := strings.TrimSpace(vp.Prefix)
+	require.NotEmpty(t, p)
+	if strings.Contains(p, "/") {
+		return p
+	}
+	return fmt.Sprintf("%s/%d", p, vp.PrefixLength)
+}
+
+// testIPv4NthUsableInCIDR returns the nth usable IPv4 address (1-based) inside an IPv4 cidr (/32,/31,/30,… semantics).
+func testIPv4NthUsableInCIDR(t *testing.T, cidr string, nth int) string {
+	t.Helper()
+	pp, err := netip.ParsePrefix(cidr)
+	require.NoError(t, err)
+	require.True(t, pp.Addr().Is4())
+	require.Positive(t, nth)
+	bl := int(pp.Bits())
+
+	var usable []netip.Addr
+	switch {
+	case bl == 31:
+		r := netipx.RangeOfPrefix(pp.Masked())
+		a0 := r.From()
+		a1 := r.From().Next()
+		usable = append(usable, a0)
+		if pp.Contains(a1) {
+			usable = append(usable, a1)
+		}
+	case bl == 32:
+		usable = append(usable, pp.Addr())
+	default:
+		r := netipx.RangeOfPrefix(pp.Masked())
+		first := r.From().Next()
+		last := r.To().Prev()
+		require.True(t, first.IsValid() && last.IsValid())
+		for a := first; a.Compare(last) <= 0; a = a.Next() {
+			usable = append(usable, a)
+		}
+	}
+
+	require.GreaterOrEqual(t, len(usable), nth, "prefix %s has fewer than %d usable addresses", cidr, nth)
+	return usable[nth-1].String()
+}
 
 func testVpcPrefixBuildDomain(t *testing.T, dbSession *cdb.Session, hostname, org string, userID *uuid.UUID) *cdbm.Domain {
 	domain := &cdbm.Domain{
@@ -1069,6 +1104,7 @@ func TestVpcPrefixHandler_Get(t *testing.T) {
 	assert.NotNil(t, tenant2)
 	vpc1 := testVpcPrefixBuildVpc(t, dbSession, ip, tenant1, site, tnOrg1, "testVPC", cdb.GetStrPtr(cdbm.VpcFNN), cdbm.VpcStatusReady, cdb.GetUUIDPtr(uuid.New()))
 
+	_ = common.TestBuildTenantSite(t, dbSession, tenant1, site, tnu)
 	cfg := common.GetTestConfig()
 	tempClient := &tmocks.Client{}
 	ipamStorage := ipam.NewIpamStorage(dbSession.DB, nil)
@@ -1093,22 +1129,53 @@ func TestVpcPrefixHandler_Get(t *testing.T) {
 
 	vpcprefix := testCreateVpcPrefix(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(parentIpbBody))
 
+	ifaceWorkloadBody, err := json.Marshal(model.APIVpcPrefixCreateRequest{
+		Name: "iface-usage-stats", VpcID: vpc1.ID.String(), IPBlockID: cdb.GetStrPtr(ipb1.ID.String()), PrefixLength: prefixLen})
+	require.NoError(t, err)
+	vpcprefixWithIfaceWorkload := testCreateVpcPrefix(t, dbSession, scp, ipamStorage, tnu, tnOrg1, string(ifaceWorkloadBody))
+
+	alWorkload := common.TestBuildAllocation(t, dbSession, site, tenant1, "get-vpfx-usage-iface-alloc", ipu)
+	itWorkload := common.TestBuildInstanceType(t, dbSession, "get-vpfx-iface-it", cdb.GetUUIDPtr(uuid.New()), site, nil, ipu)
+	common.TestBuildAllocationConstraint(t, dbSession, alWorkload, itWorkload, nil, 5, ipu)
+	mWorkload := common.TestBuildMachine(t, dbSession, ip, site, &itWorkload.ID, cdb.GetStrPtr("get-vpfx-iface-mt"), cdbm.MachineStatusReady)
+	_ = common.TestBuildMachineInstanceType(t, dbSession, mWorkload, itWorkload)
+	osWorkload := common.TestBuildOperatingSystem(t, dbSession, "get-vpfx-iface-os", tenant1, cdbm.OperatingSystemStatusReady, tnu)
+
+	vpWorkloadID := uuid.MustParse(vpcprefixWithIfaceWorkload.ID)
+	vpWorkloadEnt, err := cdbm.NewVpcPrefixDAO(dbSession).GetByID(ctx, nil, vpWorkloadID, nil)
+	require.NoError(t, err)
+
+	cidr := testVPCPrefixCIDREntity(t, vpWorkloadEnt)
+	chosenIfaceIPv4 := testIPv4NthUsableInCIDR(t, cidr, 20)
+
+	instWorkload := common.TestBuildInstance(t, dbSession, "get-vpfx-iface-inst", tenant1.ID, ip.ID, site.ID, itWorkload.ID, vpc1.ID, cdb.GetStrPtr(mWorkload.ID), osWorkload.ID)
+
+	ifWorkload := common.TestBuildInterface(t, dbSession, instWorkload.ID, nil, &vpWorkloadID, true, nil, nil, nil, cdb.GetStrPtr(cdbm.InterfaceStatusReady), tnu)
+	_, err = cdbm.NewInterfaceDAO(dbSession).Update(ctx, nil, cdbm.InterfaceUpdateInput{
+		InterfaceID: ifWorkload.ID,
+		IpAddresses: []string{chosenIfaceIPv4},
+	})
+	require.NoError(t, err)
+
 	// OTEL Spanner configuration
 	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
 
 	tests := []struct {
-		name                   string
-		reqOrgName             string
-		user                   *cdbm.User
-		id                     string
-		expectedErr            bool
-		expectedStatus         int
-		queryIncludeRelations1 *string
-		queryIncludeRelations2 *string
-		queryIncludeRelations3 *string
-		expectedVpcName        *string
-		expectetIPName         *string
-		verifyChildSpanner     bool
+		name                            string
+		reqOrgName                      string
+		user                            *cdbm.User
+		id                              string
+		expectedErr                     bool
+		expectedStatus                  int
+		queryIncludeRelations1          *string
+		queryIncludeRelations2          *string
+		queryIncludeRelations3          *string
+		queryIncludeUsageStats          *string
+		expectedVpcName                 *string
+		expectetIPName                  *string
+		expectUsageStatsNonNil          bool
+		verifyUsageAcquisitionFromIface bool
+		verifyChildSpanner              bool
 	}{
 		{
 			name:           "error when user not found in request context",
@@ -1187,6 +1254,36 @@ func TestVpcPrefixHandler_Get(t *testing.T) {
 			queryIncludeRelations1: cdb.GetStrPtr(cdbm.IPBlockRelationName),
 			expectetIPName:         &ipb1.Name,
 		},
+		{
+			name:                   "error when includeUsageStats query invalid",
+			reqOrgName:             tnOrg1,
+			user:                   tnu,
+			id:                     vpcprefix.ID,
+			expectedErr:            true,
+			expectedStatus:         http.StatusBadRequest,
+			queryIncludeUsageStats: cdb.GetStrPtr("not-a-bool"),
+		},
+		{
+			name:                   "success case when includeUsageStats true",
+			reqOrgName:             tnOrg1,
+			user:                   tnu,
+			id:                     vpcprefix.ID,
+			expectedErr:            false,
+			expectedStatus:         http.StatusOK,
+			queryIncludeUsageStats: cdb.GetStrPtr("true"),
+			expectUsageStatsNonNil: true,
+		},
+		{
+			name:                            "success case when includeUsageStats true with ethernet iface and IPv4 in prefix",
+			reqOrgName:                      tnOrg1,
+			user:                            tnu,
+			id:                              vpcprefixWithIfaceWorkload.ID,
+			expectedErr:                     false,
+			expectedStatus:                  http.StatusOK,
+			queryIncludeUsageStats:          cdb.GetStrPtr("true"),
+			expectUsageStatsNonNil:          true,
+			verifyUsageAcquisitionFromIface: true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1195,6 +1292,9 @@ func TestVpcPrefixHandler_Get(t *testing.T) {
 			e := echo.New()
 
 			q := url.Values{}
+			if tc.queryIncludeUsageStats != nil {
+				q.Set("includeUsageStats", *tc.queryIncludeUsageStats)
+			}
 			if tc.queryIncludeRelations1 != nil {
 				q.Add("includeRelation", *tc.queryIncludeRelations1)
 			}
@@ -1236,16 +1336,32 @@ func TestVpcPrefixHandler_Get(t *testing.T) {
 				// validate response fields
 				assert.Equal(t, 1, len(rsp.StatusHistory))
 
-				if tc.queryIncludeRelations1 != nil || tc.queryIncludeRelations2 != nil || tc.queryIncludeRelations3 != nil {
+				expanded := tc.queryIncludeRelations1 != nil || tc.queryIncludeRelations2 != nil || tc.queryIncludeRelations3 != nil || tc.expectUsageStatsNonNil
+				if expanded {
 					if tc.expectedVpcName != nil {
 						assert.Equal(t, *tc.expectedVpcName, rsp.Vpc.Name)
 					}
 					if tc.expectetIPName != nil {
 						assert.Equal(t, *tc.expectetIPName, rsp.IPBlock.Name)
 					}
+					if tc.expectUsageStatsNonNil {
+						require.NotNil(t, rsp.IPBlock)
+						require.NotNil(t, rsp.UsageStats)
+					}
+					if tc.verifyUsageAcquisitionFromIface {
+						require.NotNil(t, rsp.UsageStats)
+						assert.Greater(t, rsp.UsageStats.AcquiredPrefixes, uint64(0),
+							"Ethernet interface IPv4 in vpc_prefix should consume at least one /31 via ephemeral IPAM")
+						if rsp.UsageStats.AvailablePrefixes != nil {
+							assert.LessOrEqual(t, len(rsp.UsageStats.AvailablePrefixes), 10)
+						}
+					}
 				} else {
 					assert.Nil(t, rsp.Vpc)
 					assert.Nil(t, rsp.IPBlock)
+				}
+				if !expanded && !tc.expectedErr {
+					assert.Nil(t, rsp.UsageStats)
 				}
 			}
 

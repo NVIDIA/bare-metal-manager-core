@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package inventorysync
 
@@ -57,14 +43,14 @@ func runInventoryOne(
 	machineDrifts := syncMachines(ctx, pool, nicoClient)
 	allDrifts = append(allDrifts, machineDrifts...)
 
-	// Sync NVL switches: dispatch based on configured component manager
-	var nvlSwitchDrifts []model.ComponentDrift
-	if cmConfig.ComponentManagers[devicetypes.ComponentTypeNVLSwitch] == nicoprovider.ProviderName {
-		nvlSwitchDrifts = syncNVSwitchesNICo(ctx, pool, nicoClient)
+	// Sync NVSwitches: dispatch based on configured component manager
+	var nvSwitchDrifts []model.ComponentDrift
+	if cmConfig.ComponentManagers[devicetypes.ComponentTypeNVSwitch] == nicoprovider.ProviderName {
+		nvSwitchDrifts = syncNVSwitchesNICo(ctx, pool, nicoClient)
 	} else {
-		nvlSwitchDrifts = syncNVSwitches(ctx, pool, nicoClient, nsmClient)
+		nvSwitchDrifts = syncNVSwitches(ctx, pool, nicoClient, nsmClient)
 	}
-	allDrifts = append(allDrifts, nvlSwitchDrifts...)
+	allDrifts = append(allDrifts, nvSwitchDrifts...)
 
 	// Sync powershelves: dispatch based on configured component manager
 	var powershelfDrifts []model.ComponentDrift
@@ -480,7 +466,7 @@ func compareMachineFieldsForDrift(
 }
 
 // ---------------------------------------------------------------------------
-// syncNVSwitches: sync NVLSwitch components against NSM
+// syncNVSwitches: sync NVSwitch components against NSM
 // ---------------------------------------------------------------------------
 //
 // NSM API calls (1-2 round-trips):
@@ -492,7 +478,7 @@ func compareMachineFieldsForDrift(
 //   - FindInterfaces: check which BMCs/NVOS hosts have DHCPed
 //
 // Flow:
-//  1. DB: get all NVLSwitch components with BMCs
+//  1. DB: get all NVSwitch components with BMCs
 //  2. NSM GetNVSwitches: get registered switches
 //  3. NICo GetAllExpectedSwitches: get credentials and NVOS MAC (metadata label "host_mac_address")
 //  4. NICo FindInterfaces: check which BMCs/NVOS hosts have DHCPed
@@ -513,10 +499,10 @@ func syncNVSwitches(
 
 	log.Debug().Msg("Syncing NV switches...")
 
-	// Step 1: Get all NVLSwitch components with their BMCs
-	expectedSwitches, err := model.GetComponentsByType(ctx, pool.DB, devicetypes.ComponentTypeNVLSwitch)
+	// Step 1: Get all NVSwitch components with their BMCs
+	expectedSwitches, err := model.GetComponentsByType(ctx, pool.DB, devicetypes.ComponentTypeNVSwitch)
 	if err != nil {
-		log.Error().Msgf("Unable to retrieve NVLSwitch components from db: %v", err)
+		log.Error().Msgf("Unable to retrieve NVSwitch components from db: %v", err)
 		return nil
 	}
 
@@ -525,18 +511,18 @@ func syncNVSwitches(
 	}
 
 	// Build map from BMC MAC to component.
-	// Each NVLSwitch should have exactly one BMC.
+	// Each NVSwitch should have exactly one BMC.
 	expectedByBmcMac := make(map[string]*model.Component)
 	for i := range expectedSwitches {
 		sw := &expectedSwitches[i]
 		if len(sw.BMCs) != 1 {
-			log.Error().Msgf("NVLSwitch %s has %d BMCs, expected exactly 1; skipping", sw.SerialNumber, len(sw.BMCs))
+			log.Error().Msgf("NVSwitch %s has %d BMCs, expected exactly 1; skipping", sw.SerialNumber, len(sw.BMCs))
 			continue
 		}
 
 		bmcMacAddr, err := net.ParseMAC(sw.BMCs[0].MacAddress)
 		if err != nil || bmcMacAddr == nil {
-			log.Error().Msgf("NVLSwitch %s has invalid BMC MAC address %s; skipping", sw.SerialNumber, sw.BMCs[0].MacAddress)
+			log.Error().Msgf("NVSwitch %s has invalid BMC MAC address %s; skipping", sw.SerialNumber, sw.BMCs[0].MacAddress)
 			continue
 		}
 
@@ -571,7 +557,7 @@ func syncNVSwitches(
 		return nil
 	}
 
-	// Steps 5-7: Process each expected NVLSwitch
+	// Steps 5-7: Process each expected NVSwitch
 	now := time.Now()
 	var drifts []model.ComponentDrift
 	var toRegister []nsmapi.RegisterNVSwitchRequest
@@ -587,18 +573,18 @@ func syncNVSwitches(
 				nsmUUID := registeredSW.UUID
 				nvswitch.ComponentID = &nsmUUID
 				needsUpdate = true
-				log.Info().Msgf("NVLSwitch %s (BMC %s): setting external_id to NSM UUID %s", nvswitchID, bmcMac, nsmUUID)
+				log.Info().Msgf("NVSwitch %s (BMC %s): setting external_id to NSM UUID %s", nvswitchID, bmcMac, nsmUUID)
 			}
 
 			if registeredSW.BMCFirmware != "" && nvswitch.FirmwareVersion != registeredSW.BMCFirmware {
 				nvswitch.FirmwareVersion = registeredSW.BMCFirmware
 				needsUpdate = true
-				log.Info().Msgf("NVLSwitch %s (BMC %s): updating firmware version to %s", nvswitchID, bmcMac, registeredSW.BMCFirmware)
+				log.Info().Msgf("NVSwitch %s (BMC %s): updating firmware version to %s", nvswitchID, bmcMac, registeredSW.BMCFirmware)
 			}
 
 			if needsUpdate {
 				if err := nvswitch.Patch(ctx, pool.DB); err != nil {
-					log.Error().Msgf("NVLSwitch %s (BMC %s): unable to update: %v", nvswitchID, bmcMac, err)
+					log.Error().Msgf("NVSwitch %s (BMC %s): unable to update: %v", nvswitchID, bmcMac, err)
 				}
 			}
 
@@ -624,7 +610,7 @@ func syncNVSwitches(
 		// Not registered with NSM — check if BMC has DHCPed
 		bmcIface, found := interfacesByMac[bmcMac]
 		if !found || len(bmcIface.Addresses) == 0 {
-			log.Warn().Msgf("NVLSwitch %s (BMC %s): BMC has not DHCPed yet", nvswitchID, bmcMac)
+			log.Warn().Msgf("NVSwitch %s (BMC %s): BMC has not DHCPed yet", nvswitchID, bmcMac)
 			compID := nvswitch.ID
 			drifts = append(drifts, model.ComponentDrift{
 				ComponentID: &compID,
@@ -637,7 +623,7 @@ func syncNVSwitches(
 		}
 
 		if len(bmcIface.Addresses) > 1 {
-			log.Error().Msgf("NVLSwitch %s (BMC %s): multiple IP addresses assigned (%v), skipping registration", nvswitchID, bmcMac, bmcIface.Addresses)
+			log.Error().Msgf("NVSwitch %s (BMC %s): multiple IP addresses assigned (%v), skipping registration", nvswitchID, bmcMac, bmcIface.Addresses)
 			continue
 		}
 
@@ -645,20 +631,20 @@ func syncNVSwitches(
 
 		nicoES, hasNICoInfo := nicoByBmcMac[bmcMac]
 		if !hasNICoInfo {
-			log.Warn().Msgf("NVLSwitch %s (BMC %s): not found in NICo expected switches, skipping registration", nvswitchID, bmcMac)
+			log.Warn().Msgf("NVSwitch %s (BMC %s): not found in NICo expected switches, skipping registration", nvswitchID, bmcMac)
 			continue
 		}
 
 		nvosMacRaw, hasNvosMac := nicoES.Metadata["host_mac_address"]
 		if !hasNvosMac || nvosMacRaw == "" {
-			log.Warn().Msgf("NVLSwitch %s (BMC %s): no host_mac_address in NICo metadata, skipping registration", nvswitchID, bmcMac)
+			log.Warn().Msgf("NVSwitch %s (BMC %s): no host_mac_address in NICo metadata, skipping registration", nvswitchID, bmcMac)
 			continue
 		}
 		nvosMac := utils.NormalizeMAC(nvosMacRaw)
 
 		nvosIface, nvosFound := interfacesByMac[nvosMac]
 		if !nvosFound || len(nvosIface.Addresses) == 0 {
-			log.Warn().Msgf("NVLSwitch %s (BMC %s): NVOS %s has not DHCPed yet, skipping registration", nvswitchID, bmcMac, nvosMac)
+			log.Warn().Msgf("NVSwitch %s (BMC %s): NVOS %s has not DHCPed yet, skipping registration", nvswitchID, bmcMac, nvosMac)
 			compID := nvswitch.ID
 			drifts = append(drifts, model.ComponentDrift{
 				ComponentID: &compID,
@@ -671,13 +657,13 @@ func syncNVSwitches(
 		}
 
 		if len(nvosIface.Addresses) > 1 {
-			log.Error().Msgf("NVLSwitch %s (BMC %s): NVOS %s has multiple IP addresses (%v), skipping registration", nvswitchID, bmcMac, nvosMac, nvosIface.Addresses)
+			log.Error().Msgf("NVSwitch %s (BMC %s): NVOS %s has multiple IP addresses (%v), skipping registration", nvswitchID, bmcMac, nvosMac, nvosIface.Addresses)
 			continue
 		}
 
 		nvosIP := nvosIface.Addresses[0]
 
-		log.Info().Msgf("NVLSwitch %s (BMC %s, IP %s) + NVOS %s (IP %s): registering with NSM", nvswitchID, bmcMac, bmcIP, nvosMac, nvosIP)
+		log.Info().Msgf("NVSwitch %s (BMC %s, IP %s) + NVOS %s (IP %s): registering with NSM", nvswitchID, bmcMac, bmcIP, nvosMac, nvosIP)
 
 		toRegister = append(toRegister, nsmapi.RegisterNVSwitchRequest{
 			BMCMACAddress:  bmcMac,
@@ -691,21 +677,21 @@ func syncNVSwitches(
 	if len(toRegister) > 0 {
 		responses, err := nsmClient.RegisterNVSwitches(ctx, toRegister)
 		if err != nil {
-			log.Error().Msgf("Unable to register NVLSwitches with NSM: %v", err)
+			log.Error().Msgf("Unable to register NVSwitches with NSM: %v", err)
 		} else {
 			for _, resp := range responses {
 				if resp.Status != nsmapi.StatusSuccess {
-					log.Error().Msgf("Failed to register NVLSwitch with NSM (uuid=%s): %s", resp.UUID, resp.Error)
+					log.Error().Msgf("Failed to register NVSwitch with NSM (uuid=%s): %s", resp.UUID, resp.Error)
 				} else if resp.IsNew {
-					log.Info().Msgf("Successfully registered new NVLSwitch with NSM (uuid=%s)", resp.UUID)
+					log.Info().Msgf("Successfully registered new NVSwitch with NSM (uuid=%s)", resp.UUID)
 				} else {
-					log.Debug().Msgf("NVLSwitch was already registered with NSM (uuid=%s)", resp.UUID)
+					log.Debug().Msgf("NVSwitch was already registered with NSM (uuid=%s)", resp.UUID)
 				}
 			}
 		}
 	}
 
-	log.Info().Msgf("NVLSwitch sync: %d drift(s) out of %d expected", len(drifts), len(expectedSwitches))
+	log.Info().Msgf("NVSwitch sync: %d drift(s) out of %d expected", len(drifts), len(expectedSwitches))
 	return drifts
 }
 
@@ -909,7 +895,7 @@ func syncPowershelves(
 }
 
 // ---------------------------------------------------------------------------
-// syncNVSwitchesNICo: sync NVLSwitch components via Core (NICo)
+// syncNVSwitchesNICo: sync NVSwitch components via Core (NICo)
 // ---------------------------------------------------------------------------
 //
 // Uses Core's NICo API instead of talking directly to NSM.
@@ -920,7 +906,7 @@ func syncPowershelves(
 //   - GetComponentInventory: get firmware, serial, power state from site explorer
 //
 // Flow:
-//  1. DB: get all NVLSwitch components with BMCs
+//  1. DB: get all NVSwitch components with BMCs
 //  2. NICo GetAllExpectedSwitchesLinked: map BMC MAC → Core SwitchId
 //  3. Direct-write external_id (Core's SwitchId) for matched components
 //  4. NICo GetComponentInventory: extract firmware_version, serial_number, power_state
@@ -934,9 +920,9 @@ func syncNVSwitchesNICo(
 ) []model.ComponentDrift {
 	log.Debug().Msg("Syncing NV switches via NICo...")
 
-	expectedSwitches, err := model.GetComponentsByType(ctx, pool.DB, devicetypes.ComponentTypeNVLSwitch)
+	expectedSwitches, err := model.GetComponentsByType(ctx, pool.DB, devicetypes.ComponentTypeNVSwitch)
 	if err != nil {
-		log.Error().Msgf("Unable to retrieve NVLSwitch components from db: %v", err)
+		log.Error().Msgf("Unable to retrieve NVSwitch components from db: %v", err)
 		return nil
 	}
 
@@ -948,12 +934,12 @@ func syncNVSwitchesNICo(
 	for i := range expectedSwitches {
 		sw := &expectedSwitches[i]
 		if len(sw.BMCs) != 1 {
-			log.Error().Msgf("NVLSwitch %s has %d BMCs, expected exactly 1; skipping", sw.SerialNumber, len(sw.BMCs))
+			log.Error().Msgf("NVSwitch %s has %d BMCs, expected exactly 1; skipping", sw.SerialNumber, len(sw.BMCs))
 			continue
 		}
 		bmcMacAddr, err := net.ParseMAC(sw.BMCs[0].MacAddress)
 		if err != nil || bmcMacAddr == nil {
-			log.Error().Msgf("NVLSwitch %s has invalid BMC MAC address %s; skipping", sw.SerialNumber, sw.BMCs[0].MacAddress)
+			log.Error().Msgf("NVSwitch %s has invalid BMC MAC address %s; skipping", sw.SerialNumber, sw.BMCs[0].MacAddress)
 			continue
 		}
 		expectedByBmcMac[bmcMacAddr.String()] = sw
@@ -987,10 +973,10 @@ func syncNVSwitchesNICo(
 			switchID := les.SwitchID
 			sw.ComponentID = &switchID
 			if err := sw.Patch(ctx, pool.DB); err != nil {
-				log.Error().Msgf("NVLSwitch %s (BMC %s): unable to update external_id: %v", sw.ID, bmcMac, err)
+				log.Error().Msgf("NVSwitch %s (BMC %s): unable to update external_id: %v", sw.ID, bmcMac, err)
 				continue
 			}
-			log.Info().Msgf("NVLSwitch %s (BMC %s): set external_id to Core SwitchId %s", sw.ID, bmcMac, switchID)
+			log.Info().Msgf("NVSwitch %s (BMC %s): set external_id to Core SwitchId %s", sw.ID, bmcMac, switchID)
 		}
 
 		switchIDs = append(switchIDs, &pb.SwitchId{Id: les.SwitchID})
@@ -1027,7 +1013,7 @@ func syncNVSwitchesNICo(
 		}
 	}
 
-	log.Info().Msgf("NVLSwitch NICo sync: %d drift(s) out of %d expected", len(drifts), len(expectedSwitches))
+	log.Info().Msgf("NVSwitch NICo sync: %d drift(s) out of %d expected", len(drifts), len(expectedSwitches))
 	return drifts
 }
 

@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -581,6 +567,8 @@ func TestAPIMachineUpdateRequest_Validate(t *testing.T) {
 		SetMaintenanceMode *bool
 		MaintenanceMessage *string
 		Labels             map[string]string
+		OnlineRepair       *APIMachineOnlineRepair
+		HealthIssue        *APIMachineHealthIssue
 	}
 	tests := []struct {
 		name    string
@@ -721,6 +709,82 @@ func TestAPIMachineUpdateRequest_Validate(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "test valid enter online repair request",
+			fields: fields{
+				OnlineRepair: &APIMachineOnlineRepair{
+					Enabled: cdb.GetBoolPtr(true),
+					Policy: &APIMachineOnlineRepairPolicy{
+						AllowAutoInstanceDeletionOnFailure: cdb.GetBoolPtr(false),
+					},
+					Acknowledgments: &APIMachineOnlineRepairAcknowledgments{
+						AcceptDataCorruptionRisk:   cdb.GetBoolPtr(true),
+						AcceptRepairTeamAccess:     cdb.GetBoolPtr(true),
+						AcceptInstanceDeletionRisk: cdb.GetBoolPtr(true),
+					},
+				},
+				HealthIssue: &APIMachineHealthIssue{
+					Category: HealthIssueStorage,
+					Summary:  cdb.GetStrPtr("Disk issue"),
+					Details:  cdb.GetStrPtr("logs and ticket refs"),
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "test invalid enter online repair without HealthIssue (APIMachineOnlineRepair.Enabled true requires non-nil HealthIssue)",
+			fields: fields{
+				OnlineRepair: &APIMachineOnlineRepair{
+					Enabled: cdb.GetBoolPtr(true),
+				},
+				HealthIssue: nil,
+			},
+			wantErr: true,
+		},
+		{
+			name: "test invalid enter online repair with maintenance also set",
+			fields: fields{
+				OnlineRepair: &APIMachineOnlineRepair{
+					Enabled: cdb.GetBoolPtr(true),
+					Policy: &APIMachineOnlineRepairPolicy{
+						AllowAutoInstanceDeletionOnFailure: cdb.GetBoolPtr(true),
+					},
+					Acknowledgments: &APIMachineOnlineRepairAcknowledgments{
+						AcceptDataCorruptionRisk:   cdb.GetBoolPtr(true),
+						AcceptRepairTeamAccess:     cdb.GetBoolPtr(true),
+						AcceptInstanceDeletionRisk: cdb.GetBoolPtr(true),
+					},
+				},
+				SetMaintenanceMode: cdb.GetBoolPtr(true),
+				MaintenanceMessage: cdb.GetStrPtr("needs work"),
+				HealthIssue: &APIMachineHealthIssue{
+					Category: HealthIssueOther,
+					Summary:  cdb.GetStrPtr("s"),
+					Details:  cdb.GetStrPtr("d"),
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "test valid exit online repair request",
+			fields: fields{
+				OnlineRepair: &APIMachineOnlineRepair{
+					Enabled: cdb.GetBoolPtr(false),
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "test invalid HealthIssue without onlineRepair",
+			fields: fields{
+				HealthIssue: &APIMachineHealthIssue{
+					Category: HealthIssueStorage,
+					Summary:  cdb.GetStrPtr("x"),
+					Details:  cdb.GetStrPtr("y"),
+				},
+			},
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -730,9 +794,123 @@ func TestAPIMachineUpdateRequest_Validate(t *testing.T) {
 				SetMaintenanceMode: tt.fields.SetMaintenanceMode,
 				MaintenanceMessage: tt.fields.MaintenanceMessage,
 				Labels:             tt.fields.Labels,
+				OnlineRepair:       tt.fields.OnlineRepair,
+				HealthIssue:        tt.fields.HealthIssue,
 			}
 			err := mur.Validate()
 			require.Equal(t, tt.wantErr, err != nil, "error: %v", err)
+		})
+	}
+}
+
+func TestAPIMachineUpdateRequest_ToInsertHealthReportOverrideProto(t *testing.T) {
+	type fields struct {
+		HealthIssue *APIMachineHealthIssue
+	}
+	tests := []struct {
+		name      string
+		machineID string
+		fields    fields
+		wantErr   bool
+	}{
+		{
+			name:      "maps Storage health issue to proto payload with STORAGE issue_category",
+			machineID: "161c4de4-afb3-4839-a5bd-305f9dea8744",
+			fields: fields{
+				HealthIssue: &APIMachineHealthIssue{
+					Category: HealthIssueStorage,
+					Summary:  cdb.GetStrPtr("storage subsystem degraded"),
+					Details:  cdb.GetStrPtr("disk SMART errors in slot 2"),
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:      "maps Hardware health issue to proto payload with HARDWARE issue_category",
+			machineID: "261c4de4-afb3-4839-a5bd-305f9dea87445",
+			fields: fields{
+				HealthIssue: &APIMachineHealthIssue{
+					Category: HealthIssueHardware,
+					Summary:  cdb.GetStrPtr("NIC link flapping"),
+					Details:  cdb.GetStrPtr("port 1 logs attached"),
+				},
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mur := APIMachineUpdateRequest{
+				HealthIssue: tt.fields.HealthIssue,
+			}
+			got, err := mur.ToInsertHealthReportOverrideProto(tt.machineID)
+			require.Equal(t, tt.wantErr, err != nil, "error: %v", err)
+			if tt.wantErr {
+				return
+			}
+			require.NotNil(t, got)
+			require.NotNil(t, got.MachineId)
+			assert.Equal(t, tt.machineID, got.MachineId.Id)
+			require.NotNil(t, got.Override)
+			assert.Equal(t, cwssaws.OverrideMode_Merge, got.Override.Mode)
+			require.NotNil(t, got.Override.Report)
+			assert.Equal(t, MachineHealthOverrideSourceOnlineRepair, got.Override.Report.Source)
+
+			require.Len(t, got.Override.Report.Alerts, 1)
+			alert := got.Override.Report.Alerts[0]
+			assert.Equal(t, MachineHealthAlertIDOnlineRepair, alert.Id)
+			require.NotNil(t, alert.Target)
+			assert.Equal(t, MachineTenantReportedIssueAlertID, *alert.Target)
+
+			mhi := tt.fields.HealthIssue
+			require.NotNil(t, mhi)
+			require.NotNil(t, alert.TenantMessage)
+			assert.Equal(t, "TenantReportedIssue: "+*mhi.Summary, *alert.TenantMessage)
+			assert.Equal(t, []string{
+				MachineAlertClassificationPreventAllocations,
+				MachineAlertClassificationPreventInstanceDeletion,
+				MachineAlertClassificationSuppressExternalAlerting,
+			}, alert.Classifications)
+
+			var payload struct {
+				Details       string `json:"details"`
+				IssueCategory string `json:"issue_category"`
+				Summary       string `json:"summary"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(alert.Message), &payload))
+			assert.Equal(t, *mhi.Details, payload.Details)
+			assert.Equal(t, ValidHealthIssueCategoriesMap[mhi.Category], payload.IssueCategory)
+			assert.Equal(t, *mhi.Summary, payload.Summary)
+		})
+	}
+}
+
+func TestAPIMachineUpdateRequest_ToRemoveHealthReportOverrideProto(t *testing.T) {
+	tests := []struct {
+		name       string
+		machineID  string
+		wantSource string
+	}{
+		{
+			name:       "builds remove request with machine id and request-online-repair source",
+			machineID:  "aabbccdd-eeff-0011-2233-445566778899",
+			wantSource: MachineHealthOverrideSourceOnlineRepair,
+		},
+		{
+			name:       "builds remove request for another machine id",
+			machineID:  "bbccddee-ff00-1122-3344-556677889900",
+			wantSource: MachineHealthOverrideSourceOnlineRepair,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mur := APIMachineUpdateRequest{}
+			got, err := mur.ToRemoveHealthReportOverrideProto(tt.machineID)
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			require.NotNil(t, got.MachineId)
+			assert.Equal(t, tt.machineID, got.MachineId.Id)
+			assert.Equal(t, tt.wantSource, got.GetSource())
 		})
 	}
 }

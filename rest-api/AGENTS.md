@@ -179,6 +179,47 @@ make kind-down              # tear down cluster
 - OpenAPI schema in `openapi/spec.yaml` must be updated whenever API
   endpoints are added or modified.
 
+### Prefer range-based iteration over C-style `for` loops
+
+The module is on Go 1.25, so reach for range-based iteration before the
+three-clause `for i := 0; i < n; i++` / `i--` form. Go 1.22 range-over-integer
+and Go 1.23 range-over-function iterators (`slices.Backward`, `slices.All`,
+`slices.Values`, `maps.Keys`, `maps.Values`, …) drop the manual index
+bookkeeping that the older form makes a reader re-derive to trust.
+
+1. **Counting loop → range-over-integer.** When the bound is a count (not a
+   slice you also index for values), use `for i := range n` (index needed) or
+   `for range n` (index unused) instead of `for i := 0; i < n; i++`. This
+   covers `reflect` walks: `for i := range v.NumField()` /
+   `for i := range v.Len()`.
+2. **Reverse loop → `slices.Backward`.** Replace
+   `for i := len(s) - 1; i >= 0; i--` with `for i, v := range slices.Backward(s)`.
+   When the reverse order is intentional (LIFO teardown, "find the last element
+   matching X"), `slices.Backward` states that intent instead of leaving it
+   implicit in the index arithmetic. Use `for i := range slices.Backward(s)`
+   when you only need the index (to take `&s[i]` or mutate `s[i]`).
+3. **Index loop over a slice → plain `range`.** `for i := 0; i < len(s); i++`
+   that reads `s[i]` becomes `for i, v := range s` (or `for _, v := range s`);
+   keep the index-only `for i := range s` when the body needs `&s[i]`.
+
+Keep the C-style form when range can't express the loop, and say why if it
+isn't obvious:
+
+- **Byte-wise string scans.** A loop that indexes `s[i]` on a `string` must
+  stay C-style — `for i := range s` over a string yields *runes*, silently
+  changing byte offsets.
+- **The index is mutated or looks ahead/behind** in the body (`i++` to consume
+  a paired argument, `s[i+1]`, `i = j-1`). Range indices are read-only.
+- **1-indexed or offset-start loops** (`for page := 1; page <= total; page++`,
+  `for i := windowStart; i < windowEnd; i++`). Range-over-integer is 0-based;
+  forcing a `+1` reads worse than the original.
+- **Generated code** (e.g. `sdk/standard`) — leave it; regeneration overwrites
+  hand edits.
+
+A related cleanup: a backward byte scan for a delimiter is
+`strings.LastIndexByte`, not a hand-rolled `for i := idx; i >= 0; i--` — see
+`(*IPAddr).Scan` in `powershelf-manager/pkg/db/model/types.go`.
+
 ### Proto conversion methods
 
 DB and API model types that round-trip with a workflow-schema (`cwssaws`)
@@ -257,6 +298,230 @@ predictable and every entity has the same surface:
 `(*model.APIVpcCreateRequest).ToProto` / `(*model.APIVpcUpdateRequest).ToProto`
 cover request-shape conversion, and `(*cdbm.Vpc).ToDeletionRequestProto`
 stays on the entity because there's no API request body for delete.
+
+`InstanceType` is the reference for everything else under this rollout
+(typed-slice validation, typed-map proto behavior, ozzo composition,
+shared conversion helpers): `(*cdbm.InstanceType).ToProto/FromProto`
++ `(*InstanceType).AttachCapabilities` on the entity,
+`APIMachineCapabilities` + `APIMachineCapability` for the list/element
+split, `cdbm.Labels` for the typed map, and
+`common/pkg/util.IntPtrToUint32Ptr` for shared casts.
+
+### Validate cooperates with ToProto
+
+`Validate` and `ToProto` work as a pair: `Validate` enforces every rule
+the wire format relies on, and `ToProto` is a pure mapper that trusts
+the result. The conventions below are how the rules are organised.
+
+1. **Prefer ozzo's built-in rules.** `validation.Required`,
+   `validation.Min`, `validation.Max`, `validation.In`,
+   `validation.Length`, `validation.By`, `validation.Each` compose
+   cleanly inside `validation.ValidateStruct`. Custom helpers like a
+   `validateXBounds(value, name)` free function are usually
+   unnecessary — reach for them only when no built-in fits.
+2. **List-level rules live on a typed slice.** When a request carries
+   a slice and needs both per-element rules and rules that span
+   elements (uniqueness, ordering, cross-element constraints), define
+   `type APIXs []APIX` with its own `Validate()` that calls
+   `validation.Validate(s, validation.Each())` to delegate per-element
+   checks and then enforces the list-level rules. The parent struct
+   wires it up with a single `validation.Field(&parent.Xs)`; ozzo
+   discovers the typed slice's `Validate` via the Validatable
+   interface. See `(APIMachineCapabilities).Validate` for the
+   canonical shape.
+3. **Cross-field rules use named methods via `validation.By`.** When a
+   check spans multiple fields on the same struct, pull it out as a
+   named method on the type and reference it with
+   `validation.By(t.validateX)`. Avoid inline anonymous closures —
+   named methods are discoverable, individually testable, and the
+   `Validate` body reads like a high-level outline of the rules. See
+   `(APIMachineCapability).validateDeviceType` and
+   `validateInactiveDevices`.
+4. **Validators that compose with `validation.By` take `interface{}`.**
+   Helpers used across structs (e.g. `util.ValidateLabels`,
+   `util.ValidateNameCharacters`) match ozzo's `RuleFunc` signature
+   `func(value interface{}) error`, so they drop into
+   `validation.Field(&t.Field, validation.By(util.ValidateX))`
+   directly. Internal type assertion handles the concrete type.
+
+### Named types own their proto behavior
+
+A `map`, `slice`, or other primitive composite that represents a
+domain concept with conversion needs gets a named type with methods,
+not a free function. The receiver-method form keeps the call site
+discoverable (`t.Field.ToProto()` / `t.Field.FromProto(...)`) and
+makes the type the single home for all related behavior. Free
+functions like `LabelsToProto(m map[string]string)` or
+`LabelsFromProtoMetadata(md *Metadata) Labels` are an anti-pattern —
+make the value typed and put the method on it.
+
+`FromProto` on a leaf named type is a pointer-receiver method that
+mutates the receiver in place, mirroring the entity-level
+`(*T).FromProto` shape. A `nil` input clears the receiver to its
+zero value so callers can distinguish "no data reported" from "data
+explicitly cleared." Reach the method on a struct field with
+`t.Field.FromProto(...)` — which requires the field itself to use
+the named type, not the underlying primitive. Entity struct fields
+that round-trip with the proto should be typed accordingly (e.g.
+`Labels Labels` instead of `Labels map[string]string`); CreateInput
+/ UpdateInput shapes that don't call `FromProto` themselves may stay
+on the underlying primitive until they need it.
+
+- `db/pkg/db/model.Labels` (`type Labels map[string]string` with
+  `(Labels).ToProto() []*cwssaws.Label` and
+  `(*Labels).FromProto([]*cwssaws.Label)`) is the reference for
+  map-shaped values that round-trip with workflow `Metadata.Labels`.
+  Entity callers reach it via `entity.Labels.FromProto(proto.Metadata.GetLabels())`
+  — the proto getter is nil-safe and returns `nil` for missing
+  metadata, which the method translates into a `nil` receiver.
+- `db/pkg/db/model.MachineCapabilityType` and `MachineCapabilityDeviceType`
+  (`type X string` with `(X).ToProto() cwssaws.X` and
+  `(*X).FromProto(cwssaws.X)`) are the reference for **typed-string
+  domain enums** that round-trip with proto enum values. The DB column
+  stays a plain string under the named type, but the conversion to /
+  from the proto enum lives as methods on the type — not as a free
+  helper. `(*MachineCapability).ToProto` collapses to
+  `mc.Type.ToProto()` / `mc.DeviceType.ToProto()`, and `FromProto`
+  collapses to `mc.Type.FromProto(...)`. Unknown values silently leave
+  the receiver as the empty string (a warning is logged) so the
+  entity-level `Validate` can be the gate that rejects them; an
+  optional `*X` field with the proto's zero-value enum on the wire
+  drops to `nil` rather than encoding an "unknown" pointer.
+- `APIMachineCapabilities` (`type APIMachineCapabilities
+  []APIMachineCapability` with `(APIMachineCapabilities).Validate()`)
+  is the reference for slice-shaped values that own list-level rules.
+
+### Shared conversion helpers live in `common/pkg/util`
+
+Helpers that convert primitive types (`*int` ↔ `*uint32`, etc.) and
+have no entity association live in `common/pkg/util/converter.go`,
+not in entity-specific files. Under the ToProto / FromProto
+convention they are trusted casts: the bounds checks live in
+`Validate` upstream of them, so the helpers do not return errors and
+do not log warnings — anything that needs to fail belongs in
+`Validate`. `common/pkg/util.IntPtrToUint32Ptr` is the reference.
+
+### Database transactions
+
+Handler code that touches the database uses the closure-based transaction
+helpers from `db/pkg/db`, not manual `BeginTx`/`Commit`/`Rollback`. Most of
+the rules below are lessons from the WithTx migration of every primary
+handler — applying them keeps the next handler's diff predictable.
+
+1. **Use `cdb.WithTx` / `cdb.WithTxResult`.** Both run the closure in a
+   transaction and unwind it for you on error. `WithTxResult[T]` returns a
+   single `T` from the closure; `WithTx` returns only `error` and uses
+   outer-scope variables for any outputs.
+2. **Pick one or the other — don't mix.** `WithTxResult` paired with
+   outer-scope partner vars populated inside the closure is the worst of
+   both worlds. Either use `WithTxResult` cleanly (single value out) or use
+   `WithTx` with every output as an outer-scope variable. The Network
+   Security Group, InfiniBand Partition, and VPC Prefix handlers were
+   reworked specifically to settle this.
+3. **Reads belong outside the transaction unless they need to be inside.**
+   Pure input-validation reads (does this site exist, does the tenant own
+   it, is the SSH key on this tenant) hold the tx open and pin a DB
+   connection for no benefit. Move them above the `cdb.WithTx(...)` call
+   and start the tx only when writes begin. Reads that *do* belong inside
+   are: anything done under an advisory lock for race protection,
+   anything whose result drives a write decision that must see the locked
+   state (e.g. existing associations used for sync-state diff), and
+   reads done in the same tx as their dependent writes for read-your-writes
+   consistency.
+4. **Acquire an advisory lock at the top of the closure for TOCTOU-prone
+   flows.** When the closure does read-then-mutate on one entity (or two
+   concurrent writers could both pass a pre-flight check), call
+   `tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(<key>), nil)`
+   first. After the lock, re-read whatever you pre-checked outside the tx
+   so the check and the write happen against the same snapshot. Don't keep
+   the pre-flight check around if the in-tx check covers it — one source
+   of truth is clearer than two.
+5. **Workflow-trigger flows use the `timeoutResp` pattern.** When the
+   closure does `stc.ExecuteWorkflow` + `we.Get(...)`, a timeout has to
+   terminate the workflow *after* the DB tx unwinds so the cleanup call
+   doesn't block holding a connection. Declare `var timeoutResp func() error`
+   in the outer scope, set it inside the timeout branch, return a
+   `cutil.NewAPIError` from the closure to roll back the tx, then call
+   `timeoutResp()` after `WithTx` returns:
+
+   ```go
+   var timeoutResp func() error
+   err = cdb.WithTx(ctx, dbSession, func(tx *cdb.Tx) error {
+       // ... writes ...
+       we, wferr := stc.ExecuteWorkflow(wfCtx, opts, "CreateInstanceV2", req)
+       // ... wferr handling ...
+       wferr = we.Get(wfCtx, nil)
+       if wferr != nil {
+           var timeoutErr *tp.TimeoutError
+           if errors.As(wferr, &timeoutErr) || wferr == context.DeadlineExceeded || wfCtx.Err() != nil {
+               timeoutCause := wferr // explicit capture; defensive against future refactors
+               timeoutResp = func() error {
+                   return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "Instance", "CreateInstanceV2")
+               }
+               return cutil.NewAPIError(http.StatusInternalServerError, "Instance create workflow timed out", nil)
+           }
+           // ... non-timeout error paths ...
+       }
+       return nil
+   })
+   // The wrapping `if err != nil` ensures real tx-helper errors (commit /
+   // rollback failures that wrap into something other than the cutil.APIError
+   // marker we returned for the timeout case) are surfaced via HandleTxError,
+   // while the timeout-case APIError falls through to the timeoutResp call.
+   if err != nil {
+       var apiErr *cutil.APIError
+       if !errors.As(err, &apiErr) || timeoutResp == nil {
+           return common.HandleTxError(c, logger, err, "Failed to create Instance, DB transaction error")
+       }
+   }
+   if timeoutResp != nil {
+       return timeoutResp()
+   }
+   ```
+
+   Notes:
+   - `common.TerminateWorkflowOnTimeOut` replaces ~12 lines of inline
+     `stc.TerminateWorkflow` + manual context boilerplate. Always prefer it.
+   - **Pass the literal workflow name** (the exact string used in
+     `stc.ExecuteWorkflow`), not a shortened action label. The helper uses
+     it in logs and the termination reason, so `"CreateInstanceV2"` —
+     not `"Create"` — is what should be there.
+   - **Capture the timeout error explicitly** (`timeoutCause := wferr`)
+     before the closure literal. The closure-scoped variable usually
+     preserves the right value due to Go's per-iteration scoping, but the
+     explicit capture documents intent and is resilient to future
+     refactors that rename or move things around.
+6. **Error returns inside vs. outside the closure.** Inside, return
+   `cutil.NewAPIError(code, msg, data)` — `common.HandleTxError` translates
+   it to a response after the tx unwinds. Outside (post-`WithTx`), return
+   `cutil.NewAPIErrorResponse(c, code, msg, data)` directly. When moving a
+   read out of the closure, the error path's constructor needs to flip too.
+7. **Don't leak raw DB errors to clients.** Pass `nil` (not the underlying
+   `derr`) as the `data` argument of `cutil.NewAPIError` /
+   `cutil.NewAPIErrorResponse`. Log the underlying error with the contextual
+   `logger` so it lands in server logs without ending up in the response
+   payload.
+8. **Split assign-and-condition into two statements.** Prefer
+
+   ```go
+   derr := someDAO.Action(ctx, tx, ...)
+   if derr != nil {
+       logger.Error().Err(derr).Msg("...")
+       return cutil.NewAPIError(http.StatusInternalServerError, "...", nil)
+   }
+   ```
+
+   over `if derr := someDAO.Action(...); derr != nil { ... }`. This is a
+   reviewer preference applied consistently across the codebase — the
+   wider scope on the error variable is a feature, not a bug, and the two
+   statements read more cleanly than the combined form.
+
+The Instance handlers (`api/pkg/api/handler/instance.go`) cover rules 1–8
+end-to-end across Create/Update/Reboot/Delete and serve as the most
+complete reference. SSH Key Group's Create handler is the cleanest example
+of rule 3 (validation reads hoisted out of the tx). NVLink Logical
+Partition's Delete handler shows the rule 5 `timeoutResp`-gating pattern
+in its simplest form.
 
 ## Git Workflow
 

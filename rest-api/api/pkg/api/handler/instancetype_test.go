@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -117,7 +103,7 @@ func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
 				Type:       cdbm.MachineCapabilityTypeNetwork,
 				Name:       "MT43244 BlueField-3 integrated ConnectX-7 network controller",
 				Vendor:     cdb.GetStrPtr("Mellanox Technologies"),
-				DeviceType: cdb.GetStrPtr("DPU"),
+				DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU),
 				Count:      cdb.GetIntPtr(2),
 			},
 		},
@@ -171,7 +157,7 @@ func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
 				Name:       "NVIDIA GB200",
 				Capacity:   cdb.GetStrPtr("189471 MiB"),
 				Frequency:  cdb.GetStrPtr("2062 MHz"),
-				DeviceType: cdb.GetStrPtr(cdbm.MachineCapabilityDeviceTypeNVLink),
+				DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeNVLink),
 				Count:      cdb.GetIntPtr(4),
 			},
 		},
@@ -185,7 +171,7 @@ func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
 			{
 				Type:       cdbm.MachineCapabilityTypeGPU,
 				Name:       "NVIDIA GB200",
-				DeviceType: cdb.GetStrPtr("DPU"),
+				DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU),
 				Count:      cdb.GetIntPtr(4),
 			},
 		},
@@ -199,7 +185,7 @@ func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
 			{
 				Type:       cdbm.MachineCapabilityTypeNetwork,
 				Name:       "MT43244 BlueField-3 integrated ConnectX-7 network controller",
-				DeviceType: cdb.GetStrPtr(cdbm.MachineCapabilityDeviceTypeNVLink),
+				DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeNVLink),
 				Count:      cdb.GetIntPtr(2),
 			},
 		},
@@ -213,7 +199,7 @@ func TestCreateInstanceTypeHandler_Handle(t *testing.T) {
 			{
 				Type:       cdbm.MachineCapabilityTypeCPU,
 				Name:       "Intel Xeon Gold 6354",
-				DeviceType: cdb.GetStrPtr(cdbm.MachineCapabilityDeviceTypeDPU),
+				DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU),
 				Count:      cdb.GetIntPtr(2),
 			},
 		},
@@ -718,7 +704,7 @@ func TestGetAllInstanceTypeHandler_Handle(t *testing.T) {
 			"name":        fmt.Sprintf("test-instance-type-%02d", i),
 			"description": fmt.Sprintf("Test Instance Type %02d Description", i),
 		}, ipu)
-		common.TestBuildMachineCapability(t, dbSession, nil, &it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", cdb.GetStrPtr("3.0Hz"), nil, nil, cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
+		common.TestBuildMachineCapability(t, dbSession, nil, &it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", cdb.GetStrPtr("3.0Hz"), nil, nil, cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
 		its = append(its, *it)
 	}
 
@@ -781,7 +767,7 @@ func TestGetAllInstanceTypeHandler_Handle(t *testing.T) {
 			"name":        fmt.Sprintf("test-org-instance-type-%02d", i),
 			"description": fmt.Sprintf("Test Org Instance Type %02d", i),
 		}, orgUser)
-		common.TestBuildMachineCapability(t, dbSession, nil, &it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", cdb.GetStrPtr("3.0Hz"), nil, nil, cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
+		common.TestBuildMachineCapability(t, dbSession, nil, &it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", cdb.GetStrPtr("3.0Hz"), nil, nil, cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
 		if i == 0 {
 			orgAllocatedIT = it
 		}
@@ -804,7 +790,7 @@ func TestGetAllInstanceTypeHandler_Handle(t *testing.T) {
 		it := common.TestBuildInstanceType(t, dbSession, fmt.Sprintf("test-ext-site-it-%02d", i), cdb.GetUUIDPtr(uuid.New()), externalSite, map[string]string{
 			"name": fmt.Sprintf("test-ext-site-it-%02d", i),
 		}, ipu)
-		common.TestBuildMachineCapability(t, dbSession, nil, &it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", cdb.GetStrPtr("3.0Hz"), nil, nil, cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
+		common.TestBuildMachineCapability(t, dbSession, nil, &it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", cdb.GetStrPtr("3.0Hz"), nil, nil, cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
 	}
 
 	// Create a second site owned by orgProvider but where orgTenant does NOT have a TenantSite.
@@ -816,7 +802,7 @@ func TestGetAllInstanceTypeHandler_Handle(t *testing.T) {
 		it := common.TestBuildInstanceType(t, dbSession, fmt.Sprintf("test-org-no-tenant-it-%02d", i), cdb.GetUUIDPtr(uuid.New()), orgSiteNoTenant, map[string]string{
 			"name": fmt.Sprintf("test-org-no-tenant-it-%02d", i),
 		}, orgUser)
-		common.TestBuildMachineCapability(t, dbSession, nil, &it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", cdb.GetStrPtr("3.0Hz"), nil, nil, cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
+		common.TestBuildMachineCapability(t, dbSession, nil, &it.ID, cdbm.MachineCapabilityTypeCPU, "Intel Xeon E5-2650v2", cdb.GetStrPtr("3.0Hz"), nil, nil, cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
 	}
 
 	e := echo.New()
@@ -2163,7 +2149,7 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 				instanceTypeID: it2.ID,
 				reqData: &model.APIInstanceTypeUpdateRequest{
 					MachineCapabilities: []model.APIMachineCapability{
-						{Type: "Network", DeviceType: cdb.GetStrPtr("ETHERNET")},
+						{Type: cdbm.MachineCapabilityTypeNetwork, DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceType("ETHERNET"))},
 					},
 				},
 			},
@@ -2267,7 +2253,7 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 						{
 							Type:       "Network",
 							Name:       "MT43244 BlueField-3 integrated ConnectX-7 network controller",
-							DeviceType: cdb.GetStrPtr(cdbm.MachineCapabilityDeviceTypeDPU),
+							DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU),
 							Count:      cdb.GetIntPtr(2),
 						},
 					},
@@ -2294,7 +2280,7 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 							Name:       "NVIDIA GB200",
 							Capacity:   cdb.GetStrPtr("189471 MiB"),
 							Frequency:  cdb.GetStrPtr("2062 MHz"),
-							DeviceType: cdb.GetStrPtr(cdbm.MachineCapabilityDeviceTypeNVLink),
+							DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeNVLink),
 							Count:      cdb.GetIntPtr(4),
 						},
 					},
@@ -2319,7 +2305,7 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 						{
 							Type:       cdbm.MachineCapabilityTypeGPU,
 							Name:       "NVIDIA GB200",
-							DeviceType: cdb.GetStrPtr(cdbm.MachineCapabilityDeviceTypeDPU),
+							DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU),
 							Count:      cdb.GetIntPtr(4),
 						},
 					},
@@ -2345,7 +2331,7 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 						{
 							Type:       cdbm.MachineCapabilityTypeNetwork,
 							Name:       "MT43244 BlueField-3 integrated ConnectX-7 network controller",
-							DeviceType: cdb.GetStrPtr(cdbm.MachineCapabilityDeviceTypeNVLink),
+							DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeNVLink),
 							Count:      cdb.GetIntPtr(2),
 						},
 					},
@@ -2371,7 +2357,7 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 						{
 							Type:       cdbm.MachineCapabilityTypeCPU,
 							Name:       "Intel Xeon Gold 6354",
-							DeviceType: cdb.GetStrPtr(cdbm.MachineCapabilityDeviceTypeDPU),
+							DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU),
 							Count:      cdb.GetIntPtr(2),
 						},
 					},
@@ -2397,14 +2383,14 @@ func TestUpdateInstanceTypeHandler_Handle(t *testing.T) {
 						{
 							Type:       cdbm.MachineCapabilityTypeNetwork,
 							Name:       "MT43244 BlueField-3 integrated ConnectX-7 network controller",
-							DeviceType: cdb.GetStrPtr(cdbm.MachineCapabilityDeviceTypeDPU),
+							DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU),
 							Count:      cdb.GetIntPtr(2),
 						},
 						{
 							Type:       cdbm.MachineCapabilityTypeGPU,
 							Name:       "NVIDIA GB200",
 							Capacity:   cdb.GetStrPtr("189471 MiB"),
-							DeviceType: cdb.GetStrPtr(cdbm.MachineCapabilityDeviceTypeNVLink),
+							DeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeNVLink),
 							Count:      cdb.GetIntPtr(4),
 						},
 						{

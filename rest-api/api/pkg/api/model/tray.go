@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -22,6 +8,7 @@ import (
 	"maps"
 	"net/url"
 	"slices"
+	"strconv"
 
 	"github.com/google/uuid"
 
@@ -35,7 +22,7 @@ import (
 // These names match Flow's internal ComponentTypeFromString (case-insensitive).
 var APIToProtoComponentTypeName = map[string]string{
 	"Compute":    "COMPONENT_TYPE_COMPUTE",
-	"NVLSwitch":  "COMPONENT_TYPE_NVLSWITCH",
+	"NVSwitch":   "COMPONENT_TYPE_NVSWITCH",
 	"PowerShelf": "COMPONENT_TYPE_POWERSHELF",
 }
 
@@ -43,7 +30,7 @@ var APIToProtoComponentTypeName = map[string]string{
 var ProtoToAPIComponentTypeName = map[flowv1.ComponentType]string{
 	flowv1.ComponentType_COMPONENT_TYPE_UNKNOWN:    "Unknown",
 	flowv1.ComponentType_COMPONENT_TYPE_COMPUTE:    "Compute",
-	flowv1.ComponentType_COMPONENT_TYPE_NVLSWITCH:  "NVLSwitch",
+	flowv1.ComponentType_COMPONENT_TYPE_NVSWITCH:   "NVSwitch",
 	flowv1.ComponentType_COMPONENT_TYPE_POWERSHELF: "PowerShelf",
 }
 
@@ -105,6 +92,47 @@ func GetProtoTrayOrderByFromQueryParam(fieldName, direction string) *flowv1.Orde
 	}
 }
 
+// RackComponentSlotMatcher tests whether a component sits at the requested rack slot.
+type RackComponentSlotMatcher struct {
+	SlotID *int32
+}
+
+func (m RackComponentSlotMatcher) Active() bool {
+	return m.SlotID != nil
+}
+
+// Matches reports whether comp sits at the matcher's slot when Active.
+func (m RackComponentSlotMatcher) Matches(comp *flowv1.Component) bool {
+	if !m.Active() {
+		return true
+	}
+	if comp == nil {
+		return false
+	}
+	pos := comp.GetPosition()
+	if pos == nil {
+		return false
+	}
+	return pos.GetSlotId() == *m.SlotID
+}
+
+func validateSlotRequiresRack(slotID *int32, rackID, rackName *string) error {
+	if slotID != nil && rackID == nil && rackName == nil {
+		return validation.Errors{"slotId": fmt.Errorf("rackId or rackName is required when slotId is set")}
+	}
+	return nil
+}
+
+func validateSlotConstraints(slotID *int32, rackID, rackName *string) error {
+	if slotID == nil {
+		return nil
+	}
+	if err := validation.Validate(*slotID, validation.Min(int32(0)).Error("must be >= 0")); err != nil {
+		return validation.Errors{"slotId": err}
+	}
+	return validateSlotRequiresRack(slotID, rackID, rackName)
+}
+
 // ========== Tray Filter (for batch operations) ==========
 
 // TrayFilter specifies which trays to target in a batch operation.
@@ -115,6 +143,7 @@ type TrayFilter struct {
 	Type         *string  `json:"type,omitempty"`
 	ComponentIDs []string `json:"componentIds,omitempty"`
 	IDs          []string `json:"ids,omitempty"`
+	SlotID       *int32   `json:"slotId,omitempty"` // Restrict to trays at this rack slot; requires rackId or rackName.
 }
 
 // Validate checks the tray filter fields.
@@ -154,7 +183,28 @@ func (f *TrayFilter) Validate() error {
 		return validation.Errors{"componentIds": fmt.Errorf("type is required when componentIds is provided")}
 	}
 
+	if err := validateSlotConstraints(f.SlotID, f.RackID, f.RackName); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// HasSlotFilter reports whether the filter constrains rack slot.
+// When true, callers cannot use ToTargetSpec directly: Flow has no
+// by-slot component target shape, so slotId is resolved to component UUIDs
+// via lookup first. ToTargetSpec ignores SlotID.
+func (f *TrayFilter) HasSlotFilter() bool {
+	return f != nil && f.SlotID != nil
+}
+
+// MatchesSlot reports whether comp satisfies the filter's slotId.
+// Safe to call when no slot filter is set.
+func (f *TrayFilter) MatchesSlot(comp *flowv1.Component) bool {
+	if f == nil {
+		return true
+	}
+	return RackComponentSlotMatcher{SlotID: f.SlotID}.Matches(comp)
 }
 
 // ToTargetSpec converts the filter to an Flow OperationTargetSpec.
@@ -250,6 +300,7 @@ type APITrayGetAllRequest struct {
 	Type         *string  `query:"type"`
 	ComponentIDs []string `query:"componentId"`
 	IDs          []string `query:"id"`
+	SlotID       *int32   `query:"slotId"` // Restrict to trays at this rack slot; requires rackId or rackName.
 }
 
 // Validate checks field formats and enforces the Flow protobuf oneof constraints:
@@ -259,6 +310,7 @@ type APITrayGetAllRequest struct {
 //   - componentId requires type (ExternalRef needs type)
 //   - type must be one of the supported tray types
 //   - each entry in IDs must be a valid UUID
+//   - slotId requires rackId or rackName and must be >= 0
 func (r *APITrayGetAllRequest) Validate() error {
 	err := validation.ValidateStruct(r,
 		validation.Field(&r.RackID,
@@ -291,7 +343,24 @@ func (r *APITrayGetAllRequest) Validate() error {
 		return validation.Errors{"componentId": fmt.Errorf("type is required when componentId is provided")}
 	}
 
+	if err := validateSlotConstraints(r.SlotID, r.RackID, r.RackName); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// HasSlotFilter reports whether the request constrains rack slot.
+func (r *APITrayGetAllRequest) HasSlotFilter() bool {
+	return r != nil && r.SlotID != nil
+}
+
+// MatchesSlot reports whether comp satisfies the request's slotId.
+func (r *APITrayGetAllRequest) MatchesSlot(comp *flowv1.Component) bool {
+	if r == nil {
+		return true
+	}
+	return RackComponentSlotMatcher{SlotID: r.SlotID}.Matches(comp)
 }
 
 // ToProto converts a validated APITrayGetAllRequest to an Flow GetComponentsRequest.
@@ -403,6 +472,9 @@ func (r *APITrayGetAllRequest) QueryValues() url.Values {
 	for _, id := range r.IDs {
 		v.Add("id", id)
 	}
+	if r.SlotID != nil {
+		v.Set("slotId", strconv.FormatInt(int64(*r.SlotID), 10))
+	}
 	return v
 }
 
@@ -415,6 +487,7 @@ type APITrayValidateAllRequest struct {
 	Manufacturer []string `query:"manufacturer"`
 	Type         *string  `query:"type"`
 	ComponentIDs []string `query:"componentId"`
+	SlotID       *int32   `query:"slotId"` // Restrict to trays at this rack slot; requires rackId or rackName.
 }
 
 // Validate checks constraints on the request parameters.
@@ -441,7 +514,23 @@ func (r *APITrayValidateAllRequest) Validate() error {
 	if len(r.ComponentIDs) > 0 && r.Type == nil {
 		return validation.Errors{"componentId": fmt.Errorf("type is required when componentId is provided")}
 	}
+	if err := validateSlotConstraints(r.SlotID, r.RackID, r.RackName); err != nil {
+		return err
+	}
 	return nil
+}
+
+// HasSlotFilter reports whether the request constrains rack slot.
+func (r *APITrayValidateAllRequest) HasSlotFilter() bool {
+	return r != nil && r.SlotID != nil
+}
+
+// MatchesSlot reports whether comp satisfies the request's slotId.
+func (r *APITrayValidateAllRequest) MatchesSlot(comp *flowv1.Component) bool {
+	if r == nil {
+		return true
+	}
+	return RackComponentSlotMatcher{SlotID: r.SlotID}.Matches(comp)
 }
 
 // ToTargetSpec converts the request's targeting fields to an Flow OperationTargetSpec.
@@ -534,6 +623,9 @@ func (r *APITrayValidateAllRequest) QueryValues() url.Values {
 	}
 	for _, cid := range r.ComponentIDs {
 		v.Add("componentId", cid)
+	}
+	if r.SlotID != nil {
+		v.Set("slotId", strconv.FormatInt(int64(*r.SlotID), 10))
 	}
 	return v
 }

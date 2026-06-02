@@ -408,7 +408,7 @@ An empty list means no conflicts were detected.
 | component_id | [string](#string) |  | Component ID assigned by the component manager service |
 | expected | [Component](#v1-Component) |  | Populated when type is MISSING |
 | actual | [Component](#v1-Component) |  |  |
-| field_diffs | [FieldDiff](#v1-FieldDiff) | repeated | Populated when type is DRIFT |
+| field_diffs | [FieldDiff](#v1-FieldDiff) | repeated | Populated when type is MISMATCH |
 | id | [UUID](#v1-UUID) |  | Flow internal component UUID |
 
 
@@ -2053,7 +2053,7 @@ UpdateTaskScheduleScopeResponse returns the complete scope after reconciliation.
 
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
-| target_spec | [OperationTargetSpec](#v1-OperationTargetSpec) | optional | Optional: Flexible targeting: rack(s) with optional type filter, or specific components. If not provided, returns all drifts. |
+| target_spec | [OperationTargetSpec](#v1-OperationTargetSpec) | optional | Optional: Flexible targeting: rack(s) with optional type filter, or specific components. If not provided, returns all diffs. |
 | filters | [Filter](#v1-Filter) | repeated | Filter conditions for component queries |
 | pagination | [Pagination](#v1-Pagination) | optional |  |
 | order_by | [OrderBy](#v1-OrderBy) | optional |  |
@@ -2077,7 +2077,7 @@ UpdateTaskScheduleScopeResponse returns the complete scope after reconciliation.
 
 Expected by Flow but not found in the component manager service |
 | unexpected_count | [int32](#int32) |  | Found in the component manager service but not expected by Flow |
-| drift_count | [int32](#int32) |  |  |
+| mismatch_count | [int32](#int32) |  | In both but with field differences |
 | match_count | [int32](#int32) |  |  |
 
 
@@ -2149,7 +2149,7 @@ ComponentOrderByField represents the supported order by field types for componen
 | ---- | ------ | ----------- |
 | COMPONENT_TYPE_UNKNOWN | 0 |  |
 | COMPONENT_TYPE_COMPUTE | 1 |  |
-| COMPONENT_TYPE_NVLSWITCH | 2 |  |
+| COMPONENT_TYPE_NVSWITCH | 2 |  |
 | COMPONENT_TYPE_POWERSHELF | 3 |  |
 | COMPONENT_TYPE_TORSWITCH | 4 |  |
 | COMPONENT_TYPE_UMS | 5 |  |
@@ -2180,7 +2180,7 @@ ConflictStrategy controls how a task behaves when a conflict is detected.
 | DIFF_TYPE_UNKNOWN | 0 |  |
 | DIFF_TYPE_MISSING | 1 | Expected by Flow but not found in the component manager service |
 | DIFF_TYPE_UNEXPECTED | 2 | Found in the component manager service but not expected by Flow |
-| DIFF_TYPE_DRIFT | 3 | In both but with field differences |
+| DIFF_TYPE_MISMATCH | 3 | In both but with field differences |
 
 
 

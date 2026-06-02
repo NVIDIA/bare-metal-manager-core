@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -24,6 +10,7 @@ import (
 
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	ipam "github.com/NVIDIA/infra-controller-rest/ipam"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
@@ -210,12 +197,80 @@ func TestAPIVpcPrefixNew(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.desc, func(t *testing.T) {
-			got := NewAPIVpcPrefix(tc.dbObj, tc.sdObj)
+			got := NewAPIVpcPrefix(tc.dbObj, tc.sdObj, nil)
 			assert.Equal(t, tc.dbObj.ID.String(), got.ID)
 			assert.NotNil(t, tc.dbObj.SiteID)
 			assert.NotNil(t, tc.dbObj.VpcID)
 			assert.Equal(t, tc.dbObj.Prefix, *got.Prefix)
 			assert.Equal(t, tc.dbObj.PrefixLength, got.PrefixLength)
+			assert.Nil(t, got.UsageStats)
+		})
+	}
+}
+
+func TestNewAPIVpcPrefix_UsageStats(t *testing.T) {
+	dbObj := &cdbm.VpcPrefix{
+		ID:           uuid.New(),
+		Name:         "vpc-prefix-stats",
+		SiteID:       uuid.New(),
+		VpcID:        uuid.New(),
+		IPBlockID:    cdb.GetUUIDPtr(uuid.New()),
+		Prefix:       "10.1.0.0",
+		PrefixLength: 24,
+		Created:      cdb.GetCurTime(),
+		Updated:      cdb.GetCurTime(),
+	}
+	tests := []struct {
+		desc  string
+		usage *ipam.Usage
+		want  *APIIPBlockUsageStats
+	}{
+		{
+			desc:  "non-nil empty usage yields zero-valued UsageStats",
+			usage: &ipam.Usage{},
+			want: &APIIPBlockUsageStats{
+				AvailablePrefixes: []string(nil),
+			},
+		},
+		{
+			desc: "partial usage copies only populated fields",
+			usage: &ipam.Usage{
+				AvailableIPs:      100,
+				AvailablePrefixes: []string{"10.1.1.0/26"},
+			},
+			want: &APIIPBlockUsageStats{
+				AvailableIPs:      100,
+				AvailablePrefixes: []string{"10.1.1.0/26"},
+			},
+		},
+		{
+			desc: "full usage maps all fields",
+			usage: &ipam.Usage{
+				AvailableIPs:              50,
+				AcquiredIPs:               14,
+				AvailableSmallestPrefixes: 200,
+				AvailablePrefixes:         []string{"10.2.0.0/26", "10.2.0.64/26"},
+				AcquiredPrefixes:          8,
+			},
+			want: &APIIPBlockUsageStats{
+				AvailableIPs:              50,
+				AcquiredIPs:               14,
+				AvailableSmallestPrefixes: 200,
+				AvailablePrefixes:         []string{"10.2.0.0/26", "10.2.0.64/26"},
+				AcquiredPrefixes:          8,
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.desc, func(t *testing.T) {
+			got := NewAPIVpcPrefix(dbObj, nil, tc.usage)
+			req := assert.New(t)
+			req.NotNil(got.UsageStats)
+			req.Equal(tc.want.AvailableIPs, got.UsageStats.AvailableIPs)
+			req.Equal(tc.want.AcquiredIPs, got.UsageStats.AcquiredIPs)
+			req.Equal(tc.want.AvailablePrefixes, got.UsageStats.AvailablePrefixes)
+			req.Equal(tc.want.AvailableSmallestPrefixes, got.UsageStats.AvailableSmallestPrefixes)
+			req.Equal(tc.want.AcquiredPrefixes, got.UsageStats.AcquiredPrefixes)
 		})
 	}
 }

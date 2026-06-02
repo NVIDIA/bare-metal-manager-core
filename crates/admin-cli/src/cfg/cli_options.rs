@@ -20,13 +20,14 @@ use rpc::admin_cli::OutputFormat;
 use crate::{
     attestation, bmc_machine, boot_override, component_manager, compute_allocation, credential,
     devenv, domain, dpa, dpu, dpu_remediation, expected_machines, expected_power_shelf,
-    expected_rack, expected_switch, extension_service, firmware, generate_shell_complete, host,
-    ib_partition, instance, instance_type, inventory, ip, ipxe_template, jump, machine,
-    machine_interfaces, machine_validation, managed_host, managed_switch, mlx, network_devices,
-    network_security_group, network_segment, nvl_logical_partition, nvl_partition,
-    nvlink_nmxc_endpoints, operating_system, os_image, ping, power_shelf, rack, redfish,
-    resource_pool, rms, route_server, scout_stream, set, site_explorer, sku, spx_partition, ssh,
-    switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc, vpc_peering, vpc_prefix,
+    expected_rack, expected_switch, extension_service, firmware, generate_man,
+    generate_shell_complete, host, ib_partition, instance, instance_type, inventory, ip,
+    ipxe_template, jump, machine, machine_interfaces, machine_validation, managed_host,
+    managed_switch, mlx, network_devices, network_security_group, network_segment,
+    nvl_logical_partition, nvl_partition, nvlink_nmxc_endpoints, operating_system, os_image, ping,
+    power_shelf, rack, redfish, resource_pool, rms, route_server, scout_stream, set, site_explorer,
+    sku, spx_partition, ssh, switch, tenant, tenant_keyset, tpm_ca, trim_table, version, vpc,
+    vpc_peering, vpc_prefix,
 };
 
 #[derive(Parser, Debug)]
@@ -99,11 +100,12 @@ pub struct CliOptions {
     #[clap(short, long, num_args(0..), default_value = "0")]
     pub debug: u8,
 
-    // This is primarily used by measured boot, where basic output contains just
-    // what you probably care about, and "extended" output also dumps out all of
-    // the internal UUIDs that are used to associate instances. Helpful for filing
-    // reports, doing site import/exports, etc.
-    #[clap(long, global = true, help = "Extended result output.")]
+    /// Extended result output.
+    ///
+    /// This used by measured boot, where basic output contains just
+    /// what you probably care about, and "extended" output also dumps out all
+    /// the internal UUIDs that are used to associate instances.
+    #[clap(long, global = true)]
     pub extended: bool,
 
     #[clap(subcommand)]
@@ -204,6 +206,8 @@ pub enum CliCommand {
         about = "Generate shell autocomplete. Source the output of this command: `source <(carbide-admin-cli generate-shell-complete bash)`"
     )]
     GenerateShellComplete(generate_shell_complete::Cmd),
+    #[clap(about = "Generate man pages for the CLI", hide = true)]
+    GenerateMan(generate_man::Cmd),
     #[clap(
         about = "Query the Version gRPC endpoint repeatedly printing how long it took and any failures."
     )]

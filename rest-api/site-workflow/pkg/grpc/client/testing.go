@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package client
 
@@ -22,6 +8,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"slices"
 	"time"
 
 	"github.com/gogo/status"
@@ -29,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	flowv1 "github.com/NVIDIA/infra-controller-rest/workflow-schema/flow/protobuf/v1"
 	wflows "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
@@ -59,7 +47,7 @@ func generateSiteVersion() string {
 // It handles carrying over to the next byte when a byte overflows (reaches 255).
 func incrementMAC(mac net.HardwareAddr) {
 	// Iterate from the last byte to the first.
-	for i := len(mac) - 1; i >= 0; i-- {
+	for i := range slices.Backward(mac) {
 		// Increment the current byte.
 		mac[i]++
 		// If the byte is not 0, it means there was no overflow, so we can stop.
@@ -71,41 +59,41 @@ func incrementMAC(mac net.HardwareAddr) {
 	}
 }
 
-// MockNICoClient is a mock implementation of NICo gRPC protobuf Client
-type MockNICoClient struct {
+// MockCoreGrpcService is a mock implementation of Core gRPC protobuf Service
+type MockCoreGrpcServiceClient struct {
 	wflows.ForgeClient
 }
 
 /* Version mock methods */
-func (c *MockNICoClient) Version(ctx context.Context, in *wflows.VersionRequest, opts ...grpc.CallOption) (*wflows.BuildInfo, error) {
+func (mcgsc *MockCoreGrpcServiceClient) Version(ctx context.Context, in *wflows.VersionRequest, opts ...grpc.CallOption) (*wflows.BuildInfo, error) {
 	out := new(wflows.BuildInfo)
 	out.BuildVersion = "1.0.0"
 	return out, nil
 }
 
 /* VPC mock methods */
-func (c *MockNICoClient) CreateVpc(ctx context.Context, in *wflows.VpcCreationRequest, opts ...grpc.CallOption) (*wflows.Vpc, error) {
+func (mcgsc *MockCoreGrpcServiceClient) CreateVpc(ctx context.Context, in *wflows.VpcCreationRequest, opts ...grpc.CallOption) (*wflows.Vpc, error) {
 	out := new(wflows.Vpc)
 	out.Id = &wflows.VpcId{Value: uuid.NewString()}
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateVpc(ctx context.Context, in *wflows.VpcUpdateRequest, opts ...grpc.CallOption) (*wflows.VpcUpdateResult, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateVpc(ctx context.Context, in *wflows.VpcUpdateRequest, opts ...grpc.CallOption) (*wflows.VpcUpdateResult, error) {
 	out := new(wflows.VpcUpdateResult)
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateVpcVirtualization(ctx context.Context, in *wflows.VpcUpdateVirtualizationRequest, opts ...grpc.CallOption) (*wflows.VpcUpdateVirtualizationResult, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateVpcVirtualization(ctx context.Context, in *wflows.VpcUpdateVirtualizationRequest, opts ...grpc.CallOption) (*wflows.VpcUpdateVirtualizationResult, error) {
 	out := new(wflows.VpcUpdateVirtualizationResult)
 	return out, nil
 }
 
-func (c *MockNICoClient) DeleteVpc(ctx context.Context, in *wflows.VpcDeletionRequest, opts ...grpc.CallOption) (*wflows.VpcDeletionResult, error) {
+func (mcgsc *MockCoreGrpcServiceClient) DeleteVpc(ctx context.Context, in *wflows.VpcDeletionRequest, opts ...grpc.CallOption) (*wflows.VpcDeletionResult, error) {
 	out := new(wflows.VpcDeletionResult)
 	return out, nil
 }
 
-func (c *MockNICoClient) FindVpcIds(ctx context.Context, in *wflows.VpcSearchFilter, opts ...grpc.CallOption) (*wflows.VpcIdList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindVpcIds(ctx context.Context, in *wflows.VpcSearchFilter, opts ...grpc.CallOption) (*wflows.VpcIdList, error) {
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve vpc ids")
 	}
@@ -114,7 +102,7 @@ func (c *MockNICoClient) FindVpcIds(ctx context.Context, in *wflows.VpcSearchFil
 
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
-		for i := 0; i < count; i++ {
+		for range count {
 			out.VpcIds = append(out.VpcIds, &wflows.VpcId{Value: uuid.NewString()})
 		}
 	}
@@ -122,7 +110,7 @@ func (c *MockNICoClient) FindVpcIds(ctx context.Context, in *wflows.VpcSearchFil
 	return out, nil
 }
 
-func (c *MockNICoClient) FindVpcsByIds(ctx context.Context, in *wflows.VpcsByIdsRequest, opts ...grpc.CallOption) (*wflows.VpcList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindVpcsByIds(ctx context.Context, in *wflows.VpcsByIdsRequest, opts ...grpc.CallOption) (*wflows.VpcList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve vpcs")
@@ -142,18 +130,18 @@ func (c *MockNICoClient) FindVpcsByIds(ctx context.Context, in *wflows.VpcsByIds
 
 /* Network Segment mock methods */
 
-func (c *MockNICoClient) CreateNetworkSegment(ctx context.Context, in *wflows.NetworkSegmentCreationRequest, opts ...grpc.CallOption) (*wflows.NetworkSegment, error) {
+func (mcgsc *MockCoreGrpcServiceClient) CreateNetworkSegment(ctx context.Context, in *wflows.NetworkSegmentCreationRequest, opts ...grpc.CallOption) (*wflows.NetworkSegment, error) {
 	out := new(wflows.NetworkSegment)
 	out.Id = &wflows.NetworkSegmentId{Value: uuid.NewString()}
 	return out, nil
 }
 
-func (c *MockNICoClient) DeleteNetworkSegment(ctx context.Context, in *wflows.NetworkSegmentDeletionRequest, opts ...grpc.CallOption) (*wflows.NetworkSegmentDeletionResult, error) {
+func (mcgsc *MockCoreGrpcServiceClient) DeleteNetworkSegment(ctx context.Context, in *wflows.NetworkSegmentDeletionRequest, opts ...grpc.CallOption) (*wflows.NetworkSegmentDeletionResult, error) {
 	out := new(wflows.NetworkSegmentDeletionResult)
 	return out, nil
 }
 
-func (c *MockNICoClient) FindNetworkSegmentIds(ctx context.Context, in *wflows.NetworkSegmentSearchFilter, opts ...grpc.CallOption) (*wflows.NetworkSegmentIdList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindNetworkSegmentIds(ctx context.Context, in *wflows.NetworkSegmentSearchFilter, opts ...grpc.CallOption) (*wflows.NetworkSegmentIdList, error) {
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve network segment ids")
 	}
@@ -162,7 +150,7 @@ func (c *MockNICoClient) FindNetworkSegmentIds(ctx context.Context, in *wflows.N
 
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
-		for i := 0; i < count; i++ {
+		for range count {
 			out.NetworkSegmentsIds = append(out.NetworkSegmentsIds, &wflows.NetworkSegmentId{Value: uuid.NewString()})
 		}
 	}
@@ -170,7 +158,7 @@ func (c *MockNICoClient) FindNetworkSegmentIds(ctx context.Context, in *wflows.N
 	return out, nil
 }
 
-func (c *MockNICoClient) FindNetworkSegmentsByIds(ctx context.Context, in *wflows.NetworkSegmentsByIdsRequest, opts ...grpc.CallOption) (*wflows.NetworkSegmentList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindNetworkSegmentsByIds(ctx context.Context, in *wflows.NetworkSegmentsByIdsRequest, opts ...grpc.CallOption) (*wflows.NetworkSegmentList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve network segments")
@@ -189,13 +177,13 @@ func (c *MockNICoClient) FindNetworkSegmentsByIds(ctx context.Context, in *wflow
 }
 
 /* InfiniBand Partition mock methods */
-func (c *MockNICoClient) CreateIBPartition(ctx context.Context, in *wflows.IBPartitionCreationRequest, opts ...grpc.CallOption) (*wflows.IBPartition, error) {
+func (mcgsc *MockCoreGrpcServiceClient) CreateIBPartition(ctx context.Context, in *wflows.IBPartitionCreationRequest, opts ...grpc.CallOption) (*wflows.IBPartition, error) {
 	out := new(wflows.IBPartition)
 	out.Id = &wflows.IBPartitionId{Value: uuid.NewString()}
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateIBPartition(ctx context.Context, in *wflows.IBPartitionUpdateRequest, opts ...grpc.CallOption) (*wflows.IBPartition, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateIBPartition(ctx context.Context, in *wflows.IBPartitionUpdateRequest, opts ...grpc.CallOption) (*wflows.IBPartition, error) {
 	out := new(wflows.IBPartition)
 	if in != nil && in.Id != nil {
 		out.Id = in.Id
@@ -209,12 +197,12 @@ func (c *MockNICoClient) UpdateIBPartition(ctx context.Context, in *wflows.IBPar
 	return out, nil
 }
 
-func (c *MockNICoClient) DeleteIBPartition(ctx context.Context, in *wflows.IBPartitionDeletionRequest, opts ...grpc.CallOption) (*wflows.IBPartitionDeletionResult, error) {
+func (mcgsc *MockCoreGrpcServiceClient) DeleteIBPartition(ctx context.Context, in *wflows.IBPartitionDeletionRequest, opts ...grpc.CallOption) (*wflows.IBPartitionDeletionResult, error) {
 	out := new(wflows.IBPartitionDeletionResult)
 	return out, nil
 }
 
-func (c *MockNICoClient) FindIBPartitionIds(ctx context.Context, in *wflows.IBPartitionSearchFilter, opts ...grpc.CallOption) (*wflows.IBPartitionIdList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindIBPartitionIds(ctx context.Context, in *wflows.IBPartitionSearchFilter, opts ...grpc.CallOption) (*wflows.IBPartitionIdList, error) {
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve ib partition ids")
 	}
@@ -223,7 +211,7 @@ func (c *MockNICoClient) FindIBPartitionIds(ctx context.Context, in *wflows.IBPa
 
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
-		for i := 0; i < count; i++ {
+		for range count {
 			out.IbPartitionIds = append(out.IbPartitionIds, &wflows.IBPartitionId{Value: uuid.NewString()})
 		}
 	}
@@ -231,7 +219,7 @@ func (c *MockNICoClient) FindIBPartitionIds(ctx context.Context, in *wflows.IBPa
 	return out, nil
 }
 
-func (c *MockNICoClient) FindIBPartitionsByIds(ctx context.Context, in *wflows.IBPartitionsByIdsRequest, opts ...grpc.CallOption) (*wflows.IBPartitionList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindIBPartitionsByIds(ctx context.Context, in *wflows.IBPartitionsByIdsRequest, opts ...grpc.CallOption) (*wflows.IBPartitionList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve ib partitions")
@@ -250,13 +238,13 @@ func (c *MockNICoClient) FindIBPartitionsByIds(ctx context.Context, in *wflows.I
 }
 
 /* Instance mock methods */
-func (c *MockNICoClient) AllocateInstance(ctx context.Context, in *wflows.InstanceAllocationRequest, opts ...grpc.CallOption) (*wflows.Instance, error) {
+func (mcgsc *MockCoreGrpcServiceClient) AllocateInstance(ctx context.Context, in *wflows.InstanceAllocationRequest, opts ...grpc.CallOption) (*wflows.Instance, error) {
 	out := new(wflows.Instance)
 	out.Id = &wflows.InstanceId{Value: uuid.NewString()}
 	return out, nil
 }
 
-func (c *MockNICoClient) AllocateInstances(ctx context.Context, in *wflows.BatchInstanceAllocationRequest, opts ...grpc.CallOption) (*wflows.BatchInstanceAllocationResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) AllocateInstances(ctx context.Context, in *wflows.BatchInstanceAllocationRequest, opts ...grpc.CallOption) (*wflows.BatchInstanceAllocationResponse, error) {
 	out := &wflows.BatchInstanceAllocationResponse{
 		Instances: make([]*wflows.Instance, len(in.InstanceRequests)),
 	}
@@ -268,7 +256,7 @@ func (c *MockNICoClient) AllocateInstances(ctx context.Context, in *wflows.Batch
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateInstanceConfig(ctx context.Context, in *wflows.InstanceConfigUpdateRequest, opts ...grpc.CallOption) (*wflows.Instance, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateInstanceConfig(ctx context.Context, in *wflows.InstanceConfigUpdateRequest, opts ...grpc.CallOption) (*wflows.Instance, error) {
 	out := new(wflows.Instance)
 	out.Id = in.InstanceId
 	out.Metadata = in.Metadata
@@ -276,7 +264,7 @@ func (c *MockNICoClient) UpdateInstanceConfig(ctx context.Context, in *wflows.In
 	return out, nil
 }
 
-func (c *MockNICoClient) ReleaseInstance(ctx context.Context, in *wflows.InstanceReleaseRequest, opts ...grpc.CallOption) (*wflows.InstanceReleaseResult, error) {
+func (mcgsc *MockCoreGrpcServiceClient) ReleaseInstance(ctx context.Context, in *wflows.InstanceReleaseRequest, opts ...grpc.CallOption) (*wflows.InstanceReleaseResult, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		if status.Code(err) == codes.NotFound {
@@ -287,7 +275,7 @@ func (c *MockNICoClient) ReleaseInstance(ctx context.Context, in *wflows.Instanc
 	return out, nil
 }
 
-func (c *MockNICoClient) FindInstanceIds(ctx context.Context, in *wflows.InstanceSearchFilter, opts ...grpc.CallOption) (*wflows.InstanceIdList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindInstanceIds(ctx context.Context, in *wflows.InstanceSearchFilter, opts ...grpc.CallOption) (*wflows.InstanceIdList, error) {
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve instance ids")
 	}
@@ -296,7 +284,7 @@ func (c *MockNICoClient) FindInstanceIds(ctx context.Context, in *wflows.Instanc
 
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
-		for i := 0; i < count; i++ {
+		for range count {
 			out.InstanceIds = append(out.InstanceIds, &wflows.InstanceId{Value: uuid.NewString()})
 		}
 	}
@@ -304,7 +292,7 @@ func (c *MockNICoClient) FindInstanceIds(ctx context.Context, in *wflows.Instanc
 	return out, nil
 }
 
-func (c *MockNICoClient) FindInstancesByIds(ctx context.Context, in *wflows.InstancesByIdsRequest, opts ...grpc.CallOption) (*wflows.InstanceList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindInstancesByIds(ctx context.Context, in *wflows.InstancesByIdsRequest, opts ...grpc.CallOption) (*wflows.InstanceList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve instances")
@@ -322,18 +310,18 @@ func (c *MockNICoClient) FindInstancesByIds(ctx context.Context, in *wflows.Inst
 	return out, nil
 }
 
-func (c *MockNICoClient) InvokeInstancePower(ctx context.Context, in *wflows.InstancePowerRequest, opts ...grpc.CallOption) (*wflows.InstancePowerResult, error) {
+func (mcgsc *MockCoreGrpcServiceClient) InvokeInstancePower(ctx context.Context, in *wflows.InstancePowerRequest, opts ...grpc.CallOption) (*wflows.InstancePowerResult, error) {
 	out := new(wflows.InstancePowerResult)
 	return out, nil
 }
 
 /* Machine mock methods */
-func (c *MockNICoClient) SetMaintenance(ctx context.Context, in *wflows.MaintenanceRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) SetMaintenance(ctx context.Context, in *wflows.MaintenanceRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateMachineMetadata(ctx context.Context, in *wflows.MachineMetadataUpdateRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateMachineMetadata(ctx context.Context, in *wflows.MachineMetadataUpdateRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		return nil, status.Error(status.Code(err), "failed to update machine metadata")
@@ -343,7 +331,27 @@ func (c *MockNICoClient) UpdateMachineMetadata(ctx context.Context, in *wflows.M
 	return out, nil
 }
 
-func (c *MockNICoClient) FindMachineIds(ctx context.Context, in *wflows.MachineSearchConfig, opts ...grpc.CallOption) (*wflows.MachineIdList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) InsertHealthReportOverride(ctx context.Context, in *wflows.InsertHealthReportOverrideRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	err, ok := ctx.Value("wantError").(error)
+	if ok {
+		return nil, status.Error(status.Code(err), "failed to insert health report override")
+	}
+
+	out := new(emptypb.Empty)
+	return out, nil
+}
+
+func (mcgsc *MockCoreGrpcServiceClient) RemoveHealthReportOverride(ctx context.Context, in *wflows.RemoveHealthReportOverrideRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	err, ok := ctx.Value("wantError").(error)
+	if ok {
+		return nil, status.Error(status.Code(err), "failed to remove health report override")
+	}
+
+	out := new(emptypb.Empty)
+	return out, nil
+}
+
+func (mcgsc *MockCoreGrpcServiceClient) FindMachineIds(ctx context.Context, in *wflows.MachineSearchConfig, opts ...grpc.CallOption) (*wflows.MachineIdList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		if status.Code(err) == codes.Internal {
@@ -355,7 +363,7 @@ func (c *MockNICoClient) FindMachineIds(ctx context.Context, in *wflows.MachineS
 
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
-		for i := 0; i < count; i++ {
+		for range count {
 			out.MachineIds = append(out.MachineIds, &wflows.MachineId{Id: uuid.NewString()})
 		}
 	}
@@ -363,7 +371,7 @@ func (c *MockNICoClient) FindMachineIds(ctx context.Context, in *wflows.MachineS
 	return out, nil
 }
 
-func (c *MockNICoClient) FindMachinesByIds(ctx context.Context, in *wflows.MachinesByIdsRequest, opts ...grpc.CallOption) (*wflows.MachineList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindMachinesByIds(ctx context.Context, in *wflows.MachinesByIdsRequest, opts ...grpc.CallOption) (*wflows.MachineList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		if status.Code(err) == codes.Internal {
@@ -385,7 +393,7 @@ func (c *MockNICoClient) FindMachinesByIds(ctx context.Context, in *wflows.Machi
 }
 
 /* Tenant Keyset mock methods */
-func (c *MockNICoClient) CreateTenantKeyset(ctx context.Context, in *wflows.CreateTenantKeysetRequest, opts ...grpc.CallOption) (*wflows.CreateTenantKeysetResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) CreateTenantKeyset(ctx context.Context, in *wflows.CreateTenantKeysetRequest, opts ...grpc.CallOption) (*wflows.CreateTenantKeysetResponse, error) {
 	out := new(wflows.CreateTenantKeysetResponse)
 	out.Keyset = &wflows.TenantKeyset{
 		KeysetIdentifier: &wflows.TenantKeysetIdentifier{
@@ -398,17 +406,17 @@ func (c *MockNICoClient) CreateTenantKeyset(ctx context.Context, in *wflows.Crea
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateTenantKeyset(ctx context.Context, in *wflows.UpdateTenantKeysetRequest, opts ...grpc.CallOption) (*wflows.UpdateTenantKeysetResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateTenantKeyset(ctx context.Context, in *wflows.UpdateTenantKeysetRequest, opts ...grpc.CallOption) (*wflows.UpdateTenantKeysetResponse, error) {
 	out := new(wflows.UpdateTenantKeysetResponse)
 	return out, nil
 }
 
-func (c *MockNICoClient) DeleteTenantKeyset(ctx context.Context, in *wflows.DeleteTenantKeysetRequest, opts ...grpc.CallOption) (*wflows.DeleteTenantKeysetResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) DeleteTenantKeyset(ctx context.Context, in *wflows.DeleteTenantKeysetRequest, opts ...grpc.CallOption) (*wflows.DeleteTenantKeysetResponse, error) {
 	out := new(wflows.DeleteTenantKeysetResponse)
 	return out, nil
 }
 
-func (c *MockNICoClient) FindTenantKeysetIds(ctx context.Context, in *wflows.TenantKeysetSearchFilter, opts ...grpc.CallOption) (*wflows.TenantKeysetIdList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindTenantKeysetIds(ctx context.Context, in *wflows.TenantKeysetSearchFilter, opts ...grpc.CallOption) (*wflows.TenantKeysetIdList, error) {
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve tenant keyset ids")
 	}
@@ -418,7 +426,7 @@ func (c *MockNICoClient) FindTenantKeysetIds(ctx context.Context, in *wflows.Ten
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
 		orgID := uuid.NewString()
-		for i := 0; i < count; i++ {
+		for range count {
 			out.KeysetIds = append(out.KeysetIds, &wflows.TenantKeysetIdentifier{OrganizationId: orgID, KeysetId: uuid.NewString()})
 		}
 	}
@@ -426,7 +434,7 @@ func (c *MockNICoClient) FindTenantKeysetIds(ctx context.Context, in *wflows.Ten
 	return out, nil
 }
 
-func (c *MockNICoClient) FindTenantKeysetsByIds(ctx context.Context, in *wflows.TenantKeysetsByIdsRequest, opts ...grpc.CallOption) (*wflows.TenantKeySetList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindTenantKeysetsByIds(ctx context.Context, in *wflows.TenantKeysetsByIdsRequest, opts ...grpc.CallOption) (*wflows.TenantKeySetList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve tenant keysets")
@@ -448,23 +456,23 @@ func (c *MockNICoClient) FindTenantKeysetsByIds(ctx context.Context, in *wflows.
 }
 
 /* OS Image mock methods */
-func (c *MockNICoClient) CreateOsImage(ctx context.Context, in *wflows.OsImageAttributes, opts ...grpc.CallOption) (*wflows.OsImage, error) {
+func (mcgsc *MockCoreGrpcServiceClient) CreateOsImage(ctx context.Context, in *wflows.OsImageAttributes, opts ...grpc.CallOption) (*wflows.OsImage, error) {
 	out := new(wflows.OsImage)
 	out.Attributes = &wflows.OsImageAttributes{Id: &wflows.UUID{Value: uuid.NewString()}}
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateOsImage(ctx context.Context, in *wflows.OsImageAttributes, opts ...grpc.CallOption) (*wflows.OsImage, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateOsImage(ctx context.Context, in *wflows.OsImageAttributes, opts ...grpc.CallOption) (*wflows.OsImage, error) {
 	out := new(wflows.OsImage)
 	return out, nil
 }
 
-func (c *MockNICoClient) DeleteOsImage(ctx context.Context, in *wflows.DeleteOsImageRequest, opts ...grpc.CallOption) (*wflows.DeleteOsImageResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) DeleteOsImage(ctx context.Context, in *wflows.DeleteOsImageRequest, opts ...grpc.CallOption) (*wflows.DeleteOsImageResponse, error) {
 	out := new(wflows.DeleteOsImageResponse)
 	return out, nil
 }
 
-func (c *MockNICoClient) ListOsImage(ctx context.Context, in *wflows.ListOsImageRequest, opts ...grpc.CallOption) (*wflows.ListOsImageResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) ListOsImage(ctx context.Context, in *wflows.ListOsImageRequest, opts ...grpc.CallOption) (*wflows.ListOsImageResponse, error) {
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve os image list")
 	}
@@ -473,7 +481,7 @@ func (c *MockNICoClient) ListOsImage(ctx context.Context, in *wflows.ListOsImage
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
 		id := uuid.NewString()
-		for i := 0; i < count; i++ {
+		for range count {
 			out.Images = append(out.Images, &wflows.OsImage{Attributes: &wflows.OsImageAttributes{Id: &wflows.UUID{Value: id}}})
 		}
 	}
@@ -481,7 +489,7 @@ func (c *MockNICoClient) ListOsImage(ctx context.Context, in *wflows.ListOsImage
 }
 
 /* Tenant mock methods */
-func (c *MockNICoClient) CreateTenant(ctx context.Context, in *wflows.CreateTenantRequest, opts ...grpc.CallOption) (*wflows.CreateTenantResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) CreateTenant(ctx context.Context, in *wflows.CreateTenantRequest, opts ...grpc.CallOption) (*wflows.CreateTenantResponse, error) {
 	out := new(wflows.CreateTenantResponse)
 	out.Tenant = &wflows.Tenant{
 		OrganizationId: in.OrganizationId,
@@ -494,17 +502,17 @@ func (c *MockNICoClient) CreateTenant(ctx context.Context, in *wflows.CreateTena
 	return out, nil
 }
 
-func (c *MockNICoClient) FindTenant(ctx context.Context, in *wflows.FindTenantRequest, opts ...grpc.CallOption) (*wflows.FindTenantResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindTenant(ctx context.Context, in *wflows.FindTenantRequest, opts ...grpc.CallOption) (*wflows.FindTenantResponse, error) {
 	out := new(wflows.FindTenantResponse)
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateTenant(ctx context.Context, in *wflows.UpdateTenantRequest, opts ...grpc.CallOption) (*wflows.UpdateTenantResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateTenant(ctx context.Context, in *wflows.UpdateTenantRequest, opts ...grpc.CallOption) (*wflows.UpdateTenantResponse, error) {
 	out := new(wflows.UpdateTenantResponse)
 	return out, nil
 }
 
-func (c *MockNICoClient) FindTenantOrganizationIds(ctx context.Context, in *wflows.TenantSearchFilter, opts ...grpc.CallOption) (*wflows.TenantOrganizationIdList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindTenantOrganizationIds(ctx context.Context, in *wflows.TenantSearchFilter, opts ...grpc.CallOption) (*wflows.TenantOrganizationIdList, error) {
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve Tenant organization ids")
 	}
@@ -513,7 +521,7 @@ func (c *MockNICoClient) FindTenantOrganizationIds(ctx context.Context, in *wflo
 
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
-		for i := 0; i < count; i++ {
+		for range count {
 			out.TenantOrganizationIds = append(out.TenantOrganizationIds, randSeq(10))
 		}
 	}
@@ -521,7 +529,7 @@ func (c *MockNICoClient) FindTenantOrganizationIds(ctx context.Context, in *wflo
 	return out, nil
 }
 
-func (c *MockNICoClient) FindTenantsByOrganizationIds(ctx context.Context, in *wflows.TenantByOrganizationIdsRequest, opts ...grpc.CallOption) (*wflows.TenantList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindTenantsByOrganizationIds(ctx context.Context, in *wflows.TenantByOrganizationIdsRequest, opts ...grpc.CallOption) (*wflows.TenantList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve Tenants")
@@ -540,13 +548,13 @@ func (c *MockNICoClient) FindTenantsByOrganizationIds(ctx context.Context, in *w
 }
 
 /* Instance Type mock methods */
-func (c *MockNICoClient) CreateInstanceType(ctx context.Context, in *wflows.CreateInstanceTypeRequest, opts ...grpc.CallOption) (*wflows.CreateInstanceTypeResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) CreateInstanceType(ctx context.Context, in *wflows.CreateInstanceTypeRequest, opts ...grpc.CallOption) (*wflows.CreateInstanceTypeResponse, error) {
 	out := &wflows.CreateInstanceTypeResponse{InstanceType: &wflows.InstanceType{}}
 	out.InstanceType.Id = uuid.NewString()
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateInstanceType(ctx context.Context, in *wflows.UpdateInstanceTypeRequest, opts ...grpc.CallOption) (*wflows.UpdateInstanceTypeResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateInstanceType(ctx context.Context, in *wflows.UpdateInstanceTypeRequest, opts ...grpc.CallOption) (*wflows.UpdateInstanceTypeResponse, error) {
 	out := &wflows.UpdateInstanceTypeResponse{InstanceType: &wflows.InstanceType{}}
 	out.InstanceType.Id = in.Id
 	out.InstanceType.Metadata = in.Metadata
@@ -554,22 +562,22 @@ func (c *MockNICoClient) UpdateInstanceType(ctx context.Context, in *wflows.Upda
 	return out, nil
 }
 
-func (c *MockNICoClient) DeleteInstanceType(ctx context.Context, in *wflows.DeleteInstanceTypeRequest, opts ...grpc.CallOption) (*wflows.DeleteInstanceTypeResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) DeleteInstanceType(ctx context.Context, in *wflows.DeleteInstanceTypeRequest, opts ...grpc.CallOption) (*wflows.DeleteInstanceTypeResponse, error) {
 	out := &wflows.DeleteInstanceTypeResponse{}
 	return out, nil
 }
 
-func (c *MockNICoClient) AssociateMachinesWithInstanceType(ctx context.Context, in *wflows.AssociateMachinesWithInstanceTypeRequest, opts ...grpc.CallOption) (*wflows.AssociateMachinesWithInstanceTypeResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) AssociateMachinesWithInstanceType(ctx context.Context, in *wflows.AssociateMachinesWithInstanceTypeRequest, opts ...grpc.CallOption) (*wflows.AssociateMachinesWithInstanceTypeResponse, error) {
 	out := &wflows.AssociateMachinesWithInstanceTypeResponse{}
 	return out, nil
 }
 
-func (c *MockNICoClient) RemoveMachineInstanceTypeAssociation(ctx context.Context, in *wflows.RemoveMachineInstanceTypeAssociationRequest, opts ...grpc.CallOption) (*wflows.RemoveMachineInstanceTypeAssociationResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) RemoveMachineInstanceTypeAssociation(ctx context.Context, in *wflows.RemoveMachineInstanceTypeAssociationRequest, opts ...grpc.CallOption) (*wflows.RemoveMachineInstanceTypeAssociationResponse, error) {
 	out := &wflows.RemoveMachineInstanceTypeAssociationResponse{}
 	return out, nil
 }
 
-func (c *MockNICoClient) FindInstanceTypeIds(ctx context.Context, in *wflows.FindInstanceTypeIdsRequest, opts ...grpc.CallOption) (*wflows.FindInstanceTypeIdsResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindInstanceTypeIds(ctx context.Context, in *wflows.FindInstanceTypeIdsRequest, opts ...grpc.CallOption) (*wflows.FindInstanceTypeIdsResponse, error) {
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve InstanceType ids")
 	}
@@ -578,7 +586,7 @@ func (c *MockNICoClient) FindInstanceTypeIds(ctx context.Context, in *wflows.Fin
 
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
-		for i := 0; i < count; i++ {
+		for range count {
 			out.InstanceTypeIds = append(out.InstanceTypeIds, randSeq(10))
 		}
 	}
@@ -586,7 +594,7 @@ func (c *MockNICoClient) FindInstanceTypeIds(ctx context.Context, in *wflows.Fin
 	return out, nil
 }
 
-func (c *MockNICoClient) FindInstanceTypesByIds(ctx context.Context, in *wflows.FindInstanceTypesByIdsRequest, opts ...grpc.CallOption) (*wflows.FindInstanceTypesByIdsResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindInstanceTypesByIds(ctx context.Context, in *wflows.FindInstanceTypesByIdsRequest, opts ...grpc.CallOption) (*wflows.FindInstanceTypesByIdsResponse, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve InstanceTypes")
@@ -604,22 +612,22 @@ func (c *MockNICoClient) FindInstanceTypesByIds(ctx context.Context, in *wflows.
 }
 
 /* VPC Prefix mock methods */
-func (c *MockNICoClient) CreateVpcPrefix(ctx context.Context, in *wflows.VpcPrefixCreationRequest, opts ...grpc.CallOption) (*wflows.VpcPrefix, error) {
+func (mcgsc *MockCoreGrpcServiceClient) CreateVpcPrefix(ctx context.Context, in *wflows.VpcPrefixCreationRequest, opts ...grpc.CallOption) (*wflows.VpcPrefix, error) {
 	out := new(wflows.VpcPrefix)
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateVpcPrefix(ctx context.Context, in *wflows.VpcPrefixUpdateRequest, opts ...grpc.CallOption) (*wflows.VpcPrefix, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateVpcPrefix(ctx context.Context, in *wflows.VpcPrefixUpdateRequest, opts ...grpc.CallOption) (*wflows.VpcPrefix, error) {
 	out := new(wflows.VpcPrefix)
 	return out, nil
 }
 
-func (c *MockNICoClient) DeleteVpcPrefix(ctx context.Context, in *wflows.VpcPrefixDeletionRequest, opts ...grpc.CallOption) (*wflows.VpcPrefixDeletionResult, error) {
+func (mcgsc *MockCoreGrpcServiceClient) DeleteVpcPrefix(ctx context.Context, in *wflows.VpcPrefixDeletionRequest, opts ...grpc.CallOption) (*wflows.VpcPrefixDeletionResult, error) {
 	out := new(wflows.VpcPrefixDeletionResult)
 	return out, nil
 }
 
-func (c *MockNICoClient) SearchVpcPrefixes(ctx context.Context, in *wflows.VpcPrefixSearchQuery, opts ...grpc.CallOption) (*wflows.VpcPrefixIdList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) SearchVpcPrefixes(ctx context.Context, in *wflows.VpcPrefixSearchQuery, opts ...grpc.CallOption) (*wflows.VpcPrefixIdList, error) {
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve vpcprefix ids")
 	}
@@ -628,7 +636,7 @@ func (c *MockNICoClient) SearchVpcPrefixes(ctx context.Context, in *wflows.VpcPr
 
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
-		for i := 0; i < count; i++ {
+		for range count {
 			out.VpcPrefixIds = append(out.VpcPrefixIds, &wflows.VpcPrefixId{Value: uuid.NewString()})
 		}
 	}
@@ -636,7 +644,7 @@ func (c *MockNICoClient) SearchVpcPrefixes(ctx context.Context, in *wflows.VpcPr
 	return out, nil
 }
 
-func (c *MockNICoClient) GetVpcPrefixes(ctx context.Context, in *wflows.VpcPrefixGetRequest, opts ...grpc.CallOption) (*wflows.VpcPrefixList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetVpcPrefixes(ctx context.Context, in *wflows.VpcPrefixGetRequest, opts ...grpc.CallOption) (*wflows.VpcPrefixList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve vpcprefixes")
@@ -655,13 +663,13 @@ func (c *MockNICoClient) GetVpcPrefixes(ctx context.Context, in *wflows.VpcPrefi
 }
 
 /* VPC Peering mock methods */
-func (c *MockNICoClient) CreateVpcPeering(ctx context.Context, in *wflows.VpcPeeringCreationRequest, opts ...grpc.CallOption) (*wflows.VpcPeering, error) {
+func (mcgsc *MockCoreGrpcServiceClient) CreateVpcPeering(ctx context.Context, in *wflows.VpcPeeringCreationRequest, opts ...grpc.CallOption) (*wflows.VpcPeering, error) {
 	out := new(wflows.VpcPeering)
 	out.Id = &wflows.VpcPeeringId{Value: uuid.NewString()}
 	return out, nil
 }
 
-func (c *MockNICoClient) DeleteVpcPeering(ctx context.Context, in *wflows.VpcPeeringDeletionRequest, opts ...grpc.CallOption) (*wflows.VpcPeeringDeletionResult, error) {
+func (mcgsc *MockCoreGrpcServiceClient) DeleteVpcPeering(ctx context.Context, in *wflows.VpcPeeringDeletionRequest, opts ...grpc.CallOption) (*wflows.VpcPeeringDeletionResult, error) {
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, status.Error(status.Code(err), "failed to delete vpc peering")
 	}
@@ -669,7 +677,7 @@ func (c *MockNICoClient) DeleteVpcPeering(ctx context.Context, in *wflows.VpcPee
 	return &wflows.VpcPeeringDeletionResult{}, nil
 }
 
-func (c *MockNICoClient) FindVpcPeeringIds(ctx context.Context, in *wflows.VpcPeeringSearchFilter, opts ...grpc.CallOption) (*wflows.VpcPeeringIdList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindVpcPeeringIds(ctx context.Context, in *wflows.VpcPeeringSearchFilter, opts ...grpc.CallOption) (*wflows.VpcPeeringIdList, error) {
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve vpc peering ids")
 	}
@@ -678,7 +686,7 @@ func (c *MockNICoClient) FindVpcPeeringIds(ctx context.Context, in *wflows.VpcPe
 
 	count, ok := ctx.Value("WantCount").(int)
 	if ok {
-		for i := 0; i < count; i++ {
+		for range count {
 			out.VpcPeeringIds = append(out.VpcPeeringIds, &wflows.VpcPeeringId{Value: uuid.NewString()})
 		}
 	}
@@ -686,7 +694,7 @@ func (c *MockNICoClient) FindVpcPeeringIds(ctx context.Context, in *wflows.VpcPe
 	return out, nil
 }
 
-func (c *MockNICoClient) FindVpcPeeringsByIds(ctx context.Context, in *wflows.VpcPeeringsByIdsRequest, opts ...grpc.CallOption) (*wflows.VpcPeeringList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindVpcPeeringsByIds(ctx context.Context, in *wflows.VpcPeeringsByIdsRequest, opts ...grpc.CallOption) (*wflows.VpcPeeringList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve vpc peerings")
@@ -705,7 +713,7 @@ func (c *MockNICoClient) FindVpcPeeringsByIds(ctx context.Context, in *wflows.Vp
 }
 
 /* Machine Validation Test mock methods */
-func (c *MockNICoClient) AddMachineValidationTest(ctx context.Context, in *wflows.MachineValidationTestAddRequest, opts ...grpc.CallOption) (*wflows.MachineValidationTestAddUpdateResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) AddMachineValidationTest(ctx context.Context, in *wflows.MachineValidationTestAddRequest, opts ...grpc.CallOption) (*wflows.MachineValidationTestAddUpdateResponse, error) {
 	out := new(wflows.MachineValidationTestAddUpdateResponse)
 	id, ok := ctx.Value("wantID").(string)
 	if ok {
@@ -715,85 +723,85 @@ func (c *MockNICoClient) AddMachineValidationTest(ctx context.Context, in *wflow
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateMachineValidationTest(ctx context.Context, in *wflows.MachineValidationTestUpdateRequest, opts ...grpc.CallOption) (*wflows.MachineValidationTestAddUpdateResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateMachineValidationTest(ctx context.Context, in *wflows.MachineValidationTestUpdateRequest, opts ...grpc.CallOption) (*wflows.MachineValidationTestAddUpdateResponse, error) {
 	out := new(wflows.MachineValidationTestAddUpdateResponse)
 	out.TestId = in.TestId
 	out.Version = in.Version
 	return out, nil
 }
 
-func (c *MockNICoClient) GetMachineValidationTests(ctx context.Context, in *wflows.MachineValidationTestsGetRequest, opts ...grpc.CallOption) (*wflows.MachineValidationTestsGetResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetMachineValidationTests(ctx context.Context, in *wflows.MachineValidationTestsGetRequest, opts ...grpc.CallOption) (*wflows.MachineValidationTestsGetResponse, error) {
 	out := new(wflows.MachineValidationTestsGetResponse)
 	return out, nil
 }
 
-func (c *MockNICoClient) MachineValidationTestEnableDisableTest(ctx context.Context, in *wflows.MachineValidationTestEnableDisableTestRequest, opts ...grpc.CallOption) (*wflows.MachineValidationTestEnableDisableTestResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) MachineValidationTestEnableDisableTest(ctx context.Context, in *wflows.MachineValidationTestEnableDisableTestRequest, opts ...grpc.CallOption) (*wflows.MachineValidationTestEnableDisableTestResponse, error) {
 	out := new(wflows.MachineValidationTestEnableDisableTestResponse)
 	return out, nil
 }
 
-func (c *MockNICoClient) AddUpdateMachineValidationExternalConfig(ctx context.Context, in *wflows.AddUpdateMachineValidationExternalConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) AddUpdateMachineValidationExternalConfig(ctx context.Context, in *wflows.AddUpdateMachineValidationExternalConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	return out, nil
 }
 
-func (c *MockNICoClient) RemoveMachineValidationExternalConfig(ctx context.Context, in *wflows.RemoveMachineValidationExternalConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) RemoveMachineValidationExternalConfig(ctx context.Context, in *wflows.RemoveMachineValidationExternalConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	return out, nil
 }
 
-func (c *MockNICoClient) GetMachineValidationExternalConfigs(ctx context.Context, in *wflows.GetMachineValidationExternalConfigsRequest, opts ...grpc.CallOption) (*wflows.GetMachineValidationExternalConfigsResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetMachineValidationExternalConfigs(ctx context.Context, in *wflows.GetMachineValidationExternalConfigsRequest, opts ...grpc.CallOption) (*wflows.GetMachineValidationExternalConfigsResponse, error) {
 	out := new(wflows.GetMachineValidationExternalConfigsResponse)
 	return out, nil
 }
 
-func (c *MockNICoClient) GetMachineValidationRuns(ctx context.Context, in *wflows.MachineValidationRunListGetRequest, opts ...grpc.CallOption) (*wflows.MachineValidationRunList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetMachineValidationRuns(ctx context.Context, in *wflows.MachineValidationRunListGetRequest, opts ...grpc.CallOption) (*wflows.MachineValidationRunList, error) {
 	out := new(wflows.MachineValidationRunList)
 	return out, nil
 }
 
-func (c *MockNICoClient) GetMachineValidationResults(ctx context.Context, in *wflows.MachineValidationGetRequest, opts ...grpc.CallOption) (*wflows.MachineValidationResultList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetMachineValidationResults(ctx context.Context, in *wflows.MachineValidationGetRequest, opts ...grpc.CallOption) (*wflows.MachineValidationResultList, error) {
 	out := new(wflows.MachineValidationResultList)
 	return out, nil
 }
 
-func (c *MockNICoClient) PersistValidationResult(ctx context.Context, in *wflows.MachineValidationResultPostRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) PersistValidationResult(ctx context.Context, in *wflows.MachineValidationResultPostRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	return out, nil
 }
 
 /* Network Security Group mock methods */
-func (c *MockNICoClient) UpdateMachineValidationRun(ctx context.Context, in *wflows.MachineValidationRunRequest, opts ...grpc.CallOption) (*wflows.MachineValidationRunResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateMachineValidationRun(ctx context.Context, in *wflows.MachineValidationRunRequest, opts ...grpc.CallOption) (*wflows.MachineValidationRunResponse, error) {
 	out := new(wflows.MachineValidationRunResponse)
 	return out, nil
 }
 
-func (c *MockNICoClient) CreateNetworkSecurityGroup(ctx context.Context, in *wflows.CreateNetworkSecurityGroupRequest, opts ...grpc.CallOption) (*wflows.CreateNetworkSecurityGroupResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) CreateNetworkSecurityGroup(ctx context.Context, in *wflows.CreateNetworkSecurityGroupRequest, opts ...grpc.CallOption) (*wflows.CreateNetworkSecurityGroupResponse, error) {
 	out := &wflows.CreateNetworkSecurityGroupResponse{NetworkSecurityGroup: &wflows.NetworkSecurityGroup{}}
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateNetworkSecurityGroup(ctx context.Context, in *wflows.UpdateNetworkSecurityGroupRequest, opts ...grpc.CallOption) (*wflows.UpdateNetworkSecurityGroupResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateNetworkSecurityGroup(ctx context.Context, in *wflows.UpdateNetworkSecurityGroupRequest, opts ...grpc.CallOption) (*wflows.UpdateNetworkSecurityGroupResponse, error) {
 	out := &wflows.UpdateNetworkSecurityGroupResponse{NetworkSecurityGroup: &wflows.NetworkSecurityGroup{}}
 	return out, nil
 }
 
-func (c *MockNICoClient) DeleteNetworkSecurityGroup(ctx context.Context, in *wflows.DeleteNetworkSecurityGroupRequest, opts ...grpc.CallOption) (*wflows.DeleteNetworkSecurityGroupResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) DeleteNetworkSecurityGroup(ctx context.Context, in *wflows.DeleteNetworkSecurityGroupRequest, opts ...grpc.CallOption) (*wflows.DeleteNetworkSecurityGroupResponse, error) {
 	out := &wflows.DeleteNetworkSecurityGroupResponse{}
 	return out, nil
 }
 
-func (c *MockNICoClient) GetNetworkSecurityGroupAttachments(ctx context.Context, in *wflows.GetNetworkSecurityGroupAttachmentsRequest, opts ...grpc.CallOption) (*wflows.GetNetworkSecurityGroupAttachmentsResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetNetworkSecurityGroupAttachments(ctx context.Context, in *wflows.GetNetworkSecurityGroupAttachmentsRequest, opts ...grpc.CallOption) (*wflows.GetNetworkSecurityGroupAttachmentsResponse, error) {
 	out := &wflows.GetNetworkSecurityGroupAttachmentsResponse{}
 	return out, nil
 }
 
-func (c *MockNICoClient) GetNetworkSecurityGroupPropagationStatus(ctx context.Context, in *wflows.GetNetworkSecurityGroupPropagationStatusRequest, opts ...grpc.CallOption) (*wflows.GetNetworkSecurityGroupPropagationStatusResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetNetworkSecurityGroupPropagationStatus(ctx context.Context, in *wflows.GetNetworkSecurityGroupPropagationStatusRequest, opts ...grpc.CallOption) (*wflows.GetNetworkSecurityGroupPropagationStatusResponse, error) {
 	out := &wflows.GetNetworkSecurityGroupPropagationStatusResponse{}
 	return out, nil
 }
 
-func (c *MockNICoClient) FindNetworkSecurityGroupIds(ctx context.Context, in *wflows.FindNetworkSecurityGroupIdsRequest, opts ...grpc.CallOption) (*wflows.FindNetworkSecurityGroupIdsResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindNetworkSecurityGroupIds(ctx context.Context, in *wflows.FindNetworkSecurityGroupIdsRequest, opts ...grpc.CallOption) (*wflows.FindNetworkSecurityGroupIdsResponse, error) {
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve NetworkSecurityGroup ids")
 	}
@@ -802,7 +810,7 @@ func (c *MockNICoClient) FindNetworkSecurityGroupIds(ctx context.Context, in *wf
 
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
-		for i := 0; i < count; i++ {
+		for range count {
 			out.NetworkSecurityGroupIds = append(out.NetworkSecurityGroupIds, randSeq(10))
 		}
 	}
@@ -810,7 +818,7 @@ func (c *MockNICoClient) FindNetworkSecurityGroupIds(ctx context.Context, in *wf
 	return out, nil
 }
 
-func (c *MockNICoClient) FindNetworkSecurityGroupsByIds(ctx context.Context, in *wflows.FindNetworkSecurityGroupsByIdsRequest, opts ...grpc.CallOption) (*wflows.FindNetworkSecurityGroupsByIdsResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindNetworkSecurityGroupsByIds(ctx context.Context, in *wflows.FindNetworkSecurityGroupsByIdsRequest, opts ...grpc.CallOption) (*wflows.FindNetworkSecurityGroupsByIdsResponse, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve NetworkSecurityGroups")
@@ -828,7 +836,7 @@ func (c *MockNICoClient) FindNetworkSecurityGroupsByIds(ctx context.Context, in 
 }
 
 /* Expected Machine mock methods */
-func (c *MockNICoClient) AddExpectedMachine(ctx context.Context, in *wflows.ExpectedMachine, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) AddExpectedMachine(ctx context.Context, in *wflows.ExpectedMachine, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	if in.Id == nil || in.Id.Value == "" {
 		return nil, status.Error(codes.Internal, "ID not provided for AddExpectedMachine")
 	}
@@ -842,7 +850,7 @@ func (c *MockNICoClient) AddExpectedMachine(ctx context.Context, in *wflows.Expe
 	return out, nil
 }
 
-func (c *MockNICoClient) DeleteExpectedMachine(ctx context.Context, in *wflows.ExpectedMachineRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) DeleteExpectedMachine(ctx context.Context, in *wflows.ExpectedMachineRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	if in.Id == nil || in.Id.Value == "" {
 		return nil, status.Error(codes.Internal, "ID not provided for DeleteExpectedMachine")
 	}
@@ -850,7 +858,7 @@ func (c *MockNICoClient) DeleteExpectedMachine(ctx context.Context, in *wflows.E
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateExpectedMachine(ctx context.Context, in *wflows.ExpectedMachine, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateExpectedMachine(ctx context.Context, in *wflows.ExpectedMachine, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	if in.Id == nil || in.Id.Value == "" {
 		return nil, status.Error(codes.Internal, "ID not provided for UpdateExpectedMachine")
 	}
@@ -864,7 +872,7 @@ func (c *MockNICoClient) UpdateExpectedMachine(ctx context.Context, in *wflows.E
 	return out, nil
 }
 
-func (c *MockNICoClient) CreateExpectedMachines(ctx context.Context, in *wflows.BatchExpectedMachineOperationRequest, opts ...grpc.CallOption) (*wflows.BatchExpectedMachineOperationResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) CreateExpectedMachines(ctx context.Context, in *wflows.BatchExpectedMachineOperationRequest, opts ...grpc.CallOption) (*wflows.BatchExpectedMachineOperationResponse, error) {
 	// Check for error injection via context
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, err
@@ -906,7 +914,7 @@ func (c *MockNICoClient) CreateExpectedMachines(ctx context.Context, in *wflows.
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateExpectedMachines(ctx context.Context, in *wflows.BatchExpectedMachineOperationRequest, opts ...grpc.CallOption) (*wflows.BatchExpectedMachineOperationResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateExpectedMachines(ctx context.Context, in *wflows.BatchExpectedMachineOperationRequest, opts ...grpc.CallOption) (*wflows.BatchExpectedMachineOperationResponse, error) {
 	// Check for error injection via context
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, err
@@ -948,7 +956,7 @@ func (c *MockNICoClient) UpdateExpectedMachines(ctx context.Context, in *wflows.
 	return out, nil
 }
 
-func (c *MockNICoClient) GetAllExpectedMachines(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*wflows.ExpectedMachineList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetAllExpectedMachines(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*wflows.ExpectedMachineList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		if status.Code(err) == codes.Internal {
@@ -962,7 +970,7 @@ func (c *MockNICoClient) GetAllExpectedMachines(ctx context.Context, in *emptypb
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
 		mac, _ := net.ParseMAC("02:00:00:00:00:00")
-		for i := 0; i < count; i++ {
+		for range count {
 			// Create a 16-byte array for UUID from MAC address (6 bytes) + padding
 			var uuidBytes [16]byte
 			copy(uuidBytes[:6], mac)
@@ -978,7 +986,7 @@ func (c *MockNICoClient) GetAllExpectedMachines(ctx context.Context, in *emptypb
 	return out, nil
 }
 
-func (c *MockNICoClient) GetExpectedMachine(ctx context.Context, in *wflows.ExpectedMachineRequest, opts ...grpc.CallOption) (*wflows.ExpectedMachine, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetExpectedMachine(ctx context.Context, in *wflows.ExpectedMachineRequest, opts ...grpc.CallOption) (*wflows.ExpectedMachine, error) {
 	if in.Id == nil || in.Id.Value == "" {
 		return nil, status.Error(codes.Internal, "ID not provided for GetExpectedMachine")
 	}
@@ -986,7 +994,7 @@ func (c *MockNICoClient) GetExpectedMachine(ctx context.Context, in *wflows.Expe
 	return out, nil
 }
 
-func (c *MockNICoClient) GetAllExpectedMachinesLinked(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*wflows.LinkedExpectedMachineList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetAllExpectedMachinesLinked(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*wflows.LinkedExpectedMachineList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		if status.Code(err) == codes.Internal {
@@ -1000,7 +1008,7 @@ func (c *MockNICoClient) GetAllExpectedMachinesLinked(ctx context.Context, in *e
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
 		mac, _ := net.ParseMAC("02:00:00:00:00:00")
-		for i := 0; i < count; i++ {
+		for range count {
 			// Create a 16-byte array for UUID from MAC address (6 bytes) + padding
 			var uuidBytes [16]byte
 			copy(uuidBytes[:6], mac)
@@ -1019,7 +1027,7 @@ func (c *MockNICoClient) GetAllExpectedMachinesLinked(ctx context.Context, in *e
 }
 
 /* Expected Power Shelf mock methods */
-func (c *MockNICoClient) AddExpectedPowerShelf(ctx context.Context, in *wflows.ExpectedPowerShelf, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) AddExpectedPowerShelf(ctx context.Context, in *wflows.ExpectedPowerShelf, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	if in.ExpectedPowerShelfId == nil || in.ExpectedPowerShelfId.Value == "" {
 		return nil, status.Error(codes.Internal, "ID not provided for AddExpectedPowerShelf")
 	}
@@ -1033,7 +1041,7 @@ func (c *MockNICoClient) AddExpectedPowerShelf(ctx context.Context, in *wflows.E
 	return out, nil
 }
 
-func (c *MockNICoClient) DeleteExpectedPowerShelf(ctx context.Context, in *wflows.ExpectedPowerShelfRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) DeleteExpectedPowerShelf(ctx context.Context, in *wflows.ExpectedPowerShelfRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	if in.ExpectedPowerShelfId == nil || in.ExpectedPowerShelfId.Value == "" {
 		return nil, status.Error(codes.Internal, "ID not provided for DeleteExpectedPowerShelf")
 	}
@@ -1041,7 +1049,7 @@ func (c *MockNICoClient) DeleteExpectedPowerShelf(ctx context.Context, in *wflow
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateExpectedPowerShelf(ctx context.Context, in *wflows.ExpectedPowerShelf, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateExpectedPowerShelf(ctx context.Context, in *wflows.ExpectedPowerShelf, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	if in.ExpectedPowerShelfId == nil || in.ExpectedPowerShelfId.Value == "" {
 		return nil, status.Error(codes.Internal, "ID not provided for UpdateExpectedPowerShelf")
 	}
@@ -1055,7 +1063,7 @@ func (c *MockNICoClient) UpdateExpectedPowerShelf(ctx context.Context, in *wflow
 	return out, nil
 }
 
-func (c *MockNICoClient) GetAllExpectedPowerShelves(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*wflows.ExpectedPowerShelfList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetAllExpectedPowerShelves(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*wflows.ExpectedPowerShelfList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		if status.Code(err) == codes.Internal {
@@ -1068,7 +1076,7 @@ func (c *MockNICoClient) GetAllExpectedPowerShelves(ctx context.Context, in *emp
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
 		mac, _ := net.ParseMAC("02:00:00:00:00:00")
-		for i := 0; i < count; i++ {
+		for range count {
 			var uuidBytes [16]byte
 			copy(uuidBytes[:6], mac)
 			epsID, _ := uuid.FromBytes(uuidBytes[:])
@@ -1083,7 +1091,7 @@ func (c *MockNICoClient) GetAllExpectedPowerShelves(ctx context.Context, in *emp
 	return out, nil
 }
 
-func (c *MockNICoClient) GetAllExpectedPowerShelvesLinked(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*wflows.LinkedExpectedPowerShelfList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetAllExpectedPowerShelvesLinked(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*wflows.LinkedExpectedPowerShelfList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		if status.Code(err) == codes.Internal {
@@ -1096,7 +1104,7 @@ func (c *MockNICoClient) GetAllExpectedPowerShelvesLinked(ctx context.Context, i
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
 		mac, _ := net.ParseMAC("02:00:00:00:00:00")
-		for i := 0; i < count; i++ {
+		for range count {
 			var uuidBytes [16]byte
 			copy(uuidBytes[:6], mac)
 			powerShelfID, _ := uuid.FromBytes(uuidBytes[:])
@@ -1114,7 +1122,7 @@ func (c *MockNICoClient) GetAllExpectedPowerShelvesLinked(ctx context.Context, i
 }
 
 /* Expected Switch mock methods */
-func (c *MockNICoClient) AddExpectedSwitch(ctx context.Context, in *wflows.ExpectedSwitch, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) AddExpectedSwitch(ctx context.Context, in *wflows.ExpectedSwitch, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	if in.ExpectedSwitchId == nil || in.ExpectedSwitchId.Value == "" {
 		return nil, status.Error(codes.Internal, "ID not provided for AddExpectedSwitch")
 	}
@@ -1128,7 +1136,7 @@ func (c *MockNICoClient) AddExpectedSwitch(ctx context.Context, in *wflows.Expec
 	return out, nil
 }
 
-func (c *MockNICoClient) DeleteExpectedSwitch(ctx context.Context, in *wflows.ExpectedSwitchRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) DeleteExpectedSwitch(ctx context.Context, in *wflows.ExpectedSwitchRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	if in.ExpectedSwitchId == nil || in.ExpectedSwitchId.Value == "" {
 		return nil, status.Error(codes.Internal, "ID not provided for DeleteExpectedSwitch")
 	}
@@ -1136,7 +1144,7 @@ func (c *MockNICoClient) DeleteExpectedSwitch(ctx context.Context, in *wflows.Ex
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateExpectedSwitch(ctx context.Context, in *wflows.ExpectedSwitch, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateExpectedSwitch(ctx context.Context, in *wflows.ExpectedSwitch, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	if in.ExpectedSwitchId == nil || in.ExpectedSwitchId.Value == "" {
 		return nil, status.Error(codes.Internal, "ID not provided for UpdateExpectedSwitch")
 	}
@@ -1150,7 +1158,7 @@ func (c *MockNICoClient) UpdateExpectedSwitch(ctx context.Context, in *wflows.Ex
 	return out, nil
 }
 
-func (c *MockNICoClient) GetAllExpectedSwitches(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*wflows.ExpectedSwitchList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetAllExpectedSwitches(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*wflows.ExpectedSwitchList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		if status.Code(err) == codes.Internal {
@@ -1163,7 +1171,7 @@ func (c *MockNICoClient) GetAllExpectedSwitches(ctx context.Context, in *emptypb
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
 		mac, _ := net.ParseMAC("02:00:00:00:00:00")
-		for i := 0; i < count; i++ {
+		for range count {
 			var uuidBytes [16]byte
 			copy(uuidBytes[:6], mac)
 			esID, _ := uuid.FromBytes(uuidBytes[:])
@@ -1178,7 +1186,7 @@ func (c *MockNICoClient) GetAllExpectedSwitches(ctx context.Context, in *emptypb
 	return out, nil
 }
 
-func (c *MockNICoClient) GetAllExpectedSwitchesLinked(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*wflows.LinkedExpectedSwitchList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetAllExpectedSwitchesLinked(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*wflows.LinkedExpectedSwitchList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		if status.Code(err) == codes.Internal {
@@ -1191,7 +1199,7 @@ func (c *MockNICoClient) GetAllExpectedSwitchesLinked(ctx context.Context, in *e
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
 		mac, _ := net.ParseMAC("02:00:00:00:00:00")
-		for i := 0; i < count; i++ {
+		for range count {
 			var uuidBytes [16]byte
 			copy(uuidBytes[:6], mac)
 			switchID, _ := uuid.FromBytes(uuidBytes[:])
@@ -1209,7 +1217,7 @@ func (c *MockNICoClient) GetAllExpectedSwitchesLinked(ctx context.Context, in *e
 }
 
 /* Expected Rack mock methods */
-func (c *MockNICoClient) AddExpectedRack(ctx context.Context, in *wflows.ExpectedRack, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) AddExpectedRack(ctx context.Context, in *wflows.ExpectedRack, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	if in.RackId == nil || in.RackId.Id == "" {
 		return nil, status.Error(codes.Internal, "ID not provided for AddExpectedRack")
 	}
@@ -1220,7 +1228,7 @@ func (c *MockNICoClient) AddExpectedRack(ctx context.Context, in *wflows.Expecte
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateExpectedRack(ctx context.Context, in *wflows.ExpectedRack, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateExpectedRack(ctx context.Context, in *wflows.ExpectedRack, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	if in.RackId == nil || in.RackId.Id == "" {
 		return nil, status.Error(codes.Internal, "ID not provided for UpdateExpectedRack")
 	}
@@ -1231,7 +1239,7 @@ func (c *MockNICoClient) UpdateExpectedRack(ctx context.Context, in *wflows.Expe
 	return out, nil
 }
 
-func (c *MockNICoClient) DeleteExpectedRack(ctx context.Context, in *wflows.ExpectedRackRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) DeleteExpectedRack(ctx context.Context, in *wflows.ExpectedRackRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	if in.RackId == "" {
 		return nil, status.Error(codes.Internal, "ID not provided for DeleteExpectedRack")
 	}
@@ -1239,7 +1247,7 @@ func (c *MockNICoClient) DeleteExpectedRack(ctx context.Context, in *wflows.Expe
 	return out, nil
 }
 
-func (c *MockNICoClient) GetExpectedRack(ctx context.Context, in *wflows.ExpectedRackRequest, opts ...grpc.CallOption) (*wflows.ExpectedRack, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetExpectedRack(ctx context.Context, in *wflows.ExpectedRackRequest, opts ...grpc.CallOption) (*wflows.ExpectedRack, error) {
 	if in.RackId == "" {
 		return nil, status.Error(codes.Internal, "ID not provided for GetExpectedRack")
 	}
@@ -1256,7 +1264,7 @@ func (c *MockNICoClient) GetExpectedRack(ctx context.Context, in *wflows.Expecte
 	return out, nil
 }
 
-func (c *MockNICoClient) GetAllExpectedRacks(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*wflows.ExpectedRackList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetAllExpectedRacks(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*wflows.ExpectedRackList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		if status.Code(err) == codes.Internal {
@@ -1268,7 +1276,7 @@ func (c *MockNICoClient) GetAllExpectedRacks(ctx context.Context, in *emptypb.Em
 
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
-		for i := 0; i < count; i++ {
+		for range count {
 			out.ExpectedRacks = append(out.ExpectedRacks, &wflows.ExpectedRack{
 				RackId:   &wflows.RackId{Id: uuid.NewString()},
 				RackType: uuid.NewString(),
@@ -1279,7 +1287,7 @@ func (c *MockNICoClient) GetAllExpectedRacks(ctx context.Context, in *emptypb.Em
 	return out, nil
 }
 
-func (c *MockNICoClient) ReplaceAllExpectedRacks(ctx context.Context, in *wflows.ExpectedRackList, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) ReplaceAllExpectedRacks(ctx context.Context, in *wflows.ExpectedRackList, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	if in == nil {
 		return nil, status.Error(codes.Internal, "Invalid request argument")
 	}
@@ -1295,13 +1303,13 @@ func (c *MockNICoClient) ReplaceAllExpectedRacks(ctx context.Context, in *wflows
 	return out, nil
 }
 
-func (c *MockNICoClient) DeleteAllExpectedRacks(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mcgsc *MockCoreGrpcServiceClient) DeleteAllExpectedRacks(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	return out, nil
 }
 
 /* SKU mock methods */
-func (c *MockNICoClient) FindSkusByIds(ctx context.Context, in *wflows.SkusByIdsRequest, opts ...grpc.CallOption) (*wflows.SkuList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindSkusByIds(ctx context.Context, in *wflows.SkusByIdsRequest, opts ...grpc.CallOption) (*wflows.SkuList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve skus")
@@ -1319,7 +1327,7 @@ func (c *MockNICoClient) FindSkusByIds(ctx context.Context, in *wflows.SkusByIds
 	return out, nil
 }
 
-func (c *MockNICoClient) GetAllSkuIds(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*wflows.SkuIdList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetAllSkuIds(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*wflows.SkuIdList, error) {
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve sku ids")
 	}
@@ -1328,7 +1336,7 @@ func (c *MockNICoClient) GetAllSkuIds(ctx context.Context, in *emptypb.Empty, op
 
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
-		for i := 0; i < count; i++ {
+		for range count {
 			out.Ids = append(out.Ids, uuid.NewString())
 		}
 	}
@@ -1337,7 +1345,7 @@ func (c *MockNICoClient) GetAllSkuIds(ctx context.Context, in *emptypb.Empty, op
 }
 
 /* DPU Extension Service mock methods */
-func (c *MockNICoClient) CreateDpuExtensionService(ctx context.Context, in *wflows.CreateDpuExtensionServiceRequest, opts ...grpc.CallOption) (*wflows.DpuExtensionService, error) {
+func (mcgsc *MockCoreGrpcServiceClient) CreateDpuExtensionService(ctx context.Context, in *wflows.CreateDpuExtensionServiceRequest, opts ...grpc.CallOption) (*wflows.DpuExtensionService, error) {
 	versionInfo := &wflows.DpuExtensionServiceVersionInfo{
 		Version:       generateSiteVersion(),
 		Data:          "test data",
@@ -1366,7 +1374,7 @@ func (c *MockNICoClient) CreateDpuExtensionService(ctx context.Context, in *wflo
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateDpuExtensionService(ctx context.Context, in *wflows.UpdateDpuExtensionServiceRequest, opts ...grpc.CallOption) (*wflows.DpuExtensionService, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateDpuExtensionService(ctx context.Context, in *wflows.UpdateDpuExtensionServiceRequest, opts ...grpc.CallOption) (*wflows.DpuExtensionService, error) {
 	versionInfo := &wflows.DpuExtensionServiceVersionInfo{
 		Version:       generateSiteVersion(),
 		Data:          "test data",
@@ -1391,12 +1399,12 @@ func (c *MockNICoClient) UpdateDpuExtensionService(ctx context.Context, in *wflo
 	return out, nil
 }
 
-func (c *MockNICoClient) DeleteDpuExtensionService(ctx context.Context, in *wflows.DeleteDpuExtensionServiceRequest, opts ...grpc.CallOption) (*wflows.DeleteDpuExtensionServiceResponse, error) {
+func (mcgsc *MockCoreGrpcServiceClient) DeleteDpuExtensionService(ctx context.Context, in *wflows.DeleteDpuExtensionServiceRequest, opts ...grpc.CallOption) (*wflows.DeleteDpuExtensionServiceResponse, error) {
 	out := new(wflows.DeleteDpuExtensionServiceResponse)
 	return out, nil
 }
 
-func (c *MockNICoClient) FindDpuExtensionServiceIds(ctx context.Context, in *wflows.DpuExtensionServiceSearchFilter, opts ...grpc.CallOption) (*wflows.DpuExtensionServiceIdList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindDpuExtensionServiceIds(ctx context.Context, in *wflows.DpuExtensionServiceSearchFilter, opts ...grpc.CallOption) (*wflows.DpuExtensionServiceIdList, error) {
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve dpu extension service ids")
 	}
@@ -1404,14 +1412,14 @@ func (c *MockNICoClient) FindDpuExtensionServiceIds(ctx context.Context, in *wfl
 	out := &wflows.DpuExtensionServiceIdList{}
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
-		for i := 0; i < count; i++ {
+		for range count {
 			out.ServiceIds = append(out.ServiceIds, uuid.NewString())
 		}
 	}
 	return out, nil
 }
 
-func (c *MockNICoClient) FindDpuExtensionServicesByIds(ctx context.Context, in *wflows.DpuExtensionServicesByIdsRequest, opts ...grpc.CallOption) (*wflows.DpuExtensionServiceList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindDpuExtensionServicesByIds(ctx context.Context, in *wflows.DpuExtensionServicesByIdsRequest, opts ...grpc.CallOption) (*wflows.DpuExtensionServiceList, error) {
 	out := &wflows.DpuExtensionServiceList{}
 	if in != nil {
 		for _, id := range in.ServiceIds {
@@ -1423,13 +1431,13 @@ func (c *MockNICoClient) FindDpuExtensionServicesByIds(ctx context.Context, in *
 	return out, nil
 }
 
-func (c *MockNICoClient) GetDpuExtensionServiceVersionsInfo(ctx context.Context, in *wflows.GetDpuExtensionServiceVersionsInfoRequest, opts ...grpc.CallOption) (*wflows.DpuExtensionServiceVersionInfoList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) GetDpuExtensionServiceVersionsInfo(ctx context.Context, in *wflows.GetDpuExtensionServiceVersionsInfoRequest, opts ...grpc.CallOption) (*wflows.DpuExtensionServiceVersionInfoList, error) {
 	out := &wflows.DpuExtensionServiceVersionInfoList{
 		VersionInfos: []*wflows.DpuExtensionServiceVersionInfo{},
 	}
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
-		for i := 0; i < count; i++ {
+		for range count {
 			out.VersionInfos = append(out.VersionInfos, &wflows.DpuExtensionServiceVersionInfo{
 				Version:       generateSiteVersion(),
 				Data:          "test data",
@@ -1441,7 +1449,7 @@ func (c *MockNICoClient) GetDpuExtensionServiceVersionsInfo(ctx context.Context,
 }
 
 // NVLink Logical Partition Mocks
-func (c *MockNICoClient) CreateNVLinkLogicalPartition(ctx context.Context, in *wflows.NVLinkLogicalPartitionCreationRequest, opts ...grpc.CallOption) (*wflows.NVLinkLogicalPartition, error) {
+func (mcgsc *MockCoreGrpcServiceClient) CreateNVLinkLogicalPartition(ctx context.Context, in *wflows.NVLinkLogicalPartitionCreationRequest, opts ...grpc.CallOption) (*wflows.NVLinkLogicalPartition, error) {
 	out := new(wflows.NVLinkLogicalPartition)
 	if in != nil {
 		out.Id = in.Id
@@ -1455,17 +1463,17 @@ func (c *MockNICoClient) CreateNVLinkLogicalPartition(ctx context.Context, in *w
 	return out, nil
 }
 
-func (c *MockNICoClient) UpdateNVLinkLogicalPartition(ctx context.Context, in *wflows.NVLinkLogicalPartitionUpdateRequest, opts ...grpc.CallOption) (*wflows.NVLinkLogicalPartitionUpdateResult, error) {
+func (mcgsc *MockCoreGrpcServiceClient) UpdateNVLinkLogicalPartition(ctx context.Context, in *wflows.NVLinkLogicalPartitionUpdateRequest, opts ...grpc.CallOption) (*wflows.NVLinkLogicalPartitionUpdateResult, error) {
 	out := new(wflows.NVLinkLogicalPartitionUpdateResult)
 	return out, nil
 }
 
-func (c *MockNICoClient) DeleteNVLinkLogicalPartition(ctx context.Context, in *wflows.NVLinkLogicalPartitionDeletionRequest, opts ...grpc.CallOption) (*wflows.NVLinkLogicalPartitionDeletionResult, error) {
+func (mcgsc *MockCoreGrpcServiceClient) DeleteNVLinkLogicalPartition(ctx context.Context, in *wflows.NVLinkLogicalPartitionDeletionRequest, opts ...grpc.CallOption) (*wflows.NVLinkLogicalPartitionDeletionResult, error) {
 	out := new(wflows.NVLinkLogicalPartitionDeletionResult)
 	return out, nil
 }
 
-func (c *MockNICoClient) FindNVLinkLogicalPartitionIds(ctx context.Context, in *wflows.NVLinkLogicalPartitionSearchFilter, opts ...grpc.CallOption) (*wflows.NVLinkLogicalPartitionIdList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindNVLinkLogicalPartitionIds(ctx context.Context, in *wflows.NVLinkLogicalPartitionSearchFilter, opts ...grpc.CallOption) (*wflows.NVLinkLogicalPartitionIdList, error) {
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve nvlink logical partition ids")
 	}
@@ -1474,7 +1482,7 @@ func (c *MockNICoClient) FindNVLinkLogicalPartitionIds(ctx context.Context, in *
 
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
-		for i := 0; i < count; i++ {
+		for range count {
 			out.PartitionIds = append(out.PartitionIds, &wflows.NVLinkLogicalPartitionId{Value: uuid.NewString()})
 		}
 	}
@@ -1482,7 +1490,7 @@ func (c *MockNICoClient) FindNVLinkLogicalPartitionIds(ctx context.Context, in *
 	return out, nil
 }
 
-func (c *MockNICoClient) FindNVLinkLogicalPartitionsByIds(ctx context.Context, in *wflows.NVLinkLogicalPartitionsByIdsRequest, opts ...grpc.CallOption) (*wflows.NVLinkLogicalPartitionList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) FindNVLinkLogicalPartitionsByIds(ctx context.Context, in *wflows.NVLinkLogicalPartitionsByIdsRequest, opts ...grpc.CallOption) (*wflows.NVLinkLogicalPartitionList, error) {
 	err, ok := ctx.Value("wantError").(error)
 	if ok {
 		return nil, status.Error(status.Code(err), "failed to retrieve nvlink logical partitions")
@@ -1500,12 +1508,12 @@ func (c *MockNICoClient) FindNVLinkLogicalPartitionsByIds(ctx context.Context, i
 	return out, nil
 }
 
-func (c *MockNICoClient) NVLinkLogicalPartitionsForTenant(ctx context.Context, in *wflows.TenantSearchQuery, opts ...grpc.CallOption) (*wflows.NVLinkLogicalPartitionList, error) {
+func (mcgsc *MockCoreGrpcServiceClient) NVLinkLogicalPartitionsForTenant(ctx context.Context, in *wflows.TenantSearchQuery, opts ...grpc.CallOption) (*wflows.NVLinkLogicalPartitionList, error) {
 	out := &wflows.NVLinkLogicalPartitionList{}
 
 	count, ok := ctx.Value("wantCount").(int)
 	if ok {
-		for i := 0; i < count; i++ {
+		for range count {
 			out.Partitions = append(out.Partitions, &wflows.NVLinkLogicalPartition{
 				Id: &wflows.NVLinkLogicalPartitionId{Value: uuid.NewString()},
 			})
@@ -1515,20 +1523,122 @@ func (c *MockNICoClient) NVLinkLogicalPartitionsForTenant(ctx context.Context, i
 	return out, nil
 }
 
-// NewMockNICoClient creates a new mock NICoCoreClient
-func NewMockNICoClient() *NICoCoreClient {
-	return &NICoCoreClient{
-		nico: &MockNICoClient{},
+/* Machine Identity (JWT-SVID) mock methods */
+
+// SetTenantIdentityConfiguration returns a minimally-populated response echoing the
+// incoming config. On simulated first-create the two timestamps are equal.
+func (mcgsc *MockCoreGrpcServiceClient) SetTenantIdentityConfiguration(ctx context.Context, in *wflows.SetTenantIdentityConfigRequest, opts ...grpc.CallOption) (*wflows.TenantIdentityConfigResponse, error) {
+	now := timestamppb.Now()
+	return &wflows.TenantIdentityConfigResponse{
+		OrganizationId: in.GetOrganizationId(),
+		Config:         in.GetConfig(),
+		SigningKeys: []*wflows.TenantIdentitySigningKey{
+			{Kid: uuid.NewString(), Alg: "ES256", CurrentSigner: true},
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}, nil
+}
+
+func (mcgsc *MockCoreGrpcServiceClient) GetTenantIdentityConfiguration(ctx context.Context, in *wflows.GetTenantIdentityConfigRequest, opts ...grpc.CallOption) (*wflows.TenantIdentityConfigResponse, error) {
+	now := timestamppb.Now()
+	return &wflows.TenantIdentityConfigResponse{
+		OrganizationId: in.GetOrganizationId(),
+		Config: &wflows.TenantIdentityConfig{
+			Enabled:         true,
+			Issuer:          "https://carbide.example.com/iss",
+			DefaultAudience: "openbao",
+			TokenTtlSec:     600,
+		},
+		SigningKeys: []*wflows.TenantIdentitySigningKey{
+			{Kid: "mock-key-id", Alg: "ES256", CurrentSigner: true},
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}, nil
+}
+
+func (mcgsc *MockCoreGrpcServiceClient) DeleteTenantIdentityConfiguration(ctx context.Context, in *wflows.GetTenantIdentityConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	return &emptypb.Empty{}, nil
+}
+
+func (mcgsc *MockCoreGrpcServiceClient) SetTokenDelegation(ctx context.Context, in *wflows.TokenDelegationRequest, opts ...grpc.CallOption) (*wflows.TokenDelegationResponse, error) {
+	now := timestamppb.Now()
+	out := &wflows.TokenDelegationResponse{
+		OrganizationId:       in.GetOrganizationId(),
+		TokenEndpoint:        in.GetConfig().GetTokenEndpoint(),
+		SubjectTokenAudience: in.GetConfig().GetSubjectTokenAudience(),
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+	if basic := in.GetConfig().GetClientSecretBasic(); basic != nil {
+		out.AuthMethodConfig = &wflows.TokenDelegationResponse_ClientSecretBasic{
+			ClientSecretBasic: &wflows.ClientSecretBasicResponse{
+				ClientId:         basic.GetClientId(),
+				ClientSecretHash: "sha256:mock-hash",
+			},
+		}
+	}
+	return out, nil
+}
+
+func (mcgsc *MockCoreGrpcServiceClient) GetTokenDelegation(ctx context.Context, in *wflows.GetTokenDelegationRequest, opts ...grpc.CallOption) (*wflows.TokenDelegationResponse, error) {
+	now := timestamppb.Now()
+	return &wflows.TokenDelegationResponse{
+		OrganizationId:       in.GetOrganizationId(),
+		TokenEndpoint:        "https://auth.example.com/oauth2/token",
+		SubjectTokenAudience: "mock-exchange-audience",
+		AuthMethodConfig: &wflows.TokenDelegationResponse_ClientSecretBasic{
+			ClientSecretBasic: &wflows.ClientSecretBasicResponse{
+				ClientId:         "mock-client-id",
+				ClientSecretHash: "sha256:mock-hash",
+			},
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}, nil
+}
+
+func (mcgsc *MockCoreGrpcServiceClient) DeleteTokenDelegation(ctx context.Context, in *wflows.GetTokenDelegationRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	return &emptypb.Empty{}, nil
+}
+
+func (mcgsc *MockCoreGrpcServiceClient) GetJWKS(ctx context.Context, in *wflows.JwksRequest, opts ...grpc.CallOption) (*wflows.Jwks, error) {
+	use := "sig"
+	if in.GetKind() == wflows.JwksKind_Spiffe {
+		use = "jwt-svid"
+	}
+	jwks := `{"keys":[{"kty":"EC","use":"` + use + `","crv":"P-256","kid":"mock-key-id",` +
+		`"x":"mock-x","y":"mock-y","alg":"ES256"}]}`
+	return &wflows.Jwks{Jwks: jwks}, nil
+}
+
+func (mcgsc *MockCoreGrpcServiceClient) GetOpenIDConfiguration(ctx context.Context, in *wflows.OpenIdConfigRequest, opts ...grpc.CallOption) (*wflows.OpenIdConfiguration, error) {
+	iss := "https://carbide.example.com/iss"
+	return &wflows.OpenIdConfiguration{
+		Issuer:                           iss,
+		JwksUri:                          iss + "/.well-known/jwks.json",
+		ResponseTypesSupported:           []string{"token"},
+		SubjectTypesSupported:            []string{"public"},
+		IdTokenSigningAlgValuesSupported: []string{},
+		SpiffeJwksUri:                    iss + "/.well-known/spiffe/jwks.json",
+	}, nil
+}
+
+// NewMockCoreGrpcClient creates a new mock CoreGrpcClient
+func NewMockCoreGrpcClient() *CoreGrpcClient {
+	return &CoreGrpcClient{
+		grpcServiceClient: &MockCoreGrpcServiceClient{},
 	}
 }
 
-// MockFlowClient is a mock implementation of Flow gRPC protobuf Client
-type MockFlowClient struct {
+// MockFlowGrpcService is a mock implementation of Flow gRPC protobuf Service
+type MockFlowGrpcServiceClient struct {
 	flowv1.FlowClient
 }
 
 /* Version mock methods */
-func (c *MockFlowClient) Version(ctx context.Context, in *flowv1.VersionRequest, opts ...grpc.CallOption) (*flowv1.BuildInfo, error) {
+func (mfgsc *MockFlowGrpcServiceClient) Version(ctx context.Context, in *flowv1.VersionRequest, opts ...grpc.CallOption) (*flowv1.BuildInfo, error) {
 	out := &flowv1.BuildInfo{
 		Version:   "1.0.0",
 		BuildTime: time.Now().Format(time.RFC3339),
@@ -1538,19 +1648,19 @@ func (c *MockFlowClient) Version(ctx context.Context, in *flowv1.VersionRequest,
 }
 
 /* Rack mock methods */
-func (c *MockFlowClient) CreateExpectedRack(ctx context.Context, in *flowv1.CreateExpectedRackRequest, opts ...grpc.CallOption) (*flowv1.CreateExpectedRackResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) CreateExpectedRack(ctx context.Context, in *flowv1.CreateExpectedRackRequest, opts ...grpc.CallOption) (*flowv1.CreateExpectedRackResponse, error) {
 	out := &flowv1.CreateExpectedRackResponse{
 		Id: &flowv1.UUID{Id: uuid.NewString()},
 	}
 	return out, nil
 }
 
-func (c *MockFlowClient) PatchRack(ctx context.Context, in *flowv1.PatchRackRequest, opts ...grpc.CallOption) (*flowv1.PatchRackResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) PatchRack(ctx context.Context, in *flowv1.PatchRackRequest, opts ...grpc.CallOption) (*flowv1.PatchRackResponse, error) {
 	out := new(flowv1.PatchRackResponse)
 	return out, nil
 }
 
-func (c *MockFlowClient) GetRackInfoByID(ctx context.Context, in *flowv1.GetRackInfoByIDRequest, opts ...grpc.CallOption) (*flowv1.GetRackInfoResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) GetRackInfoByID(ctx context.Context, in *flowv1.GetRackInfoByIDRequest, opts ...grpc.CallOption) (*flowv1.GetRackInfoResponse, error) {
 	// Check for error injection via context
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, err
@@ -1571,7 +1681,7 @@ func (c *MockFlowClient) GetRackInfoByID(ctx context.Context, in *flowv1.GetRack
 	return out, nil
 }
 
-func (c *MockFlowClient) GetRackInfoBySerial(ctx context.Context, in *flowv1.GetRackInfoBySerialRequest, opts ...grpc.CallOption) (*flowv1.GetRackInfoResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) GetRackInfoBySerial(ctx context.Context, in *flowv1.GetRackInfoBySerialRequest, opts ...grpc.CallOption) (*flowv1.GetRackInfoResponse, error) {
 	out := &flowv1.GetRackInfoResponse{
 		Rack: &flowv1.Rack{
 			Info: &flowv1.DeviceInfo{
@@ -1582,7 +1692,7 @@ func (c *MockFlowClient) GetRackInfoBySerial(ctx context.Context, in *flowv1.Get
 	return out, nil
 }
 
-func (c *MockFlowClient) GetListOfRacks(ctx context.Context, in *flowv1.GetListOfRacksRequest, opts ...grpc.CallOption) (*flowv1.GetListOfRacksResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) GetListOfRacks(ctx context.Context, in *flowv1.GetListOfRacksRequest, opts ...grpc.CallOption) (*flowv1.GetListOfRacksResponse, error) {
 	// Check for error injection via context
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, err
@@ -1600,7 +1710,7 @@ func (c *MockFlowClient) GetListOfRacks(ctx context.Context, in *flowv1.GetListO
 }
 
 /* Component mock methods */
-func (c *MockFlowClient) GetComponentInfoByID(ctx context.Context, in *flowv1.GetComponentInfoByIDRequest, opts ...grpc.CallOption) (*flowv1.GetComponentInfoResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) GetComponentInfoByID(ctx context.Context, in *flowv1.GetComponentInfoByIDRequest, opts ...grpc.CallOption) (*flowv1.GetComponentInfoResponse, error) {
 	// Check for error injection via context
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, err
@@ -1619,7 +1729,7 @@ func (c *MockFlowClient) GetComponentInfoByID(ctx context.Context, in *flowv1.Ge
 	return out, nil
 }
 
-func (c *MockFlowClient) GetComponentInfoBySerial(ctx context.Context, in *flowv1.GetComponentInfoBySerialRequest, opts ...grpc.CallOption) (*flowv1.GetComponentInfoResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) GetComponentInfoBySerial(ctx context.Context, in *flowv1.GetComponentInfoBySerialRequest, opts ...grpc.CallOption) (*flowv1.GetComponentInfoResponse, error) {
 	out := &flowv1.GetComponentInfoResponse{
 		Component: &flowv1.Component{
 			Info: &flowv1.DeviceInfo{
@@ -1630,7 +1740,7 @@ func (c *MockFlowClient) GetComponentInfoBySerial(ctx context.Context, in *flowv
 	return out, nil
 }
 
-func (c *MockFlowClient) GetComponents(ctx context.Context, in *flowv1.GetComponentsRequest, opts ...grpc.CallOption) (*flowv1.GetComponentsResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) GetComponents(ctx context.Context, in *flowv1.GetComponentsRequest, opts ...grpc.CallOption) (*flowv1.GetComponentsResponse, error) {
 	// Check for error injection via context
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, err
@@ -1648,7 +1758,7 @@ func (c *MockFlowClient) GetComponents(ctx context.Context, in *flowv1.GetCompon
 	return out, nil
 }
 
-func (c *MockFlowClient) ValidateComponents(ctx context.Context, in *flowv1.ValidateComponentsRequest, opts ...grpc.CallOption) (*flowv1.ValidateComponentsResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) ValidateComponents(ctx context.Context, in *flowv1.ValidateComponentsRequest, opts ...grpc.CallOption) (*flowv1.ValidateComponentsResponse, error) {
 	// Check for error injection via context
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, err
@@ -1664,14 +1774,14 @@ func (c *MockFlowClient) ValidateComponents(ctx context.Context, in *flowv1.Vali
 		TotalDiffs:      0,
 		MissingCount:    0,
 		UnexpectedCount: 0,
-		DriftCount:      0,
+		MismatchCount:   0,
 		MatchCount:      0,
 	}
 	return out, nil
 }
 
 /* Component mutation mock methods */
-func (c *MockFlowClient) AddComponent(ctx context.Context, in *flowv1.AddComponentRequest, opts ...grpc.CallOption) (*flowv1.AddComponentResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) AddComponent(ctx context.Context, in *flowv1.AddComponentRequest, opts ...grpc.CallOption) (*flowv1.AddComponentResponse, error) {
 	// Check for error injection via context
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, err
@@ -1688,7 +1798,7 @@ func (c *MockFlowClient) AddComponent(ctx context.Context, in *flowv1.AddCompone
 	return out, nil
 }
 
-func (c *MockFlowClient) PatchComponent(ctx context.Context, in *flowv1.PatchComponentRequest, opts ...grpc.CallOption) (*flowv1.PatchComponentResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) PatchComponent(ctx context.Context, in *flowv1.PatchComponentRequest, opts ...grpc.CallOption) (*flowv1.PatchComponentResponse, error) {
 	// Check for error injection via context
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, err
@@ -1705,7 +1815,7 @@ func (c *MockFlowClient) PatchComponent(ctx context.Context, in *flowv1.PatchCom
 	return out, nil
 }
 
-func (c *MockFlowClient) DeleteComponent(ctx context.Context, in *flowv1.DeleteComponentRequest, opts ...grpc.CallOption) (*flowv1.DeleteComponentResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) DeleteComponent(ctx context.Context, in *flowv1.DeleteComponentRequest, opts ...grpc.CallOption) (*flowv1.DeleteComponentResponse, error) {
 	// Check for error injection via context
 	if err, ok := ctx.Value("wantError").(error); ok {
 		return nil, err
@@ -1716,24 +1826,24 @@ func (c *MockFlowClient) DeleteComponent(ctx context.Context, in *flowv1.DeleteC
 }
 
 /* NVL Domain mock methods */
-func (c *MockFlowClient) CreateNVLDomain(ctx context.Context, in *flowv1.CreateNVLDomainRequest, opts ...grpc.CallOption) (*flowv1.CreateNVLDomainResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) CreateNVLDomain(ctx context.Context, in *flowv1.CreateNVLDomainRequest, opts ...grpc.CallOption) (*flowv1.CreateNVLDomainResponse, error) {
 	out := &flowv1.CreateNVLDomainResponse{
 		Id: &flowv1.UUID{Id: uuid.NewString()},
 	}
 	return out, nil
 }
 
-func (c *MockFlowClient) AttachRacksToNVLDomain(ctx context.Context, in *flowv1.AttachRacksToNVLDomainRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mfgsc *MockFlowGrpcServiceClient) AttachRacksToNVLDomain(ctx context.Context, in *flowv1.AttachRacksToNVLDomainRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	return out, nil
 }
 
-func (c *MockFlowClient) DetachRacksFromNVLDomain(ctx context.Context, in *flowv1.DetachRacksFromNVLDomainRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mfgsc *MockFlowGrpcServiceClient) DetachRacksFromNVLDomain(ctx context.Context, in *flowv1.DetachRacksFromNVLDomainRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	return out, nil
 }
 
-func (c *MockFlowClient) GetListOfNVLDomains(ctx context.Context, in *flowv1.GetListOfNVLDomainsRequest, opts ...grpc.CallOption) (*flowv1.GetListOfNVLDomainsResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) GetListOfNVLDomains(ctx context.Context, in *flowv1.GetListOfNVLDomainsRequest, opts ...grpc.CallOption) (*flowv1.GetListOfNVLDomainsResponse, error) {
 	out := &flowv1.GetListOfNVLDomainsResponse{
 		NvlDomains: []*flowv1.NVLDomain{},
 		Total:      0,
@@ -1741,7 +1851,7 @@ func (c *MockFlowClient) GetListOfNVLDomains(ctx context.Context, in *flowv1.Get
 	return out, nil
 }
 
-func (c *MockFlowClient) GetRacksForNVLDomain(ctx context.Context, in *flowv1.GetRacksForNVLDomainRequest, opts ...grpc.CallOption) (*flowv1.GetRacksForNVLDomainResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) GetRacksForNVLDomain(ctx context.Context, in *flowv1.GetRacksForNVLDomainRequest, opts ...grpc.CallOption) (*flowv1.GetRacksForNVLDomainResponse, error) {
 	out := &flowv1.GetRacksForNVLDomainResponse{
 		Racks: []*flowv1.Rack{},
 	}
@@ -1749,56 +1859,56 @@ func (c *MockFlowClient) GetRacksForNVLDomain(ctx context.Context, in *flowv1.Ge
 }
 
 /* Task mock methods */
-func (c *MockFlowClient) UpgradeFirmware(ctx context.Context, in *flowv1.UpgradeFirmwareRequest, opts ...grpc.CallOption) (*flowv1.SubmitTaskResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) UpgradeFirmware(ctx context.Context, in *flowv1.UpgradeFirmwareRequest, opts ...grpc.CallOption) (*flowv1.SubmitTaskResponse, error) {
 	out := &flowv1.SubmitTaskResponse{
 		TaskIds: []*flowv1.UUID{{Id: uuid.NewString()}},
 	}
 	return out, nil
 }
 
-func (c *MockFlowClient) PowerOnRack(ctx context.Context, in *flowv1.PowerOnRackRequest, opts ...grpc.CallOption) (*flowv1.SubmitTaskResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) PowerOnRack(ctx context.Context, in *flowv1.PowerOnRackRequest, opts ...grpc.CallOption) (*flowv1.SubmitTaskResponse, error) {
 	out := &flowv1.SubmitTaskResponse{
 		TaskIds: []*flowv1.UUID{{Id: uuid.NewString()}},
 	}
 	return out, nil
 }
 
-func (c *MockFlowClient) PowerOffRack(ctx context.Context, in *flowv1.PowerOffRackRequest, opts ...grpc.CallOption) (*flowv1.SubmitTaskResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) PowerOffRack(ctx context.Context, in *flowv1.PowerOffRackRequest, opts ...grpc.CallOption) (*flowv1.SubmitTaskResponse, error) {
 	out := &flowv1.SubmitTaskResponse{
 		TaskIds: []*flowv1.UUID{{Id: uuid.NewString()}},
 	}
 	return out, nil
 }
 
-func (c *MockFlowClient) PowerResetRack(ctx context.Context, in *flowv1.PowerResetRackRequest, opts ...grpc.CallOption) (*flowv1.SubmitTaskResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) PowerResetRack(ctx context.Context, in *flowv1.PowerResetRackRequest, opts ...grpc.CallOption) (*flowv1.SubmitTaskResponse, error) {
 	out := &flowv1.SubmitTaskResponse{
 		TaskIds: []*flowv1.UUID{{Id: uuid.NewString()}},
 	}
 	return out, nil
 }
 
-func (c *MockFlowClient) BringUpRack(ctx context.Context, in *flowv1.BringUpRackRequest, opts ...grpc.CallOption) (*flowv1.SubmitTaskResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) BringUpRack(ctx context.Context, in *flowv1.BringUpRackRequest, opts ...grpc.CallOption) (*flowv1.SubmitTaskResponse, error) {
 	out := &flowv1.SubmitTaskResponse{
 		TaskIds: []*flowv1.UUID{{Id: uuid.NewString()}},
 	}
 	return out, nil
 }
 
-func (c *MockFlowClient) IngestRack(ctx context.Context, in *flowv1.IngestRackRequest, opts ...grpc.CallOption) (*flowv1.SubmitTaskResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) IngestRack(ctx context.Context, in *flowv1.IngestRackRequest, opts ...grpc.CallOption) (*flowv1.SubmitTaskResponse, error) {
 	out := &flowv1.SubmitTaskResponse{
 		TaskIds: []*flowv1.UUID{{Id: uuid.NewString()}},
 	}
 	return out, nil
 }
 
-func (c *MockFlowClient) ListTasks(ctx context.Context, in *flowv1.ListTasksRequest, opts ...grpc.CallOption) (*flowv1.ListTasksResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) ListTasks(ctx context.Context, in *flowv1.ListTasksRequest, opts ...grpc.CallOption) (*flowv1.ListTasksResponse, error) {
 	out := &flowv1.ListTasksResponse{
 		Tasks: []*flowv1.Task{},
 	}
 	return out, nil
 }
 
-func (c *MockFlowClient) GetTasksByIDs(ctx context.Context, in *flowv1.GetTasksByIDsRequest, opts ...grpc.CallOption) (*flowv1.GetTasksByIDsResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) GetTasksByIDs(ctx context.Context, in *flowv1.GetTasksByIDsRequest, opts ...grpc.CallOption) (*flowv1.GetTasksByIDsResponse, error) {
 	out := &flowv1.GetTasksByIDsResponse{
 		Tasks: []*flowv1.Task{},
 	}
@@ -1812,7 +1922,7 @@ func (c *MockFlowClient) GetTasksByIDs(ctx context.Context, in *flowv1.GetTasksB
 	return out, nil
 }
 
-func (c *MockFlowClient) CancelTask(ctx context.Context, in *flowv1.CancelTaskRequest, opts ...grpc.CallOption) (*flowv1.CancelTaskResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) CancelTask(ctx context.Context, in *flowv1.CancelTaskRequest, opts ...grpc.CallOption) (*flowv1.CancelTaskResponse, error) {
 	out := &flowv1.CancelTaskResponse{}
 	if in != nil && in.GetTaskId() != nil {
 		out.Task = &flowv1.Task{
@@ -1824,29 +1934,29 @@ func (c *MockFlowClient) CancelTask(ctx context.Context, in *flowv1.CancelTaskRe
 }
 
 /* Operation rule mock methods */
-func (c *MockFlowClient) CreateOperationRule(ctx context.Context, in *flowv1.CreateOperationRuleRequest, opts ...grpc.CallOption) (*flowv1.CreateOperationRuleResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) CreateOperationRule(ctx context.Context, in *flowv1.CreateOperationRuleRequest, opts ...grpc.CallOption) (*flowv1.CreateOperationRuleResponse, error) {
 	out := &flowv1.CreateOperationRuleResponse{
 		Id: &flowv1.UUID{Id: uuid.NewString()},
 	}
 	return out, nil
 }
 
-func (c *MockFlowClient) UpdateOperationRule(ctx context.Context, in *flowv1.UpdateOperationRuleRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mfgsc *MockFlowGrpcServiceClient) UpdateOperationRule(ctx context.Context, in *flowv1.UpdateOperationRuleRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	return out, nil
 }
 
-func (c *MockFlowClient) DeleteOperationRule(ctx context.Context, in *flowv1.DeleteOperationRuleRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mfgsc *MockFlowGrpcServiceClient) DeleteOperationRule(ctx context.Context, in *flowv1.DeleteOperationRuleRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	return out, nil
 }
 
-func (c *MockFlowClient) GetOperationRule(ctx context.Context, in *flowv1.GetOperationRuleRequest, opts ...grpc.CallOption) (*flowv1.OperationRule, error) {
+func (mfgsc *MockFlowGrpcServiceClient) GetOperationRule(ctx context.Context, in *flowv1.GetOperationRuleRequest, opts ...grpc.CallOption) (*flowv1.OperationRule, error) {
 	out := &flowv1.OperationRule{}
 	return out, nil
 }
 
-func (c *MockFlowClient) ListOperationRules(ctx context.Context, in *flowv1.ListOperationRulesRequest, opts ...grpc.CallOption) (*flowv1.ListOperationRulesResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) ListOperationRules(ctx context.Context, in *flowv1.ListOperationRulesRequest, opts ...grpc.CallOption) (*flowv1.ListOperationRulesResponse, error) {
 	out := &flowv1.ListOperationRulesResponse{
 		Rules:      []*flowv1.OperationRule{},
 		TotalCount: 0,
@@ -1854,28 +1964,28 @@ func (c *MockFlowClient) ListOperationRules(ctx context.Context, in *flowv1.List
 	return out, nil
 }
 
-func (c *MockFlowClient) SetRuleAsDefault(ctx context.Context, in *flowv1.SetRuleAsDefaultRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mfgsc *MockFlowGrpcServiceClient) SetRuleAsDefault(ctx context.Context, in *flowv1.SetRuleAsDefaultRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	return out, nil
 }
 
 /* Rack-rule association mock methods */
-func (c *MockFlowClient) AssociateRuleWithRack(ctx context.Context, in *flowv1.AssociateRuleWithRackRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mfgsc *MockFlowGrpcServiceClient) AssociateRuleWithRack(ctx context.Context, in *flowv1.AssociateRuleWithRackRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	return out, nil
 }
 
-func (c *MockFlowClient) DisassociateRuleFromRack(ctx context.Context, in *flowv1.DisassociateRuleFromRackRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (mfgsc *MockFlowGrpcServiceClient) DisassociateRuleFromRack(ctx context.Context, in *flowv1.DisassociateRuleFromRackRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	return out, nil
 }
 
-func (c *MockFlowClient) GetRackRuleAssociation(ctx context.Context, in *flowv1.GetRackRuleAssociationRequest, opts ...grpc.CallOption) (*flowv1.GetRackRuleAssociationResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) GetRackRuleAssociation(ctx context.Context, in *flowv1.GetRackRuleAssociationRequest, opts ...grpc.CallOption) (*flowv1.GetRackRuleAssociationResponse, error) {
 	out := &flowv1.GetRackRuleAssociationResponse{}
 	return out, nil
 }
 
-func (c *MockFlowClient) ListRackRuleAssociations(ctx context.Context, in *flowv1.ListRackRuleAssociationsRequest, opts ...grpc.CallOption) (*flowv1.ListRackRuleAssociationsResponse, error) {
+func (mfgsc *MockFlowGrpcServiceClient) ListRackRuleAssociations(ctx context.Context, in *flowv1.ListRackRuleAssociationsRequest, opts ...grpc.CallOption) (*flowv1.ListRackRuleAssociationsResponse, error) {
 	out := &flowv1.ListRackRuleAssociationsResponse{
 		Associations: []*flowv1.RackRuleAssociation{},
 	}
@@ -1883,8 +1993,8 @@ func (c *MockFlowClient) ListRackRuleAssociations(ctx context.Context, in *flowv
 }
 
 // NewMockFlowClient creates a new mock FlowClient that can be used with FlowAtomicClient.SwapClient
-func NewMockFlowClient() *FlowClient {
-	return &FlowClient{
-		flow: &MockFlowClient{},
+func NewMockFlowGrpcClient() *FlowGrpcClient {
+	return &FlowGrpcClient{
+		grpcServiceClient: &MockFlowGrpcServiceClient{},
 	}
 }

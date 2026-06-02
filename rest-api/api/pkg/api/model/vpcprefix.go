@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -26,6 +12,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller-rest/api/pkg/api/model/util"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
+	ipam "github.com/NVIDIA/infra-controller-rest/ipam"
 )
 
 const (
@@ -134,6 +121,8 @@ type APIVpcPrefix struct {
 	Status string `json:"status"`
 	// StatusHistory is the history of statuses for the VpcPrefix
 	StatusHistory []APIStatusDetail `json:"statusHistory"`
+	// UsageStats reports IPv4 usage from VpcPrefixDAO.GetPrefixUsage (in-memory IPAM over /31s from interface IPs) when requested via includeUsageStats
+	UsageStats *APIIPBlockUsageStats `json:"usageStats,omitempty"`
 	// CreatedAt indicates the ISO datetime string for when the entity was created
 	Created time.Time `json:"created"`
 	// UpdatedAt indicates the ISO datetime string for when the entity was last updated
@@ -141,7 +130,7 @@ type APIVpcPrefix struct {
 }
 
 // NewAPIVpcPrefix accepts a DB layer objects and returns an API layer object
-func NewAPIVpcPrefix(dbvp *cdbm.VpcPrefix, dbsds []cdbm.StatusDetail) *APIVpcPrefix {
+func NewAPIVpcPrefix(dbvp *cdbm.VpcPrefix, dbsds []cdbm.StatusDetail, dbpu *ipam.Usage) *APIVpcPrefix {
 	apiVpcPrefix := APIVpcPrefix{
 		ID:           dbvp.ID.String(),
 		Name:         dbvp.Name,
@@ -153,6 +142,16 @@ func NewAPIVpcPrefix(dbvp *cdbm.VpcPrefix, dbsds []cdbm.StatusDetail) *APIVpcPre
 		Status:       dbvp.Status,
 		Created:      dbvp.Created,
 		Updated:      dbvp.Updated,
+	}
+
+	if dbpu != nil {
+		apiVpcPrefix.UsageStats = &APIIPBlockUsageStats{
+			AvailableIPs:              dbpu.AvailableIPs,
+			AcquiredIPs:               dbpu.AcquiredIPs,
+			AvailablePrefixes:         dbpu.AvailablePrefixes,
+			AcquiredPrefixes:          dbpu.AcquiredPrefixes,
+			AvailableSmallestPrefixes: dbpu.AvailableSmallestPrefixes,
+		}
 	}
 
 	apiVpcPrefix.StatusHistory = []APIStatusDetail{}

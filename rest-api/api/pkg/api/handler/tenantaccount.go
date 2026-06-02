@@ -1,24 +1,9 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -182,52 +167,44 @@ func (ctah CreateTenantAccountHandler) Handle(c echo.Context) error {
 	// Generate a unique account number
 	accountNumber := common.GenerateAccountNumber()
 
-	// Start a db tx
-	tx, err := cdb.BeginTx(ctx, ctah.dbSession, &sql.TxOptions{})
-	if err != nil {
-		logger.Error().Err(err).Msg("unable to start transaction")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error creating Tenant Account", nil)
-	}
-	txCommitted := false
-	defer common.RollbackTx(ctx, tx, &txCommitted)
+	sdDAO := cdbm.NewStatusDetailDAO(ctah.dbSession)
 
-	ta, err := taDAO.Create(ctx, tx, cdbm.TenantAccountCreateInput{
-		AccountNumber:             accountNumber,
-		TenantID:                  tenantID,
-		TenantOrg:                 *tenantOrg,
-		InfrastructureProviderID:  ip.ID,
-		InfrastructureProviderOrg: ip.Org,
-		Status:                    cdbm.TenantAccountStatusInvited,
-		CreatedBy:                 dbUser.ID,
+	var ta *cdbm.TenantAccount
+	var ssd *cdbm.StatusDetail
+
+	err = cdb.WithTx(ctx, ctah.dbSession, func(tx *cdb.Tx) error {
+		var derr error
+		ta, derr = taDAO.Create(ctx, tx, cdbm.TenantAccountCreateInput{
+			AccountNumber:             accountNumber,
+			TenantID:                  tenantID,
+			TenantOrg:                 *tenantOrg,
+			InfrastructureProviderID:  ip.ID,
+			InfrastructureProviderOrg: ip.Org,
+			Status:                    cdbm.TenantAccountStatusInvited,
+			CreatedBy:                 dbUser.ID,
+		})
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error creating TenantAccount in DB")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create tenant account", nil)
+		}
+
+		// Create a status detail record for the tenantaccount
+		ssd, derr = sdDAO.CreateFromParams(ctx, tx, ta.ID.String(), *cdb.GetStrPtr(cdbm.TenantAccountStatusInvited),
+			cdb.GetStrPtr("received tenant account creation request, pending accept"))
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for TenantAccount", nil)
+		}
+		if ssd == nil {
+			logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to get new Status Detail for TenantAccount", nil)
+		}
+
+		return nil
 	})
 	if err != nil {
-		logger.Error().Err(err).Msg("error creating TenantAccount in DB")
-		// rollback transaction
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create tenant account", nil)
+		return common.HandleTxError(c, logger, err, "Failed to create Tenant Account, DB transaction error")
 	}
-
-	// Create a status detail record for the tenantaccount
-	sdDAO := cdbm.NewStatusDetailDAO(ctah.dbSession)
-	ssd, serr := sdDAO.CreateFromParams(ctx, tx, ta.ID.String(), *cdb.GetStrPtr(cdbm.TenantAccountStatusInvited),
-		cdb.GetStrPtr("received tenant account creation request, pending accept"))
-	if serr != nil {
-		logger.Error().Err(serr).Msg("error creating Status Detail DB entry")
-		// rollback transaction
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Status Detail for TenantAccount", nil)
-	}
-	if ssd == nil {
-		logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to get new Status Detail for TenantAccount", nil)
-	}
-
-	// Commit transaction
-	err = tx.Commit()
-	if err != nil {
-		logger.Error().Err(err).Msg("error committing subnet transaction to DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Tenant Account", nil)
-	}
-	// set committed so, deferred cleanup functions will do nothing
-	txCommitted = true
 
 	// Create response
 	apiInstance := model.NewAPITenantAccount(ta, []cdbm.StatusDetail{*ssd}, 0)

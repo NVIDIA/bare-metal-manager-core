@@ -119,7 +119,7 @@ Hardware components within a rack. Supported types:
 | Type | Description | External System |
 |------|-------------|-----------------|
 | `Compute` | GPU compute trays | NICo API |
-| `NVLSwitch` | NVLink switches | NICo API |
+| `NVSwitch` | NVLink switches | NICo API |
 | `PowerShelf` | Power distribution units | PSM API |
 | `TorSwitch` | Top-of-rack network switches | - |
 | `UMS` | Unit Management System | - |
@@ -362,7 +362,7 @@ type ComponentManager interface {
 | Component Type | Implementation | Provider |
 |----------------|----------------|----------|
 | Compute | `compute/nico/` | NICo |
-| NVLSwitch | `nvlswitch/nico/` | NICo |
+| NVSwitch | `nvswitch/nico/` | NICo |
 | PowerShelf | `powershelf/psm/` | PSM |
 
 ---
@@ -694,8 +694,13 @@ Stores task execution records.
 ```yaml
 component_managers:
   compute: nico
-  nvlswitch: nico
+  nvswitch: nico
   powershelf: psm
+
+manager_configs:
+  compute:
+    nico:
+      compute_power_delay: "2s"
 
 providers:
   nico:

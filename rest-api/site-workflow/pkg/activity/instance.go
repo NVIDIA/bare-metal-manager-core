@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package activity
 
@@ -36,7 +22,7 @@ import (
 
 // ManageInstance is an activity wrapper for Instance management tasks that allows injecting DB access
 type ManageInstance struct {
-	NICoCoreAtomicClient *cClient.NICoCoreAtomicClient
+	coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 }
 
 // Function Update NICo Instance with the Site Controller
@@ -58,16 +44,16 @@ func (mm *ManageInstance) UpdateInstanceOnSite(ctx context.Context, request *cws
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mm.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cClient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mm.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.UpdateInstanceConfig(ctx, request)
+	_, err = grpcServiceClient.UpdateInstanceConfig(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to update config for Instance using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to update config for Instance using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -95,16 +81,16 @@ func (mm *ManageInstance) CreateInstanceOnSite(ctx context.Context, request *cws
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mm.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cClient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mm.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.AllocateInstance(ctx, request)
+	_, err = grpcServiceClient.AllocateInstance(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create Instance using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to create Instance using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -138,15 +124,15 @@ func (mm *ManageInstance) CreateInstancesOnSite(ctx context.Context, request *cw
 		}
 	}
 
-	nicoClient := mm.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cClient.ErrClientNotConnected
+	grpcClient := mm.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.AllocateInstances(ctx, request)
+	_, err = grpcServiceClient.AllocateInstances(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Int("Count", len(request.InstanceRequests)).Msg("Failed to batch create Instances using Site Controller API")
+		logger.Warn().Err(err).Int("Count", len(request.InstanceRequests)).Msg("Failed to batch create Instances using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -173,16 +159,16 @@ func (mm *ManageInstance) RebootInstanceOnSite(ctx context.Context, request *cws
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mm.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cClient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mm.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.InvokeInstancePower(ctx, request)
+	_, err = grpcServiceClient.InvokeInstancePower(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to reboot Instance using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to reboot Instance using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -210,16 +196,16 @@ func (mm *ManageInstance) DeleteInstanceOnSite(ctx context.Context, request *cws
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mm.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cClient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mm.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.ReleaseInstance(ctx, request)
+	_, err = grpcServiceClient.ReleaseInstance(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to delete Instance using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to delete Instance using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -229,9 +215,9 @@ func (mm *ManageInstance) DeleteInstanceOnSite(ctx context.Context, request *cws
 }
 
 // NewManageInstance returns a new ManageInstance activity
-func NewManageInstance(nicoClient *cClient.NICoCoreAtomicClient) ManageInstance {
+func NewManageInstance(coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient) ManageInstance {
 	return ManageInstance{
-		NICoCoreAtomicClient: nicoClient,
+		coreGrpcAtomicClient: coreGrpcAtomicClient,
 	}
 }
 
@@ -262,16 +248,18 @@ func NewManageInstanceInventory(config ManageInventoryConfig) ManageInstanceInve
 	}
 }
 
-func instanceFindIDs(ctx context.Context, nicoClient *cClient.NICoCoreClient) ([]*cwssaws.InstanceId, error) {
-	instanceIdList, err := nicoClient.NICo().FindInstanceIds(ctx, &cwssaws.InstanceSearchFilter{})
+func instanceFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*cwssaws.InstanceId, error) {
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+	instanceIdList, err := grpcServiceClient.FindInstanceIds(ctx, &cwssaws.InstanceSearchFilter{})
 	if err != nil {
 		return nil, err
 	}
 	return instanceIdList.GetInstanceIds(), nil
 }
 
-func instanceFindByIDs(ctx context.Context, nicoClient *cClient.NICoCoreClient, ids []*cwssaws.InstanceId) ([]*cwssaws.Instance, error) {
-	instanceList, err := nicoClient.NICo().FindInstancesByIds(ctx, &cwssaws.InstancesByIdsRequest{
+func instanceFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, ids []*cwssaws.InstanceId) ([]*cwssaws.Instance, error) {
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+	instanceList, err := grpcServiceClient.FindInstancesByIds(ctx, &cwssaws.InstancesByIdsRequest{
 		InstanceIds: ids,
 	})
 	if err != nil {
@@ -281,18 +269,17 @@ func instanceFindByIDs(ctx context.Context, nicoClient *cClient.NICoCoreClient, 
 	return instanceList.GetInstances(), nil
 }
 
-// instancePagedInventoryPostProcess will attach NSG propagation
-// information for the inventory page of instances.
+// instancePagedInventoryPostProcess will attach NSG propagation information for the inventory page of instances.
 // This will only be called for pages with inventory.
-func instancePagedInventoryPostProcess(ctx context.Context, nicoClient *cClient.NICoCoreClient, inventory *cwssaws.InstanceInventory) (*cwssaws.InstanceInventory, error) {
-
+func instancePagedInventoryPostProcess(ctx context.Context, grpcClient *cClient.CoreGrpcClient, inventory *cwssaws.InstanceInventory) (*cwssaws.InstanceInventory, error) {
 	instanceIds := make([]string, len(inventory.GetInstances()))
 
 	for i, instance := range inventory.GetInstances() {
 		instanceIds[i] = instance.GetId().GetValue()
 	}
 
-	propList, err := nicoClient.NICo().GetNetworkSecurityGroupPropagationStatus(ctx, &cwssaws.GetNetworkSecurityGroupPropagationStatusRequest{
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+	propList, err := grpcServiceClient.GetNetworkSecurityGroupPropagationStatus(ctx, &cwssaws.GetNetworkSecurityGroupPropagationStatusRequest{
 		InstanceIds: instanceIds,
 	})
 

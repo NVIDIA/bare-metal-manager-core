@@ -33,7 +33,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use carbide_dpa_interface_controller::rpc::SetVni;
+use carbide_dpa::rpc::SetVni;
 use chrono::Local;
 use clap::Parser;
 use mqttea::client::{ClientOptions, MqtteaClient};

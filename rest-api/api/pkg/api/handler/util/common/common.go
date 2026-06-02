@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package common
 
@@ -307,8 +293,8 @@ func AcquireInstanceTypeQuotaLock(ctx context.Context, tx *cdb.Tx, tenantID uuid
 }
 
 // GetUnallocatedMachineForInstanceType provides unallocatd machine based on instancetype
-func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, instancetype *cdbm.InstanceType) (*cdbm.Machine, error) {
-	if instancetype == nil {
+func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, instanceType *cdbm.InstanceType) (*cdbm.Machine, error) {
+	if instanceType == nil {
 		return nil, ErrInvalidFunctionParams
 	}
 
@@ -322,8 +308,7 @@ func GetUnallocatedMachineForInstanceType(ctx context.Context, tx *cdb.Tx, dbSes
 	// Get all available Machines for the Instance Type
 	// Since this query is occurring outside of a lock, we will have to double check availability of Machines
 	filterInput := cdbm.MachineFilterInput{
-		SiteID:          instancetype.SiteID,
-		InstanceTypeIDs: []uuid.UUID{instancetype.ID},
+		InstanceTypeIDs: []uuid.UUID{instanceType.ID},
 		IsAssigned:      cdb.GetBoolPtr(false),
 		Statuses:        []string{cdbm.MachineStatusReady},
 	}
@@ -401,8 +386,16 @@ func GetCountOfMachinesForInstanceType(ctx context.Context, tx *cdb.Tx, dbSessio
 // machines broken down by site and machine status.
 func GetSiteMachineCountStats(ctx context.Context, tx *cdb.Tx, dbSession *cdb.Session, logger zerolog.Logger, infrastructureProviderID *uuid.UUID, siteID *uuid.UUID) (map[uuid.UUID]*cam.APISiteMachineStats, error) {
 	mDAO := cdbm.NewMachineDAO(dbSession)
-	machines, _, err := mDAO.GetAll(ctx, tx, cdbm.MachineFilterInput{InfrastructureProviderID: infrastructureProviderID, SiteID: siteID}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
 
+	filterInput := cdbm.MachineFilterInput{}
+	if infrastructureProviderID != nil {
+		filterInput.InfrastructureProviderIDs = []uuid.UUID{*infrastructureProviderID}
+	}
+	if siteID != nil {
+		filterInput.SiteIDs = []uuid.UUID{*siteID}
+	}
+
+	machines, _, err := mDAO.GetAll(ctx, tx, filterInput, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -922,7 +915,7 @@ func MatchInstanceTypeCapabilitiesForMachines(ctx context.Context, logger zerolo
 		//
 		// If we can assume that name+type can never have a duplicate,
 		// we can rely on prefixing the map entries with type.
-		mmcCapMapByMachinId[*mmc.MachineID][mmc.Type+"-"+mmc.Name] = &cmmc
+		mmcCapMapByMachinId[*mmc.MachineID][mmc.MapKey()] = &cmmc
 	}
 
 	// Loop through Capabilities of Instance Type with Machines
@@ -931,7 +924,7 @@ func MatchInstanceTypeCapabilitiesForMachines(ctx context.Context, logger zerolo
 		for mID, mCapMap := range mmcCapMapByMachinId {
 
 			// See earlier comments above about prefixing with type.
-			mmc, found := mCapMap[imc.Type+"-"+imc.Name]
+			mmc, found := mCapMap[imc.MapKey()]
 			if !found {
 				return false, &mID, nil
 			}
@@ -1382,7 +1375,7 @@ func IsProviderOrTenant(ctx context.Context, logger zerolog.Logger, dbSession *c
 // This function can be used across handlers to reduce duplication of initialization logic.
 func SetupHandler(modelName, handlerName string, c echo.Context, s *cutil.TracerSpan) (org string, user *cdbm.User, ctx context.Context, logger zerolog.Logger, hs oteltrace.Span) {
 	// Get org
-	org = c.Param("orgName")
+	org = strings.ToLower(c.Param("orgName"))
 
 	// Get context
 	ctx = c.Request().Context()
@@ -1581,7 +1574,7 @@ func QueryTagsFor(v any) []string {
 		return cached.([]string)
 	}
 	var tags []string
-	for i := 0; i < t.NumField(); i++ {
+	for i := range t.NumField() {
 		if tag := t.Field(i).Tag.Get("query"); tag != "" {
 			tags = append(tags, tag)
 		}
@@ -1762,6 +1755,13 @@ func ExecuteBringUpRackWorkflow(
 
 // ExecuteFirmwareUpdateWorkflow builds an UpgradeFirmwareRequest, executes the UpgradeFirmware
 // workflow via Temporal, and returns the raw SubmitTaskResponse.
+//
+// targets, when non-empty, restricts the upgrade to the listed firmware
+// sub-parts within each targeted tray (e.g. ["bmc", "nvos"] for switch
+// trays). An empty/nil slice keeps the historical "update everything in
+// the bundle" behavior. Names are passed through verbatim to Flow as
+// `sub_targets`, which resolves them against the tray-type-specific
+// component-manager enums (see flow/pkg/common/firmwarecomponents).
 func ExecuteFirmwareUpdateWorkflow(
 	ctx context.Context,
 	c echo.Context,
@@ -1769,12 +1769,14 @@ func ExecuteFirmwareUpdateWorkflow(
 	stc tclient.Client,
 	targetSpec *flowv1.OperationTargetSpec,
 	version *string,
+	targets []string,
 	workflowID string,
 	entityName string,
 ) (*flowv1.SubmitTaskResponse, error) {
 	flowRequest := &flowv1.UpgradeFirmwareRequest{
 		TargetSpec:    targetSpec,
 		TargetVersion: version,
+		SubTargets:    targets,
 		Description:   fmt.Sprintf("API firmware update %s", entityName),
 	}
 

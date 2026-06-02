@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package manager
 
@@ -21,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/rs/zerolog/log"
 	temporalactivity "go.temporal.io/sdk/activity"
@@ -28,6 +15,7 @@ import (
 	temporalworkflow "go.temporal.io/sdk/workflow"
 
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/clients/temporal"
+	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/capabilityrequirements"
 	taskcommon "github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor"
@@ -35,6 +23,7 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/workflow"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/task"
+	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
 )
 
 const (
@@ -95,6 +84,7 @@ type Manager struct {
 func (c *Config) Build(
 	ctx context.Context,
 	updater task.TaskStatusUpdater,
+	reportUpdater task.TaskReportUpdater,
 ) (executor.Executor, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -110,7 +100,7 @@ func (c *Config) Build(
 
 	// Bind dependencies into an Activities instance so each manager has its
 	// own isolated copy — no shared mutable globals between managers.
-	acts := activity.New(updater, c.ComponentManagerRegistry)
+	acts := activity.New(updater, reportUpdater, c.ComponentManagerRegistry)
 
 	publisherClient, err := temporal.New(c.ClientConf)
 	if err != nil {
@@ -159,8 +149,8 @@ func (m *Manager) Start(ctx context.Context) error {
 	for queue, worker := range m.workers {
 		log.Info().Msgf("Starting temporal worker for queue %s", queue)
 		if err := worker.Start(); err != nil {
-			for i := len(started) - 1; i >= 0; i-- {
-				started[i].Stop()
+			for _, s := range slices.Backward(started) {
+				s.Stop()
 			}
 			// Do not close publisherClient/subscriberClient here: they are
 			// owned by the Manager (created in Build, not in Start) and must
@@ -248,6 +238,50 @@ func (m *Manager) TerminateTask(
 	))
 }
 
+// validateRequiredCapabilities verifies that the active component managers can
+// execute all capabilities required by info before dispatching a workflow.
+func validateRequiredCapabilities(
+	info task.ExecutionInfo,
+	registry *componentmanager.Registry,
+) error {
+	requirements, err := capabilityrequirements.Required(
+		info.RuleDefinition,
+		executionComponentTypes(info.Components),
+	)
+	if err != nil {
+		return err
+	}
+
+	for _, r := range requirements {
+		if err := r.Validate(registry); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// executionComponentTypes returns the unique component types targeted by the
+// task, sorted so capability validation receives deterministic input.
+func executionComponentTypes(
+	components []task.WorkflowComponent,
+) []devicetypes.ComponentType {
+	seen := make(map[devicetypes.ComponentType]struct{}, len(components))
+	types := make([]devicetypes.ComponentType, 0, len(components))
+	for _, c := range components {
+		if _, ok := seen[c.Type]; ok {
+			continue
+		}
+
+		seen[c.Type] = struct{}{}
+		types = append(types, c.Type)
+	}
+
+	slices.Sort(types)
+
+	return types
+}
+
 // Execute dispatches the task to the Temporal workflow registered for its
 // OperationType. All Temporal mechanics (client, options, workflow submission)
 // are contained here — nothing engine-specific crosses the Executor boundary.
@@ -270,6 +304,17 @@ func (m *Manager) Execute(
 				"ensure the workflow package is imported and its init() runs",
 			req.Info.OperationType,
 			workflow.RegisteredTaskTypes(),
+		)
+	}
+
+	// Fail fast before submitting a Temporal workflow that the active component
+	// managers cannot execute. Activity-level checks still enforce the same
+	// capability contract at the operation boundary.
+	err := validateRequiredCapabilities(req.Info, m.conf.ComponentManagerRegistry)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"component manager capability pre-dispatch validation failed: %w",
+			err,
 		)
 	}
 

@@ -22,7 +22,9 @@ use db::{ObjectColumnFilter, Transaction};
 use forge_secrets::credentials::{
     BmcCredentialType, CredentialKey, CredentialManager, Credentials,
 };
+use itertools::Itertools;
 use librms::RmsApi;
+use mac_address::MacAddress;
 use model::bmc_info::BmcInfo;
 use model::expected_machine::{ExpectedMachine, ExpectedMachineData};
 use model::hardware_info::HardwareInfo;
@@ -308,7 +310,7 @@ impl MachineCreator {
         // If there's already a machine with the same MAC address as this endpoint, return false. We
         // can't rely on matching the machine_id, as it may have migrated to a stable MachineID
         // already.
-        let mac_addresses = report.all_mac_addresses();
+        let mac_addresses = host_mac_addresses_for_predicted_machine(report, machine_data);
         for mac_address in &mac_addresses {
             if db::machine::find_by_mac_address(txn, mac_address)
                 .await?
@@ -802,5 +804,34 @@ impl MachineCreator {
         .await?;
 
         Ok(predicted_machine_id)
+    }
+}
+
+/// Host inband MACs used when minting `predicted_machine_interface` rows for zero-DPU hosts.
+/// Prefers Redfish-reported System EthernetInterfaces; falls back to `ExpectedMachine.host_nics`
+/// when the BMC omits them from Redfish.
+fn host_mac_addresses_for_predicted_machine(
+    report: &EndpointExplorationReport,
+    machine_data: Option<&ExpectedMachineData>,
+) -> Vec<MacAddress> {
+    let from_redfish = report.all_mac_addresses();
+    match from_redfish.as_slice() {
+        [_, ..] => from_redfish,
+        [] => machine_data
+            .filter(|_| !(report.is_dpu() || report.is_switch() || report.is_power_shelf()))
+            .map(|data| data.host_nics.as_slice())
+            .filter(|host_nics| !host_nics.is_empty())
+            .map(|host_nics| {
+                tracing::info!(
+                    host_nic_count = host_nics.len(),
+                    "System EthernetInterfaces missing from Redfish; using ExpectedMachine.host_nics for predicted machine interfaces"
+                );
+                host_nics
+                    .iter()
+                    .map(|nic| nic.mac_address)
+                    .dedup()
+                    .collect()
+            })
+            .unwrap_or_default(),
     }
 }

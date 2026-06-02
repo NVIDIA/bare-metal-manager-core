@@ -1,25 +1,10 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1010,19 +995,10 @@ func (cemh CreateExpectedMachinesHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site", nil)
 	}
 
-	// Start a db transaction
-	tx, err := cdb.BeginTx(ctx, cemh.dbSession, &sql.TxOptions{})
-	if err != nil {
-		logger.Error().Err(err).Msg("unable to start transaction")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Expected Machines due to DB transaction error", nil)
-	}
-	// this variable is used in cleanup actions to indicate if this transaction committed
-	txCommitted := false
-	defer common.RollbackTx(ctx, tx, &txCommitted)
-
-	// Retrieve all ExpectedMachines on Site from DB to allow unicity checks at Site level
+	// Retrieve all ExpectedMachines on Site from DB to allow unicity checks at Site level.
+	// This is a pure validation read, so it stays outside the write transaction.
 	emDAO := cdbm.NewExpectedMachineDAO(cemh.dbSession)
-	existingMachinesOnSite, _, err := emDAO.GetAll(ctx, tx, cdbm.ExpectedMachineFilterInput{
+	existingMachinesOnSite, _, err := emDAO.GetAll(ctx, nil, cdbm.ExpectedMachineFilterInput{
 		SiteIDs: []uuid.UUID{siteID},
 	}, paginator.PageInput{
 		Limit: cdb.GetIntPtr(paginator.TotalLimit), // we want ALL records on site
@@ -1038,9 +1014,10 @@ func (cemh CreateExpectedMachinesHandler) Handle(c echo.Context) error {
 		existingSerialMap[machine.ChassisSerialNumber] = true
 	}
 
-	// Retrieve all SKUs on Site to validate existence of SKU IDs in request
+	// Retrieve all SKUs on Site to validate existence of SKU IDs in request.
+	// This is a pure validation read, so it stays outside the write transaction.
 	skuDAO := cdbm.NewSkuDAO(cemh.dbSession)
-	existingSkus, _, err := skuDAO.GetAll(ctx, tx, cdbm.SkuFilterInput{
+	existingSkus, _, err := skuDAO.GetAll(ctx, nil, cdbm.SkuFilterInput{
 		SiteIDs: []uuid.UUID{siteID},
 	}, paginator.PageInput{
 		Limit: cdb.GetIntPtr(len(requestedSkuIDs)),
@@ -1119,82 +1096,83 @@ func (cemh CreateExpectedMachinesHandler) Handle(c echo.Context) error {
 		})
 	}
 
-	createdExpectedMachines, err := emDAO.CreateMultiple(ctx, tx, createInputs)
-	if err != nil {
-		logger.Error().Err(err).Msg("error creating ExpectedMachine records in DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Expected Machine due to DB error", nil)
-	}
-
-	workflowMachines := make([]*cwssaws.ExpectedMachine, 0, len(createdExpectedMachines))
-	for i := range createdExpectedMachines {
-		em := &createdExpectedMachines[i]
-		creds, ok := credsByID[em.ID]
-		if !ok {
-			// CreateMultiple returned an ID we didn't ask it to create.
-			// This shouldn't actually happen, so fail loudly instead of
-			// attaching the wrong credentials to a machine.
-			logger.Error().Str("ExpectedMachineID", em.ID.String()).Msg("CreateMultiple returned a machine with an unrecognized ID")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to correlate created Expected Machine to request", nil)
+	createdExpectedMachines, err := cdb.WithTxResult(ctx, cemh.dbSession, func(tx *cdb.Tx) ([]cdbm.ExpectedMachine, error) {
+		createdMachines, derr := emDAO.CreateMultiple(ctx, tx, createInputs)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error creating ExpectedMachine records in DB")
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Expected Machine due to DB error", nil)
 		}
-		workflowMachines = append(workflowMachines, em.ToProto(creds))
-	}
 
-	logger.Info().Int("Count", len(workflowMachines)).Msg("triggering CreateExpectedMachines workflow on Site")
+		workflowMachines := make([]*cwssaws.ExpectedMachine, 0, len(createdMachines))
+		for i := range createdMachines {
+			em := &createdMachines[i]
+			creds, ok := credsByID[em.ID]
+			if !ok {
+				// CreateMultiple returned an ID we didn't ask it to create.
+				// This shouldn't actually happen, so fail loudly instead of
+				// attaching the wrong credentials to a machine.
+				logger.Error().Str("ExpectedMachineID", em.ID.String()).Msg("CreateMultiple returned a machine with an unrecognized ID")
+				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to correlate created Expected Machine to request", nil)
+			}
+			workflowMachines = append(workflowMachines, em.ToProto(creds))
+		}
 
-	// Create workflow request
-	workflowRequest := &cwssaws.BatchExpectedMachineOperationRequest{
-		ExpectedMachines:     &cwssaws.ExpectedMachineList{ExpectedMachines: workflowMachines},
-		AcceptPartialResults: false,
-	}
+		logger.Info().Int("Count", len(workflowMachines)).Msg("triggering CreateExpectedMachines workflow on Site")
 
-	// Create workflow options
-	workflowID := fmt.Sprintf("create-expected-machines-%s-%d", site.ID.String(), len(workflowMachines))
-	workflowOptions := tclient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
+		// Create workflow request
+		workflowRequest := &cwssaws.BatchExpectedMachineOperationRequest{
+			ExpectedMachines:     &cwssaws.ExpectedMachineList{ExpectedMachines: workflowMachines},
+			AcceptPartialResults: false,
+		}
 
-	// Get the temporal client for the site we are working with
-	stc, err := cemh.scp.GetClientByID(site.ID)
+		// Create workflow options. Include a UUID suffix so concurrent batches
+		// of the same size on the same Site don't collide on a single ID.
+		workflowID := fmt.Sprintf("create-expected-machines-%s-%s", site.ID.String(), uuid.New().String())
+		workflowOptions := tclient.StartWorkflowOptions{
+			ID:                       workflowID,
+			WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+			TaskQueue:                queue.SiteTaskQueue,
+		}
+
+		// Get the temporal client for the site we are working with
+		stc, cerr := cemh.scp.GetClientByID(site.ID)
+		if cerr != nil {
+			logger.Error().Err(cerr).Msg("failed to retrieve Temporal client for Site")
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
+		}
+
+		// Execute workflow and get results
+		workflowRun, werr := stc.ExecuteWorkflow(ctx, workflowOptions, "CreateExpectedMachines", workflowRequest)
+		if werr != nil {
+			logger.Error().Err(werr).Msg("failed to schedule CreateExpectedMachines workflow on Site")
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to schedule batch Expected Machine creation workflow on Site: %v", werr), nil)
+		}
+
+		workflowRunID := workflowRun.GetID()
+		logger = logger.With().Str("WorkflowID", workflowRunID).Logger()
+		logger.Info().Msg("executing CreateExpectedMachines workflow on Site")
+
+		// Get workflow results
+		var workflowResult cwssaws.BatchExpectedMachineOperationResponse
+
+		werr = workflowRun.Get(ctx, &workflowResult)
+		if werr != nil {
+			logger.Error().Err(werr).Msg("error executing CreateExpectedMachines workflow on Site")
+			// Workflow failed entirely - don't commit transaction
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to execute batch Expected Machine creation workflow on Site: %v", werr), nil)
+		}
+
+		// sanity checks since this is all-or-nothing
+		if len(workflowResult.GetResults()) != len(createdMachines) {
+			logger.Error().Msgf("workflow returned a different number of Expected Machines (expected %d but got %d)", len(createdMachines), len(workflowResult.GetResults()))
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to verify batch Expected Machine creation workflow results", nil)
+		}
+
+		return createdMachines, nil
+	})
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
+		return common.HandleTxError(c, logger, err, "Failed to create Expected Machines due to DB transaction error")
 	}
-
-	// Execute workflow and get results
-	workflowRun, err := stc.ExecuteWorkflow(ctx, workflowOptions, "CreateExpectedMachines", workflowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule CreateExpectedMachines workflow on Site")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to schedule batch Expected Machine creation workflow on Site: %v", err), nil)
-	}
-
-	workflowRunID := workflowRun.GetID()
-	logger = logger.With().Str("WorkflowID", workflowRunID).Logger()
-	logger.Info().Msg("executing CreateExpectedMachines workflow on Site")
-
-	// Get workflow results
-	var workflowResult cwssaws.BatchExpectedMachineOperationResponse
-
-	err = workflowRun.Get(ctx, &workflowResult)
-	if err != nil {
-		logger.Error().Err(err).Msg("error executing CreateExpectedMachines workflow on Site")
-		// Workflow failed entirely - don't commit transaction
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to execute batch Expected Machine creation workflow on Site: %v", err), nil)
-	}
-
-	// sanity checks since this is all-or-nothing
-	if len(workflowResult.GetResults()) != len(createdExpectedMachines) {
-		logger.Warn().Msgf("Workflow returned a different number of Expected Machines (expected %d but got %d)", len(createdExpectedMachines), len(workflowResult.GetResults()))
-	}
-
-	// Commit transaction
-	err = tx.Commit()
-	if err != nil {
-		logger.Error().Err(err).Msg("error committing ExpectedMachine CreateExpectedMachines transaction to DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Expected Machines due to DB transaction error", nil)
-	}
-	txCommitted = true
 
 	logger.Info().
 		Int("SuccessCount", len(createdExpectedMachines)).
@@ -1341,27 +1319,20 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 
 	// Since we only have a list of Expected Machine ID as input we can only learn the SiteIDs involved by querying the DB
 	// but we also want to retrieve full Expected Machines from Site to check for Serial uniqueness.
-	// We will split into three queries:
-	// 1. Retrieve SiteID and Site by loading one ExpectedMachine record
-	// 2. Retrieve Expected Machines for Site to check for serial uniqueness.
+	// We will split into multiple queries:
+	// 1. Retrieve SiteID and Site by loading the requested ExpectedMachine records
+	// 2. Retrieve all Expected Machines for that Site to check for MAC/Serial uniqueness.
+	// 3. Retrieve all SKUs for that Site to validate SKU IDs in the request.
+	// All of these are pure validation reads and stay outside the WithTxResult call below.
 	// TODO: now that we have a unique index on (mac,siteID) we should reconsider adding unique indices on (serial,siteID).
 	//       At this time it is expected that existing serial data may not be unique so we
 	//       cannot add such an index without cleaning existing data first.
 
-	// Start a db transaction
-	tx, err := cdb.BeginTx(ctx, uemh.dbSession, &sql.TxOptions{})
-	if err != nil {
-		logger.Error().Err(err).Msg("unable to start transaction")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update Expected Machines due to DB transaction error", nil)
-	}
-	// this variable is used in cleanup actions to indicate if this transaction committed
-	txCommitted := false
-	defer common.RollbackTx(ctx, tx, &txCommitted)
-
-	// We need to acquire the siteID: we retrieve the first ExpectedMachine record to update and use it as reference.
-	// We do not have a reference SiteID so we need to load all the requested Expected Machine to be able to validate they all belong to the same Site.
+	// Retrieve the requested Expected Machines so we can resolve the SiteID
+	// and validate they all belong to the same Site. This is a pure
+	// validation read, so it stays outside the write transaction.
 	emDAO := cdbm.NewExpectedMachineDAO(uemh.dbSession)
-	requestedExpectedMachine, _, err := emDAO.GetAll(ctx, tx, cdbm.ExpectedMachineFilterInput{
+	requestedExpectedMachine, _, err := emDAO.GetAll(ctx, nil, cdbm.ExpectedMachineFilterInput{
 		ExpectedMachineIDs: slices.Collect(maps.Keys(idMap)),
 	}, paginator.PageInput{
 		Limit: cdb.GetIntPtr(paginator.TotalLimit),
@@ -1432,9 +1403,9 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "Current org is not associated with the Site", nil)
 	}
 
-	// Retrieve all ExpectedMachines on Site from DB to allow unicity checks at Site level
-	emDAO = cdbm.NewExpectedMachineDAO(uemh.dbSession)
-	expectedMachinesOnSite, _, err := emDAO.GetAll(ctx, tx, cdbm.ExpectedMachineFilterInput{
+	// Retrieve all ExpectedMachines on Site from DB to allow unicity checks at
+	// Site level. Pure validation read, kept outside the write transaction.
+	expectedMachinesOnSite, _, err := emDAO.GetAll(ctx, nil, cdbm.ExpectedMachineFilterInput{
 		SiteIDs: []uuid.UUID{siteID},
 	}, paginator.PageInput{
 		Limit: cdb.GetIntPtr(paginator.TotalLimit), // we want ALL records on site
@@ -1449,9 +1420,10 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 		emMap[em.ID] = *em
 	}
 
-	// Retrieve all SKUs on Site to validate existence of SKU IDs in request
+	// Retrieve all SKUs on Site to validate existence of SKU IDs in request.
+	// Pure validation read, kept outside the write transaction.
 	skuDAO := cdbm.NewSkuDAO(uemh.dbSession)
-	skus, _, err := skuDAO.GetAll(ctx, tx, cdbm.SkuFilterInput{
+	skus, _, err := skuDAO.GetAll(ctx, nil, cdbm.SkuFilterInput{
 		SiteIDs: []uuid.UUID{siteID},
 	}, paginator.PageInput{
 		Limit: cdb.GetIntPtr(len(requestedSkuIDs)),
@@ -1560,82 +1532,83 @@ func (uemh UpdateExpectedMachinesHandler) Handle(c echo.Context) error {
 	}
 
 	// Update provided ExpectedMachines in DB
-	updatedExpectedMachines, err := emDAO.UpdateMultiple(ctx, tx, updateInputs)
-	if err != nil {
-		logger.Error().Err(err).Msg("error updating ExpectedMachine records in DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update Expected Machine due to DB error", nil)
-	}
-
-	workflowMachines := make([]*cwssaws.ExpectedMachine, 0, len(updatedExpectedMachines))
-	for i := range updatedExpectedMachines {
-		em := &updatedExpectedMachines[i]
-		creds, ok := credsByID[em.ID]
-		if !ok {
-			// UpdateMultiple returned an ID we didn't ask it to create.
-			// This shouldn't actually happen, so fail loudly instead of
-			// attaching the wrong credentials to a machine.
-			logger.Error().Str("ExpectedMachineID", em.ID.String()).Msg("UpdateMultiple returned a machine with an unrecognized ID")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to correlate updated Expected Machine to request", nil)
+	updatedExpectedMachines, err := cdb.WithTxResult(ctx, uemh.dbSession, func(tx *cdb.Tx) ([]cdbm.ExpectedMachine, error) {
+		updatedMachines, derr := emDAO.UpdateMultiple(ctx, tx, updateInputs)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error updating ExpectedMachine records in DB")
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to update Expected Machine due to DB error", nil)
 		}
-		workflowMachines = append(workflowMachines, em.ToProto(creds))
-	}
 
-	logger.Info().Int("Count", len(workflowMachines)).Msg("triggering Expected Machine update workflow")
+		workflowMachines := make([]*cwssaws.ExpectedMachine, 0, len(updatedMachines))
+		for i := range updatedMachines {
+			em := &updatedMachines[i]
+			creds, ok := credsByID[em.ID]
+			if !ok {
+				// UpdateMultiple returned an ID we didn't ask it to create.
+				// This shouldn't actually happen, so fail loudly instead of
+				// attaching the wrong credentials to a machine.
+				logger.Error().Str("ExpectedMachineID", em.ID.String()).Msg("UpdateMultiple returned a machine with an unrecognized ID")
+				return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to correlate updated Expected Machine to request", nil)
+			}
+			workflowMachines = append(workflowMachines, em.ToProto(creds))
+		}
 
-	// Create workflow request
-	workflowRequest := &cwssaws.BatchExpectedMachineOperationRequest{
-		ExpectedMachines:     &cwssaws.ExpectedMachineList{ExpectedMachines: workflowMachines},
-		AcceptPartialResults: false,
-	}
+		logger.Info().Int("Count", len(workflowMachines)).Msg("triggering Expected Machine update workflow")
 
-	// Create workflow options
-	workflowID := fmt.Sprintf("expected-machines-update-batch-%s-%d", site.ID.String(), len(workflowMachines))
-	workflowOptions := tclient.StartWorkflowOptions{
-		ID:                       workflowID,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
+		// Create workflow request
+		workflowRequest := &cwssaws.BatchExpectedMachineOperationRequest{
+			ExpectedMachines:     &cwssaws.ExpectedMachineList{ExpectedMachines: workflowMachines},
+			AcceptPartialResults: false,
+		}
 
-	// Get the Temporal client for the site we are working with
-	stc, err := uemh.scp.GetClientByID(site.ID)
+		// Create workflow options. Include a UUID suffix so concurrent batches
+		// of the same size on the same Site don't collide on a single ID.
+		workflowID := fmt.Sprintf("expected-machines-update-batch-%s-%s", site.ID.String(), uuid.New().String())
+		workflowOptions := tclient.StartWorkflowOptions{
+			ID:                       workflowID,
+			WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+			TaskQueue:                queue.SiteTaskQueue,
+		}
+
+		// Get the Temporal client for the site we are working with
+		stc, cerr := uemh.scp.GetClientByID(site.ID)
+		if cerr != nil {
+			logger.Error().Err(cerr).Msg("failed to retrieve Temporal client for Site")
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
+		}
+
+		// Execute workflow and get results
+		workflowRun, werr := stc.ExecuteWorkflow(ctx, workflowOptions, "UpdateExpectedMachines", workflowRequest)
+		if werr != nil {
+			logger.Error().Err(werr).Msg("failed to schedule batch Expected Machine update workflow on Site")
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to schedule batch Expected Machine update workflow on Site: %v", werr), nil)
+		}
+
+		workflowRunID := workflowRun.GetID()
+		logger = logger.With().Str("WorkflowID", workflowRunID).Logger()
+		logger.Info().Msg("executing Expected Machine update workflow on Site")
+
+		// Get workflow results
+		var workflowResult cwssaws.BatchExpectedMachineOperationResponse
+
+		werr = workflowRun.Get(ctx, &workflowResult)
+		if werr != nil {
+			logger.Error().Err(werr).Msg("error executing batch Expected Machine update workflow on Site")
+			// Workflow failed entirely - don't commit transaction, changes will be rolled back
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to execute batch Expected Machine update workflow on Site: %v", werr), nil)
+		}
+
+		// sanity checks since this is all-or-nothing
+		if len(workflowResult.GetResults()) != len(updatedMachines) {
+			logger.Error().Msgf("workflow returned a different number of Expected Machines (expected %d but got %d)", len(updatedMachines), len(workflowResult.GetResults()))
+			return nil, cutil.NewAPIError(http.StatusInternalServerError, "Failed to verify batch Expected Machine update workflow results", nil)
+		}
+
+		return updatedMachines, nil
+	})
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
+		return common.HandleTxError(c, logger, err, "Failed to update Expected Machines due to DB transaction error")
 	}
-
-	// Execute workflow and get results
-	workflowRun, err := stc.ExecuteWorkflow(ctx, workflowOptions, "UpdateExpectedMachines", workflowRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule batch Expected Machine update workflow on Site")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to schedule batch Expected Machine update workflow on Site: %v", err), nil)
-	}
-
-	workflowRunID := workflowRun.GetID()
-	logger = logger.With().Str("WorkflowID", workflowRunID).Logger()
-	logger.Info().Msg("executing Expected Machine update workflow on Site")
-
-	// Get workflow results
-	var workflowResult cwssaws.BatchExpectedMachineOperationResponse
-
-	err = workflowRun.Get(ctx, &workflowResult)
-	if err != nil {
-		logger.Error().Err(err).Msg("error executing batch Expected Machine update workflow on Site")
-		// Workflow failed entirely - don't commit transaction, changes will be rolled back
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to execute batch Expected Machine update workflow on Site: %v", err), nil)
-	}
-
-	// sanity checks since this is all-or-nothing
-	if len(workflowResult.GetResults()) != len(updatedExpectedMachines) {
-		logger.Warn().Msgf("workflow returned a different number of Expected Machines (expected %d but got %d)", len(updatedExpectedMachines), len(workflowResult.GetResults()))
-	}
-
-	// Commit transaction - only successful updates remain in DB
-	err = tx.Commit()
-	if err != nil {
-		logger.Error().Err(err).Msg("error committing ExpectedMachine UpdateExpectedMachines transaction to DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update Expected Machines due to DB transaction error", nil)
-	}
-	txCommitted = true
 
 	logger.Info().
 		Int("SuccessCount", len(updatedExpectedMachines)).
