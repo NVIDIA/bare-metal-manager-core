@@ -65,6 +65,8 @@ navigation:
           path: provisioning/host-validation.md
         - page: SKU Validation
           path: provisioning/sku-validation.md
+        - page: Measured Boot Attestation
+          path: provisioning/attestation_and_security.md
 
     - section: DPU Management
       contents:

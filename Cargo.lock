@@ -1035,6 +1035,7 @@ dependencies = [
  "chrono",
  "clap",
  "clap_complete",
+ "clap_mangen",
  "color-eyre",
  "csv",
  "eyre",
@@ -1155,14 +1156,27 @@ dependencies = [
 name = "carbide-api"
 version = "0.0.1"
 dependencies = [
- "ansi-to-html",
+ "carbide-api-core",
+ "carbide-api-db",
+ "carbide-api-web",
+ "carbide-secrets",
+ "carbide-version",
+ "clap",
+ "eyre",
+ "sqlx",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "carbide-api-core"
+version = "0.0.1"
+dependencies = [
  "arc-swap",
- "askama",
- "askama_escape",
  "asn1-rs",
  "async-trait",
  "axum",
- "axum-extra",
  "base64",
  "bmc-vendor",
  "byteorder",
@@ -1241,7 +1255,6 @@ dependencies = [
  "mqttea",
  "nras",
  "num_cpus",
- "oauth2",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry-prometheus",
@@ -1289,7 +1302,6 @@ dependencies = [
  "tracing-subscriber",
  "tss-esapi",
  "url",
- "urlencoding",
  "uuid",
  "x509-parser",
 ]
@@ -1452,6 +1464,56 @@ dependencies = [
  "tonic",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "carbide-api-web"
+version = "0.0.1"
+dependencies = [
+ "ansi-to-html",
+ "askama",
+ "askama_escape",
+ "axum",
+ "axum-extra",
+ "base64",
+ "carbide-api-core",
+ "carbide-api-db",
+ "carbide-api-model",
+ "carbide-authn",
+ "carbide-health-report",
+ "carbide-macros",
+ "carbide-measured-boot",
+ "carbide-rpc",
+ "carbide-rpc-utils",
+ "carbide-sqlx-testing",
+ "carbide-uuid",
+ "carbide-version",
+ "chrono",
+ "config-version",
+ "eyre",
+ "futures",
+ "http",
+ "http-body-util",
+ "hyper",
+ "ipnetwork",
+ "itertools 0.14.0",
+ "lazy_static",
+ "mac_address",
+ "oauth2",
+ "reqwest 0.13.3",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "tonic",
+ "tower",
+ "tower-http",
+ "tracing",
+ "url",
+ "urlencoding",
  "uuid",
 ]
 
@@ -3259,6 +3321,16 @@ name = "clap_lex"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
+
+[[package]]
+name = "clap_mangen"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d82842b45bf9f6a3be090dd860095ac30728042c08e0d6261ca7259b5d850f07"
+dependencies = [
+ "clap",
+ "roff",
+]
 
 [[package]]
 name = "client-ip"
@@ -9181,6 +9253,12 @@ dependencies = [
  "quote",
  "syn 1.0.109",
 ]
+
+[[package]]
+name = "roff"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "323c417e1d9665a65b263ec744ba09030cfb277e9daa0b018a4ab62e57bc8189"
 
 [[package]]
 name = "rsa"

@@ -62,10 +62,6 @@ const NOT_FOUND: u16 = 404;
 /// this catches edge cases where the task dies without reporting.
 const BFB_COPY_TIMEOUT_MINS: i64 = 35;
 
-/// BF2 fallback timeout. SSH layer uses 80-min timeout for BF2 (SFTP capped at ~325 KB/s
-/// with 128 KiB buffer; 1 MiB buffer fails immediately on BF2 BMCs).
-const BFB_COPY_TIMEOUT_MINS_BF2: i64 = 85;
-
 /// Minimum wait time before checking if BFB installation completed.
 const BFB_INSTALLATION_MIN_WAIT_MINS: i64 = 10;
 
@@ -1960,7 +1956,6 @@ impl PreingestionManagerStatic {
             }
         };
 
-        let is_bf2 = endpoint.report.identify_dpu() == Some(model::DpuModel::BlueField2);
         let bmc_credential_key = CredentialKey::BmcCredentials {
             credential_type: BmcCredentialType::BmcRoot {
                 bmc_mac_address: interface.mac_address,
@@ -1982,10 +1977,10 @@ impl PreingestionManagerStatic {
         tokio::spawn(async move {
             let _permit = permit;
 
-            tracing::info!(%address, is_bf2, "starting BFB copy to DPU rshim");
+            tracing::info!(%address, "starting BFB copy to DPU rshim");
 
             let result = bfb_rshim_copier
-                .copy_bfb_to_dpu_rshim(bmc_addr, &bmc_credential_key, is_bf2)
+                .copy_bfb_to_dpu_rshim(bmc_addr, &bmc_credential_key)
                 .await;
 
             match result {
@@ -2013,12 +2008,7 @@ impl PreingestionManagerStatic {
     ) -> Result<(), DatabaseError> {
         let address = endpoint.address.to_string();
 
-        let is_bf2 = endpoint.report.identify_dpu() == Some(model::DpuModel::BlueField2);
-        let timeout_mins = if is_bf2 {
-            BFB_COPY_TIMEOUT_MINS_BF2
-        } else {
-            BFB_COPY_TIMEOUT_MINS
-        };
+        let timeout_mins = BFB_COPY_TIMEOUT_MINS;
 
         let elapsed_mins = Utc::now().signed_duration_since(*started_at).num_minutes();
         if elapsed_mins > timeout_mins {

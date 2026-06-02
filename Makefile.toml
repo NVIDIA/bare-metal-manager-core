@@ -83,6 +83,16 @@ description = "Build carbide-admin-cli in CI"
 workspace = false
 script = '''
 cargo build -p carbide-admin-cli
+# Emit man pages as a build artifact via the hidden `generate-man` subcommand.
+cargo run -p carbide-admin-cli -- generate-man --out-dir target/man
+'''
+
+[tasks.gen-man]
+category = "Build"
+description = "Generate carbide-admin-cli man pages into target/man"
+workspace = false
+script = '''
+cargo run -p carbide-admin-cli -- generate-man --out-dir target/man
 '''
 
 [tasks.build-cli]
