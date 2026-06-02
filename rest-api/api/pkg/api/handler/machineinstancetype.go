@@ -1,25 +1,10 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -176,22 +161,9 @@ func (cmith CreateMachineInstanceTypeHandler) Handle(c echo.Context) error {
 			"Error validating Machine/Instance Type Association creation request data", verr)
 	}
 
-	// Start a db tx
-	tx, err := cdb.BeginTx(ctx, cmith.dbSession, &sql.TxOptions{})
-	if err != nil {
-		logger.Error().Err(err).Msg("unable to start transaction")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error creating machine instance type record", nil)
-	}
-
-	txCommitted := false
-	defer common.RollbackTx(ctx, tx, &txCommitted)
-
-	// Iterate through Machine IDs in request and create associations
-	mDAO := cdbm.NewMachineDAO(cmith.dbSession)
-
-	amits := []model.APIMachineInstanceType{}
-
-	// Verify if Capabilties of Machine matches with Instance Type's Capabilities
+	// Verify if Capabilities of Machine matches with Instance Type's Capabilities.
+	// This is a pure validation read; keep it outside the tx so it does not pin
+	// a DB connection while the workflow runs.
 	isMatch, badMachineID, apiErr := common.MatchInstanceTypeCapabilitiesForMachines(ctx, logger, cmith.dbSession, it.ID, apiRequest.MachineIDs)
 	if apiErr != nil {
 		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
@@ -201,63 +173,6 @@ func (cmith CreateMachineInstanceTypeHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusConflict, fmt.Sprintf("Capabilities for Machine: %v do not match Instance Type's Capabilities", *badMachineID), nil)
 	}
 
-	for _, machineID := range apiRequest.MachineIDs {
-		slogger := logger.With().Str("MachineID", machineID).Logger()
-
-		m, err := mDAO.GetByID(ctx, tx, machineID, nil, false)
-		if err != nil {
-			if err == cdb.ErrDoesNotExist {
-				return cutil.NewAPIErrorResponse(c, http.StatusNotFound, fmt.Sprintf("Machine with ID: %v does not exist", machineID), nil)
-			}
-
-			slogger.Error().Err(err).Msg("error retrieving Machine from DB")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to retrieve details for Machine: %v", machineID), nil)
-		}
-
-		if m.Status != cdbm.MachineStatusReady && m.Status != cdbm.MachineStatusReset {
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Machine: %v is in %v state. Instance Type can only be assigned to a Machine in `Ready` or `Reset` status", m.ID, m.Status), nil)
-		}
-
-		// Check if Machine is associated with the Org's Provider
-		if orgIP.ID != m.InfrastructureProviderID {
-			return cutil.NewAPIErrorResponse(c, http.StatusForbidden, fmt.Sprintf("Machine: %v is not associated with org's Infrastructure Provider", machineID), nil)
-		}
-
-		// Check if Machine/InstanceType association already exists
-		mitDAO := cdbm.NewMachineInstanceTypeDAO(cmith.dbSession)
-
-		// check for association with any instance type
-		emits, _, err := mitDAO.GetAll(ctx, tx, &machineID, nil, nil, nil, nil, nil)
-		if err != nil {
-			slogger.Error().Err(err).Msg("error retrieving Machine/InstanceType association from DB")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to check for existing Instance Type association for Machine: %v", machineID), nil)
-		}
-
-		// If association exists with any instance type already, return error
-		if len(emits) > 0 {
-			return cutil.NewAPIErrorResponse(c, http.StatusConflict, fmt.Sprintf("Machine: %v is already associated with Instance Type %v", machineID, emits[0].InstanceTypeID), nil)
-		}
-
-		// Create Machine/InstanceType association
-		mit, err := mitDAO.CreateFromParams(ctx, tx, machineID, itID)
-		if err != nil {
-			slogger.Error().Err(err).Msg("error creating Machine/InstanceType association")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to create Instance Type association for Machine: %v", machineID), nil)
-		}
-
-		// Set Machine's Instance Type ID
-		_, err = mDAO.Update(ctx, tx, cdbm.MachineUpdateInput{MachineID: m.ID, InstanceTypeID: &it.ID})
-		if err != nil {
-			slogger.Error().Err(err).Msg("error updating Instance Type ID for Machine")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to update Instance Type for Machine: %v", machineID), nil)
-		}
-
-		amit := model.NewAPIMachineInstanceType(mit)
-		amits = append(amits, *amit)
-	}
-
-	// Send the machine association update to NICo
-
 	// Get the temporal client for the site we are working with.
 	// SiteID was checked early on in this handler.
 	stc, err := cmith.scp.GetClientByID(*it.SiteID)
@@ -266,54 +181,132 @@ func (cmith CreateMachineInstanceTypeHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 	}
 
-	associateMachinesRequest := apiRequest.ToProto(it)
+	// Values populated inside the transaction closure that are needed for the response.
+	amits := []model.APIMachineInstanceType{}
 
-	workflowOptions := temporalClient.StartWorkflowOptions{
-		ID:                       "associate-machines-with-instance-type-" + it.ID.String(),
-		TaskQueue:                queue.SiteTaskQueue,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-	}
+	// timeoutResp lets the closure signal a post-rollback handler — the
+	// TerminateWorkflow call has to run after the closure returns so that
+	// the DB tx unwinds before we make the second remote call. nil means
+	// no timeout occurred and the normal flow continues.
+	var timeoutResp func() error
 
-	logger.Info().Msg("triggering AssociateMachinesWithInstanceType workflow")
+	err = cdb.WithTx(ctx, cmith.dbSession, func(tx *cdb.Tx) error {
+		// Iterate through Machine IDs in request and create associations
+		mDAO := cdbm.NewMachineDAO(cmith.dbSession)
+		mitDAO := cdbm.NewMachineInstanceTypeDAO(cmith.dbSession)
 
-	// Add context deadlines
-	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
+		for _, machineID := range apiRequest.MachineIDs {
+			slogger := logger.With().Str("MachineID", machineID).Logger()
 
-	// Trigger Site workflow
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "AssociateMachinesWithInstanceType", associateMachinesRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to synchronously start Temporal workflow to associate Machines with InstanceType")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed start sync workflow to associate Machines with Instance Type on Site: %s", err), nil)
-	}
+			m, derr := mDAO.GetByID(ctx, tx, machineID, nil, false)
+			if derr != nil {
+				if derr == cdb.ErrDoesNotExist {
+					return cutil.NewAPIError(http.StatusNotFound, fmt.Sprintf("Machine with ID: %v does not exist", machineID), nil)
+				}
 
-	wid := we.GetID()
-	logger.Info().Str("Workflow ID", wid).Msg("executed synchronous AssociateMachinesWithInstanceType workflow")
+				slogger.Error().Err(derr).Msg("error retrieving Machine from DB")
+				return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to retrieve details for Machine: %v", machineID), nil)
+			}
 
-	// Block until the workflow has completed and returned success/error.
-	err = we.Get(ctx, nil)
+			if m.Status != cdbm.MachineStatusReady && m.Status != cdbm.MachineStatusReset {
+				return cutil.NewAPIError(http.StatusBadRequest, fmt.Sprintf("Machine: %v is in %v state. Instance Type can only be assigned to a Machine in `Ready` or `Reset` status", m.ID, m.Status), nil)
+			}
 
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, err, "MachineInstanceType", "AssociateMachinesWithInstanceType")
+			// Check if Machine is associated with the Org's Provider
+			if orgIP.ID != m.InfrastructureProviderID {
+				return cutil.NewAPIError(http.StatusForbidden, fmt.Sprintf("Machine: %v is not associated with org's Infrastructure Provider", machineID), nil)
+			}
+
+			// check for association with any instance type
+			emits, _, derr := mitDAO.GetAll(ctx, tx, &machineID, nil, nil, nil, nil, nil)
+			if derr != nil {
+				slogger.Error().Err(derr).Msg("error retrieving Machine/InstanceType association from DB")
+				return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to check for existing Instance Type association for Machine: %v", machineID), nil)
+			}
+
+			// If association exists with any instance type already, return error
+			if len(emits) > 0 {
+				return cutil.NewAPIError(http.StatusConflict, fmt.Sprintf("Machine: %v is already associated with Instance Type %v", machineID, emits[0].InstanceTypeID), nil)
+			}
+
+			// Create Machine/InstanceType association
+			mit, derr := mitDAO.CreateFromParams(ctx, tx, machineID, itID)
+			if derr != nil {
+				slogger.Error().Err(derr).Msg("error creating Machine/InstanceType association")
+				return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to create Instance Type association for Machine: %v", machineID), nil)
+			}
+
+			// Set Machine's Instance Type ID
+			_, derr = mDAO.Update(ctx, tx, cdbm.MachineUpdateInput{MachineID: m.ID, InstanceTypeID: &it.ID})
+			if derr != nil {
+				slogger.Error().Err(derr).Msg("error updating Instance Type ID for Machine")
+				return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to update Instance Type for Machine: %v", machineID), nil)
+			}
+
+			amit := model.NewAPIMachineInstanceType(mit)
+			amits = append(amits, *amit)
 		}
 
-		code, err := common.UnwrapWorkflowError(err)
-		logger.Error().Err(err).Msg("failed to synchronously execute Temporal workflow to associate Machines with InstanceType")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute sync workflow to  associate Machines with Instance Type on Site: %s", err), nil)
-	}
+		// Send the machine association update to NICo
+		associateMachinesRequest := apiRequest.ToProto(it)
 
-	logger.Info().Str("Workflow ID", wid).Msg("completed synchronous AssociateMachinesWithInstanceType workflow")
+		workflowOptions := temporalClient.StartWorkflowOptions{
+			ID:                       "associate-machines-with-instance-type-" + it.ID.String(),
+			TaskQueue:                queue.SiteTaskQueue,
+			WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+		}
 
-	// Commit transaction
-	err = tx.Commit()
+		logger.Info().Msg("triggering AssociateMachinesWithInstanceType workflow")
+
+		// Add context deadlines
+		wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+		defer cancel()
+
+		// Trigger Site workflow
+		we, wferr := stc.ExecuteWorkflow(wfCtx, workflowOptions, "AssociateMachinesWithInstanceType", associateMachinesRequest)
+		if wferr != nil {
+			logger.Error().Err(wferr).Msg("failed to synchronously start Temporal workflow to associate Machines with InstanceType")
+			return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed start sync workflow to associate Machines with Instance Type on Site: %s", wferr), nil)
+		}
+
+		wid := we.GetID()
+		logger.Info().Str("Workflow ID", wid).Msg("executed synchronous AssociateMachinesWithInstanceType workflow")
+
+		// Block until the workflow has completed and returned success/error.
+		wferr = we.Get(wfCtx, nil)
+		if wferr != nil {
+			var timeoutErr *tp.TimeoutError
+			if errors.As(wferr, &timeoutErr) || wferr == context.DeadlineExceeded || wfCtx.Err() != nil {
+				logger.Error().Err(wferr).Msg("failed to associate Machines with Instance Type, timeout occurred executing workflow on Site.")
+				timeoutCause := wferr
+				timeoutResp = func() error {
+					return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "MachineInstanceType", "AssociateMachinesWithInstanceType")
+				}
+				return cutil.NewAPIError(http.StatusInternalServerError, "AssociateMachinesWithInstanceType workflow timed out", nil)
+			}
+
+			code, wferr := common.UnwrapWorkflowError(wferr)
+			logger.Error().Err(wferr).Msg("failed to synchronously execute Temporal workflow to associate Machines with InstanceType")
+			return cutil.NewAPIError(code, fmt.Sprintf("Failed to execute sync workflow to associate Machines with Instance Type on Site: %s", wferr), nil)
+		}
+
+		logger.Info().Str("Workflow ID", wid).Msg("completed synchronous AssociateMachinesWithInstanceType workflow")
+
+		return nil
+	})
+	// The wrapping `if err != nil` ensures real tx-helper errors (commit /
+	// rollback failures that wrap into something other than the cutil.APIError
+	// marker we returned for the timeout case) are surfaced via HandleTxError,
+	// while the timeout-case APIError falls through to the timeoutResp call.
 	if err != nil {
-		logger.Error().Err(err).Msg("error committing MachineInstanceType transaction to DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to associate Machines with Instance Type, DB transaction error", nil)
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			return common.HandleTxError(c, logger, err, "Failed to associate Machines with Instance Type, DB transaction error")
+		}
 	}
-	// Set committed so, deferred cleanup functions won't rollback
-	txCommitted = true
+	if timeoutResp != nil {
+		return timeoutResp()
+	}
 
 	// Return response
 	logger.Info().Msg("finishing API handler")
@@ -630,53 +623,6 @@ func (dmith DeleteMachineInstanceTypeHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Machine is currently in use by an Instance and cannot be dissociated from Instance Type", nil)
 	}
 
-	// Start a db tx
-	tx, err := cdb.BeginTx(ctx, dmith.dbSession, &sql.TxOptions{})
-	if err != nil {
-		logger.Error().Err(err).Msg("unable to start transaction")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error deleting machine instance type record", nil)
-	}
-	txCommitted := false
-	defer common.RollbackTx(ctx, tx, &txCommitted)
-
-	// take an advisory lock - this is needed because
-	// of the accounting checks below on allocation constraint satisfaction across all tenants
-	// after machine instance type deletion
-	lockID := fmt.Sprintf("%s", it.ID.String())
-	err = tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(lockID), nil)
-	if err != nil {
-		logger.Error().Err(err).Msg("unable to take advisory lock")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to delete Machine/Instance Type association due to db error", nil)
-	}
-
-	// Delete Machine/InstanceType association
-	err = mitDAO.DeleteByID(ctx, tx, mit.ID, false)
-	if err != nil {
-		logger.Error().Err(err).Msg("error deleting Machine/InstanceType association from DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to delete Machine/Instance Type association", nil)
-	}
-
-	// check if the available machines violates the allocation constraint requirement
-	ok, serr = common.CheckMachinesForInstanceTypeAllocation(ctx, tx, dmith.dbSession, logger, mit.InstanceTypeID, 0)
-	if serr != nil {
-		logger.Error().Err(serr).Str("resourceId", mit.InstanceTypeID.String()).Msg("error checking available machines for instance type allocation")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error checking machine availability for the instance type allocation", nil)
-	}
-	if !ok {
-		logger.Warn().Str("resourceId", mit.InstanceTypeID.String()).Msg("Deletion of machine instance type is not allowed because of existing allocation constraints")
-		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Deletion of Machine/Instance type association is not allowed because of existing Allocation Constraints", nil)
-	}
-
-	// Clear Machine's Instance Type
-	mDAO := cdbm.NewMachineDAO(dmith.dbSession)
-	_, err = mDAO.Clear(ctx, tx, cdbm.MachineClearInput{MachineID: mit.MachineID, InstanceTypeID: true})
-	if err != nil {
-		logger.Error().Err(err).Msg("error clearing Machine's Instance Type")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to delete Machine/Instance Type association", nil)
-	}
-
-	// Send the machine association update to NICo
-
 	// Get the temporal client for the site we are working with.
 	// SiteID was checked early on in this handler.
 	stc, err := dmith.scp.GetClientByID(*it.SiteID)
@@ -685,69 +631,123 @@ func (dmith DeleteMachineInstanceTypeHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
 	}
 
-	// Now that machine data is "versioned" in NICo, a future update will likely
-	// allow us to send in IfVersion here to protect against concurrent updates.
-	removeAssociationRequest := mit.ToRemoveAssociationRequestProto()
+	// timeoutResp lets the closure signal a post-rollback handler — the
+	// TerminateWorkflow call has to run after the closure returns so that
+	// the DB tx unwinds before we make the second remote call. nil means
+	// no timeout occurred and the normal flow continues.
+	var timeoutResp func() error
 
-	workflowOptions := temporalClient.StartWorkflowOptions{
-		ID:                       "remove-machine-instance-type-association" + it.ID.String(),
-		TaskQueue:                queue.SiteTaskQueue,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-	}
+	err = cdb.WithTx(ctx, dmith.dbSession, func(tx *cdb.Tx) error {
+		// take an advisory lock - this is needed because
+		// of the accounting checks below on allocation constraint satisfaction across all tenants
+		// after machine instance type deletion
+		derr := tx.TryAcquireAdvisoryLock(ctx, cdb.GetAdvisoryLockIDFromString(it.ID.String()), nil)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("unable to take advisory lock")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to delete Machine/Instance Type association due to db error", nil)
+		}
 
-	logger.Info().Msg("triggering RemoveMachineInstanceTypeAssociation workflow")
+		// Delete Machine/InstanceType association
+		derr = mitDAO.DeleteByID(ctx, tx, mit.ID, false)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error deleting Machine/InstanceType association from DB")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to delete Machine/Instance Type association", nil)
+		}
 
-	// Add context deadlines
-	ctx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
+		// check if the available machines violates the allocation constraint requirement
+		ok, derr := common.CheckMachinesForInstanceTypeAllocation(ctx, tx, dmith.dbSession, logger, mit.InstanceTypeID, 0)
+		if derr != nil {
+			logger.Error().Err(derr).Str("resourceId", mit.InstanceTypeID.String()).Msg("error checking available machines for instance type allocation")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Error checking machine availability for the instance type allocation", nil)
+		}
+		if !ok {
+			logger.Warn().Str("resourceId", mit.InstanceTypeID.String()).Msg("Deletion of machine instance type is not allowed because of existing allocation constraints")
+			return cutil.NewAPIError(http.StatusBadRequest, "Deletion of Machine/Instance type association is not allowed because of existing Allocation Constraints", nil)
+		}
 
-	// Trigger Site workflow
-	we, err := stc.ExecuteWorkflow(ctx, workflowOptions, "RemoveMachineInstanceTypeAssociation", removeAssociationRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to synchronously start Temporal workflow to remove Machine association with InstanceType")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed start sync workflow to remove Machine association with Instance Type on Site: %s", err), nil)
-	}
+		// Clear Machine's Instance Type
+		mDAO := cdbm.NewMachineDAO(dmith.dbSession)
+		_, derr = mDAO.Clear(ctx, tx, cdbm.MachineClearInput{MachineID: mit.MachineID, InstanceTypeID: true})
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error clearing Machine's Instance Type")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to delete Machine/Instance Type association", nil)
+		}
 
-	wid := we.GetID()
-	logger.Info().Str("Workflow ID", wid).Msg("executed synchronous RemoveMachineInstanceTypeAssociation workflow")
+		// Send the machine association update to NICo
 
-	// Block until the workflow has completed and returned success/error.
-	err = we.Get(ctx, nil)
+		// Now that machine data is "versioned" in NICo, a future update will likely
+		// allow us to send in IfVersion here to protect against concurrent updates.
+		removeAssociationRequest := mit.ToRemoveAssociationRequestProto()
 
-	// Handle skippable errors
-	if err != nil {
-		// If this was a 404 back from NICo, we can treat the object as already having been deleted and allow things to proceed.
-		var applicationErr *tp.ApplicationError
-		if errors.As(err, &applicationErr) {
-			if slices.Contains(swe.ObjectNotFoundErrTypes(), applicationErr.Type()) {
+		workflowOptions := temporalClient.StartWorkflowOptions{
+			ID:                       "remove-machine-instance-type-association" + it.ID.String(),
+			TaskQueue:                queue.SiteTaskQueue,
+			WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+		}
+
+		logger.Info().Msg("triggering RemoveMachineInstanceTypeAssociation workflow")
+
+		// Add context deadlines
+		wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+		defer cancel()
+
+		// Trigger Site workflow
+		we, wferr := stc.ExecuteWorkflow(wfCtx, workflowOptions, "RemoveMachineInstanceTypeAssociation", removeAssociationRequest)
+		if wferr != nil {
+			logger.Error().Err(wferr).Msg("failed to synchronously start Temporal workflow to remove Machine association with InstanceType")
+			return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed start sync workflow to remove Machine association with Instance Type on Site: %s", wferr), nil)
+		}
+
+		wid := we.GetID()
+		logger.Info().Str("Workflow ID", wid).Msg("executed synchronous RemoveMachineInstanceTypeAssociation workflow")
+
+		// Block until the workflow has completed and returned success/error.
+		wferr = we.Get(wfCtx, nil)
+
+		// Handle skippable errors
+		if wferr != nil {
+			// If this was a 404 back from NICo, we can treat the object as already having been deleted and allow things to proceed.
+			var applicationErr *tp.ApplicationError
+			if errors.As(wferr, &applicationErr) && slices.Contains(swe.ObjectNotFoundErrTypes(), applicationErr.Type()) {
 				logger.Warn().Msg(swe.ErrTypeNICoObjectNotFound + " received from Site")
 				// Reset error to nil
-				err = nil
+				wferr = nil
 			}
 		}
-	}
 
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, err, "MachineInstanceType", "RemoveMachineInstanceTypeAssociation")
+		if wferr != nil {
+			var timeoutErr *tp.TimeoutError
+			if errors.As(wferr, &timeoutErr) || wferr == context.DeadlineExceeded || wfCtx.Err() != nil {
+				logger.Error().Err(wferr).Msg("failed to remove Machine association with Instance Type, timeout occurred executing workflow on Site.")
+				timeoutCause := wferr
+				timeoutResp = func() error {
+					return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "MachineInstanceType", "RemoveMachineInstanceTypeAssociation")
+				}
+				return cutil.NewAPIError(http.StatusInternalServerError, "RemoveMachineInstanceTypeAssociation workflow timed out", nil)
+			}
+
+			code, wferr := common.UnwrapWorkflowError(wferr)
+			logger.Error().Err(wferr).Msg("failed to synchronously execute Temporal workflow to remove Machine association with InstanceType")
+			return cutil.NewAPIError(code, fmt.Sprintf("Failed to execute sync workflow to remove Machine association with Instance Type on Site: %s", wferr), nil)
 		}
 
-		code, err := common.UnwrapWorkflowError(err)
-		logger.Error().Err(err).Msg("failed to synchronously execute Temporal workflow to remove Machine association with InstanceType")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute sync workflow to remove Machine association with Instance Type on Site: %s", err), nil)
-	}
+		logger.Info().Str("Workflow ID", wid).Msg("completed synchronous RemoveMachineInstanceTypeAssociation workflow")
 
-	logger.Info().Str("Workflow ID", wid).Msg("completed synchronous RemoveMachineInstanceTypeAssociation workflow")
-
-	// Commit transaction
-	err = tx.Commit()
+		return nil
+	})
+	// The wrapping `if err != nil` ensures real tx-helper errors (commit /
+	// rollback failures that wrap into something other than the cutil.APIError
+	// marker we returned for the timeout case) are surfaced via HandleTxError,
+	// while the timeout-case APIError falls through to the timeoutResp call.
 	if err != nil {
-		logger.Error().Err(err).Msg("error committing MachineInstanceType transaction to DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to remove Machine/Instance Type association, DB transaction error", nil)
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			return common.HandleTxError(c, logger, err, "Failed to remove Machine/Instance Type association, DB transaction error")
+		}
 	}
-	// Set committed so, deferred cleanup functions won't rollback
-	txCommitted = true
+	if timeoutResp != nil {
+		return timeoutResp()
+	}
 
 	// Return response
 	logger.Info().Msg("finishing API handler")

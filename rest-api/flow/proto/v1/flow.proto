@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 syntax = "proto3";
 
@@ -143,7 +129,7 @@ message RackPosition {
 enum ComponentType {
     COMPONENT_TYPE_UNKNOWN = 0;
     COMPONENT_TYPE_COMPUTE = 1;
-    COMPONENT_TYPE_NVLSWITCH = 2;
+    COMPONENT_TYPE_NVSWITCH = 2;
     COMPONENT_TYPE_POWERSHELF = 3;
     COMPONENT_TYPE_TORSWITCH = 4;
     COMPONENT_TYPE_UMS = 5;
@@ -330,10 +316,12 @@ message Task {
     string operation = 2;
     UUID rack_id = 3;
     repeated UUID component_uuids = 4;
+    // description is provided by the client when the task is created.
     string description = 5;
     TaskExecutorType executor_type = 6;
     string execution_id = 7;
     TaskStatus status = 8;
+    // message is brief text tied to status (not execution progress).
     string message = 9;
     // queue_expires_at is set only for waiting tasks; absent for all other statuses.
     optional google.protobuf.Timestamp queue_expires_at = 10;
@@ -342,6 +330,8 @@ message Task {
     optional UUID applied_rule_id = 13;
     google.protobuf.Timestamp updated_at = 14;
     optional google.protobuf.Timestamp started_at = 15;
+    // report is a versioned JSON document with structured execution progress.
+    string report = 16;
 }
 
 message CreateExpectedRackRequest {
@@ -444,6 +434,15 @@ message UpgradeFirmwareRequest {
     string description = 5;                             // optional: task description
     optional QueueOptions queue_options = 6;
     optional UUID rule_id = 7;                          // optional: override rule resolution with a specific rule
+    // Optional subset of firmware sub-parts to update within each tray
+    // selected by target_spec, e.g. ["bmc", "nvos"] for switch trays or
+    // ["psu"] for powershelf trays. Named "sub_targets" (not "components")
+    // to avoid colliding with OperationTargetSpec.components, which selects
+    // tray INSTANCES rather than sub-parts of a tray.
+    // Names are lowercase. Empty or omitted means update everything in the
+    // bundle (current default behavior). Unknown names are rejected by the
+    // downstream component manager.
+    repeated string sub_targets = 8;
 }
 
 // GetComponents - retrieves components from local database
@@ -460,7 +459,7 @@ message GetComponentsResponse {
 }
 
 message ValidateComponentsRequest {
-    optional OperationTargetSpec target_spec = 1;   // Optional: Flexible targeting: rack(s) with optional type filter, or specific components. If not provided, returns all drifts.
+    optional OperationTargetSpec target_spec = 1;   // Optional: Flexible targeting: rack(s) with optional type filter, or specific components. If not provided, returns all diffs.
     repeated Filter filters = 2;           // Filter conditions for component queries
     optional Pagination pagination = 3;
     optional OrderBy order_by = 4;
@@ -473,7 +472,7 @@ message ValidateComponentsResponse {
     // Summary counts
     int32 missing_count = 3;     // Expected by Flow but not found in the component manager service
     int32 unexpected_count = 4;  // Found in the component manager service but not expected by Flow
-    int32 drift_count = 5;
+    int32 mismatch_count = 5;    // In both but with field differences
     int32 match_count = 6;
 }
 
@@ -481,7 +480,7 @@ enum DiffType {
     DIFF_TYPE_UNKNOWN = 0;
     DIFF_TYPE_MISSING = 1;       // Expected by Flow but not found in the component manager service
     DIFF_TYPE_UNEXPECTED = 2;    // Found in the component manager service but not expected by Flow
-    DIFF_TYPE_DRIFT = 3;         // In both but with field differences
+    DIFF_TYPE_MISMATCH = 3;      // In both but with field differences
 }
 
 message ComponentDiff {
@@ -489,7 +488,7 @@ message ComponentDiff {
     string component_id = 2;    // Component ID assigned by the component manager service
     Component expected = 3;     // Populated when type is MISSING
     Component actual = 4;
-    repeated FieldDiff field_diffs = 5; // Populated when type is DRIFT
+    repeated FieldDiff field_diffs = 5; // Populated when type is MISMATCH
     UUID id = 6;                // Flow internal component UUID
 }
 
@@ -499,9 +498,12 @@ message FieldDiff {
     string actual_value = 3;
 }
 
-// AddComponent - add a single component to an existing rack
+// AddComponent - ingest a single component into the inventory. The component
+// may optionally be attached to an existing rack via component.rack_id; when
+// rack_id is omitted the component is stored without a rack assignment and
+// can be moved into a rack later via PatchComponent.
 message AddComponentRequest {
-    Component component = 1;              // Required: the component to add; component.rack_id must be set
+    Component component = 1;              // Required: the component to add. component.rack_id is optional.
 }
 
 message AddComponentResponse {
@@ -613,10 +615,20 @@ message IngestRackRequest {
     optional UUID rule_id = 4;            // optional: override rule resolution with a specific rule
 }
 
+// ListTasks - list Tasks with optional filters.
+//
+// Filters compose with AND: a Task is returned only if it satisfies every
+// set filter. Unset optional fields are not applied; with no filter set
+// every Task is returned subject to pagination.
 message ListTasksRequest {
-    optional UUID rack_id = 1;
-    bool active_only = 2;
+    optional UUID rack_id = 1;                  // Restrict to Tasks created against this rack.
+    bool active_only = 2;                       // Restrict to non-terminal Tasks (Waiting, Pending, Running).
     optional Pagination pagination = 3;
+    // Restrict to Tasks that target this component UUID, regardless of
+    // component type. A rack_id + component_id combination that references
+    // a component not on the given rack is not an error; it yields an
+    // empty result.
+    optional UUID component_id = 4;
 }
 
 message ListTasksResponse {

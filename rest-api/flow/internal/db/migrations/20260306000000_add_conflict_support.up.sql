@@ -1,3 +1,6 @@
+-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
 -- Add queue_expires_at for waiting tasks (null for all other statuses).
 ALTER TABLE task ADD COLUMN IF NOT EXISTS queue_expires_at TIMESTAMPTZ;
 

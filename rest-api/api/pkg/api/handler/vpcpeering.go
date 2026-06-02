@@ -1,25 +1,10 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -275,128 +260,141 @@ func (cvph CreateVpcPeeringHandler) Handle(c echo.Context) error {
 		tenantID = &tenant.ID
 	}
 
-	// Start a db tx
-	tx, err := cdb.BeginTx(ctx, cvph.dbSession, &sql.TxOptions{})
-	if err != nil {
-		logger.Error().Err(err).Msg("unable to start transaction")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create VPC Peering, DB transaction error", nil)
-	}
-
-	// If false, a rollback will be triggered on any early return.
-	// If all goes well, we'll set it to true later on.
-	txCommitted := false
-	defer common.RollbackTx(ctx, tx, &txCommitted)
-
-	// Create the VPC Peering in db
-	vpcPeering, err := vpcPeeringDAO.Create(
-		ctx,
-		tx,
-		cdbm.VpcPeeringCreateInput{
-			Vpc1ID:                   vpc1ID,
-			Vpc2ID:                   vpc2ID,
-			SiteID:                   site.ID,
-			IsMultiTenant:            isMultiTenant,
-			InfrastructureProviderID: infrastructureProviderID,
-			TenantID:                 tenantID,
-			CreatedByID:              dbUser.ID,
-		},
-	)
-	if err != nil {
-		logger.Error().Err(err).Msg("error creating VPC Peering record in DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create VPC Peering, DB error", nil)
-	}
-
-	// Create a status detail record for the VPC Peering
 	sdDAO := cdbm.NewStatusDetailDAO(cvph.dbSession)
-	statusDetail, serr := sdDAO.CreateFromParams(ctx, tx, vpcPeering.ID.String(),
-		*cdb.GetStrPtr(cdbm.VpcPeeringStatusPending),
-		cdb.GetStrPtr("Received VPC Peering creation request, pending processing"))
-	if serr != nil {
-		logger.Error().Err(serr).Msg("error creating status detail for VPC Peering")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Status Detail for VPC Peering", nil)
-	}
-	if statusDetail == nil {
-		logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to get new Status Detail for VPC Peering", nil)
-	}
 
-	// Create the peering directly in NICo via site agent
-	err = vpcPeeringDAO.UpdateStatusByID(ctx, tx, vpcPeering.ID, cdbm.VpcPeeringStatusConfiguring)
-	if err != nil {
-		logger.Error().Err(err).Msg("error updating VPC Peering status to Configuring")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update VPC Peering status to Configuring", nil)
-	}
+	// vpcPeering is populated inside the closure and consumed by the
+	// best-effort post-commit status update and the response payload.
+	var vpcPeering *cdbm.VpcPeering
 
-	// Create the VPC Peering creation request
-	createVpcPeeringRequest := &cwssaws.VpcPeeringCreationRequest{
-		VpcId:     &cwssaws.VpcId{Value: vpcPeering.Vpc1ID.String()},
-		PeerVpcId: &cwssaws.VpcId{Value: vpcPeering.Vpc2ID.String()},
-		Id:        &cwssaws.VpcPeeringId{Value: vpcPeering.ID.String()},
-	}
+	// timeoutResp lets the closure signal a post-rollback handler — the
+	// TerminateWorkflow call has to run after the closure returns so that
+	// the DB tx unwinds before we make the second remote call. nil means
+	// no timeout occurred and the normal flow continues.
+	var timeoutResp func() error
+	err = cdb.WithTx(ctx, cvph.dbSession, func(tx *cdb.Tx) error {
+		// Create the VPC Peering in db
+		createdVpcPeering, derr := vpcPeeringDAO.Create(
+			ctx,
+			tx,
+			cdbm.VpcPeeringCreateInput{
+				Vpc1ID:                   vpc1ID,
+				Vpc2ID:                   vpc2ID,
+				SiteID:                   site.ID,
+				IsMultiTenant:            isMultiTenant,
+				InfrastructureProviderID: infrastructureProviderID,
+				TenantID:                 tenantID,
+				CreatedByID:              dbUser.ID,
+			},
+		)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error creating VPC Peering record in DB")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create VPC Peering, DB error", nil)
+		}
+		vpcPeering = createdVpcPeering
 
-	logger.Info().Msg("triggering VPC Peering create workflow on Site")
-
-	// Create workflow options
-	workflowOptions := tclient.StartWorkflowOptions{
-		ID:                       "vpcpeering-create-" + vpcPeering.ID.String(),
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	// Get the temporal client for the site we are working with
-	stc, err := cvph.scp.GetClientByID(vpcPeering.SiteID)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Temporal client for Site", nil)
-	}
-
-	// Add context deadline
-	workflowCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	// Trigger Site workflow
-	workflowRun, err := stc.ExecuteWorkflow(workflowCtx, workflowOptions, "CreateVpcPeering", createVpcPeeringRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to start VPC Peering creation workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to start VPC Peering creation workflow", nil)
-	}
-
-	workflowId := workflowRun.GetID()
-
-	logger.Info().Str("Workflow ID", workflowId).Msg("started VPC Peering creation workflow")
-
-	// Wait for workflow completion synchronously
-	err = workflowRun.Get(workflowCtx, nil)
-	if err != nil {
-		var applicationErr *tp.ApplicationError
-		if errors.As(err, &applicationErr) && slices.Contains(swe.UnimplementedOrDeniedErrTypes(), applicationErr.Type()) {
-			logger.Error().Msg("feature not yet implemented on target Site")
-			return cutil.NewAPIErrorResponse(c, http.StatusNotImplemented, fmt.Sprintf("Feature not yet implemented on target Site: %s", err), nil)
+		// Create a status detail record for the VPC Peering
+		statusDetail, derr := sdDAO.CreateFromParams(ctx, tx, vpcPeering.ID.String(),
+			*cdb.GetStrPtr(cdbm.VpcPeeringStatusPending),
+			cdb.GetStrPtr("Received VPC Peering creation request, pending processing"))
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error creating status detail for VPC Peering")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for VPC Peering", nil)
+		}
+		if statusDetail == nil {
+			logger.Error().Msg("Status Detail DB entry not returned from CreateFromParams")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to get new Status Detail for VPC Peering", nil)
 		}
 
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowId, err, "VpcPeering", "CreateVpcPeering")
+		// Create the peering directly in NICo via site agent
+		derr = vpcPeeringDAO.UpdateStatusByID(ctx, tx, vpcPeering.ID, cdbm.VpcPeeringStatusConfiguring)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error updating VPC Peering status to Configuring")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update VPC Peering status to Configuring", nil)
 		}
 
-		logger.Error().Err(err).Msg("failed to synchronously execute Temporal workflow to update CreateVpcPeering")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to execute sync workflow to create VPC Peering on Site: %s", err), nil)
-	}
+		// Create the VPC Peering creation request
+		createVpcPeeringRequest := &cwssaws.VpcPeeringCreationRequest{
+			VpcId:     &cwssaws.VpcId{Value: vpcPeering.Vpc1ID.String()},
+			PeerVpcId: &cwssaws.VpcId{Value: vpcPeering.Vpc2ID.String()},
+			Id:        &cwssaws.VpcPeeringId{Value: vpcPeering.ID.String()},
+		}
 
-	// Commit the transaction
-	err = tx.Commit()
+		logger.Info().Msg("triggering VPC Peering create workflow on Site")
+
+		// Create workflow options
+		workflowOptions := tclient.StartWorkflowOptions{
+			ID:                       "vpcpeering-create-" + vpcPeering.ID.String(),
+			WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+			TaskQueue:                queue.SiteTaskQueue,
+		}
+
+		// Get the temporal client for the site we are working with
+		stc, derr := cvph.scp.GetClientByID(vpcPeering.SiteID)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("failed to retrieve Temporal client for Site")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Temporal client for Site", nil)
+		}
+
+		// Add context deadline
+		workflowCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+		defer cancel()
+
+		// Trigger Site workflow
+		workflowRun, derr := stc.ExecuteWorkflow(workflowCtx, workflowOptions, "CreateVpcPeering", createVpcPeeringRequest)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("failed to start VPC Peering creation workflow")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to start VPC Peering creation workflow", nil)
+		}
+
+		workflowId := workflowRun.GetID()
+
+		logger.Info().Str("Workflow ID", workflowId).Msg("started VPC Peering creation workflow")
+
+		// Wait for workflow completion synchronously
+		wferr := workflowRun.Get(workflowCtx, nil)
+		if wferr != nil {
+			var applicationErr *tp.ApplicationError
+			if errors.As(wferr, &applicationErr) && slices.Contains(swe.UnimplementedOrDeniedErrTypes(), applicationErr.Type()) {
+				logger.Error().Msg("feature not yet implemented on target Site")
+				return cutil.NewAPIError(http.StatusNotImplemented, fmt.Sprintf("Feature not yet implemented on target Site: %s", wferr), nil)
+			}
+
+			var timeoutErr *tp.TimeoutError
+			if errors.As(wferr, &timeoutErr) || wferr == context.DeadlineExceeded || workflowCtx.Err() != nil {
+				logger.Error().Err(wferr).Msg("failed to create VPC Peering, timeout occurred executing workflow on Site.")
+				timeoutCause := wferr
+				timeoutResp = func() error {
+					return common.TerminateWorkflowOnTimeOut(c, logger, stc, workflowId, timeoutCause, "VpcPeering", "CreateVpcPeering")
+				}
+				return cutil.NewAPIError(http.StatusInternalServerError, "VPC Peering create workflow timed out", nil)
+			}
+
+			logger.Error().Err(wferr).Msg("failed to synchronously execute Temporal workflow to update CreateVpcPeering")
+			return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to execute sync workflow to create VPC Peering on Site: %s", wferr), nil)
+		}
+
+		return nil
+	})
+	// The wrapping `if err != nil` ensures real tx-helper errors (commit /
+	// rollback failures that wrap into something other than the cutil.APIError
+	// marker we returned for the timeout case) are surfaced via HandleTxError,
+	// while the timeout-case APIError falls through to the timeoutResp call.
 	if err != nil {
-		logger.Error().Err(err).Msg("error committing transaction")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create VPC Peering", nil)
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			return common.HandleTxError(c, logger, err, "Failed to create VPC Peering, DB transaction error")
+		}
 	}
-	txCommitted = true
+	if timeoutResp != nil {
+		return timeoutResp()
+	}
 
 	// Best effort post-commit update: workflow completed, so mark peering as Ready.
 	// This is intentionally outside of the transaction so create does not fail if this update fails.
 	status := cdbm.VpcPeeringStatusConfiguring
-	err = vpcPeeringDAO.UpdateStatusByID(ctx, nil, vpcPeering.ID, cdbm.VpcPeeringStatusReady)
-	if err != nil {
-		logger.Warn().Err(err).Msg("best-effort update to Ready status failed after workflow completion")
+	uerr := vpcPeeringDAO.UpdateStatusByID(ctx, nil, vpcPeering.ID, cdbm.VpcPeeringStatusReady)
+	if uerr != nil {
+		logger.Warn().Err(uerr).Msg("best-effort update to Ready status failed after workflow completion")
 	} else {
 		status = cdbm.VpcPeeringStatusReady
 	}
@@ -855,91 +853,98 @@ func (dvph DeleteVpcPeeringHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusForbidden, "User does not have access to delete the VPC Peering", nil)
 	}
 
-	// Start a db tx for the deletion workflow
-	tx, err := cdb.BeginTx(ctx, dvph.dbSession, &sql.TxOptions{})
-	if err != nil {
-		logger.Error().Err(err).Msg("unable to start transaction")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to delete VPC Peering", nil)
-	}
-
-	// If false, a rollback will be trigger on any early return.
-	// If all goes well, we'll set it to true later on.
-	txCommitted := false
-	defer common.RollbackTx(ctx, tx, &txCommitted)
-
-	// Update status to Deleting first
-	err = vpcPeeringDAO.UpdateStatusByID(ctx, tx, vpcPeering.ID, cdbm.VpcPeeringStatusDeleting)
-	if err != nil {
-		logger.Error().Err(err).Msg("error updating VPC Peering status to Deleting")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update VPC Peering status to Deleting", nil)
-	}
-
-	// Create the VPC Peering deletion request
-	deleteVpcPeeringRequest := &cwssaws.VpcPeeringDeletionRequest{
-		Id: &cwssaws.VpcPeeringId{Value: vpcPeering.ID.String()},
-	}
-
-	// Get the site temporal client
-	stc, err := dvph.scp.GetClientByID(vpcPeering.SiteID)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Temporal client for Site", nil)
-	}
-
-	// Setup workflow options
-	workflowOptions := tclient.StartWorkflowOptions{
-		ID:                       "vpcpeering-delete-" + vpcPeering.ID.String(),
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	logger.Info().Msg("triggering VPC Peering delete workflow")
-
-	// Add context deadline
-	workflowCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	// Trigger site workflow to delete VPC Peering
-	we, err := stc.ExecuteWorkflow(workflowCtx, workflowOptions, "DeleteVpcPeering", deleteVpcPeeringRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to start VPC Peering deletion workflow")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to start VPC Peering deletion workflow", nil)
-	}
-
-	wid := we.GetID()
-	logger.Info().Str("Workflow ID", wid).Msg("started VPC Peering deletion workflow")
-
-	// Wait for workflow completion synchronously
-	err = we.Get(workflowCtx, nil)
-	if err != nil {
-		var applicationErr *tp.ApplicationError
-		if errors.As(err, &applicationErr) && slices.Contains(swe.UnimplementedOrDeniedErrTypes(), applicationErr.Type()) {
-			logger.Error().Msg("feature not yet implemented on target Site")
-			return cutil.NewAPIErrorResponse(c, http.StatusNotImplemented, fmt.Sprintf("Feature not yet implemented on target Site: %s", err), nil)
+	// timeoutResp lets the closure signal a post-rollback handler — the
+	// TerminateWorkflow call has to run after the closure returns so that
+	// the DB tx unwinds before we make the second remote call. nil means
+	// no timeout occurred and the normal flow continues.
+	var timeoutResp func() error
+	err = cdb.WithTx(ctx, dvph.dbSession, func(tx *cdb.Tx) error {
+		// Update status to Deleting first
+		derr := vpcPeeringDAO.UpdateStatusByID(ctx, tx, vpcPeering.ID, cdbm.VpcPeeringStatusDeleting)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error updating VPC Peering status to Deleting")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update VPC Peering status to Deleting", nil)
 		}
 
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || ctx.Err() != nil {
-			return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, err, "VpcPeering", "DeleteVpcPeering")
+		// Create the VPC Peering deletion request
+		deleteVpcPeeringRequest := &cwssaws.VpcPeeringDeletionRequest{
+			Id: &cwssaws.VpcPeeringId{Value: vpcPeering.ID.String()},
 		}
 
-		logger.Error().Err(err).Msg("failed to synchronously execute Temporal workflow to delete VPC Peering")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to execute sync workflow to delete VPC Peering on Site: %s", err), nil)
-	}
+		// Get the site temporal client
+		stc, derr := dvph.scp.GetClientByID(vpcPeering.SiteID)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("failed to retrieve Temporal client for Site")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Temporal client for Site", nil)
+		}
 
-	// Commit the transaction
-	err = tx.Commit()
+		// Setup workflow options
+		workflowOptions := tclient.StartWorkflowOptions{
+			ID:                       "vpcpeering-delete-" + vpcPeering.ID.String(),
+			WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+			TaskQueue:                queue.SiteTaskQueue,
+		}
+
+		logger.Info().Msg("triggering VPC Peering delete workflow")
+
+		// Add context deadline
+		workflowCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+		defer cancel()
+
+		// Trigger site workflow to delete VPC Peering
+		we, derr := stc.ExecuteWorkflow(workflowCtx, workflowOptions, "DeleteVpcPeering", deleteVpcPeeringRequest)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("failed to start VPC Peering deletion workflow")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to start VPC Peering deletion workflow", nil)
+		}
+
+		wid := we.GetID()
+		logger.Info().Str("Workflow ID", wid).Msg("started VPC Peering deletion workflow")
+
+		// Wait for workflow completion synchronously
+		wferr := we.Get(workflowCtx, nil)
+		if wferr != nil {
+			var applicationErr *tp.ApplicationError
+			if errors.As(wferr, &applicationErr) && slices.Contains(swe.UnimplementedOrDeniedErrTypes(), applicationErr.Type()) {
+				logger.Error().Msg("feature not yet implemented on target Site")
+				return cutil.NewAPIError(http.StatusNotImplemented, fmt.Sprintf("Feature not yet implemented on target Site: %s", wferr), nil)
+			}
+
+			var timeoutErr *tp.TimeoutError
+			if errors.As(wferr, &timeoutErr) || wferr == context.DeadlineExceeded || workflowCtx.Err() != nil {
+				logger.Error().Err(wferr).Msg("failed to delete VPC Peering, timeout occurred executing workflow on Site.")
+				timeoutCause := wferr
+				timeoutResp = func() error {
+					return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "VpcPeering", "DeleteVpcPeering")
+				}
+				return cutil.NewAPIError(http.StatusInternalServerError, "VPC Peering delete workflow timed out", nil)
+			}
+
+			logger.Error().Err(wferr).Msg("failed to synchronously execute Temporal workflow to delete VPC Peering")
+			return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to execute sync workflow to delete VPC Peering on Site: %s", wferr), nil)
+		}
+
+		return nil
+	})
+	// The wrapping `if err != nil` ensures real tx-helper errors (commit /
+	// rollback failures that wrap into something other than the cutil.APIError
+	// marker we returned for the timeout case) are surfaced via HandleTxError,
+	// while the timeout-case APIError falls through to the timeoutResp call.
 	if err != nil {
-		logger.Error().Err(err).Msg("error committing transaction")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to delete VPC Peering", nil)
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			return common.HandleTxError(c, logger, err, "Failed to delete VPC Peering, DB transaction error")
+		}
 	}
-	txCommitted = true
+	if timeoutResp != nil {
+		return timeoutResp()
+	}
 
 	// Best effort post-commit cleanup: remove VPC Peering from DB.
 	// This is intentionally outside of the transaction so delete does not fail if this cleanup fails.
-	err = vpcPeeringDAO.Delete(ctx, nil, vpcPeering.ID)
-	if err != nil {
-		logger.Warn().Err(err).Msg("best-effort delete of VPC Peering from DB failed after workflow completion")
+	derr := vpcPeeringDAO.Delete(ctx, nil, vpcPeering.ID)
+	if derr != nil {
+		logger.Warn().Err(derr).Msg("best-effort delete of VPC Peering from DB failed after workflow completion")
 	}
 
 	logger.Info().Msg("finishing API handler")

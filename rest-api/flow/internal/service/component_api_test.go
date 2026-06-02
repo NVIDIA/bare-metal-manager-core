@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package service
 
@@ -176,21 +162,37 @@ func TestAddComponent_Success(t *testing.T) {
 	assert.Equal(t, int32(1), resp.Component.Position.SlotId)
 }
 
-func TestAddComponent_MissingRackID(t *testing.T) {
+// TestAddComponent_NoRackID verifies that a component can be ingested
+// without a rack assignment. The component is stored with a nil RackID and
+// no rack existence check is performed.
+func TestAddComponent_NoRackID(t *testing.T) {
 	mgr := newMockManager()
 	server := &FlowServerImpl{inventoryManager: mgr}
 
+	compID := uuid.New()
 	req := &pb.AddComponentRequest{
 		Component: &pb.Component{
 			Type: pb.ComponentType_COMPONENT_TYPE_COMPUTE,
-			Info: &pb.DeviceInfo{Name: "node-01", Manufacturer: "NVIDIA", SerialNumber: "SN123"},
-			// rack_id not set
+			Info: &pb.DeviceInfo{
+				Id:           &pb.UUID{Id: compID.String()},
+				Name:         "node-01",
+				Manufacturer: "NVIDIA",
+				SerialNumber: "SN123",
+			},
+			// rack_id intentionally not set
 		},
 	}
 
-	_, err := server.AddComponent(context.Background(), req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "rack_id is required")
+	resp, err := server.AddComponent(context.Background(), req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Component)
+	assert.Equal(t, "node-01", resp.Component.Info.Name)
+
+	// The component should be stored with RackID == uuid.Nil.
+	stored, ok := mgr.components[compID]
+	require.True(t, ok)
+	assert.Equal(t, uuid.Nil, stored.RackID)
 }
 
 func TestAddComponent_MissingComponent(t *testing.T) {
@@ -336,6 +338,8 @@ func TestPatchComponent_RackReassign(t *testing.T) {
 	compID := uuid.New()
 	oldRackID := uuid.New()
 	newRackID := uuid.New()
+	mgr.racks[oldRackID] = &rack.Rack{Info: deviceinfo.DeviceInfo{ID: oldRackID, Name: "old-rack"}}
+	mgr.racks[newRackID] = &rack.Rack{Info: deviceinfo.DeviceInfo{ID: newRackID, Name: "new-rack"}}
 	mgr.components[compID] = &component.Component{
 		Type:   devicetypes.ComponentTypeCompute,
 		Info:   deviceinfo.DeviceInfo{ID: compID, Name: "node-01"},
@@ -355,6 +359,26 @@ func TestPatchComponent_RackReassign(t *testing.T) {
 
 	updated := mgr.components[compID]
 	assert.Equal(t, newRackID, updated.RackID)
+}
+
+func TestPatchComponent_RackNotFound(t *testing.T) {
+	mgr := newMockManager()
+	compID := uuid.New()
+	rackID := uuid.New()
+	mgr.components[compID] = &component.Component{
+		Type:   devicetypes.ComponentTypeCompute,
+		Info:   deviceinfo.DeviceInfo{ID: compID, Name: "node-01"},
+		RackID: rackID,
+	}
+
+	server := &FlowServerImpl{inventoryManager: mgr}
+
+	_, err := server.PatchComponent(context.Background(), &pb.PatchComponentRequest{
+		Id:     &pb.UUID{Id: compID.String()},
+		RackId: &pb.UUID{Id: uuid.New().String()},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "rack not found")
 }
 
 func TestPatchComponent_WithBMCs(t *testing.T) {
@@ -502,8 +526,8 @@ func setupValidateTestData(mgr *mockManager) (uuid.UUID, []uuid.UUID) {
 				RackID:          rackID,
 			},
 			{
-				Type:            devicetypes.ComponentTypeNVLSwitch,
-				Info:            deviceinfo.DeviceInfo{ID: comp3ID, Name: "nvlswitch-01", Manufacturer: "Mellanox"},
+				Type:            devicetypes.ComponentTypeNVSwitch,
+				Info:            deviceinfo.DeviceInfo{ID: comp3ID, Name: "nvswitch-01", Manufacturer: "Mellanox"},
 				FirmwareVersion: "2.0.0",
 				RackID:          rackID,
 			},
@@ -560,7 +584,7 @@ func TestValidateComponents_NoFilters(t *testing.T) {
 	// 3 drifts: comp1 mismatch, comp2 missing_in_actual, comp3 mismatch
 	assert.Equal(t, int32(3), resp.TotalDiffs)
 	assert.Equal(t, 3, len(resp.Diffs))
-	assert.Equal(t, int32(2), resp.DriftCount)
+	assert.Equal(t, int32(2), resp.MismatchCount)
 	assert.Equal(t, int32(1), resp.MissingCount)
 }
 
@@ -589,10 +613,10 @@ func TestValidateComponents_WithTypeFilter(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	// Only comp1 (mismatch) and comp2 (missing_in_actual) are compute; comp3 (nvlswitch) is filtered out
+	// Only comp1 (mismatch) and comp2 (missing_in_actual) are compute; comp3 (nvswitch) is filtered out
 	assert.Equal(t, int32(2), resp.TotalDiffs)
 	assert.Equal(t, 2, len(resp.Diffs))
-	assert.Equal(t, int32(1), resp.DriftCount)
+	assert.Equal(t, int32(1), resp.MismatchCount)
 	assert.Equal(t, int32(1), resp.MissingCount)
 }
 
@@ -624,7 +648,7 @@ func TestValidateComponents_WithNameFilter(t *testing.T) {
 	// Only comp1 (compute-01) matches the name filter
 	assert.Equal(t, int32(1), resp.TotalDiffs)
 	assert.Equal(t, 1, len(resp.Diffs))
-	assert.Equal(t, int32(1), resp.DriftCount) // comp1 is mismatch
+	assert.Equal(t, int32(1), resp.MismatchCount) // comp1 is a mismatch
 	assert.Equal(t, int32(0), resp.UnexpectedCount)
 }
 
@@ -653,9 +677,9 @@ func TestValidateComponents_WithManufacturerFilter(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	// Only comp3 (nvlswitch-01, Mellanox) matches
+	// Only comp3 (nvswitch-01, Mellanox) matches
 	assert.Equal(t, int32(1), resp.TotalDiffs)
-	assert.Equal(t, int32(1), resp.DriftCount) // comp3 is mismatch
+	assert.Equal(t, int32(1), resp.MismatchCount) // comp3 is a mismatch
 }
 
 func TestValidateComponents_WithPagination(t *testing.T) {

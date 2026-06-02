@@ -13,6 +13,9 @@ The REST layer can be deployed in the datacenter with NVIDIA Infrastructure Cont
 
 View latest OpenAPI schema on [GitHub pages](https://nvidia.github.io/infra-controller-rest/).
 
+> [!IMPORTANT]
+> To ensure a unified entry point to the NVIDIA Infra Controller, the REST API repo is being merged into the [infra-controller](https://github.com/NVIDIA/infra-controller) repo under `rest-api` directory. This transition will be completed on June 2nd, 2026.
+
 ## Prerequisites
 
 - Go 1.25.4 or later
@@ -21,6 +24,17 @@ View latest OpenAPI schema on [GitHub pages](https://nvidia.github.io/infra-cont
 - [Kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) (for local deployment)
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) (for local deployment)
 - [jq](https://stedolan.github.io/jq/) (optional, for parsing JSON responses)
+
+## Core Compatibility Matrix
+
+| NICo REST Version | NICo Core Version |
+|------------------|------------------|
+| v1.6.x           | v0.10.x           |
+| v1.5.x           | v0.9.x           |
+| v1.4.x           | v0.8.x           |
+| v1.3.x           | v0.7.x           |
+
+Versions older than v1.3.0 are no longer supported.
 
 ## Quick Start
 

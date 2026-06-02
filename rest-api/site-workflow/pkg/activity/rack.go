@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package activity
 
@@ -31,13 +17,13 @@ import (
 
 // ManageRack is an activity wrapper for Rack management via Flow
 type ManageRack struct {
-	FlowAtomicClient *cClient.FlowAtomicClient
+	flowGrpcAtomicClient *cClient.FlowGrpcAtomicClient
 }
 
 // NewManageRack returns a new ManageRack client
-func NewManageRack(flowClient *cClient.FlowAtomicClient) ManageRack {
+func NewManageRack(flowGrpcAtomicClient *cClient.FlowGrpcAtomicClient) ManageRack {
 	return ManageRack{
-		FlowAtomicClient: flowClient,
+		flowGrpcAtomicClient: flowGrpcAtomicClient,
 	}
 }
 
@@ -61,19 +47,18 @@ func (mr *ManageRack) GetRack(ctx context.Context, request *flowv1.GetRackInfoBy
 	}
 
 	// Call Flow gRPC endpoint
-	flow, err := mr.FlowAtomicClient.GetFlowClient()
-	if err != nil {
-		return nil, err
+	grpcClient := mr.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cClient.ErrFlowGrpcClientNotConnected
 	}
 
-	response, err := flow.GetRackInfoByID(ctx, request)
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+
+	response, err := grpcServiceClient.GetRackInfoByID(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to get rack by ID using Flow API")
+		logger.Warn().Err(err).Msg("Failed to get Rack by ID using Flow gRPC API")
 		return nil, swe.WrapErr(err)
 	}
-
-	logger.Info().Msg("Completed activity")
-
 	return response, nil
 }
 
@@ -88,14 +73,16 @@ func (mr *ManageRack) GetRacks(ctx context.Context, request *flowv1.GetListOfRac
 	}
 
 	// Call Flow gRPC endpoint
-	flow, err := mr.FlowAtomicClient.GetFlowClient()
-	if err != nil {
-		return nil, err
+	grpcClient := mr.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cClient.ErrFlowGrpcClientNotConnected
 	}
 
-	response, err := flow.GetListOfRacks(ctx, request)
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+
+	response, err := grpcServiceClient.GetListOfRacks(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to get list of racks using Flow API")
+		logger.Warn().Err(err).Msg("Failed to get list of Racks using Flow gRPC API")
 		return nil, swe.WrapErr(err)
 	}
 
@@ -123,14 +110,16 @@ func (mr *ManageRack) ValidateRackComponents(ctx context.Context, request *flowv
 	}
 
 	// Call Flow gRPC endpoint
-	flow, err := mr.FlowAtomicClient.GetFlowClient()
-	if err != nil {
-		return nil, err
+	grpcClient := mr.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cClient.ErrFlowGrpcClientNotConnected
 	}
 
-	response, err := flow.ValidateComponents(ctx, request)
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+
+	response, err := grpcServiceClient.ValidateComponents(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to validate rack components using Flow API")
+		logger.Warn().Err(err).Msg("Failed to validate rack components using Flow gRPC API")
 		return nil, swe.WrapErr(err)
 	}
 
@@ -157,14 +146,16 @@ func (mr *ManageRack) PowerOnRack(ctx context.Context, request *flowv1.PowerOnRa
 	}
 
 	// Call Flow gRPC endpoint
-	flow, err := mr.FlowAtomicClient.GetFlowClient()
-	if err != nil {
-		return nil, err
+	grpcClient := mr.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cClient.ErrFlowGrpcClientNotConnected
 	}
 
-	response, err := flow.PowerOnRack(ctx, request)
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+
+	response, err := grpcServiceClient.PowerOnRack(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to power on rack using Flow API")
+		logger.Warn().Err(err).Msg("Failed to power on rack using Flow gRPC API")
 		return nil, swe.WrapErr(err)
 	}
 
@@ -191,14 +182,16 @@ func (mr *ManageRack) PowerOffRack(ctx context.Context, request *flowv1.PowerOff
 	}
 
 	// Call Flow gRPC endpoint
-	flow, err := mr.FlowAtomicClient.GetFlowClient()
-	if err != nil {
-		return nil, err
+	grpcClient := mr.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cClient.ErrFlowGrpcClientNotConnected
 	}
 
-	response, err := flow.PowerOffRack(ctx, request)
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+
+	response, err := grpcServiceClient.PowerOffRack(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to power off rack using Flow API")
+		logger.Warn().Err(err).Msg("Failed to power off rack using Flow gRPC API")
 		return nil, swe.WrapErr(err)
 	}
 
@@ -225,14 +218,16 @@ func (mr *ManageRack) PowerResetRack(ctx context.Context, request *flowv1.PowerR
 	}
 
 	// Call Flow gRPC endpoint
-	flow, err := mr.FlowAtomicClient.GetFlowClient()
-	if err != nil {
-		return nil, err
+	grpcClient := mr.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cClient.ErrFlowGrpcClientNotConnected
 	}
 
-	response, err := flow.PowerResetRack(ctx, request)
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+
+	response, err := grpcServiceClient.PowerResetRack(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to power reset rack using Flow API")
+		logger.Warn().Err(err).Msg("Failed to power reset rack using Flow gRPC API")
 		return nil, swe.WrapErr(err)
 	}
 
@@ -257,90 +252,20 @@ func (mr *ManageRack) BringUpRack(ctx context.Context, request *flowv1.BringUpRa
 		return nil, temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	flow, err := mr.FlowAtomicClient.GetFlowClient()
-	if err != nil {
-		return nil, err
+	grpcClient := mr.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cClient.ErrFlowGrpcClientNotConnected
 	}
 
-	response, err := flow.BringUpRack(ctx, request)
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+
+	response, err := grpcServiceClient.BringUpRack(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to bring up rack using Flow API")
+		logger.Warn().Err(err).Msg("Failed to bring up rack using Flow gRPC API")
 		return nil, swe.WrapErr(err)
 	}
 
 	logger.Info().Int("TaskCount", len(response.GetTaskIds())).Msg("Completed activity")
-
-	return response, nil
-}
-
-// GetTaskByID retrieves a task by its UUID from Flow
-func (mr *ManageRack) GetTaskByID(ctx context.Context, request *flowv1.GetTasksByIDsRequest) (*flowv1.GetTasksByIDsResponse, error) {
-	logger := log.With().Str("Activity", "GetTaskByID").Logger()
-	logger.Info().Msg("Starting activity")
-
-	var err error
-
-	switch {
-	case request == nil:
-		err = errors.New("received empty get task request")
-	case len(request.GetTaskIds()) == 0:
-		err = errors.New("received get task request without task IDs")
-	}
-
-	if err != nil {
-		return nil, temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
-	}
-
-	flow, err := mr.FlowAtomicClient.GetFlowClient()
-	if err != nil {
-		return nil, err
-	}
-
-	response, err := flow.GetTasksByIDs(ctx, request)
-	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to get task by ID using Flow API")
-		return nil, swe.WrapErr(err)
-	}
-
-	logger.Info().Int("TaskCount", len(response.GetTasks())).Msg("Completed activity")
-
-	return response, nil
-}
-
-// CancelTask cancels a task by its UUID via Flow.
-//
-// Cancel is best-effort: Flow marks the task Terminated and terminates the
-// underlying Temporal workflow if one was scheduled. Already-finished tasks
-// (Succeeded/Failed) cannot be cancelled and the Flow call returns an error.
-func (mr *ManageRack) CancelTask(ctx context.Context, request *flowv1.CancelTaskRequest) (*flowv1.CancelTaskResponse, error) {
-	logger := log.With().Str("Activity", "CancelTask").Logger()
-	logger.Info().Msg("Starting activity")
-
-	var err error
-
-	switch {
-	case request == nil:
-		err = errors.New("received empty cancel task request")
-	case request.GetTaskId() == nil || request.GetTaskId().GetId() == "":
-		err = errors.New("received cancel task request without task ID")
-	}
-
-	if err != nil {
-		return nil, temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
-	}
-
-	flow, err := mr.FlowAtomicClient.GetFlowClient()
-	if err != nil {
-		return nil, err
-	}
-
-	response, err := flow.CancelTask(ctx, request)
-	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to cancel task using Flow API")
-		return nil, swe.WrapErr(err)
-	}
-
-	logger.Info().Str("TaskID", request.GetTaskId().GetId()).Msg("Completed activity")
 
 	return response, nil
 }
@@ -361,14 +286,16 @@ func (mr *ManageRack) UpgradeFirmware(ctx context.Context, request *flowv1.Upgra
 		return nil, temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	flow, err := mr.FlowAtomicClient.GetFlowClient()
-	if err != nil {
-		return nil, err
+	grpcClient := mr.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cClient.ErrFlowGrpcClientNotConnected
 	}
 
-	response, err := flow.UpgradeFirmware(ctx, request)
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+
+	response, err := grpcServiceClient.UpgradeFirmware(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to upgrade firmware using Flow API")
+		logger.Warn().Err(err).Msg("Failed to upgrade firmware using Flow gRPC API")
 		return nil, swe.WrapErr(err)
 	}
 

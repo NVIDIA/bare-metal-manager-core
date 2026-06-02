@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package activity
 
@@ -28,20 +14,22 @@ import (
 // independent, multiple managers can coexist in the same process without
 // sharing mutable state.
 type Activities struct {
-	updater  task.TaskStatusUpdater
-	registry *componentmanager.Registry
+	updater       task.TaskStatusUpdater
+	reportUpdater task.TaskReportUpdater
+	registry      *componentmanager.Registry
 }
 
-// New creates an Activities instance bound to the given status updater and
-// component manager registry. Either argument may be nil; activity calls that
-// require the missing dependency will return an error at invocation time.
+// New creates an Activities instance. Any argument may be nil; activity
+// calls that need a missing dependency return an error at invocation time.
 func New(
 	updater task.TaskStatusUpdater,
+	reportUpdater task.TaskReportUpdater,
 	registry *componentmanager.Registry,
 ) *Activities {
 	return &Activities{
-		updater:  updater,
-		registry: registry,
+		updater:       updater,
+		reportUpdater: reportUpdater,
+		registry:      registry,
 	}
 }
 
@@ -55,6 +43,7 @@ func (a *Activities) All() map[string]any {
 		NamePowerControl:              a.PowerControl,
 		NameGetPowerStatus:            a.GetPowerStatus,
 		NameUpdateTaskStatus:          a.UpdateTaskStatus,
+		NameUpdateTaskReport:          a.UpdateTaskReport,
 		NameFirmwareControl:           a.FirmwareControl,
 		NameGetFirmwareStatus:         a.GetFirmwareStatus,
 		NameBringUpControl:            a.BringUpControl,

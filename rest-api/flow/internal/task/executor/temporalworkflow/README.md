@@ -50,7 +50,7 @@ ExecutionRequest{OperationType, OperationInfo}
 
 **Workflow registry** (`workflow/registry.go`): uses `init()` self-registration. Task-dispatched workflow files call `registerTaskWorkflow[T, *T](taskType, name, fn)`, which derives the timeout and builds the `Unmarshal` closure automatically. Internal workflows (those without a `TaskType`) call `register(WorkflowDescriptor{...})` directly. Nothing needs to be added to a central list — the registry is populated automatically at startup.
 
-**Activity registry** (`activity/registry.go`): uses per-instance dependency injection. `Build()` creates an `*Activities` value via `activity.New(updater, registry)` and calls `acts.All()` to obtain the name → bound-method map, then registers each entry with the Temporal worker via `RegisterActivityWithOptions(fn, {Name: name})`. Because activities are methods on `*Activities`, each manager instance holds its own isolated copy of the dependencies — no shared mutable globals.
+**Activity registry** (`activity/registry.go`): uses per-instance dependency injection. `Build()` creates an `*Activities` value via `activity.New(updater, reportUpdater, registry)` and calls `acts.All()` to obtain the name → bound-method map, then registers each entry with the Temporal worker via `RegisterActivityWithOptions(fn, {Name: name})`. Status and report updaters are wired as separate parameters so each role is explicit at the call site. Because activities are methods on `*Activities`, each manager instance holds its own isolated copy of the dependencies — no shared mutable globals.
 
 ## Adding a New Operation
 
@@ -106,6 +106,13 @@ func (i *HealthCheckTaskInfo) Validate() error {
 }
 ```
 
+**4. Define a component-manager capability and operation interface** when the
+operation calls into component managers. Add the capability in
+`componentmanager/capability`, advertise it from descriptors that support the
+operation, and add the matching operation-specific interface in
+`componentmanager`. The activity should check the capability first, then assert
+the interface.
+
 ### Step 1: Define Activity Methods
 
 Add methods to `*Activities` in `activity/activity.go`. Each method performs one unit of work and must be idempotent (Temporal may retry it).
@@ -116,16 +123,19 @@ func (a *Activities) HealthCheck(
     ctx context.Context,
     target common.Target,
 ) (operations.HealthStatus, error) {
-    cm, err := a.validAndGetComponentManager(target)
+    reader, err := a.requireHealthStatusReader(target)
     if err != nil {
         return operations.HealthStatusUnknown, err
     }
-    return cm.HealthCheck(ctx, target)
+
+    return reader.HealthCheck(ctx, target)
 }
 ```
 
 **Key points:**
-- Receiver is `*Activities`; use `a.validAndGetComponentManager` (not a free function)
+- Receiver is `*Activities`; use the typed capability helper (e.g., 
+  `a.requireHealthStatusReader`, `a.requirePowerController`) to obtain the 
+  operation interface before invoking methods
 - First non-receiver parameter is always `context.Context`
 - Activities are retried automatically per the workflow's retry policy
 - Validate inputs; return descriptive errors
@@ -250,11 +260,12 @@ const (
 )
 
 func (a *Activities) HealthCheck(ctx context.Context, target common.Target) (operations.HealthStatus, error) {
-    cm, err := a.validAndGetComponentManager(target)
+    reader, err := a.requireHealthStatusReader(target)
     if err != nil {
         return operations.HealthStatusUnknown, err
     }
-    return cm.HealthCheck(ctx, target)
+
+    return reader.HealthCheck(ctx, target)
 }
 ```
 

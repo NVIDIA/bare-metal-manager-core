@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package activity
 
@@ -35,7 +21,7 @@ import (
 
 // ManageSubnet is an activity wrapper for Subnet management tasks that allows injecting DB access
 type ManageSubnet struct {
-	NICoCoreAtomicClient *cClient.NICoCoreAtomicClient
+	coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 }
 
 // Function to Create Subnets with the Site Controller
@@ -73,16 +59,16 @@ func (mm *ManageSubnet) CreateSubnetOnSite(ctx context.Context, request *cwssaws
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mm.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cClient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mm.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.CreateNetworkSegment(ctx, request)
+	_, err = grpcServiceClient.CreateNetworkSegment(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create Subnet using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to create Subnet using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -113,16 +99,16 @@ func (mm *ManageSubnet) DeleteSubnetOnSite(ctx context.Context, request *cwssaws
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mm.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cClient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mm.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.DeleteNetworkSegment(ctx, request)
+	_, err = grpcServiceClient.DeleteNetworkSegment(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to delete Subnet using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to delete Subnet using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -132,9 +118,9 @@ func (mm *ManageSubnet) DeleteSubnetOnSite(ctx context.Context, request *cwssaws
 }
 
 // NewManageSubnet returns a new ManageSubnet client
-func NewManageSubnet(nicoClient *cClient.NICoCoreAtomicClient) ManageSubnet {
+func NewManageSubnet(coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient) ManageSubnet {
 	return ManageSubnet{
-		NICoCoreAtomicClient: nicoClient,
+		coreGrpcAtomicClient: coreGrpcAtomicClient,
 	}
 }
 
@@ -164,16 +150,18 @@ func NewManageSubnetInventory(config ManageInventoryConfig) ManageSubnetInventor
 	}
 }
 
-func subnetFindIDs(ctx context.Context, nicoClient *cClient.NICoCoreClient) ([]*cwssaws.NetworkSegmentId, error) {
-	idList, err := nicoClient.NICo().FindNetworkSegmentIds(ctx, &cwssaws.NetworkSegmentSearchFilter{})
+func subnetFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]*cwssaws.NetworkSegmentId, error) {
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+	idList, err := grpcServiceClient.FindNetworkSegmentIds(ctx, &cwssaws.NetworkSegmentSearchFilter{})
 	if err != nil {
 		return nil, err
 	}
 	return idList.GetNetworkSegmentsIds(), nil
 }
 
-func subnetFindByIDs(ctx context.Context, nicoClient *cClient.NICoCoreClient, ids []*cwssaws.NetworkSegmentId) ([]*cwssaws.NetworkSegment, error) {
-	list, err := nicoClient.NICo().FindNetworkSegmentsByIds(ctx, &cwssaws.NetworkSegmentsByIdsRequest{
+func subnetFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, ids []*cwssaws.NetworkSegmentId) ([]*cwssaws.NetworkSegment, error) {
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+	list, err := grpcServiceClient.FindNetworkSegmentsByIds(ctx, &cwssaws.NetworkSegmentsByIdsRequest{
 		NetworkSegmentsIds: ids,
 	})
 	if err != nil {

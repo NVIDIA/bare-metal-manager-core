@@ -61,8 +61,8 @@ navigation:
           path: provisioning/ingesting-hosts.md
         - page: Ingesting Hosts (REST API)
           path: provisioning/ingesting-hosts-rest-api.md
-        - page: Host Validation
-          path: provisioning/host-validation.md
+        - page: Machine Validation
+          path: provisioning/machine-validation.md
         - page: SKU Validation
           path: provisioning/sku-validation.md
         - page: Measured Boot Attestation

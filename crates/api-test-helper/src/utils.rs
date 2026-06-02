@@ -128,6 +128,7 @@ impl IntegrationTestEnvironment {
                 pki_role_name: Some("forge-cluster".to_string()),
                 token: Some(vault.token.clone()),
                 vault_cacert: Some(vault.ca_cert.clone()),
+                ..Default::default()
             },
             ..Default::default()
         };

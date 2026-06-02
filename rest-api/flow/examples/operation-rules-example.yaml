@@ -1,17 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 # Operation Rules Reference Example
 #
@@ -71,12 +59,12 @@ rules:
             parameters:
               expected_status: "on"
 
-          # Wait for downstream components (compute, nvlswitch) to become reachable
+          # Wait for downstream components (compute, nvswitch) to become reachable
           - name: VerifyReachability
             timeout: 3m
             poll_interval: 10s
             parameters:
-              component_types: ["compute", "nvlswitch"]
+              component_types: ["compute", "nvswitch"]
 
           # Additional settle time for hardware stabilization
           - name: Sleep
@@ -84,7 +72,7 @@ rules:
               duration: 30s
 
       # Stage 2: NVL switches (parallel batches)
-      - component_type: nvlswitch
+      - component_type: nvswitch
         stage: 2
         max_parallel: 4
         timeout: 15m
@@ -160,7 +148,7 @@ rules:
               duration: 10s
 
       # Stage 2: NVL switches
-      - component_type: nvlswitch
+      - component_type: nvswitch
         stage: 2
         max_parallel: 4
         timeout: 15m
@@ -239,7 +227,7 @@ rules:
               duration: 30s
 
       # Stage 2: NVL switches (no verification)
-      - component_type: nvlswitch
+      - component_type: nvswitch
         stage: 2
         max_parallel: 0  # All at once
         timeout: 15m
@@ -291,7 +279,7 @@ rules:
           parameters:
             expected_status: "on"
 
-      - component_type: nvlswitch
+      - component_type: nvswitch
         stage: 4  # Parallel with powershelf
         max_parallel: 0
         timeout: 2m
@@ -347,7 +335,7 @@ rules:
               duration: 10s
 
       # Stage 2: NVL switches (no verification)
-      - component_type: nvlswitch
+      - component_type: nvswitch
         stage: 2
         max_parallel: 0
         timeout: 15m
@@ -399,7 +387,7 @@ rules:
           parameters:
             expected_status: "off"
 
-      - component_type: nvlswitch
+      - component_type: nvswitch
         stage: 4  # Parallel with powershelf
         max_parallel: 0
         timeout: 2m
@@ -463,7 +451,7 @@ rules:
               expected_status: "off"
 
       # Stage 2: NVL switches off
-      - component_type: nvlswitch
+      - component_type: nvswitch
         stage: 2
         max_parallel: 4
         timeout: 15m
@@ -533,14 +521,14 @@ rules:
             timeout: 3m
             poll_interval: 10s
             parameters:
-              component_types: ["compute", "nvlswitch"]
+              component_types: ["compute", "nvswitch"]
 
           - name: Sleep
             parameters:
               duration: 30s
 
       # Stage 5: NVL switches on
-      - component_type: nvlswitch
+      - component_type: nvswitch
         stage: 5
         max_parallel: 4
         timeout: 15m
@@ -589,7 +577,7 @@ rules:
 
   - name: "Default Firmware Upgrade"
     description: >
-      Three-stage firmware upgrade: PowerShelf first, then NVLSwitch + Compute
+      Three-stage firmware upgrade: PowerShelf first, then NVSwitch + Compute
       in parallel, finally power-recycle compute nodes to activate new firmware.
     operation_type: firmware_control
     operation: upgrade
@@ -609,8 +597,8 @@ rules:
             poll_interval: 2m
             poll_timeout: 30m
 
-      # === Stage 2: NVLSwitch + Compute firmware (parallel) ===
-      - component_type: nvlswitch
+      # === Stage 2: NVSwitch + Compute firmware (parallel) ===
+      - component_type: nvswitch
         stage: 2
         max_parallel: 0
         timeout: 30m
@@ -686,7 +674,7 @@ rules:
           initial_interval: 5s
           backoff_coefficient: 2.0
 
-      - component_type: nvlswitch
+      - component_type: nvswitch
         stage: 2
         max_parallel: 4
         delay_after: 15s  # Legacy field
@@ -730,7 +718,7 @@ rules:
 # 3. VerifyReachability
 #    - Polls until specified component types become reachable
 #    - Required parameters:
-#      - component_types: Array of strings ["compute", "nvlswitch", "powershelf"]
+#      - component_types: Array of strings ["compute", "nvswitch", "powershelf"]
 #    - Optional parameters:
 #      - require_all: true/false (default false). When true, every individual
 #        component within the type must respond, not just the API call succeeding.
@@ -887,7 +875,7 @@ rules:
         main_operation:
           name: InjectExpectation
 
-      - component_type: nvlswitch
+      - component_type: nvswitch
         stage: 1
         max_parallel: 0
         timeout: 10m

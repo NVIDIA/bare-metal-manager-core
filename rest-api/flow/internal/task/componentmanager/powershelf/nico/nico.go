@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package nico
 
@@ -27,12 +13,14 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
 	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
+	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/capability"
 	cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
 	nicoprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nico"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/firmwarecomponents"
 )
 
 const (
@@ -63,9 +51,18 @@ func Factory(providerRegistry *providerapi.ProviderRegistry) (componentmanager.C
 // Descriptor returns the NICo PowerShelf manager descriptor.
 func Descriptor() cmcatalog.Descriptor {
 	return cmcatalog.Descriptor{
-		Type:              devicetypes.ComponentTypePowerShelf,
-		Implementation:    ImplementationName,
+		DescriptorIdentity: cmcatalog.DescriptorIdentity{
+			Type:           devicetypes.ComponentTypePowerShelf,
+			Implementation: ImplementationName,
+		},
 		RequiredProviders: []string{nicoprovider.ProviderName},
+		Capabilities: capability.CapabilitySet{
+			capability.CapabilityFirmwareControl,
+			capability.CapabilityFirmwareStatus,
+			capability.CapabilityInjectExpectation,
+			capability.CapabilityPowerControl,
+			capability.CapabilityPowerStatus,
+		},
 	}
 }
 
@@ -211,19 +208,29 @@ func (m *Manager) FirmwareControl(
 	log.Debug().
 		Str("components", target.String()).
 		Str("target_version", info.TargetVersion).
+		Strs("sub_targets", info.SubTargets).
 		Msg("Starting firmware update for PowerShelf via NICo")
 
 	if err := target.Validate(); err != nil {
 		return fmt.Errorf("target is invalid: %w", err)
 	}
 
+	subComponents, err := firmwarecomponents.ParseNICoPowerShelf(info.SubTargets)
+	if err != nil {
+		return err
+	}
+	if len(subComponents) == 0 {
+		// Preserve historical behavior: when the caller does not specify a
+		// subset, only PMC is updated. Once the component manager supports
+		// "update everything in the bundle" semantics we can drop this.
+		subComponents = []pb.PowerShelfComponent{pb.PowerShelfComponent_POWER_SHELF_COMPONENT_PMC}
+	}
+
 	req := &pb.UpdateComponentFirmwareRequest{
 		Target: &pb.UpdateComponentFirmwareRequest_PowerShelves{
 			PowerShelves: &pb.UpdatePowerShelfFirmwareTarget{
 				PowerShelfIds: powerShelfIDsProto(target.ComponentIDs),
-				Components: []pb.PowerShelfComponent{
-					pb.PowerShelfComponent_POWER_SHELF_COMPONENT_PMC,
-				},
+				Components:    subComponents,
 			},
 		},
 		TargetVersion: info.TargetVersion,
@@ -280,18 +287,4 @@ func (m *Manager) GetFirmwareStatus(
 	}
 
 	return result, nil
-}
-
-func (m *Manager) BringUpControl(
-	ctx context.Context,
-	target common.Target,
-) error {
-	return fmt.Errorf("BringUpControl not supported for PowerShelf")
-}
-
-func (m *Manager) GetBringUpStatus(
-	ctx context.Context,
-	target common.Target,
-) (map[string]operations.MachineBringUpState, error) {
-	return nil, fmt.Errorf("GetBringUpStatus not supported for PowerShelf")
 }

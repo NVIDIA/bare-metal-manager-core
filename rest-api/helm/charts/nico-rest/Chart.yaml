@@ -1,24 +1,12 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 apiVersion: v2
 name: nico-rest
 description: Umbrella chart for the NICo REST API platform
 type: application
-version: 0.1.9
-appVersion: "1.5.0"
+version: 0.1.13
+appVersion: "1.6.0"
 keywords:
   - nico
   - bare-metal
@@ -39,7 +27,7 @@ dependencies:
     version: "0.1.0"
     condition: nico-rest-workflow.enabled
   - name: nico-rest-site-manager
-    version: "0.1.0"
+    version: "0.1.1"
     condition: nico-rest-site-manager.enabled
   - name: nico-rest-db
     version: "0.1.0"

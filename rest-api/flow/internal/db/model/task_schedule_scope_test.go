@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -209,7 +195,7 @@ func TestComponentFilterEqual(t *testing.T) {
 	typesAB := mustMarshalFilter(t, &ComponentFilter{Kind: ComponentFilterKindTypes, Types: []string{"COMPUTE", "POWERSHELF"}})
 	typesBA := mustMarshalFilter(t, &ComponentFilter{Kind: ComponentFilterKindTypes, Types: []string{"POWERSHELF", "COMPUTE"}})
 	typesA := mustMarshalFilter(t, &ComponentFilter{Kind: ComponentFilterKindTypes, Types: []string{"COMPUTE"}})
-	typesC := mustMarshalFilter(t, &ComponentFilter{Kind: ComponentFilterKindTypes, Types: []string{"NVLSwitch"}})
+	typesC := mustMarshalFilter(t, &ComponentFilter{Kind: ComponentFilterKindTypes, Types: []string{"NVSwitch"}})
 
 	compsAB := mustMarshalFilter(t, &ComponentFilter{Kind: ComponentFilterKindComponents, Components: []uuid.UUID{compA, compB}})
 	compsBA := mustMarshalFilter(t, &ComponentFilter{Kind: ComponentFilterKindComponents, Components: []uuid.UUID{compB, compA}})

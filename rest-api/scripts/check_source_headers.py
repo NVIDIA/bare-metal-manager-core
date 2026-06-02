@@ -1,18 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
 from __future__ import annotations
 
@@ -24,6 +12,7 @@ from pathlib import Path
 
 
 APACHE_LICENSE = "SPDX-License-Identifier: Apache-2.0"
+APACHE_LONG_MARKER = "Licensed under the Apache License, Version 2.0"
 IPAM_LICENSE = "SPDX-License-Identifier: MIT AND Apache-2.0"
 IPAM_COPYRIGHT = "SPDX-FileCopyrightText: Copyright (c) 2020 The metal-stack Authors"
 NVIDIA_COPYRIGHT = (
@@ -46,11 +35,24 @@ BLOCK_COMMENT_EXTENSIONS = {
     ".java",
     ".js",
     ".jsx",
+    ".mod",
+    ".proto",
     ".rs",
     ".ts",
     ".tsx",
 }
-HASH_COMMENT_EXTENSIONS = {".py", ".sh", ".bash", ".zsh", ".yml", ".yaml"}
+HASH_COMMENT_EXTENSIONS = {
+    ".bash",
+    ".env",
+    ".py",
+    ".sh",
+    ".toml",
+    ".yaml",
+    ".yml",
+    ".zsh",
+}
+DASH_COMMENT_EXTENSIONS = {".sql"}
+HASH_COMMENT_BASENAMES = {".envrc", ".gitignore", "Makefile", "VERSION"}
 EXCLUDED_DIRS = {
     ".git",
     ".cache",
@@ -124,14 +126,22 @@ def is_candidate(repo: Path, path: Path) -> bool:
     return (
         path.suffix in BLOCK_COMMENT_EXTENSIONS
         or path.suffix in HASH_COMMENT_EXTENSIONS
+        or path.suffix in DASH_COMMENT_EXTENSIONS
+        or path.name in HASH_COMMENT_BASENAMES
         or is_dockerfile(path)
         or has_shebang(full_path)
     )
 
 
 def comment_style(path: Path) -> str:
-    if path.suffix in BLOCK_COMMENT_EXTENSIONS or path.suffix == ".proto":
+    if path.name in HASH_COMMENT_BASENAMES or is_dockerfile(path):
+        return "hash"
+    if path.suffix in BLOCK_COMMENT_EXTENSIONS:
         return "block"
+    if path.suffix in DASH_COMMENT_EXTENSIONS:
+        return "dash"
+    if path.suffix in HASH_COMMENT_EXTENSIONS:
+        return "hash"
     return "hash"
 
 
@@ -143,22 +153,8 @@ def copyright_text(text: str) -> str:
 
 
 def block_header(copyright: str) -> str:
-    return f"""/*
- * SPDX-FileCopyrightText: {copyright}
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+    return f"""// SPDX-FileCopyrightText: {copyright}
+// SPDX-License-Identifier: Apache-2.0
 
 """
 
@@ -166,18 +162,13 @@ def block_header(copyright: str) -> str:
 def hash_header(copyright: str) -> str:
     return f"""# SPDX-FileCopyrightText: {copyright}
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+
+"""
+
+
+def dash_header(copyright: str) -> str:
+    return f"""-- SPDX-FileCopyrightText: {copyright}
+-- SPDX-License-Identifier: Apache-2.0
 
 """
 
@@ -201,36 +192,128 @@ def strip_proprietary_hash_header(text: str) -> tuple[str, str]:
     return shebang, text[match.end() :]
 
 
-def apache_header(path: Path, text: str) -> str:
-    copyright = copyright_text(text)
-    if comment_style(path) == "block":
-        return block_header(copyright)
-    return hash_header(copyright)
+def _next_comment_block(text: str, pos: int, style: str) -> tuple[str, int] | None:
+    """Find the next comment block starting at text[pos].
+
+    A comment block is either:
+      - a single /* ... */ block (only when style == "block"), or
+      - a maximal contiguous run of line-comment lines (//, #, or --) with no
+        blank lines breaking it.
+
+    Returns (block_text, end_pos) where end_pos is the index immediately
+    after the block's terminating newline, or None if there is no comment
+    block starting exactly at pos.
+    """
+    n = len(text)
+    if pos >= n:
+        return None
+    line_marker = {"block": "//", "hash": "#", "dash": "--"}[style]
+
+    if style == "block" and text.startswith("/*", pos):
+        close = text.find("*/", pos + 2)
+        if close == -1:
+            return None
+        end = close + 2
+        while end < n and text[end] in " \t":
+            end += 1
+        if end < n and text[end] == "\n":
+            end += 1
+        return text[pos:end], end
+
+    if text.startswith(line_marker, pos):
+        end = pos
+        while end < n and text.startswith(line_marker, end):
+            newline = text.find("\n", end)
+            if newline == -1:
+                end = n
+                break
+            end = newline + 1
+        return text[pos:end], end
+
+    return None
+
+
+def strip_existing_apache_header(text: str, style: str) -> str:
+    """Remove leading comment blocks that contain APACHE_LONG_MARKER.
+
+    Walks the leading comment region one block at a time. Blocks containing
+    the long-form Apache marker are dropped together with the blank lines
+    immediately before them. Other comment blocks (e.g. "Code generated by
+    protoc-gen-go" markers, doc comments, openapi-generator API descriptions)
+    are preserved intact. Iteration stops at the first non-comment, non-blank
+    line.
+    """
+    n = len(text)
+    if n == 0:
+        return text
+
+    pos = 0
+    kept: list[str] = []
+    stripped_any = False
+
+    while pos < n:
+        blank_start = pos
+        while pos < n and text[pos] == "\n":
+            pos += 1
+        blanks = text[blank_start:pos]
+
+        if pos >= n:
+            kept.append(blanks)
+            break
+
+        block = _next_comment_block(text, pos, style)
+        if block is None:
+            kept.append(blanks)
+            break
+
+        block_text, end_pos = block
+        if APACHE_LONG_MARKER in block_text:
+            stripped_any = True
+        else:
+            kept.append(blanks + block_text)
+        pos = end_pos
+
+    if not stripped_any:
+        return text
+    return "".join(kept) + text[pos:]
+
+
+def has_long_apache_header(text: str, style: str) -> bool:
+    """True if a leading comment block contains the long-form Apache marker."""
+    return strip_existing_apache_header(text, style) != text
 
 
 def fix_text(path: Path, text: str) -> str:
     if is_ipam_source(path):
         return add_ipam_header(text)
 
-    header = apache_header(path, text)
+    copyright = copyright_text(text)
+    style = comment_style(path)
 
-    if comment_style(path) == "block":
+    if style == "block":
         match = BLOCK_PROPRIETARY_RE.match(text)
         if match:
-            return header + text[match.end() :].lstrip("\n")
-        return header + text.lstrip("\n")
+            return block_header(copyright) + text[match.end() :].lstrip("\n")
+        text = strip_existing_apache_header(text, "block")
+        return block_header(copyright) + text.lstrip("\n")
+
+    if style == "dash":
+        text = strip_existing_apache_header(text, "dash")
+        return dash_header(copyright) + text.lstrip("\n")
 
     shebang = ""
     body = text
     if text.startswith("#!"):
         shebang, _, body = text.partition("\n")
         shebang += "\n"
+        body = body.lstrip("\n")
 
     proprietary_shebang, stripped_body = strip_proprietary_hash_header(text)
     if proprietary_shebang:
-        return proprietary_shebang + header + stripped_body.lstrip("\n")
+        return proprietary_shebang + hash_header(copyright) + stripped_body.lstrip("\n")
 
-    return shebang + header + body.lstrip("\n")
+    body = strip_existing_apache_header(body, "hash")
+    return shebang + hash_header(copyright) + body.lstrip("\n")
 
 
 def add_ipam_header(text: str) -> str:
@@ -252,9 +335,10 @@ def ipam_header_missing(text: str) -> bool:
     return not all(marker in header for marker in (IPAM_COPYRIGHT, NVIDIA_COPYRIGHT, IPAM_LICENSE))
 
 
-def scan(repo: Path, *, fix: bool) -> int:
+def scan(repo: Path, *, fix: bool, migrate_only: bool = False) -> int:
     missing: list[Path] = []
     proprietary: list[Path] = []
+    long_form: list[Path] = []
     fixed: list[Path] = []
 
     for path in tracked_files(repo):
@@ -263,21 +347,34 @@ def scan(repo: Path, *, fix: bool) -> int:
 
         full_path = repo / path
         text = full_path.read_text(errors="ignore")
+        needs_fix = False
+        is_long_form = False
         if is_ipam_source(path):
             if ipam_header_missing(text):
                 missing.append(path)
+                needs_fix = True
             else:
                 continue
         else:
             header = text[:HEADER_WINDOW]
+            style = comment_style(path)
             if PROPRIETARY_LICENSE in header:
                 proprietary.append(path)
+                needs_fix = True
             elif APACHE_LICENSE not in header:
                 missing.append(path)
+                needs_fix = True
+            elif has_long_apache_header(text, style):
+                long_form.append(path)
+                is_long_form = True
+                needs_fix = True
             else:
                 continue
 
-        if fix:
+        if migrate_only and not is_long_form:
+            continue
+
+        if fix and needs_fix:
             full_path.write_text(fix_text(path, text))
             fixed.append(path)
 
@@ -285,8 +382,9 @@ def scan(repo: Path, *, fix: bool) -> int:
         print(f"Updated source headers in {len(fixed)} files.")
         missing = []
         proprietary = []
+        long_form = []
 
-    if missing or proprietary:
+    if missing or proprietary or long_form:
         if missing:
             print(f"Files missing Apache-2.0 source headers: {len(missing)}")
             for path in missing:
@@ -294,6 +392,12 @@ def scan(repo: Path, *, fix: bool) -> int:
         if proprietary:
             print(f"Files with proprietary source headers: {len(proprietary)}")
             for path in proprietary:
+                print(f"  {path}")
+        if long_form:
+            print(
+                f"Files with long-form Apache-2.0 headers (rerun with --fix to shorten): {len(long_form)}"
+            )
+            for path in long_form:
                 print(f"  {path}")
         return 1 if not fix else 0
 
@@ -304,10 +408,15 @@ def scan(repo: Path, *, fix: bool) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check NVIDIA source files for Apache-2.0 headers.")
     parser.add_argument("--fix", action="store_true", help="Insert or replace Apache-2.0 source headers.")
+    parser.add_argument(
+        "--migrate-only",
+        action="store_true",
+        help="With --fix, only shorten existing long-form Apache headers; do not add headers to files that lack one.",
+    )
     args = parser.parse_args()
 
     repo = Path(__file__).resolve().parents[1]
-    return scan(repo, fix=args.fix)
+    return scan(repo, fix=args.fix, migrate_only=args.migrate_only)
 
 
 if __name__ == "__main__":
