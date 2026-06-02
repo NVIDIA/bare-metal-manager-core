@@ -25,6 +25,20 @@ use serde::{Deserialize, Serialize};
 pub const REPAIR_REQUEST_MERGE_SOURCE: &str = "repair-request";
 /// `HealthReportSources::merges` key for online repair gating (`RequestOnlineRepair` override).
 pub const REQUEST_ONLINE_REPAIR_MERGE_SOURCE: &str = "request-online-repair";
+/// Marker used by CIS automation in RequestRepair alert message details.
+pub const CIS_REPAIR_DETAILS_TAG: &str = "[cis]";
+
+pub fn repair_details_with_cis_tag(details: &str) -> String {
+    if details.trim_start().starts_with(CIS_REPAIR_DETAILS_TAG) {
+        return details.to_string();
+    }
+
+    if details.is_empty() {
+        return CIS_REPAIR_DETAILS_TAG.to_string();
+    }
+
+    format!("{CIS_REPAIR_DETAILS_TAG} {details}")
+}
 
 /// Reports the aggregate health of a system or subsystem
 #[derive(PartialEq, Eq, Debug, Clone, Serialize, Deserialize)]
@@ -761,6 +775,31 @@ mod tests {
     fn prevent_instance_deletion_classification_string() {
         let c = HealthAlertClassification::prevent_instance_deletion();
         assert_eq!(c.as_str(), "PreventInstanceDeletion");
+    }
+
+    #[test]
+    fn repair_details_with_cis_tag_adds_tag() {
+        assert_eq!(
+            repair_details_with_cis_tag("Hardware diagnostics indicate memory failure"),
+            "[cis] Hardware diagnostics indicate memory failure"
+        );
+    }
+
+    #[test]
+    fn repair_details_with_cis_tag_does_not_duplicate_tag() {
+        assert_eq!(
+            repair_details_with_cis_tag("[cis] Hardware diagnostics indicate memory failure"),
+            "[cis] Hardware diagnostics indicate memory failure"
+        );
+        assert_eq!(
+            repair_details_with_cis_tag("  [cis] Hardware diagnostics indicate memory failure"),
+            "  [cis] Hardware diagnostics indicate memory failure"
+        );
+    }
+
+    #[test]
+    fn repair_details_with_cis_tag_handles_empty_details() {
+        assert_eq!(repair_details_with_cis_tag(""), "[cis]");
     }
 
     #[test]

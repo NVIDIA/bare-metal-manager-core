@@ -162,7 +162,11 @@ const templateMergeBreakfix = {
 	health_report: {
 		source: "repair-request",
 		successes: [],
-		alerts: [{id: "RequestRepair", target: "RequestRepair", message: "Machine is broken, setting RequestRepair tag for automated repair",
+		alerts: [{id: "RequestRepair", target: "RequestRepair", message: JSON.stringify({
+			issue_category: "Other",
+			summary: "Machine is broken, setting RequestRepair tag for automated repair",
+			details: "[cis] Machine is broken, setting RequestRepair tag for automated repair",
+		}),
 			tenant_message: null, classifications: ["PreventAllocations", "SuppressExternalAlerting"]}]
 	}
 };
@@ -221,6 +225,68 @@ const templateReplaceAsHealthy = {
 	}
 };
 
+const cisRepairDetailsTag = "[cis]";
+
+function detailsWithCisTag(details) {
+	if (details.trimStart().startsWith(cisRepairDetailsTag)) {
+		return details;
+	}
+	if (details.length == 0) {
+		return cisRepairDetailsTag;
+	}
+	return `${cisRepairDetailsTag} ${details}`;
+}
+
+function requestRepairMessageWithCisDetails(message) {
+	if (typeof message != "string") {
+		return message;
+	}
+
+	let parsedMessage;
+	try {
+		parsedMessage = JSON.parse(message);
+	} catch {
+		return message;
+	}
+
+	if (parsedMessage == null || typeof parsedMessage != "object" || Array.isArray(parsedMessage) || typeof parsedMessage.details != "string") {
+		return message;
+	}
+
+	parsedMessage.details = detailsWithCisTag(parsedMessage.details);
+	return JSON.stringify(parsedMessage);
+}
+
+function healthReportBodyForSubmit() {
+	const textArea = document.getElementById("health-report");
+	let report;
+	try {
+		report = JSON.parse(textArea.value);
+	} catch {
+		return textArea.value;
+	}
+
+	const alerts = report?.health_report?.alerts;
+	if (!Array.isArray(alerts)) {
+		return textArea.value;
+	}
+
+	let changed = false;
+	for (const alert of alerts) {
+		if (alert?.id == "RequestRepair") {
+			alert.message = requestRepairMessageWithCisDetails(alert.message);
+			changed = true;
+		}
+	}
+
+	if (!changed) {
+		return textArea.value;
+	}
+
+	textArea.value = JSON.stringify(report, null, 2);
+	return textArea.value;
+}
+
 function add_click_listener([id, path, body]) {
 	document.getElementById(id).addEventListener("click", async e => {
 		e.preventDefault();
@@ -253,7 +319,7 @@ function setHealthReportTextBoxToTemplate(template) {
 document.addEventListener("DOMContentLoaded", function (event) {
 	setHealthReportTextBoxToTemplate(templateHealthReport);
 	for (const item of [
-		["submit_add", "/add-report", () => document.getElementById("health-report").value],
+		["submit_add", "/add-report", healthReportBodyForSubmit],
 	]) {
 		add_click_listener(item);
 	}

@@ -155,6 +155,14 @@ pub fn get_health_report(template: HealthReportTemplates, message: Option<String
             report.alerts[0].id = HealthProbeId::from_str("RequestRepair")
                 .expect("RequestRepair is a valid non-empty HealthProbeId");
             report.alerts[0].target = Some("repair-requested".to_string());
+            let summary = report.alerts[0].message.clone();
+            let details = health_report::repair_details_with_cis_tag(&summary);
+            report.alerts[0].message = serde_json::json!({
+                "issue_category": "Other",
+                "summary": summary,
+                "details": details,
+            })
+            .to_string();
             report.alerts[0].classifications = vec![
                 HealthAlertClassification::prevent_allocations(),
                 HealthAlertClassification::suppress_external_alerting(),
@@ -268,9 +276,14 @@ mod tests {
         let alert = &report.alerts[0];
         assert_eq!(alert.id, HealthProbeId::from_str("RequestRepair").unwrap());
         assert_eq!(alert.target, Some("repair-requested".to_string()));
+        let message: serde_json::Value = serde_json::from_str(&alert.message).unwrap();
         assert_eq!(
-            alert.message,
-            "Hardware diagnostics indicate memory failure"
+            message["summary"].as_str(),
+            Some("Hardware diagnostics indicate memory failure")
+        );
+        assert_eq!(
+            message["details"].as_str(),
+            Some("[cis] Hardware diagnostics indicate memory failure")
         );
         assert!(alert.tenant_message.is_none());
 
@@ -301,7 +314,22 @@ mod tests {
         let report = get_health_report(HealthReportTemplates::RequestRepair, None);
 
         assert_eq!(report.source, health_report::REPAIR_REQUEST_MERGE_SOURCE);
-        assert_eq!(report.alerts[0].message, "");
+        let message: serde_json::Value = serde_json::from_str(&report.alerts[0].message).unwrap();
+        assert_eq!(message["details"].as_str(), Some("[cis]"));
+    }
+
+    #[test]
+    fn test_request_repair_template_does_not_duplicate_cis_tag() {
+        let report = get_health_report(
+            HealthReportTemplates::RequestRepair,
+            Some("[cis] Hardware diagnostics indicate memory failure".to_string()),
+        );
+
+        let message: serde_json::Value = serde_json::from_str(&report.alerts[0].message).unwrap();
+        assert_eq!(
+            message["details"].as_str(),
+            Some("[cis] Hardware diagnostics indicate memory failure")
+        );
     }
 
     #[test]

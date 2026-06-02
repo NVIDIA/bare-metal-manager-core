@@ -5786,10 +5786,11 @@ async fn test_instance_release_auto_repair_enabled(_: PgPoolOptions, options: Pg
     );
     assert_eq!(repair_report.alerts.len(), 1);
     assert_eq!(repair_report.alerts[0].id.to_string(), "RequestRepair");
-    assert!(
-        repair_report.alerts[0]
-            .message
-            .contains("Memory DIMM failure detected")
+    let repair_message: serde_json::Value =
+        serde_json::from_str(&repair_report.alerts[0].message).unwrap();
+    assert_eq!(
+        repair_message["details"].as_str(),
+        Some("[cis] ECC errors increasing, DIMM slot 3 needs replacement")
     );
 
     println!("Auto-repair enabled test passed:");

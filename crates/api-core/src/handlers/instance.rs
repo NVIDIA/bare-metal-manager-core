@@ -343,7 +343,7 @@ fn create_request_repair_override(issue: &rpc::Issue) -> HealthReport {
             message: json!({
                 "issue_category": format!("{:?}", rpc::IssueCategory::try_from(issue.category).unwrap_or(rpc::IssueCategory::Unspecified)),
                 "summary": issue.summary,
-                "details": issue.details
+                "details": health_report::repair_details_with_cis_tag(&issue.details)
             }).to_string(),
             tenant_message: Some(format!(
                 "RepairSystem: Node ready for repair - {}",
