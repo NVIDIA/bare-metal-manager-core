@@ -15,10 +15,10 @@ use crate::error::RvsError;
 ///
 /// The caller is responsible for providing the SOT JSON when sotpath
 /// artifacts are present.
-pub fn resolve_artifact_urls(
-    sot: &RackFirmwareData,
-    ctx: &RvsCtx,
-) -> Result<Vec<ArtifactDownload>, RvsError> {
+pub fn resolve_artifact_urls<'a>(
+    sot: &'a RackFirmwareData,
+    ctx: &'a RvsCtx,
+) -> Result<Vec<ArtifactDownload<'a>>, RvsError> {
     let mut downloads = vec![];
 
     for scenario in &ctx.scenarios {
@@ -32,25 +32,25 @@ pub fn resolve_artifact_urls(
     Ok(downloads)
 }
 
-fn resolve_for_scenario(
-    sot: &RackFirmwareData,
-    scenario: &Scenario,
+fn resolve_for_scenario<'a>(
+    sot: &'a RackFirmwareData,
+    scenario: &'a Scenario,
     cache_dir: &str,
-) -> Result<Vec<ArtifactDownload>, RvsError> {
+) -> Result<Vec<ArtifactDownload<'a>>, RvsError> {
     let ns = format!("{}/{}", scenario.rack.model, scenario.rack.sot_release);
     let mut downloads = vec![];
 
     // OS image
     downloads.push(ArtifactDownload {
         output_path: format!("{cache_dir}/{ns}/os"),
-        url: scenario.os.uri.clone(),
+        url: scenario.os.uri.as_str(),
     });
 
     // Direct-URI artifacts
     for (artifact, url) in scenario
         .artifacts
         .iter()
-        .filter_map(|a| Some((a, a.uri.clone()?)))
+        .filter_map(|a| Some((a, a.uri.as_deref()?)))
     {
         downloads.push(ArtifactDownload {
             output_path: format!("{cache_dir}/{ns}/{}", artifact.output),
@@ -75,8 +75,8 @@ fn resolve_for_scenario(
 }
 
 /// Evaluate a JSONPath expression against the SOT config and return the
-/// first matching string value (the download URL).
-fn eval_sotpath(sot: &RackFirmwareData, sotpath: &str) -> Result<String, RvsError> {
+/// first matching string value (the download URL), borrowed from the SOT.
+fn eval_sotpath<'a>(sot: &'a RackFirmwareData, sotpath: &str) -> Result<&'a str, RvsError> {
     let results = sot
         .config
         .query_with_path(sotpath)
@@ -87,7 +87,7 @@ fn eval_sotpath(sot: &RackFirmwareData, sotpath: &str) -> Result<String, RvsErro
         .next()
         .ok_or_else(|| RvsError::InvalidArg(format!("sotpath '{sotpath}' matched nothing")))?;
 
-    value.val().as_str().map(|s| s.to_string()).ok_or_else(|| {
+    value.val().as_str().ok_or_else(|| {
         RvsError::InvalidArg(format!("sotpath '{sotpath}' did not resolve to a string"))
     })
 }

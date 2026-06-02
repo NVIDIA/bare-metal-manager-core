@@ -1,12 +1,9 @@
-use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use futures::StreamExt;
+use futures::{StreamExt, TryStreamExt};
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
-use tokio::sync::Semaphore;
-use tokio::task::JoinSet;
 use tower_http::services::ServeDir;
 
 use crate::client::RackFirmwareData;
@@ -15,13 +12,14 @@ use crate::error::RvsError;
 use crate::rack::Racks;
 use crate::scenario;
 
-/// A resolved artifact ready to be downloaded.
+/// A resolved artifact ready to be downloaded -- a borrowed view over the
+/// scenario/SOT that produced it (the URL is not copied).
 #[derive(Debug)]
-pub struct ArtifactDownload {
+pub struct ArtifactDownload<'a> {
     /// Destination path under cache_dir/<model>/<sot_release>/.
     pub output_path: String,
-    /// Source URL to download from.
-    pub url: String,
+    /// Source URL to download from (borrowed from the scenario or SOT).
+    pub url: &'a str,
 }
 
 /// Download and cache all artifacts required for validation.
@@ -71,29 +69,32 @@ fn fetch_sot(_racks: &Racks, ctx: &RvsCtx) -> Result<RackFirmwareData, RvsError>
 /// Skips files already present on disk (cache hit). Respects
 /// `max_concurrent_downloads` and `download_timeout_secs` from config.
 async fn download_artifacts(
-    artifacts: Vec<ArtifactDownload>,
+    artifacts: Vec<ArtifactDownload<'_>>,
     ctx: &RvsCtx,
 ) -> Result<(), RvsError> {
     let cfg = &ctx.cfg.artifact_cache;
     let client = reqwest::Client::new();
-    let sem = Arc::new(Semaphore::new(cfg.max_concurrent_downloads as usize));
     let timeout = Duration::from_secs(cfg.download_timeout_secs);
-    let mut set = JoinSet::new();
 
-    for artifact in artifacts {
-        let client = client.clone();
-        let sem = sem.clone();
-        set.spawn(async move {
-            let _permit = sem.acquire_owned().await.unwrap();
-            tokio::time::timeout(timeout, download_one(&client, &artifact))
-                .await
-                .map_err(|_| RvsError::Timeout(format!("download timed out: {}", artifact.url)))?
-        });
-    }
+    // `buffer_unordered` runs up to `max_concurrent_downloads` futures on the
+    // current task. Unlike a JoinSet it imposes no `'static` bound, so the
+    // borrowed `url` views are fine -- the trade is task concurrency rather
+    // than OS-thread parallelism, which is moot for I/O-bound downloads.
+    futures::stream::iter(artifacts)
+        .map(|artifact| {
+            let client = client.clone();
+            async move {
+                tokio::time::timeout(timeout, download_one(&client, &artifact))
+                    .await
+                    .map_err(|_| {
+                        RvsError::Timeout(format!("download timed out: {}", artifact.url))
+                    })?
+            }
+        })
+        .buffer_unordered(cfg.max_concurrent_downloads as usize)
+        .try_collect::<Vec<()>>()
+        .await?;
 
-    while let Some(res) = set.join_next().await {
-        res.map_err(|e| RvsError::InvalidArg(format!("download task panicked: {e}")))??;
-    }
     Ok(())
 }
 
@@ -103,7 +104,7 @@ async fn download_artifacts(
 /// exists (cache hit). Streams the response body directly to disk.
 async fn download_one(
     client: &reqwest::Client,
-    artifact: &ArtifactDownload,
+    artifact: &ArtifactDownload<'_>,
 ) -> Result<(), RvsError> {
     let path = std::path::Path::new(&artifact.output_path);
 
@@ -130,7 +131,7 @@ async fn download_one(
     );
 
     let response =
-        client.get(&artifact.url).send().await.map_err(|e| {
+        client.get(artifact.url).send().await.map_err(|e| {
             RvsError::InvalidArg(format!("download failed for {}: {e}", artifact.url))
         })?;
 
