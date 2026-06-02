@@ -178,6 +178,8 @@ mod power_shelf_metadata;
 #[cfg(test)]
 mod power_shelf_state_controller;
 #[cfg(test)]
+mod preingestion_dpu_nic_mode;
+#[cfg(test)]
 mod prevent_duplicate_mac_addresses;
 #[cfg(test)]
 mod rack_find;
