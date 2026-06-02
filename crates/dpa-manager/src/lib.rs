@@ -39,10 +39,10 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
-use crate::cfg::DpaConfig;
+use crate::config::DpaConfig;
 use crate::errors::{DpaManagerError, DpaManagerResult};
 
-pub mod cfg;
+pub mod config;
 pub mod errors;
 mod metrics;
 
