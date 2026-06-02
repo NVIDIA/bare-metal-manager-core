@@ -32,6 +32,7 @@ use rpc::forge::PxeDomain;
 use crate::common::{AppState, Machine};
 
 const DEFAULT_NUM_OF_VFS: u32 = 16;
+const DEFAULT_HBN_BRIDGE: &str = "br-hbn";
 
 /// Generates the content of the /etc/forge/config.toml file.
 ///
@@ -74,8 +75,8 @@ fn user_data_handler(
     hbn_sfs: Option<String>,
     num_of_vfs: Option<u32>,
     vf_intercept_bridge_name: Option<String>,
-    host_intercept_bridge_name: Option<String>,
-    host_intercept_bridge_port: Option<String>,
+    host_representor_intercept_bridging: Option<String>,
+    hbn_bridge: Option<String>,
     vf_intercept_bridge_port: Option<String>,
     vf_intercept_bridge_sf: Option<String>,
     api_url_override: Option<String>,
@@ -141,6 +142,10 @@ fn user_data_handler(
 
     let num_of_vfs = num_of_vfs.unwrap_or(DEFAULT_NUM_OF_VFS);
     context.insert("num_of_vfs".to_string(), num_of_vfs.to_string());
+    context.insert(
+        "forge_hbn_bridge".to_string(),
+        hbn_bridge.unwrap_or_else(|| DEFAULT_HBN_BRIDGE.to_string()),
+    );
 
     if let Some(vf_intercept_bridge_name) = vf_intercept_bridge_name {
         context.insert(
@@ -149,22 +154,10 @@ fn user_data_handler(
         );
     }
 
-    if let Some(host_intercept_bridge_name) = host_intercept_bridge_name {
+    if let Some(host_representor_intercept_bridging) = host_representor_intercept_bridging {
         context.insert(
-            "forge_host_intercept_bridge_name".to_string(),
-            host_intercept_bridge_name,
-        );
-    }
-
-    if let Some(host_intercept_bridge_port) = host_intercept_bridge_port {
-        context.insert(
-            "forge_host_intercept_hbn_port".to_string(),
-            format!("patch-hbn-{host_intercept_bridge_port}"),
-        );
-
-        context.insert(
-            "forge_host_intercept_bridge_port".to_string(),
-            host_intercept_bridge_port,
+            "forge_host_representor_intercept_bridging".to_string(),
+            host_representor_intercept_bridging,
         );
     }
 
@@ -224,8 +217,8 @@ pub async fn user_data(machine: Machine, state: State<AppState>) -> impl IntoRes
                         discovery_instructions.hbn_sfs,
                         discovery_instructions.num_of_vfs,
                         discovery_instructions.vf_intercept_bridge_name,
-                        discovery_instructions.host_intercept_bridge_name,
-                        discovery_instructions.host_intercept_bridge_port,
+                        discovery_instructions.host_representor_intercept_bridging,
+                        discovery_instructions.hbn_bridge,
                         discovery_instructions.vf_intercept_bridge_port,
                         discovery_instructions.vf_intercept_bridge_sf,
                         machine.instructions.api_url_override,
@@ -420,13 +413,10 @@ mod tests {
             ("forge_hbn_reps".to_string(), String::new()),
             ("forge_hbn_sfs".to_string(), String::new()),
             (
-                "forge_host_intercept_bridge_name".to_string(),
+                "forge_host_representor_intercept_bridging".to_string(),
                 String::new(),
             ),
-            (
-                "forge_host_intercept_bridge_port".to_string(),
-                String::new(),
-            ),
+            ("forge_hbn_bridge".to_string(), "br-hbn".to_string()),
             ("forge_vf_intercept_bridge_name".to_string(), String::new()),
             ("forge_vf_intercept_bridge_port".to_string(), String::new()),
             ("hostname".to_string(), "test-host".to_string()),
@@ -456,6 +446,68 @@ mod tests {
         assert!(rendered.contains("--physdev-in pf0vf1_if"));
         assert!(rendered.contains("--physdev-in pf0vf2_if"));
         assert!(!rendered.contains("--physdev-in pf0vf3_if"));
+    }
+
+    /// Verifies the real user-data template renders each host representor bridge entry.
+    #[test]
+    fn user_data_template_renders_host_representor_intercept_bridging() {
+        let template_glob = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pxe/templates/**/*");
+        let tera = tera::Tera::new(template_glob).unwrap();
+
+        // Use a non-empty provisioning string so the host representor bridge loop renders.
+        let context = HashMap::from([
+            (
+                "api_url".to_string(),
+                "https://carbide-api.forge".to_string(),
+            ),
+            (
+                "forge_agent_config_b64".to_string(),
+                "W21hY2hpbmVdCg==".to_string(),
+            ),
+            ("forge_bmc_fw_update".to_string(), String::new()),
+            ("forge_hbn_reps".to_string(), String::new()),
+            ("forge_hbn_sfs".to_string(), String::new()),
+            (
+                "forge_host_representor_intercept_bridging".to_string(),
+                "pf0hpf:br-host:patch-br-host-to-hbn,pf0vf0:br-vf0:patch-br-vf0-to-hbn".to_string(),
+            ),
+            ("forge_hbn_bridge".to_string(), "br-sfc".to_string()),
+            ("forge_vf_intercept_bridge_name".to_string(), String::new()),
+            ("forge_vf_intercept_bridge_port".to_string(), String::new()),
+            ("hostname".to_string(), "test-host".to_string()),
+            (
+                "interface_id".to_string(),
+                "91609f10-c91d-470d-a260-6293ea0c1234".to_string(),
+            ),
+            ("num_of_vfs".to_string(), "3".to_string()),
+            (
+                "pxe_url".to_string(),
+                "http://carbide-pxe.forge".to_string(),
+            ),
+            ("seconds_since_epoch".to_string(), "0".to_string()),
+        ]);
+        let rendered = tera
+            .render(
+                "user-data",
+                &tera::Context::from_serialize(context).unwrap(),
+            )
+            .unwrap();
+
+        // The loop should emit one assignment and invocation per bridge entry.
+        assert!(rendered.contains("ovs-vsctl get bridge br-sfc external_ids"));
+        assert!(rendered.contains("ovs-vsctl --may-exist add-port br-sfc"));
+        assert!(rendered.contains(
+            "host_representor_intercept_bridge_config=\"pf0hpf:br-host:patch-br-host-to-hbn\""
+        ));
+        assert!(rendered.contains(
+            "host_representor_intercept_bridge_config=\"pf0vf0:br-vf0:patch-br-vf0-to-hbn\""
+        ));
+        assert_eq!(
+            rendered
+                .matches(r#"add_host_representor_intercept_bridge "${host_representor}" "${host_intercept_bridge_name}" "${host_intercept_bridge_port}""#)
+                .count(),
+            2
+        );
     }
 
     #[test]

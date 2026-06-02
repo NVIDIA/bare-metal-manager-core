@@ -4081,24 +4081,18 @@ message TrafficInterceptConfig {
   repeated string secondary_vtep_aggregate_prefixes = 4;
 }
 
-
 message TrafficInterceptBridging {
+  reserved 2, 4;
+  reserved "host_intercept_bridge_name", "host_intercept_bridge_port";
+
   // Prefix to be used for assigning gateway IPs
   // to bridges used for VMaaS routing within the DPU.
   string internal_bridge_routing_prefix  = 1;
-
-  // Name of the bridge acting as the last hop before the PF
-  // on the host.
-  string host_intercept_bridge_name      = 2;
 
   // Name of the bridge acting as the gateway for packets
   // leaving VMaaS pods and destined for the outside.
   // (E.g., internet or pods on other hosts)
   string vf_intercept_bridge_name        = 3;
-
-  // The name of the patch-port on the intercept bridge side
-  // that connects to the host_intercept_bridge.
-  string host_intercept_bridge_port      = 4;
 
   // Name of the patch-port on the intercept bridge side
   // of the vf_intercept_bridge that connects to the HBN pod
@@ -4108,6 +4102,12 @@ message TrafficInterceptBridging {
   // Name of SF used for routing VMaaS VF traffic into
   // the HBN pod.
   string vf_intercept_bridge_sf          = 6;
+
+  // Host-owned PF/VF representor bridging layout keyed by representor name.
+  map<string, HostRepresentorInterceptBridging> host_representor_intercept_bridging = 7;
+
+  // Bridge that intercept patch ports attach to during provisioning.
+  string hbn_bridge = 8;
 }
 
 message ManagedHostDpuExtensionServiceConfig {
@@ -4760,14 +4760,16 @@ message CloudInitDiscoveryInstructions {
   optional string hbn_reps = 3;
   optional string hbn_sfs = 4;
   optional string vf_intercept_bridge_name = 5;
-  optional string host_intercept_bridge_name = 6;
+
+  reserved 6;
+  reserved "host_intercept_bridge_name";
+
   // The <vf_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
   // This will be the side owned by the <vf_intercept_bridge_name> bridge
   optional string vf_intercept_bridge_port   = 7;
 
-  // The <host_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
-  // This will be the side owned by the <host_intercept_bridge_name> bridge.
-  optional string host_intercept_bridge_port = 8;
+  reserved 8;
+  reserved "host_intercept_bridge_port";
 
   // The representor that will plug into the HBN container to connect it to br-hbn
   // to open connectivity between all the VFs.
@@ -4776,6 +4778,13 @@ message CloudInitDiscoveryInstructions {
   // Number of VFs to configure per DPU PF during BlueField provisioning.
   // If absent, carbide-pxe uses the legacy default of 16 for rolling upgrades.
   optional uint32 num_of_vfs = 10;
+
+  // The layout for any desired additional bridging between
+  // host PF/VFs and HBN.
+  optional string host_representor_intercept_bridging = 11;
+
+  // Bridge that intercept patch ports attach to during BlueField provisioning.
+  optional string hbn_bridge = 12;
 }
 
 message CloudInitMetaData {
@@ -8357,4 +8366,9 @@ message IpxeTemplateArtifactUpdateRequest {
 message UpdateOperatingSystemIpxeTemplateArtifactRequest {
   common.OperatingSystemId id = 1;
   repeated IpxeTemplateArtifactUpdateRequest updates = 2;
+}
+
+message HostRepresentorInterceptBridging {
+  string bridge     = 1;
+  string patch_port = 2;
 }
