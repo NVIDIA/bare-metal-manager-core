@@ -733,6 +733,25 @@ pub async fn lookup_host_machine_ids_by_dpu_ids(
         .map_err(|e| DatabaseError::query(query, e))
 }
 
+/// Return the [`ManagedHostState`] for a machine given its id without returning the whole snapshot.
+pub async fn lookup_managed_host_state(
+    conn: impl DbReader<'_>,
+    machine_id: MachineId,
+) -> DatabaseResult<Option<ManagedHostState>> {
+    let query = "SELECT controller_state FROM machines WHERE id = $1";
+
+    let Some(json): Option<sqlx::types::Json<ManagedHostState>> = sqlx::query_scalar(query)
+        .bind(machine_id)
+        .fetch_optional(conn)
+        .await
+        .map_err(|e| DatabaseError::query(query, e))?
+    else {
+        return Ok(None);
+    };
+
+    Ok(Some(json.0))
+}
+
 /// Returns the `use_admin_network` flag from the host that owns the
 /// given DPA interface.
 pub async fn get_host_use_admin_network_for_dpa_interface(
