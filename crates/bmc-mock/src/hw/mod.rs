@@ -36,6 +36,9 @@ pub mod wiwynn_gb200_nvl;
 /// Support of Lenovo GB300 NVL servers.
 pub mod lenovo_gb300_nvl;
 
+/// Support of DGX GB300 NVL servers (NVIDIA "GB BMC" host).
+pub mod dgx_gb300_nvl;
+
 /// Support of LiteOn Power Shelf.
 pub mod liteon_power_shelf;
 
