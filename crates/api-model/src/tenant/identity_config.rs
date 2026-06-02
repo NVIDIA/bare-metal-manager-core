@@ -75,7 +75,7 @@ impl sqlx::Type<sqlx::Postgres> for SigningAlgorithm {
 impl sqlx::Encode<'_, sqlx::Postgres> for SigningAlgorithm {
     fn encode_by_ref(
         &self,
-        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'_>,
+        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer,
     ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
         <String as sqlx::Encode<'_, sqlx::Postgres>>::encode_by_ref(&self.to_string(), buf)
     }
@@ -257,7 +257,7 @@ impl<S> sqlx::Type<sqlx::Postgres> for NonEmptyStr<S> {
 impl<S> sqlx::Encode<'_, sqlx::Postgres> for NonEmptyStr<S> {
     fn encode_by_ref(
         &self,
-        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'_>,
+        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer,
     ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
         <String as sqlx::Encode<'_, sqlx::Postgres>>::encode_by_ref(&self.inner, buf)
     }

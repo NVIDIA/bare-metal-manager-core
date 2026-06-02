@@ -101,7 +101,7 @@ type FirmwareStatusReader interface {
 
 type BringUpController interface {
     // CapabilityBringUpControl
-    BringUpControl(ctx, target) error
+    BringUpControl(ctx, target, info) error
 }
 
 type BringUpStatusReader interface {

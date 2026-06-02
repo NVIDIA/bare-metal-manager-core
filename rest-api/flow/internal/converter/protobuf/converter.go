@@ -1163,7 +1163,8 @@ func ScheduledOperationFrom(
 		}
 
 		return &operations.PowerControlTaskInfo{
-			Operation: operations.PowerOperationPowerOn,
+			Operation:               operations.PowerOperationPowerOn,
+			OverrideAssignmentCheck: r.PowerOn.GetOverrideAssignmentCheck(),
 		}, ts, r.PowerOn.GetQueueOptions(), r.PowerOn.GetRuleId(), nil
 
 	case *pb.ScheduledOperation_PowerOff:
@@ -1180,8 +1181,9 @@ func ScheduledOperationFrom(
 		}
 
 		return &operations.PowerControlTaskInfo{
-			Operation: powerOp,
-			Forced:    r.PowerOff.GetForced(),
+			Operation:               powerOp,
+			Forced:                  r.PowerOff.GetForced(),
+			OverrideAssignmentCheck: r.PowerOff.GetOverrideAssignmentCheck(),
 		}, ts, r.PowerOff.GetQueueOptions(), r.PowerOff.GetRuleId(), nil
 
 	case *pb.ScheduledOperation_PowerReset:
@@ -1198,8 +1200,9 @@ func ScheduledOperationFrom(
 		}
 
 		return &operations.PowerControlTaskInfo{
-			Operation: powerOp,
-			Forced:    r.PowerReset.GetForced(),
+			Operation:               powerOp,
+			Forced:                  r.PowerReset.GetForced(),
+			OverrideAssignmentCheck: r.PowerReset.GetOverrideAssignmentCheck(),
 		}, ts, r.PowerReset.GetQueueOptions(), r.PowerReset.GetRuleId(), nil
 
 	case *pb.ScheduledOperation_BringUp:
@@ -1210,7 +1213,9 @@ func ScheduledOperationFrom(
 			)
 		}
 
-		return &operations.BringUpTaskInfo{}, ts, nil, r.BringUp.GetRuleId(), nil
+		return &operations.BringUpTaskInfo{
+			OverrideAssignmentCheck: r.BringUp.GetOverrideAssignmentCheck(),
+		}, ts, nil, r.BringUp.GetRuleId(), nil
 
 	case *pb.ScheduledOperation_Ingest:
 		ts, err := TargetSpecFrom(r.Ingest.GetTargetSpec())
@@ -1224,9 +1229,10 @@ func ScheduledOperationFrom(
 
 	case *pb.ScheduledOperation_UpgradeFirmware:
 		info := &operations.FirmwareControlTaskInfo{
-			Operation:     operations.FirmwareOperationUpgrade,
-			TargetVersion: r.UpgradeFirmware.GetTargetVersion(),
-			SubTargets:    r.UpgradeFirmware.GetSubTargets(),
+			Operation:               operations.FirmwareOperationUpgrade,
+			TargetVersion:           r.UpgradeFirmware.GetTargetVersion(),
+			SubTargets:              r.UpgradeFirmware.GetSubTargets(),
+			OverrideAssignmentCheck: r.UpgradeFirmware.GetOverrideAssignmentCheck(),
 		}
 
 		if r.UpgradeFirmware.GetStartTime() != nil {

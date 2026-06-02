@@ -2054,10 +2054,12 @@ async fn test_site_explorer_health_report(
     // There is currently no separate segment for tenant, admin and underlay networks,
     // which prevents site explorer from running
     let mut txn = env.pool.begin().await?;
-    let query = format!(
-        "UPDATE network_segments SET network_segment_type='underlay' WHERE id='{segment_id}'",
-    );
-    sqlx::query::<_>(&query).execute(&mut *txn).await.unwrap();
+    let query = "UPDATE network_segments SET network_segment_type='underlay' WHERE id=$1";
+    sqlx::query::<_>(query)
+        .bind(segment_id)
+        .execute(&mut *txn)
+        .await
+        .unwrap();
     txn.commit().await.unwrap();
 
     let explorer_config = SiteExplorerConfig {

@@ -45,6 +45,7 @@ impl MetricsEmitter for RackMetricsEmitter {
         register_health_gauges::<_, (), _>(
             "carbide_racks",
             "rack_id",
+            "Racks",
             meter,
             shared_metrics,
             |m| &m.health,

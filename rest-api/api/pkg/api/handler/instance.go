@@ -581,14 +581,15 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			}
 
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
-				VpcPrefixID:        &vpcPrefixID,
-				VpcPrefix:          vpcPrefix, // We attach this here so it can be used when we convert to the API model.
-				RequestedIpAddress: ifc.IPAddress,
-				Device:             ifc.Device,
-				DeviceInstance:     ifc.DeviceInstance,
-				VirtualFunctionID:  ifc.VirtualFunctionID,
-				IsPhysical:         ifc.IsPhysical,
-				Status:             cdbm.InterfaceStatusPending,
+				VpcPrefixID:          &vpcPrefixID,
+				VpcPrefix:            vpcPrefix, // We attach this here so it can be used when we convert to the API model.
+				RequestedIpAddress:   ifc.IPAddress,
+				InlineRoutingProfile: ifc.InlineRoutingProfile.ToDB(),
+				Device:               ifc.Device,
+				DeviceInstance:       ifc.DeviceInstance,
+				VirtualFunctionID:    ifc.VirtualFunctionID,
+				IsPhysical:           ifc.IsPhysical,
+				Status:               cdbm.InterfaceStatusPending,
 			})
 		}
 	}
@@ -1250,8 +1251,8 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 			// For a given Machine, all the GPUs should be connected to the same NVLink Logical Partition
 			for _, nvlCap := range nvlCaps {
 				if nvlCap.Count != nil {
-					for i := range *nvlCap.Count {
-						dbnvlic = append(dbnvlic, cdbm.NVLinkInterface{NVLinkLogicalPartitionID: *defaultNvllpID, Device: cdb.GetStrPtr(nvlCap.Name), DeviceInstance: i})
+					for deviceInstance := range *nvlCap.Count {
+						dbnvlic = append(dbnvlic, cdbm.NVLinkInterface{NVLinkLogicalPartitionID: *defaultNvllpID, Device: cdb.GetStrPtr(nvlCap.Name), DeviceInstance: deviceInstance})
 					}
 				}
 			}
@@ -1328,16 +1329,17 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 		ifcDAO := cdbm.NewInterfaceDAO(cih.dbSession)
 		for _, dbifc := range dbInterfaces {
 			input := cdbm.InterfaceCreateInput{
-				InstanceID:         instance.ID,
-				SubnetID:           dbifc.SubnetID,
-				VpcPrefixID:        dbifc.VpcPrefixID,
-				Device:             dbifc.Device,
-				DeviceInstance:     dbifc.DeviceInstance,
-				VirtualFunctionID:  dbifc.VirtualFunctionID,
-				RequestedIpAddress: dbifc.RequestedIpAddress,
-				IsPhysical:         dbifc.IsPhysical,
-				Status:             dbifc.Status,
-				CreatedBy:          dbUser.ID,
+				InstanceID:           instance.ID,
+				SubnetID:             dbifc.SubnetID,
+				VpcPrefixID:          dbifc.VpcPrefixID,
+				Device:               dbifc.Device,
+				DeviceInstance:       dbifc.DeviceInstance,
+				VirtualFunctionID:    dbifc.VirtualFunctionID,
+				RequestedIpAddress:   dbifc.RequestedIpAddress,
+				InlineRoutingProfile: dbifc.InlineRoutingProfile,
+				IsPhysical:           dbifc.IsPhysical,
+				Status:               dbifc.Status,
+				CreatedBy:            dbUser.ID,
 			}
 
 			retifc, serr := ifcDAO.Create(ctx, tx, input)
@@ -1392,6 +1394,9 @@ func (cih CreateInstanceHandler) Handle(c echo.Context) error {
 
 			if dbifc.RequestedIpAddress != nil {
 				interfaceConfig.IpAddress = dbifc.RequestedIpAddress
+			}
+			if dbifc.InlineRoutingProfile != nil {
+				interfaceConfig.RoutingProfile = dbifc.InlineRoutingProfile.ToProto()
 			}
 
 			interfaceConfigs = append(interfaceConfigs, interfaceConfig)
@@ -2432,14 +2437,15 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 			}
 
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
-				VpcPrefixID:        &vpcPrefixID,
-				VpcPrefix:          vpcPrefix, // We attach this here so it can be used when we convert to the API model.
-				RequestedIpAddress: ifc.IPAddress,
-				Device:             ifc.Device,
-				DeviceInstance:     ifc.DeviceInstance,
-				VirtualFunctionID:  ifc.VirtualFunctionID,
-				IsPhysical:         ifc.IsPhysical,
-				Status:             cdbm.InterfaceStatusPending})
+				VpcPrefixID:          &vpcPrefixID,
+				VpcPrefix:            vpcPrefix, // We attach this here so it can be used when we convert to the API model.
+				RequestedIpAddress:   ifc.IPAddress,
+				InlineRoutingProfile: ifc.InlineRoutingProfile.ToDB(),
+				Device:               ifc.Device,
+				DeviceInstance:       ifc.DeviceInstance,
+				VirtualFunctionID:    ifc.VirtualFunctionID,
+				IsPhysical:           ifc.IsPhysical,
+				Status:               cdbm.InterfaceStatusPending})
 		}
 	}
 
@@ -3006,16 +3012,17 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 		case len(apiRequest.Interfaces) > 0:
 			for _, dbifc := range dbInterfaces {
 				input := cdbm.InterfaceCreateInput{
-					InstanceID:         instance.ID,
-					SubnetID:           dbifc.SubnetID,
-					VpcPrefixID:        dbifc.VpcPrefixID,
-					Device:             dbifc.Device,
-					DeviceInstance:     dbifc.DeviceInstance,
-					VirtualFunctionID:  dbifc.VirtualFunctionID,
-					RequestedIpAddress: dbifc.RequestedIpAddress,
-					IsPhysical:         dbifc.IsPhysical,
-					Status:             dbifc.Status,
-					CreatedBy:          dbUser.ID,
+					InstanceID:           instance.ID,
+					SubnetID:             dbifc.SubnetID,
+					VpcPrefixID:          dbifc.VpcPrefixID,
+					Device:               dbifc.Device,
+					DeviceInstance:       dbifc.DeviceInstance,
+					VirtualFunctionID:    dbifc.VirtualFunctionID,
+					RequestedIpAddress:   dbifc.RequestedIpAddress,
+					InlineRoutingProfile: dbifc.InlineRoutingProfile,
+					IsPhysical:           dbifc.IsPhysical,
+					Status:               dbifc.Status,
+					CreatedBy:            dbUser.ID,
 				}
 
 				newDbifc, serr := ifcDAO.Create(ctx, tx, input)
@@ -3433,6 +3440,9 @@ func (uih UpdateInstanceHandler) Handle(c echo.Context) error {
 
 			if ifc.RequestedIpAddress != nil {
 				interfaceConfig.IpAddress = ifc.RequestedIpAddress
+			}
+			if ifc.InlineRoutingProfile != nil {
+				interfaceConfig.RoutingProfile = ifc.InlineRoutingProfile.ToProto()
 			}
 
 			interfaceConfigs[i] = interfaceConfig

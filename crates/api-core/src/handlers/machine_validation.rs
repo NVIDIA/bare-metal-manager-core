@@ -22,8 +22,8 @@ use config_version::ConfigVersion;
 use db::{self, machine_validation_suites};
 use model::machine::machine_search_config::MachineSearchConfig;
 use model::machine::{
-    FailureCause, FailureDetails, FailureSource, MachineValidationFilter, ManagedHostState,
-    ValidationState,
+    FailureCause, FailureDetails, FailureSource, MachineValidationContext, MachineValidationFilter,
+    ManagedHostState, ValidationState,
 };
 use model::machine_validation::{
     MachineValidation, MachineValidationResult, MachineValidationState, MachineValidationStatus,
@@ -457,7 +457,7 @@ pub(crate) async fn on_demand_machine_validation(
                     let validation_id = db::machine_validation::create_new_run(
                         &mut txn,
                         &machine_id,
-                        "OnDemand".to_string(),
+                        MachineValidationContext::OnDemand,
                         MachineValidationFilter {
                             tags: req.tags,
                             allowed_tests,

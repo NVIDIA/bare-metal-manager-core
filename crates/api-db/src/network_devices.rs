@@ -61,26 +61,30 @@ pub async fn find<DB>(
 where
     for<'db> &'db mut DB: DbReader<'db>,
 {
-    let base_query = "SELECT * FROM network_devices l {where}".to_owned();
+    let mut query = sqlx::QueryBuilder::new("SELECT * FROM network_devices l");
 
-    let mut devices = match filter {
-        ObjectFilter::All => sqlx::query_as::<_, NetworkDevice>(&base_query.replace("{where}", ""))
+    let mut devices: Vec<NetworkDevice> = match filter {
+        ObjectFilter::All => query
+            .build_query_as::<NetworkDevice>()
             .fetch_all(&mut *txn)
             .await
             .map_err(|e| DatabaseError::new("network_devices All", e)),
         ObjectFilter::One(id) => {
-            let where_clause = "WHERE l.id=$1".to_string();
-            sqlx::query_as::<_, NetworkDevice>(&base_query.replace("{where}", &where_clause))
-                .bind(id.to_string())
+            query.push(" WHERE l.id = ");
+            query.push_bind(id.to_string());
+            query
+                .build_query_as::<NetworkDevice>()
                 .fetch_all(&mut *txn)
                 .await
                 .map_err(|e| DatabaseError::new("network_devices One", e))
         }
         ObjectFilter::List(list) => {
-            let where_clause = "WHERE l.id=ANY($1)".to_string();
             let str_list: Vec<String> = list.iter().map(|id| id.to_string()).collect();
-            sqlx::query_as::<_, NetworkDevice>(&base_query.replace("{where}", &where_clause))
-                .bind(str_list)
+            query.push(" WHERE l.id = ANY(");
+            query.push_bind(str_list);
+            query.push(")");
+            query
+                .build_query_as::<NetworkDevice>()
                 .fetch_all(&mut *txn)
                 .await
                 .map_err(|e| DatabaseError::new("network_devices List", e))

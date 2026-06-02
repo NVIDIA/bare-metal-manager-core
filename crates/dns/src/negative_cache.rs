@@ -31,9 +31,9 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use hickory_resolver::proto::op::ResponseCode;
+use hickory_server::proto::rr::RecordType;
 use tokio::sync::RwLock;
-use trust_dns_resolver::proto::op::ResponseCode;
-use trust_dns_server::proto::rr::RecordType;
 
 /// Identifies a cached negative response: the queried name and record type.
 #[derive(Hash, Debug, Eq, PartialEq, Clone)]

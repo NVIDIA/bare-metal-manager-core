@@ -21,6 +21,12 @@ use carbide_uuid::machine::MachineId;
 use forge_secrets::credentials::{BmcCredentialType, CredentialKey, CredentialWriter};
 use mac_address::MacAddress;
 
+pub mod bmc_session_manager;
+
+pub use bmc_session_manager::{
+    BmcAuthMaterial, BmcSessionError, BmcSessionManager, BmcSessionStore, PgBmcSessionStore,
+};
+
 use crate::{CarbideError, CarbideResult};
 
 pub struct UpdateCredentials {

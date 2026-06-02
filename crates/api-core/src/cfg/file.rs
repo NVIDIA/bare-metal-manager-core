@@ -200,6 +200,23 @@ pub struct CarbideConfig {
     /// DPU reboot.
     pub dpu_ipmi_reboot_attempts: Option<u32>,
 
+    /// Number of consecutive HTTP 401/403 responses from a BMC before the
+    /// session-token path stops attempting to log in to that BMC, to avoid
+    /// exhausting the BMC root account's retry budget.
+    /// Default is 3.
+    #[serde(default = "default_bmc_session_lockout_threshold")]
+    pub bmc_session_lockout_threshold: u32,
+
+    /// When `true`, `GetBmcCredentials` may return
+    /// `UsernamePassword` credentials for BMCs whose Redfish ServiceRoot
+    /// does not expose `SessionService`. When `false` (the default), such
+    /// BMCs surface a `NoSessionService` error to the caller and no
+    /// basic-auth fallback is performed. See the "Basic-auth fallback"
+    /// section of `crates/api/src/credentials/bmc_session_manager.rs` for
+    /// the full semantics.
+    #[serde(default)]
+    pub allow_bmc_basic_auth_fallback: bool,
+
     /// Infiniband fabrics managed by the site
     /// Note: At the moment, only a single fabric is supported
     #[serde(default)]
@@ -1508,6 +1525,10 @@ fn default_max_database_connections() -> u32 {
     1000
 }
 
+pub const fn default_bmc_session_lockout_threshold() -> u32 {
+    3
+}
+
 /// DpuConfig related internal configuration
 #[derive(Clone, Debug, Serialize)]
 pub struct DpuConfig {
@@ -2118,13 +2139,11 @@ pub struct TrafficInterceptBridging {
     /// within the DPU.
     pub internal_bridge_routing_prefix: Ipv4Network,
 
-    /// The name of the bridge (aka br-host) that sits between host PF and br-hbn
-    /// It will be connected to br-hbn or the hbn pod via a patch_point or
-    /// patch port of some kind.
-    #[serde(default = "default_host_intercept_bridge_name")]
-    pub host_intercept_bridge_name: String,
+    /// The HBN/SFC bridge that intercept patch ports attach to during provisioning.
+    #[serde(default = "default_hbn_bridge")]
+    pub hbn_bridge: String,
 
-    /// The name of the bridge that sits between VFs and br-hbn.
+    /// The name of the bridge that sits between VFs and br-hbn _**for VM-owned VFs**_.
     /// This bridge will be assigned an address from <internal_bridge_routing_prefix>
     /// so that we can route traffic to a /32 bound to it and used as a VTEP for
     /// an additional GENEVE VPN.
@@ -2132,21 +2151,55 @@ pub struct TrafficInterceptBridging {
     pub vf_intercept_bridge_name: String,
 
     /// The <vf_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
-    /// This will be the side owned by the <vf_intercept_bridge_name> bridge
+    /// This will be the side owned by the <vf_intercept_bridge_name> bridge _**for VM-owned VFs**_
     #[serde(default = "default_vf_intercept_bridge_port")]
     pub vf_intercept_bridge_port: String,
 
-    /// The <host_intercept_bridge_name> side of the SF representor that connects the HBN pod to br-hbn.
-    /// This will be the side owned by the <host_intercept_bridge_name> bridge.
-    #[serde(default = "default_host_intercept_bridge_port")]
-    pub host_intercept_bridge_port: String,
-
     /// The SF used for internal routing of VF traffic.
     pub vf_intercept_bridge_sf: String,
+
+    /// The layout of host-owned representors that will have intermediary bridges.
+    /// E.g., [{"pf0hpf" => {bridge: "br-host", patch_port: "brh"}}]
+    #[serde(default)]
+    pub host_representor_intercept_bridging: HashMap<String, HostInterceptBridging>,
 }
 
-pub fn default_host_intercept_bridge_name() -> String {
-    "br-host".to_string()
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct HostInterceptBridging {
+    /// The name of the bridge (e.g., br-host) that will sit between host PF/VF and br-hbn.
+    /// It will be connected to br-hbn or br-sfc.
+    pub bridge: String,
+
+    /// The patch port on this bridge that connects it toward HBN or SFC.
+    pub patch_port: String,
+
+    /// Control whether this bridging should be created during DPU (re)provisioning or not.
+    /// By default, we expect to create these bridges.
+    #[serde(default)]
+    pub skip_create: bool,
+}
+
+impl TrafficInterceptBridging {
+    /// Formats host-owned representor bridge config for BlueField provisioning.
+    pub fn host_representor_intercept_bridging_provisioning_config(&self) -> Option<String> {
+        // Keep bf.cfg input stable and omit entries that should not be provisioned.
+        let config = self
+            .host_representor_intercept_bridging
+            .iter()
+            .filter(|(_, bridge)| !bridge.skip_create)
+            .sorted_by(|(left, _), (right, _)| left.cmp(right))
+            .map(|(representor, bridge)| {
+                format!("{representor}:{}:{}", bridge.bridge, bridge.patch_port)
+            })
+            .join(",");
+
+        // An empty map, or one with only skipped entries, means no provisioning config.
+        (!config.is_empty()).then_some(config)
+    }
+}
+
+pub fn default_hbn_bridge() -> String {
+    "br-hbn".to_string()
 }
 
 pub fn default_vf_intercept_bridge_name() -> String {
@@ -2155,10 +2208,6 @@ pub fn default_vf_intercept_bridge_name() -> String {
 
 pub fn default_vf_intercept_bridge_port() -> String {
     "patch-br-dpu-to-hbn".to_string()
-}
-
-pub fn default_host_intercept_bridge_port() -> String {
-    "patch-br-host-to-hbn".to_string()
 }
 
 #[cfg(test)]
@@ -2422,6 +2471,15 @@ mod tests {
         assert!(config.pools.is_none());
         assert!(config.ib_config.is_none());
         assert!(config.ib_fabrics.is_empty());
+        assert_eq!(
+            config.bmc_session_lockout_threshold,
+            default_bmc_session_lockout_threshold()
+        );
+        assert!(
+            !config.allow_bmc_basic_auth_fallback,
+            "allow_bmc_basic_auth_fallback must default to false to preserve \
+             the session-token-only contract for existing deployments"
+        );
         assert!(config.vpc_peering_policy.is_none());
         assert!(config.site_explorer.enabled.load(AtomicOrdering::Relaxed));
         // `enable_admin_ui` is unset in the minimal config, so it should default to true.
@@ -2472,6 +2530,7 @@ mod tests {
         assert_eq!(config.asn, 777);
         assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
         assert!(config.route_servers.is_empty());
+        assert_eq!(config.bmc_session_lockout_threshold, 5);
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
         assert_eq!(config.vpc_peering_policy_on_existing, None);
         assert_eq!(
@@ -2612,6 +2671,7 @@ mod tests {
         assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
         assert_eq!(config.max_database_connections, 1222);
         assert_eq!(config.asn, 123);
+        assert_eq!(config.bmc_session_lockout_threshold, 4);
         assert_eq!(
             config.dhcp_servers,
             vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
@@ -2927,6 +2987,7 @@ mod tests {
         assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
         assert_eq!(config.max_database_connections, 1333);
         assert_eq!(config.asn, 777);
+        assert_eq!(config.bmc_session_lockout_threshold, 5);
         assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
         assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
         assert_eq!(

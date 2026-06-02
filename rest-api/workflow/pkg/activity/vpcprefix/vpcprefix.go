@@ -187,7 +187,7 @@ func (mvp ManageVpcPrefix) UpdateVpcPrefixesInDB(ctx context.Context, siteID uui
 
 			serr = mvp.updateVpcPrefixStatusInDB(ctx, nil, vpcPrefix.ID, cdb.GetStrPtr(cdbm.VpcPrefixStatusError), cdb.GetStrPtr("VPC Prefix is missing on Site"))
 			if serr != nil {
-				slogger.Error().Err(err).Msg("failed to update VPC Prefix status detail in DB")
+				slogger.Error().Err(serr).Msg("failed to update VPC Prefix status detail in DB")
 			}
 		}
 	}

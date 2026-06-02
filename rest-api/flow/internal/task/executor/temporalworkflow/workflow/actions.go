@@ -101,6 +101,11 @@ func executeSleepAction(actx actionExecutionContext) error {
 // must be set in the action config to specify the desired power operation.
 // When called from the power workflow, operationInfo is passed through
 // directly (Temporal handles deserialization at the activity boundary).
+//
+// In the synthesised path, the host-assignment override flag is read from the
+// parent task's operationInfo so that a BringUp / Firmware operator who set
+// override_assignment_check at the API does not have it silently dropped by
+// the sub-action's fresh PowerControlTaskInfo.
 func executePowerControlAction(actx actionExecutionContext) error {
 	if opParam, ok := actx.config.Parameters[operationrules.ParamOperation]; ok {
 		opStr, _ := opParam.(string)
@@ -110,7 +115,10 @@ func executePowerControlAction(actx actionExecutionContext) error {
 				"PowerControl action: unrecognized operation %q", opStr,
 			)
 		}
-		info := operations.PowerControlTaskInfo{Operation: op}
+		info := operations.PowerControlTaskInfo{
+			Operation:               op,
+			OverrideAssignmentCheck: extractOverrideAssignmentCheck(actx.operationInfo),
+		}
 		return executeGenericActivity(
 			actx.workflowContext, activity.NamePowerControl, actx.target, info,
 		)
@@ -198,6 +206,14 @@ func executeFirmwareControlAction(actx actionExecutionContext) error {
 	}
 	if fwInfo.Operation == operations.FirmwareOperationUnknown {
 		fwInfo.Operation = operations.FirmwareOperationUpgrade
+	}
+	// When the firmware action is fired by a BringUp parent, fwInfo is
+	// synthesised here and does not inherit the parent's
+	// OverrideAssignmentCheck through the type assertions above. Read it
+	// directly from the parent task info so the safety-gate decision is
+	// preserved across the parent / sub-action boundary.
+	if !fwInfo.OverrideAssignmentCheck {
+		fwInfo.OverrideAssignmentCheck = extractOverrideAssignmentCheck(actx.operationInfo)
 	}
 
 	fwInfo.TargetVersion = extractComponentTargetVersion(fwInfo.TargetVersion, target.Type)
@@ -388,10 +404,20 @@ func verifyPowerStatus(
 	}
 }
 
-// executeBringUpControlAction opens the power-on gate for the target components.
+// executeBringUpControlAction opens the power-on gate for the target
+// components. The BringUp parent task info is forwarded to the activity so
+// that operator-set fields (currently OverrideAssignmentCheck) are honoured
+// at the component-manager safety gate.
 func executeBringUpControlAction(actx actionExecutionContext) error {
+	info := operations.BringUpTaskInfo{
+		OverrideAssignmentCheck: extractOverrideAssignmentCheck(actx.operationInfo),
+	}
+	if parent, ok := actx.operationInfo.(*operations.BringUpTaskInfo); ok && parent != nil {
+		info.RuleID = parent.RuleID
+		info.OpCode = parent.OpCode
+	}
 	return workflow.ExecuteActivity(
-		actx.workflowContext, activity.NameBringUpControl, actx.target,
+		actx.workflowContext, activity.NameBringUpControl, actx.target, info,
 	).Get(actx.workflowContext, nil)
 }
 
@@ -593,6 +619,54 @@ func executeVerifyFirmwareConsistencyAction(actx actionExecutionContext) error {
 		activity.NameVerifyFirmwareConsistency,
 		actx.target,
 	).Get(actx.workflowContext, nil)
+}
+
+// extractOverrideAssignmentCheck reads the OverrideAssignmentCheck flag from
+// a parent task's operationInfo regardless of which TaskInfo type it is.
+// The same JSON tag (override_assignment_check) is used by every TaskInfo
+// that opts in, so a JSON round-trip is a type-agnostic fallback that also
+// covers the map[string]interface{} form produced by Temporal's child-
+// workflow argument serialisation.
+//
+// Returning false on any error or unrecognised shape is the safe default:
+// the assignment safety gate stays in effect when intent is ambiguous.
+func extractOverrideAssignmentCheck(operationInfo any) bool {
+	switch v := operationInfo.(type) {
+	case nil:
+		return false
+	case *operations.PowerControlTaskInfo:
+		if v == nil {
+			return false
+		}
+		return v.OverrideAssignmentCheck
+	case operations.PowerControlTaskInfo:
+		return v.OverrideAssignmentCheck
+	case *operations.FirmwareControlTaskInfo:
+		if v == nil {
+			return false
+		}
+		return v.OverrideAssignmentCheck
+	case operations.FirmwareControlTaskInfo:
+		return v.OverrideAssignmentCheck
+	case *operations.BringUpTaskInfo:
+		if v == nil {
+			return false
+		}
+		return v.OverrideAssignmentCheck
+	case operations.BringUpTaskInfo:
+		return v.OverrideAssignmentCheck
+	}
+	var probe struct {
+		OverrideAssignmentCheck bool `json:"override_assignment_check"`
+	}
+	data, err := json.Marshal(operationInfo)
+	if err != nil {
+		return false
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return false
+	}
+	return probe.OverrideAssignmentCheck
 }
 
 // knownComponentTypeKeys are the JSON keys recognised in a layered

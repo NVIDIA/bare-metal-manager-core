@@ -4,6 +4,7 @@ rapid_iterations = true
 max_database_connections = 1333
 max_find_by_ids = 50
 dpu_network_monitor_pinger_type = "OobNetBind"
+bmc_session_lockout_threshold = 5
 vpc_peering_policy = "exclusive"
 
 

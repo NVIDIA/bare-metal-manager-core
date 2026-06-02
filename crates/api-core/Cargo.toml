@@ -110,6 +110,7 @@ libredfish = { workspace = true }
 librms = { workspace = true }
 mac_address = { workspace = true }
 num_cpus = { workspace = true }
+nv-redfish = {workspace = true}
 opentelemetry = { workspace = true, features = ["logs"] }
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
 opentelemetry-prometheus = { workspace = true }
@@ -144,7 +145,8 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true, features = [
-  "runtime-tokio-rustls",
+  "runtime-tokio",
+  "tls-rustls",
   "mac_address",
   "ipnetwork",
   "uuid",

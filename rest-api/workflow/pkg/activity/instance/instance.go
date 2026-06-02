@@ -432,11 +432,21 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 					}
 
 					requestedIpAddress := interfaceConfig.IpAddress
-					// If the -rest side has a requested IP, but -core side does not,
-					// then a config change may have been done directly in -core.
-					// Clear the field in the DB.
+					var inlineRoutingProfile *cdbm.InterfaceInlineRoutingProfile
+					if interfaceConfig.RoutingProfile != nil {
+						inlineRoutingProfile = &cdbm.InterfaceInlineRoutingProfile{}
+						inlineRoutingProfile.FromProto(interfaceConfig.RoutingProfile)
+					}
+
+					clearInput := cdbm.InterfaceClearInput{InterfaceID: ifc.ID}
 					if ifc.RequestedIpAddress != nil && interfaceConfig.IpAddress == nil {
-						_, serr := interfaceDAO.Clear(ctx, nil, cdbm.InterfaceClearInput{InterfaceID: ifc.ID, RequestedIpAddress: true})
+						clearInput.RequestedIpAddress = true
+					}
+					if ifc.InlineRoutingProfile != nil && interfaceConfig.RoutingProfile == nil {
+						clearInput.InlineRoutingProfile = true
+					}
+					if clearInput.RequestedIpAddress || clearInput.InlineRoutingProfile {
+						_, serr := interfaceDAO.Clear(ctx, nil, clearInput)
 						if serr != nil {
 							slogger.Error().Err(serr).Str("Interface ID", ifc.ID.String()).Msg("failed to update Interface in DB")
 							continue
@@ -448,7 +458,7 @@ func (mi ManageInstance) UpdateInstancesInDB(ctx context.Context, siteID uuid.UU
 						status = cdb.GetStrPtr(cdbm.InterfaceStatusReady)
 					}
 
-					_, serr := interfaceDAO.Update(ctx, nil, cdbm.InterfaceUpdateInput{InterfaceID: ifc.ID, Device: device, DeviceInstance: deviceInstance, VirtualFunctionID: vfID, RequestedIpAddress: requestedIpAddress, MacAddress: macAddress, IpAddresses: ipAddresses, Status: status})
+					_, serr := interfaceDAO.Update(ctx, nil, cdbm.InterfaceUpdateInput{InterfaceID: ifc.ID, Device: device, DeviceInstance: deviceInstance, VirtualFunctionID: vfID, RequestedIpAddress: requestedIpAddress, InlineRoutingProfile: inlineRoutingProfile, MacAddress: macAddress, IpAddresses: ipAddresses, Status: status})
 					if serr != nil {
 						slogger.Error().Err(serr).Str("Interface ID", ifc.ID.String()).Msg("failed to update Interface in DB")
 					}

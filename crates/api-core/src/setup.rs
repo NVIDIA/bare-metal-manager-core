@@ -622,6 +622,16 @@ pub async fn start_api(
         ListenMode::PlaintextHttp2 => ApiListenMode::PlaintextHttp2,
     };
 
+    let bmc_session_store: Arc<dyn crate::credentials::BmcSessionStore> =
+        Arc::new(crate::credentials::PgBmcSessionStore::new(db_pool.clone()));
+    let bmc_session_manager = Arc::new(crate::credentials::BmcSessionManager::new(
+        shared_nv_redfish_pool.clone(),
+        credential_manager.clone(),
+        bmc_session_store,
+        carbide_config.bmc_session_lockout_threshold,
+        carbide_config.allow_bmc_basic_auth_fallback,
+    ));
+
     let bmc_explorer = carbide_site_explorer::new_bmc_explorer(
         shared_redfish_pool.clone(),
         shared_nv_redfish_pool,
@@ -736,6 +746,7 @@ pub async fn start_api(
         eth_data,
         ib_fabric_manager,
         redfish_pool: shared_redfish_pool,
+        bmc_session_manager,
         runtime_config: carbide_config.clone(),
         scout_stream_registry: ConnectionRegistry::new(),
         rms_client: rms_client.clone(),

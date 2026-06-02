@@ -179,8 +179,8 @@ mod tests {
         sink.handle_event(&context, &log_event);
 
         let export_after_log = metrics_manager
-            .export_all()
-            .expect("metrics export should work");
+            .export_telemetry()
+            .expect("telemetry export should work");
         assert!(!export_after_log.contains("test_sink_hw_sensor"));
 
         let metric_event = CollectorEvent::Metric(
@@ -199,9 +199,14 @@ mod tests {
         sink.handle_event(&context, &metric_event);
 
         let export_after_metric = metrics_manager
-            .export_all()
-            .expect("metrics export should work");
+            .export_telemetry()
+            .expect("telemetry export should work");
         assert!(export_after_metric.contains("test_sink_hw_sensor_temperature_celsius"));
+
+        let service_metrics = metrics_manager
+            .export_metrics()
+            .expect("service metrics export should work");
+        assert!(!service_metrics.contains("test_sink_hw_sensor_temperature_celsius"));
     }
 
     #[tokio::test]
@@ -246,15 +251,15 @@ mod tests {
 
         sink.handle_event(&context, &metric_event);
         let export_before_remove = metrics_manager
-            .export_all()
-            .expect("metrics export should work");
+            .export_telemetry()
+            .expect("telemetry export should work");
         assert!(export_before_remove.contains("test_sink_hw_sensor_temperature_celsius"));
 
         sink.handle_event(&context, &CollectorEvent::CollectorRemoved);
 
         let export_after_remove = metrics_manager
-            .export_all()
-            .expect("metrics export should work");
+            .export_telemetry()
+            .expect("telemetry export should work");
         assert!(!export_after_remove.contains("test_sink_hw_sensor_temperature_celsius"));
         assert!(!export_after_remove.contains("endpoint_key=\"42:9e:b1:bd:9d:dd\""));
     }
@@ -305,8 +310,8 @@ mod tests {
         sink.handle_event(&context, &end_event);
 
         let first_export = metrics_manager
-            .export_all()
-            .expect("metrics export should work");
+            .export_telemetry()
+            .expect("telemetry export should work");
         assert!(first_export.contains("sensor=\"temp1\""));
 
         let start_event = CollectorEvent::MetricCollectionStart;
@@ -328,8 +333,8 @@ mod tests {
         sink.handle_event(&context, &end_event);
 
         let second_export = metrics_manager
-            .export_all()
-            .expect("metrics export should work");
+            .export_telemetry()
+            .expect("telemetry export should work");
         assert!(!second_export.contains("sensor=\"temp1\""));
         assert!(second_export.contains("sensor=\"temp2\""));
     }

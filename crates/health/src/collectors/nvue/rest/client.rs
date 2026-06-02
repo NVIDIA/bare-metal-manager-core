@@ -16,8 +16,10 @@
  */
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
+use arc_swap::ArcSwapOption;
 use reqwest::Client;
 use reqwest::header::ACCEPT;
 use serde::Deserialize;
@@ -32,12 +34,25 @@ const NVUE_CLUSTER_APPS: &str = "/nvue_v1/cluster/apps";
 const NVUE_SDN_PARTITIONS: &str = "/nvue_v1/sdn/partition";
 const NVUE_INTERFACES: &str = "/nvue_v1/interface";
 
-/// Client for NVUE REST API on NVUE-managed switches.
+#[derive(Clone)]
+pub struct UsernamePassword {
+    pub username: String,
+    pub password: Option<String>,
+}
+
+impl std::fmt::Debug for UsernamePassword {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UsernamePassword")
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
+}
+
 pub struct RestClient {
     pub(crate) switch_id: String,
     base_url: Url,
-    username: Option<String>,
-    password: Option<String>,
+    credentials: ArcSwapOption<UsernamePassword>,
     paths: NvueRestPaths,
     client: Client,
 }
@@ -46,8 +61,6 @@ impl RestClient {
     pub fn new(
         switch_id: String,
         host: &str,
-        username: Option<String>,
-        password: Option<String>,
         request_timeout: Duration,
         self_signed_tls: bool,
         paths: NvueRestPaths,
@@ -70,11 +83,22 @@ impl RestClient {
         Ok(Self {
             switch_id,
             base_url,
-            username,
-            password,
+            credentials: ArcSwapOption::empty(),
             paths,
             client,
         })
+    }
+
+    pub fn set_credentials(&self, creds: UsernamePassword) {
+        self.credentials.store(Some(Arc::new(creds)));
+    }
+
+    pub fn clear_credentials(&self) {
+        self.credentials.store(None);
+    }
+
+    pub fn has_credentials(&self) -> bool {
+        self.credentials.load().is_some()
     }
 
     pub async fn get_system_health(&self) -> Result<Option<SystemHealthResponse>, HealthError> {
@@ -162,8 +186,8 @@ impl RestClient {
             request = request.query(extra_query);
         }
 
-        if let Some(user) = &self.username {
-            request = request.basic_auth(user, self.password.as_ref());
+        if let Some(creds) = self.credentials.load_full() {
+            request = request.basic_auth(&creds.username, creds.password.as_ref());
         }
 
         request = request.header(ACCEPT, "application/json");

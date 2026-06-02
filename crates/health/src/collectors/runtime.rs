@@ -23,11 +23,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use futures::{StreamExt, TryStreamExt};
-use http::header::InvalidHeaderValue;
-use http::{HeaderMap, header};
 use nv_redfish::ServiceRoot;
-use nv_redfish::bmc_http::reqwest::Client as ReqwestClient;
-use nv_redfish::bmc_http::{CacheSettings, HttpBmc};
 use nv_redfish::core::Bmc;
 use nv_redfish::event_service::EventStreamPayload;
 use prometheus::{Counter, Gauge, Histogram, HistogramOpts, IntCounter, IntGauge, Opts};
@@ -36,9 +32,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::HealthError;
-use crate::bmc::AuthRefreshingBmc;
-use crate::config::Config as AppConfig;
-use crate::discovery::BmcClient;
+use crate::bmc::BmcClient;
 use crate::endpoint::BmcEndpoint;
 use crate::limiter::RateLimiter;
 use crate::metrics::{
@@ -257,63 +251,22 @@ pub struct Collector {
     cancel_token: CancellationToken,
 }
 
-fn create_bmc(
-    client: ReqwestClient,
-    endpoint: Arc<BmcEndpoint>,
-    health_options: &AppConfig,
-) -> Result<Arc<BmcClient>, HealthError> {
-    let bmc_url = match &health_options.bmc_proxy_url {
-        Some(url) => url.clone(),
-        None => endpoint
-            .addr
-            .to_url()
-            .map_err(|e| HealthError::GenericError(e.to_string()))?,
-    };
-
-    let headers = if health_options.bmc_proxy_url.is_some() {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            header::FORWARDED,
-            format!("host={}", endpoint.addr.ip)
-                .parse()
-                .map_err(|e: InvalidHeaderValue| HealthError::GenericError(e.to_string()))?,
-        );
-        headers
-    } else {
-        HeaderMap::new()
-    };
-
-    let initial_credentials = endpoint.credentials();
-    let inner = HttpBmc::with_custom_headers(
-        client,
-        bmc_url,
-        initial_credentials.into(),
-        CacheSettings::with_capacity(health_options.cache_size),
-        headers,
-    );
-
-    Ok(Arc::new(AuthRefreshingBmc::new(inner, endpoint)))
-}
-
 pub struct CollectorStartContext {
     pub limiter: Arc<dyn RateLimiter>,
     pub iteration_interval: Duration,
     pub collector_registry: Arc<CollectorRegistry>,
     pub metrics_manager: Arc<MetricsManager>,
-    pub client: ReqwestClient,
-    pub health_options: Arc<AppConfig>,
 }
 
 pub struct StreamingCollectorStartContext {
     pub backoff_config: BackoffConfig,
     pub collector_registry: Arc<CollectorRegistry>,
-    pub client: ReqwestClient,
-    pub health_options: Arc<AppConfig>,
 }
 
 impl Collector {
     pub fn start<C: PeriodicCollector<BmcClient>>(
         endpoint: Arc<BmcEndpoint>,
+        bmc: Arc<BmcClient>,
         config: C::Config,
         start_context: CollectorStartContext,
     ) -> Result<Self, HealthError> {
@@ -322,14 +275,10 @@ impl Collector {
             iteration_interval,
             collector_registry,
             metrics_manager,
-            client,
-            health_options,
         } = start_context;
 
         let cancel_token = CancellationToken::new();
         let cancel_token_clone = cancel_token.clone();
-
-        let bmc = create_bmc(client, Arc::clone(&endpoint), &health_options)?;
 
         let mut runner = C::new_runner(bmc, endpoint.clone(), config)?;
 
@@ -454,6 +403,7 @@ impl Collector {
 
     pub fn start_streaming<S, F>(
         endpoint: Arc<BmcEndpoint>,
+        bmc: Arc<BmcClient>,
         config: S::Config,
         data_sink: Arc<dyn DataSink>,
         start_context: StreamingCollectorStartContext,
@@ -466,14 +416,10 @@ impl Collector {
         let StreamingCollectorStartContext {
             backoff_config,
             collector_registry,
-            client,
-            health_options,
         } = start_context;
 
         let cancel_token = CancellationToken::new();
         let cancel_clone = cancel_token.clone();
-
-        let bmc = create_bmc(client, Arc::clone(&endpoint), &health_options)?;
 
         let mut collector = S::new_runner(Arc::clone(&bmc), endpoint.clone(), config)?;
         let event_context = EventContext::from_endpoint(&endpoint, collector.collector_type());

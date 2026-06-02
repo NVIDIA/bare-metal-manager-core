@@ -626,6 +626,16 @@ func testUpdateOSIsActive(t *testing.T, dbSession *cdb.Session, ins *cdbm.Operat
 	return ins
 }
 
+// assertInterfaceRoutingProfilePrefixes verifies proto routing profile prefix order.
+func assertInterfaceRoutingProfilePrefixes(t *testing.T, actual *cwssaws.InstanceInterfaceRoutingProfile, expected []string) {
+	t.Helper()
+	require.NotNil(t, actual)
+	require.Len(t, actual.AllowedAnycastPrefixes, len(expected))
+	for i, prefix := range expected {
+		assert.Equal(t, prefix, actual.AllowedAnycastPrefixes[i].Prefix)
+	}
+}
+
 func TestCreateInstanceHandler_Handle(t *testing.T) {
 
 	ctx := context.Background()
@@ -1646,6 +1656,9 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 							IsPhysical:     true,
 							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
 							DeviceInstance: cdb.GetIntPtr(0),
+							InlineRoutingProfile: &model.APIInterfaceInlineRoutingProfile{
+								AllowedAnycastPrefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+							},
 						},
 						{
 							VpcPrefixID:       cdb.GetStrPtr(vpcPrefix5.ID.String()),
@@ -3464,6 +3477,7 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 			assert.Equal(t, len(rst.StatusHistory), 1)
 			if len(tt.args.reqData.Interfaces) > 0 {
 				require.Len(t, rst.Interfaces, len(tt.args.reqData.Interfaces))
+				hasInlineRoutingProfile := false
 				for i := range tt.args.reqData.Interfaces {
 					if tt.args.reqData.Interfaces[i].SubnetID != nil {
 						assert.Equal(t, tt.args.reqData.Interfaces[i].SubnetID, rst.Interfaces[i].SubnetID)
@@ -3480,11 +3494,32 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 					assert.Equal(t, tt.args.reqData.Interfaces[i].Device, rst.Interfaces[i].Device)
 					assert.Equal(t, tt.args.reqData.Interfaces[i].DeviceInstance, rst.Interfaces[i].DeviceInstance)
 					assert.Equal(t, tt.args.reqData.Interfaces[i].VirtualFunctionID, rst.Interfaces[i].VirtualFunctionID)
+					if tt.args.reqData.Interfaces[i].InlineRoutingProfile != nil {
+						hasInlineRoutingProfile = true
+						require.NotNil(t, rst.Interfaces[i].InlineRoutingProfile)
+						assert.Equal(t, tt.args.reqData.Interfaces[i].InlineRoutingProfile.AllowedAnycastPrefixes, rst.Interfaces[i].InlineRoutingProfile.AllowedAnycastPrefixes)
+					}
 
 					// Handle the fact that single-interface instance get normalized to have
 					// PF for the first interface.
 					if len(tt.args.reqData.Interfaces) > 1 {
 						assert.Equal(t, tt.args.reqData.Interfaces[i].IsPhysical, rst.Interfaces[i].IsPhysical)
+					}
+				}
+
+				if hasInlineRoutingProfile {
+					ifcDAO := cdbm.NewInterfaceDAO(dbSession)
+					dbIfcs, _, ierr := ifcDAO.GetAll(ec.Request().Context(), nil,
+						cdbm.InterfaceFilterInput{InstanceIDs: []uuid.UUID{uuid.MustParse(rst.ID)}},
+						cdbp.PageInput{OrderBy: &cdbp.OrderBy{Field: cdbm.InterfaceOrderByCreated, Order: cdbp.OrderAscending}},
+						nil)
+					require.NoError(t, ierr)
+					require.Len(t, dbIfcs, len(tt.args.reqData.Interfaces))
+					for i := range tt.args.reqData.Interfaces {
+						if tt.args.reqData.Interfaces[i].InlineRoutingProfile != nil {
+							require.NotNil(t, dbIfcs[i].InlineRoutingProfile)
+							assert.Equal(t, tt.args.reqData.Interfaces[i].InlineRoutingProfile.AllowedAnycastPrefixes, dbIfcs[i].InlineRoutingProfile.AllowedAnycastPrefixes)
+						}
 					}
 				}
 			}
@@ -3511,6 +3546,12 @@ func TestCreateInstanceHandler_Handle(t *testing.T) {
 					assert.True(t, req.AllowUnhealthyMachine, fmt.Sprintf("%v", req))
 				} else {
 					assert.False(t, req.AllowUnhealthyMachine, fmt.Sprintf("%v", req))
+				}
+
+				for i, reqIfc := range tt.args.reqData.Interfaces {
+					if reqIfc.InlineRoutingProfile != nil {
+						assertInterfaceRoutingProfilePrefixes(t, req.Config.Network.Interfaces[i].RoutingProfile, reqIfc.InlineRoutingProfile.AllowedAnycastPrefixes)
+					}
 				}
 			}
 
@@ -5613,6 +5654,9 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 							IsPhysical:     true,
 							Device:         cdb.GetStrPtr("MT42822 BlueField-2 integrated ConnectX-6 Dx network controller"),
 							DeviceInstance: cdb.GetIntPtr(0),
+							InlineRoutingProfile: &model.APIInterfaceInlineRoutingProfile{
+								AllowedAnycastPrefixes: []string{"192.0.2.0/24", "2001:db8::/64"},
+							},
 						},
 					},
 				},
@@ -6618,6 +6662,11 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 						assert.Equal(t, tt.args.reqData.Interfaces[i].IPAddress, ifcs[i].RequestedIpAddress)
 					}
 
+					if tt.args.reqData.Interfaces[i].InlineRoutingProfile != nil {
+						require.NotNil(t, ifcs[i].InlineRoutingProfile)
+						assert.Equal(t, tt.args.reqData.Interfaces[i].InlineRoutingProfile.AllowedAnycastPrefixes, ifcs[i].InlineRoutingProfile.AllowedAnycastPrefixes)
+					}
+
 					assert.Equal(t, cdbm.InterfaceStatusPending, ifcs[i].Status)
 				}
 			}
@@ -6789,6 +6838,10 @@ func TestUpdateInstanceHandler_Handle(t *testing.T) {
 
 						if reqInsIfcs[i].RequestedIpAddress != nil {
 							assert.Equal(t, siteIfc.IpAddress, reqInsIfcs[i].RequestedIpAddress)
+						}
+
+						if tt.args.reqData.Interfaces != nil && i < len(tt.args.reqData.Interfaces) && tt.args.reqData.Interfaces[i].InlineRoutingProfile != nil {
+							assertInterfaceRoutingProfilePrefixes(t, siteIfc.RoutingProfile, tt.args.reqData.Interfaces[i].InlineRoutingProfile.AllowedAnycastPrefixes)
 						}
 					}
 

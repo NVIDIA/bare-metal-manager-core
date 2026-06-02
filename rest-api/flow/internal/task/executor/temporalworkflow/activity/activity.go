@@ -147,17 +147,20 @@ func (a *Activities) GetFirmwareStatus(
 	return &GetFirmwareStatusResult{Statuses: statuses}, nil
 }
 
-// BringUpControl opens the power-on gate for the target components.
+// BringUpControl opens the power-on gate for the target components. The info
+// argument carries the parent BringUp task settings (e.g. override of the
+// host-assignment safety gate) and is forwarded to the component manager.
 func (a *Activities) BringUpControl(
 	ctx context.Context,
 	target common.Target,
+	info operations.BringUpTaskInfo,
 ) error {
 	controller, err := requireBringUpController(a.registry, target)
 	if err != nil {
 		return err
 	}
 
-	return controller.BringUpControl(ctx, target)
+	return controller.BringUpControl(ctx, target, info)
 }
 
 // GetBringUpStatusResult is the result of GetBringUpStatus activity.

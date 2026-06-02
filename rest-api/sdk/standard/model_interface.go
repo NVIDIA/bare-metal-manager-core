@@ -37,11 +37,13 @@ type Interface struct {
 	MacAddress        NullableString `json:"macAddress,omitempty"`
 	// A list of IPv4 or IPv6 addresses
 	IpAddresses []string `json:"ipAddresses,omitempty"`
-	// Explicitly requested IP address for the interface. This is only used for VPC Prefix based interfaces and is not valid for Subnet based interfaces. The least-significant host bit must be 1.
-	RequestedIpAddress NullableString   `json:"requestedIpAddress,omitempty"`
-	Status             *InterfaceStatus `json:"status,omitempty"`
-	Created            *time.Time       `json:"created,omitempty"`
-	Updated            *time.Time       `json:"updated,omitempty"`
+	// Explicitly requested IP address for the interface. This is only used for VPC Prefix-based interfaces and is not valid for Subnet-based interfaces. The least-significant host bit must be 1.
+	RequestedIpAddress NullableString `json:"requestedIpAddress,omitempty"`
+	// Inline interface-local routing profile options. Only valid for VPC Prefix-based interfaces.
+	InlineRoutingProfile NullableInterfaceInlineRoutingProfile `json:"inlineRoutingProfile,omitempty"`
+	Status               *InterfaceStatus                      `json:"status,omitempty"`
+	Created              *time.Time                            `json:"created,omitempty"`
+	Updated              *time.Time                            `json:"updated,omitempty"`
 }
 
 // NewInterface instantiates a new Interface object
@@ -490,6 +492,49 @@ func (o *Interface) UnsetRequestedIpAddress() {
 	o.RequestedIpAddress.Unset()
 }
 
+// GetInlineRoutingProfile returns the InlineRoutingProfile field value if set, zero value otherwise (both if not set or set to explicit null).
+func (o *Interface) GetInlineRoutingProfile() InterfaceInlineRoutingProfile {
+	if o == nil || IsNil(o.InlineRoutingProfile.Get()) {
+		var ret InterfaceInlineRoutingProfile
+		return ret
+	}
+	return *o.InlineRoutingProfile.Get()
+}
+
+// GetInlineRoutingProfileOk returns a tuple with the InlineRoutingProfile field value if set, nil otherwise
+// and a boolean to check if the value has been set.
+// NOTE: If the value is an explicit nil, `nil, true` will be returned
+func (o *Interface) GetInlineRoutingProfileOk() (*InterfaceInlineRoutingProfile, bool) {
+	if o == nil {
+		return nil, false
+	}
+	return o.InlineRoutingProfile.Get(), o.InlineRoutingProfile.IsSet()
+}
+
+// HasInlineRoutingProfile returns a boolean if a field has been set.
+func (o *Interface) HasInlineRoutingProfile() bool {
+	if o != nil && o.InlineRoutingProfile.IsSet() {
+		return true
+	}
+
+	return false
+}
+
+// SetInlineRoutingProfile gets a reference to the given NullableInterfaceInlineRoutingProfile and assigns it to the InlineRoutingProfile field.
+func (o *Interface) SetInlineRoutingProfile(v InterfaceInlineRoutingProfile) {
+	o.InlineRoutingProfile.Set(&v)
+}
+
+// SetInlineRoutingProfileNil sets the value for InlineRoutingProfile to be an explicit nil
+func (o *Interface) SetInlineRoutingProfileNil() {
+	o.InlineRoutingProfile.Set(nil)
+}
+
+// UnsetInlineRoutingProfile ensures that no value is present for InlineRoutingProfile, not even an explicit nil
+func (o *Interface) UnsetInlineRoutingProfile() {
+	o.InlineRoutingProfile.Unset()
+}
+
 // GetStatus returns the Status field value if set, zero value otherwise.
 func (o *Interface) GetStatus() InterfaceStatus {
 	if o == nil || IsNil(o.Status) {
@@ -628,6 +673,9 @@ func (o Interface) ToMap() (map[string]interface{}, error) {
 	}
 	if o.RequestedIpAddress.IsSet() {
 		toSerialize["requestedIpAddress"] = o.RequestedIpAddress.Get()
+	}
+	if o.InlineRoutingProfile.IsSet() {
+		toSerialize["inlineRoutingProfile"] = o.InlineRoutingProfile.Get()
 	}
 	if !IsNil(o.Status) {
 		toSerialize["status"] = o.Status
