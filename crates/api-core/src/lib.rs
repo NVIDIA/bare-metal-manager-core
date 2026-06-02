@@ -70,6 +70,10 @@ mod run;
 mod scout_stream;
 pub mod setup;
 mod storage;
+
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
+
 // Compiled for our own tests, and also when the `test-support` feature is enabled so that
 // dependents (notably `carbide-api-web`) can reuse the `tests::common` fixtures to build a real
 // `Api`. Only `tests::common` is exposed under `test-support`; the actual test cases stay

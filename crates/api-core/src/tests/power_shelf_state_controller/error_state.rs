@@ -26,7 +26,7 @@ use carbide_power_shelf_controller::handler::PowerShelfStateHandler;
 use carbide_power_shelf_controller::metrics::PowerShelfMetrics;
 use carbide_uuid::power_shelf::PowerShelfId;
 use db::power_shelf as db_power_shelf;
-use forge_secrets::credentials::TestCredentialManager;
+use forge_secrets::test_support::credentials::TestCredentialManager;
 use model::power_shelf::{PowerShelf, PowerShelfControllerState, PowerShelfMaintenanceOperation};
 use sqlx::PgConnection;
 use state_controller::db_write_batch::DbWriteBatch;

@@ -97,12 +97,10 @@ impl FakeMachine {
     }
 }
 
-#[async_trait::async_trait]
 trait DiscoverDhcp {
     async fn discover_dhcp(&mut self, env: &TestEnv) -> Result<(), Box<dyn std::error::Error>>;
 }
 
-#[async_trait::async_trait]
 impl DiscoverDhcp for FakeMachine {
     async fn discover_dhcp(&mut self, env: &TestEnv) -> Result<(), Box<dyn std::error::Error>> {
         let relay_address = match self.segment {
@@ -128,7 +126,6 @@ impl DiscoverDhcp for FakeMachine {
     }
 }
 
-#[async_trait::async_trait]
 impl DiscoverDhcp for Vec<FakeMachine> {
     async fn discover_dhcp(&mut self, env: &TestEnv) -> Result<(), Box<dyn std::error::Error>> {
         for machine in self.iter_mut() {

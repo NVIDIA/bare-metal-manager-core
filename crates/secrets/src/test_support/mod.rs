@@ -15,18 +15,5 @@
  * limitations under the License.
  */
 
-//! Contains common functionality between integration tests
-
-pub mod api_fixtures;
-// Only this crate's own `#[cfg(test)]` test cases use these attestation helpers (the `test-support`
-// consumers don't), so gate the module out of test-support-only builds to keep dead-code detection
-// honest and avoid pulling in unused imports.
-#[cfg(test)]
-pub mod attestation;
-pub mod endpoint;
-pub mod ib_guid_pool;
-pub mod mac_address_pool;
-pub mod metadata;
-pub mod network_segment;
-pub mod rpc_builder;
-pub mod sqlx_fixtures;
+pub mod certificates;
+pub mod credentials;
