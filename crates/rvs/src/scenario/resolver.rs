@@ -47,16 +47,24 @@ fn resolve_for_scenario(
     });
 
     // Direct-URI artifacts
-    for artifact in scenario.artifacts.iter().filter(|a| a.uri.is_some()) {
+    for (artifact, url) in scenario
+        .artifacts
+        .iter()
+        .filter_map(|a| Some((a, a.uri.clone()?)))
+    {
         downloads.push(ArtifactDownload {
             output_path: format!("{cache_dir}/{ns}/{}", artifact.output),
-            url: artifact.uri.clone().unwrap(),
+            url,
         });
     }
 
     // SOT-resolved artifacts
-    for artifact in scenario.artifacts.iter().filter(|a| a.sotpath.is_some()) {
-        let url = eval_sotpath(sot, artifact.sotpath.as_deref().unwrap())?;
+    for (artifact, sotpath) in scenario
+        .artifacts
+        .iter()
+        .filter_map(|a| Some((a, a.sotpath.as_deref()?)))
+    {
+        let url = eval_sotpath(sot, sotpath)?;
         downloads.push(ArtifactDownload {
             output_path: format!("{cache_dir}/{ns}/{}", artifact.output),
             url,
@@ -157,7 +165,7 @@ mod tests {
         let mut scenario = make_scenario("gb200nvl", "1.2.5");
         scenario.artifacts.push(super::super::Artifact {
             name: "diag".to_string(),
-            output: "diag.bin".to_string(),
+            output: "diag.bin".parse().unwrap(),
             uri: Some("https://example.com/diag.bin".to_string()),
             sotpath: None,
         });
@@ -173,7 +181,7 @@ mod tests {
         let mut scenario = make_scenario("gb200nvl", "1.2.5");
         scenario.artifacts.push(super::super::Artifact {
             name: "diag".to_string(),
-            output: "diag.bin".to_string(),
+            output: "diag.bin".parse().unwrap(),
             uri: None,
             sotpath: Some("$.packages.diag".to_string()),
         });
@@ -189,7 +197,7 @@ mod tests {
         let mut scenario = make_scenario("gb200nvl", "1.2.5");
         scenario.artifacts.push(super::super::Artifact {
             name: "diag".to_string(),
-            output: "diag.bin".to_string(),
+            output: "diag.bin".parse().unwrap(),
             uri: None,
             sotpath: Some("$.packages.diag".to_string()),
         });

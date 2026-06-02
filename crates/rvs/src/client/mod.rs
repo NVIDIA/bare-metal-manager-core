@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use carbide_uuid::machine::MachineId;
 use carbide_uuid::nvlink::NvLinkDomainId;
 use carbide_uuid::rack::RackId;
-pub use io::NiccClient;
-use rpc::forge::{Machine, Rack, RackFirmware};
+pub use io::NicoClient;
+use rpc::forge::{Machine, Rack};
 
 use crate::error::RvsError;
 
@@ -114,24 +114,14 @@ impl TryFrom<Rack> for RackData {
     }
 }
 
-/// SOT JSON blob returned from NICC for a rack firmware/release record.
+/// Parsed SOT JSON document used for JSONPath artifact resolution.
+///
+/// Produced from a local file today (`sot_override_path`); see `fetch_sot`
+/// for why the gRPC source is stubbed.
 #[derive(Debug)]
 pub struct RackFirmwareData {
-    /// Firmware record ID.
+    /// Identifier for this SOT record (e.g. "override").
     pub id: String,
     /// Parsed SOT JSON -- used for JSONPath artifact resolution.
     pub config: serde_json::Value,
-}
-
-impl TryFrom<RackFirmware> for RackFirmwareData {
-    type Error = RvsError;
-
-    fn try_from(value: RackFirmware) -> Result<Self, Self::Error> {
-        let config = serde_json::from_str(&value.config_json)
-            .map_err(|e| RvsError::InvalidArg(format!("invalid SOT JSON: {e}")))?;
-        Ok(Self {
-            id: value.id,
-            config,
-        })
-    }
 }

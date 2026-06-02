@@ -19,19 +19,19 @@ pub struct Config {
     pub scenario_config_paths: Vec<String>,
     /// How long to wait between validation poll cycles (seconds).
     pub poll_interval_secs: u64,
-    /// NICC connection settings.
-    pub nicc: NiccConfig,
+    /// NICo connection settings.
+    pub nico: NicoConfig,
     /// TLS / mTLS certificate paths.
     pub tls: TlsConfig,
     /// Artifact cache settings.
     pub artifact_cache: ArtifactCacheConfig,
 }
 
-/// NICC (Carbide API) connection settings.
+/// NICo (Carbide API) connection settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct NiccConfig {
-    /// NICC gRPC endpoint URL.
+pub struct NicoConfig {
+    /// NICo gRPC endpoint URL.
     pub url: String,
     /// Per-RPC timeout in seconds.
     ///
@@ -73,14 +73,14 @@ impl Default for Config {
             metrics_endpoint: "[::]:9019".parse().unwrap(),
             scenario_config_paths: vec!["/etc/forge/rvs/scenario.toml".to_string()],
             poll_interval_secs: 30,
-            nicc: NiccConfig::default(),
+            nico: NicoConfig::default(),
             tls: TlsConfig::default(),
             artifact_cache: ArtifactCacheConfig::default(),
         }
     }
 }
 
-impl Default for NiccConfig {
+impl Default for NicoConfig {
     fn default() -> Self {
         Self {
             url: "https://carbide-api.forge-system.svc.cluster.local:1079".to_string(),
@@ -141,7 +141,7 @@ mod tests {
             config.metrics_endpoint,
             "[::]:9019".parse::<SocketAddr>().unwrap()
         );
-        assert_eq!(config.nicc.rpc_timeout_secs, 30);
+        assert_eq!(config.nico.rpc_timeout_secs, 30);
         assert_eq!(config.artifact_cache.max_concurrent_downloads, 4);
     }
 
@@ -149,7 +149,7 @@ mod tests {
     fn test_load_without_file_uses_defaults() {
         let config = Config::load(None).unwrap();
         assert_eq!(
-            config.nicc.url,
+            config.nico.url,
             "https://carbide-api.forge-system.svc.cluster.local:1079"
         );
         assert_eq!(
@@ -163,7 +163,7 @@ mod tests {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("doc/example_config.toml");
         let config = Config::load(Some(&path)).unwrap();
         assert_eq!(config.listen, "[::]:1089".parse::<SocketAddr>().unwrap());
-        assert_eq!(config.nicc.rpc_timeout_secs, 30);
+        assert_eq!(config.nico.rpc_timeout_secs, 30);
         assert_eq!(config.artifact_cache.cache_dir, "/rvs-cache");
     }
 }

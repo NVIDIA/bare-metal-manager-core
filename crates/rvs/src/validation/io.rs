@@ -4,7 +4,7 @@ use carbide_uuid::machine::MachineId;
 use uuid::Uuid;
 
 use super::{Report, ValidationJob};
-use crate::client::NiccClient;
+use crate::client::NicoClient;
 use crate::error::RvsError;
 use crate::partitions::Partitions;
 use crate::rack::Tray;
@@ -74,16 +74,16 @@ fn retained_trays(partitions: Partitions) -> HashMap<MachineId, Tray> {
 /// Convert filtered partitions into validation jobs.
 pub async fn plan(
     partitions: Partitions,
-    nicc: &NiccClient,
+    nico: &NicoClient,
     os_uri: &str,
 ) -> Result<Vec<ValidationJob>, RvsError> {
     let trays = retained_trays(partitions);
     if trays.is_empty() {
         return Ok(vec![]);
     }
-    assign_run_id(&trays, nicc).await?;
-    allocate_instances(&trays, os_uri, nicc).await?;
-    wait_for_boot(&trays, nicc).await?;
+    assign_run_id(&trays, nico).await?;
+    allocate_instances(&trays, os_uri, nico).await?;
+    wait_for_boot(&trays, nico).await?;
     Ok(vec![ValidationJob {
         trays: trays.into_values().collect(),
     }])
@@ -92,23 +92,23 @@ pub async fn plan(
 /// Ensure every tray carries a consistent `rv.run-id`, writing it if absent.
 async fn assign_run_id(
     trays: &HashMap<MachineId, Tray>,
-    nicc: &NiccClient,
+    nico: &NicoClient,
 ) -> Result<(), RvsError> {
     let plan = prepare_run_id(trays);
     for (tray_id, labels) in plan.updates {
-        nicc.update_rv_labels(&tray_id, labels).await?;
+        nico.update_rv_labels(&tray_id, labels).await?;
     }
     Ok(())
 }
 
 /// Allocate a validation OS instance on each tray in the partition.
 ///
-/// TODO[#416]: stub - wire in nicc.allocate_machine_instance per tray and collect
+/// TODO[#416]: stub - wire in nico.allocate_machine_instance per tray and collect
 /// instance IDs for boot tracking. ValidationJob will carry them once expanded.
 async fn allocate_instances(
     _trays: &HashMap<MachineId, Tray>,
     _os_uri: &str,
-    _nicc: &NiccClient,
+    _nico: &NicoClient,
 ) -> Result<(), RvsError> {
     let () = std::future::ready(()).await; // phantom await: keeps async sig for future wiring
     Ok(())
@@ -120,7 +120,7 @@ async fn allocate_instances(
 /// allocate_instances populates instance IDs on ValidationJob.
 async fn wait_for_boot(
     _trays: &HashMap<MachineId, Tray>,
-    _nicc: &NiccClient,
+    _nico: &NicoClient,
 ) -> Result<(), RvsError> {
     let () = std::future::ready(()).await; // phantom await: keeps async sig for future wiring
     Ok(())

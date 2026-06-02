@@ -1,9 +1,56 @@
 mod resolver;
 
+use std::fmt;
 use std::path::Path;
+use std::str::FromStr;
 
 pub use resolver::resolve_artifact_urls;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
+
+/// A single, safe path component for an artifact's cache filename.
+///
+/// `output` is joined into the on-disk cache path and then served over
+/// HTTP, so a value like `../../etc/passwd` would let a scenario write
+/// outside the cache directory. This type rejects anything that isn't a
+/// plain filename: empty, `.`, `..`, NUL, and path separators.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathSegment(String);
+
+impl PathSegment {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for PathSegment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl FromStr for PathSegment {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.is_empty() {
+            return Err("must not be empty".to_string());
+        }
+        if s == "." || s == ".." {
+            return Err(format!("'{s}' is a directory traversal component"));
+        }
+        if let Some(c) = s.chars().find(|&c| c == '/' || c == '\\' || c == '\0') {
+            return Err(format!("contains disallowed character {c:?}"));
+        }
+        Ok(PathSegment(s.to_string()))
+    }
+}
+
+impl<'de> Deserialize<'de> for PathSegment {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
+    }
+}
 
 /// Rack model + SOT release this scenario targets.
 #[derive(Debug, Deserialize)]
@@ -22,7 +69,7 @@ pub struct OsImage {
 #[derive(Debug, Deserialize)]
 pub struct Artifact {
     pub name: String,
-    pub output: String,
+    pub output: PathSegment,
     /// Direct download URL (mutually exclusive with `sotpath`).
     ///
     /// Exactly one of `uri`/`sotpath` must be set; enforced in
@@ -139,7 +186,7 @@ mod tests {
     fn artifact(name: &str, uri: Option<&str>, sotpath: Option<&str>) -> Artifact {
         Artifact {
             name: name.to_string(),
-            output: format!("{name}.bin"),
+            output: format!("{name}.bin").parse().unwrap(),
             uri: uri.map(str::to_string),
             sotpath: sotpath.map(str::to_string),
         }
@@ -171,5 +218,43 @@ mod tests {
         let err = s.validate().unwrap_err();
         assert!(err.contains("neither"), "got: {err}");
         assert!(err.contains("'a'"), "got: {err}");
+    }
+
+    // --- PathSegment ---
+
+    #[test]
+    fn path_segment_accepts_plain_filename() {
+        assert_eq!("rm_driver.run".parse::<PathSegment>().unwrap().as_str(), "rm_driver.run");
+        assert_eq!(".hidden".parse::<PathSegment>().unwrap().as_str(), ".hidden");
+    }
+
+    #[test]
+    fn path_segment_rejects_traversal_and_separators() {
+        for bad in ["", ".", "..", "../etc/passwd", "a/b", "a\\b", "a\0b"] {
+            assert!(
+                bad.parse::<PathSegment>().is_err(),
+                "expected '{bad}' to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn path_segment_deserialize_rejects_traversal() {
+        let toml = r#"
+            [rack]
+            model = "gb200nvl"
+            sot_release = "1.2.5"
+            [os]
+            uri = "https://example.com/os.img"
+            [[artifacts]]
+            name = "evil"
+            output = "../../etc/passwd"
+            uri = "https://example.com/x"
+        "#;
+        let err = toml::from_str::<Scenario>(toml).unwrap_err();
+        assert!(
+            err.to_string().contains("disallowed character"),
+            "got: {err}"
+        );
     }
 }

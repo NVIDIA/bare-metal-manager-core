@@ -17,7 +17,7 @@
 
 //! Rack Validation Service (RVS)
 //!
-//! External validation orchestrator for NICC. Bridges NICC with test
+//! External validation orchestrator for NICo. Bridges NICo with test
 //! frameworks (Benchpress, MPI-based, SLURM-based, etc.) to perform
 //! partition-aware rack validation.
 
@@ -83,17 +83,17 @@ async fn main() -> Result<(), RvsError> {
         })
         .collect();
 
-    // Build NICC client from config
+    // Build NICo client from config
     let client_cert = ClientCert {
         cert_path: cfg.tls.identity_pemfile_path.clone(),
         key_path: cfg.tls.identity_keyfile_path.clone(),
     };
     let client_config = ForgeClientConfig::new(cfg.tls.root_cafile_path.clone(), Some(client_cert));
-    let api_config = ApiConfig::new(&cfg.nicc.url, &client_config);
-    let nicc = client::NiccClient::new(&api_config);
+    let api_config = ApiConfig::new(&cfg.nico.url, &client_config);
+    let nico = client::NicoClient::new(&api_config);
 
     let ctx = RvsCtx {
-        nicc,
+        nico,
         scenarios,
         cfg,
         sot_override_path: None,
@@ -142,14 +142,14 @@ async fn run_validation(ctx: &RvsCtx, cancel_token: CancellationToken) -> Result
     let poll_interval_secs = ctx.cfg.poll_interval_secs;
     let interval = std::time::Duration::from_secs(poll_interval_secs);
     loop {
-        let racks = rack::fetch_racks(&ctx.nicc).await?;
+        let racks = rack::fetch_racks(&ctx.nico).await?;
         artifact::process_artifacts(&racks, ctx).await?;
         let os_uri = ctx
             .scenarios
             .first()
             .map(|s| s.os.uri.as_str())
             .unwrap_or("");
-        for job in validation::plan(Partitions::try_from(racks)?, &ctx.nicc, os_uri).await? {
+        for job in validation::plan(Partitions::try_from(racks)?, &ctx.nico, os_uri).await? {
             let report = validation::validate_partition(job).await?;
             validation::submit_report(report).await?;
         }

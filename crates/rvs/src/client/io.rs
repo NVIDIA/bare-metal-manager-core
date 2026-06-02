@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use carbide_uuid::machine::MachineId;
 use rpc::forge::{
     GetRackRequest, Instance, InstanceAllocationRequest, InstanceConfig, Label,
-    MachineMetadataUpdateRequest, MachinesByIdsRequest, Metadata, RackFirmwareGetRequest,
-    RackFirmwareSearchFilter,
+    MachineMetadataUpdateRequest, MachinesByIdsRequest, Metadata,
 };
 use rpc::forge_api_client::ForgeApiClient;
 use rpc::forge_tls_client::ApiConfig;
@@ -13,15 +12,15 @@ use rpc::protos::forge::{
     instance_operating_system_config,
 };
 
-use super::{RackData, RackFirmwareData, TrayData};
+use super::{RackData, TrayData};
 use crate::error::RvsError;
 
-/// NICC gRPC client wrapper -- translates gRPC responses into IR types.
-pub struct NiccClient {
+/// NICo gRPC client wrapper -- translates gRPC responses into IR types.
+pub struct NicoClient {
     inner: ForgeApiClient,
 }
 
-impl NiccClient {
+impl NicoClient {
     /// Construct from API config.
     pub fn new(api_config: &ApiConfig<'_>) -> Self {
         Self {
@@ -29,37 +28,10 @@ impl NiccClient {
         }
     }
 
-    /// Fetch all racks from NICC -> Vec<RackData>.
+    /// Fetch all racks from NICo -> Vec<RackData>.
     pub async fn get_racks(&self) -> Result<Vec<RackData>, RvsError> {
         let response = self.inner.get_rack(GetRackRequest { id: None }).await?;
         response.rack.into_iter().map(RackData::try_from).collect()
-    }
-
-    /// Fetch a rack firmware record (SOT JSON) by ID.
-    pub async fn get_rack_firmware(&self, firmware_id: &str) -> Result<RackFirmwareData, RvsError> {
-        let response = self
-            .inner
-            .get_rack_firmware(RackFirmwareGetRequest {
-                id: firmware_id.to_string(),
-            })
-            .await?;
-        RackFirmwareData::try_from(response)
-    }
-
-    /// List all rack firmware records (SOT JSON blobs) from NICC.
-    pub async fn list_rack_firmware(&self) -> Result<Vec<RackFirmwareData>, RvsError> {
-        let response = self
-            .inner
-            .list_rack_firmware(RackFirmwareSearchFilter {
-                only_available: false,
-                rack_hardware_type: None,
-            })
-            .await?;
-        response
-            .configs
-            .into_iter()
-            .map(RackFirmwareData::try_from)
-            .collect()
     }
 
     /// Update `rv.*` labels on a machine, preserving all non-`rv.*` labels.
@@ -104,7 +76,7 @@ impl NiccClient {
     /// Allocate a validation instance on a single machine.
     ///
     /// The OS is identified by `os_uri` from the scenario file. Until RVS can
-    /// resolve the URI to a NICC OS image UUID, `os_image_id` is stubbed with
+    /// resolve the URI to a NICo OS image UUID, `os_image_id` is stubbed with
     /// a nil UUID - the call will fail in production until this is wired up.
     pub async fn allocate_machine_instance(
         &self,
@@ -119,7 +91,7 @@ impl NiccClient {
                 machine_id: Some(machine_id),
                 config: Some(InstanceConfig {
                     os: Some(InstanceOperatingSystemConfig {
-                        // TODO[#416]: resolve os_uri to a NICC OS image UUID via ListOsImage /
+                        // TODO[#416]: resolve os_uri to a NICo OS image UUID via ListOsImage /
                         //       an external registry lookup. For now, nil UUID is a known
                         //       stub that will be replaced once image resolution is wired.
                         variant: Some(instance_operating_system_config::Variant::OsImageId(

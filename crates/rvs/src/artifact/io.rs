@@ -30,7 +30,7 @@ pub struct ArtifactDownload {
 /// defined in the matched scenarios. Does not touch the cache server --
 /// call `start_cache_server` once before the main loop.
 pub async fn process_artifacts(racks: &Racks, ctx: &RvsCtx) -> Result<(), RvsError> {
-    let sot = fetch_sot(racks, ctx).await?;
+    let sot = fetch_sot(racks, ctx)?;
     let downloads = scenario::resolve_artifact_urls(&sot, ctx)?;
     download_artifacts(downloads, ctx).await?;
     Ok(())
@@ -47,14 +47,9 @@ pub async fn start_cache_server(ctx: &RvsCtx) -> Result<(), RvsError> {
 
 /// Fetch the SOT JSON for the scenarios loaded in ctx.
 ///
-/// Uses `ctx.sot_override_path` when set (test binary only), otherwise
-/// lists all firmware records from NICC and returns the one whose `Name`
-/// field matches the scenario's `sot_release`.
-///
-/// TODO[#416]: currently matches on the first scenario's `sot_release`
-/// only. When multiple scenarios target different releases, this needs
-/// to fetch one SOT per distinct release and route per-scenario.
-async fn fetch_sot(_racks: &Racks, ctx: &RvsCtx) -> Result<RackFirmwareData, RvsError> {
+/// Only the `ctx.sot_override_path` (file) path works today. The gRPC fetch
+/// is stubbed -- see the TODO in the body.
+fn fetch_sot(_racks: &Racks, ctx: &RvsCtx) -> Result<RackFirmwareData, RvsError> {
     if let Some(path) = &ctx.sot_override_path {
         tracing::info!(path, "artifact: loading SOT from file override");
         let content = std::fs::read_to_string(path)
@@ -67,23 +62,17 @@ async fn fetch_sot(_racks: &Racks, ctx: &RvsCtx) -> Result<RackFirmwareData, Rvs
         });
     }
 
-    let sot_release = ctx
-        .scenarios
-        .first()
-        .map(|s| s.rack.sot_release.as_str())
-        .ok_or_else(|| RvsError::InvalidArg("fetch_sot: no scenarios loaded".to_string()))?;
-
-    tracing::info!(sot_release, "artifact: fetching SOT from NICC");
-
-    let records = ctx.nicc.list_rack_firmware().await?;
-    records
-        .into_iter()
-        .find(|r| r.config.get("Name").and_then(|v| v.as_str()) == Some(sot_release))
-        .ok_or_else(|| {
-            RvsError::InvalidArg(format!(
-                "fetch_sot: no SOT record found for release '{sot_release}'"
-            ))
-        })
+    // TODO[#416]: re-wire production SOT acquisition. PR #1861 ("update NICo
+    // to use RMS fw object management API") removed the firmware-object RPCs
+    // RVS used to pull the SOT JSON. Post-#1861 the SOT JSON is pushed into RMS
+    // (ApplyFirmwareObjectFromJSON), not queryable -- RVS must obtain it from
+    // its real source (file/config, or a future RMS read path). Until then,
+    // production runs must supply it via `sot_override_path`.
+    Err(RvsError::InvalidArg(
+        "fetch_sot: gRPC SOT fetch removed by #1861 (RMS fw object API); \
+         supply SOT via sot_override_path until re-wired"
+            .to_string(),
+    ))
 }
 
 /// Download resolved artifacts into cache_dir/<model>/<sot_release>/.
@@ -208,9 +197,7 @@ async fn spawn_cache_server(ctx: &RvsCtx) -> Result<(), RvsError> {
     let port = ctx.cfg.artifact_cache.serve_port;
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
 
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .map_err(RvsError::Io)?;
+    let listener = tokio::net::TcpListener::bind(addr).await?;
 
     tracing::info!(port, cache_dir, "artifact: cache server listening");
 

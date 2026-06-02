@@ -4,8 +4,8 @@ use thiserror::Error;
 /// Top-level RVS error type.
 #[derive(Debug, Error)]
 pub enum RvsError {
-    /// gRPC call to NICC failed.
-    #[error("NICC RPC error: {0}")]
+    /// gRPC call to NICo failed.
+    #[error("NICo RPC error: {0}")]
     Rpc(#[from] tonic::Status),
 
     /// Tray ID string couldn't be parsed as MachineId.
@@ -16,7 +16,7 @@ pub enum RvsError {
     #[error("Failed to parse ID: {0}")]
     InvalidId(String),
 
-    /// NICC returned an unexpected number of machines for a single-ID query.
+    /// NICo returned an unexpected number of machines for a single-ID query.
     #[error("Expected 1 machine for tray {tray_id}, got {count}")]
     UnexpectedMachineCount { tray_id: String, count: usize },
 

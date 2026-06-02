@@ -17,7 +17,7 @@
 [package]
 name = "carbide-rvs"
 version = "0.0.1"
-description = "Rack Validation Service -- external validation orchestrator for NICC"
+description = "Rack Validation Service -- external validation orchestrator for NICo"
 edition.workspace = true
 license.workspace = true
 authors.workspace = true

@@ -18,7 +18,7 @@
 //! Functional smoke test for the artifact caching pipeline.
 //!
 //! Exercises `process_artifacts` end-to-end using a local SOT JSON file and
-//! one or more scenario TOMLs, without a live NICC gRPC connection.
+//! one or more scenario TOMLs, without a live NICo gRPC connection.
 //!
 //! Usage:
 //!   cargo run --bin test-artifact-cache -- \
@@ -37,7 +37,7 @@
 use std::path::PathBuf;
 
 use carbide_rvs::artifact;
-use carbide_rvs::client::NiccClient;
+use carbide_rvs::client::NicoClient;
 use carbide_rvs::config::Config;
 use carbide_rvs::ctx::RvsCtx;
 use carbide_rvs::error::RvsError;
@@ -51,7 +51,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(Parser)]
-#[command(about = "Smoke-test the artifact cache pipeline without a live NICC connection")]
+#[command(about = "Smoke-test the artifact cache pipeline without a live NICo connection")]
 struct Cli {
     /// Path to SOT JSON file (replaces gRPC fetch).
     #[arg(long, value_name = "PATH")]
@@ -96,15 +96,15 @@ async fn main() -> Result<(), RvsError> {
     let mut cfg = Config::default();
     cfg.artifact_cache.cache_dir = cli.cache_dir.to_string_lossy().into_owned();
 
-    // NiccClient is required by RvsCtx but won't be called: fetch_sot
+    // NicoClient is required by RvsCtx but won't be called: fetch_sot
     // short-circuits to sot_override_path before touching gRPC.
     let client_config = ForgeClientConfig::new("/dev/null".to_string(), None);
-    let api_config = ApiConfig::new(&cfg.nicc.url, &client_config);
-    let nicc = NiccClient::new(&api_config);
+    let api_config = ApiConfig::new(&cfg.nico.url, &client_config);
+    let nico = NicoClient::new(&api_config);
 
     let sot_path = cli.sot.to_string_lossy().into_owned();
     let ctx = RvsCtx {
-        nicc,
+        nico,
         scenarios,
         cfg,
         sot_override_path: Some(sot_path),
@@ -121,7 +121,7 @@ async fn main() -> Result<(), RvsError> {
         cache_dir = %ctx.cfg.artifact_cache.cache_dir,
         "test-artifact-cache: downloads complete, cache server running — press Ctrl+C to stop"
     );
-    tokio::signal::ctrl_c().await.map_err(RvsError::Io)?;
+    tokio::signal::ctrl_c().await?;
 
     Ok(())
 }
