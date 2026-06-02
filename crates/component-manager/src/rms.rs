@@ -1158,7 +1158,7 @@ impl NvSwitchManager for RmsBackend {
                 }
             }
 
-            if success && !tracked_jobs.is_empty() {
+            if !tracked_jobs.is_empty() {
                 self.firmware_jobs
                     .lock()
                     .unwrap()
@@ -2262,6 +2262,41 @@ mod tests {
         );
         let status_calls = mock.get_switch_system_image_job_status_calls().await;
         assert_eq!(status_calls[0].job_id, "sw-nvos-job");
+    }
+
+    #[carbide_macros::sqlx_test]
+    async fn sw_queue_firmware_updates_mixed_failure_keeps_submitted_job(pool: sqlx::PgPool) {
+        let (mock, backend, _, _, _, sw1, _) = make_backend(&pool).await;
+        mock.enqueue_apply_firmware_object_from_json(Ok(MockRmsApi::firmware_object_apply_ok(
+            &sw1.to_string(),
+            "sw-fw-job",
+        )))
+        .await;
+        mock.enqueue_apply_switch_system_image_from_json(Ok(
+            MockRmsApi::switch_system_image_apply_fail(&sw1.to_string(), "bad system image"),
+        ))
+        .await;
+
+        let eps = vec![make_sw_endpoint(SW_MAC_1)];
+        let results = backend
+            .queue_firmware_updates(
+                &eps,
+                r#"{"Id":"fw-json"}"#,
+                &[NvSwitchComponent::Bmc, NvSwitchComponent::Nvos],
+                &firmware_update_options(),
+            )
+            .await
+            .unwrap();
+
+        assert!(!results[0].success);
+
+        let jobs = backend.firmware_jobs.lock().unwrap();
+        assert_eq!(
+            jobs.get(&SW_MAC_1.parse::<MacAddress>().unwrap()),
+            Some(&vec![RmsTrackedFirmwareJob::FirmwareObject(
+                "sw-fw-job".to_string()
+            )])
+        );
     }
 
     #[carbide_macros::sqlx_test]
