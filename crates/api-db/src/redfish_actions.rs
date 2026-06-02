@@ -27,7 +27,8 @@ pub async fn list_requests(
     request: model::redfish::RedfishListActionsFilter,
     txn: impl DbReader<'_>,
 ) -> Result<Vec<ActionRequest>, DatabaseError> {
-    let base_query = "SELECT
+    let mut query = sqlx::QueryBuilder::new(
+        "SELECT
         request_id,
         requester,
         approvers,
@@ -40,32 +41,20 @@ pub async fn list_requests(
         applied_at,
         applier,
         results
-    FROM redfish_bmc_actions
-    ORDER BY applied_at DESC
-    ";
-    let filtered_query = "SELECT
-        request_id,
-        requester,
-        approvers,
-        approver_dates,
-        machine_ips,
-        board_serials,
-        target,
-        action,
-        parameters,
-        applied_at,
-        applier,
-        results
-    FROM redfish_bmc_actions
-    WHERE $1 <@ machine_ips
-    ORDER BY applied_at DESC
-    ";
-    let query = if let Some(machine_ip) = request.machine_ip {
-        sqlx::query_as(filtered_query).bind(vec![machine_ip])
-    } else {
-        sqlx::query_as(base_query)
-    };
+    FROM redfish_bmc_actions",
+    );
+
+    if let Some(machine_ip) = request.machine_ip {
+        query
+            .push(" WHERE ")
+            .push_bind(vec![machine_ip])
+            .push(" <@ machine_ips");
+    }
+
+    query.push(" ORDER BY applied_at DESC");
+
     let result: Vec<ActionRequest> = query
+        .build_query_as()
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new("redfish_actions::list_requests", e))?;
