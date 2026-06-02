@@ -195,7 +195,7 @@ ringbuf = "0.5.0"
 rsa = "0.9.9"
 rtnetlink = "0.21"
 rumqttc = { default-features = false, version = "0.25" }
-russh = "0.60.2"
+russh = "0.61.1"
 rustc-hash = "2.1.1"
 rustls-pemfile = "2.2.0"
 serde = "1.0.228"
