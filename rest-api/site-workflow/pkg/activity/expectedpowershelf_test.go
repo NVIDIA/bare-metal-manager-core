@@ -462,6 +462,68 @@ func TestManageExpectedPowerShelf_CreateExpectedPowerShelfOnFlow(t *testing.T) {
 	})
 }
 
+func TestManageExpectedPowerShelf_UpdateExpectedPowerShelfOnFlow(t *testing.T) {
+	t.Run("nil request returns non-retryable error", func(t *testing.T) {
+		mm := ManageExpectedPowerShelf{flowGrpcAtomicClient: nil}
+		err := mm.UpdateExpectedPowerShelfOnFlow(context.Background(), nil)
+		assert.Error(t, err)
+	})
+
+	t.Run("empty id returns non-retryable error", func(t *testing.T) {
+		mm := ManageExpectedPowerShelf{flowGrpcAtomicClient: nil}
+		err := mm.UpdateExpectedPowerShelfOnFlow(context.Background(), &cwssaws.ExpectedPowerShelf{
+			BmcMacAddress: "00:11:22:33:44:55", ShelfSerialNumber: "SHELF001",
+		})
+		assert.Error(t, err)
+	})
+
+	t.Run("nil Flow client skips gracefully", func(t *testing.T) {
+		mm := ManageExpectedPowerShelf{flowGrpcAtomicClient: nil}
+		err := mm.UpdateExpectedPowerShelfOnFlow(context.Background(), &cwssaws.ExpectedPowerShelf{
+			ExpectedPowerShelfId: &cwssaws.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ShelfSerialNumber: "SHELF001",
+		})
+		assert.NoError(t, err)
+	})
+
+	t.Run("nil Flow client connection skips gracefully", func(t *testing.T) {
+		mm := ManageExpectedPowerShelf{flowGrpcAtomicClient: cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})}
+		err := mm.UpdateExpectedPowerShelfOnFlow(context.Background(), &cwssaws.ExpectedPowerShelf{
+			ExpectedPowerShelfId: &cwssaws.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ShelfSerialNumber: "SHELF001",
+		})
+		assert.NoError(t, err)
+	})
+}
+
+func TestManageExpectedPowerShelf_DeleteExpectedPowerShelfOnFlow(t *testing.T) {
+	t.Run("nil request returns non-retryable error", func(t *testing.T) {
+		mm := ManageExpectedPowerShelf{flowGrpcAtomicClient: nil}
+		err := mm.DeleteExpectedPowerShelfOnFlow(context.Background(), nil)
+		assert.Error(t, err)
+	})
+
+	t.Run("empty id returns non-retryable error", func(t *testing.T) {
+		mm := ManageExpectedPowerShelf{flowGrpcAtomicClient: nil}
+		err := mm.DeleteExpectedPowerShelfOnFlow(context.Background(), &cwssaws.ExpectedPowerShelfRequest{})
+		assert.Error(t, err)
+	})
+
+	t.Run("nil Flow client skips gracefully", func(t *testing.T) {
+		mm := ManageExpectedPowerShelf{flowGrpcAtomicClient: nil}
+		err := mm.DeleteExpectedPowerShelfOnFlow(context.Background(), &cwssaws.ExpectedPowerShelfRequest{
+			ExpectedPowerShelfId: &cwssaws.UUID{Value: uuid.NewString()},
+		})
+		assert.NoError(t, err)
+	})
+
+	t.Run("nil Flow client connection skips gracefully", func(t *testing.T) {
+		mm := ManageExpectedPowerShelf{flowGrpcAtomicClient: cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})}
+		err := mm.DeleteExpectedPowerShelfOnFlow(context.Background(), &cwssaws.ExpectedPowerShelfRequest{
+			ExpectedPowerShelfId: &cwssaws.UUID{Value: uuid.NewString()},
+		})
+		assert.NoError(t, err)
+	})
+}
+
 func Test_expectedPowerShelfToFlowComponent(t *testing.T) {
 	strPtr := func(s string) *string { return &s }
 	int32Ptr := func(i int32) *int32 { return &i }

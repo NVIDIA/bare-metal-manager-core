@@ -49,9 +49,17 @@ func (api *API) RegisterSubscriber() error {
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedMachineManager.UpdateExpectedMachineOnSite)
 	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedMachine: Successfully registered UpdateExpectedMachineOnSite activity")
 
+	// Register UpdateExpectedMachineOnFlow activity
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedMachineManager.UpdateExpectedMachineOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedMachine: Successfully registered UpdateExpectedMachineOnFlow activity")
+
 	// Register DeleteExpectedMachineOnSite activity
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedMachineManager.DeleteExpectedMachineOnSite)
 	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedMachine: Successfully registered DeleteExpectedMachineOnSite activity")
+
+	// Register DeleteExpectedMachineOnFlow activity
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedMachineManager.DeleteExpectedMachineOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedMachine: Successfully registered DeleteExpectedMachineOnFlow activity")
 
 	// Register CreateExpectedMachinesOnSite activity (Batch)
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedMachineManager.CreateExpectedMachinesOnSite)
@@ -64,6 +72,10 @@ func (api *API) RegisterSubscriber() error {
 	// Register UpdateExpectedMachinesOnSite activity (Batch)
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedMachineManager.UpdateExpectedMachinesOnSite)
 	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedMachine: Successfully registered UpdateExpectedMachinesOnSite activity")
+
+	// Register UpdateExpectedMachinesOnFlow activity (Batch)
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedMachineManager.UpdateExpectedMachinesOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedMachine: Successfully registered UpdateExpectedMachinesOnFlow activity")
 
 	return nil
 }

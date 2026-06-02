@@ -426,6 +426,81 @@ func expectedSwitchToFlowComponent(es *cwssaws.ExpectedSwitch) *flowv1.Component
 	return component
 }
 
+// UpdateExpectedSwitchOnFlow patches an Expected Switch component in Flow via PatchComponent.
+// Only patchable fields (firmware_version, position, description, rack_id, bmcs) are sent;
+// identity fields are immutable in Flow once created.
+// Best-effort: missing/unconnected Flow client skips silently; RPC failures are returned.
+func (mes *ManageExpectedSwitch) UpdateExpectedSwitchOnFlow(ctx context.Context, request *cwssaws.ExpectedSwitch) error {
+	logger := log.With().Str("Activity", "UpdateExpectedSwitchOnFlow").Logger()
+
+	logger.Info().Msg("Starting activity")
+
+	if request == nil {
+		return temporal.NewNonRetryableApplicationError("received empty update Expected Switch request for Flow", swe.ErrTypeInvalidRequest, errors.New("nil request"))
+	}
+	if request.GetExpectedSwitchId().GetValue() == "" {
+		return temporal.NewNonRetryableApplicationError("received update Expected Switch request for Flow without required id field", swe.ErrTypeInvalidRequest, errors.New("missing id"))
+	}
+
+	if mes.flowGrpcAtomicClient == nil {
+		logger.Warn().Msg("Flow client not configured, skipping Flow component update")
+		return nil
+	}
+
+	grpcClient := mes.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		logger.Warn().Msg("Flow client not connected, skipping Flow component update")
+		return nil
+	}
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+
+	patchReq := componentToPatchRequest(expectedSwitchToFlowComponent(request))
+	_, err := grpcServiceClient.PatchComponent(ctx, patchReq)
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to update Expected Switch component on Flow")
+		return swe.WrapErr(err)
+	}
+
+	logger.Info().Msg("Completed activity")
+	return nil
+}
+
+// DeleteExpectedSwitchOnFlow soft-deletes an Expected Switch component in Flow via DeleteComponent.
+// Best-effort: missing/unconnected Flow client skips silently; RPC failures are returned.
+func (mes *ManageExpectedSwitch) DeleteExpectedSwitchOnFlow(ctx context.Context, request *cwssaws.ExpectedSwitchRequest) error {
+	logger := log.With().Str("Activity", "DeleteExpectedSwitchOnFlow").Logger()
+
+	logger.Info().Msg("Starting activity")
+
+	if request == nil {
+		return temporal.NewNonRetryableApplicationError("received empty delete Expected Switch request for Flow", swe.ErrTypeInvalidRequest, errors.New("nil request"))
+	}
+	if request.GetExpectedSwitchId().GetValue() == "" {
+		return temporal.NewNonRetryableApplicationError("received delete Expected Switch request for Flow without required id field", swe.ErrTypeInvalidRequest, errors.New("missing id"))
+	}
+
+	if mes.flowGrpcAtomicClient == nil {
+		logger.Warn().Msg("Flow client not configured, skipping Flow component delete")
+		return nil
+	}
+
+	grpcClient := mes.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		logger.Warn().Msg("Flow client not connected, skipping Flow component delete")
+		return nil
+	}
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+
+	_, err := grpcServiceClient.DeleteComponent(ctx, &flowv1.DeleteComponentRequest{Id: &flowv1.UUID{Id: request.GetExpectedSwitchId().GetValue()}})
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to delete Expected Switch component on Flow")
+		return swe.WrapErr(err)
+	}
+
+	logger.Info().Msg("Completed activity")
+	return nil
+}
+
 // DeleteExpectedSwitchOnSite deletes Expected Switch on NICo
 func (mes *ManageExpectedSwitch) DeleteExpectedSwitchOnSite(ctx context.Context, request *cwssaws.ExpectedSwitchRequest) error {
 	logger := log.With().Str("Activity", "DeleteExpectedSwitchOnSite").Logger()

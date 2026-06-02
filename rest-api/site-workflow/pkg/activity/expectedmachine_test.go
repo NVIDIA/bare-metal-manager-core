@@ -690,6 +690,86 @@ func TestManageExpectedMachine_CreateExpectedMachineOnFlow(t *testing.T) {
 	})
 }
 
+func TestManageExpectedMachine_UpdateExpectedMachineOnFlow(t *testing.T) {
+	t.Run("nil request returns non-retryable error", func(t *testing.T) {
+		mm := ManageExpectedMachine{flowGrpcAtomicClient: nil}
+		err := mm.UpdateExpectedMachineOnFlow(context.Background(), nil)
+		assert.Error(t, err)
+	})
+
+	t.Run("empty id returns non-retryable error", func(t *testing.T) {
+		mm := ManageExpectedMachine{flowGrpcAtomicClient: nil}
+		err := mm.UpdateExpectedMachineOnFlow(context.Background(), &cwssaws.ExpectedMachine{
+			BmcMacAddress: "00:11:22:33:44:55", ChassisSerialNumber: "SN001",
+		})
+		assert.Error(t, err)
+	})
+
+	t.Run("nil Flow client skips gracefully", func(t *testing.T) {
+		mm := ManageExpectedMachine{flowGrpcAtomicClient: nil}
+		err := mm.UpdateExpectedMachineOnFlow(context.Background(), &cwssaws.ExpectedMachine{
+			Id: &cwssaws.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ChassisSerialNumber: "SN001",
+		})
+		assert.NoError(t, err)
+	})
+
+	t.Run("nil Flow client connection skips gracefully", func(t *testing.T) {
+		mm := ManageExpectedMachine{flowGrpcAtomicClient: cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})}
+		err := mm.UpdateExpectedMachineOnFlow(context.Background(), &cwssaws.ExpectedMachine{
+			Id: &cwssaws.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ChassisSerialNumber: "SN001",
+		})
+		assert.NoError(t, err)
+	})
+}
+
+func TestManageExpectedMachine_UpdateExpectedMachinesOnFlow(t *testing.T) {
+	req := &cwssaws.BatchExpectedMachineOperationRequest{
+		ExpectedMachines: &cwssaws.ExpectedMachineList{
+			ExpectedMachines: []*cwssaws.ExpectedMachine{
+				{Id: &cwssaws.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", ChassisSerialNumber: "SN001"},
+			},
+		},
+	}
+
+	t.Run("nil Flow client skips gracefully", func(t *testing.T) {
+		mm := ManageExpectedMachine{flowGrpcAtomicClient: nil}
+		err := mm.UpdateExpectedMachinesOnFlow(context.Background(), req)
+		assert.NoError(t, err)
+	})
+
+	t.Run("nil Flow client connection skips gracefully", func(t *testing.T) {
+		mm := ManageExpectedMachine{flowGrpcAtomicClient: cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})}
+		err := mm.UpdateExpectedMachinesOnFlow(context.Background(), req)
+		assert.NoError(t, err)
+	})
+}
+
+func TestManageExpectedMachine_DeleteExpectedMachineOnFlow(t *testing.T) {
+	t.Run("nil request returns non-retryable error", func(t *testing.T) {
+		mm := ManageExpectedMachine{flowGrpcAtomicClient: nil}
+		err := mm.DeleteExpectedMachineOnFlow(context.Background(), nil)
+		assert.Error(t, err)
+	})
+
+	t.Run("empty id returns non-retryable error", func(t *testing.T) {
+		mm := ManageExpectedMachine{flowGrpcAtomicClient: nil}
+		err := mm.DeleteExpectedMachineOnFlow(context.Background(), &cwssaws.ExpectedMachineRequest{})
+		assert.Error(t, err)
+	})
+
+	t.Run("nil Flow client skips gracefully", func(t *testing.T) {
+		mm := ManageExpectedMachine{flowGrpcAtomicClient: nil}
+		err := mm.DeleteExpectedMachineOnFlow(context.Background(), &cwssaws.ExpectedMachineRequest{Id: &cwssaws.UUID{Value: uuid.NewString()}})
+		assert.NoError(t, err)
+	})
+
+	t.Run("nil Flow client connection skips gracefully", func(t *testing.T) {
+		mm := ManageExpectedMachine{flowGrpcAtomicClient: cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})}
+		err := mm.DeleteExpectedMachineOnFlow(context.Background(), &cwssaws.ExpectedMachineRequest{Id: &cwssaws.UUID{Value: uuid.NewString()}})
+		assert.NoError(t, err)
+	})
+}
+
 func TestManageExpectedMachine_CreateExpectedMachinesOnFlow(t *testing.T) {
 	t.Run("nil Flow client skips gracefully", func(t *testing.T) {
 		mm := ManageExpectedMachine{flowGrpcAtomicClient: nil}

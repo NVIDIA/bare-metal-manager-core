@@ -155,11 +155,12 @@ func (uepsts *UpdateExpectedPowerShelfTestSuite) Test_UpdateExpectedPowerShelf_S
 		ShelfSerialNumber:    "SHELF-001",
 	}
 
-	// Mock UpdateExpectedPowerShelfOnSite activity
 	uepsts.env.RegisterActivity(expectedPowerShelfManager.UpdateExpectedPowerShelfOnSite)
 	uepsts.env.OnActivity(expectedPowerShelfManager.UpdateExpectedPowerShelfOnSite, mock.Anything, mock.Anything).Return(nil)
 
-	// Execute workflow
+	uepsts.env.RegisterActivity(expectedPowerShelfManager.UpdateExpectedPowerShelfOnFlow)
+	uepsts.env.OnActivity(expectedPowerShelfManager.UpdateExpectedPowerShelfOnFlow, mock.Anything, mock.Anything).Return(nil)
+
 	uepsts.env.ExecuteWorkflow(UpdateExpectedPowerShelf, request)
 	uepsts.True(uepsts.env.IsWorkflowCompleted())
 	uepsts.NoError(uepsts.env.GetWorkflowError())
@@ -176,14 +177,34 @@ func (uepsts *UpdateExpectedPowerShelfTestSuite) Test_UpdateExpectedPowerShelf_F
 
 	errMsg := "Site Controller communication error"
 
-	// Mock UpdateExpectedPowerShelfOnSite activity
 	uepsts.env.RegisterActivity(expectedPowerShelfManager.UpdateExpectedPowerShelfOnSite)
 	uepsts.env.OnActivity(expectedPowerShelfManager.UpdateExpectedPowerShelfOnSite, mock.Anything, mock.Anything).Return(errors.New(errMsg))
 
-	// execute UpdateExpectedPowerShelf workflow
+	uepsts.env.RegisterActivity(expectedPowerShelfManager.UpdateExpectedPowerShelfOnFlow)
+
 	uepsts.env.ExecuteWorkflow(UpdateExpectedPowerShelf, request)
 	uepsts.True(uepsts.env.IsWorkflowCompleted())
 	uepsts.Error(uepsts.env.GetWorkflowError())
+}
+
+func (uepsts *UpdateExpectedPowerShelfTestSuite) Test_UpdateExpectedPowerShelf_CoreSuccess_FlowFailure() {
+	var expectedPowerShelfManager iActivity.ManageExpectedPowerShelf
+
+	request := &cwssaws.ExpectedPowerShelf{
+		ExpectedPowerShelfId: &cwssaws.UUID{Value: "test-update-workflow-002"},
+		BmcMacAddress:        "00:11:22:33:44:55",
+		ShelfSerialNumber:    "SHELF-002",
+	}
+
+	uepsts.env.RegisterActivity(expectedPowerShelfManager.UpdateExpectedPowerShelfOnSite)
+	uepsts.env.OnActivity(expectedPowerShelfManager.UpdateExpectedPowerShelfOnSite, mock.Anything, mock.Anything).Return(nil)
+
+	uepsts.env.RegisterActivity(expectedPowerShelfManager.UpdateExpectedPowerShelfOnFlow)
+	uepsts.env.OnActivity(expectedPowerShelfManager.UpdateExpectedPowerShelfOnFlow, mock.Anything, mock.Anything).Return(errors.New("Flow unavailable"))
+
+	uepsts.env.ExecuteWorkflow(UpdateExpectedPowerShelf, request)
+	uepsts.True(uepsts.env.IsWorkflowCompleted())
+	uepsts.NoError(uepsts.env.GetWorkflowError())
 }
 
 func TestUpdateExpectedPowerShelfTestSuite(t *testing.T) {
@@ -213,11 +234,12 @@ func (depsts *DeleteExpectedPowerShelfTestSuite) Test_DeleteExpectedPowerShelf_S
 		BmcMacAddress:        "00:11:22:33:44:55",
 	}
 
-	// Mock DeleteExpectedPowerShelfOnSite activity
 	depsts.env.RegisterActivity(expectedPowerShelfManager.DeleteExpectedPowerShelfOnSite)
 	depsts.env.OnActivity(expectedPowerShelfManager.DeleteExpectedPowerShelfOnSite, mock.Anything, mock.Anything).Return(nil)
 
-	// execute workflow
+	depsts.env.RegisterActivity(expectedPowerShelfManager.DeleteExpectedPowerShelfOnFlow)
+	depsts.env.OnActivity(expectedPowerShelfManager.DeleteExpectedPowerShelfOnFlow, mock.Anything, mock.Anything).Return(nil)
+
 	depsts.env.ExecuteWorkflow(DeleteExpectedPowerShelf, request)
 	depsts.True(depsts.env.IsWorkflowCompleted())
 	depsts.NoError(depsts.env.GetWorkflowError())
@@ -233,14 +255,33 @@ func (depsts *DeleteExpectedPowerShelfTestSuite) Test_DeleteExpectedPowerShelf_F
 
 	errMsg := "Site Controller communication error"
 
-	// Mock DeleteExpectedPowerShelfOnSite activity
 	depsts.env.RegisterActivity(expectedPowerShelfManager.DeleteExpectedPowerShelfOnSite)
 	depsts.env.OnActivity(expectedPowerShelfManager.DeleteExpectedPowerShelfOnSite, mock.Anything, mock.Anything).Return(errors.New(errMsg))
 
-	// execute DeleteExpectedPowerShelf workflow
+	depsts.env.RegisterActivity(expectedPowerShelfManager.DeleteExpectedPowerShelfOnFlow)
+
 	depsts.env.ExecuteWorkflow(DeleteExpectedPowerShelf, request)
 	depsts.True(depsts.env.IsWorkflowCompleted())
 	depsts.Error(depsts.env.GetWorkflowError())
+}
+
+func (depsts *DeleteExpectedPowerShelfTestSuite) Test_DeleteExpectedPowerShelf_CoreSuccess_FlowFailure() {
+	var expectedPowerShelfManager iActivity.ManageExpectedPowerShelf
+
+	request := &cwssaws.ExpectedPowerShelfRequest{
+		ExpectedPowerShelfId: &cwssaws.UUID{Value: "test-delete-workflow-002"},
+		BmcMacAddress:        "00:11:22:33:44:55",
+	}
+
+	depsts.env.RegisterActivity(expectedPowerShelfManager.DeleteExpectedPowerShelfOnSite)
+	depsts.env.OnActivity(expectedPowerShelfManager.DeleteExpectedPowerShelfOnSite, mock.Anything, mock.Anything).Return(nil)
+
+	depsts.env.RegisterActivity(expectedPowerShelfManager.DeleteExpectedPowerShelfOnFlow)
+	depsts.env.OnActivity(expectedPowerShelfManager.DeleteExpectedPowerShelfOnFlow, mock.Anything, mock.Anything).Return(errors.New("Flow unavailable"))
+
+	depsts.env.ExecuteWorkflow(DeleteExpectedPowerShelf, request)
+	depsts.True(depsts.env.IsWorkflowCompleted())
+	depsts.NoError(depsts.env.GetWorkflowError())
 }
 
 func TestDeleteExpectedPowerShelfTestSuite(t *testing.T) {

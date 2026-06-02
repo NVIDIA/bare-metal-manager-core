@@ -96,9 +96,9 @@ func CreateExpectedRack(ctx workflow.Context, request *cwssaws.ExpectedRack) err
 	return nil
 }
 
-// UpdateExpectedRack is a workflow to update an Expected Rack using the
-// UpdateExpectedRackOnSite activity.
-// TODO: Add Flow PatchComponent dual-write when update/delete Flow support is implemented
+// UpdateExpectedRack is a workflow to update an Expected Rack using
+// UpdateExpectedRackOnSite, then also patches the rack in Flow via
+// UpdateExpectedRackOnFlow (best-effort).
 func UpdateExpectedRack(ctx workflow.Context, request *cwssaws.ExpectedRack) error {
 	logger := log.With().Str("Workflow", "ExpectedRack").Str("Action", "Update").Str("ID", request.GetRackId().GetId()).Str("RackProfileID", request.GetRackType()).Logger()
 
@@ -114,14 +114,19 @@ func UpdateExpectedRack(ctx workflow.Context, request *cwssaws.ExpectedRack) err
 		return err
 	}
 
+	err = workflow.ExecuteActivity(ctx, expectedRackManager.UpdateExpectedRackOnFlow, request).Get(ctx, nil)
+	if err != nil {
+		logger.Warn().Err(err).Str("Activity", "UpdateExpectedRackOnFlow").Msg("Failed to update rack on Flow, Core write succeeded")
+	}
+
 	logger.Info().Msg("completing workflow")
 
 	return nil
 }
 
-// DeleteExpectedRack is a workflow to delete an Expected Rack using the
-// DeleteExpectedRackOnSite activity.
-// TODO: Add Flow PatchComponent dual-write when update/delete Flow support is implemented
+// DeleteExpectedRack is a workflow to delete an Expected Rack using
+// DeleteExpectedRackOnSite, then also deletes the rack from Flow via
+// DeleteExpectedRackOnFlow (best-effort).
 func DeleteExpectedRack(ctx workflow.Context, request *cwssaws.ExpectedRackRequest) error {
 	logger := log.With().Str("Workflow", "ExpectedRack").Str("Action", "Delete").Str("ID", request.GetRackId()).Logger()
 
@@ -135,6 +140,11 @@ func DeleteExpectedRack(ctx workflow.Context, request *cwssaws.ExpectedRackReque
 	if err != nil {
 		logger.Error().Err(err).Str("Activity", "DeleteExpectedRackOnSite").Msg("Failed to execute activity from workflow")
 		return err
+	}
+
+	err = workflow.ExecuteActivity(ctx, expectedRackManager.DeleteExpectedRackOnFlow, request).Get(ctx, nil)
+	if err != nil {
+		logger.Warn().Err(err).Str("Activity", "DeleteExpectedRackOnFlow").Msg("Failed to delete rack on Flow, Core write succeeded")
 	}
 
 	logger.Info().Msg("completing workflow")

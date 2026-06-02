@@ -431,6 +431,81 @@ func expectedPowerShelfToFlowComponent(eps *cwssaws.ExpectedPowerShelf) *flowv1.
 	return component
 }
 
+// UpdateExpectedPowerShelfOnFlow patches an Expected Power Shelf component in Flow via PatchComponent.
+// Only patchable fields (firmware_version, position, description, rack_id, bmcs) are sent;
+// identity fields are immutable in Flow once created.
+// Best-effort: missing/unconnected Flow client skips silently; RPC failures are returned.
+func (meps *ManageExpectedPowerShelf) UpdateExpectedPowerShelfOnFlow(ctx context.Context, request *cwssaws.ExpectedPowerShelf) error {
+	logger := log.With().Str("Activity", "UpdateExpectedPowerShelfOnFlow").Logger()
+
+	logger.Info().Msg("Starting activity")
+
+	if request == nil {
+		return temporal.NewNonRetryableApplicationError("received empty update Expected Power Shelf request for Flow", swe.ErrTypeInvalidRequest, errors.New("nil request"))
+	}
+	if request.GetExpectedPowerShelfId().GetValue() == "" {
+		return temporal.NewNonRetryableApplicationError("received update Expected Power Shelf request for Flow without required id field", swe.ErrTypeInvalidRequest, errors.New("missing id"))
+	}
+
+	if meps.flowGrpcAtomicClient == nil {
+		logger.Warn().Msg("Flow client not configured, skipping Flow component update")
+		return nil
+	}
+
+	grpcClient := meps.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		logger.Warn().Msg("Flow client not connected, skipping Flow component update")
+		return nil
+	}
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+
+	patchReq := componentToPatchRequest(expectedPowerShelfToFlowComponent(request))
+	_, err := grpcServiceClient.PatchComponent(ctx, patchReq)
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to update Expected Power Shelf component on Flow")
+		return swe.WrapErr(err)
+	}
+
+	logger.Info().Msg("Completed activity")
+	return nil
+}
+
+// DeleteExpectedPowerShelfOnFlow soft-deletes an Expected Power Shelf component in Flow via DeleteComponent.
+// Best-effort: missing/unconnected Flow client skips silently; RPC failures are returned.
+func (meps *ManageExpectedPowerShelf) DeleteExpectedPowerShelfOnFlow(ctx context.Context, request *cwssaws.ExpectedPowerShelfRequest) error {
+	logger := log.With().Str("Activity", "DeleteExpectedPowerShelfOnFlow").Logger()
+
+	logger.Info().Msg("Starting activity")
+
+	if request == nil {
+		return temporal.NewNonRetryableApplicationError("received empty delete Expected Power Shelf request for Flow", swe.ErrTypeInvalidRequest, errors.New("nil request"))
+	}
+	if request.GetExpectedPowerShelfId().GetValue() == "" {
+		return temporal.NewNonRetryableApplicationError("received delete Expected Power Shelf request for Flow without required id field", swe.ErrTypeInvalidRequest, errors.New("missing id"))
+	}
+
+	if meps.flowGrpcAtomicClient == nil {
+		logger.Warn().Msg("Flow client not configured, skipping Flow component delete")
+		return nil
+	}
+
+	grpcClient := meps.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		logger.Warn().Msg("Flow client not connected, skipping Flow component delete")
+		return nil
+	}
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+
+	_, err := grpcServiceClient.DeleteComponent(ctx, &flowv1.DeleteComponentRequest{Id: &flowv1.UUID{Id: request.GetExpectedPowerShelfId().GetValue()}})
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to delete Expected Power Shelf component on Flow")
+		return swe.WrapErr(err)
+	}
+
+	logger.Info().Msg("Completed activity")
+	return nil
+}
+
 // DeleteExpectedPowerShelfOnSite deletes Expected Power Shelf on NICo
 func (meps *ManageExpectedPowerShelf) DeleteExpectedPowerShelfOnSite(ctx context.Context, request *cwssaws.ExpectedPowerShelfRequest) error {
 	logger := log.With().Str("Activity", "DeleteExpectedPowerShelfOnSite").Logger()

@@ -155,11 +155,12 @@ func (uests *UpdateExpectedSwitchTestSuite) Test_UpdateExpectedSwitch_Success() 
 		SwitchSerialNumber: "SWITCH-001",
 	}
 
-	// Mock UpdateExpectedSwitchOnSite activity
 	uests.env.RegisterActivity(expectedSwitchManager.UpdateExpectedSwitchOnSite)
 	uests.env.OnActivity(expectedSwitchManager.UpdateExpectedSwitchOnSite, mock.Anything, mock.Anything).Return(nil)
 
-	// Execute workflow
+	uests.env.RegisterActivity(expectedSwitchManager.UpdateExpectedSwitchOnFlow)
+	uests.env.OnActivity(expectedSwitchManager.UpdateExpectedSwitchOnFlow, mock.Anything, mock.Anything).Return(nil)
+
 	uests.env.ExecuteWorkflow(UpdateExpectedSwitch, request)
 	uests.True(uests.env.IsWorkflowCompleted())
 	uests.NoError(uests.env.GetWorkflowError())
@@ -176,14 +177,34 @@ func (uests *UpdateExpectedSwitchTestSuite) Test_UpdateExpectedSwitch_Failure() 
 
 	errMsg := "Site Controller communication error"
 
-	// Mock UpdateExpectedSwitchOnSite activity
 	uests.env.RegisterActivity(expectedSwitchManager.UpdateExpectedSwitchOnSite)
 	uests.env.OnActivity(expectedSwitchManager.UpdateExpectedSwitchOnSite, mock.Anything, mock.Anything).Return(errors.New(errMsg))
 
-	// execute UpdateExpectedSwitch workflow
+	uests.env.RegisterActivity(expectedSwitchManager.UpdateExpectedSwitchOnFlow)
+
 	uests.env.ExecuteWorkflow(UpdateExpectedSwitch, request)
 	uests.True(uests.env.IsWorkflowCompleted())
 	uests.Error(uests.env.GetWorkflowError())
+}
+
+func (uests *UpdateExpectedSwitchTestSuite) Test_UpdateExpectedSwitch_CoreSuccess_FlowFailure() {
+	var expectedSwitchManager iActivity.ManageExpectedSwitch
+
+	request := &cwssaws.ExpectedSwitch{
+		ExpectedSwitchId:   &cwssaws.UUID{Value: "test-update-workflow-002"},
+		BmcMacAddress:      "00:11:22:33:44:55",
+		SwitchSerialNumber: "SWITCH-002",
+	}
+
+	uests.env.RegisterActivity(expectedSwitchManager.UpdateExpectedSwitchOnSite)
+	uests.env.OnActivity(expectedSwitchManager.UpdateExpectedSwitchOnSite, mock.Anything, mock.Anything).Return(nil)
+
+	uests.env.RegisterActivity(expectedSwitchManager.UpdateExpectedSwitchOnFlow)
+	uests.env.OnActivity(expectedSwitchManager.UpdateExpectedSwitchOnFlow, mock.Anything, mock.Anything).Return(errors.New("Flow unavailable"))
+
+	uests.env.ExecuteWorkflow(UpdateExpectedSwitch, request)
+	uests.True(uests.env.IsWorkflowCompleted())
+	uests.NoError(uests.env.GetWorkflowError())
 }
 
 func TestUpdateExpectedSwitchTestSuite(t *testing.T) {
@@ -213,11 +234,12 @@ func (dests *DeleteExpectedSwitchTestSuite) Test_DeleteExpectedSwitch_Success() 
 		BmcMacAddress:    "00:11:22:33:44:55",
 	}
 
-	// Mock DeleteExpectedSwitchOnSite activity
 	dests.env.RegisterActivity(expectedSwitchManager.DeleteExpectedSwitchOnSite)
 	dests.env.OnActivity(expectedSwitchManager.DeleteExpectedSwitchOnSite, mock.Anything, mock.Anything).Return(nil)
 
-	// execute workflow
+	dests.env.RegisterActivity(expectedSwitchManager.DeleteExpectedSwitchOnFlow)
+	dests.env.OnActivity(expectedSwitchManager.DeleteExpectedSwitchOnFlow, mock.Anything, mock.Anything).Return(nil)
+
 	dests.env.ExecuteWorkflow(DeleteExpectedSwitch, request)
 	dests.True(dests.env.IsWorkflowCompleted())
 	dests.NoError(dests.env.GetWorkflowError())
@@ -233,14 +255,33 @@ func (dests *DeleteExpectedSwitchTestSuite) Test_DeleteExpectedSwitch_Failure() 
 
 	errMsg := "Site Controller communication error"
 
-	// Mock DeleteExpectedSwitchOnSite activity
 	dests.env.RegisterActivity(expectedSwitchManager.DeleteExpectedSwitchOnSite)
 	dests.env.OnActivity(expectedSwitchManager.DeleteExpectedSwitchOnSite, mock.Anything, mock.Anything).Return(errors.New(errMsg))
 
-	// execute DeleteExpectedSwitch workflow
+	dests.env.RegisterActivity(expectedSwitchManager.DeleteExpectedSwitchOnFlow)
+
 	dests.env.ExecuteWorkflow(DeleteExpectedSwitch, request)
 	dests.True(dests.env.IsWorkflowCompleted())
 	dests.Error(dests.env.GetWorkflowError())
+}
+
+func (dests *DeleteExpectedSwitchTestSuite) Test_DeleteExpectedSwitch_CoreSuccess_FlowFailure() {
+	var expectedSwitchManager iActivity.ManageExpectedSwitch
+
+	request := &cwssaws.ExpectedSwitchRequest{
+		ExpectedSwitchId: &cwssaws.UUID{Value: "test-delete-workflow-002"},
+		BmcMacAddress:    "00:11:22:33:44:55",
+	}
+
+	dests.env.RegisterActivity(expectedSwitchManager.DeleteExpectedSwitchOnSite)
+	dests.env.OnActivity(expectedSwitchManager.DeleteExpectedSwitchOnSite, mock.Anything, mock.Anything).Return(nil)
+
+	dests.env.RegisterActivity(expectedSwitchManager.DeleteExpectedSwitchOnFlow)
+	dests.env.OnActivity(expectedSwitchManager.DeleteExpectedSwitchOnFlow, mock.Anything, mock.Anything).Return(errors.New("Flow unavailable"))
+
+	dests.env.ExecuteWorkflow(DeleteExpectedSwitch, request)
+	dests.True(dests.env.IsWorkflowCompleted())
+	dests.NoError(dests.env.GetWorkflowError())
 }
 
 func TestDeleteExpectedSwitchTestSuite(t *testing.T) {

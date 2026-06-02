@@ -501,6 +501,129 @@ func (mem *ManageExpectedMachine) CreateExpectedMachinesOnFlow(ctx context.Conte
 	return nil
 }
 
+// UpdateExpectedMachineOnFlow patches an Expected Machine component in Flow via PatchComponent.
+// Only patchable fields (firmware_version, position, description, rack_id, bmcs) are sent;
+// identity fields like name/serial_number are immutable in Flow once created.
+// Best-effort: missing/unconnected Flow client skips silently; RPC failures are returned.
+func (mem *ManageExpectedMachine) UpdateExpectedMachineOnFlow(ctx context.Context, request *cwssaws.ExpectedMachine) error {
+	logger := log.With().Str("Activity", "UpdateExpectedMachineOnFlow").Logger()
+
+	logger.Info().Msg("Starting activity")
+
+	if request == nil {
+		return temporal.NewNonRetryableApplicationError("received empty update Expected Machine request for Flow", swe.ErrTypeInvalidRequest, errors.New("nil request"))
+	}
+	if request.GetId().GetValue() == "" {
+		return temporal.NewNonRetryableApplicationError("received update Expected Machine request for Flow without required id field", swe.ErrTypeInvalidRequest, errors.New("missing id"))
+	}
+
+	if mem.flowGrpcAtomicClient == nil {
+		logger.Warn().Msg("Flow client not configured, skipping Flow component update")
+		return nil
+	}
+
+	flowClient := mem.flowGrpcAtomicClient.GetClient()
+	if flowClient == nil {
+		logger.Warn().Msg("Flow client not connected, skipping Flow component update")
+		return nil
+	}
+
+	patchReq := componentToPatchRequest(expectedMachineToFlowComponent(request))
+	_, err := flowClient.GrpcServiceClient().PatchComponent(ctx, patchReq)
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to update Expected Machine component on Flow")
+		return swe.WrapErr(err)
+	}
+
+	logger.Info().Msg("Completed activity")
+	return nil
+}
+
+// UpdateExpectedMachinesOnFlow patches multiple Expected Machine components in Flow via PatchComponent.
+// Mirrors CreateExpectedMachinesOnFlow's per-item loop: per-item failures are counted
+// and logged but never fail the activity, since Flow dual-write is best-effort.
+func (mem *ManageExpectedMachine) UpdateExpectedMachinesOnFlow(ctx context.Context, request *cwssaws.BatchExpectedMachineOperationRequest) error {
+	logger := log.With().Str("Activity", "UpdateExpectedMachinesOnFlow").Logger()
+
+	logger.Info().Msg("Starting activity")
+
+	if mem.flowGrpcAtomicClient == nil {
+		logger.Warn().Msg("Flow client not configured, skipping Flow component update")
+		return nil
+	}
+
+	flowClient := mem.flowGrpcAtomicClient.GetClient()
+	if flowClient == nil {
+		logger.Warn().Msg("Flow client not connected, skipping Flow component update")
+		return nil
+	}
+
+	grpcServiceClient := flowClient.GrpcServiceClient()
+	machines := request.GetExpectedMachines().GetExpectedMachines()
+	successes := 0
+	failures := 0
+
+	// TODO(chet): Work with Flow team to add batch support so we don't have to loop here.
+	for _, machine := range machines {
+		if machine.GetId().GetValue() == "" {
+			logger.Warn().Msg("Skipping Expected Machine without id in batch Flow update")
+			failures++
+			continue
+		}
+		patchReq := componentToPatchRequest(expectedMachineToFlowComponent(machine))
+		_, err := grpcServiceClient.PatchComponent(ctx, patchReq)
+		if err != nil {
+			logger.Warn().Err(err).Str("ID", machine.GetId().GetValue()).Msg("Failed to update Expected Machine component on Flow")
+			failures++
+		} else {
+			successes++
+		}
+	}
+
+	logger.Info().
+		Int("Total", len(machines)).
+		Int("Succeeded", successes).
+		Int("Failed", failures).
+		Msg("Completed activity")
+
+	return nil
+}
+
+// DeleteExpectedMachineOnFlow soft-deletes an Expected Machine component in Flow via DeleteComponent.
+// Best-effort: missing/unconnected Flow client skips silently; RPC failures are returned.
+func (mem *ManageExpectedMachine) DeleteExpectedMachineOnFlow(ctx context.Context, request *cwssaws.ExpectedMachineRequest) error {
+	logger := log.With().Str("Activity", "DeleteExpectedMachineOnFlow").Logger()
+
+	logger.Info().Msg("Starting activity")
+
+	if request == nil {
+		return temporal.NewNonRetryableApplicationError("received empty delete Expected Machine request for Flow", swe.ErrTypeInvalidRequest, errors.New("nil request"))
+	}
+	if request.GetId().GetValue() == "" {
+		return temporal.NewNonRetryableApplicationError("received delete Expected Machine request for Flow without required id field", swe.ErrTypeInvalidRequest, errors.New("missing id"))
+	}
+
+	if mem.flowGrpcAtomicClient == nil {
+		logger.Warn().Msg("Flow client not configured, skipping Flow component delete")
+		return nil
+	}
+
+	flowClient := mem.flowGrpcAtomicClient.GetClient()
+	if flowClient == nil {
+		logger.Warn().Msg("Flow client not connected, skipping Flow component delete")
+		return nil
+	}
+
+	_, err := flowClient.GrpcServiceClient().DeleteComponent(ctx, &flowv1.DeleteComponentRequest{Id: &flowv1.UUID{Id: request.GetId().GetValue()}})
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to delete Expected Machine component on Flow")
+		return swe.WrapErr(err)
+	}
+
+	logger.Info().Msg("Completed activity")
+	return nil
+}
+
 // expectedMachineToFlowComponent converts a NICo ExpectedMachine proto to an Flow Component proto
 func expectedMachineToFlowComponent(em *cwssaws.ExpectedMachine) *flowv1.Component {
 	component := &flowv1.Component{
@@ -557,6 +680,36 @@ func expectedMachineToFlowComponent(em *cwssaws.ExpectedMachine) *flowv1.Compone
 	}
 
 	return component
+}
+
+// componentToPatchRequest extracts the patchable subset of a Flow Component into a
+// PatchComponentRequest. Used by the Expected{Machine,Switch,PowerShelf} Update-on-Flow
+// activities so the conversion stays in sync with expected*ToFlowComponent.
+//
+// Empty / nil values are dropped rather than sent as explicit zero patches: the entity
+// types don't model a "clear this field" intent, so a missing value means "leave the
+// Flow side untouched", matching how the Create path declines to set empties.
+func componentToPatchRequest(c *flowv1.Component) *flowv1.PatchComponentRequest {
+	if c == nil || c.GetInfo() == nil {
+		return nil
+	}
+	req := &flowv1.PatchComponentRequest{
+		Id:   c.GetInfo().GetId(),
+		Bmcs: c.GetBmcs(),
+	}
+	if fv := c.GetFirmwareVersion(); fv != "" {
+		req.FirmwareVersion = &fv
+	}
+	if c.GetPosition() != nil {
+		req.Position = c.GetPosition()
+	}
+	if desc := c.GetInfo().GetDescription(); desc != "" {
+		req.Description = &desc
+	}
+	if rid := c.GetRackId(); rid.GetId() != "" {
+		req.RackId = rid
+	}
+	return req
 }
 
 // UpdateExpectedMachinesOnSite updates multiple Expected Machines on NICo using the batch endpoint

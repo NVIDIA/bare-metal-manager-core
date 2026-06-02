@@ -174,11 +174,12 @@ func (uemts *UpdateExpectedMachineTestSuite) Test_UpdateExpectedMachine_Success(
 		BmcMacAddress: "00:11:22:33:44:55",
 	}
 
-	// Mock UpdateExpectedMachineOnSite activity
 	uemts.env.RegisterActivity(expectedMachineManager.UpdateExpectedMachineOnSite)
 	uemts.env.OnActivity(expectedMachineManager.UpdateExpectedMachineOnSite, mock.Anything, mock.Anything).Return(nil)
 
-	// Execute workflow
+	uemts.env.RegisterActivity(expectedMachineManager.UpdateExpectedMachineOnFlow)
+	uemts.env.OnActivity(expectedMachineManager.UpdateExpectedMachineOnFlow, mock.Anything, mock.Anything).Return(nil)
+
 	uemts.env.ExecuteWorkflow(UpdateExpectedMachine, request)
 	uemts.True(uemts.env.IsWorkflowCompleted())
 	uemts.NoError(uemts.env.GetWorkflowError())
@@ -194,14 +195,33 @@ func (uemts *UpdateExpectedMachineTestSuite) Test_UpdateExpectedMachine_Failure(
 
 	errMsg := "Site Controller communication error"
 
-	// Mock UpdateExpectedMachineOnSite activity
 	uemts.env.RegisterActivity(expectedMachineManager.UpdateExpectedMachineOnSite)
 	uemts.env.OnActivity(expectedMachineManager.UpdateExpectedMachineOnSite, mock.Anything, mock.Anything).Return(errors.New(errMsg))
 
-	// execute UpdateExpectedMachine workflow
+	uemts.env.RegisterActivity(expectedMachineManager.UpdateExpectedMachineOnFlow)
+
 	uemts.env.ExecuteWorkflow(UpdateExpectedMachine, request)
 	uemts.True(uemts.env.IsWorkflowCompleted())
 	uemts.Error(uemts.env.GetWorkflowError())
+}
+
+func (uemts *UpdateExpectedMachineTestSuite) Test_UpdateExpectedMachine_CoreSuccess_FlowFailure() {
+	var expectedMachineManager iActivity.ManageExpectedMachine
+
+	request := &cwssaws.ExpectedMachine{
+		Id:            &cwssaws.UUID{Value: "test-update-workflow-002"},
+		BmcMacAddress: "00:11:22:33:44:55",
+	}
+
+	uemts.env.RegisterActivity(expectedMachineManager.UpdateExpectedMachineOnSite)
+	uemts.env.OnActivity(expectedMachineManager.UpdateExpectedMachineOnSite, mock.Anything, mock.Anything).Return(nil)
+
+	uemts.env.RegisterActivity(expectedMachineManager.UpdateExpectedMachineOnFlow)
+	uemts.env.OnActivity(expectedMachineManager.UpdateExpectedMachineOnFlow, mock.Anything, mock.Anything).Return(errors.New("Flow unavailable"))
+
+	uemts.env.ExecuteWorkflow(UpdateExpectedMachine, request)
+	uemts.True(uemts.env.IsWorkflowCompleted())
+	uemts.NoError(uemts.env.GetWorkflowError())
 }
 
 func TestUpdateExpectedMachineTestSuite(t *testing.T) {
@@ -231,11 +251,12 @@ func (demts *DeleteExpectedMachineTestSuite) Test_DeleteExpectedMachine_Success(
 		BmcMacAddress: "00:11:22:33:44:55",
 	}
 
-	// Mock DeleteExpectedMachineOnSite activity
 	demts.env.RegisterActivity(expectedMachineManager.DeleteExpectedMachineOnSite)
 	demts.env.OnActivity(expectedMachineManager.DeleteExpectedMachineOnSite, mock.Anything, mock.Anything).Return(nil)
 
-	// execute workflow
+	demts.env.RegisterActivity(expectedMachineManager.DeleteExpectedMachineOnFlow)
+	demts.env.OnActivity(expectedMachineManager.DeleteExpectedMachineOnFlow, mock.Anything, mock.Anything).Return(nil)
+
 	demts.env.ExecuteWorkflow(DeleteExpectedMachine, request)
 	demts.True(demts.env.IsWorkflowCompleted())
 	demts.NoError(demts.env.GetWorkflowError())
@@ -251,14 +272,33 @@ func (demts *DeleteExpectedMachineTestSuite) Test_DeleteExpectedMachine_Failure(
 
 	errMsg := "Site Controller communication error"
 
-	// Mock DeleteExpectedMachineOnSite activity
 	demts.env.RegisterActivity(expectedMachineManager.DeleteExpectedMachineOnSite)
 	demts.env.OnActivity(expectedMachineManager.DeleteExpectedMachineOnSite, mock.Anything, mock.Anything).Return(errors.New(errMsg))
 
-	// execute DeleteExpectedMachine workflow
+	demts.env.RegisterActivity(expectedMachineManager.DeleteExpectedMachineOnFlow)
+
 	demts.env.ExecuteWorkflow(DeleteExpectedMachine, request)
 	demts.True(demts.env.IsWorkflowCompleted())
 	demts.Error(demts.env.GetWorkflowError())
+}
+
+func (demts *DeleteExpectedMachineTestSuite) Test_DeleteExpectedMachine_CoreSuccess_FlowFailure() {
+	var expectedMachineManager iActivity.ManageExpectedMachine
+
+	request := &cwssaws.ExpectedMachineRequest{
+		Id:            &cwssaws.UUID{Value: "test-delete-workflow-002"},
+		BmcMacAddress: "00:11:22:33:44:55",
+	}
+
+	demts.env.RegisterActivity(expectedMachineManager.DeleteExpectedMachineOnSite)
+	demts.env.OnActivity(expectedMachineManager.DeleteExpectedMachineOnSite, mock.Anything, mock.Anything).Return(nil)
+
+	demts.env.RegisterActivity(expectedMachineManager.DeleteExpectedMachineOnFlow)
+	demts.env.OnActivity(expectedMachineManager.DeleteExpectedMachineOnFlow, mock.Anything, mock.Anything).Return(errors.New("Flow unavailable"))
+
+	demts.env.ExecuteWorkflow(DeleteExpectedMachine, request)
+	demts.True(demts.env.IsWorkflowCompleted())
+	demts.NoError(demts.env.GetWorkflowError())
 }
 
 func TestDeleteExpectedMachineTestSuite(t *testing.T) {
@@ -505,11 +545,12 @@ func (uemts *UpdateExpectedMachinesTestSuite) Test_UpdateExpectedMachines_Succes
 		},
 	}
 
-	// Mock UpdateExpectedMachinesOnSite activity
 	uemts.env.RegisterActivity(expectedMachineManager.UpdateExpectedMachinesOnSite)
 	uemts.env.OnActivity(expectedMachineManager.UpdateExpectedMachinesOnSite, mock.Anything, mock.Anything).Return(expectedResponse, nil)
 
-	// Execute UpdateExpectedMachines workflow
+	uemts.env.RegisterActivity(expectedMachineManager.UpdateExpectedMachinesOnFlow)
+	uemts.env.OnActivity(expectedMachineManager.UpdateExpectedMachinesOnFlow, mock.Anything, mock.Anything).Return(nil)
+
 	uemts.env.ExecuteWorkflow(UpdateExpectedMachines, request)
 	uemts.True(uemts.env.IsWorkflowCompleted())
 	uemts.NoError(uemts.env.GetWorkflowError())
@@ -571,11 +612,12 @@ func (uemts *UpdateExpectedMachinesTestSuite) Test_UpdateExpectedMachines_Partia
 		},
 	}
 
-	// Mock UpdateExpectedMachinesOnSite activity
 	uemts.env.RegisterActivity(expectedMachineManager.UpdateExpectedMachinesOnSite)
 	uemts.env.OnActivity(expectedMachineManager.UpdateExpectedMachinesOnSite, mock.Anything, mock.Anything).Return(expectedResponse, nil)
 
-	// Execute UpdateExpectedMachines workflow
+	uemts.env.RegisterActivity(expectedMachineManager.UpdateExpectedMachinesOnFlow)
+	uemts.env.OnActivity(expectedMachineManager.UpdateExpectedMachinesOnFlow, mock.Anything, mock.Anything).Return(nil)
+
 	uemts.env.ExecuteWorkflow(UpdateExpectedMachines, request)
 	uemts.True(uemts.env.IsWorkflowCompleted())
 	uemts.NoError(uemts.env.GetWorkflowError())
@@ -612,14 +654,48 @@ func (uemts *UpdateExpectedMachinesTestSuite) Test_UpdateExpectedMachines_Failur
 
 	errMsg := "Site Controller communication error"
 
-	// Mock UpdateExpectedMachinesOnSite activity
 	uemts.env.RegisterActivity(expectedMachineManager.UpdateExpectedMachinesOnSite)
 	uemts.env.OnActivity(expectedMachineManager.UpdateExpectedMachinesOnSite, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
 
-	// execute UpdateExpectedMachines workflow
+	uemts.env.RegisterActivity(expectedMachineManager.UpdateExpectedMachinesOnFlow)
+
 	uemts.env.ExecuteWorkflow(UpdateExpectedMachines, request)
 	uemts.True(uemts.env.IsWorkflowCompleted())
 	uemts.Error(uemts.env.GetWorkflowError())
+}
+
+func (uemts *UpdateExpectedMachinesTestSuite) Test_UpdateExpectedMachines_CoreSuccess_FlowFailure() {
+	var expectedMachineManager iActivity.ManageExpectedMachine
+
+	request := &cwssaws.BatchExpectedMachineOperationRequest{
+		ExpectedMachines: &cwssaws.ExpectedMachineList{
+			ExpectedMachines: []*cwssaws.ExpectedMachine{
+				{
+					Id:                  &cwssaws.UUID{Value: "test-batch-update-003"},
+					BmcMacAddress:       "00:11:22:33:44:77",
+					ChassisSerialNumber: "SN003",
+				},
+			},
+		},
+		AcceptPartialResults: true,
+	}
+
+	first := request.GetExpectedMachines().GetExpectedMachines()[0]
+	expectedResponse := &cwssaws.BatchExpectedMachineOperationResponse{
+		Results: []*cwssaws.ExpectedMachineOperationResult{
+			{Id: first.GetId(), Success: true, ExpectedMachine: first},
+		},
+	}
+
+	uemts.env.RegisterActivity(expectedMachineManager.UpdateExpectedMachinesOnSite)
+	uemts.env.OnActivity(expectedMachineManager.UpdateExpectedMachinesOnSite, mock.Anything, mock.Anything).Return(expectedResponse, nil)
+
+	uemts.env.RegisterActivity(expectedMachineManager.UpdateExpectedMachinesOnFlow)
+	uemts.env.OnActivity(expectedMachineManager.UpdateExpectedMachinesOnFlow, mock.Anything, mock.Anything).Return(errors.New("Flow unavailable"))
+
+	uemts.env.ExecuteWorkflow(UpdateExpectedMachines, request)
+	uemts.True(uemts.env.IsWorkflowCompleted())
+	uemts.NoError(uemts.env.GetWorkflowError())
 }
 
 func TestUpdateExpectedMachinesTestSuite(t *testing.T) {

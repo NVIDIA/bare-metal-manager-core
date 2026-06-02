@@ -41,9 +41,17 @@ func (api *API) RegisterSubscriber() error {
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedSwitchManager.UpdateExpectedSwitchOnSite)
 	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedSwitch: Successfully registered UpdateExpectedSwitchOnSite activity")
 
+	// Register UpdateExpectedSwitchOnFlow activity
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedSwitchManager.UpdateExpectedSwitchOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedSwitch: Successfully registered UpdateExpectedSwitchOnFlow activity")
+
 	// Register DeleteExpectedSwitchOnSite activity
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedSwitchManager.DeleteExpectedSwitchOnSite)
 	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedSwitch: Successfully registered DeleteExpectedSwitchOnSite activity")
+
+	// Register DeleteExpectedSwitchOnFlow activity
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedSwitchManager.DeleteExpectedSwitchOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedSwitch: Successfully registered DeleteExpectedSwitchOnFlow activity")
 
 	return nil
 }

@@ -123,11 +123,12 @@ func (uerts *UpdateExpectedRackTestSuite) Test_UpdateExpectedRack_Success() {
 		RackType: "test-update-rack-profile-001",
 	}
 
-	// Mock UpdateExpectedRackOnSite activity
 	uerts.env.RegisterActivity(expectedRackManager.UpdateExpectedRackOnSite)
 	uerts.env.OnActivity(expectedRackManager.UpdateExpectedRackOnSite, mock.Anything, mock.Anything).Return(nil)
 
-	// Execute workflow
+	uerts.env.RegisterActivity(expectedRackManager.UpdateExpectedRackOnFlow)
+	uerts.env.OnActivity(expectedRackManager.UpdateExpectedRackOnFlow, mock.Anything, mock.Anything).Return(nil)
+
 	uerts.env.ExecuteWorkflow(UpdateExpectedRack, request)
 	uerts.True(uerts.env.IsWorkflowCompleted())
 	uerts.NoError(uerts.env.GetWorkflowError())
@@ -143,14 +144,33 @@ func (uerts *UpdateExpectedRackTestSuite) Test_UpdateExpectedRack_Failure() {
 
 	errMsg := "Site Controller communication error"
 
-	// Mock UpdateExpectedRackOnSite activity
 	uerts.env.RegisterActivity(expectedRackManager.UpdateExpectedRackOnSite)
 	uerts.env.OnActivity(expectedRackManager.UpdateExpectedRackOnSite, mock.Anything, mock.Anything).Return(errors.New(errMsg))
 
-	// Execute UpdateExpectedRack workflow
+	uerts.env.RegisterActivity(expectedRackManager.UpdateExpectedRackOnFlow)
+
 	uerts.env.ExecuteWorkflow(UpdateExpectedRack, request)
 	uerts.True(uerts.env.IsWorkflowCompleted())
 	uerts.Error(uerts.env.GetWorkflowError())
+}
+
+func (uerts *UpdateExpectedRackTestSuite) Test_UpdateExpectedRack_CoreSuccess_FlowFailure() {
+	var expectedRackManager iActivity.ManageExpectedRack
+
+	request := &cwssaws.ExpectedRack{
+		RackId:   &cwssaws.RackId{Id: "test-update-rack-workflow-002"},
+		RackType: "test-update-rack-profile-002",
+	}
+
+	uerts.env.RegisterActivity(expectedRackManager.UpdateExpectedRackOnSite)
+	uerts.env.OnActivity(expectedRackManager.UpdateExpectedRackOnSite, mock.Anything, mock.Anything).Return(nil)
+
+	uerts.env.RegisterActivity(expectedRackManager.UpdateExpectedRackOnFlow)
+	uerts.env.OnActivity(expectedRackManager.UpdateExpectedRackOnFlow, mock.Anything, mock.Anything).Return(errors.New("Flow unavailable"))
+
+	uerts.env.ExecuteWorkflow(UpdateExpectedRack, request)
+	uerts.True(uerts.env.IsWorkflowCompleted())
+	uerts.NoError(uerts.env.GetWorkflowError())
 }
 
 func TestUpdateExpectedRackTestSuite(t *testing.T) {
@@ -179,11 +199,12 @@ func (derts *DeleteExpectedRackTestSuite) Test_DeleteExpectedRack_Success() {
 		RackId: "test-delete-rack-workflow-001",
 	}
 
-	// Mock DeleteExpectedRackOnSite activity
 	derts.env.RegisterActivity(expectedRackManager.DeleteExpectedRackOnSite)
 	derts.env.OnActivity(expectedRackManager.DeleteExpectedRackOnSite, mock.Anything, mock.Anything).Return(nil)
 
-	// Execute workflow
+	derts.env.RegisterActivity(expectedRackManager.DeleteExpectedRackOnFlow)
+	derts.env.OnActivity(expectedRackManager.DeleteExpectedRackOnFlow, mock.Anything, mock.Anything).Return(nil)
+
 	derts.env.ExecuteWorkflow(DeleteExpectedRack, request)
 	derts.True(derts.env.IsWorkflowCompleted())
 	derts.NoError(derts.env.GetWorkflowError())
@@ -198,14 +219,32 @@ func (derts *DeleteExpectedRackTestSuite) Test_DeleteExpectedRack_Failure() {
 
 	errMsg := "Site Controller communication error"
 
-	// Mock DeleteExpectedRackOnSite activity
 	derts.env.RegisterActivity(expectedRackManager.DeleteExpectedRackOnSite)
 	derts.env.OnActivity(expectedRackManager.DeleteExpectedRackOnSite, mock.Anything, mock.Anything).Return(errors.New(errMsg))
 
-	// Execute DeleteExpectedRack workflow
+	derts.env.RegisterActivity(expectedRackManager.DeleteExpectedRackOnFlow)
+
 	derts.env.ExecuteWorkflow(DeleteExpectedRack, request)
 	derts.True(derts.env.IsWorkflowCompleted())
 	derts.Error(derts.env.GetWorkflowError())
+}
+
+func (derts *DeleteExpectedRackTestSuite) Test_DeleteExpectedRack_CoreSuccess_FlowFailure() {
+	var expectedRackManager iActivity.ManageExpectedRack
+
+	request := &cwssaws.ExpectedRackRequest{
+		RackId: "test-delete-rack-workflow-002",
+	}
+
+	derts.env.RegisterActivity(expectedRackManager.DeleteExpectedRackOnSite)
+	derts.env.OnActivity(expectedRackManager.DeleteExpectedRackOnSite, mock.Anything, mock.Anything).Return(nil)
+
+	derts.env.RegisterActivity(expectedRackManager.DeleteExpectedRackOnFlow)
+	derts.env.OnActivity(expectedRackManager.DeleteExpectedRackOnFlow, mock.Anything, mock.Anything).Return(errors.New("Flow unavailable"))
+
+	derts.env.ExecuteWorkflow(DeleteExpectedRack, request)
+	derts.True(derts.env.IsWorkflowCompleted())
+	derts.NoError(derts.env.GetWorkflowError())
 }
 
 func TestDeleteExpectedRackTestSuite(t *testing.T) {

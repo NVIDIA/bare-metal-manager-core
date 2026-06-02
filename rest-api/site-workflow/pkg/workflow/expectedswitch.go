@@ -93,8 +93,8 @@ func CreateExpectedSwitch(ctx workflow.Context, request *cwssaws.ExpectedSwitch)
 	return nil
 }
 
-// UpdateExpectedSwitch is a workflow to update an Expected Switch using the UpdateExpectedSwitchOnSite activity
-// TODO: Add Flow PatchComponent dual-write when update/delete Flow support is implemented
+// UpdateExpectedSwitch is a workflow to update an Expected Switch using the UpdateExpectedSwitchOnSite activity,
+// then also patches the component in Flow via UpdateExpectedSwitchOnFlow (best-effort).
 func UpdateExpectedSwitch(ctx workflow.Context, request *cwssaws.ExpectedSwitch) error {
 	logger := log.With().Str("Workflow", "ExpectedSwitch").Str("Action", "Update").Str("ID", request.GetExpectedSwitchId().GetValue()).Str("Expected MAC address", request.BmcMacAddress).Str("Serial", request.SwitchSerialNumber).Logger()
 
@@ -124,13 +124,18 @@ func UpdateExpectedSwitch(ctx workflow.Context, request *cwssaws.ExpectedSwitch)
 		return err
 	}
 
+	err = workflow.ExecuteActivity(ctx, expectedSwitchManager.UpdateExpectedSwitchOnFlow, request).Get(ctx, nil)
+	if err != nil {
+		logger.Warn().Err(err).Str("Activity", "UpdateExpectedSwitchOnFlow").Msg("Failed to update component on Flow, Core write succeeded")
+	}
+
 	logger.Info().Msg("completing workflow")
 
 	return nil
 }
 
-// DeleteExpectedSwitch is a workflow to Delete an Expected Switch using the DeleteExpectedSwitchOnSite activity
-// TODO: Add Flow DeleteComponent dual-write when update/delete Flow support is implemented
+// DeleteExpectedSwitch is a workflow to Delete an Expected Switch using the DeleteExpectedSwitchOnSite activity,
+// then also deletes the component from Flow via DeleteExpectedSwitchOnFlow (best-effort).
 func DeleteExpectedSwitch(ctx workflow.Context, request *cwssaws.ExpectedSwitchRequest) error {
 	logger := log.With().Str("Workflow", "ExpectedSwitch").Str("Action", "Delete").Str("ID", request.GetExpectedSwitchId().GetValue()).Str("optional MAC address", request.BmcMacAddress).Logger()
 
@@ -158,6 +163,11 @@ func DeleteExpectedSwitch(ctx workflow.Context, request *cwssaws.ExpectedSwitchR
 	if err != nil {
 		logger.Error().Err(err).Str("Activity", "DeleteExpectedSwitchOnSite").Msg("Failed to execute activity from workflow")
 		return err
+	}
+
+	err = workflow.ExecuteActivity(ctx, expectedSwitchManager.DeleteExpectedSwitchOnFlow, request).Get(ctx, nil)
+	if err != nil {
+		logger.Warn().Err(err).Str("Activity", "DeleteExpectedSwitchOnFlow").Msg("Failed to delete component on Flow, Core write succeeded")
 	}
 
 	logger.Info().Msg("completing workflow")

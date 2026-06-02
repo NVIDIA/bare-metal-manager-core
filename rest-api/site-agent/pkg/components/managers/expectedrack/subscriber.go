@@ -49,9 +49,17 @@ func (api *API) RegisterSubscriber() error {
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedRackManager.UpdateExpectedRackOnSite)
 	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedRack: Successfully registered UpdateExpectedRackOnSite activity")
 
+	// Register UpdateExpectedRackOnFlow activity
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedRackManager.UpdateExpectedRackOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedRack: Successfully registered UpdateExpectedRackOnFlow activity")
+
 	// Register DeleteExpectedRackOnSite activity
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedRackManager.DeleteExpectedRackOnSite)
 	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedRack: Successfully registered DeleteExpectedRackOnSite activity")
+
+	// Register DeleteExpectedRackOnFlow activity
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedRackManager.DeleteExpectedRackOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedRack: Successfully registered DeleteExpectedRackOnFlow activity")
 
 	// Register ReplaceAllExpectedRacksOnSite activity
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedRackManager.ReplaceAllExpectedRacksOnSite)

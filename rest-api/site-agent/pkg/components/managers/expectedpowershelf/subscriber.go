@@ -41,9 +41,17 @@ func (api *API) RegisterSubscriber() error {
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedPowerShelfManager.UpdateExpectedPowerShelfOnSite)
 	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedPowerShelf: Successfully registered UpdateExpectedPowerShelfOnSite activity")
 
+	// Register UpdateExpectedPowerShelfOnFlow activity
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedPowerShelfManager.UpdateExpectedPowerShelfOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedPowerShelf: Successfully registered UpdateExpectedPowerShelfOnFlow activity")
+
 	// Register DeleteExpectedPowerShelfOnSite activity
 	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedPowerShelfManager.DeleteExpectedPowerShelfOnSite)
 	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedPowerShelf: Successfully registered DeleteExpectedPowerShelfOnSite activity")
+
+	// Register DeleteExpectedPowerShelfOnFlow activity
+	ManagerAccess.Data.EB.Managers.Workflow.Temporal.Worker.RegisterActivity(expectedPowerShelfManager.DeleteExpectedPowerShelfOnFlow)
+	ManagerAccess.Data.EB.Log.Info().Msg("ExpectedPowerShelf: Successfully registered DeleteExpectedPowerShelfOnFlow activity")
 
 	return nil
 }

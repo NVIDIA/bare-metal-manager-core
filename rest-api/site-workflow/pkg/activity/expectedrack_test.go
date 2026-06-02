@@ -365,6 +365,58 @@ func TestManageExpectedRack_CreateExpectedRackOnFlow(t *testing.T) {
 	})
 }
 
+func TestManageExpectedRack_UpdateExpectedRackOnFlow(t *testing.T) {
+	t.Run("nil request returns non-retryable error", func(t *testing.T) {
+		mer := ManageExpectedRack{flowGrpcAtomicClient: nil}
+		err := mer.UpdateExpectedRackOnFlow(context.Background(), nil)
+		assert.Error(t, err)
+	})
+
+	t.Run("nil Flow client skips gracefully", func(t *testing.T) {
+		mer := ManageExpectedRack{flowGrpcAtomicClient: nil}
+		err := mer.UpdateExpectedRackOnFlow(context.Background(), &cwssaws.ExpectedRack{
+			RackId:   &cwssaws.RackId{Id: uuid.NewString()},
+			RackType: uuid.NewString(),
+		})
+		assert.NoError(t, err)
+	})
+
+	t.Run("nil Flow client connection skips gracefully", func(t *testing.T) {
+		mer := ManageExpectedRack{flowGrpcAtomicClient: cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})}
+		err := mer.UpdateExpectedRackOnFlow(context.Background(), &cwssaws.ExpectedRack{
+			RackId:   &cwssaws.RackId{Id: uuid.NewString()},
+			RackType: uuid.NewString(),
+		})
+		assert.NoError(t, err)
+	})
+}
+
+func TestManageExpectedRack_DeleteExpectedRackOnFlow(t *testing.T) {
+	t.Run("nil request returns non-retryable error", func(t *testing.T) {
+		mer := ManageExpectedRack{flowGrpcAtomicClient: nil}
+		err := mer.DeleteExpectedRackOnFlow(context.Background(), nil)
+		assert.Error(t, err)
+	})
+
+	t.Run("empty rack_id returns non-retryable error", func(t *testing.T) {
+		mer := ManageExpectedRack{flowGrpcAtomicClient: nil}
+		err := mer.DeleteExpectedRackOnFlow(context.Background(), &cwssaws.ExpectedRackRequest{RackId: ""})
+		assert.Error(t, err)
+	})
+
+	t.Run("nil Flow client skips gracefully", func(t *testing.T) {
+		mer := ManageExpectedRack{flowGrpcAtomicClient: nil}
+		err := mer.DeleteExpectedRackOnFlow(context.Background(), &cwssaws.ExpectedRackRequest{RackId: uuid.NewString()})
+		assert.NoError(t, err)
+	})
+
+	t.Run("nil Flow client connection skips gracefully", func(t *testing.T) {
+		mer := ManageExpectedRack{flowGrpcAtomicClient: cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})}
+		err := mer.DeleteExpectedRackOnFlow(context.Background(), &cwssaws.ExpectedRackRequest{RackId: uuid.NewString()})
+		assert.NoError(t, err)
+	})
+}
+
 func Test_expectedRackToFlowRack(t *testing.T) {
 	strPtr := func(s string) *string { return &s }
 

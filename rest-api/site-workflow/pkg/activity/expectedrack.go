@@ -424,6 +424,79 @@ func (mer *ManageExpectedRack) CreateExpectedRackOnFlow(ctx context.Context, req
 	return nil
 }
 
+// UpdateExpectedRackOnFlow patches an existing Expected Rack in Flow via PatchRack.
+// Best-effort: missing/unconnected Flow client skips silently; RPC failures are
+// returned so the workflow can log and continue (mirroring CreateExpectedRackOnFlow).
+func (mer *ManageExpectedRack) UpdateExpectedRackOnFlow(ctx context.Context, request *cwssaws.ExpectedRack) error {
+	logger := log.With().Str("Activity", "UpdateExpectedRackOnFlow").Logger()
+
+	logger.Info().Msg("Starting activity")
+
+	if request == nil {
+		return temporal.NewNonRetryableApplicationError("received empty update Expected Rack request for Flow", swe.ErrTypeInvalidRequest, errors.New("nil request"))
+	}
+
+	if mer.flowGrpcAtomicClient == nil {
+		logger.Warn().Msg("Flow client not configured, skipping Flow expected rack update")
+		return nil
+	}
+
+	grpcClient := mer.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		logger.Warn().Msg("Flow client not connected, skipping Flow expected rack update")
+		return nil
+	}
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+
+	rack := expectedRackToFlowRack(request)
+	_, err := grpcServiceClient.PatchRack(ctx, &flowv1.PatchRackRequest{Rack: rack})
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to update Expected Rack on Flow")
+		return swe.WrapErr(err)
+	}
+
+	logger.Info().Msg("Completed activity")
+	return nil
+}
+
+// DeleteExpectedRackOnFlow soft-deletes an Expected Rack in Flow via DeleteRack,
+// which also cascades to the rack's components.
+// Best-effort: missing/unconnected Flow client skips silently; RPC failures are
+// returned so the workflow can log and continue.
+func (mer *ManageExpectedRack) DeleteExpectedRackOnFlow(ctx context.Context, request *cwssaws.ExpectedRackRequest) error {
+	logger := log.With().Str("Activity", "DeleteExpectedRackOnFlow").Logger()
+
+	logger.Info().Msg("Starting activity")
+
+	if request == nil {
+		return temporal.NewNonRetryableApplicationError("received empty delete Expected Rack request for Flow", swe.ErrTypeInvalidRequest, errors.New("nil request"))
+	}
+	if request.GetRackId() == "" {
+		return temporal.NewNonRetryableApplicationError("received delete Expected Rack request for Flow without required rack_id field", swe.ErrTypeInvalidRequest, errors.New("missing rack_id"))
+	}
+
+	if mer.flowGrpcAtomicClient == nil {
+		logger.Warn().Msg("Flow client not configured, skipping Flow expected rack delete")
+		return nil
+	}
+
+	grpcClient := mer.flowGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		logger.Warn().Msg("Flow client not connected, skipping Flow expected rack delete")
+		return nil
+	}
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+
+	_, err := grpcServiceClient.DeleteRack(ctx, &flowv1.DeleteRackRequest{Id: &flowv1.UUID{Id: request.GetRackId()}})
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to delete Expected Rack on Flow")
+		return swe.WrapErr(err)
+	}
+
+	logger.Info().Msg("Completed activity")
+	return nil
+}
+
 // labelValue extracts the value for a label key from a metadata label slice. Returns
 // empty string if the key is not present or the value is nil.
 func labelValue(labels []*cwssaws.Label, key string) string {

@@ -93,8 +93,8 @@ func CreateExpectedMachine(ctx workflow.Context, request *cwssaws.ExpectedMachin
 	return nil
 }
 
-// UpdateExpectedMachine is a workflow to update Expected Machines using the UpdateExpectedMachineOnSite activity
-// TODO: Add Flow PatchComponent dual-write when update/delete Flow support is implemented
+// UpdateExpectedMachine is a workflow to update Expected Machines using the UpdateExpectedMachineOnSite activity,
+// then also patches the component in Flow via UpdateExpectedMachineOnFlow (best-effort).
 func UpdateExpectedMachine(ctx workflow.Context, request *cwssaws.ExpectedMachine) error {
 	logger := log.With().Str("Workflow", "ExpectedMachine").Str("Action", "Update").Str("ID", request.GetId().GetValue()).Str("Expected MAC address", request.BmcMacAddress).Str("Serial", request.ChassisSerialNumber).Logger()
 
@@ -122,6 +122,11 @@ func UpdateExpectedMachine(ctx workflow.Context, request *cwssaws.ExpectedMachin
 	if err != nil {
 		logger.Error().Err(err).Str("Activity", "UpdateExpectedMachineOnSite").Msg("Failed to execute activity from workflow")
 		return err
+	}
+
+	err = workflow.ExecuteActivity(ctx, expectedMachineManager.UpdateExpectedMachineOnFlow, request).Get(ctx, nil)
+	if err != nil {
+		logger.Warn().Err(err).Str("Activity", "UpdateExpectedMachineOnFlow").Msg("Failed to update component on Flow, Core write succeeded")
 	}
 
 	logger.Info().Msg("completing workflow")
@@ -174,7 +179,8 @@ func CreateExpectedMachines(ctx workflow.Context, request *cwssaws.BatchExpected
 	return &response, nil
 }
 
-// UpdateExpectedMachines is a workflow to update multiple Expected Machines using the UpdateExpectedMachinesOnSite activity
+// UpdateExpectedMachines is a workflow to update multiple Expected Machines using the UpdateExpectedMachinesOnSite activity,
+// then also patches the components in Flow via UpdateExpectedMachinesOnFlow (best-effort).
 func UpdateExpectedMachines(ctx workflow.Context, request *cwssaws.BatchExpectedMachineOperationRequest) (*cwssaws.BatchExpectedMachineOperationResponse, error) {
 	logger := log.With().Str("Workflow", "ExpectedMachines").Str("Action", "Update").Int("Count", len(request.GetExpectedMachines().GetExpectedMachines())).Logger()
 
@@ -206,13 +212,18 @@ func UpdateExpectedMachines(ctx workflow.Context, request *cwssaws.BatchExpected
 		return nil, err
 	}
 
+	err = workflow.ExecuteActivity(ctx, expectedMachineManager.UpdateExpectedMachinesOnFlow, request).Get(ctx, nil)
+	if err != nil {
+		logger.Warn().Err(err).Str("Activity", "UpdateExpectedMachinesOnFlow").Msg("Failed to update components on Flow, Core write succeeded")
+	}
+
 	logger.Info().Msg("completing workflow")
 
 	return &response, nil
 }
 
-// DeleteExpectedMachine is a workflow to Delete Expected Machines using the DeleteExpectedMachineOnSite activity
-// TODO: Add Flow DeleteComponent dual-write when update/delete Flow support is implemented
+// DeleteExpectedMachine is a workflow to Delete Expected Machines using the DeleteExpectedMachineOnSite activity,
+// then also deletes the component from Flow via DeleteExpectedMachineOnFlow (best-effort).
 func DeleteExpectedMachine(ctx workflow.Context, request *cwssaws.ExpectedMachineRequest) error {
 	logger := log.With().Str("Workflow", "ExpectedMachine").Str("Action", "Delete").Str("ID", request.GetId().GetValue()).Str("optional MAC address", request.BmcMacAddress).Logger()
 
@@ -240,6 +251,11 @@ func DeleteExpectedMachine(ctx workflow.Context, request *cwssaws.ExpectedMachin
 	if err != nil {
 		logger.Error().Err(err).Str("Activity", "DeleteExpectedMachineOnSite").Msg("Failed to execute activity from workflow")
 		return err
+	}
+
+	err = workflow.ExecuteActivity(ctx, expectedMachineManager.DeleteExpectedMachineOnFlow, request).Get(ctx, nil)
+	if err != nil {
+		logger.Warn().Err(err).Str("Activity", "DeleteExpectedMachineOnFlow").Msg("Failed to delete component on Flow, Core write succeeded")
 	}
 
 	logger.Info().Msg("completing workflow")

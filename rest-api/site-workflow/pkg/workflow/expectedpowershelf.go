@@ -93,8 +93,8 @@ func CreateExpectedPowerShelf(ctx workflow.Context, request *cwssaws.ExpectedPow
 	return nil
 }
 
-// UpdateExpectedPowerShelf is a workflow to update an Expected Power Shelf using the UpdateExpectedPowerShelfOnSite activity
-// TODO: Add Flow PatchComponent dual-write when update/delete Flow support is implemented
+// UpdateExpectedPowerShelf is a workflow to update an Expected Power Shelf using the UpdateExpectedPowerShelfOnSite activity,
+// then also patches the component in Flow via UpdateExpectedPowerShelfOnFlow (best-effort).
 func UpdateExpectedPowerShelf(ctx workflow.Context, request *cwssaws.ExpectedPowerShelf) error {
 	logger := log.With().Str("Workflow", "ExpectedPowerShelf").Str("Action", "Update").Str("ID", request.GetExpectedPowerShelfId().GetValue()).Str("Expected MAC address", request.BmcMacAddress).Str("Serial", request.ShelfSerialNumber).Logger()
 
@@ -124,13 +124,18 @@ func UpdateExpectedPowerShelf(ctx workflow.Context, request *cwssaws.ExpectedPow
 		return err
 	}
 
+	err = workflow.ExecuteActivity(ctx, expectedPowerShelfManager.UpdateExpectedPowerShelfOnFlow, request).Get(ctx, nil)
+	if err != nil {
+		logger.Warn().Err(err).Str("Activity", "UpdateExpectedPowerShelfOnFlow").Msg("Failed to update component on Flow, Core write succeeded")
+	}
+
 	logger.Info().Msg("completing workflow")
 
 	return nil
 }
 
-// DeleteExpectedPowerShelf is a workflow to Delete an Expected Power Shelf using the DeleteExpectedPowerShelfOnSite activity
-// TODO: Add Flow DeleteComponent dual-write when update/delete Flow support is implemented
+// DeleteExpectedPowerShelf is a workflow to Delete an Expected Power Shelf using the DeleteExpectedPowerShelfOnSite activity,
+// then also deletes the component from Flow via DeleteExpectedPowerShelfOnFlow (best-effort).
 func DeleteExpectedPowerShelf(ctx workflow.Context, request *cwssaws.ExpectedPowerShelfRequest) error {
 	logger := log.With().Str("Workflow", "ExpectedPowerShelf").Str("Action", "Delete").Str("ID", request.GetExpectedPowerShelfId().GetValue()).Str("optional MAC address", request.BmcMacAddress).Logger()
 
@@ -158,6 +163,11 @@ func DeleteExpectedPowerShelf(ctx workflow.Context, request *cwssaws.ExpectedPow
 	if err != nil {
 		logger.Error().Err(err).Str("Activity", "DeleteExpectedPowerShelfOnSite").Msg("Failed to execute activity from workflow")
 		return err
+	}
+
+	err = workflow.ExecuteActivity(ctx, expectedPowerShelfManager.DeleteExpectedPowerShelfOnFlow, request).Get(ctx, nil)
+	if err != nil {
+		logger.Warn().Err(err).Str("Activity", "DeleteExpectedPowerShelfOnFlow").Msg("Failed to delete component on Flow, Core write succeeded")
 	}
 
 	logger.Info().Msg("completing workflow")

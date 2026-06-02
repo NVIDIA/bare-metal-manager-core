@@ -462,6 +462,68 @@ func TestManageExpectedSwitch_CreateExpectedSwitchOnFlow(t *testing.T) {
 	})
 }
 
+func TestManageExpectedSwitch_UpdateExpectedSwitchOnFlow(t *testing.T) {
+	t.Run("nil request returns non-retryable error", func(t *testing.T) {
+		mm := ManageExpectedSwitch{flowGrpcAtomicClient: nil}
+		err := mm.UpdateExpectedSwitchOnFlow(context.Background(), nil)
+		assert.Error(t, err)
+	})
+
+	t.Run("empty id returns non-retryable error", func(t *testing.T) {
+		mm := ManageExpectedSwitch{flowGrpcAtomicClient: nil}
+		err := mm.UpdateExpectedSwitchOnFlow(context.Background(), &cwssaws.ExpectedSwitch{
+			BmcMacAddress: "00:11:22:33:44:55", SwitchSerialNumber: "SW001",
+		})
+		assert.Error(t, err)
+	})
+
+	t.Run("nil Flow client skips gracefully", func(t *testing.T) {
+		mm := ManageExpectedSwitch{flowGrpcAtomicClient: nil}
+		err := mm.UpdateExpectedSwitchOnFlow(context.Background(), &cwssaws.ExpectedSwitch{
+			ExpectedSwitchId: &cwssaws.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", SwitchSerialNumber: "SW001",
+		})
+		assert.NoError(t, err)
+	})
+
+	t.Run("nil Flow client connection skips gracefully", func(t *testing.T) {
+		mm := ManageExpectedSwitch{flowGrpcAtomicClient: cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})}
+		err := mm.UpdateExpectedSwitchOnFlow(context.Background(), &cwssaws.ExpectedSwitch{
+			ExpectedSwitchId: &cwssaws.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", SwitchSerialNumber: "SW001",
+		})
+		assert.NoError(t, err)
+	})
+}
+
+func TestManageExpectedSwitch_DeleteExpectedSwitchOnFlow(t *testing.T) {
+	t.Run("nil request returns non-retryable error", func(t *testing.T) {
+		mm := ManageExpectedSwitch{flowGrpcAtomicClient: nil}
+		err := mm.DeleteExpectedSwitchOnFlow(context.Background(), nil)
+		assert.Error(t, err)
+	})
+
+	t.Run("empty id returns non-retryable error", func(t *testing.T) {
+		mm := ManageExpectedSwitch{flowGrpcAtomicClient: nil}
+		err := mm.DeleteExpectedSwitchOnFlow(context.Background(), &cwssaws.ExpectedSwitchRequest{})
+		assert.Error(t, err)
+	})
+
+	t.Run("nil Flow client skips gracefully", func(t *testing.T) {
+		mm := ManageExpectedSwitch{flowGrpcAtomicClient: nil}
+		err := mm.DeleteExpectedSwitchOnFlow(context.Background(), &cwssaws.ExpectedSwitchRequest{
+			ExpectedSwitchId: &cwssaws.UUID{Value: uuid.NewString()},
+		})
+		assert.NoError(t, err)
+	})
+
+	t.Run("nil Flow client connection skips gracefully", func(t *testing.T) {
+		mm := ManageExpectedSwitch{flowGrpcAtomicClient: cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})}
+		err := mm.DeleteExpectedSwitchOnFlow(context.Background(), &cwssaws.ExpectedSwitchRequest{
+			ExpectedSwitchId: &cwssaws.UUID{Value: uuid.NewString()},
+		})
+		assert.NoError(t, err)
+	})
+}
+
 func Test_expectedSwitchToFlowComponent(t *testing.T) {
 	strPtr := func(s string) *string { return &s }
 	int32Ptr := func(i int32) *int32 { return &i }
