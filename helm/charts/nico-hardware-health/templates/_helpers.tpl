@@ -83,6 +83,26 @@ endpoints:
   - honorLabels: false
     interval: {{ .monitor.interval }}
     port: {{ .port }}
+    path: /metrics
+    scheme: http
+    scrapeTimeout: {{ .monitor.scrapeTimeout }}
+namespaceSelector:
+  matchNames:
+    - {{ .namespace }}
+selector:
+  matchLabels:
+    app.kubernetes.io/metrics: {{ .name }}
+{{- end }}
+
+{{/*
+Telemetry service monitor spec (/telemetry — Prometheus sink sensor gauges).
+*/}}
+{{- define "nico-hardware-health.telemetryServiceMonitorSpec" -}}
+endpoints:
+  - honorLabels: false
+    interval: {{ .monitor.interval }}
+    port: {{ .port }}
+    path: /telemetry
     scheme: http
     scrapeTimeout: {{ .monitor.scrapeTimeout }}
 namespaceSelector:

@@ -213,5 +213,6 @@ leaking_tray_threshold = 2
 # ==============================================================================
 
 [metrics]
+# Listener exposes /metrics (service), /telemetry (Prometheus sink hardware samples), /livez (health).
 endpoint = "0.0.0.0:9009"
 prefix = "carbide_hardware_health"

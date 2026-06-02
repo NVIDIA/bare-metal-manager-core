@@ -43,6 +43,7 @@ env:
 
 livenessProbe:
   httpGet:
+    path: /livez
     port: 9009
     scheme: HTTP
   initialDelaySeconds: 20
@@ -50,7 +51,16 @@ livenessProbe:
   failureThreshold: 3
   successThreshold: 1
 
+## Scrapes /metrics: service operational metrics (discovery, collectors, components).
 serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 25s
+
+## Scrapes /telemetry: hardware sensor samples exported by the Prometheus sink
+## (temperature, power, fans, and other Redfish-derived gauge readings per endpoint).
+## High cardinality; enable only when Prometheus retention and scrape budget allow it.
+telemetryServiceMonitor:
   enabled: false
   interval: 30s
   scrapeTimeout: 25s
