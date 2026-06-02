@@ -15,7 +15,6 @@ reviews:
   review_status: true
   collapse_walkthrough: false
   path_filters:
-    - "rest-api/**"
     - "!rest-api/**/*.pb.go"
     - "!rest-api/workflow-schema/site-agent/workflows/v1/*_nico.proto"
   path_instructions:
@@ -41,11 +40,15 @@ reviews:
       instructions: >-
         Changes in these Go files are auto-generated, except for files in "sdk/standard/helpers" directory. Review accordingly.
   auto_review:
-    enabled: true
+    enabled: false
 knowledge_base:
   code_guidelines:
     enabled: true
     filePatterns:
+      - AGENTS.md
+      - README.md
+      - CONTRIBUTING.md
+      - STYLE_GUIDE.md
       - rest-api/AGENTS.md
       - rest-api/README.md
       - rest-api/CONTRIBUTING.md
