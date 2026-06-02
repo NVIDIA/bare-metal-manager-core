@@ -17,6 +17,17 @@ pub struct Config {
     pub metrics_endpoint: SocketAddr,
     /// Paths to scenario definition TOMLs (one per rack model/release).
     pub scenario_config_paths: Vec<String>,
+    /// Path to the SOT JSON file -- the release source-of-truth RVS reads to
+    /// resolve `sotpath` artifacts (drivers, packages) under
+    /// `BoardSKUs[].Components.Software`.
+    ///
+    /// TODO[#416]: stopgap. The SOT should come from a single authoritative
+    /// source, not a file hand-placed per RVS deployment. #1861 moved
+    /// firmware-object management to RMS and made the SOT push-only, so NICo
+    /// no longer exposes it for read -- we likely need to extend the API
+    /// surface to serve the SOT (or its Software-package URLs) and resolve one
+    /// per scenario release. Until then, point this at a local SOT file.
+    pub sot_path: Option<String>,
     /// How long to wait between validation poll cycles (seconds).
     pub poll_interval_secs: u64,
     /// NICo connection settings.
@@ -72,6 +83,7 @@ impl Default for Config {
             listen: "[::]:1089".parse().unwrap(),
             metrics_endpoint: "[::]:9019".parse().unwrap(),
             scenario_config_paths: vec!["/etc/forge/rvs/scenario.toml".to_string()],
+            sot_path: None,
             poll_interval_secs: 30,
             nico: NicoConfig::default(),
             tls: TlsConfig::default(),

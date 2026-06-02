@@ -45,34 +45,25 @@ pub async fn start_cache_server(ctx: &RvsCtx) -> Result<(), RvsError> {
     spawn_cache_server(ctx).await
 }
 
-/// Fetch the SOT JSON for the scenarios loaded in ctx.
+/// Load the SOT JSON that drives `sotpath` artifact resolution.
 ///
-/// Only the `ctx.sot_override_path` (file) path works today. The gRPC fetch
-/// is stubbed -- see the TODO in the body.
+/// Reads from `cfg.sot_path` (see the TODO there for why the SOT is a
+/// configured file rather than an API fetch). Errors if it isn't set.
 fn fetch_sot(_racks: &Racks, ctx: &RvsCtx) -> Result<RackFirmwareData, RvsError> {
-    if let Some(path) = &ctx.sot_override_path {
-        tracing::info!(path, "artifact: loading SOT from file override");
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| RvsError::InvalidArg(format!("failed to read SOT override: {e}")))?;
-        let config = serde_json::from_str(&content)
-            .map_err(|e| RvsError::InvalidArg(format!("invalid SOT JSON: {e}")))?;
-        return Ok(RackFirmwareData {
-            id: "override".to_string(),
-            config,
-        });
-    }
-
-    // TODO[#416]: re-wire production SOT acquisition. PR #1861 ("update NICo
-    // to use RMS fw object management API") removed the firmware-object RPCs
-    // RVS used to pull the SOT JSON. Post-#1861 the SOT JSON is pushed into RMS
-    // (ApplyFirmwareObjectFromJSON), not queryable -- RVS must obtain it from
-    // its real source (file/config, or a future RMS read path). Until then,
-    // production runs must supply it via `sot_override_path`.
-    Err(RvsError::InvalidArg(
-        "fetch_sot: gRPC SOT fetch removed by #1861 (RMS fw object API); \
-         supply SOT via sot_override_path until re-wired"
-            .to_string(),
-    ))
+    let path = ctx.cfg.sot_path.as_ref().ok_or_else(|| {
+        RvsError::InvalidArg(
+            "fetch_sot: no SOT configured -- set `sot_path` (see config TODO[#416])".to_string(),
+        )
+    })?;
+    tracing::info!(path, "artifact: loading SOT from file");
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| RvsError::InvalidArg(format!("failed to read SOT file '{path}': {e}")))?;
+    let config = serde_json::from_str(&content)
+        .map_err(|e| RvsError::InvalidArg(format!("invalid SOT JSON in '{path}': {e}")))?;
+    Ok(RackFirmwareData {
+        id: path.clone(),
+        config,
+    })
 }
 
 /// Download resolved artifacts into cache_dir/<model>/<sot_release>/.
@@ -121,7 +112,10 @@ async fn download_one(
     // advertised) succeeds. We do NOT re-verify on hit -- a stable URL is
     // assumed to map to stable bytes for the lifetime of the cache.
     if path.exists() {
-        tracing::debug!(path = artifact.output_path, "artifact: cache hit, skipping");
+        tracing::info!(
+            path = artifact.output_path,
+            "artifact: cache hit, skipping download"
+        );
         return Ok(());
     }
 
@@ -161,11 +155,13 @@ async fn download_one(
     let tmp_path = std::path::PathBuf::from(format!("{}.partial", artifact.output_path));
     let mut file = tokio::fs::File::create(&tmp_path).await?;
     let mut hasher = Sha256::new();
+    let mut bytes: u64 = 0;
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk
             .map_err(|e| RvsError::InvalidArg(format!("stream error for {}: {e}", artifact.url)))?;
         hasher.update(&chunk);
+        bytes += chunk.len() as u64;
         file.write_all(&chunk).await?;
     }
     file.flush().await?;
@@ -184,6 +180,11 @@ async fn download_one(
     }
 
     tokio::fs::rename(&tmp_path, path).await?;
+    tracing::info!(
+        path = artifact.output_path,
+        bytes,
+        "artifact: downloaded to cache"
+    );
     Ok(())
 }
 
@@ -204,7 +205,9 @@ async fn spawn_cache_server(ctx: &RvsCtx) -> Result<(), RvsError> {
     // TODO[#416]: ServeDir returns 404 on directory paths -- add an explicit
     // listing endpoint (e.g. GET /<model>/<sot_release>/) if nodes or operators
     // need to discover available artifacts without knowing filenames in advance.
-    let app = Router::new().fallback_service(ServeDir::new(&cache_dir));
+    let app = Router::new()
+        .fallback_service(ServeDir::new(&cache_dir))
+        .layer(axum::middleware::from_fn(log_cache_request));
 
     tokio::spawn(async move {
         if let Err(e) = axum::serve(listener, app).await {
@@ -213,4 +216,24 @@ async fn spawn_cache_server(ctx: &RvsCtx) -> Result<(), RvsError> {
     });
 
     Ok(())
+}
+
+/// Log each cache-server request at INFO: method, path, and resulting status.
+///
+/// Gives visibility into which artifacts nodes pull from the cache (and 404s
+/// for misses).
+async fn log_cache_request(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+    let response = next.run(req).await;
+    tracing::info!(
+        %method,
+        path,
+        status = response.status().as_u16(),
+        "artifact: cache request"
+    );
+    response
 }

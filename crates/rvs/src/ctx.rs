@@ -10,7 +10,4 @@ pub struct RvsCtx {
     pub nico: NicoClient,
     pub scenarios: Vec<Scenario>,
     pub cfg: Config,
-    /// Dev/test only: load SOT JSON from this file path instead of calling
-    /// gRPC. Set in `test-artifact-cache`; always `None` in production.
-    pub sot_override_path: Option<String>,
 }

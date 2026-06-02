@@ -64,6 +64,19 @@ root_cafile_path = "/var/run/secrets/spiffe.io/ca.crt"
 scenario_config_paths = ["/etc/forge/rvs/scenario.toml"]
 
 # -----------------------------------------------------------------------------
+# SOT (SOURCE OF TRUTH)
+# -----------------------------------------------------------------------------
+# Path to the SOT JSON file. RVS resolves `sotpath` artifacts -- drivers and
+# packages under BoardSKUs[].Components.Software -- from this document.
+#
+# TODO: stopgap. The SOT should come from a single authoritative source, not a
+# file placed per deployment. #1861 moved firmware-object management to RMS and
+# made the SOT push-only, so NICo no longer serves it for read -- the API
+# surface likely needs extending to expose it. Until then, point at a local file.
+
+sot_path = "/etc/forge/rvs/sot.json"
+
+# -----------------------------------------------------------------------------
 # ARTIFACT CACHE
 # -----------------------------------------------------------------------------
 # RVS pre-downloads all artifacts defined in the scenario before kicking

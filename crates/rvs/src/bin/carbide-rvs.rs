@@ -96,7 +96,6 @@ async fn main() -> Result<(), RvsError> {
         nico,
         scenarios,
         cfg,
-        sot_override_path: None,
     };
 
     // TODO[#416]: re-introduce a liveness/health probe (bound to

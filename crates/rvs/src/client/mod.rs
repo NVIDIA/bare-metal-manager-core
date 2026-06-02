@@ -116,8 +116,8 @@ impl TryFrom<Rack> for RackData {
 
 /// Parsed SOT JSON document used for JSONPath artifact resolution.
 ///
-/// Produced from a local file today (`sot_override_path`); see `fetch_sot`
-/// for why the gRPC source is stubbed.
+/// Produced from a local file today (`cfg.sot_path`); see that field's TODO
+/// for why the SOT has no API source post-#1861.
 #[derive(Debug)]
 pub struct RackFirmwareData {
     /// Identifier for this SOT record (e.g. "override").

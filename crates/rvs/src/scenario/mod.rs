@@ -224,8 +224,14 @@ mod tests {
 
     #[test]
     fn path_segment_accepts_plain_filename() {
-        assert_eq!("rm_driver.run".parse::<PathSegment>().unwrap().as_str(), "rm_driver.run");
-        assert_eq!(".hidden".parse::<PathSegment>().unwrap().as_str(), ".hidden");
+        assert_eq!(
+            "rm_driver.run".parse::<PathSegment>().unwrap().as_str(),
+            "rm_driver.run"
+        );
+        assert_eq!(
+            ".hidden".parse::<PathSegment>().unwrap().as_str(),
+            ".hidden"
+        );
     }
 
     #[test]

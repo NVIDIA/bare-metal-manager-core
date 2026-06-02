@@ -92,25 +92,24 @@ async fn main() -> Result<(), RvsError> {
         ));
     }
 
-    // Build config with target cache dir; everything else default.
+    // Build config with target cache dir + SOT file; everything else default.
     let mut cfg = Config::default();
     cfg.artifact_cache.cache_dir = cli.cache_dir.to_string_lossy().into_owned();
+    cfg.sot_path = Some(cli.sot.to_string_lossy().into_owned());
 
-    // NicoClient is required by RvsCtx but won't be called: fetch_sot
-    // short-circuits to sot_override_path before touching gRPC.
+    // NicoClient is required by RvsCtx but won't be called: the artifact
+    // pipeline reads the SOT from `cfg.sot_path` and never touches gRPC here.
     let client_config = ForgeClientConfig::new("/dev/null".to_string(), None);
     let api_config = ApiConfig::new(&cfg.nico.url, &client_config);
     let nico = NicoClient::new(&api_config);
 
-    let sot_path = cli.sot.to_string_lossy().into_owned();
     let ctx = RvsCtx {
         nico,
         scenarios,
         cfg,
-        sot_override_path: Some(sot_path),
     };
 
-    // Empty racks: fetch_sot ignores the racks argument while sot_override_path is set.
+    // Empty racks: fetch_sot reads the SOT from cfg.sot_path and ignores racks.
     let racks = Racks { inner: vec![] };
 
     tracing::info!("test-artifact-cache: starting artifact cache run");
