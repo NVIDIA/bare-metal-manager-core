@@ -389,7 +389,7 @@ async fn advance_to_machine_validating(
     let validation_id = db::machine_validation::create_new_run(
         &mut txn,
         &mh_snapshot.host_snapshot.id,
-        context.clone(),
+        context,
         model::machine::MachineValidationFilter::default(),
     )
     .await?;
@@ -490,8 +490,7 @@ pub(crate) async fn handle_bom_validation_state(
                                         bom_validating_state: BomValidating::UpdatingInventory(
                                             BomValidatingContext {
                                                 machine_validation_context: bom_validating_context
-                                                    .machine_validation_context
-                                                    .clone(),
+                                                    .machine_validation_context,
                                                 reboot_retry_count,
                                             },
                                         ),

@@ -123,6 +123,12 @@ navigation:
 
     - section: Operations
       contents:
+        - page: Network Isolation
+          path: manuals/network_isolation.md
+        - page: Network Security Groups
+          path: manuals/networking/network_security_groups.md
+        - page: InfiniBand Partitioning
+          path: manuals/networking/infiniband_partitioning.md
         - page: nicocli Reference
           path: manuals/nicocli-reference.md
         - page: NVLink Partitioning

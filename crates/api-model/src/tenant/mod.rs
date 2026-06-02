@@ -216,7 +216,7 @@ impl sqlx::Type<sqlx::Postgres> for TenantOrganizationId {
 impl sqlx::Encode<'_, sqlx::Postgres> for TenantOrganizationId {
     fn encode_by_ref(
         &self,
-        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'_>,
+        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer,
     ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
         <String as sqlx::Encode<'_, sqlx::Postgres>>::encode_by_ref(&self.0, buf)
     }

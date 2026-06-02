@@ -671,11 +671,23 @@ pub(crate) async fn get_managed_host_network_config_inner(
             rpc::TrafficInterceptConfig {
                 bridging: c.bridging.as_ref().map(|b| rpc::TrafficInterceptBridging {
                     internal_bridge_routing_prefix: b.internal_bridge_routing_prefix.to_string(),
-                    host_intercept_bridge_name: b.host_intercept_bridge_name.clone(),
+                    hbn_bridge: b.hbn_bridge.clone(),
                     vf_intercept_bridge_name: b.vf_intercept_bridge_name.clone(),
                     vf_intercept_bridge_port: b.vf_intercept_bridge_port.clone(),
-                    host_intercept_bridge_port: b.host_intercept_bridge_port.clone(),
                     vf_intercept_bridge_sf: b.vf_intercept_bridge_sf.clone(),
+                    host_representor_intercept_bridging: b
+                        .host_representor_intercept_bridging
+                        .iter()
+                        .map(|(representor, bridge)| {
+                            (
+                                representor.clone(),
+                                rpc::HostRepresentorInterceptBridging {
+                                    bridge: bridge.bridge.clone(),
+                                    patch_port: bridge.patch_port.clone(),
+                                },
+                            )
+                        })
+                        .collect(),
                 }),
                 public_prefixes: c.public_prefixes.iter().map(|p| p.to_string()).collect(),
                 secondary_vtep_aggregate_prefixes: c

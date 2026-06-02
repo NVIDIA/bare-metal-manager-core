@@ -23,7 +23,8 @@ use std::sync::Arc;
 
 use carbide_machine_controller::config::machine_validation::MachineValidationConfig;
 use carbide_utils::periodic_timer::PeriodicTimer;
-use db::ObjectFilter;
+use db::ObjectColumnFilter;
+use db::machine_validation::StateColumn;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -95,23 +96,20 @@ impl MachineValidationManager {
 
         metrics.completed_validation = db::machine_validation::find_by(
             &mut txn,
-            ObjectFilter::List(&["Success".to_string()]),
-            "state",
+            ObjectColumnFilter::List(StateColumn, &["Success".to_string()]),
         )
         .await?
         .len();
 
         metrics.failed_validation = db::machine_validation::find_by(
             &mut txn,
-            ObjectFilter::List(&["Failed".to_string()]),
-            "state",
+            ObjectColumnFilter::List(StateColumn, &["Failed".to_string()]),
         )
         .await?
         .len();
         metrics.in_progress_validation = db::machine_validation::find_by(
             &mut txn,
-            ObjectFilter::List(&["InProgress".to_string()]),
-            "state",
+            ObjectColumnFilter::List(StateColumn, &["InProgress".to_string()]),
         )
         .await?
         .len();

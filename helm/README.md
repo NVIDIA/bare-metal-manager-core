@@ -169,7 +169,7 @@ nico-dns:
 | nico-dhcp | Deployment | 67/UDP, 1089 (metrics) | Yes | ServiceMonitor |
 | nico-dns | StatefulSet | 53/TCP, 53/UDP | Yes | -- |
 | nico-dsx-exchange-consumer | Deployment | 9009 | Yes | ServiceMonitor |
-| nico-hardware-health | Deployment | 9009 | Yes | ServiceMonitor |
+| nico-hardware-health | Deployment | 9009 (`/metrics`, `/telemetry`) | Yes | ServiceMonitor; optional telemetry ServiceMonitor (sensor data, off by default) |
 | nico-pxe | Deployment | 8080 | Yes | ServiceMonitor |
 | nico-ssh-console-rs | Deployment | 22, 9009 (metrics) | Yes | ServiceMonitor |
 | unbound | Deployment | 53 | No | ServiceMonitor |

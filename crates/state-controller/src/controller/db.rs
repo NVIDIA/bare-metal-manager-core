@@ -30,8 +30,11 @@ async fn create_iteration(
     txn: &mut PgConnection,
     table_id: &str,
 ) -> Result<ControllerIteration, DatabaseError> {
-    let query = format!("INSERT INTO {table_id} DEFAULT VALUES RETURNING *");
-    sqlx::query_as::<_, ControllerIteration>(&query)
+    let mut query = sqlx::QueryBuilder::new("INSERT INTO ");
+    query.push(table_id);
+    query.push(" DEFAULT VALUES RETURNING *");
+    query
+        .build_query_as::<ControllerIteration>()
         .fetch_one(txn)
         .await
         .map_err(|e| DatabaseError::new("ControllerIteration::insert", e))
@@ -44,12 +47,15 @@ pub async fn fetch_iterations(
     table_id: &str,
     limit: Option<usize>,
 ) -> Result<Vec<ControllerIteration>, DatabaseError> {
-    use std::fmt::Write;
-    let mut query = format!("SELECT * FROM {table_id} ORDER BY id DESC");
+    let mut query = sqlx::QueryBuilder::new("SELECT * FROM ");
+    query.push(table_id);
+    query.push(" ORDER BY id DESC");
     if let Some(limit) = limit {
-        write!(&mut query, " LIMIT {limit}").unwrap();
+        query.push(" LIMIT ");
+        query.push_bind(limit as i64);
     }
-    sqlx::query_as::<_, ControllerIteration>(&query)
+    query
+        .build_query_as::<ControllerIteration>()
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new("ControllerIteration::fetch_iterations", e))
@@ -69,9 +75,12 @@ pub async fn delete_old_iterations(
 
     let last_retained = (current_iteration_id.0 as u64).saturating_sub(NUM_RETAINED) + 1;
 
-    let query = format!("DELETE FROM {table_id} WHERE id < $1");
-    sqlx::query(&query)
-        .bind(last_retained as i64)
+    let mut query = sqlx::QueryBuilder::new("DELETE FROM ");
+    query.push(table_id);
+    query.push(" WHERE id < ");
+    query.push_bind(last_retained as i64);
+    query
+        .build()
         .execute(txn)
         .await
         .map_err(|e| DatabaseError::new("ControllerIteration::delete_old_iterations", e))?;
@@ -167,9 +176,11 @@ pub async fn fetch_queued_objects(
     txn: &mut PgConnection,
     table_id: &str,
 ) -> Result<Vec<QueuedObject>, DatabaseError> {
-    let query = format!("SELECT * from {table_id}");
+    let mut query = sqlx::QueryBuilder::new("SELECT * from ");
+    query.push(table_id);
 
-    let result = sqlx::query_as(&query)
+    let result = query
+        .build_query_as()
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new("StateController::fetch_queued_objects", e))?;
@@ -189,19 +200,30 @@ pub async fn acquire_queued_objects(
     max_outdated: std::time::Duration,
 ) -> Result<Vec<QueuedObject>, DatabaseError> {
     // Grab the oldest ones first
-    let query = format!(
+    let mut query = sqlx::QueryBuilder::new(
         "WITH dequeued_ids AS (
-            SELECT object_id FROM {table_id} WHERE (processed_by IS NULL OR processing_started_at + $1::interval < now())
+            SELECT object_id FROM ",
+    );
+    query.push(table_id);
+    query.push(" WHERE (processed_by IS NULL OR processing_started_at + ");
+    query.push_bind(max_outdated);
+    query.push(
+        "::interval < now())
             ORDER BY processing_started_at ASC
             FOR UPDATE SKIP LOCKED
-            LIMIT {count}
-        )
-        UPDATE {table_id} SET processed_by=$2, processing_started_at=now() WHERE object_id in (SELECT object_id FROM dequeued_ids) RETURNING *"
+            LIMIT ",
+    );
+    query.push_bind(count as i64);
+    query.push(") UPDATE ");
+    query.push(table_id);
+    query.push(" SET processed_by=");
+    query.push_bind(processor_id);
+    query.push(
+        ", processing_started_at=now() WHERE object_id in (SELECT object_id FROM dequeued_ids) RETURNING *",
     );
 
-    let result = sqlx::query_as(&query)
-        .bind(max_outdated)
-        .bind(processor_id)
+    let result = query
+        .build_query_as()
         .fetch_all(txn)
         .await
         .map_err(|e| DatabaseError::new("StateController::acquire_queued_objects", e))?;

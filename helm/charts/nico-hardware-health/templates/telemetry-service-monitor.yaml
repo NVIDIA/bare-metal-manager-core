@@ -1,0 +1,13 @@
+{{- if .Values.telemetryServiceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nico-hardware-health-telemetry
+  namespace: {{ include "nico-hardware-health.namespace" . }}
+  labels:
+    {{- include "nico-hardware-health.labels" . | nindent 4 }}
+    app: nico-hardware-health
+    prometheus: nico-monitoring
+spec:
+  {{- include "nico-hardware-health.telemetryServiceMonitorSpec" (dict "name" "nico-hardware-health" "port" "metrics" "monitor" .Values.telemetryServiceMonitor "namespace" "nico-system") | nindent 2 }}
+{{- end }}

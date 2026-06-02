@@ -624,14 +624,15 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			}
 
 			dbInterfaces = append(dbInterfaces, cdbm.Interface{
-				VpcPrefixID:        &vpcPrefixUUID,
-				VpcPrefix:          vpcPrefix,
-				RequestedIpAddress: nil, // Explicit IPs are not supported for batch create.
-				Device:             ifc.Device,
-				DeviceInstance:     ifc.DeviceInstance,
-				VirtualFunctionID:  ifc.VirtualFunctionID,
-				IsPhysical:         ifc.IsPhysical,
-				Status:             cdbm.InterfaceStatusPending,
+				VpcPrefixID:          &vpcPrefixUUID,
+				VpcPrefix:            vpcPrefix,
+				RequestedIpAddress:   nil, // Explicit IPs are not supported for batch create.
+				InlineRoutingProfile: ifc.InlineRoutingProfile.ToDB(),
+				Device:               ifc.Device,
+				DeviceInstance:       ifc.DeviceInstance,
+				VirtualFunctionID:    ifc.VirtualFunctionID,
+				IsPhysical:           ifc.IsPhysical,
+				Status:               cdbm.InterfaceStatusPending,
 			})
 		}
 	}
@@ -851,7 +852,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	// Build all instance names first, then check in a single batch query
 	inDAO := cdbm.NewInstanceDAO(bcih.dbSession)
 	allInstanceNames := make([]string, apiRequest.Count)
-	for i := range apiRequest.Count {
+	for i := 0; i < apiRequest.Count; i++ {
 		allInstanceNames[i] = generateInstanceName(i)
 	}
 
@@ -1108,11 +1109,11 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		dbnvlic = []cdbm.NVLinkInterface{}
 		for _, nvlCap := range itNvlCaps {
 			if nvlCap.Count != nil {
-				for i := range *nvlCap.Count {
+				for deviceInstance := range *nvlCap.Count {
 					dbnvlic = append(dbnvlic, cdbm.NVLinkInterface{
 						NVLinkLogicalPartitionID: *defaultNvllpID,
 						Device:                   cdb.GetStrPtr(nvlCap.Name),
-						DeviceInstance:           i,
+						DeviceInstance:           deviceInstance,
 					})
 				}
 			}
@@ -1329,16 +1330,17 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		for _, inst := range updatedInstances {
 			for _, dbifc := range dbInterfaces {
 				ifcInputs = append(ifcInputs, cdbm.InterfaceCreateInput{
-					InstanceID:         inst.ID,
-					SubnetID:           dbifc.SubnetID,
-					VpcPrefixID:        dbifc.VpcPrefixID,
-					Device:             dbifc.Device,
-					DeviceInstance:     dbifc.DeviceInstance,
-					VirtualFunctionID:  dbifc.VirtualFunctionID,
-					RequestedIpAddress: dbifc.RequestedIpAddress,
-					IsPhysical:         dbifc.IsPhysical,
-					Status:             cdbm.InterfaceStatusPending,
-					CreatedBy:          dbUser.ID,
+					InstanceID:           inst.ID,
+					SubnetID:             dbifc.SubnetID,
+					VpcPrefixID:          dbifc.VpcPrefixID,
+					Device:               dbifc.Device,
+					DeviceInstance:       dbifc.DeviceInstance,
+					VirtualFunctionID:    dbifc.VirtualFunctionID,
+					RequestedIpAddress:   dbifc.RequestedIpAddress,
+					InlineRoutingProfile: dbifc.InlineRoutingProfile,
+					IsPhysical:           dbifc.IsPhysical,
+					Status:               cdbm.InterfaceStatusPending,
+					CreatedBy:            dbUser.ID,
 				})
 			}
 		}
@@ -1534,6 +1536,9 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 			if !ifc.IsPhysical && ifc.VirtualFunctionID != nil {
 				vfID := uint32(*ifc.VirtualFunctionID)
 				interfaceConfig.VirtualFunctionId = &vfID
+			}
+			if ifc.InlineRoutingProfile != nil {
+				interfaceConfig.RoutingProfile = ifc.InlineRoutingProfile.ToProto()
 			}
 			createdInstancesData[idx].interfaceConfigs = append(createdInstancesData[idx].interfaceConfigs, interfaceConfig)
 		}

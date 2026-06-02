@@ -124,7 +124,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_gpus_total_count")
-                .with_description("The total number of GPUs available in the Forge site")
+                .with_description("The total number of GPUs available in the NICo deployment")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         observer.observe(metrics.gpus_total as u64, attrs);
@@ -136,7 +136,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_hosts_usable_count")
-                .with_description("The remaining number of hosts in the Forge site which are available for immediate instance creation")
+                .with_description("The remaining number of hosts in the NICo deployment which are available for immediate instance creation")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         observer.observe(
@@ -151,7 +151,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_gpus_usable_count")
-                .with_description("The remaining number of GPUs in the Forge site which are available for immediate instance creation")
+                .with_description("The remaining number of GPUs in the NICo deployment which are available for immediate instance creation")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         observer.observe(
@@ -166,7 +166,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_gpus_in_use_count")
-                .with_description("The total number of GPUs that are actively used by tenants in instances in the Forge site")
+                .with_description("The total number of GPUs that are actively used by tenants in instances in the NICo deployment")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         let total_in_use_gpus = metrics.gpus_in_use_by_tenant.values().copied().reduce(|a,b| a + b).unwrap_or_default();
@@ -182,7 +182,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_hosts_in_use_count")
-                .with_description("The total number of hosts that are actively used by tenants as instances in the Forge site")
+                .with_description("The total number of hosts that are actively used by tenants as instances in the NICo deployment")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         let total_in_use_hosts = metrics.hosts_in_use_by_tenant.values().copied().reduce(|a,b| a + b).unwrap_or_default();
@@ -266,6 +266,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
         register_health_gauges::<_, IsInUseByTenant, _>(
             "carbide_hosts",
             "machine_id",
+            "Managed Hosts",
             meter,
             shared_metrics.clone(),
             |m| &m.health,
@@ -347,9 +348,7 @@ impl MetricsEmitter for MachineMetricsEmitter {
             let metrics = shared_metrics.clone();
             meter
                 .u64_observable_gauge("carbide_dpu_agent_version_count")
-                .with_description(
-                    "The amount of Forge DPU agents which have reported a certain version.",
-                )
+                .with_description("The amount of DPU agents which have reported a certain version.")
                 .with_callback(move |observer| {
                     metrics.if_available(|metrics, attrs| {
                         for (version, count) in &metrics.agent_versions {

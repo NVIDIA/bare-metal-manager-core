@@ -252,23 +252,31 @@ pub async fn update(
     txn: &mut PgConnection,
     power_shelf: &ExpectedPowerShelf,
 ) -> DatabaseResult<()> {
-    let (where_clause, target_id) = match power_shelf.expected_power_shelf_id {
-        Some(id) => ("expected_power_shelf_id=$10::uuid", id.to_string()),
+    macro_rules! update_expected_power_shelf_query {
+        ($where_clause:literal) => {
+            concat!(
+                "UPDATE expected_power_shelves \
+                 SET bmc_username=$1, bmc_password=$2, serial_number=$3, bmc_ip_address=$4, \
+                     metadata_name=$5, metadata_description=$6, metadata_labels=$7, rack_id=$8, \
+                     bmc_retain_credentials=COALESCE($9, bmc_retain_credentials) \
+                 WHERE ",
+                $where_clause,
+            )
+        };
+    }
+
+    let (query, target_id) = match power_shelf.expected_power_shelf_id {
+        Some(id) => (
+            update_expected_power_shelf_query!("expected_power_shelf_id=$10::uuid"),
+            id.to_string(),
+        ),
         None => (
-            "bmc_mac_address=$10::macaddr",
+            update_expected_power_shelf_query!("bmc_mac_address=$10::macaddr"),
             power_shelf.bmc_mac_address.to_string(),
         ),
     };
 
-    let query = format!(
-        "UPDATE expected_power_shelves \
-         SET bmc_username=$1, bmc_password=$2, serial_number=$3, bmc_ip_address=$4, \
-             metadata_name=$5, metadata_description=$6, metadata_labels=$7, rack_id=$8, \
-             bmc_retain_credentials=COALESCE($9, bmc_retain_credentials) \
-         WHERE {where_clause}"
-    );
-
-    let result = sqlx::query(&query)
+    let result = sqlx::query(query)
         .bind(&power_shelf.bmc_username)
         .bind(&power_shelf.bmc_password)
         .bind(&power_shelf.serial_number)
@@ -281,7 +289,7 @@ pub async fn update(
         .bind(&target_id)
         .execute(&mut *txn)
         .await
-        .map_err(|err| DatabaseError::query(&query, err))?;
+        .map_err(|err| DatabaseError::query(query, err))?;
 
     if result.rows_affected() == 0 {
         return Err(DatabaseError::NotFoundError {

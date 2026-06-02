@@ -385,29 +385,37 @@ pub async fn clear(txn: &mut PgConnection) -> Result<(), DatabaseError> {
 /// Updates an existing expected machine. If id is set, matches by ID; otherwise matches by
 /// `bmc_mac_address`. Includes `bmc_ip_address` when the operator configures a static BMC IP.
 pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> DatabaseResult<()> {
-    let (where_clause, target_id) = match machine.id {
-        Some(id) => ("id=$17::uuid", id.to_string()),
+    macro_rules! update_expected_machine_query {
+        ($where_clause:literal) => {
+            concat!(
+                "UPDATE expected_machines \
+                 SET bmc_username=$1, bmc_password=$2, serial_number=$3, \
+                     fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, \
+                     metadata_labels=$7, sku_id=$8, host_nics=$9::jsonb, rack_id=$10, \
+                     default_pause_ingestion_and_poweron=COALESCE($11, default_pause_ingestion_and_poweron), \
+                     dpf_enabled=COALESCE($12, dpf_enabled), \
+                     bmc_ip_address=$13, \
+                     bmc_retain_credentials=COALESCE($14, bmc_retain_credentials), \
+                     dpu_mode=$15, \
+                     host_lifecycle_profile=COALESCE($16, host_lifecycle_profile) \
+                 WHERE ",
+                $where_clause,
+            )
+        };
+    }
+
+    let (query, target_id) = match machine.id {
+        Some(id) => (
+            update_expected_machine_query!("id=$17::uuid"),
+            id.to_string(),
+        ),
         None => (
-            "bmc_mac_address=$17::macaddr",
+            update_expected_machine_query!("bmc_mac_address=$17::macaddr"),
             machine.bmc_mac_address.to_string(),
         ),
     };
 
-    let query = format!(
-        "UPDATE expected_machines \
-         SET bmc_username=$1, bmc_password=$2, serial_number=$3, \
-             fallback_dpu_serial_numbers=$4, metadata_name=$5, metadata_description=$6, \
-             metadata_labels=$7, sku_id=$8, host_nics=$9::jsonb, rack_id=$10, \
-             default_pause_ingestion_and_poweron=COALESCE($11, default_pause_ingestion_and_poweron), \
-             dpf_enabled=COALESCE($12, dpf_enabled), \
-             bmc_ip_address=$13, \
-             bmc_retain_credentials=COALESCE($14, bmc_retain_credentials), \
-             dpu_mode=$15, \
-             host_lifecycle_profile=COALESCE($16, host_lifecycle_profile) \
-         WHERE {where_clause}"
-    );
-
-    let result = sqlx::query(&query)
+    let result = sqlx::query(query)
         .bind(&machine.data.bmc_username)
         .bind(&machine.data.bmc_password)
         .bind(&machine.data.serial_number)
@@ -430,7 +438,7 @@ pub async fn update(txn: &mut PgConnection, machine: &ExpectedMachine) -> Databa
         .bind(&target_id)
         .execute(&mut *txn)
         .await
-        .map_err(|err| DatabaseError::query(&query, err))?;
+        .map_err(|err| DatabaseError::query(query, err))?;
 
     if result.rows_affected() == 0 {
         return Err(DatabaseError::NotFoundError {

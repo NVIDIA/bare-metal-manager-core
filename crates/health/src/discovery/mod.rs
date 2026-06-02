@@ -20,7 +20,6 @@ mod context;
 mod iteration;
 mod spawn;
 
-pub(crate) use context::BmcClient;
 pub use context::DiscoveryLoopContext;
 pub use iteration::run_discovery_iteration;
 

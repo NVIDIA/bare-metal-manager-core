@@ -36,7 +36,7 @@ COPY . ./
 # (both compile the same targets on the same arch). Requires BuildKit (default in Docker 23+).
 RUN --mount=type=cache,id=sccache-x86_64,target=/sccache \
   export CARGO_MAKE_SKIP_CODECOV="true" && \
-  export DATABASE_URL="postgresql://%2Fvar%2Frun%2Fpostgresql" && \
+  export DATABASE_URL="postgresql://root@%2Fvar%2Frun%2Fpostgresql/root" && \
   export SCCACHE_DIR=/sccache && \
   export RUSTC_WRAPPER=sccache && \
   export CARGO_PROFILE_RELEASE_DEBUG=true && \

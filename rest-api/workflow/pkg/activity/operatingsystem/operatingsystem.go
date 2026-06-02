@@ -174,7 +174,7 @@ func (mskg ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UU
 			if ossaStatus != ossa.Status {
 				serr := mskg.updateOperatingSystemSiteAssociationStatusInDB(ctx, nil, ossa.ID, cdb.GetStrPtr(ossaStatus), ossaStatusMessage)
 				if serr != nil {
-					slogger.Error().Err(err).Msg("failed to update OS Image Site Association status detail in DB")
+					slogger.Error().Err(serr).Msg("failed to update OS Image Site Association status detail in DB")
 				}
 				updatedOperatingSystemMap[ossa.OperatingSystemID] = true
 			}
@@ -211,7 +211,7 @@ func (mskg ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UU
 			// Trigger re-evaluation of Operating System status (delete if no association exists)
 			serr = mskg.UpdateOperatingSystemStatusInDB(ctx, ossa.OperatingSystemID)
 			if serr != nil {
-				slogger.Error().Err(err).Msg("failed to trigger Operating System status update in DB")
+				slogger.Error().Err(serr).Msg("failed to trigger Operating System status update in DB")
 			}
 		} else {
 			// Was this created within inventory receipt interval? If so, we may be processing an older inventory
@@ -235,7 +235,7 @@ func (mskg ManageOsImage) UpdateOsImagesInDB(ctx context.Context, siteID uuid.UU
 
 			serr = mskg.updateOperatingSystemSiteAssociationStatusInDB(ctx, nil, ossa.ID, cdb.GetStrPtr(cdbm.OperatingSystemSiteAssociationStatusError), cdb.GetStrPtr("Operating System is missing on Site"))
 			if serr != nil {
-				slogger.Error().Err(err).Msg("failed to update Operating System Site Association status detail in DB")
+				slogger.Error().Err(serr).Msg("failed to update Operating System Site Association status detail in DB")
 			}
 
 			updatedOperatingSystemMap[ossa.OperatingSystemID] = true

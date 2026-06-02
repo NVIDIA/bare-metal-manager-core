@@ -25,7 +25,7 @@ pub mod tests {
     use model::machine::machine_search_config::MachineSearchConfig;
     use model::machine::{
         BomValidating, BomValidatingContext, MachineState, MachineValidatingState,
-        ManagedHostState, ValidationState,
+        MachineValidationContext, ManagedHostState, ValidationState,
     };
     use model::metadata::Metadata;
     use model::sku::Sku;
@@ -615,7 +615,7 @@ pub mod tests {
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
                     BomValidatingContext {
-                        machine_validation_context: Some("Discovery".to_string()),
+                        machine_validation_context: Some(MachineValidationContext::Discovery),
                         ..BomValidatingContext::default()
                     },
                 ),
@@ -657,7 +657,7 @@ pub mod tests {
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
                     BomValidatingContext {
-                        machine_validation_context: Some("Discovery".to_string()),
+                        machine_validation_context: Some(MachineValidationContext::Discovery),
                         ..BomValidatingContext::default()
                     },
                 ),
@@ -703,7 +703,7 @@ pub mod tests {
 
         let mut config = ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
             bom_validating_state: BomValidating::WaitingForSkuAssignment(BomValidatingContext {
-                machine_validation_context: Some("Discovery".to_string()),
+                machine_validation_context: Some(MachineValidationContext::Discovery),
                 ..BomValidatingContext::default()
             }),
         });
@@ -747,7 +747,7 @@ pub mod tests {
         // because allow_allocation=true makes it skip directly to MachineValidation
         let mut config = ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
             bom_validating_state: BomValidating::WaitingForSkuAssignment(BomValidatingContext {
-                machine_validation_context: Some("Discovery".to_string()),
+                machine_validation_context: Some(MachineValidationContext::Discovery),
                 ..BomValidatingContext::default()
             }),
         });
@@ -773,7 +773,7 @@ pub mod tests {
         let managed_host_config =
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::SkuMissing(BomValidatingContext {
-                    machine_validation_context: Some("Discovery".to_string()),
+                    machine_validation_context: Some(MachineValidationContext::Discovery),
                     ..BomValidatingContext::default()
                 }),
             });
@@ -868,7 +868,7 @@ pub mod tests {
         let managed_host_config =
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::SkuMissing(BomValidatingContext {
-                    machine_validation_context: Some("Discovery".to_string()),
+                    machine_validation_context: Some(MachineValidationContext::Discovery),
                     ..BomValidatingContext::default()
                 }),
             });
@@ -938,7 +938,7 @@ pub mod tests {
         let managed_host_config =
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::SkuMissing(BomValidatingContext {
-                    machine_validation_context: Some("Discovery".to_string()),
+                    machine_validation_context: Some(MachineValidationContext::Discovery),
                     ..BomValidatingContext::default()
                 }),
             });
@@ -1025,7 +1025,7 @@ pub mod tests {
         let managed_host_config =
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::SkuMissing(BomValidatingContext {
-                    machine_validation_context: Some("Discovery".to_string()),
+                    machine_validation_context: Some(MachineValidationContext::Discovery),
                     ..BomValidatingContext::default()
                 }),
             });
@@ -1112,7 +1112,7 @@ pub mod tests {
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
                     BomValidatingContext {
-                        machine_validation_context: Some("Discovery".to_string()),
+                        machine_validation_context: Some(MachineValidationContext::Discovery),
                         ..BomValidatingContext::default()
                     },
                 ),
@@ -1523,7 +1523,7 @@ pub mod tests {
             ManagedHostConfig::with_expected_state(ManagedHostState::BomValidating {
                 bom_validating_state: BomValidating::WaitingForSkuAssignment(
                     BomValidatingContext {
-                        machine_validation_context: Some("Discovery".to_string()),
+                        machine_validation_context: Some(MachineValidationContext::Discovery),
                         ..BomValidatingContext::default()
                     },
                 ),

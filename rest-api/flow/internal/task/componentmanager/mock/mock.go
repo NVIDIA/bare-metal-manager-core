@@ -203,10 +203,13 @@ func (m *Manager) FirmwareControl(
 	return nil
 }
 
-// BringUpControl simulates opening the bring-up gate.
+// BringUpControl simulates opening the bring-up gate. The info argument is
+// accepted to satisfy the BringUpController interface; the mock ignores its
+// contents.
 func (m *Manager) BringUpControl(
 	ctx context.Context,
 	target common.Target,
+	_ operations.BringUpTaskInfo,
 ) error {
 	log.Debug().
 		Str("component_type", m.componentType.String()).

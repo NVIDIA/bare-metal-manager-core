@@ -443,6 +443,14 @@ message UpgradeFirmwareRequest {
     // bundle (current default behavior). Unknown names are rejected by the
     // downstream component manager.
     repeated string sub_targets = 8;
+    // When true, proceed with the firmware update even if one or more
+    // target hosts (or, for rack-scoped components, any host on the
+    // owning rack) are still in the Assigned/* lifecycle state. The flag
+    // is intended for operator-supervised maintenance windows where the
+    // tenant impact has been acknowledged out-of-band; setting it bypasses
+    // the safety gate that would otherwise block disruptive operations
+    // against tenanted hardware. The bypass is recorded in the server log.
+    bool override_assignment_check = 9;
 }
 
 // GetComponents - retrieves components from local database
@@ -584,6 +592,12 @@ message PowerOnRackRequest {
     string description = 2;               // optional task description
     optional QueueOptions queue_options = 3;
     optional UUID rule_id = 4;            // optional: override rule resolution with a specific rule
+    // When true, proceed with the power-on even if one or more target
+    // hosts (or, for rack-scoped components, any host on the owning rack)
+    // are still in the Assigned/* lifecycle state. Intended for operator-
+    // supervised maintenance where tenant impact has been acknowledged
+    // out-of-band; the bypass is recorded in the server log.
+    bool override_assignment_check = 5;
 }
 
 message PowerOffRackRequest {
@@ -592,6 +606,12 @@ message PowerOffRackRequest {
     string description = 3;               // optional task description
     optional QueueOptions queue_options = 4;
     optional UUID rule_id = 5;            // optional: override rule resolution with a specific rule
+    // When true, proceed with the power-off even if one or more target
+    // hosts (or, for rack-scoped components, any host on the owning rack)
+    // are still in the Assigned/* lifecycle state. Intended for operator-
+    // supervised maintenance where tenant impact has been acknowledged
+    // out-of-band; the bypass is recorded in the server log.
+    bool override_assignment_check = 6;
 }
 
 message PowerResetRackRequest {
@@ -600,12 +620,24 @@ message PowerResetRackRequest {
     string description = 3;               // optional task description
     optional QueueOptions queue_options = 4;
     optional UUID rule_id = 5;            // optional: override rule resolution with a specific rule
+    // When true, proceed with the reset even if one or more target hosts
+    // (or, for rack-scoped components, any host on the owning rack) are
+    // still in the Assigned/* lifecycle state. Intended for operator-
+    // supervised maintenance where tenant impact has been acknowledged
+    // out-of-band; the bypass is recorded in the server log.
+    bool override_assignment_check = 6;
 }
 
 message BringUpRackRequest {
     OperationTargetSpec target_spec = 1;  // Target racks for bring-up
     string description = 2;               // optional task description
     optional UUID rule_id = 3;            // optional: override rule resolution with a specific rule
+    // When true, allow the bring-up sequence (which may power-cycle hosts
+    // and reset rack-scoped components) to proceed even if any host in
+    // scope is still in the Assigned/* lifecycle state. Intended for
+    // operator-supervised maintenance where tenant impact has been
+    // acknowledged out-of-band; the bypass is recorded in the server log.
+    bool override_assignment_check = 4;
 }
 
 message IngestRackRequest {

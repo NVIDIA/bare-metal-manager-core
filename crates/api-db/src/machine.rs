@@ -45,8 +45,8 @@ use model::machine::spx::MachineSpxStatusObservation;
 use model::machine::upgrade_policy::AgentUpgradePolicy;
 use model::machine::{
     Dpf, DpuInfo, FailureDetails, HostProfile, Machine, MachineInterfaceSnapshot,
-    MachineLastRebootRequested, MachineLastRebootRequestedMode, ManagedHostState,
-    ReprovisionRequest, UpgradeDecision,
+    MachineLastRebootRequested, MachineLastRebootRequestedMode, MachineValidationContext,
+    ManagedHostState, ReprovisionRequest, UpgradeDecision,
 };
 use model::machine_interface_address::MachineInterfaceAssociation;
 use model::metadata::Metadata;
@@ -316,11 +316,11 @@ pub async fn find_by_ip(
             JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
-    let machine = sqlx::query_as(&query)
+    let machine = sqlx::query_as(sqlx::AssertSqlSafe(query.as_str()))
         .bind(ip.to_string())
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query(query.as_str(), e))?;
 
     Ok(machine)
 }
@@ -465,11 +465,11 @@ pub async fn find_by_hostname(
         );
     }
 
-    let machine = sqlx::query_as(&query)
+    let machine = sqlx::query_as(sqlx::AssertSqlSafe(query.as_str()))
         .bind(hostname)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query(query.as_str(), e))?;
 
     Ok(machine)
 }
@@ -484,11 +484,11 @@ pub async fn find_by_mac_address(
             JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
-    let machine = sqlx::query_as(&query)
+    let machine = sqlx::query_as(sqlx::AssertSqlSafe(query.as_str()))
         .bind(mac_address)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query(query.as_str(), e))?;
 
     Ok(machine)
 }
@@ -503,11 +503,11 @@ pub async fn find_by_loopback_ip(
             JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
-    let machine = sqlx::query_as(&query)
+    let machine = sqlx::query_as(sqlx::AssertSqlSafe(query.as_str()))
         .bind(loopback_ip)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query(query.as_str(), e))?;
     Ok(machine)
 }
 
@@ -702,11 +702,11 @@ pub async fn find_host_by_dpu_machine_id(
             JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
-    let machine = sqlx::query_as(&query)
+    let machine = sqlx::query_as(sqlx::AssertSqlSafe(query.as_str()))
         .bind(dpu_machine_id)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query(query.as_str(), e))?;
 
     Ok(machine)
 }
@@ -767,11 +767,11 @@ pub async fn find_dpus_by_host_machine_id(
             JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
-    let machines = sqlx::query_as(&query)
+    let machines = sqlx::query_as(sqlx::AssertSqlSafe(query.as_str()))
         .bind(host_machine_id)
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query(query.as_str(), e))?;
 
     Ok(machines)
 }
@@ -1063,26 +1063,29 @@ pub async fn insert_health_report(
         // if a merge with the same source already exists -- but I'm not sure what
         // it's used for, since others seem to do a remove + insert. Do we need
         // to support this still? Might be nice to explain it somewhere.
-        let column_name = "health_reports";
         let path = match mode {
-            HealthReportApplyMode::Merge => format!("merges,\"{}\"", health_report.source),
-            HealthReportApplyMode::Replace => "replace".to_string(),
+            HealthReportApplyMode::Merge => {
+                vec!["merges".to_string(), health_report.source.clone()]
+            }
+            HealthReportApplyMode::Replace => vec!["replace".to_string()],
         };
 
-        let query = format!(
-            "UPDATE machines SET {column_name} = jsonb_set(
-                coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb),
-                '{{{}}}',
-                $1::jsonb
-            ) WHERE id = $2
-            AND coalesce({column_name}, '{{\"merges\": {{}}}}'::jsonb)->'merges' ? '{}' = FALSE
-            RETURNING id",
-            path, health_report.source
+        let mut query = sqlx::QueryBuilder::new(
+            "UPDATE machines SET health_reports = jsonb_set(
+                coalesce(health_reports, '{\"merges\": {}}'::jsonb),
+                ",
         );
+        query.push_bind(path);
+        query.push(", ");
+        query.push_bind(sqlx::types::Json(health_report));
+        query.push(") WHERE id = ");
+        query.push_bind(machine_id);
+        query.push(" AND coalesce(health_reports, '{\"merges\": {}}'::jsonb)->'merges' ? ");
+        query.push_bind(&health_report.source);
+        query.push(" = FALSE RETURNING id");
 
-        let _id: (MachineId,) = sqlx::query_as(&query)
-            .bind(sqlx::types::Json(&health_report))
-            .bind(machine_id)
+        let _id: (MachineId,) = query
+            .build_query_as()
             .fetch_one(txn)
             .await
             .map_err(|e| DatabaseError::new("insert health report override", e))?;
@@ -1542,10 +1545,10 @@ pub async fn get_host_reprovisioning_machines(
             JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
-    sqlx::query_as(&query)
+    sqlx::query_as(sqlx::AssertSqlSafe(query.as_str()))
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))
+        .map_err(|e| DatabaseError::query(query.as_str(), e))
 }
 
 pub async fn update_firmware_update_time_window_start_end(
@@ -1652,11 +1655,10 @@ pub async fn restart_dpu_reprovisioning(
     };
     let query = r#"UPDATE machines
                                 SET reprovisioning_requested=reprovisioning_requested || $1
-                        WHERE id=ANY($2) RETURNING id"#
-        .to_string();
+                        WHERE id=ANY($2) RETURNING id"#;
 
     let str_list: Vec<String> = machine_ids.iter().map(|id| id.to_string()).collect();
-    let _id = sqlx::query_as::<_, MachineId>(&query)
+    let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(sqlx::types::Json(restart_request))
         .bind(str_list)
         .fetch_one(txn)
@@ -1672,20 +1674,15 @@ pub async fn clear_dpu_reprovisioning_request(
     machine_id: &MachineId,
     validate_started_time: bool,
 ) -> Result<(), DatabaseError> {
-    let query = r#"UPDATE machines SET reprovisioning_requested=NULL
-                        WHERE id=$1 {validate_started} RETURNING id"#
-        .to_string();
-
     let query = if validate_started_time {
-        query.replace(
-            "{validate_started}",
-            "AND reprovisioning_requested->'started_at' = 'null'::jsonb",
-        )
+        "UPDATE machines SET reprovisioning_requested=NULL
+            WHERE id=$1 AND reprovisioning_requested->'started_at' = 'null'::jsonb RETURNING id"
     } else {
-        query.replace("{validate_started}", "")
+        "UPDATE machines SET reprovisioning_requested=NULL
+            WHERE id=$1 RETURNING id"
     };
 
-    let _id = sqlx::query_as::<_, MachineId>(&query)
+    let _id = sqlx::query_as::<_, MachineId>(query)
         .bind(machine_id)
         .fetch_one(txn)
         .await
@@ -1703,10 +1700,10 @@ pub async fn list_machines_requested_for_reprovisioning(
             JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
-    sqlx::query_as(&query)
+    sqlx::query_as(sqlx::AssertSqlSafe(query.as_str()))
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))
+        .map_err(|e| DatabaseError::query(query.as_str(), e))
 }
 
 pub async fn list_machines_requested_for_host_reprovisioning(
@@ -1718,10 +1715,10 @@ pub async fn list_machines_requested_for_host_reprovisioning(
             JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
-    sqlx::query_as(&query)
+    sqlx::query_as(sqlx::AssertSqlSafe(query.as_str()))
         .fetch_all(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))
+        .map_err(|e| DatabaseError::query(query.as_str(), e))
 }
 
 /// Apply dpu agent upgrade policy to a single DPU.
@@ -1929,19 +1926,35 @@ pub async fn update_machine_validation_time(
 
     Ok(())
 }
+
 pub async fn update_machine_validation_id(
     machine_id: &MachineId,
     validation_id: MachineValidationId,
-    context_column_name: String,
+    context: MachineValidationContext,
     txn: &mut PgConnection,
 ) -> Result<MachineId, DatabaseError> {
-    let base_query = "UPDATE machines SET {column}=$1 WHERE id=$2 RETURNING id".to_owned();
-    sqlx::query_as(&base_query.replace("{column}", context_column_name.as_str()))
+    let mut builder = sqlx::QueryBuilder::new("UPDATE machines SET ");
+    let query = builder
+        .push({
+            match context {
+                MachineValidationContext::Discovery => "discovery_machine_validation_id",
+                MachineValidationContext::Cleanup => "cleanup_machine_validation_id",
+                MachineValidationContext::OnDemand => "on_demand_machine_validation_id",
+            }
+        })
+        .push("=")
+        .push_bind(validation_id)
+        .push(" WHERE id=")
+        .push_bind(machine_id)
+        .push(" RETURNING id");
+
+    query
+        .build_query_as()
         .bind(validation_id)
         .bind(machine_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::query(&base_query, e))
+        .map_err(|e| DatabaseError::query(query.sql(), e))
 }
 
 pub async fn update_failure_details_by_machine_id(
@@ -2103,11 +2116,11 @@ pub async fn find_by_validation_id(
             JSON_MACHINE_SNAPSHOT_QUERY.deref()
         );
     }
-    let machine = sqlx::query_as(&query)
+    let machine = sqlx::query_as(sqlx::AssertSqlSafe(query.as_str()))
         .bind(validation_id)
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query(query.as_str(), e))?;
 
     Ok(machine)
 }
@@ -2178,15 +2191,13 @@ pub async fn update_dpu_asns(
         return Ok(());
     }
     // Get all DPU IP addresses except the requester DPU machine
-    let query = format!(
-        "SELECT id FROM machines WHERE starts_with(id, '{}') AND asn IS NULL",
-        MachineType::Dpu.id_prefix(),
-    );
+    let query = "SELECT id FROM machines WHERE starts_with(id, $1) AND asn IS NULL";
 
-    let dpu_ids: Vec<MachineId> = sqlx::query_as(&query)
+    let dpu_ids: Vec<MachineId> = sqlx::query_as(query)
+        .bind(MachineType::Dpu.id_prefix())
         .fetch_all(txn.as_pgconn())
         .await
-        .map_err(|e| DatabaseError::query(&query, e))?;
+        .map_err(|e| DatabaseError::query(query, e))?;
 
     if !dpu_ids.is_empty() {
         tracing::info!(dpu_count = dpu_ids.len(), "Updating missing ASN of DPUs");

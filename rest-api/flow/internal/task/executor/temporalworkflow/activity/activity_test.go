@@ -138,7 +138,7 @@ func activityCallsForMissingManagerTest(
 			return acts.VerifyFirmwareConsistency(ctx, target)
 		},
 		"BringUpControl": func() error {
-			return acts.BringUpControl(ctx, target)
+			return acts.BringUpControl(ctx, target, operations.BringUpTaskInfo{})
 		},
 		"GetBringUpStatus": func() error {
 			_, err := acts.GetBringUpStatus(ctx, target)
@@ -193,7 +193,7 @@ func capabilityCheckedActivityCalls(
 			return acts.VerifyFirmwareConsistency(ctx, target)
 		},
 		"BringUpControl": func(acts *Activities) error {
-			return acts.BringUpControl(ctx, target)
+			return acts.BringUpControl(ctx, target, operations.BringUpTaskInfo{})
 		},
 		"GetBringUpStatus": func(acts *Activities) error {
 			_, err := acts.GetBringUpStatus(ctx, target)

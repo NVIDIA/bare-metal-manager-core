@@ -35,6 +35,7 @@ applicable.
 | `networks` | `Option<HashMap<String, NetworkDefinition>>` | — | Networks created at startup. Alternative: `CreateNetworkSegment` gRPC. |
 | `dpu_ipmi_tool_impl` | `Option<String>` | — | IPMI tool implementation for DPU power control (`"prod"` or `"fake"`). |
 | `dpu_ipmi_reboot_attempts` | `Option<u32>` | — | Retry count when IPMI errors during DPU reboot. |
+| `bmc_session_lockout_threshold` | `u32` | `3` | Consecutive BMC HTTP 401/403 responses before session-token login attempts stop for that BMC. |
 | `ib_fabrics` | `HashMap<String, IbFabricDefinition>` | `{}` | InfiniBand fabrics managed by the site. Currently only one fabric is supported. |
 | `initial_domain_name` | `Option<String>` | — | Domain to create if none exist. Most sites use a single domain. |
 | `initial_dpu_agent_upgrade_policy` | `Option<AgentUpgradePolicyChoice>` | — | Policy for nico-dpu-agent upgrades. Also settable via `nico-admin-cli`. |
@@ -249,6 +250,25 @@ Extends `StateControllerConfig` with:
 | `public_prefixes` | `Vec<Ipv4Network>` | **required** | Publicly routable IPv4 CIDR prefixes used by traffic-intercept users. |
 | `secondary_vtep_aggregate_prefixes` | `Vec<IpNetwork>` | `[]` | IPv4 or IPv6 aggregate prefixes used only for routing and filtering. IP allocation is provided by the secondary VTEP resource pool. |
 | `secondary_overlay_support` | `bool` | `true` | Whether secondary overlay VTEP IPs are expected for DPUs. |
+
+### `TrafficInterceptBridging`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `internal_bridge_routing_prefix` | `Ipv4Network` | **required** | Prefix used for internal routing between HBN and intercept bridges within the DPU. |
+| `hbn_bridge` | `String` | `"br-hbn"` | Bridge that intercept patch ports attach to during BlueField provisioning. |
+| `vf_intercept_bridge_name` | `String` | `"br-dpu"` | Bridge between VM-owned VFs and br-hbn. |
+| `vf_intercept_bridge_port` | `String` | `"patch-br-dpu-to-hbn"` | Patch port on the VF intercept bridge side. |
+| `vf_intercept_bridge_sf` | `String` | **required** | SF used for internal routing of VF traffic. |
+| `host_representor_intercept_bridging` | `HashMap<String, HostInterceptBridging>` | `{}` | Host-owned PF/VF representor bridge layout keyed by representor name. Non-skipped entries are sent to BlueField provisioning as `<representor>:<bridge>:<patch_port>`. |
+
+### `HostInterceptBridging`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `bridge` | `String` | **required** | Bridge that sits between the host PF/VF representor and br-hbn or br-sfc. |
+| `patch_port` | `String` | **required** | Patch port on this bridge that connects it toward HBN or SFC. |
+| `skip_create` | `bool` | `false` | When true, the entry is sent to DPU agents but omitted from provisioning-time bridge creation. |
 
 ### `DpuConfig`
 

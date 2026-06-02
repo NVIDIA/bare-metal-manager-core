@@ -2746,6 +2746,19 @@ message InstanceInterfaceConfig {
   // Only allowed when VPC prefix is used.
   // Must match VPC prefix defined for the interface.
   optional string ip_address = 10;
+
+  // Optional per-interface routing profile overrides. API callers can only
+  // narrow prefix-list options that are already allowed by the owning VPC's
+  // routing profile.
+  optional InstanceInterfaceRoutingProfile routing_profile = 12;
+}
+
+// Routing-profile options API callers may narrow on an instance interface.
+message InstanceInterfaceRoutingProfile {
+  // IP prefixes this interface is allowed to announce as anycast routes.
+  // Every entry must be contained by an allowed_anycast_prefixes entry on the
+  // owning VPC's routing profile.
+  repeated PrefixFilterPolicyEntry allowed_anycast_prefixes = 1;
 }
 
 // The configuration that a customer desires for an instances IB interface
@@ -7028,6 +7041,11 @@ enum ScoutStreamErrorStatus {
   SCOUT_STREAM_ERROR_STATUS_INTERNAL = 0;
 }
 
+// Entries used for prefix-list policies on the DPUs.
+// Default behavior is max-len lte 32.
+message PrefixFilterPolicyEntry {
+  string prefix = 1;
+}
 
 message RoutingProfile {
   repeated common.RouteTarget route_target_imports     = 1;

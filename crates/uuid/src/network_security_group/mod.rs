@@ -88,7 +88,7 @@ impl From<Uuid> for NetworkSecurityGroupId {
 impl Encode<'_, sqlx::Postgres> for NetworkSecurityGroupId {
     fn encode_by_ref(
         &self,
-        buf: &mut <Postgres as Database>::ArgumentBuffer<'_>,
+        buf: &mut <Postgres as Database>::ArgumentBuffer,
     ) -> Result<IsNull, error::BoxDynError> {
         buf.extend(self.to_string().as_bytes());
         Ok(IsNull::No)
@@ -96,7 +96,7 @@ impl Encode<'_, sqlx::Postgres> for NetworkSecurityGroupId {
 
     fn encode(
         self,
-        buf: &mut <Postgres as Database>::ArgumentBuffer<'_>,
+        buf: &mut <Postgres as Database>::ArgumentBuffer,
     ) -> Result<IsNull, error::BoxDynError> {
         buf.extend(self.to_string().as_bytes());
         Ok(IsNull::No)

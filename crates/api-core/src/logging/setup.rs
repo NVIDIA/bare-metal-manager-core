@@ -309,7 +309,7 @@ pub fn create_metric_for_spancount_reader(
 ) {
     meter
         .u64_observable_gauge("carbide_api_tracing_spans_open")
-        .with_description("Whether the Forge Site Controller API is running")
+        .with_description("Number of open logging/tracing spans")
         .with_callback(move |observer| {
             let open_spans = if let Some(spancount_reader) = &spancount_reader {
                 spancount_reader.open_spans()

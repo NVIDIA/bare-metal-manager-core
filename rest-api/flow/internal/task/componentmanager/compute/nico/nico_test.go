@@ -17,6 +17,7 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
 	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
 	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
+	nicoprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nico"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
@@ -522,4 +523,126 @@ func TestAllFirmwareUpToDate(t *testing.T) {
 			))
 		})
 	}
+}
+
+// newManagerForSafetyTest swaps the long default 30-minute assignment
+// timeout for a tight one so the wait loop actually times out within the
+// test budget. Tests in this file use the same package, so they can reach
+// the unexported assignment field directly.
+func newManagerForSafetyTest(t *testing.T, client nicoapi.Client) *Manager {
+	t.Helper()
+	m := New(client, 0)
+	m.assignment = nicoprovider.NewAssignmentChecker(client, 50*time.Millisecond, 10*time.Millisecond)
+	return m
+}
+
+func TestPowerControl_RefusesAssignedMachine(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
+
+	m := newManagerForSafetyTest(t, client)
+	target := common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{"machine-1"},
+	}
+
+	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
+		Operation: operations.PowerOperationPowerOff,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refused")
+	assert.Contains(t, err.Error(), "Assigned state")
+	assert.Contains(t, err.Error(), "machine-1")
+}
+
+func TestPowerControl_AllowsUnassignedMachine(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Ready"})
+
+	m := newManagerForSafetyTest(t, client)
+	target := common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{"machine-1"},
+	}
+
+	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
+		Operation: operations.PowerOperationPowerOn,
+	})
+	require.NoError(t, err)
+}
+
+func TestBringUpControl_RefusesAssignedMachine(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
+
+	m := newManagerForSafetyTest(t, client)
+	target := common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{"machine-1"},
+	}
+
+	err := m.BringUpControl(context.Background(), target, operations.BringUpTaskInfo{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refused")
+	assert.Contains(t, err.Error(), "Assigned state")
+}
+
+func TestFirmwareControl_RefusesAssignedMachine(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
+
+	m := newManagerForSafetyTest(t, client)
+	target := common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{"machine-1"},
+	}
+
+	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
+		Operation:     operations.FirmwareOperationUpgrade,
+		TargetVersion: "1.0.0",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refused")
+	assert.Contains(t, err.Error(), "Assigned state")
+}
+
+// TestPowerControl_OverrideBypassesAssignmentCheck verifies that the
+// operator-controlled OverrideAssignmentCheck flag short-circuits the
+// assignment-state gate on PowerControl. The target host is in
+// Assigned/* — which would otherwise block the call — yet the operation
+// is expected to proceed past the gate. PowerOperationPowerOn is chosen
+// because the mock client accepts it without additional fixture setup.
+func TestPowerControl_OverrideBypassesAssignmentCheck(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
+
+	m := newManagerForSafetyTest(t, client)
+	target := common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{"machine-1"},
+	}
+
+	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
+		Operation:               operations.PowerOperationPowerOn,
+		OverrideAssignmentCheck: true,
+	})
+	require.NoError(t, err)
+}
+
+// TestBringUpControl_OverrideBypassesAssignmentCheck is the BringUp
+// counterpart of TestPowerControl_OverrideBypassesAssignmentCheck.
+func TestBringUpControl_OverrideBypassesAssignmentCheck(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
+
+	m := newManagerForSafetyTest(t, client)
+	target := common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{"machine-1"},
+	}
+
+	err := m.BringUpControl(context.Background(), target, operations.BringUpTaskInfo{
+		OverrideAssignmentCheck: true,
+	})
+	require.NoError(t, err)
 }

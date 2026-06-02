@@ -12222,12 +12222,9 @@ paths:
                   value:
                     - id: e313b3ca-c47a-4ec1-a79b-a147fad51a50
                       endpoint: /v2/org/test-org-1/nico/ep
-                      queryParams:
-                        test:
-                          - '1234'
+                      queryParams: '{"test":["1234"]}'
                       method: POST
-                      body:
-                        key1: value1
+                      body: '{"key1":"value1"}'
                       statusCode: 200
                       clientIP: 12.123.43.112
                       userID: 5d9fe319-14d4-40e3-8e5a-7d79e680d55b
@@ -12242,12 +12239,9 @@ paths:
                       apiVersion: 0.1.91
                     - id: e313b3ca-c47a-4ec1-a79b-a147fad51a50
                       endpoint: /v2/org/test-org-1/nico/ep
-                      queryParams:
-                        test:
-                          - '1234'
+                      queryParams: '{"test":["1234"]}'
                       method: POST
-                      body:
-                        key1: value1
+                      body: '{"key1":"value1"}'
                       statusCode: 403
                       statusMessage: User does not have permissions
                       clientIP: 12.123.43.112
@@ -12328,12 +12322,9 @@ paths:
                   value:
                     id: e313b3ca-c47a-4ec1-a79b-a147fad51a50
                     endpoint: /v2/org/test-org-1/nico/ep
-                    queryParams:
-                      test:
-                        - '1234'
+                    queryParams: '{"test":["1234"]}'
                     method: POST
-                    body:
-                      key1: value1
+                    body: '{"key1":"value1"}'
                     statusCode: 200
                     clientIP: 12.123.43.112
                     userID: 5d9fe319-14d4-40e3-8e5a-7d79e680d55b
@@ -16834,7 +16825,12 @@ components:
           type:
             - string
             - 'null'
-          description: Explicitly requested IP address for the interface. This is only used for VPC Prefix based interfaces and is not valid for Subnet based interfaces. The least-significant host bit must be 1.
+          description: Explicitly requested IP address for the interface. This is only used for VPC Prefix-based interfaces and is not valid for Subnet-based interfaces. The least-significant host bit must be 1.
+        inlineRoutingProfile:
+          oneOf:
+            - $ref: '#/components/schemas/InterfaceInlineRoutingProfile'
+            - type: 'null'
+          description: Inline interface-local routing profile options. Only valid for VPC Prefix-based interfaces.
         status:
           $ref: '#/components/schemas/InterfaceStatus'
         created:
@@ -16855,6 +16851,18 @@ components:
         - Ready
         - Deleting
         - Error
+    InterfaceInlineRoutingProfile:
+      title: InterfaceInlineRoutingProfile
+      type: object
+      description: Interface-local routing profile options that narrow the owning VPC's routing profile.
+      properties:
+        allowedAnycastPrefixes:
+          type: array
+          description: CIDR prefixes this interface is allowed to announce as anycast routes.
+          default: []
+          items:
+            type: string
+            example: 192.0.2.0/24
     InterfaceCreateRequest:
       title: InterfaceCreateRequest
       type: object
@@ -16881,7 +16889,12 @@ components:
           type:
             - string
             - 'null'
-          description: Explicitly requested IP address for the interface. It cannot be specified for Subnet based interfaces. The least-significant host bit must be 1.
+          description: Explicitly requested IP address for the interface. It cannot be specified for Subnet-based interfaces. The least-significant host bit must be 1.
+        inlineRoutingProfile:
+          oneOf:
+            - $ref: '#/components/schemas/InterfaceInlineRoutingProfile'
+            - type: 'null'
+          description: Inline interface-local routing profile options. It cannot be specified for Subnet-based interfaces.
         isPhysical:
           type: boolean
           description: Specifies whether this Subnet or VPC Prefix should be attached to the Instance over physical interface.
@@ -21490,12 +21503,9 @@ components:
       examples:
         - id: e313b3ca-c47a-4ec1-a79b-a147fad51a50
           endpoint: /v2/org/test-org-1/nico/ep
-          queryParams:
-            test:
-              - '1234'
+          queryParams: '{"test":["1234"]}'
           method: POST
-          body:
-            key1: value1
+          body: '{"key1":"value1"}'
           statusCode: 200
           clientIP: 12.123.43.112
           userID: 5d9fe319-14d4-40e3-8e5a-7d79e680d55b
@@ -21510,12 +21520,9 @@ components:
           apiVersion: 0.1.91
         - id: e313b3ca-c47a-4ec1-a79b-a147fad51a50
           endpoint: /v2/org/test-org-1/nico/ep
-          queryParams:
-            test:
-              - '1234'
+          queryParams: '{"test":["1234"]}'
           method: POST
-          body:
-            key1: value1
+          body: '{"key1":"value1"}'
           statusCode: 403
           statusMessage: User does not have permissions
           clientIP: 12.123.43.112
@@ -21539,18 +21546,14 @@ components:
           type: string
           description: API endpoint
         queryParams:
-          type: object
-          description: Query parameters from the request URL, keyed by parameter name. Each value is the list of values supplied for that parameter.
-          additionalProperties:
-            type: array
-            items:
-              type: string
+          type: string
+          description: Query parameters
         method:
           type: string
           description: HTTP method
         body:
-          type: object
-          description: Request body parsed as a JSON object. Empty when the request had no body. Sensitive fields (e.g. passwords) are obfuscated.
+          type: string
+          description: HTTP body in JSON format
         statusCode:
           type: integer
           description: HTTP response status code

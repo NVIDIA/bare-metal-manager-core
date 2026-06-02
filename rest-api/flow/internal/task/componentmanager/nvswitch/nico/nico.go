@@ -32,12 +32,18 @@ const (
 // Manager manages NVLink switch components via the NICo API.
 type Manager struct {
 	nicoClient nicoapi.Client
+	// assignment guards power/firmware operations on a switch from running
+	// while any host on the switch's rack is still attached to an instance.
+	// A switch reset typically disrupts NVLink traffic for the whole rack,
+	// so this safety check is rack-scoped rather than component-scoped.
+	assignment *nicoprovider.AssignmentChecker
 }
 
 // New creates a new NICo-based NVSwitch Manager instance.
 func New(nicoClient nicoapi.Client) *Manager {
 	return &Manager{
 		nicoClient: nicoClient,
+		assignment: nicoprovider.NewAssignmentChecker(nicoClient, 0, 0),
 	}
 }
 
@@ -123,6 +129,62 @@ func switchIDsProto(ids []string) *pb.SwitchIdList {
 	return &pb.SwitchIdList{Ids: pbIDs}
 }
 
+// ensureRackOperable is the per-Manager policy gate for disruptive
+// operations on the racks that own the given switches. The default policy
+// refuses to proceed while any host on the resolved rack(s) is still in
+// Core's Assigned/* lifecycle state, because a switch reset disrupts
+// NVLink traffic for the entire rack.
+//
+// When overrideAssignmentCheck is true the gate is short-circuited
+// without performing the rack lookup: the operator has acknowledged the
+// tenant impact upstream and the rack-resolution gRPC call is no longer
+// necessary. A warning is emitted with the switch IDs so the bypass is
+// auditable from the worker log alone.
+//
+// A switch that Core does not associate with a rack is logged and
+// skipped: failing closed would block bring-up flows for switches that
+// have not yet been ingested into the rack topology.
+func (m *Manager) ensureRackOperable(
+	ctx context.Context,
+	switchIDs []string,
+	overrideAssignmentCheck bool,
+) error {
+	if len(switchIDs) == 0 {
+		return nil
+	}
+
+	if overrideAssignmentCheck {
+		log.Warn().
+			Strs("switch_ids", switchIDs).
+			Msg("Assignment safety check bypassed by override_assignment_check on NVSwitch operation")
+		return nil
+	}
+
+	rackBySwitch, err := m.nicoClient.FindSwitchRackIDs(ctx, switchIDs)
+	if err != nil {
+		return fmt.Errorf("look up rack for switches: %w", err)
+	}
+
+	rackIDs := make([]string, 0, len(rackBySwitch))
+	for _, rid := range rackBySwitch {
+		rackIDs = append(rackIDs, rid)
+	}
+
+	var orphan []string
+	for _, sid := range switchIDs {
+		if _, ok := rackBySwitch[sid]; !ok {
+			orphan = append(orphan, sid)
+		}
+	}
+	if len(orphan) > 0 {
+		log.Warn().
+			Strs("switch_ids", orphan).
+			Msg("NVSwitch has no rack assignment; assignment safety check cannot be applied")
+	}
+
+	return m.assignment.WaitForRacksUnassigned(ctx, rackIDs)
+}
+
 // PowerControl performs power operations on NVLink switches via NICo's
 // ComponentPowerControl RPC.
 func (m *Manager) PowerControl(
@@ -138,6 +200,10 @@ func (m *Manager) PowerControl(
 
 	if err := target.Validate(); err != nil {
 		return fmt.Errorf("target is invalid: %w", err)
+	}
+
+	if err := m.ensureRackOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+		return fmt.Errorf("refused: %w", err)
 	}
 
 	var action pb.SystemPowerControl
@@ -245,6 +311,10 @@ func (m *Manager) FirmwareControl(ctx context.Context, target common.Target, inf
 
 	if err := target.Validate(); err != nil {
 		return fmt.Errorf("target is invalid: %w", err)
+	}
+
+	if err := m.ensureRackOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+		return fmt.Errorf("refused: %w", err)
 	}
 
 	subComponents, err := firmwarecomponents.ParseNICoNVSwitch(info.SubTargets)

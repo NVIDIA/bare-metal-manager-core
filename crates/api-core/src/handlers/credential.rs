@@ -17,9 +17,10 @@
 
 use std::fs::File;
 use std::io::Write;
+use std::net::{IpAddr, SocketAddr};
 
 use ::rpc::errors::RpcDataConversionError;
-use ::rpc::forge as rpc;
+use ::rpc::forge::{self as rpc};
 use carbide_nvlink_manager::DEFAULT_NMX_M_NAME;
 use forge_secrets::credentials::{
     BgpCredentialType, BmcCredentialType, CredentialKey, CredentialType, Credentials,
@@ -33,6 +34,9 @@ use crate::CarbideError;
 use crate::api::Api;
 use crate::credentials::UpdateCredentials;
 use crate::handlers::utils::convert_and_log_machine_id;
+
+/// We assume that all BMCs speak Redfish on the standard port
+const BMC_REDFISH_PORT: u16 = 443;
 
 /// Default Username for the admin BMC account.
 const DEFAULT_FORGE_ADMIN_BMC_USERNAME: &str = "root";
@@ -322,6 +326,7 @@ pub(crate) async fn delete_credential(
                     .map_err(CarbideError::from)?;
 
                 delete_bmc_root_credentials_by_mac(api, parsed_mac).await?;
+                api.bmc_session_manager.flush_mac(parsed_mac).await;
             }
             None => {
                 return Err(CarbideError::InvalidArgument(
@@ -381,19 +386,51 @@ pub(crate) async fn update_machine_credentials(
         credentials: request.credentials,
     };
 
-    Ok(update
-        .execute(api.credential_manager.as_ref())
-        .await
-        .map(Response::new)?)
+    let updates_bmc_credentials = update.credentials.iter().any(|credential| {
+        matches!(
+            rpc::machine_credentials_update_request::CredentialPurpose::try_from(
+                credential.credential_purpose
+            ),
+            Ok(rpc::machine_credentials_update_request::CredentialPurpose::Bmc)
+        )
+    });
+
+    let response = update.execute(api.credential_manager.as_ref()).await?;
+
+    if updates_bmc_credentials && let Some(bmc_mac_address) = update.mac_address {
+        api.bmc_session_manager
+            .note_credentials_updated(bmc_mac_address)
+            .await;
+    }
+
+    Ok(Response::new(response))
 }
 
-/// As for now we only support UsernamePassword credentials type,
-/// in future this function should support SessionToken if available
+/// Issue BMC credentials for the SPIFFE service identity making this call.
+///
+/// In the default configuration this rotates a Redfish session token (see
+/// [`crate::credentials::BmcSessionManager::rotate`]). When the runtime
+/// config enables `allow_bmc_basic_auth_fallback`, BMCs that do not expose
+/// Redfish `SessionService` instead receive their stored `UsernamePassword`
+/// credentials; the wire `oneof` already supports both shapes so callers do
+/// not need to opt in. Callers without a SPIFFE service identity are
+/// rejected with `PermissionDenied`.
 pub(crate) async fn get_bmc_credentals(
     api: &Api,
     request: tonic::Request<rpc::GetBmcCredentialsRequest>,
 ) -> Result<Response<rpc::GetBmcCredentialsResponse>, tonic::Status> {
     crate::api::log_request_data(&request);
+
+    let spiffe_service_id = request
+        .extensions()
+        .get::<crate::auth::AuthContext>()
+        .and_then(|ctx| ctx.get_spiffe_service_id())
+        .ok_or_else(|| {
+            Status::permission_denied(
+                "BMC credentials are only issued to SPIFFE service identities",
+            )
+        })?
+        .to_owned();
 
     let req = request.into_inner();
 
@@ -402,27 +439,59 @@ pub(crate) async fn get_bmc_credentals(
         .parse()
         .map_err(CarbideError::MacAddressParseError)?;
 
-    let credentials = api
-        .credential_manager
-        .get_credentials(&CredentialKey::BmcCredentials {
-            credential_type: BmcCredentialType::BmcRoot { bmc_mac_address },
-        })
-        .await
-        .map_err(|e| CarbideError::internal(e.to_string()))?
-        .ok_or_else(|| CarbideError::NotFoundError {
-            kind: "bmc_root_credentials",
-            id: req.mac_addr.clone(),
+    let bmc_ips = db::machine_interface::lookup_bmc_ip_by_mac_address(
+        &api.database_connection,
+        bmc_mac_address,
+    )
+    .await?;
+
+    let bmc_ip = bmc_ips
+        .iter()
+        .copied()
+        .find(IpAddr::is_ipv4)
+        .or_else(|| bmc_ips.first().copied())
+        .ok_or_else(|| {
+            Status::not_found(format!(
+                "no BMC IP addresses recorded for MAC {bmc_mac_address}"
+            ))
         })?;
 
-    let (username, password) = match credentials {
-        Credentials::UsernamePassword { username, password } => (username, password),
+    let bmc_addr = SocketAddr::new(bmc_ip, BMC_REDFISH_PORT);
+
+    let material = api
+        .bmc_session_manager
+        .issue_credentials(&spiffe_service_id, bmc_mac_address, bmc_addr)
+        .await
+        .map_err(|err| match err {
+            crate::credentials::BmcSessionError::AvoidLockout { .. }
+            | crate::credentials::BmcSessionError::NoSessionService { .. } => {
+                // Both are "we refuse to attempt session creation" outcomes
+                // that the operator can resolve (rotate creds, or flip the
+                // basic-auth-fallback flag). FailedPrecondition matches the
+                // gRPC semantics: the request is well-formed but the
+                // server-side state forbids it.
+                Status::failed_precondition(err.to_string())
+            }
+            crate::credentials::BmcSessionError::Store(_) => Status::internal(err.to_string()),
+            other => CarbideError::internal(other.to_string()).into(),
+        })?;
+
+    let credentials_type = match material {
+        crate::credentials::BmcAuthMaterial::Session(entry) => {
+            rpc::bmc_credentials::Type::SessionToken(rpc::SessionToken { token: entry.token })
+        }
+        crate::credentials::BmcAuthMaterial::Basic(Credentials::UsernamePassword {
+            username,
+            password,
+        }) => rpc::bmc_credentials::Type::UsernamePassword(rpc::UsernamePassword {
+            username,
+            password,
+        }),
     };
 
     Ok(Response::new(rpc::GetBmcCredentialsResponse {
         credentials: Some(rpc::BmcCredentials {
-            r#type: Some(rpc::bmc_credentials::Type::UsernamePassword(
-                rpc::UsernamePassword { username, password },
-            )),
+            r#type: Some(credentials_type),
         }),
     }))
 }
@@ -511,7 +580,13 @@ pub(crate) async fn delete_bmc_root_credentials_by_mac(
     api.credential_manager
         .delete_credentials(&credential_key)
         .await
-        .map_err(|e| CarbideError::internal(format!("Error deleting credential for BMC: {e:?} ")))
+        .map_err(|e| {
+            CarbideError::internal(format!("Error deleting credential for BMC: {e:?} "))
+        })?;
+
+    api.bmc_session_manager.flush_mac(bmc_mac_address).await;
+
+    Ok(())
 }
 
 async fn set_bmc_root_credentials_by_mac(
@@ -529,7 +604,14 @@ async fn set_bmc_root_credentials_by_mac(
         password: password.clone(),
     };
 
-    set_bmc_credentials(api, &credential_key, &credentials).await
+    set_bmc_credentials(api, &credential_key, &credentials).await?;
+
+    // Reset breaker
+    api.bmc_session_manager
+        .note_credentials_updated(bmc_mac_address)
+        .await;
+
+    Ok(())
 }
 
 async fn set_bmc_credentials(
