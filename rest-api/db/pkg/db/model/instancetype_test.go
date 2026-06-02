@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -30,9 +16,176 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
 	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/util"
+	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun/extra/bundebug"
 )
+
+func TestInstanceType_ToProto(t *testing.T) {
+	id := uuid.New()
+	desc := "primary"
+
+	t.Run("populates id metadata and capabilities sourced from it.Capabilities", func(t *testing.T) {
+		it := &InstanceType{
+			ID:          id,
+			Name:        "small",
+			Description: &desc,
+			Labels:      map[string]string{"env": "prod"},
+			Capabilities: []*MachineCapability{
+				{Type: MachineCapabilityTypeCPU, Name: "cpu-0"},
+			},
+		}
+		proto := it.ToProto()
+		require.NotNil(t, proto)
+		assert.Equal(t, id.String(), proto.Id)
+		require.NotNil(t, proto.Metadata)
+		assert.Equal(t, "small", proto.Metadata.Name)
+		assert.Equal(t, "primary", proto.Metadata.Description)
+		require.Len(t, proto.Metadata.Labels, 1)
+		assert.Equal(t, "env", proto.Metadata.Labels[0].Key)
+		require.NotNil(t, proto.Metadata.Labels[0].Value)
+		assert.Equal(t, "prod", *proto.Metadata.Labels[0].Value)
+		require.NotNil(t, proto.Attributes)
+		require.Len(t, proto.Attributes.DesiredCapabilities, 1)
+		assert.Equal(t, cwssaws.MachineCapabilityType_CAP_TYPE_CPU, proto.Attributes.DesiredCapabilities[0].CapabilityType)
+		require.NotNil(t, proto.Attributes.DesiredCapabilities[0].Name)
+		assert.Equal(t, "cpu-0", *proto.Attributes.DesiredCapabilities[0].Name)
+	})
+
+	t.Run("nil description and labels yield empty metadata fields, no capabilities yields nil", func(t *testing.T) {
+		it := &InstanceType{ID: id, Name: "small"}
+		proto := it.ToProto()
+		require.NotNil(t, proto)
+		assert.Equal(t, "", proto.Metadata.Description)
+		assert.Nil(t, proto.Metadata.Labels)
+		require.NotNil(t, proto.Attributes)
+		assert.Nil(t, proto.Attributes.DesiredCapabilities)
+	})
+
+	t.Run("nil entries in Capabilities are skipped", func(t *testing.T) {
+		it := &InstanceType{
+			ID:   id,
+			Name: "small",
+			Capabilities: []*MachineCapability{
+				nil,
+				{Type: MachineCapabilityTypeMemory, Name: "mem-0"},
+				nil,
+			},
+		}
+		proto := it.ToProto()
+		require.NotNil(t, proto.Attributes)
+		require.Len(t, proto.Attributes.DesiredCapabilities, 1)
+		assert.Equal(t, cwssaws.MachineCapabilityType_CAP_TYPE_MEMORY, proto.Attributes.DesiredCapabilities[0].CapabilityType)
+	})
+}
+
+func TestInstanceType_FromProto(t *testing.T) {
+	id := uuid.New()
+
+	t.Run("nil proto leaves the receiver untouched", func(t *testing.T) {
+		desc := "original"
+		it := &InstanceType{
+			ID:          id,
+			Name:        "name",
+			Description: &desc,
+			Labels:      map[string]string{"a": "1"},
+		}
+		it.FromProto(nil)
+		assert.Equal(t, id, it.ID)
+		assert.Equal(t, "name", it.Name)
+		require.NotNil(t, it.Description)
+		assert.Equal(t, "original", *it.Description)
+		assert.Equal(t, Labels{"a": "1"}, it.Labels)
+	})
+
+	t.Run("populates from proto metadata", func(t *testing.T) {
+		v := "v1"
+		proto := &cwssaws.InstanceType{
+			Id: id.String(),
+			Metadata: &cwssaws.Metadata{
+				Name:        "small",
+				Description: "primary",
+				Labels:      []*cwssaws.Label{{Key: "env", Value: &v}},
+			},
+		}
+		it := &InstanceType{}
+		it.FromProto(proto)
+		assert.Equal(t, id, it.ID)
+		assert.Equal(t, "small", it.Name)
+		require.NotNil(t, it.Description)
+		assert.Equal(t, "primary", *it.Description)
+		assert.Equal(t, Labels{"env": "v1"}, it.Labels)
+	})
+
+	t.Run("clears optional fields when proto Metadata omits them", func(t *testing.T) {
+		desc := "original"
+		it := &InstanceType{
+			ID:          id,
+			Description: &desc,
+			Labels:      map[string]string{"a": "1"},
+		}
+		proto := &cwssaws.InstanceType{
+			Id:       id.String(),
+			Metadata: &cwssaws.Metadata{Name: "small"},
+		}
+		it.FromProto(proto)
+		assert.Equal(t, "small", it.Name)
+		assert.Nil(t, it.Description)
+		assert.Nil(t, it.Labels)
+	})
+
+	t.Run("preserves existing ID when proto Id is unparseable", func(t *testing.T) {
+		it := &InstanceType{ID: id}
+		proto := &cwssaws.InstanceType{Id: "not-a-uuid"}
+		it.FromProto(proto)
+		assert.Equal(t, id, it.ID)
+	})
+
+	t.Run("clears Name, Description, Labels when proto Metadata is nil", func(t *testing.T) {
+		desc := "stale"
+		it := &InstanceType{
+			ID:          id,
+			Name:        "stale",
+			Description: &desc,
+			Labels:      map[string]string{"old": "val"},
+		}
+		proto := &cwssaws.InstanceType{Id: id.String()}
+		it.FromProto(proto)
+		assert.Equal(t, "", it.Name)
+		assert.Nil(t, it.Description)
+		assert.Nil(t, it.Labels)
+	})
+}
+
+func TestInstanceType_ToDeletionRequestProto(t *testing.T) {
+	id := uuid.New()
+	it := &InstanceType{ID: id}
+	req := it.ToDeletionRequestProto()
+	require.NotNil(t, req)
+	assert.Equal(t, id.String(), req.Id)
+}
+
+func TestLabels_ToProto(t *testing.T) {
+	t.Run("nil map yields nil slice", func(t *testing.T) {
+		var l Labels
+		assert.Nil(t, l.ToProto())
+	})
+	t.Run("empty map yields empty slice", func(t *testing.T) {
+		got := Labels{}.ToProto()
+		require.NotNil(t, got)
+		assert.Len(t, got, 0)
+	})
+	t.Run("populated map round-trips through ordering-agnostic comparison", func(t *testing.T) {
+		got := Labels{"a": "1", "b": "2"}.ToProto()
+		require.Len(t, got, 2)
+		seen := map[string]string{}
+		for _, l := range got {
+			require.NotNil(t, l.Value)
+			seen[l.Key] = *l.Value
+		}
+		assert.Equal(t, map[string]string{"a": "1", "b": "2"}, seen)
+	})
+}
 
 func testInstanceTypeInitDB(t *testing.T) *db.Session {
 	dbSession := util.GetTestDBSession(t, false)
@@ -783,7 +936,7 @@ func TestInstanceTypeSQLDAO_Update(t *testing.T) {
 		expectedDescription            *string
 		expectedInfinityResourceTypeID *uuid.UUID
 		expectedSiteID                 *uuid.UUID
-		expectedLabels                 map[string]string
+		expectedLabels                 Labels
 		expectedStatus                 *string
 		expectedVersion                *string
 		verifyChildSpanner             bool
@@ -857,7 +1010,7 @@ func TestInstanceTypeSQLDAO_Update(t *testing.T) {
 			expectedDisplayName: db.GetStrPtr("updatedDisplayName"),
 			expectedDescription: db.GetStrPtr("updatedDescription"),
 			expectedSiteID:      &site2.ID,
-			expectedLabels:      map[string]string{"test2": "test2"},
+			expectedLabels:      Labels{"test2": "test2"},
 			expectedStatus:      db.GetStrPtr(InstanceTypeStatusPending),
 		},
 		{
@@ -992,7 +1145,7 @@ func TestInstanceTypeSQLDAO_Clear(t *testing.T) {
 		expectedDisplayName *string
 		expectedDescription *string
 		expectedSiteID      *uuid.UUID
-		expectedLabels      map[string]string
+		expectedLabels      Labels
 		verifyChildSpanner  bool
 	}{
 		{
@@ -1028,7 +1181,7 @@ func TestInstanceTypeSQLDAO_Clear(t *testing.T) {
 			expectedDisplayName: nil,
 			expectedDescription: nil,
 			expectedSiteID:      nil,
-			expectedLabels:      map[string]string{"test1": "test1"},
+			expectedLabels:      Labels{"test1": "test1"},
 		},
 		{
 			desc:             "can clear labels",

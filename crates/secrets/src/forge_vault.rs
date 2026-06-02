@@ -46,6 +46,10 @@ use crate::credentials::{
 
 const DEFAULT_VAULT_CA_PATH: &str = "/var/run/secrets/forge-roots/ca.crt";
 const VAULT_CACERT_ENV_VAR: &str = "VAULT_CACERT";
+const DEFAULT_SPIFFE_TRUST_DOMAIN: &str = "forge.local";
+const DEFAULT_SPIFFE_MACHINE_BASE_PATH: &str = "/forge-system/machine/";
+const VAULT_SPIFFE_TRUST_DOMAIN_ENV_VAR: &str = "VAULT_SPIFFE_TRUST_DOMAIN";
+const VAULT_SPIFFE_MACHINE_BASE_PATH_ENV_VAR: &str = "VAULT_SPIFFE_MACHINE_BASE_PATH";
 
 #[derive(Clone, Debug)]
 enum ForgeVaultAuthenticationType {
@@ -70,6 +74,8 @@ struct ForgeVaultClientConfig {
     pub kv_mount_location: String,
     pub pki_mount_location: String,
     pub pki_role_name: String,
+    spiffe_trust_domain: String,
+    spiffe_machine_base_path: String,
     vault_root_ca_path: String,
 }
 
@@ -125,6 +131,22 @@ fn service_account_role_name_from_jwt(jwt: &str) -> Result<String, eyre::Report>
         .as_str()
         .wrap_err("JWT payload does not contain /kubernetes.io/serviceaccount/name")
         .map(str::to_string)
+}
+
+/// Builds a machine SPIFFE URI SAN matching site `[auth.trust]` path layout.
+///
+/// `machine_base_path` is the path segment after the trust domain, e.g. `/forge-system/machine/`.
+pub(crate) fn machine_spiffe_uri(
+    trust_domain: &str,
+    machine_base_path: &str,
+    machine_id: &str,
+) -> String {
+    let base = machine_base_path.trim().trim_matches('/');
+    if base.is_empty() {
+        format!("spiffe://{trust_domain}/{machine_id}")
+    } else {
+        format!("spiffe://{trust_domain}/{base}/{machine_id}")
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -643,6 +665,8 @@ struct GetCertificateHelper {
     unique_identifier: String,
     pki_mount_location: String,
     pki_role_name: String,
+    spiffe_trust_domain: String,
+    spiffe_machine_base_path: String,
     /// Alternative requested DNS-type SANs for this certificate
     alt_names: Option<String>,
     /// Requested expiration date of this certificate
@@ -662,13 +686,10 @@ impl VaultTask<Certificate> for GetCertificateHelper {
             .vault_requests_total_counter
             .add(1, &[KeyValue::new("request_type", "get_certificate")]);
 
-        let trust_domain = "forge.local";
-        let namespace = "forge-system";
-
-        // spiffe://<trust_domain>/<namespace>/machine/<stable_machine_id>
-        let spiffe_id = format!(
-            "spiffe://{}/{}/machine/{}",
-            trust_domain, namespace, self.unique_identifier,
+        let spiffe_id = machine_spiffe_uri(
+            &self.spiffe_trust_domain,
+            &self.spiffe_machine_base_path,
+            &self.unique_identifier,
         );
 
         let ttl = if let Some(ttl) = self.ttl.clone() {
@@ -732,6 +753,8 @@ impl CertificateProvider for ForgeVaultClient {
             unique_identifier: unique_identifier.to_string(),
             pki_mount_location: self.vault_client_config.pki_mount_location.clone(),
             pki_role_name: self.vault_client_config.pki_role_name.clone(),
+            spiffe_trust_domain: self.vault_client_config.spiffe_trust_domain.clone(),
+            spiffe_machine_base_path: self.vault_client_config.spiffe_machine_base_path.clone(),
             alt_names,
             ttl,
         };
@@ -884,6 +907,10 @@ pub struct VaultConfig {
     pub pki_role_name: Option<String>,
     pub token: Option<String>,
     pub vault_cacert: Option<String>,
+    /// SPIFFE trust domain for machine PKI URI SANs. Defaults to `forge.local`.
+    pub spiffe_trust_domain: Option<String>,
+    /// Path prefix after the trust domain, e.g. `/forge-system/machine/`.
+    pub spiffe_machine_base_path: Option<String>,
 }
 
 impl VaultConfig {
@@ -927,6 +954,20 @@ impl VaultConfig {
             .clone()
             .or(env::var(VAULT_CACERT_ENV_VAR).ok())
             .context("VAULT_CACERT")
+    }
+
+    pub fn spiffe_trust_domain(&self) -> String {
+        self.spiffe_trust_domain
+            .clone()
+            .or_else(|| env::var(VAULT_SPIFFE_TRUST_DOMAIN_ENV_VAR).ok())
+            .unwrap_or_else(|| DEFAULT_SPIFFE_TRUST_DOMAIN.to_string())
+    }
+
+    pub fn spiffe_machine_base_path(&self) -> String {
+        self.spiffe_machine_base_path
+            .clone()
+            .or_else(|| env::var(VAULT_SPIFFE_MACHINE_BASE_PATH_ENV_VAR).ok())
+            .unwrap_or_else(|| DEFAULT_SPIFFE_MACHINE_BASE_PATH.to_string())
     }
 }
 
@@ -987,6 +1028,8 @@ pub fn create_vault_client(
         kv_mount_location: vault_config.kv_mount_location()?,
         pki_mount_location: vault_config.pki_mount_location()?,
         pki_role_name: vault_config.pki_role_name()?,
+        spiffe_trust_domain: vault_config.spiffe_trust_domain(),
+        spiffe_machine_base_path: vault_config.spiffe_machine_base_path(),
         vault_root_ca_path,
     };
 
@@ -999,7 +1042,23 @@ mod tests {
     use base64::Engine;
     use serde_json::json;
 
-    use super::service_account_role_name_from_jwt;
+    use super::{machine_spiffe_uri, service_account_role_name_from_jwt};
+
+    #[test]
+    fn machine_spiffe_uri_uses_trust_domain_and_base_path() {
+        assert_eq!(
+            machine_spiffe_uri("forge.local", "/forge-system/machine/", "abc-123"),
+            "spiffe://forge.local/forge-system/machine/abc-123"
+        );
+        assert_eq!(
+            machine_spiffe_uri("nico.local", "/forge-system/machine/", "abc-123"),
+            "spiffe://nico.local/forge-system/machine/abc-123"
+        );
+        assert_eq!(
+            machine_spiffe_uri("forge.local", "forge-system/machine", "abc-123"),
+            "spiffe://forge.local/forge-system/machine/abc-123"
+        );
+    }
 
     fn jwt_from_payload(payload_value: serde_json::Value) -> String {
         let header = base64::engine::general_purpose::URL_SAFE_NO_PAD

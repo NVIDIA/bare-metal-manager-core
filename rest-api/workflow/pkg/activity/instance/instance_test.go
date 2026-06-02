@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package instance
 
@@ -307,6 +293,10 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	ibInterface3 := util.TestBuildInfiniBandInterface(t, dbSession, instance1.ID, site.ID, partition1.ID, "MT2910 Family [ConnectX-7]", 2, true, nil, cdbm.InfiniBandInterfaceStatusDeleting, false)
 	assert.NotNil(t, ibInterface3)
 
+	// Make Deleting InfiniBand row old enough to pass IsTimeWithinStaleInventoryThreshold deferral during inventory reconcile
+	_, err = dbSession.DB.Exec("UPDATE infiniband_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), ibInterface3.ID.String())
+	assert.NoError(t, err)
+
 	// NVLink Interfaces
 	nvlinkInterface1 := util.TestBuildNVLinkInterface(t, dbSession, instance1.ID, site.ID, nvllPartition1.ID, cdb.GetStrPtr(""), 0, nil, nil, cdbm.NVLinkInterfaceStatusPending)
 	assert.NotNil(t, nvlinkInterface1)
@@ -484,7 +474,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		},
 	)
 	assert.Nil(t, err)
-	_, err = instanceDAO.Update(ctx, nil, cdbm.InstanceUpdateInput{InstanceID: instance6.ID, IsMissingOnSite: cdb.GetBoolPtr(true)})
+	_, err = instanceDAO.Update(ctx, nil, cdbm.InstanceUpdateInput{InstanceID: instance6.ID, InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{IsMissingOnSite: cdb.GetBoolPtr(true)}})
 	assert.Nil(t, err)
 
 	// Set updated earlier than the inventory receipt interval
@@ -869,6 +859,11 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	ibInterface18_3 := util.TestBuildInfiniBandInterface(t, dbSession, instance18.ID, site.ID, partition1.ID, "MT2910 Family [ConnectX-7]", 2, true, nil, cdbm.InfiniBandInterfaceStatusDeleting, false)
 	assert.NotNil(t, ibInterface18_3)
 
+	for _, ibd := range []*cdbm.InfiniBandInterface{ibInterface18_1, ibInterface18_2, ibInterface18_3} {
+		_, err = dbSession.DB.Exec("UPDATE infiniband_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), ibd.ID.String())
+		assert.NoError(t, err)
+	}
+
 	// Build DPU Extension Services and Deployments for testing
 	dpuExtensionService1 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-ext-service-1", site, tenant, "ovs-offload", cdb.GetStrPtr("1"), nil, []string{}, cdbm.DpuExtensionServiceStatusReady, ipu)
 	assert.NotNil(t, dpuExtensionService1)
@@ -912,6 +907,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 							},
 						},
 					},
+					// InfiniBand config/status keys must align with reconcile map: controller IB partition id + device + device instance
 					Infiniband: &cwsv1.InstanceInfinibandConfig{
 						IbInterfaces: []*cwsv1.InstanceIBInterfaceConfig{
 							{

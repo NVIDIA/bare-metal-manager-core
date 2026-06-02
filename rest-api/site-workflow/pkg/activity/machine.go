@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package activity
 
@@ -39,10 +25,10 @@ import (
 
 // ManageMachine is an activity wrapper for Machine management tasks that allows injecting DB access
 type ManageMachine struct {
-	nicoCoreAtomicClient *cClient.NICoCoreAtomicClient
+	coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 }
 
-// SetMachineMaintenanceOnSite is an activity to set Machine maintenance mode using Site Controller API
+// SetMachineMaintenanceOnSite is an activity to set Machine maintenance mode using Core gRPC API
 func (mm *ManageMachine) SetMachineMaintenanceOnSite(ctx context.Context, request *cwssaws.MaintenanceRequest) error {
 	logger := log.With().Str("Activity", "SetMachineMaintenanceActivity").Logger()
 
@@ -61,16 +47,16 @@ func (mm *ManageMachine) SetMachineMaintenanceOnSite(ctx context.Context, reques
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint to set SetMaintenance request
-	nicoClient := mm.nicoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cClient.ErrClientNotConnected
+	// Call Core gRPC endpoint to set SetMaintenance request
+	grpcClient := mm.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.SetMaintenance(ctx, request)
+	_, err = grpcServiceClient.SetMaintenance(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to set Maintenance mode for Machine using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to set Maintenance mode for Machine using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -79,7 +65,7 @@ func (mm *ManageMachine) SetMachineMaintenanceOnSite(ctx context.Context, reques
 	return err
 }
 
-// UpdateMachineMetadataOnSite is an activity to update Machine metadata using Site Controller API
+// UpdateMachineMetadataOnSite is an activity to update Machine metadata using Core gRPC API
 func (mm *ManageMachine) UpdateMachineMetadataOnSite(ctx context.Context, request *cwssaws.MachineMetadataUpdateRequest) error {
 	logger := log.With().Str("Activity", "UpdateMachineMetadataOnSite").Logger()
 
@@ -98,22 +84,72 @@ func (mm *ManageMachine) UpdateMachineMetadataOnSite(ctx context.Context, reques
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint to update Machine metadata
-	nicoClient := mm.nicoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cClient.ErrClientNotConnected
+	// Call Core gRPC endpoint to update Machine metadata
+	grpcClient := mm.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.UpdateMachineMetadata(ctx, request)
+	_, err = grpcServiceClient.UpdateMachineMetadata(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to update Machine metadata using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to update Machine metadata using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
 	logger.Info().Msg("Completed activity")
 
 	return err
+}
+
+// CreateMachineHealthReportOverrideOnSite applies a health report override on the Site controller.
+func (mm *ManageMachine) CreateMachineHealthReportOverrideOnSite(ctx context.Context, request *cwssaws.InsertHealthReportOverrideRequest) error {
+	logger := log.With().Str("Activity", "CreateMachineHealthReportOverrideOnSite").Logger()
+	logger.Info().Msg("Starting activity")
+
+	if request == nil || request.MachineId == nil || request.MachineId.Id == "" || request.Override == nil || request.Override.Report == nil {
+		return temporal.NewNonRetryableApplicationError("invalid InsertHealthReportOverride request", swe.ErrTypeInvalidRequest, errors.New("missing machine id or override report"))
+	}
+
+	grpcClient := mm.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
+	}
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+
+	_, err := grpcServiceClient.InsertHealthReportOverride(ctx, request)
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to insert health report override using Site Controller API")
+		return swe.WrapErr(err)
+	}
+
+	logger.Info().Msg("Completed activity")
+	return nil
+}
+
+// DeleteMachineHealthReportOverrideOnSite removes a health report override on the Site controller.
+func (mm *ManageMachine) DeleteMachineHealthReportOverrideOnSite(ctx context.Context, request *cwssaws.RemoveHealthReportOverrideRequest) error {
+	logger := log.With().Str("Activity", "DeleteMachineHealthReportOverrideOnSite").Logger()
+	logger.Info().Msg("Starting activity")
+
+	if request == nil || request.MachineId == nil || request.MachineId.Id == "" || request.Source == "" {
+		return temporal.NewNonRetryableApplicationError("invalid RemoveHealthReportOverride request", swe.ErrTypeInvalidRequest, errors.New("missing machine id or source"))
+	}
+
+	grpcClient := mm.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
+	}
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+
+	_, err := grpcServiceClient.RemoveHealthReportOverride(ctx, request)
+	if err != nil {
+		logger.Warn().Err(err).Msg("Failed to remove health report override using Site Controller API")
+		return swe.WrapErr(err)
+	}
+
+	logger.Info().Msg("Completed activity")
+	return nil
 }
 
 // GetDpuMachinesByIDs is an activity to retrieve DPU Machines by IDs with network configuration
@@ -130,12 +166,12 @@ func (mm *ManageMachine) GetDpuMachinesByIDs(ctx context.Context, dpuMachineIDs 
 		return nil, temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint to get DPU Machines by IDs
-	nicoClient := mm.nicoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return nil, cClient.ErrClientNotConnected
+	// Call Core gRPC API endpoint to get DPU Machines by IDs
+	grpcClient := mm.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return nil, cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
 	// Convert string IDs to MachineId objects
 	machineIDs := make([]*cwssaws.MachineId, 0, len(dpuMachineIDs))
@@ -147,9 +183,9 @@ func (mm *ManageMachine) GetDpuMachinesByIDs(ctx context.Context, dpuMachineIDs 
 		MachineIds: machineIDs,
 	}
 
-	machineList, err := rpcClient.FindMachinesByIds(ctx, request)
+	machineList, err := grpcServiceClient.FindMachinesByIds(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to retrieve DPU Machines by IDs using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to retrieve DPU Machines by IDs using Core gRPC API")
 		return nil, swe.WrapErr(err)
 	}
 
@@ -160,7 +196,7 @@ func (mm *ManageMachine) GetDpuMachinesByIDs(ctx context.Context, dpuMachineIDs 
 			networkConfigReq := &cwssaws.ManagedHostNetworkConfigRequest{
 				DpuMachineId: machine.Id,
 			}
-			networkConfig, nerr := rpcClient.GetManagedHostNetworkConfig(ctx, networkConfigReq)
+			networkConfig, nerr := grpcServiceClient.GetManagedHostNetworkConfig(ctx, networkConfigReq)
 			if nerr != nil {
 				logger.Warn().Err(nerr).Str("DPU Machine ID", machine.Id.Id).Msg("Failed to retrieve network config for DPU machine, continuing without it")
 				// Don't fail the entire request if network config is unavailable
@@ -180,16 +216,16 @@ func (mm *ManageMachine) GetDpuMachinesByIDs(ctx context.Context, dpuMachineIDs 
 }
 
 // NewManageMachine returns a new ManageMachine activity
-func NewManageMachine(nicoCoreAtomicClient *cClient.NICoCoreAtomicClient) ManageMachine {
+func NewManageMachine(coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient) ManageMachine {
 	return ManageMachine{
-		nicoCoreAtomicClient: nicoCoreAtomicClient,
+		coreGrpcAtomicClient: coreGrpcAtomicClient,
 	}
 }
 
 // ManageMachineInventory is an activity wrapper for Machine inventory collection and publishing
 type ManageMachineInventory struct {
 	siteID                uuid.UUID
-	nicoCoreAtomicClient  *cClient.NICoCoreAtomicClient
+	coreGrpcAtomicClient  *cClient.CoreGrpcAtomicClient
 	temporalPublishClient tClient.Client
 	temporalPublishQueue  string
 	sitePageSize          int
@@ -208,16 +244,16 @@ func (mmi *ManageMachineInventory) CollectAndPublishMachineInventory(ctx context
 		TaskQueue: mmi.temporalPublishQueue,
 	}
 
-	// Call Site Controller gRPC endpoint to get available Machine IDs
-	nicoClient := mmi.nicoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cClient.ErrClientNotConnected
+	// Call Core gRPC endpoint to get available Machine IDs
+	grpcClient := mmi.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	machineIDList, err := rpcClient.FindMachineIds(ctx, &cwssaws.MachineSearchConfig{})
+	machineIDList, err := grpcServiceClient.FindMachineIds(ctx, &cwssaws.MachineSearchConfig{})
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to retreive available Machine IDs using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to retrieve available Machine IDs using Core gRPC API")
 
 		// Error encountered before we've published anything, report inventory collection error to Cloud
 		inventory := &cwssaws.MachineInventory{
@@ -261,12 +297,12 @@ func (mmi *ManageMachineInventory) CollectAndPublishMachineInventory(ctx context
 	for sitePage := 1; sitePage <= totalSitePages; sitePage++ {
 		pagedMachineIDs := getPagedMachineIDs(machineIDList.MachineIds, sitePage, mmi.sitePageSize)
 
-		// Call Site Controller gRPC endpoint to get Machines for the paged IDs
-		pagedMachines, serr := rpcClient.FindMachinesByIds(ctx, &cwssaws.MachinesByIdsRequest{
+		// Call Core gRPC endpoint to get Machines for the paged IDs
+		pagedMachines, serr := grpcServiceClient.FindMachinesByIds(ctx, &cwssaws.MachinesByIdsRequest{
 			MachineIds: pagedMachineIDs,
 		})
 		if serr != nil {
-			logger.Warn().Err(serr).Int("Site Page", sitePage).Msg("Failed to retreive Machines using Site Controller API")
+			logger.Warn().Err(serr).Int("Site Page", sitePage).Msg("Failed to retrieve Machines using Core gRPC API")
 			return serr
 		}
 
@@ -359,10 +395,10 @@ func getPagedMachineInventory(pagedMachines []*cwssaws.Machine, machineIDs []*cw
 }
 
 // NewManageMachineInventory returns a new ManageMachineInventory activity
-func NewManageMachineInventory(siteID uuid.UUID, nicoCoreAtomicClient *cClient.NICoCoreAtomicClient, temporalPublishClient tClient.Client, temporalPublishQueue string, sitePageSize int, cloudPageSize int) ManageMachineInventory {
+func NewManageMachineInventory(siteID uuid.UUID, coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient, temporalPublishClient tClient.Client, temporalPublishQueue string, sitePageSize int, cloudPageSize int) ManageMachineInventory {
 	return ManageMachineInventory{
 		siteID:                siteID,
-		nicoCoreAtomicClient:  nicoCoreAtomicClient,
+		coreGrpcAtomicClient:  coreGrpcAtomicClient,
 		temporalPublishClient: temporalPublishClient,
 		temporalPublishQueue:  temporalPublishQueue,
 		sitePageSize:          sitePageSize,

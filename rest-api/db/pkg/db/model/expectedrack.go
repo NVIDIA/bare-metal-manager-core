@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -60,17 +46,17 @@ var (
 type ExpectedRack struct {
 	bun.BaseModel `bun:"table:expected_rack,alias:er"`
 
-	ID            uuid.UUID         `bun:"id,pk"`
-	SiteID        uuid.UUID         `bun:"site_id,type:uuid,notnull"`
-	Site          *Site             `bun:"rel:belongs-to,join:site_id=id"`
-	RackID        string            `bun:"rack_id,notnull"`
-	RackProfileID string            `bun:"rack_profile_id,notnull"`
-	Name          string            `bun:"name,nullzero,notnull,default:''"`
-	Description   string            `bun:"description,nullzero,notnull,default:''"`
-	Labels        map[string]string `bun:"labels,type:jsonb,nullzero,notnull,default:'{}'"`
-	Created       time.Time         `bun:"created,nullzero,notnull,default:current_timestamp"`
-	Updated       time.Time         `bun:"updated,nullzero,notnull,default:current_timestamp"`
-	CreatedBy     uuid.UUID         `bun:"type:uuid,notnull"`
+	ID            uuid.UUID `bun:"id,pk"`
+	SiteID        uuid.UUID `bun:"site_id,type:uuid,notnull"`
+	Site          *Site     `bun:"rel:belongs-to,join:site_id=id"`
+	RackID        string    `bun:"rack_id,notnull"`
+	RackProfileID string    `bun:"rack_profile_id,notnull"`
+	Name          string    `bun:"name,nullzero,notnull,default:''"`
+	Description   string    `bun:"description,nullzero,notnull,default:''"`
+	Labels        Labels    `bun:"labels,type:jsonb,nullzero,notnull,default:'{}'"`
+	Created       time.Time `bun:"created,nullzero,notnull,default:current_timestamp"`
+	Updated       time.Time `bun:"updated,nullzero,notnull,default:current_timestamp"`
+	CreatedBy     uuid.UUID `bun:"type:uuid,notnull"`
 }
 
 // ExpectedRackCreateInput input parameters for Create method
@@ -153,7 +139,7 @@ func (er *ExpectedRack) FromProto(proto *cwssaws.ExpectedRack) {
 		er.Name = ""
 		er.Description = ""
 	}
-	er.Labels = LabelsFromProtoMetadata(proto.Metadata)
+	er.Labels.FromProto(proto.Metadata.GetLabels())
 }
 
 var _ bun.BeforeAppendModelHook = (*ExpectedRack)(nil)

@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -170,7 +156,7 @@ func TestGetTaskHandler_Handle(t *testing.T) {
 					resp.Tasks = tt.mockTasks
 				}).Return(nil)
 			}
-			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetRackTask", mock.Anything).Return(mockWorkflowRun, nil)
+			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetTask", mock.Anything).Return(mockWorkflowRun, nil)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
 			q := url.Values{}
@@ -211,6 +197,232 @@ func TestGetTaskHandler_Handle(t *testing.T) {
 			assert.Equal(t, "Processing", apiTask.Message)
 		})
 	}
+}
+
+// ExecuteGetTasksHandlerTestCases exercises GetRackTasksHandler and GetTrayTasksHandler
+// with a shared case matrix. pathFmt and the path parameter differ per handler;
+// both invoke the GetTasks workflow and use the same Temporal mock expectation.
+type GetTasksHandlerTestCase struct {
+	name           string
+	reqOrg         string
+	user           *cdbm.User
+	pathParam      string
+	queryParams    map[string]string
+	mockTasks      []*flowv1.Task
+	expectedStatus int
+	assertFlowReq  func(t *testing.T, req *flowv1.ListTasksRequest, pathParam string)
+}
+
+func ExecuteGetTasksHandlerTestCases(t *testing.T, pathFmt string, handle func(echo.Context) error, scp *sc.ClientPool, siteID string, testCases []GetTasksHandlerTestCase) {
+	t.Helper()
+	e := echo.New()
+	tracer := oteltrace.NewNoopTracerProvider().Tracer("test")
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			mockTemporalClient := &tmocks.Client{}
+			mockWorkflowRun := &tmocks.WorkflowRun{}
+			mockWorkflowRun.On("GetID").Return("test-workflow-id")
+			if tt.mockTasks != nil {
+				mockWorkflowRun.Mock.On("Get", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+					resp := args.Get(1).(*flowv1.ListTasksResponse)
+					resp.Tasks = tt.mockTasks
+					resp.Total = int32(len(tt.mockTasks))
+				}).Return(nil)
+			}
+			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "GetTasks", mock.Anything).
+				Run(func(args mock.Arguments) {
+					if tt.assertFlowReq != nil {
+						req, ok := args.Get(3).(*flowv1.ListTasksRequest)
+						require.True(t, ok, "workflow arg must be *flowv1.ListTasksRequest")
+						tt.assertFlowReq(t, req, tt.pathParam)
+					}
+				}).
+				Return(mockWorkflowRun, nil)
+			scp.IDClientMap[siteID] = mockTemporalClient
+
+			q := url.Values{}
+			for k, v := range tt.queryParams {
+				q.Set(k, v)
+			}
+			path := fmt.Sprintf(pathFmt, tt.reqOrg, tt.pathParam) + "?" + q.Encode()
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+			rec := httptest.NewRecorder()
+
+			ec := e.NewContext(req, rec)
+			ec.SetParamNames("orgName", "id")
+			ec.SetParamValues(tt.reqOrg, tt.pathParam)
+			ec.Set("user", tt.user)
+
+			ctx := context.WithValue(context.Background(), otelecho.TracerKey, tracer)
+			ec.SetRequest(ec.Request().WithContext(ctx))
+
+			err := handle(ec)
+			require.Equal(t, tt.expectedStatus, rec.Code, "body=%s err=%v", rec.Body.String(), err)
+
+			if tt.expectedStatus != http.StatusOK {
+				return
+			}
+			var tasks []model.APIRackTask
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tasks))
+			require.Len(t, tasks, len(tt.mockTasks))
+			require.NotEmpty(t, rec.Header().Get("X-Pagination"), "X-Pagination")
+		})
+	}
+}
+
+func TestGetRackTasksHandler_Handle(t *testing.T) {
+	dbSession := testRackInitDB(t)
+	defer dbSession.Close()
+
+	cfg := common.GetTestConfig()
+	tcfg, _ := cfg.GetTemporalConfig()
+	scp := sc.NewClientPool(tcfg)
+
+	org := "test-org"
+	_, site, _ := testRackSetupTestData(t, dbSession, org)
+
+	providerUser := testRackBuildUser(t, dbSession, "provider-user-task-list-rack", org, []string{authz.ProviderAdminRole})
+	tenantUser := testRackBuildUser(t, dbSession, "tenant-user-task-list-rack", org, []string{authz.TenantAdminRole})
+
+	handler := NewGetRackTasksHandler(dbSession, nil, scp, cfg)
+	rackID := uuid.New().String()
+	taskUUID := uuid.New().String()
+	listed := []*flowv1.Task{{
+		Id:          &flowv1.UUID{Id: taskUUID},
+		RackId:      &flowv1.UUID{Id: rackID},
+		Description: "Power on rack",
+		Status:      flowv1.TaskStatus_TASK_STATUS_RUNNING,
+	}}
+
+	cases := []GetTasksHandlerTestCase{
+		{
+			name:           "success - list rack tasks",
+			reqOrg:         org,
+			user:           providerUser,
+			pathParam:      rackID,
+			queryParams:    map[string]string{"siteId": site.ID.String()},
+			mockTasks:      listed,
+			expectedStatus: http.StatusOK,
+			assertFlowReq: func(t *testing.T, req *flowv1.ListTasksRequest, pathParam string) {
+				t.Helper()
+				require.NotNil(t, req.GetRackId())
+				assert.Equal(t, pathParam, req.GetRackId().GetId())
+				assert.Nil(t, req.GetComponentId())
+				assert.False(t, req.GetActiveOnly())
+			},
+		},
+		{
+			name:           "success - active-only filter pass-through",
+			reqOrg:         org,
+			user:           providerUser,
+			pathParam:      rackID,
+			queryParams:    map[string]string{"siteId": site.ID.String(), "activeOnly": "true"},
+			mockTasks:      listed,
+			expectedStatus: http.StatusOK,
+			assertFlowReq: func(t *testing.T, req *flowv1.ListTasksRequest, pathParam string) {
+				t.Helper()
+				require.NotNil(t, req.GetRackId())
+				assert.Equal(t, pathParam, req.GetRackId().GetId())
+				assert.True(t, req.GetActiveOnly())
+			},
+		},
+		{
+			name:           "failure - invalid rack UUID",
+			reqOrg:         org,
+			user:           providerUser,
+			pathParam:      "not-a-uuid",
+			queryParams:    map[string]string{"siteId": site.ID.String()},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "failure - missing siteId",
+			reqOrg:         org,
+			user:           providerUser,
+			pathParam:      rackID,
+			queryParams:    map[string]string{},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "failure - tenant access denied",
+			reqOrg:         org,
+			user:           tenantUser,
+			pathParam:      rackID,
+			queryParams:    map[string]string{"siteId": site.ID.String()},
+			expectedStatus: http.StatusForbidden,
+		},
+	}
+
+	ExecuteGetTasksHandlerTestCases(t, "/v2/org/%s/nico/rack/%s/task", handler.Handle, scp, site.ID.String(), cases)
+}
+
+func TestGetTrayTasksHandler_Handle(t *testing.T) {
+	dbSession := testRackInitDB(t)
+	defer dbSession.Close()
+
+	cfg := common.GetTestConfig()
+	tcfg, _ := cfg.GetTemporalConfig()
+	scp := sc.NewClientPool(tcfg)
+
+	org := "test-org"
+	_, site, _ := testRackSetupTestData(t, dbSession, org)
+
+	providerUser := testRackBuildUser(t, dbSession, "provider-user-task-list-tray", org, []string{authz.ProviderAdminRole})
+	tenantUser := testRackBuildUser(t, dbSession, "tenant-user-task-list-tray", org, []string{authz.TenantAdminRole})
+
+	handler := NewGetTrayTasksHandler(dbSession, nil, scp, cfg)
+	trayID := uuid.New().String()
+	taskUUID := uuid.New().String()
+	listed := []*flowv1.Task{{
+		Id:          &flowv1.UUID{Id: taskUUID},
+		RackId:      &flowv1.UUID{Id: uuid.New().String()},
+		Description: "Update tray firmware",
+		Status:      flowv1.TaskStatus_TASK_STATUS_PENDING,
+	}}
+
+	cases := []GetTasksHandlerTestCase{
+		{
+			name:           "success - list tray tasks",
+			reqOrg:         org,
+			user:           providerUser,
+			pathParam:      trayID,
+			queryParams:    map[string]string{"siteId": site.ID.String()},
+			mockTasks:      listed,
+			expectedStatus: http.StatusOK,
+			assertFlowReq: func(t *testing.T, req *flowv1.ListTasksRequest, pathParam string) {
+				t.Helper()
+				require.NotNil(t, req.GetComponentId())
+				assert.Equal(t, pathParam, req.GetComponentId().GetId())
+				assert.Nil(t, req.GetRackId())
+			},
+		},
+		{
+			name:           "failure - invalid tray UUID",
+			reqOrg:         org,
+			user:           providerUser,
+			pathParam:      "not-a-uuid",
+			queryParams:    map[string]string{"siteId": site.ID.String()},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "failure - missing siteId",
+			reqOrg:         org,
+			user:           providerUser,
+			pathParam:      trayID,
+			queryParams:    map[string]string{},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:           "failure - tenant access denied",
+			reqOrg:         org,
+			user:           tenantUser,
+			pathParam:      trayID,
+			queryParams:    map[string]string{"siteId": site.ID.String()},
+			expectedStatus: http.StatusForbidden,
+		},
+	}
+
+	ExecuteGetTasksHandlerTestCases(t, "/v2/org/%s/nico/tray/%s/task", handler.Handle, scp, site.ID.String(), cases)
 }
 
 func TestCancelTaskHandler_Handle(t *testing.T) {
@@ -336,7 +548,7 @@ func TestCancelTaskHandler_Handle(t *testing.T) {
 					resp.Task = tt.mockTask
 				}).Return(nil)
 			}
-			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "CancelRackTask", mock.Anything).Return(mockWorkflowRun, tt.mockExecErr)
+			mockTemporalClient.Mock.On("ExecuteWorkflow", mock.Anything, mock.Anything, "CancelTask", mock.Anything).Return(mockWorkflowRun, tt.mockExecErr)
 			scp.IDClientMap[site.ID.String()] = mockTemporalClient
 
 			path := fmt.Sprintf("/v2/org/%s/nico/rack/task/%s/cancel", tt.reqOrg, tt.taskUUID)

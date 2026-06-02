@@ -13,9 +13,9 @@ dependencies:
   version: 0.1.0
 - name: nico-rest-site-manager
   repository: ""
-  version: 0.1.0
+  version: 0.1.1
 - name: nico-rest-db
   repository: ""
   version: 0.1.0
-digest: sha256:7cec75245925550764a6da00ce3cb01a9d065b7edffc76c07736d4c05aca860e
-generated: "2026-05-13T10:07:24.468333-07:00"
+digest: sha256:241b9c676f1c73361c20c25df6901b76de1e5e349cc305a6670c14a2652a6759
+generated: "2026-05-19T16:45:16.67864-07:00"

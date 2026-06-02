@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -27,16 +13,45 @@ var protoJsonUnmarshalOptions = protojson.UnmarshalOptions{
 	DiscardUnknown: true,
 }
 
-// LabelsFromProtoMetadata converts a workflow Metadata's Labels list to a
-// string map. Returns nil when md is nil or md.Labels is nil; returns an
-// empty map (not nil) when Labels is non-nil but empty, so callers can
-// distinguish "no labels reported" from "labels explicitly cleared".
-func LabelsFromProtoMetadata(md *cwssaws.Metadata) map[string]string {
-	if md == nil || md.Labels == nil {
+// Labels is the canonical entity-side representation of a workflow
+// `Metadata.Labels` list — a key/value map that can be round-tripped
+// through `ToProto` / `FromProtoMetadata` without losing the empty
+// vs. nil distinction. Defining a named type lets us hang the proto
+// conversion on it as a method (`labels.ToProto()`) rather than
+// keeping a free function in this package.
+type Labels map[string]string
+
+// ToProto converts the labels into the workflow proto repeated Label
+// representation. Returns nil for a nil map; an empty map yields a
+// non-nil empty slice so callers can distinguish "labels explicitly
+// cleared" from "no labels at all".
+func (l Labels) ToProto() []*cwssaws.Label {
+	if l == nil {
 		return nil
 	}
-	result := map[string]string{}
-	for _, label := range md.Labels {
+	protoLabels := make([]*cwssaws.Label, 0, len(l))
+	for k, v := range l {
+		protoLabels = append(protoLabels, &cwssaws.Label{
+			Key:   k,
+			Value: &v,
+		})
+	}
+	return protoLabels
+}
+
+// FromProto populates the receiver from a workflow proto repeated Label
+// representation, mirroring `(Labels).ToProto()`. A nil input clears the
+// receiver to nil; a non-nil but empty input yields a non-nil empty map,
+// so callers can distinguish "no labels reported" from "labels explicitly
+// cleared". Entries with an empty key are skipped; a label with a nil
+// value resolves to an empty string.
+func (l *Labels) FromProto(protoLabels []*cwssaws.Label) {
+	if protoLabels == nil {
+		*l = nil
+		return
+	}
+	result := Labels{}
+	for _, label := range protoLabels {
 		if label == nil || label.Key == "" {
 			continue
 		}
@@ -46,5 +61,5 @@ func LabelsFromProtoMetadata(md *cwssaws.Metadata) map[string]string {
 		}
 		result[label.Key] = value
 	}
-	return result
+	*l = result
 }

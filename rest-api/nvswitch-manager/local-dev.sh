@@ -1,47 +1,6 @@
 #!/bin/bash
-#
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# local-dev.sh - Build and run Flow + NSM locally with SSH tunnel to YTL.
-#
-# Usage:
-#   ./local-dev.sh          # Build binaries + start all services
-#   ./local-dev.sh build    # Only build Linux binaries
-#   ./local-dev.sh up       # Only start Docker services (assumes binaries exist)
-#   ./local-dev.sh down     # Stop all services and remove volumes
-#   ./local-dev.sh tunnel   # Start SSH tunnel (run in separate terminal)
-#   ./local-dev.sh migrate  # Run DB migrations for Flow and NSM
-#   ./local-dev.sh logs     # Tail service logs
-#
-# Architecture:
-#   ┌──────────────────────────────────────────────────────────────┐
-#   │  Your MacBook (Docker Desktop)                              │
-#   │                                                             │
-#   │  Flow (:50051) ──> NSM (:50052) ──SOCKS──> Switches         │
-#   │   │                                          │              │
-#   │   └──TLS──> NICo via :50053               │              │
-#   │              │                               │              │
-#   │  [postgres] [temporal] [vault]    [SSH :1080] │              │
-#   └──────────────────────────────────┼───────────┼──────────────┘
-#                                      │           │
-#                          SSH Tunnel  │           │
-#                                      ▼           ▼
-#                              ytl01-admin01 ──> YTL Network
-#                               ├── NICo (7.243.80.81:1079)
-#                               └── NV-Switch Trays (BMCs)
 
 set -e
 

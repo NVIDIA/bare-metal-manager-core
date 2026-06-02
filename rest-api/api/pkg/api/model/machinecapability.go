@@ -1,24 +1,12 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
 import (
+	"errors"
 	"fmt"
+	"math"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 
@@ -27,10 +15,35 @@ import (
 	cwma "github.com/NVIDIA/infra-controller-rest/workflow/pkg/activity/machine"
 )
 
+// APIMachineCapabilities is a typed slice that owns the list-level
+// rules across machine capabilities. It both delegates per-element
+// validation to `(APIMachineCapability).Validate` and enforces the
+// `(Type, Name)` uniqueness invariant the proto layer relies on.
+type APIMachineCapabilities []APIMachineCapability
+
+// Validate runs `APIMachineCapability.Validate` on each entry and then
+// enforces that no two entries share the same `(Type, Name)` pair.
+func (caps APIMachineCapabilities) Validate() error {
+	if err := validation.Validate([]APIMachineCapability(caps), validation.Each()); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, mc := range caps {
+		key := mc.MapKey()
+		if seen[key] {
+			return validation.Errors{
+				"machineCapabilities": fmt.Errorf("requested Capability type `%s` cannot contain duplicate Capability name: %s", mc.Type, mc.Name),
+			}
+		}
+		seen[key] = true
+	}
+	return nil
+}
+
 // APIMachineCapability is the datastructure to capture API representation of a MachineCapability
 type APIMachineCapability struct {
 	// Type is the type of the machine capability
-	Type string `json:"type"`
+	Type cdbm.MachineCapabilityType `json:"type"`
 	// Name describes the capability
 	Name string `json:"name"`
 	// Frequency describes the frequency of the capability
@@ -50,17 +63,33 @@ type APIMachineCapability struct {
 	// Count describes the number of items present for this capability
 	Count *int `json:"count"`
 	// DeviceType describes the type of the device
-	DeviceType *string `json:"deviceType,omitempty"`
+	DeviceType *cdbm.MachineCapabilityDeviceType `json:"deviceType,omitempty"`
 }
 
-// Validate ensure the values passed in request are acceptable
+// MapKey returns the canonical `Type-Name` string used as a map key
+// for dedup or `(Type, Name)` lookups against the DB-side
+// `(*cdbm.MachineCapability).MapKey()`. Both methods produce the same
+// shape so an API request capability and its DB counterpart hash to
+// the same key.
+func (mc APIMachineCapability) MapKey() string {
+	return string(mc.Type) + "-" + mc.Name
+}
+
+// Validate ensures the values on a single capability are acceptable
+// and that the row will round-trip cleanly into the workflow proto.
+// Per-list concerns (e.g. duplicate `(Type, Name)` pairs across
+// capabilities) are enforced at the list level by
+// `APIMachineCapabilities.Validate`.
+//
+// `ToProto` trusts that this has run, so anything the proto cast or
+// downstream wire shape relies on belongs here.
 func (mc APIMachineCapability) Validate() error {
-	mctypes := make([]interface{}, 0)
-	for mctype, _ := range cdbm.MachineCapabilityTypeChoiceMap {
+	mctypes := make([]interface{}, 0, len(cdbm.MachineCapabilityTypeChoiceMap))
+	for mctype := range cdbm.MachineCapabilityTypeChoiceMap {
 		mctypes = append(mctypes, mctype)
 	}
 
-	err := validation.ValidateStruct(&mc,
+	return validation.ValidateStruct(&mc,
 		validation.Field(&mc.Type,
 			validation.Required.Error("type must be specified for each Machine Capability"),
 			validation.In(mctypes...).Error(fmt.Sprintf("invalid value: %v for Machine Capability type", mc.Type))),
@@ -68,9 +97,61 @@ func (mc APIMachineCapability) Validate() error {
 			validation.Required.Error("name must be specified for each Machine Capability"),
 			validation.By(util.ValidateNameCharacters),
 			validation.Length(2, 256).Error(validationErrorStringLength)),
+		validation.Field(&mc.Count,
+			validation.Min(0).Error(fmt.Sprintf("Count for capability %q must be non-negative", mc.Name)),
+			validation.Max(math.MaxUint32).Error(fmt.Sprintf("Count for capability %q must fit in uint32 (0..%d)", mc.Name, uint32(math.MaxUint32)))),
+		validation.Field(&mc.Cores,
+			validation.Min(0).Error(fmt.Sprintf("Cores for capability %q must be non-negative", mc.Name)),
+			validation.Max(math.MaxUint32).Error(fmt.Sprintf("Cores for capability %q must fit in uint32 (0..%d)", mc.Name, uint32(math.MaxUint32)))),
+		validation.Field(&mc.Threads,
+			validation.Min(0).Error(fmt.Sprintf("Threads for capability %q must be non-negative", mc.Name)),
+			validation.Max(math.MaxUint32).Error(fmt.Sprintf("Threads for capability %q must fit in uint32 (0..%d)", mc.Name, uint32(math.MaxUint32)))),
+		validation.Field(&mc.DeviceType, validation.By(mc.validateDeviceType)),
+		validation.Field(&mc.InactiveDevices, validation.By(mc.validateInactiveDevices)),
 	)
+}
 
-	return err
+// validateDeviceType enforces the Type/DeviceType compatibility rules:
+// Network capabilities require DPU, GPU capabilities require NVLink,
+// every other Type must not carry a DeviceType. A nil DeviceType is
+// always allowed.
+func (mc APIMachineCapability) validateDeviceType(value interface{}) error {
+	dt, ok := value.(*cdbm.MachineCapabilityDeviceType)
+	if !ok || dt == nil {
+		return nil
+	}
+	switch mc.Type {
+	case cdbm.MachineCapabilityTypeNetwork:
+		if *dt != cdbm.MachineCapabilityDeviceTypeDPU {
+			return fmt.Errorf("Unsupported Device Type specified for Network Capability %s", *dt)
+		}
+	case cdbm.MachineCapabilityTypeGPU:
+		if *dt != cdbm.MachineCapabilityDeviceTypeNVLink {
+			return fmt.Errorf("Unsupported Device Type specified for GPU Capability %s", *dt)
+		}
+	default:
+		return fmt.Errorf("Unsupported Device Type: %s specified for Capability type %s", *dt, mc.Type)
+	}
+	return nil
+}
+
+// validateInactiveDevices enforces that InactiveDevices is only set on
+// InfiniBand capabilities and that each entry fits in the proto uint32
+// width before `MachineCapability.ToProto` casts it.
+func (mc APIMachineCapability) validateInactiveDevices(value interface{}) error {
+	ids, ok := value.([]int)
+	if !ok || len(ids) == 0 {
+		return nil
+	}
+	if mc.Type != cdbm.MachineCapabilityTypeInfiniBand {
+		return errors.New("InactiveDevices specified for non-InfiniBand Capability Type")
+	}
+	for i, id := range ids {
+		if id < 0 || id > math.MaxUint32 {
+			return fmt.Errorf("InactiveDevices[%d] for capability %q must fit in uint32 (0..%d)", i, mc.Name, uint32(math.MaxUint32))
+		}
+	}
+	return nil
 }
 
 // NewAPIMachineCapability accepts a DB layer MachineCapability object and returns an API object

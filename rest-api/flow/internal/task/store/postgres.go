@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package store
 
@@ -152,16 +138,38 @@ func (s *PostgresStore) UpdateScheduledTask(
 	return nil
 }
 
-// UpdateTaskStatus updates the status and message of a task.
+// UpdateTaskStatus persists status, message, and (optionally) the report
+// snapshot. The report carried in arg is treated as authoritative: when
+// non-empty it replaces the stored document, when empty the stored
+// document is left untouched (the underlying model omits the report
+// column from the UPDATE in that case). No read-modify-write is performed,
+// so concurrent transitions cannot lose updates.
 func (s *PostgresStore) UpdateTaskStatus(
 	ctx context.Context,
 	arg *taskdef.TaskStatusUpdate,
 ) error {
-	taskDao := &model.Task{
-		ID: arg.ID,
+	taskDao := &model.Task{ID: arg.ID}
+	err := taskDao.UpdateTaskStatus(ctx, s.idb(ctx), arg.Status, arg.Message, arg.Report)
+	if err != nil {
+		return errors.GRPCErrorInternal(err.Error())
 	}
 
-	err := taskDao.UpdateTaskStatus(ctx, s.pg.DB, arg.Status, arg.Message)
+	return nil
+}
+
+// UpdateTaskReport replaces the stored report with the snapshot in arg.
+// Empty snapshots are dropped rather than written so a malformed caller
+// cannot clear the stored report by accident.
+func (s *PostgresStore) UpdateTaskReport(
+	ctx context.Context,
+	arg *taskdef.TaskReportUpdate,
+) error {
+	if len(arg.Report) == 0 {
+		return nil
+	}
+
+	taskDao := &model.Task{ID: arg.ID}
+	err := taskDao.UpdateTaskReport(ctx, s.idb(ctx), arg.Report)
 	if err != nil {
 		return errors.GRPCErrorInternal(err.Error())
 	}

@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package tui
 
@@ -147,6 +133,7 @@ func TestAppendScopeFlags_SiteOnly(t *testing.T) {
 	siteOnlyResources := []string{
 		"vpc", "allocation", "ip-block", "operating-system", "ssh-key-group",
 		"network-security-group", "sku", "rack", "expected-machine",
+		"expected-rack", "expected-switch", "expected-power-shelf", "tray",
 		"dpu-extension-service", "infiniband-partition", "nvlink-logical-partition",
 	}
 
@@ -228,6 +215,7 @@ func TestAppendScopeFlags_CoversAllRegisteredFetchers(t *testing.T) {
 		"allocation", "ip-block", "operating-system",
 		"ssh-key-group", "network-security-group",
 		"sku", "rack", "expected-machine", "vpc-prefix",
+		"expected-rack", "expected-switch", "expected-power-shelf", "tray",
 		"dpu-extension-service", "infiniband-partition", "nvlink-logical-partition",
 	}
 
@@ -246,7 +234,8 @@ func TestInvalidateFiltered_MatchesScopeFilteredFetchers(t *testing.T) {
 		"vpc", "subnet", "instance",
 		"allocation", "machine", "ip-block", "operating-system",
 		"ssh-key-group", "network-security-group",
-		"vpc-prefix", "rack", "expected-machine", "sku",
+		"vpc-prefix", "rack", "expected-machine",
+		"expected-rack", "expected-switch", "expected-power-shelf", "tray", "sku",
 		"dpu-extension-service", "infiniband-partition", "nvlink-logical-partition",
 	}
 
@@ -284,6 +273,7 @@ func TestAppendScopeFlags_ScopeFlagCategories_Consistent(t *testing.T) {
 		"allocation", "ip-block", "operating-system",
 		"ssh-key-group", "network-security-group",
 		"sku", "rack", "expected-machine", "vpc-prefix",
+		"expected-rack", "expected-switch", "expected-power-shelf", "tray",
 		"dpu-extension-service", "infiniband-partition", "nvlink-logical-partition",
 	}
 
@@ -316,7 +306,8 @@ func TestInvalidateFiltered_ListMatchesAppendScopeFlags(t *testing.T) {
 		"vpc", "subnet", "instance",
 		"allocation", "machine", "ip-block", "operating-system",
 		"ssh-key-group", "network-security-group",
-		"vpc-prefix", "rack", "expected-machine", "sku",
+		"vpc-prefix", "rack", "expected-machine",
+		"expected-rack", "expected-switch", "expected-power-shelf", "tray", "sku",
 		"dpu-extension-service", "infiniband-partition", "nvlink-logical-partition",
 		"site", "audit", "ssh-key", "tenant-account",
 	}
@@ -956,6 +947,268 @@ func withStdin(t *testing.T, input string, f func() (string, error)) (string, er
 	_ = sw.Close()
 	_, _ = io.Copy(io.Discard, sr)
 	return result, rerr
+}
+
+// --- Lifecycle and task command tests ---
+
+func TestTaskIDFromArgsOrPrompt_ArgWins(t *testing.T) {
+	got, err := taskIDFromArgsOrPrompt([]string{"  abc-123  "}, "Task ID")
+	require.NoError(t, err)
+	assert.Equal(t, "abc-123", got)
+}
+
+func TestTaskIDFromArgsOrPrompt_PromptsWhenNoArg(t *testing.T) {
+	got, err := withStdin(t, "task-from-prompt\n", func() (string, error) {
+		return taskIDFromArgsOrPrompt(nil, "Task ID")
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "task-from-prompt", got)
+}
+
+func TestTaskIDFromArgsOrPrompt_RejectsEmptyArg(t *testing.T) {
+	got, err := withStdin(t, "\n", func() (string, error) {
+		return taskIDFromArgsOrPrompt([]string{"   "}, "Task ID")
+	})
+	require.Error(t, err)
+	assert.Empty(t, got)
+}
+
+func TestPrintTaskIDs_PrintsFromTaskIDsResponse(t *testing.T) {
+	body := []byte(`{"taskIds":["t1","t2","t3"],"siteId":"s-1"}`)
+	out := captureStdout(func() {
+		_ = printTaskIDs(body, "Rack power")
+	})
+	assert.Contains(t, out, "Rack power started; 3 task(s):")
+	assert.Contains(t, out, "t1")
+	assert.Contains(t, out, "t2")
+	assert.Contains(t, out, "t3")
+	assert.Contains(t, out, `"taskIds"`)
+}
+
+func TestPrintTaskIDs_HandlesEmptyTaskIDs(t *testing.T) {
+	body := []byte(`{"taskIds":[]}`)
+	out := captureStdout(func() {
+		_ = printTaskIDs(body, "Rack bringup")
+	})
+	assert.NotContains(t, out, "started")
+	assert.Contains(t, out, `"taskIds"`)
+}
+
+func TestPowerStateChoices_MatchOpenAPI(t *testing.T) {
+	expected := []string{"on", "off", "cycle", "forceoff", "forcecycle"}
+	assert.Equal(t, expected, powerStateChoices,
+		"powerStateChoices must match UpdatePowerStateRequest.state enum from openapi/spec.yaml")
+}
+
+func TestAllCommands_HasLifecycleAndTaskCommands(t *testing.T) {
+	commands := AllCommands()
+	names := make(map[string]bool, len(commands))
+	for _, cmd := range commands {
+		names[cmd.Name] = true
+	}
+	want := []string{
+		"tray list", "tray get",
+		"tray power", "tray firmware", "tray validate",
+		"rack bringup", "rack power", "rack firmware", "rack validate",
+		"rack task get", "rack task cancel",
+	}
+	for _, n := range want {
+		assert.True(t, names[n], "expected command %q to be registered", n)
+	}
+}
+
+func TestRequireSiteScope_ReturnsExistingScope(t *testing.T) {
+	s := &Session{
+		Scope: Scope{SiteID: "site-existing", SiteName: "existing"},
+		Cache: NewCache(),
+	}
+	got, err := requireSiteScope(s, "should not prompt")
+	require.NoError(t, err)
+	assert.Equal(t, "site-existing", got)
+}
+
+// --- Machine health alert tests ---
+
+func TestExtractBlockingAlerts_FiltersByPreventAllocations(t *testing.T) {
+	raw := map[string]interface{}{
+		"health": map[string]interface{}{
+			"alerts": []interface{}{
+				map[string]interface{}{
+					"id":              "BmcExplorationFailure",
+					"target":          "10.91.54.118",
+					"message":         "Redfish endpoint refused connection",
+					"classifications": []interface{}{"PreventAllocations"},
+				},
+				map[string]interface{}{
+					"id":              "FanSpeed",
+					"target":          "Fan1A",
+					"message":         "Fan running slow",
+					"classifications": []interface{}{"Informational"},
+				},
+				map[string]interface{}{
+					"id":              "FailedValidationTest",
+					"target":          "DcgmFullShort",
+					"message":         "Failed validation",
+					"classifications": []interface{}{"PreventAllocations", "ValidationFailure"},
+				},
+			},
+		},
+	}
+	alerts := extractBlockingAlerts(raw)
+	require.Len(t, alerts, 2)
+	assert.Equal(t, "BmcExplorationFailure", alerts[0].ID)
+	assert.Equal(t, "10.91.54.118", alerts[0].Target)
+	assert.Equal(t, "FailedValidationTest", alerts[1].ID)
+}
+
+func TestExtractBlockingAlerts_EmptyHealth(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  interface{}
+	}{
+		{"nil", nil},
+		{"non-map", "not a map"},
+		{"missing health", map[string]interface{}{"id": "machine-1"}},
+		{"non-map health", map[string]interface{}{"health": "broken"}},
+		{"missing alerts", map[string]interface{}{"health": map[string]interface{}{}}},
+		{"non-array alerts", map[string]interface{}{"health": map[string]interface{}{"alerts": "x"}}},
+		{"empty alerts", map[string]interface{}{"health": map[string]interface{}{"alerts": []interface{}{}}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Empty(t, extractBlockingAlerts(tc.raw))
+		})
+	}
+}
+
+func TestSummarizeBlockingAlert(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  interface{}
+		want string
+	}{
+		{
+			name: "no alerts",
+			raw:  map[string]interface{}{},
+			want: "",
+		},
+		{
+			name: "id and concise target",
+			raw: map[string]interface{}{
+				"health": map[string]interface{}{
+					"alerts": []interface{}{
+						map[string]interface{}{
+							"id":              "BmcExplorationFailure",
+							"target":          "10.91.54.118",
+							"classifications": []interface{}{"PreventAllocations"},
+						},
+					},
+				},
+			},
+			want: "BmcExplorationFailure 10.91.54.118",
+		},
+		{
+			name: "id only when target empty",
+			raw: map[string]interface{}{
+				"health": map[string]interface{}{
+					"alerts": []interface{}{
+						map[string]interface{}{
+							"id":              "FailedValidationTest",
+							"classifications": []interface{}{"PreventAllocations"},
+						},
+					},
+				},
+			},
+			want: "FailedValidationTest",
+		},
+		{
+			name: "long target gets truncated",
+			raw: map[string]interface{}{
+				"health": map[string]interface{}{
+					"alerts": []interface{}{
+						map[string]interface{}{
+							"id":              "X",
+							"target":          strings.Repeat("a", 50),
+							"classifications": []interface{}{"PreventAllocations"},
+						},
+					},
+				},
+			},
+			want: "X " + strings.Repeat("a", 21) + "...",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, summarizeBlockingAlert(tc.raw))
+		})
+	}
+}
+
+func TestPrintMachineHealthSummary_PrintsBlockingAlerts(t *testing.T) {
+	body := []byte(`{
+		"id": "machine-1",
+		"status": "Error",
+		"isUsableByTenant": false,
+		"health": {
+			"alerts": [
+				{
+					"id": "BmcExplorationFailure",
+					"target": "10.91.54.118",
+					"message": "Failed to connect to Redfish endpoint at 10.91.54.118\nadditional context",
+					"classifications": ["PreventAllocations"]
+				}
+			]
+		}
+	}`)
+	var buf bytes.Buffer
+	printMachineHealthSummary(&buf, body)
+	out := buf.String()
+	assert.Contains(t, out, "Blocking health alerts:")
+	assert.Contains(t, out, "BmcExplorationFailure")
+	assert.Contains(t, out, "10.91.54.118")
+	assert.Contains(t, out, "PreventAllocations")
+	assert.Contains(t, out, "Status: Error")
+	assert.Contains(t, out, "Usable by tenant: false")
+	assert.Contains(t, out, "Failed to connect")
+	assert.Contains(t, out, "(...)")
+}
+
+func TestPrintMachineHealthSummary_SuppressedForHealthyMachine(t *testing.T) {
+	body := []byte(`{"id": "machine-1", "status": "Ready", "health": {"alerts": []}}`)
+	var buf bytes.Buffer
+	printMachineHealthSummary(&buf, body)
+	assert.Empty(t, buf.String())
+}
+
+func TestPrintMachineHealthSummary_SuppressedForNonPreventAllocations(t *testing.T) {
+	body := []byte(`{
+		"status": "Ready",
+		"health": {"alerts": [
+			{"id": "FanSpeed", "target": "Fan1A", "classifications": ["Informational"]}
+		]}
+	}`)
+	var buf bytes.Buffer
+	printMachineHealthSummary(&buf, body)
+	assert.Empty(t, buf.String())
+}
+
+func TestShortMessage(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"", ""},
+		{"single line", "single line"},
+		{"  trimmed  ", "trimmed"},
+		{"first\nsecond\nthird", "first (...)"},
+		{"\nfirst non-empty\nsecond", "first non-empty (...)"},
+		{strings.Repeat("a", 250), strings.Repeat("a", 197) + "..."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			assert.Equal(t, tc.want, shortMessage(tc.in))
+		})
+	}
 }
 
 // --- Helpers ---

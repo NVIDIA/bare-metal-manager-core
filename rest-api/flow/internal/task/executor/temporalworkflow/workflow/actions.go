@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package workflow
 
@@ -612,14 +598,14 @@ func executeVerifyFirmwareConsistencyAction(actx actionExecutionContext) error {
 // knownComponentTypeKeys are the JSON keys recognised in a layered
 // TargetVersion object. Used to distinguish the new per-component-type
 // format from the legacy flat format.
-var knownComponentTypeKeys = []string{"compute", "nvlswitch", "powershelf"}
+var knownComponentTypeKeys = []string{"compute", "nvswitch", "powershelf"}
 
 // extractComponentTargetVersion extracts the component-specific section from
 // a layered TargetVersion JSON string. The expected top-level structure is:
 //
 //	{
 //	  "compute":    {"bmc": "7.10.30", "uefi": "2.22.1"},
-//	  "nvlswitch":  "1.3.1",
+//	  "nvswitch":  "1.3.1",
 //	  "powershelf": "r1.3.9"
 //	}
 //

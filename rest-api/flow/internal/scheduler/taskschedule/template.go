@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package taskschedule
 
@@ -23,6 +9,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/operation"
 	taskcommon "github.com/NVIDIA/infra-controller-rest/flow/internal/task/common"
+	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
 )
 
 // TaskTemplate is the JSON-serialized operation stored in task_schedule.operation_template.
@@ -111,61 +98,15 @@ func OptionsFromTemplate(raw json.RawMessage) (TemplateOptions, error) {
 // (e.g. "POWER_ON", "BRING_UP"). description is a short English phrase for
 // display (e.g. "Power Off (forced)", "Upgrade Firmware to v2.1.0").
 func SummaryFromTemplate(templateJSON json.RawMessage) (opType, description string, err error) {
-	var tmpl TaskTemplate
-	if err = json.Unmarshal(templateJSON, &tmpl); err != nil {
-		return "", "", fmt.Errorf("unmarshal operation_template: %w", err)
+	w, err := WrapperFromTemplate(templateJSON)
+	if err != nil {
+		return "", "", err
 	}
 
-	switch tmpl.Type {
-	case taskcommon.TaskTypePowerControl:
-		switch tmpl.Code {
-		case taskcommon.OpCodePowerControlPowerOn, taskcommon.OpCodePowerControlForcePowerOn:
-			return "POWER_ON", "Power On", nil
-		case taskcommon.OpCodePowerControlPowerOff:
-			return "POWER_OFF", "Power Off", nil
-		case taskcommon.OpCodePowerControlForcePowerOff:
-			return "POWER_OFF", "Power Off (forced)", nil
-		case taskcommon.OpCodePowerControlRestart, taskcommon.OpCodePowerControlWarmReset:
-			return "POWER_RESET", "Power Reset", nil
-		case taskcommon.OpCodePowerControlForceRestart, taskcommon.OpCodePowerControlColdReset:
-			return "POWER_RESET", "Power Reset (forced)", nil
-		default:
-			return "POWER_CONTROL", tmpl.Code, nil
-		}
-
-	case taskcommon.TaskTypeBringUp:
-		if tmpl.Code == taskcommon.OpCodeIngest {
-			return "INGEST", "Ingest", nil
-		}
-		return "BRING_UP", "Bring Up", nil
-
-	case taskcommon.TaskTypeFirmwareControl:
-		var info struct {
-			TargetVersion string `json:"target_version"`
-		}
-		if len(tmpl.Info) > 0 {
-			if err = json.Unmarshal(tmpl.Info, &info); err != nil {
-				return "", "", fmt.Errorf("unmarshal firmware info: %w", err)
-			}
-		}
-		switch tmpl.Code {
-		case taskcommon.OpCodeFirmwareControlUpgrade:
-			if info.TargetVersion != "" {
-				return "UPGRADE_FIRMWARE", "Upgrade Firmware to " + info.TargetVersion, nil
-			}
-			return "UPGRADE_FIRMWARE", "Upgrade Firmware", nil
-		case taskcommon.OpCodeFirmwareControlDowngrade:
-			if info.TargetVersion != "" {
-				return "DOWNGRADE_FIRMWARE", "Downgrade Firmware to " + info.TargetVersion, nil
-			}
-			return "DOWNGRADE_FIRMWARE", "Downgrade Firmware", nil
-		case taskcommon.OpCodeFirmwareControlRollback:
-			return "ROLLBACK_FIRMWARE", "Rollback Firmware", nil
-		default: // unrecognized
-			return "FIRMWARE_CONTROL", tmpl.Code, nil
-		}
-
-	default:
-		return string(tmpl.Type), tmpl.Code, nil
+	description, err = operations.SummaryFromWrapper(w)
+	if err != nil {
+		return "", "", err
 	}
+
+	return operations.OperationTypeFromWrapper(w), description, nil
 }

@@ -1,25 +1,12 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package vpc
 
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -492,7 +479,7 @@ func (mvlm ManageVpcLifecycleMetrics) RecordVpcStatusTransitionMetrics(ctx conte
 			// DELETE event: Measure time from Deleting to actual deletion
 			// Find the earliest Deleting status (iterate backwards since sorted DESC)
 			var deletingStatusDetail *cdbm.StatusDetail
-			for i := len(statusDetails) - 1; i >= 0; i-- {
+			for i := range slices.Backward(statusDetails) {
 				sd := &statusDetails[i]
 				if sd.Status == cdbm.VpcStatusDeleting {
 					deletingStatusDetail = sd

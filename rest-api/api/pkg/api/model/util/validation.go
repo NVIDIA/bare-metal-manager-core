@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package util
 
@@ -52,8 +38,19 @@ var (
 	ErrValidationLabelCount       = fmt.Errorf("up to %v key/value pairs can be specified in labels", LabelCountMax)
 )
 
-// ValidateLabels validates optional API label maps (count, keys, values). Returns nil when labels is nil.
-func ValidateLabels(labels map[string]string) error {
+// ValidateLabels validates optional API label maps (count, keys, values).
+// Signature matches ozzo's `validation.RuleFunc` so it can be used
+// directly inside a `validation.By(...)` call from a struct's `Validate`.
+// Returns nil when labels is nil; ignores values that aren't a
+// `map[string]string`.
+func ValidateLabels(value interface{}) error {
+	if value == nil {
+		return nil
+	}
+	labels, ok := value.(map[string]string)
+	if !ok {
+		return nil
+	}
 	if labels == nil {
 		return nil
 	}

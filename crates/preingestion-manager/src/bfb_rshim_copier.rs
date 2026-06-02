@@ -225,7 +225,6 @@ impl BfbRshimCopier {
         &self,
         bmc_ip_address: std::net::SocketAddr,
         credential_key: &CredentialKey,
-        is_bf2: bool,
     ) -> Result<(), BfbRshimCopyError> {
         let credentials = self.get_bmc_root_credentials(credential_key).await?;
         let (username, password) = match credentials.clone() {
@@ -243,7 +242,6 @@ impl BfbRshimCopier {
             username,
             password,
             UNIFIED_PREINGESTION_BFB_PATH.to_string(),
-            is_bf2,
         )
         .await
         .map_err(|err| BfbRshimCopyError::Other {

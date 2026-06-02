@@ -135,7 +135,7 @@
       ]
     },
     {
-      "type": "nvlswitch",
+      "type": "nvswitch",
       "info": {
         "id": "f3a1c2d4-4001-4000-8000-000000000001",
         "name": "nvswitch1-nvl1-gp1-sjc01",
@@ -162,7 +162,7 @@
       ]
     },
     {
-      "type": "nvlswitch",
+      "type": "nvswitch",
       "info": {
         "id": "f3a1c2d4-4001-4000-8000-000000000002",
         "name": "nvswitch2-nvl1-gp1-sjc01",
