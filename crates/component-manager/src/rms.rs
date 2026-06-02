@@ -176,7 +176,7 @@ fn build_power_shelf_node_info(ep: &PowerShelfEndpoint, identity: &RmsIdentity) 
             }),
             port: POWER_SHELF_BMC_PORT,
             credentials: Some(credentials_to_rms(&ep.pmc_credentials)),
-            dangerously_accept_invalid_certs: false,
+            dangerously_accept_invalid_certs: true,
         }),
         host_endpoint: None,
     }
@@ -519,7 +519,7 @@ fn build_switch_node_info(ep: &SwitchEndpoint, identity: &RmsIdentity) -> rms::N
             }),
             port: SWITCH_BMC_PORT,
             credentials: Some(credentials_to_rms(&ep.bmc_credentials)),
-            dangerously_accept_invalid_certs: false,
+            dangerously_accept_invalid_certs: true,
         }),
         host_endpoint: Some(rms::Endpoint {
             interface: Some(rms::NetworkInterface {

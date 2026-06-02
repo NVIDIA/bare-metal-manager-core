@@ -210,7 +210,7 @@ pub fn build_new_node_info(
     rack_id: &RackId,
     device: &FirmwareUpgradeDeviceInfo,
     node_type: rms::NodeType,
-    dangerously_accept_invalid_certs: bool,
+    host_endpoint_dangerously_accept_invalid_certs: bool,
 ) -> rms::NodeInfo {
     let bmc_endpoint = if device.bmc_ip.is_empty() || device.mac.is_empty() {
         None
@@ -222,7 +222,7 @@ pub fn build_new_node_info(
             }),
             port: 443,
             credentials: user_pass_credentials(&device.bmc_username, &device.bmc_password),
-            dangerously_accept_invalid_certs,
+            dangerously_accept_invalid_certs: true,
         })
     };
 
@@ -234,7 +234,7 @@ pub fn build_new_node_info(
                 device.os_username.as_deref().unwrap_or_default(),
                 device.os_password.as_deref().unwrap_or_default(),
             ),
-            dangerously_accept_invalid_certs,
+            dangerously_accept_invalid_certs: host_endpoint_dangerously_accept_invalid_certs,
         })
     } else {
         None

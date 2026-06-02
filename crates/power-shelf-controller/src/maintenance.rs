@@ -278,7 +278,7 @@ pub(super) async fn build_power_shelf_node_info(
             }),
             port: POWER_SHELF_BMC_PORT,
             credentials: Some(credentials),
-            dangerously_accept_invalid_certs: false,
+            dangerously_accept_invalid_certs: true,
         }),
         host_endpoint: None,
     })
