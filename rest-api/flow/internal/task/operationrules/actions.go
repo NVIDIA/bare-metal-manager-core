@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package operationrules
 
@@ -129,6 +115,38 @@ func (ac *ActionConfig) Validate() error {
 	return nil
 }
 
+// ComponentTypes returns component types declared by an action's parameters.
+// Actions without component-type parameters return nil.
+func (ac ActionConfig) ComponentTypes() ([]devicetypes.ComponentType, error) {
+	types, ok := ac.Parameters[ParamComponentTypes]
+	if !ok {
+		// Most actions do not target component types through parameters. For
+		// actions that declare component_types as required, missing it is a
+		// malformed rule and should not be silently treated as no targets.
+		spec, ok := actionRegistry[ac.Name]
+		if ok && spec.requiresParam(ParamComponentTypes) {
+			return nil, fmt.Errorf(
+				"action %s missing required parameter: %s",
+				ac.Name,
+				ParamComponentTypes,
+			)
+		}
+		return nil, nil
+	}
+
+	return componentTypesFromParameter(types)
+}
+
+func (spec actionSpec) requiresParam(param string) bool {
+	for _, required := range spec.requiredParams {
+		if required == param {
+			return true
+		}
+	}
+
+	return false
+}
+
 // validateSleepParams validates Sleep action parameters
 func validateSleepParams(params map[string]any) error {
 	duration, ok := params[ParamDuration]
@@ -182,34 +200,43 @@ func validateVerifyReachabilityParams(params map[string]any) error {
 		return fmt.Errorf("missing required parameter: %s", ParamComponentTypes)
 	}
 
+	_, err := componentTypesFromParameter(types)
+	return err
+}
+
+func componentTypesFromParameter(types any) ([]devicetypes.ComponentType, error) {
+	componentTypes := make([]devicetypes.ComponentType, 0)
+
 	// Can be []string or []any (from JSON/YAML unmarshaling)
 	switch v := types.(type) {
 	case []string:
 		// Validate each component type
 		for _, ct := range v {
-			if devicetypes.ComponentTypeFromString(ct) ==
-				devicetypes.ComponentTypeUnknown {
-				return fmt.Errorf("invalid component type: %s", ct)
+			componentType := devicetypes.ComponentTypeFromString(ct)
+			if componentType == devicetypes.ComponentTypeUnknown {
+				return nil, fmt.Errorf("invalid component type: %s", ct)
 			}
+			componentTypes = append(componentTypes, componentType)
 		}
 	case []any:
 		// Validate each component type
 		for _, item := range v {
 			ct, ok := item.(string)
 			if !ok {
-				return fmt.Errorf("component_types must be string array")
+				return nil, fmt.Errorf("component_types must be string array")
 			}
-			if devicetypes.ComponentTypeFromString(ct) ==
-				devicetypes.ComponentTypeUnknown {
-				return fmt.Errorf("invalid component type: %s", ct)
+			componentType := devicetypes.ComponentTypeFromString(ct)
+			if componentType == devicetypes.ComponentTypeUnknown {
+				return nil, fmt.Errorf("invalid component type: %s", ct)
 			}
+			componentTypes = append(componentTypes, componentType)
 		}
 	default:
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"component_types must be array, got %T",
 			types,
 		)
 	}
 
-	return nil
+	return componentTypes, nil
 }

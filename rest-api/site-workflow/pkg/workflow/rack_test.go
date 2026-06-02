@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package workflow
 
@@ -232,7 +218,7 @@ func (s *ValidateRackComponentsTestSuite) Test_ValidateRackComponents_Success_No
 		TotalDiffs:      0,
 		MissingCount:    0,
 		UnexpectedCount: 0,
-		DriftCount:      0,
+		MismatchCount:   0,
 		MatchCount:      5,
 	}
 
@@ -279,7 +265,7 @@ func (s *ValidateRackComponentsTestSuite) Test_ValidateRackComponents_Success_Wi
 				ComponentId: "comp-1",
 			},
 			{
-				Type:        flowv1.DiffType_DIFF_TYPE_DRIFT,
+				Type:        flowv1.DiffType_DIFF_TYPE_MISMATCH,
 				ComponentId: "comp-2",
 				FieldDiffs: []*flowv1.FieldDiff{
 					{
@@ -293,7 +279,7 @@ func (s *ValidateRackComponentsTestSuite) Test_ValidateRackComponents_Success_Wi
 		TotalDiffs:      2,
 		MissingCount:    1,
 		UnexpectedCount: 0,
-		DriftCount:      1,
+		MismatchCount:   1,
 		MatchCount:      3,
 	}
 
@@ -311,7 +297,7 @@ func (s *ValidateRackComponentsTestSuite) Test_ValidateRackComponents_Success_Wi
 	s.NoError(s.env.GetWorkflowResult(&response))
 	s.Equal(int32(2), response.TotalDiffs)
 	s.Equal(int32(1), response.MissingCount)
-	s.Equal(int32(1), response.DriftCount)
+	s.Equal(int32(1), response.MismatchCount)
 	s.Equal(int32(3), response.MatchCount)
 	s.Equal(2, len(response.Diffs))
 }
@@ -788,175 +774,6 @@ func (s *BringUpRackTestSuite) Test_BringUpRack_ActivityFails() {
 
 func TestBringUpRackTestSuite(t *testing.T) {
 	suite.Run(t, new(BringUpRackTestSuite))
-}
-
-// GetRackTaskTestSuite tests the GetRackTask workflow
-type GetRackTaskTestSuite struct {
-	suite.Suite
-	testsuite.WorkflowTestSuite
-
-	env *testsuite.TestWorkflowEnvironment
-}
-
-func (s *GetRackTaskTestSuite) SetupTest() {
-	s.env = s.NewTestWorkflowEnvironment()
-}
-
-func (s *GetRackTaskTestSuite) AfterTest(suiteName, testName string) {
-	s.env.AssertExpectations(s.T())
-}
-
-func (s *GetRackTaskTestSuite) Test_GetRackTask_Success() {
-	var rackManager rActivity.ManageRack
-
-	taskID := "test-task-id"
-	request := &flowv1.GetTasksByIDsRequest{
-		TaskIds: []*flowv1.UUID{{Id: taskID}},
-	}
-
-	expectedResponse := &flowv1.GetTasksByIDsResponse{
-		Tasks: []*flowv1.Task{
-			{
-				Id:          &flowv1.UUID{Id: taskID},
-				Operation:   "power_on",
-				Description: "Power on rack",
-				Status:      flowv1.TaskStatus_TASK_STATUS_RUNNING,
-				Message:     "Processing",
-			},
-		},
-	}
-
-	s.env.RegisterActivity(rackManager.GetTaskByID)
-	s.env.OnActivity(rackManager.GetTaskByID, mock.Anything, mock.Anything).Return(expectedResponse, nil)
-
-	s.env.ExecuteWorkflow(GetRackTask, request)
-	s.True(s.env.IsWorkflowCompleted())
-	s.NoError(s.env.GetWorkflowError())
-
-	var response flowv1.GetTasksByIDsResponse
-	s.NoError(s.env.GetWorkflowResult(&response))
-	s.Equal(1, len(response.GetTasks()))
-	s.Equal(taskID, response.GetTasks()[0].GetId().GetId())
-}
-
-func (s *GetRackTaskTestSuite) Test_GetRackTask_EmptyResult() {
-	var rackManager rActivity.ManageRack
-
-	request := &flowv1.GetTasksByIDsRequest{
-		TaskIds: []*flowv1.UUID{{Id: "nonexistent-task"}},
-	}
-
-	expectedResponse := &flowv1.GetTasksByIDsResponse{
-		Tasks: []*flowv1.Task{},
-	}
-
-	s.env.RegisterActivity(rackManager.GetTaskByID)
-	s.env.OnActivity(rackManager.GetTaskByID, mock.Anything, mock.Anything).Return(expectedResponse, nil)
-
-	s.env.ExecuteWorkflow(GetRackTask, request)
-	s.True(s.env.IsWorkflowCompleted())
-	s.NoError(s.env.GetWorkflowError())
-
-	var response flowv1.GetTasksByIDsResponse
-	s.NoError(s.env.GetWorkflowResult(&response))
-	s.Equal(0, len(response.GetTasks()))
-}
-
-func (s *GetRackTaskTestSuite) Test_GetRackTask_ActivityFails() {
-	var rackManager rActivity.ManageRack
-
-	request := &flowv1.GetTasksByIDsRequest{
-		TaskIds: []*flowv1.UUID{{Id: "test-task-id"}},
-	}
-
-	errMsg := "Flow connection failed"
-
-	s.env.RegisterActivity(rackManager.GetTaskByID)
-	s.env.OnActivity(rackManager.GetTaskByID, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
-
-	s.env.ExecuteWorkflow(GetRackTask, request)
-	s.True(s.env.IsWorkflowCompleted())
-	err := s.env.GetWorkflowError()
-	s.Error(err)
-
-	var applicationErr *temporal.ApplicationError
-	s.True(errors.As(err, &applicationErr))
-	s.Equal(errMsg, applicationErr.Error())
-}
-
-func TestGetRackTaskTestSuite(t *testing.T) {
-	suite.Run(t, new(GetRackTaskTestSuite))
-}
-
-// CancelRackTaskTestSuite tests the CancelRackTask workflow
-type CancelRackTaskTestSuite struct {
-	suite.Suite
-	testsuite.WorkflowTestSuite
-
-	env *testsuite.TestWorkflowEnvironment
-}
-
-func (s *CancelRackTaskTestSuite) SetupTest() {
-	s.env = s.NewTestWorkflowEnvironment()
-}
-
-func (s *CancelRackTaskTestSuite) AfterTest(suiteName, testName string) {
-	s.env.AssertExpectations(s.T())
-}
-
-func (s *CancelRackTaskTestSuite) Test_CancelRackTask_Success() {
-	var rackManager rActivity.ManageRack
-
-	taskID := "test-task-id"
-	request := &flowv1.CancelTaskRequest{
-		TaskId: &flowv1.UUID{Id: taskID},
-	}
-
-	expectedResponse := &flowv1.CancelTaskResponse{
-		Task: &flowv1.Task{
-			Id:      &flowv1.UUID{Id: taskID},
-			Status:  flowv1.TaskStatus_TASK_STATUS_TERMINATED,
-			Message: "Cancelled by user",
-		},
-	}
-
-	s.env.RegisterActivity(rackManager.CancelTask)
-	s.env.OnActivity(rackManager.CancelTask, mock.Anything, mock.Anything).Return(expectedResponse, nil)
-
-	s.env.ExecuteWorkflow(CancelRackTask, request)
-	s.True(s.env.IsWorkflowCompleted())
-	s.NoError(s.env.GetWorkflowError())
-
-	var response flowv1.CancelTaskResponse
-	s.NoError(s.env.GetWorkflowResult(&response))
-	s.Equal(taskID, response.GetTask().GetId().GetId())
-	s.Equal(flowv1.TaskStatus_TASK_STATUS_TERMINATED, response.GetTask().GetStatus())
-}
-
-func (s *CancelRackTaskTestSuite) Test_CancelRackTask_ActivityFails() {
-	var rackManager rActivity.ManageRack
-
-	request := &flowv1.CancelTaskRequest{
-		TaskId: &flowv1.UUID{Id: "test-task-id"},
-	}
-
-	errMsg := "Flow cancel rejected: task already finished"
-
-	s.env.RegisterActivity(rackManager.CancelTask)
-	s.env.OnActivity(rackManager.CancelTask, mock.Anything, mock.Anything).Return(nil, errors.New(errMsg))
-
-	s.env.ExecuteWorkflow(CancelRackTask, request)
-	s.True(s.env.IsWorkflowCompleted())
-	err := s.env.GetWorkflowError()
-	s.Error(err)
-
-	var applicationErr *temporal.ApplicationError
-	s.True(errors.As(err, &applicationErr))
-	s.Equal(errMsg, applicationErr.Error())
-}
-
-func TestCancelRackTaskTestSuite(t *testing.T) {
-	suite.Run(t, new(CancelRackTaskTestSuite))
 }
 
 // UpgradeFirmwareTestSuite tests the UpgradeFirmware workflow

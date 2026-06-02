@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package instancetype
 
@@ -21,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -38,34 +23,6 @@ import (
 
 	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 )
-
-var CloudCapabilityTypeToProtobufType = map[string]cwssaws.MachineCapabilityType{
-	cdbm.MachineCapabilityTypeCPU:        cwssaws.MachineCapabilityType_CAP_TYPE_CPU,
-	cdbm.MachineCapabilityTypeMemory:     cwssaws.MachineCapabilityType_CAP_TYPE_MEMORY,
-	cdbm.MachineCapabilityTypeGPU:        cwssaws.MachineCapabilityType_CAP_TYPE_GPU,
-	cdbm.MachineCapabilityTypeStorage:    cwssaws.MachineCapabilityType_CAP_TYPE_STORAGE,
-	cdbm.MachineCapabilityTypeNetwork:    cwssaws.MachineCapabilityType_CAP_TYPE_NETWORK,
-	cdbm.MachineCapabilityTypeInfiniBand: cwssaws.MachineCapabilityType_CAP_TYPE_INFINIBAND,
-	cdbm.MachineCapabilityTypeDPU:        cwssaws.MachineCapabilityType_CAP_TYPE_DPU,
-}
-
-var ProtobufCapabilityTypeToCloudType = map[cwssaws.MachineCapabilityType]string{
-	cwssaws.MachineCapabilityType_CAP_TYPE_CPU:        cdbm.MachineCapabilityTypeCPU,
-	cwssaws.MachineCapabilityType_CAP_TYPE_MEMORY:     cdbm.MachineCapabilityTypeMemory,
-	cwssaws.MachineCapabilityType_CAP_TYPE_GPU:        cdbm.MachineCapabilityTypeGPU,
-	cwssaws.MachineCapabilityType_CAP_TYPE_STORAGE:    cdbm.MachineCapabilityTypeStorage,
-	cwssaws.MachineCapabilityType_CAP_TYPE_NETWORK:    cdbm.MachineCapabilityTypeNetwork,
-	cwssaws.MachineCapabilityType_CAP_TYPE_INFINIBAND: cdbm.MachineCapabilityTypeInfiniBand,
-	cwssaws.MachineCapabilityType_CAP_TYPE_DPU:        cdbm.MachineCapabilityTypeDPU,
-}
-
-var CloudCapabilityDeviceTypeToProtobufType = map[string]cwssaws.MachineCapabilityDeviceType{
-	cdbm.MachineCapabilityDeviceTypeDPU: cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU,
-}
-
-var ProtobufCapabilityDeviceTypeToCloudType = map[cwssaws.MachineCapabilityDeviceType]string{
-	cwssaws.MachineCapabilityDeviceType_MACHINE_CAPABILITY_DEVICE_TYPE_DPU: cdbm.MachineCapabilityDeviceTypeDPU,
-}
 
 // ManageInstanceType is an activity wrapper for managing InstanceType lifecycle that allows
 // injecting DB access
@@ -213,7 +170,9 @@ func (mv ManageInstanceType) UpdateInstanceTypeInCloud(ctx context.Context, site
 			return errors.New("site returned multiple capabilities with the same name")
 		}
 
-		machineCap, err := MachineCapabilityFromProtobufMachineCapability(controllerCap, idx)
+		machineCap := &cdbm.MachineCapability{}
+		machineCap.FromProto(controllerCap, idx)
+		err := machineCap.Validate()
 		if err != nil {
 			return fmt.Errorf("failed to convert NICo machine capability into MachineCapability: %w", err)
 		}
@@ -376,44 +335,30 @@ func (mv ManageInstanceType) AddInstanceTypeToCloud(ctx context.Context, site *c
 
 		controllerCapMap[controllerCap.GetName()] = true
 
-		var count *int = nil
-
-		if controllerCap.Count != nil {
-			c := int(controllerCap.GetCount())
-			count = &c
-		}
-
-		var inactiveDevices []int
-		if controllerCap.InactiveDevices != nil {
-			for _, d := range controllerCap.InactiveDevices.Items {
-				inactiveDevices = append(inactiveDevices, int(d))
-			}
-		}
-
-		var deviceType *string
-		if controllerCap.DeviceType != nil {
-			deviceTypeValue, found := ProtobufCapabilityDeviceTypeToCloudType[*controllerCap.DeviceType]
-			if !found {
-				log.Warn().Str("DeviceType", controllerCap.GetDeviceType().String()).Msg("unsupported MachineCapabilityDeviceType requested")
-				deviceType = nil
-			}
-			deviceType = &deviceTypeValue
+		// Build the entity, then Validate before going to the DB --
+		// mirrors the UpdateInstanceTypeInCloud flow so unsupported
+		// site-supplied enums get rejected here rather than landing as
+		// empty strings in the DB.
+		machineCap := &cdbm.MachineCapability{}
+		machineCap.FromProto(controllerCap, idx)
+		if err := machineCap.Validate(); err != nil {
+			return nil, fmt.Errorf("failed to convert NICo machine capability into MachineCapability: %w", err)
 		}
 
 		_, err := macCapDAO.Create(ctx, tx, cdbm.MachineCapabilityCreateInput{
 			InstanceTypeID:   &instanceType.ID,
-			Type:             controllerCap.GetCapabilityType().String(),
-			Name:             controllerCap.GetName(),
-			Frequency:        controllerCap.Frequency,
-			Capacity:         controllerCap.Capacity,
-			Vendor:           controllerCap.Vendor,
-			Cores:            util.GetUint32PtrToIntPtr(controllerCap.Cores),
-			Threads:          util.GetUint32PtrToIntPtr(controllerCap.Threads),
-			HardwareRevision: controllerCap.HardwareRevision,
-			InactiveDevices:  inactiveDevices,
-			Count:            count,
-			DeviceType:       deviceType,
-			Index:            idx,
+			Type:             machineCap.Type,
+			Name:             machineCap.Name,
+			Frequency:        machineCap.Frequency,
+			Capacity:         machineCap.Capacity,
+			Vendor:           machineCap.Vendor,
+			Cores:            machineCap.Cores,
+			Threads:          machineCap.Threads,
+			HardwareRevision: machineCap.HardwareRevision,
+			InactiveDevices:  machineCap.InactiveDevices,
+			Count:            machineCap.Count,
+			DeviceType:       machineCap.DeviceType,
+			Index:            machineCap.Index,
 		})
 
 		if err != nil {
@@ -429,142 +374,6 @@ func (mv ManageInstanceType) AddInstanceTypeToCloud(ctx context.Context, site *c
 	txCommitted = true
 
 	return instanceType, err
-}
-
-func (mv ManageInstanceType) ProtobufCapabilitiesFromCloudCapabilities(mcs []cdbm.MachineCapability) ([]*cwssaws.InstanceTypeMachineCapabilityFilterAttributes, error) {
-
-	// Get the caps for the instance type
-	capabilities := make([]*cwssaws.InstanceTypeMachineCapabilityFilterAttributes, len(mcs))
-
-	// Sort the capabilities list.  NICo will deny later updates
-	// if an InstanceType is associated with machines and a change
-	// in capabilities is attempted, so we'll sort here and
-	// in the update handler so that users can update metadata
-	// as long as capabilities are the same, and order matters.
-	slices.SortFunc(mcs, func(a, b cdbm.MachineCapability) int {
-		if a.Index < b.Index {
-			return -1
-		}
-
-		if a.Index > b.Index {
-			return 1
-		}
-
-		return 0
-	})
-
-	for i, machineCap := range mcs {
-
-		count, err := util.GetIntPtrToUint32Ptr(machineCap.Count)
-		if err != nil {
-			return nil, err
-		}
-
-		cores, err := util.GetIntPtrToUint32Ptr(machineCap.Cores)
-		if err != nil {
-			return nil, err
-		}
-
-		threads, err := util.GetIntPtrToUint32Ptr(machineCap.Threads)
-		if err != nil {
-			return nil, err
-		}
-
-		capType, found := CloudCapabilityTypeToProtobufType[machineCap.Type]
-
-		if !found {
-			return nil, errors.New("unsupported MachineCapabilityType requested")
-		}
-
-		var inactiveDevices *cwssaws.Uint32List
-
-		if machineCap.InactiveDevices != nil {
-			inactiveDevices = &cwssaws.Uint32List{}
-
-			for _, d := range machineCap.InactiveDevices {
-				u, err := util.GetIntPtrToUint32Ptr(&d)
-				if err != nil {
-					return nil, fmt.Errorf("unable to convert cloud machine capability to profobuf capability: %w", err)
-				}
-				inactiveDevices.Items = append(inactiveDevices.Items, *u)
-			}
-		}
-
-		var deviceType *cwssaws.MachineCapabilityDeviceType
-		if machineCap.DeviceType != nil {
-			deviceTypeValue, found := CloudCapabilityDeviceTypeToProtobufType[*machineCap.DeviceType]
-			if !found {
-				log.Warn().Str("DeviceType", *machineCap.DeviceType).Msg("unsupported MachineCapabilityDeviceType requested")
-				deviceType = nil
-			}
-			deviceType = &deviceTypeValue
-		}
-
-		capabilities[i] = &cwssaws.InstanceTypeMachineCapabilityFilterAttributes{
-			CapabilityType:   capType,
-			Name:             &machineCap.Name,
-			Frequency:        machineCap.Frequency,
-			Capacity:         machineCap.Capacity,
-			Vendor:           machineCap.Vendor,
-			Count:            count,
-			DeviceType:       deviceType,
-			HardwareRevision: machineCap.HardwareRevision,
-			InactiveDevices:  inactiveDevices,
-			Cores:            cores,
-			Threads:          threads,
-		}
-	}
-
-	return capabilities, nil
-}
-
-func MachineCapabilityFromProtobufMachineCapability(cap *cwssaws.InstanceTypeMachineCapabilityFilterAttributes, idx int) (*cdbm.MachineCapability, error) {
-
-	var capType string
-
-	capType, found := ProtobufCapabilityTypeToCloudType[cap.CapabilityType]
-
-	if !found {
-		return nil, errors.New("unsupported MachineCapabilityType requested")
-	}
-
-	if cap.Name == nil {
-		return nil, errors.New("unsupported empty capability name requested")
-	}
-
-	var inactiveDevices []int
-	if cap.InactiveDevices != nil {
-		for _, d := range cap.InactiveDevices.Items {
-			inactiveDevices = append(inactiveDevices, int(d))
-		}
-	}
-
-	var deviceType *string
-	if cap.DeviceType != nil {
-		deviceTypeValue, found := ProtobufCapabilityDeviceTypeToCloudType[*cap.DeviceType]
-		if !found {
-			log.Warn().Str("DeviceType", cap.GetDeviceType().String()).Msg("unsupported MachineCapabilityDeviceType requested")
-			deviceType = nil
-		}
-		deviceType = &deviceTypeValue
-	}
-
-	macCap := &cdbm.MachineCapability{
-		Type:             capType,
-		Name:             *cap.Name,
-		Frequency:        cap.Frequency,
-		Capacity:         cap.Capacity,
-		Vendor:           cap.Vendor,
-		Count:            util.GetUint32PtrToIntPtr(cap.Count),
-		HardwareRevision: cap.HardwareRevision,
-		Cores:            util.GetUint32PtrToIntPtr(cap.Cores),
-		Threads:          util.GetUint32PtrToIntPtr(cap.Threads),
-		InactiveDevices:  inactiveDevices,
-		DeviceType:       deviceType,
-		Index:            idx,
-	}
-
-	return macCap, nil
 }
 
 // NewManageInstanceType returns a new ManageInstanceType activity

@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package activity
 
@@ -36,7 +22,7 @@ import (
 
 // ManageTenant is activity to manage a Tenant on Site
 type ManageTenant struct {
-	NICoCoreAtomicClient *cClient.NICoCoreAtomicClient
+	coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 }
 
 // CreateTenantOnSite creates a Tenant by calling Site Controller gRPC API
@@ -58,16 +44,16 @@ func (mt *ManageTenant) CreateTenantOnSite(ctx context.Context, request *cwssaws
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mt.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cClient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mt.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.CreateTenant(ctx, request)
+	_, err = grpcServiceClient.CreateTenant(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to create Tenant using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to create Tenant using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -95,16 +81,16 @@ func (mt *ManageTenant) UpdateTenantOnSite(ctx context.Context, request *cwssaws
 		return temporal.NewNonRetryableApplicationError(err.Error(), swe.ErrTypeInvalidRequest, err)
 	}
 
-	// Call Site Controller gRPC endpoint
-	nicoClient := mt.NICoCoreAtomicClient.GetClient()
-	if nicoClient == nil {
-		return cClient.ErrClientNotConnected
+	// Call Core gRPC API endpoint
+	grpcClient := mt.coreGrpcAtomicClient.GetClient()
+	if grpcClient == nil {
+		return cClient.ErrCoreGrpcClientNotConnected
 	}
-	rpcClient := nicoClient.NICo()
+	grpcServiceClient := grpcClient.GrpcServiceClient()
 
-	_, err = rpcClient.UpdateTenant(ctx, request)
+	_, err = grpcServiceClient.UpdateTenant(ctx, request)
 	if err != nil {
-		logger.Warn().Err(err).Msg("Failed to update Tenant using Site Controller API")
+		logger.Warn().Err(err).Msg("Failed to update Tenant using Core gRPC API")
 		return swe.WrapErr(err)
 	}
 
@@ -114,9 +100,9 @@ func (mt *ManageTenant) UpdateTenantOnSite(ctx context.Context, request *cwssaws
 }
 
 // NewManageTenant returns a new ManageTenant activity
-func NewManageTenant(nicoClient *cClient.NICoCoreAtomicClient) ManageTenant {
+func NewManageTenant(coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient) ManageTenant {
 	return ManageTenant{
-		NICoCoreAtomicClient: nicoClient,
+		coreGrpcAtomicClient: coreGrpcAtomicClient,
 	}
 }
 
@@ -146,16 +132,18 @@ func NewManageTenantInventory(config ManageInventoryConfig) ManageTenantInventor
 	}
 }
 
-func tenantFindIDs(ctx context.Context, nicoClient *cClient.NICoCoreClient) ([]string, error) {
-	idList, err := nicoClient.NICo().FindTenantOrganizationIds(ctx, &cwssaws.TenantSearchFilter{})
+func tenantFindIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient) ([]string, error) {
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+	idList, err := grpcServiceClient.FindTenantOrganizationIds(ctx, &cwssaws.TenantSearchFilter{})
 	if err != nil {
 		return nil, err
 	}
 	return idList.GetTenantOrganizationIds(), nil
 }
 
-func tenantFindByIDs(ctx context.Context, nicoClient *cClient.NICoCoreClient, ids []string) ([]*cwssaws.Tenant, error) {
-	list, err := nicoClient.NICo().FindTenantsByOrganizationIds(ctx, &cwssaws.TenantByOrganizationIdsRequest{
+func tenantFindByIDs(ctx context.Context, grpcClient *cClient.CoreGrpcClient, ids []string) ([]*cwssaws.Tenant, error) {
+	grpcServiceClient := grpcClient.GrpcServiceClient()
+	list, err := grpcServiceClient.FindTenantsByOrganizationIds(ctx, &cwssaws.TenantByOrganizationIdsRequest{
 		OrganizationIds: ids,
 	})
 	if err != nil {

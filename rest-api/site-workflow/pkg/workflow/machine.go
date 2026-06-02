@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package workflow
 
@@ -98,6 +84,60 @@ func UpdateMachineMetadata(ctx workflow.Context, request *cwssaws.MachineMetadat
 
 	logger.Info().Msg("Completing workflow")
 
+	return nil
+}
+
+// CreateMachineHealthReportOverride inserts the tenant-reported OnlineRepair health override on Site.
+func CreateMachineHealthReportOverride(ctx workflow.Context, request *cwssaws.InsertHealthReportOverrideRequest) error {
+	logger := log.With().Str("Workflow", "CreateMachineHealthReportOverride").Logger()
+	logger.Info().Msg("Starting workflow")
+
+	retrypolicy := &temporal.RetryPolicy{
+		InitialInterval:    1 * time.Second,
+		BackoffCoefficient: 2.0,
+		MaximumInterval:    10 * time.Second,
+		MaximumAttempts:    2,
+	}
+	options := workflow.ActivityOptions{
+		StartToCloseTimeout: 2 * time.Minute,
+		RetryPolicy:         retrypolicy,
+	}
+	ctx = workflow.WithActivityOptions(ctx, options)
+
+	var machineManager activity.ManageMachine
+	if err := workflow.ExecuteActivity(ctx, machineManager.CreateMachineHealthReportOverrideOnSite, request).Get(ctx, nil); err != nil {
+		logger.Error().Err(err).Str("Activity", "CreateMachineHealthReportOverrideOnSite").Msg("Failed to execute activity from workflow")
+		return err
+	}
+
+	logger.Info().Msg("Completing workflow")
+	return nil
+}
+
+// DeleteMachineHealthReportOverride removes the tenant-reported OnlineRepair health override on Site.
+func DeleteMachineHealthReportOverride(ctx workflow.Context, request *cwssaws.RemoveHealthReportOverrideRequest) error {
+	logger := log.With().Str("Workflow", "DeleteMachineHealthReportOverride").Logger()
+	logger.Info().Msg("Starting workflow")
+
+	retrypolicy := &temporal.RetryPolicy{
+		InitialInterval:    1 * time.Second,
+		BackoffCoefficient: 2.0,
+		MaximumInterval:    10 * time.Second,
+		MaximumAttempts:    2,
+	}
+	options := workflow.ActivityOptions{
+		StartToCloseTimeout: 2 * time.Minute,
+		RetryPolicy:         retrypolicy,
+	}
+	ctx = workflow.WithActivityOptions(ctx, options)
+
+	var machineManager activity.ManageMachine
+	if err := workflow.ExecuteActivity(ctx, machineManager.DeleteMachineHealthReportOverrideOnSite, request).Get(ctx, nil); err != nil {
+		logger.Error().Err(err).Str("Activity", "DeleteMachineHealthReportOverrideOnSite").Msg("Failed to execute activity from workflow")
+		return err
+	}
+
+	logger.Info().Msg("Completing workflow")
 	return nil
 }
 

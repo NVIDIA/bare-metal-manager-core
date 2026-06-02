@@ -5223,6 +5223,20 @@ impl StateHandler for HostMachineStateHandler {
                                 };
                                 Ok(StateHandlerOutcome::transition(next_state))
                             } else {
+                                // The DPU can only come up while the host is
+                                // powered on.
+                                if is_host_powered_off(mh_snapshot, ctx).await? {
+                                    tracing::error!(
+                                        machine_id = %mh_snapshot.host_snapshot.id,
+                                        "Host is powered off while waiting for DPU to report UP."
+                                    );
+
+                                    // TODO: power the host back on as a workaround. Lets wait and see if we can root cause why a host was powere off here.
+                                    return Err(StateHandlerError::GenericError(eyre!(
+                                        "Host {} is powered off while waiting for DPU to report UP",
+                                        mh_snapshot.host_snapshot.id
+                                    )));
+                                }
                                 Ok(StateHandlerOutcome::wait("Waiting for DPU to report UP. This requires forge-dpu-agent to call the RecordDpuNetworkStatus API".to_string()))
                             }
                         }
@@ -8758,6 +8772,19 @@ pub async fn host_power_state(
         .get_power_state()
         .await
         .map_err(|e| redfish_error("get_power_state", e))
+}
+
+/// Returns true if the host's current Redfish power state is `Off`.
+async fn is_host_powered_off(
+    mh_snapshot: &ManagedHostStateSnapshot,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
+) -> Result<bool, StateHandlerError> {
+    let redfish_client = ctx
+        .services
+        .create_redfish_client_from_machine(&mh_snapshot.host_snapshot)
+        .await?;
+    let power_state = host_power_state(redfish_client.as_ref()).await?;
+    Ok(power_state == libredfish::PowerState::Off)
 }
 
 fn requires_manual_firmware_upgrade(

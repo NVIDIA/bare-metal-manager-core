@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -48,12 +34,16 @@ const (
 	// VpcOrderByDefault default field to be used for ordering when none specified
 	VpcOrderByDefault = "created"
 
-	// VpcEthernetVirtualizer is basic nico native netorking
+	// Network virtualization type values. Each value is the literal
+	// string stored in the `network_virtualization_type` column and
+	// returned as the REST API enum value. See `vpcTypeCapabilities`
+	// (below) for the per-type capability matrix.
 	VpcEthernetVirtualizer         = "ETHERNET_VIRTUALIZER"
 	VpcEthernetVirtualizerWithNVUE = "ETHERNET_VIRTUALIZER_WITH_NVUE"
 	VpcFNNClassic                  = "FNN_CLASSIC"
 	VpcFNNL3                       = "FNN_L3"
 	VpcFNN                         = "FNN"
+	VpcFlat                        = "FLAT"
 )
 
 var (
@@ -80,8 +70,55 @@ var (
 	VpcNetworkVirtualzationTypeMap = map[string]bool{
 		VpcEthernetVirtualizer: true,
 		VpcFNN:                 true,
+		VpcFlat:                true,
+	}
+
+	// vpcTypeCapabilities encodes the REST-tier capability matrix for
+	// VPC network-virtualization types. It mirrors the richer capability
+	// matrix in Core (see `carbide_api_model::vpc::capability`) but only
+	// carries the bits this layer actually gates on. Unknown or
+	// deprecated values (e.g. legacy FNN_CLASSIC, FNN_L3 rows) resolve
+	// to the zero value, which is the safe "supports nothing
+	// REST-specific" default. Callers should use the helper functions
+	// below rather than this map directly.
+	vpcTypeCapabilities = map[string]struct {
+		// supportsRoutingProfile is true for VPC types that accept a
+		// `routingProfile` field on create. FNN-only today.
+		supportsRoutingProfile bool
+
+		// supportsAutoInterface is true for VPC types that allow
+		// Instances to opt in to NICo-resolved interface configuration
+		// via `auto: true`. Flat-only today.
+		supportsAutoInterface bool
+	}{
+		VpcEthernetVirtualizer:         {},
+		VpcEthernetVirtualizerWithNVUE: {},
+		VpcFNN:                         {supportsRoutingProfile: true},
+		VpcFlat:                        {supportsAutoInterface: true},
 	}
 )
+
+// VpcTypeSupportsRoutingProfile reports whether VPCs of the given
+// network-virtualization type accept a `routingProfile` on create.
+// A nil pointer (no type specified) returns false; the caller is
+// expected to have resolved any defaulting beforehand.
+func VpcTypeSupportsRoutingProfile(virtType *string) bool {
+	if virtType == nil {
+		return false
+	}
+	return vpcTypeCapabilities[*virtType].supportsRoutingProfile
+}
+
+// VpcTypeSupportsAutoInterface reports whether Instances in VPCs of
+// the given network-virtualization type may set `auto: true` on
+// create or update. A nil pointer (no type recorded on the VPC)
+// returns false -- the safe default for legacy or unresolvable rows.
+func VpcTypeSupportsAutoInterface(virtType *string) bool {
+	if virtType == nil {
+		return false
+	}
+	return vpcTypeCapabilities[*virtType].supportsAutoInterface
+}
 
 // Vpc represents entries in the vpc table
 type Vpc struct {
@@ -106,7 +143,7 @@ type Vpc struct {
 	NetworkSecurityGroupID                 *string                                 `bun:"network_security_group_id"`
 	NetworkSecurityGroup                   *NetworkSecurityGroup                   `bun:"rel:belongs-to,join:network_security_group_id=id"`
 	NetworkSecurityGroupPropagationDetails *NetworkSecurityGroupPropagationDetails `bun:"network_security_group_propagation_details,type:jsonb"`
-	Labels                                 map[string]string                       `bun:"labels,type:jsonb"`
+	Labels                                 Labels                                  `bun:"labels,type:jsonb"`
 	Status                                 string                                  `bun:"status,notnull"`
 	IsMissingOnSite                        bool                                    `bun:"is_missing_on_site,notnull"`
 	Created                                time.Time                               `bun:"created,nullzero,notnull,default:current_timestamp"`
@@ -171,8 +208,11 @@ func (vpc *Vpc) ToProto() *cwssaws.Vpc {
 	}
 	if vpc.NetworkVirtualizationType != nil {
 		nwvt := cwssaws.VpcVirtualizationType_ETHERNET_VIRTUALIZER
-		if *vpc.NetworkVirtualizationType == cwssaws.VpcVirtualizationType_FNN.String() {
+		switch *vpc.NetworkVirtualizationType {
+		case cwssaws.VpcVirtualizationType_FNN.String():
 			nwvt = cwssaws.VpcVirtualizationType_FNN
+		case cwssaws.VpcVirtualizationType_FLAT.String():
+			nwvt = cwssaws.VpcVirtualizationType_FLAT
 		}
 		proto.NetworkVirtualizationType = &nwvt
 	}
@@ -227,7 +267,7 @@ func (vpc *Vpc) FromProto(proto *cwssaws.Vpc) {
 			desc := proto.Metadata.Description
 			vpc.Description = &desc
 		}
-		vpc.Labels = LabelsFromProtoMetadata(proto.Metadata)
+		vpc.Labels.FromProto(proto.Metadata.GetLabels())
 	} else {
 		vpc.Description = nil
 		vpc.Labels = nil

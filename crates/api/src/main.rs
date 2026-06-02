@@ -58,12 +58,26 @@ async fn main() -> eyre::Result<()> {
             // Nothing should go before the call to carbide::run that isn't already here.
             // Everything that you think might belong here, belongs in carbide::run.
             let (ready_tx, _ready_rx) = tokio::sync::oneshot::channel();
+            // The server has two separate route trees on one listener: the gRPC API
+            // (always served, lives in `carbide-api-core`) and the admin web UI — the
+            // HTML pages under `/admin`, which live in `carbide-api-web`. Handing the
+            // web pages in here is the one thing only this crate can do: `carbide-api-web`
+            // and `carbide-api-core` can't reference each other without a dependency
+            // cycle, and this top-level binary is the only crate that depends on both.
+            //
+            // We always supply the builder; whether it's actually mounted is decided
+            // downstream from the `enable_admin_ui` config flag (default true) — see
+            // `start_api`. (We can't read config here: it's parsed inside `carbide::run`.)
+            // See the docs on `carbide::AdminUiRoutesBuilder` for the full story.
+            let admin_ui_routes_builder: Option<carbide::AdminUiRoutesBuilder> =
+                Some(Box::new(carbide_api_web::routes));
             carbide::run(
                 debug,
                 run.config_path,
                 run.site_config_path,
                 CredentialConfig::default(),
                 false,
+                admin_ui_routes_builder,
                 CancellationToken::new(),
                 ready_tx,
             )

@@ -148,13 +148,53 @@ These flags apply to every command and override the corresponding config values.
 | `--config` | `NICO_CONFIG` | Path to the config file (defaults to `~/.nico/config.yaml`) |
 | `--base-url` | `NICO_BASE_URL` | API base URL |
 | `--org` | `NICO_ORG` | Organization name |
+| `--api-name` | `NICO_API_NAME` | API path segment used in `/v2/org/<org>/<name>/...` routes (default: `nico`) |
 | `--token` | `NICO_TOKEN` | Bearer token (skips login) |
 | `--token-command`, `--auth-script` | `NICO_TOKEN_COMMAND`, `NICO_AUTH_SCRIPT` | Shell command/script that prints a bearer token on stdout |
 | `--token-url` | `NICO_TOKEN_URL` | OIDC token endpoint URL for login and refresh |
 | `--keycloak-url` | `NICO_KEYCLOAK_URL` | Keycloak base URL (constructs `--token-url` if not set) |
 | `--keycloak-realm` | `NICO_KEYCLOAK_REALM` | Keycloak realm (default: `nico-dev`) |
 | `--client-id` | `NICO_CLIENT_ID` | OAuth client ID (default: `nico-api`) |
-| `--debug` | | Log the full HTTP request and response for the call |
+| `--debug` | | Log the full HTTP request and response, plus every `NICO_*` environment variable in use |
+
+### Configuring with environment variables
+
+Every field in `~/.nico/config.yaml` can also be set via a `NICO_*` environment variable. When both a config value and an env var are present, the env var wins; an explicit command-line flag still beats both. Set any of these in your shell instead of editing the config file:
+
+| Env Var | Config field | Notes |
+|---------|--------------|-------|
+| `NICO_BASE_URL` | `api.base` | |
+| `NICO_ORG` | `api.org` | |
+| `NICO_API_NAME` | `api.name` | API path segment, defaults to `nico` |
+| `NICO_TOKEN` | `auth.token` | Direct bearer token |
+| `NICO_TOKEN_COMMAND` | `auth.token_command` | Shell command that prints a bearer token |
+| `NICO_AUTH_SCRIPT` | `auth.token_command` | Alias of `NICO_TOKEN_COMMAND` (canonical name wins when both set) |
+| `NICO_TOKEN_URL` | `auth.oidc.token_url` | |
+| `NICO_CLIENT_ID` | `auth.oidc.client_id` | |
+| `NICO_CLIENT_SECRET` | `auth.oidc.client_secret` | |
+| `NICO_OIDC_USERNAME` | `auth.oidc.username` | |
+| `NICO_OIDC_PASSWORD` | `auth.oidc.password` | |
+| `NICO_OIDC_TOKEN` | `auth.oidc.token` | Persisted bearer token (also honored by direct `NICO_TOKEN`) |
+| `NICO_OIDC_REFRESH_TOKEN` | `auth.oidc.refresh_token` | |
+| `NICO_OIDC_EXPIRES_AT` | `auth.oidc.expires_at` | RFC3339 timestamp |
+| `NICO_API_KEY` | `auth.api_key.key` | NGC API key |
+| `NICO_AUTHN_URL` | `auth.api_key.authn_url` | Required for legacy NGC keys; ignored for `nvapi-` bearer keys |
+| `NICO_API_KEY_TOKEN` | `auth.api_key.token` | Persisted token after NGC exchange |
+
+`NICO_KEYCLOAK_URL` and `NICO_KEYCLOAK_REALM` do not map to a single config field; they feed the login command and construct the OIDC `token_url` at login time.
+
+To see exactly which `NICO_*` variables are in use right now, pass `--debug` on any command:
+
+```bash
+nicocli --debug site list
+# stderr starts with:
+# [debug] env: 3 NICO_* variable(s) in use
+# [debug] env: NICO_BASE_URL = https://api.example.com  -> api.base
+# [debug] env: NICO_ORG      = my-org                   -> api.org
+# [debug] env: NICO_TOKEN    = eyJh...                  -> auth.token (sensitive)
+```
+
+In interactive mode, type `env` to see the same listing (`env --mask` redacts tokens, secrets, and passwords).
 
 ### Per-command flags
 
@@ -197,8 +237,8 @@ Tokens are saved to the active config file (`~/.nico/config.yaml` by default, or
 
 | Flag | Env Var | Description |
 |------|---------|-------------|
-| `--username` | | Username for OIDC password grant |
-| `--password` | | Password for OIDC password grant (prompted if not provided) |
+| `--username` | `NICO_OIDC_USERNAME` | Username for OIDC password grant |
+| `--password` | `NICO_OIDC_PASSWORD` | Password for OIDC password grant (prompted if not provided) |
 | `--client-secret` | `NICO_CLIENT_SECRET` | Client secret for confidential OIDC clients (also enables the client-credentials grant when no username is set) |
 | `--api-key` | `NICO_API_KEY` | NGC API key to exchange for a bearer token |
 | `--authn-url` | `NICO_AUTHN_URL` | NGC authentication URL for the API-key exchange |

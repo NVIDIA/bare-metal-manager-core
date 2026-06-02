@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 // Package conflict provides data-driven task conflict detection for Flow.
 //
@@ -51,7 +37,7 @@ import (
 // ComponentType assignment rationale:
 //   - PowerShelf power ops have RequireComponentOverlap=false (rack-level):
 //     cutting power to a shelf affects all components regardless of UUIDs.
-//   - Compute / NVLSwitch power and firmware ops use
+//   - Compute / NVSwitch power and firmware ops use
 //     RequireComponentOverlap=true: isolated to their targeted components.
 //   - BringUp has RequireComponentOverlap=false (rack-level): comprehensive.
 //   - ComponentTypeUnknown (zero value) acts as a wildcard — matches any
@@ -96,15 +82,15 @@ var builtinRule = &Rule{ //nolint
 			},
 			RequireComponentOverlap: true,
 		},
-		// NVLSwitch power ops block each other on overlapping components.
+		// NVSwitch power ops block each other on overlapping components.
 		{
 			A: OperationSpec{
 				OperationType: string(taskcommon.TaskTypePowerControl),
-				ComponentType: devicetypes.ComponentTypeNVLSwitch,
+				ComponentType: devicetypes.ComponentTypeNVSwitch,
 			},
 			B: OperationSpec{
 				OperationType: string(taskcommon.TaskTypePowerControl),
-				ComponentType: devicetypes.ComponentTypeNVLSwitch,
+				ComponentType: devicetypes.ComponentTypeNVSwitch,
 			},
 			RequireComponentOverlap: true,
 		},
@@ -122,17 +108,17 @@ var builtinRule = &Rule{ //nolint
 			},
 			RequireComponentOverlap: true,
 		},
-		// NVLSwitch power ops block firmware upgrades on overlapping
-		// NVLSwitch components.
+		// NVSwitch power ops block firmware upgrades on overlapping
+		// NVSwitch components.
 		{
 			A: OperationSpec{
 				OperationType: string(taskcommon.TaskTypePowerControl),
-				ComponentType: devicetypes.ComponentTypeNVLSwitch,
+				ComponentType: devicetypes.ComponentTypeNVSwitch,
 			},
 			B: OperationSpec{
 				OperationType: string(
 					taskcommon.TaskTypeFirmwareControl),
-				ComponentType: devicetypes.ComponentTypeNVLSwitch,
+				ComponentType: devicetypes.ComponentTypeNVSwitch,
 			},
 			RequireComponentOverlap: true,
 		},

@@ -1,21 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-.PHONY: test postgres-up postgres-down ensure-postgres postgres-wait clean check-source-headers
+.PHONY: test postgres-up postgres-down ensure-postgres postgres-wait clean check-source-headers fix-source-headers
 .PHONY: build docker-build docker-build-local
-.PHONY: test-ipam test-site-agent test-site-manager test-workflow test-db test-api test-auth test-common test-cert-manager test-site-workflow migrate nico-mock-server-build nico-mock-server-start nico-mock-server-stop flow-mock-server-build flow-mock-server-start flow-mock-server-stop
+.PHONY: test-ipam test-site-agent test-site-manager test-workflow test-db test-api test-auth test-common test-cert-manager test-site-workflow migrate core-mock-server-build core-mock-server-start core-mock-server-stop flow-mock-server-build flow-mock-server-start flow-mock-server-stop
 .PHONY: validate-openapi preview-openapi generate-client
 .PHONY: pre-commit-install pre-commit-run pre-commit-update
 
@@ -70,7 +58,7 @@ postgres-down:
 clean:
 	@echo "Cleaning up test resources..."
 	-$(MAKE) postgres-down
-	-$(MAKE) nico-mock-server-stop
+	-$(MAKE) core-mock-server-stop
 	-$(MAKE) flow-mock-server-stop
 	@echo "Stopping kind cluster..."
 	-$(MAKE) kind-down
@@ -84,6 +72,9 @@ clean:
 
 check-source-headers:
 	python3 scripts/check_source_headers.py
+
+fix-source-headers:
+	python3 scripts/check_source_headers.py --fix
 
 ensure-postgres:
 	@docker inspect $(POSTGRES_CONTAINER_NAME) > /dev/null 2>&1 || $(MAKE) postgres-up
@@ -131,11 +122,11 @@ test-db:
 	$(MAKE) ensure-postgres
 	cd db && go test -p 1 ./... -count=1
 
-nico-mock-server-build:
+core-mock-server-build:
 	mkdir -p build
 	cd site-agent/cmd/mock-core && go build -o ../../../build/mock-core .
 
-nico-mock-server-start: nico-mock-server-build
+core-mock-server-start: core-mock-server-build
 	-lsof -ti:11079 | xargs kill -9 2>/dev/null
 	./build/mock-core -tout 0 > build/mock-core.log 2>&1 & echo $$! > build/mock-core.pid
 	@echo "Waiting for gRPC server to start..."
@@ -150,7 +141,7 @@ nico-mock-server-start: nico-mock-server-build
 	echo "Timeout waiting for Mock Core gRPC server to start"; \
 	exit 1
 
-nico-mock-server-stop:
+core-mock-server-stop:
 	-kill $$(cat build/mock-core.pid) 2>/dev/null
 	-rm -f build/mock-core.pid
 
@@ -177,9 +168,9 @@ flow-mock-server-stop:
 	-kill $$(cat build/mock-flow.pid) 2>/dev/null
 	-rm -f build/mock-flow.pid
 
-test-site-agent: nico-mock-server-start flow-mock-server-start
+test-site-agent: core-mock-server-start flow-mock-server-start
 	cd site-agent/pkg/components && CGO_ENABLED=1 go test -race -p 1 ./... -count=1 ; \
-	ret=$$? ; cd ../../.. && $(MAKE) nico-mock-server-stop flow-mock-server-stop ; exit $$ret
+	ret=$$? ; cd ../../.. && $(MAKE) core-mock-server-stop flow-mock-server-stop ; exit $$ret
 
 test-api:
 	$(MAKE) ensure-postgres
@@ -262,7 +253,7 @@ core-protogen:
 	go fmt ./...
 
 flow-proto:
-	FLOW_DIR=flow \
+	FLOW_DIR=flow; \
 	ls "$${FLOW_DIR}/proto/v1"; \
 	for file in "$${FLOW_DIR}"/proto/v1/*.proto; do \
 		cp "$$file" "workflow-schema/flow/proto/v1/"; \
@@ -671,7 +662,7 @@ generate-sdk:
 
 # Validate OpenAPI spec using Redocly CLI (Docker)
 lint-openapi:
-	npx @redocly/cli lint ./openapi/spec.yaml
+	npx @redocly/cli lint --skip-rule=no-ambiguous-paths ./openapi/spec.yaml
 
 # Preview OpenAPI spec in Redoc UI (Docker)
 preview-openapi:

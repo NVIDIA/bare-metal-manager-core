@@ -1,17 +1,5 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 
 syntax = "proto3";
 
@@ -319,7 +307,7 @@ message ProfileTargetConstraints {
 
 
 // PublishMlxDeviceReportRequest is sent by scout or the agent
-// into nico-core-api so that we can both observe the current
+// into carbide-api so that we can both observe the current
 // state of the Mellanox devices (DPAs and DPUs), and potentially
 // decide to take action on them (instruct scout to update
 // firmware, configuration, etc).
@@ -327,7 +315,7 @@ message PublishMlxDeviceReportRequest {
   MlxDeviceReport report = 1;
 }
 
-// PublishMlxDeviceReportResponse is returned by nico-core-api
+// PublishMlxDeviceReportResponse is returned by carbide-api
 // in response to a PublishMlxDeviceReportRequest. It currently
 // is actually just a placeholder response, but there's a good
 // chance it will soon contain actions to take based on the
@@ -341,7 +329,7 @@ message PublishMlxDeviceReportResponse {
 // This is used for sending down a profile configuration from
 // the API to scout (or the agent) for applying mlxconfig
 // based configuration to a device. The profile itself can
-// be defined as TOML in the nico-core-api config, or it
+// be defined as TOML in the carbide-api config, or it
 // can be stored in the database. The profiles themselves
 // are ultimately deserialized to MlxConfigProfile instances
 // within their respective components, but we then convert
@@ -532,7 +520,7 @@ message MlxObservation {
 }
 
 // PublishMlxObservationReportRequest is sent by scout or the agent
-// into nico-core-api so that we can both observe the current
+// into carbide-api so that we can both observe the current
 // state of the Mellanox devices (DPAs and DPUs), and potentially
 // decide to take action on them (instruct scout to update
 // firmware, configuration, etc).
@@ -540,7 +528,7 @@ message PublishMlxObservationReportRequest {
   MlxObservationReport report = 1;
 }
 
-// PublishMlxObservationReportResponse is returned by nico-core-api
+// PublishMlxObservationReportResponse is returned by carbide-api
 // in response to a PublishMlxDeviceReportRequest. It currently
 // is actually just a placeholder response, but there's a good
 // chance it will soon contain actions to take based on the
@@ -549,7 +537,7 @@ message PublishMlxObservationReportResponse {
 }
 
 // MlxAdminProfileSyncRequest is sent by an administrative
-// caller to sync a given profile (as loaded into nico-core-api)
+// caller to sync a given profile (as loaded into carbide-api)
 // to the target machine and device, via an active ScoutStream
 // connection.
 message MlxAdminProfileSyncRequest {
@@ -559,7 +547,7 @@ message MlxAdminProfileSyncRequest {
   // the target device to work with on the target machine.
   string device_id = 2;
   // profile_name is the name of the profile, which is loaded
-  // into nico-core-api, to sync to the target machine device.
+  // into carbide-api, to sync to the target machine device.
   string profile_name = 3;
 }
 
@@ -568,7 +556,7 @@ message MlxAdminProfileSyncResponse {
   SyncResult sync_result = 1;
 }
 
-// MlxDeviceProfileSyncRequest is sent by nico-core-api internally to
+// MlxDeviceProfileSyncRequest is sent by carbide-api internally to
 // the agent to sync a profile to the device.
 message MlxDeviceProfileSyncRequest {
   // device_id is the target device path, which can be either
@@ -586,7 +574,7 @@ message MlxDeviceProfileSyncRequest {
 }
 
 // MlxDeviceProfileSyncResponse is sent by the scout agent back to
-// nico-core-api in response to processing an MlxDeviceProfileSyncRequest.
+// carbide-api in response to processing an MlxDeviceProfileSyncRequest.
 message MlxDeviceProfileSyncResponse {
   oneof reply {
     SyncResult sync_result = 1;
@@ -622,13 +610,13 @@ message MlxDeviceProfileCompareResponse {
 }
 
 // MlxAdminLockdownLockRequest is the administrative message sent to
-// nico-core-api requesting a machine lock down a given device.
+// carbide-api requesting a machine lock down a given device.
 message MlxAdminLockdownLockRequest {
   common.MachineId machine_id = 1;
   string device_id = 2;
 }
 
-// MlxAdminLockdownLockResponse is the response from nico-core-api back
+// MlxAdminLockdownLockResponse is the response from carbide-api back
 // to an administrative caller about the result of an internal attempt
 // to lock down a device on a given machine.
 message MlxAdminLockdownLockResponse {
@@ -636,13 +624,13 @@ message MlxAdminLockdownLockResponse {
 }
 
 // MlxAdminLockdownUnlockRequest is the administrative message sent to
-// nico-core-api requesting a machine unlock a given device.
+// carbide-api requesting a machine unlock a given device.
 message MlxAdminLockdownUnlockRequest {
   common.MachineId machine_id = 1;
   string device_id = 2;
 }
 
-// MlxAdminLockdownUnlockResponse is the response from nico-core-api back
+// MlxAdminLockdownUnlockResponse is the response from carbide-api back
 // to an administrative caller about the result of an internal attempt
 // to unlock a device on a given machine.
 message MlxAdminLockdownUnlockResponse {
@@ -650,20 +638,20 @@ message MlxAdminLockdownUnlockResponse {
 }
 
 // MlxAdminLockdownStatusRequest is the administrative message sent to
-// nico-core-api requesting a machine lock status for a given device.
+// carbide-api requesting a machine lock status for a given device.
 message MlxAdminLockdownStatusRequest {
   common.MachineId machine_id = 1;
   string device_id = 2;
 }
 
-// MlxAdminLockdownStatusResponse is the response from nico-core-api back
+// MlxAdminLockdownStatusResponse is the response from carbide-api back
 // to an administrative caller about the result of an internal attempt
 // to get the lock status of a device on a given machine.
 message MlxAdminLockdownStatusResponse {
   StatusReport status_report = 1;
 }
 
-// MlxDeviceLockdownLockRequest is sent internally by nico-core-api to
+// MlxDeviceLockdownLockRequest is sent internally by carbide-api to
 // the scout agent to lock a device on the target machine.
 message MlxDeviceLockdownLockRequest {
   // device_id is the target device path, which can be either
@@ -674,7 +662,7 @@ message MlxDeviceLockdownLockRequest {
   string key = 2;
 }
 
-// MlxDeviceLockdownUnlockRequest is sent internally by nico-core-api to
+// MlxDeviceLockdownUnlockRequest is sent internally by carbide-api to
 // the scout agent to unlock a device on the target machine.
 message MlxDeviceLockdownUnlockRequest {
   // device_id is the target device path, which can be either
@@ -685,7 +673,7 @@ message MlxDeviceLockdownUnlockRequest {
   string key = 2;
 }
 
-// MlxDeviceLockdownStatusRequest is sent internally by nico-core-api to
+// MlxDeviceLockdownStatusRequest is sent internally by carbide-api to
 // the scout agent to get the lock status of a device on the target machine.
 message MlxDeviceLockdownStatusRequest {
   // device_id is the target device path, which can be either
@@ -694,7 +682,7 @@ message MlxDeviceLockdownStatusRequest {
   string device_id = 1;
 }
 
-// MlxDeviceLockdownResponse is sent by the scout agent back to nico-core-api
+// MlxDeviceLockdownResponse is sent by the scout agent back to carbide-api
 // in response to any lockdown requests. It's generic enough that it seemso
 // to work for now.
 message MlxDeviceLockdownResponse {
@@ -704,7 +692,7 @@ message MlxDeviceLockdownResponse {
   }
 }
 
-// MlxDeviceInfoDeviceRequest is an internal message sent from nico-core-api
+// MlxDeviceInfoDeviceRequest is an internal message sent from carbide-api
 // to the scout agent to get an MlxDeviceInfo update for the given device.
 message MlxDeviceInfoDeviceRequest {
   // device_id is the target device path, which can be either
@@ -714,7 +702,7 @@ message MlxDeviceInfoDeviceRequest {
 }
 
 // MlxDeviceInfoDeviceResponse is a reply sent from scout back to
-// nico-core-api with the MlxDeviceInfo data for the device.
+// carbide-api with the MlxDeviceInfo data for the device.
 message MlxDeviceInfoDeviceResponse {
   oneof reply {
     MlxDeviceInfo device_info = 1;
@@ -722,7 +710,7 @@ message MlxDeviceInfoDeviceResponse {
   }
 }
 
-// MlxDeviceInfoReportRequest is an internal message sent from nico-core-api
+// MlxDeviceInfoReportRequest is an internal message sent from carbide-api
 // to the scout agent to get an MlxDeviceReport update containing all devices
 // for the given machine.
 message MlxDeviceInfoReportRequest {
@@ -730,7 +718,7 @@ message MlxDeviceInfoReportRequest {
 }
 
 // MlxDeviceInfoReportResponse is a reply sent from scout back to
-// nico-core-api with the MlxDeviceReport of all devices on the machine.
+// carbide-api with the MlxDeviceReport of all devices on the machine.
 message MlxDeviceInfoReportResponse {
   oneof reply {
     MlxDeviceReport device_report = 1;
@@ -748,12 +736,12 @@ message MlxAdminRegistryListResponse {
   RegistryListing registry_listing = 1;
 }
 
-// MlxDeviceRegistryListRequest is sent internally from nico-core-api to
+// MlxDeviceRegistryListRequest is sent internally from carbide-api to
 // the scout agent to request its MlxVariableRegistry information.
 message MlxDeviceRegistryListRequest {
 }
 
-// MlxDeviceRegistryListResponse is sent by scout back to nico-core-api
+// MlxDeviceRegistryListResponse is sent by scout back to carbide-api
 // with the names of the MlxVariableRegistry entries it knows about.
 message MlxDeviceRegistryListResponse {
   oneof reply {
@@ -777,13 +765,13 @@ message MlxAdminRegistryShowResponse {
   MlxVariableRegistry variable_registry = 1;
 }
 
-// MlxDeviceRegistryShowRequest is sent by nico-core-api to scout to
+// MlxDeviceRegistryShowRequest is sent by carbide-api to scout to
 // get the complete MlxVariableRegistry as known by scout on the host.
 message MlxDeviceRegistryShowRequest {
   string registry_name = 1;
 }
 
-// MlxDeviceRegistryShowResponse is sent by the agent back to nico-core-api
+// MlxDeviceRegistryShowResponse is sent by the agent back to carbide-api
 // with the serialized registry data.
 message MlxDeviceRegistryShowResponse {
   oneof reply {
@@ -907,9 +895,9 @@ message MlxDeviceConfigCompareResponse {
 }
 
 // MlxAdminProfileShowRequest is sent by the CLI to show a specific profile
-// loaded into nico-core-api. Note that this is only between the CLI and API,
+// loaded into carbide-api. Note that this is only between the CLI and API,
 // there's no ScoutStream integration with this, since the profile is something
-// that is specifically configured within nico-core-api.
+// that is specifically configured within carbide-api.
 message MlxAdminProfileShowRequest {
   string profile_name = 1;
 }
@@ -917,7 +905,7 @@ message MlxAdminProfileShowRequest {
 // MlxAdminProfileShowResponse is the response with profile details.
 // Note that this is only between the CLI and API,
 // there's no ScoutStream integration with this, since the profile is something
-// that is specifically configured within nico-core-api.
+// that is specifically configured within carbide-api.
 message MlxAdminProfileShowResponse {
   SerializableMlxConfigProfile serializable_profile = 1;
 }

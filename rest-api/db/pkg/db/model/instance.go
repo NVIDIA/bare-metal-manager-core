@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -42,7 +28,7 @@ const (
 	InstanceStatusReady = "Ready"
 	// InstanceStatusUpdating indicates that the Instance is receiving system updates
 	InstanceStatusUpdating = "Updating"
-	// InstanceStatusRepairing indicates that the Instance is undergoing online repair on the site
+	// InstanceStatusRepairing indicates the Instance is under in-pool online repair
 	InstanceStatusRepairing = "Repairing"
 	// InstanceStatusError indicates that the Instance provisioning has failed
 	InstanceStatusError = "Error"
@@ -176,6 +162,7 @@ type Instance struct {
 	AlwaysBootWithCustomIpxe               bool                                    `bun:"always_boot_with_custom_ipxe,notnull"`
 	PhoneHomeEnabled                       bool                                    `bun:"phone_home_enabled,notnull"`
 	UserData                               *string                                 `bun:"user_data"`
+	AutoNetwork                            bool                                    `bun:"auto_network,notnull"`
 	Labels                                 map[string]string                       `bun:"labels,type:jsonb"`
 	IsUpdatePending                        bool                                    `bun:"is_update_pending,notnull"`
 	InfinityRCRStatus                      *string                                 `bun:"infinity_rcr_status"`
@@ -210,6 +197,7 @@ type InstanceCreateInput struct {
 	AlwaysBootWithCustomIpxe               bool
 	PhoneHomeEnabled                       bool
 	UserData                               *string
+	AutoNetwork                            bool
 	Labels                                 map[string]string
 	IsUpdatePending                        bool
 	InfinityRCRStatus                      *string
@@ -219,9 +207,13 @@ type InstanceCreateInput struct {
 	CreatedBy                              uuid.UUID
 }
 
-// InstanceUpdateInput input parameters for Update method
-type InstanceUpdateInput struct {
-	InstanceID                             uuid.UUID
+// InstanceUpdateCommonInput captures the per-field update patch shared by
+// the single-row and multi-row update paths. Every non-pointer field
+// has its zero value interpreted as "unset, do not update"; pointer
+// fields use nil to mean the same. Splitting these fields out of the
+// per-input struct lets `UpdateMultiple` apply one shared patch to a
+// slice of instance IDs.
+type InstanceUpdateCommonInput struct {
 	Name                                   *string
 	Description                            *string
 	TenantID                               *uuid.UUID
@@ -239,6 +231,7 @@ type InstanceUpdateInput struct {
 	AlwaysBootWithCustomIpxe               *bool
 	PhoneHomeEnabled                       *bool
 	UserData                               *string
+	AutoNetwork                            *bool
 	Labels                                 map[string]string
 	IsUpdatePending                        *bool
 	InfinityRCRStatus                      *string
@@ -246,6 +239,24 @@ type InstanceUpdateInput struct {
 	Status                                 *string
 	PowerStatus                            *string
 	IsMissingOnSite                        *bool
+}
+
+// InstanceUpdateInput input parameters for the single-row Update.
+// Embeds InstanceUpdateCommonInput so callers can read or assign the
+// update fields directly without going through a nested struct.
+type InstanceUpdateInput struct {
+	InstanceID uuid.UUID
+	InstanceUpdateCommonInput
+}
+
+// InstanceUpdateMultipleInput input parameters for UpdateMultiple.
+// All listed instances receive the same update patch drawn from the
+// embedded InstanceUpdateCommonInput. Heterogeneous per-row patches are
+// not supported -- callers that need different fields per instance
+// must issue separate calls.
+type InstanceUpdateMultipleInput struct {
+	InstanceIDs []uuid.UUID
+	InstanceUpdateCommonInput
 }
 
 // InstanceClearInput input parameters for Clear method
@@ -324,8 +335,10 @@ type InstanceDAO interface {
 	GetAll(ctx context.Context, tx *db.Tx, filter InstanceFilterInput, page paginator.PageInput, includeRelations []string) ([]Instance, int, error)
 	//
 	Update(ctx context.Context, tx *db.Tx, input InstanceUpdateInput) (*Instance, error)
-	// UpdateMultiple used to update multiple rows
-	UpdateMultiple(ctx context.Context, tx *db.Tx, inputs []InstanceUpdateInput) ([]Instance, error)
+	// UpdateMultiple applies a single shared update patch to every
+	// instance ID in `input.InstanceIDs`. Callers needing
+	// heterogeneous per-row updates must call multiple times.
+	UpdateMultiple(ctx context.Context, tx *db.Tx, input InstanceUpdateMultipleInput) ([]Instance, error)
 	//
 	Clear(ctx context.Context, tx *db.Tx, input InstanceClearInput) (*Instance, error)
 	//
@@ -432,6 +445,7 @@ func (isd InstanceSQLDAO) GetCountByStatus(ctx context.Context, tx *db.Tx, tenan
 		InstanceStatusConfiguring:  0,
 		InstanceStatusReady:        0,
 		InstanceStatusUpdating:     0,
+		InstanceStatusRepairing:    0,
 		InstanceStatusTerminating:  0,
 		InstanceStatusError:        0,
 	}
@@ -670,7 +684,10 @@ func (isd InstanceSQLDAO) Update(ctx context.Context, tx *db.Tx, input InstanceU
 		// Detailed per-field tracing is recorded in the UpdateMultiple child span.
 	}
 
-	results, err := isd.UpdateMultiple(ctx, tx, []InstanceUpdateInput{input})
+	results, err := isd.UpdateMultiple(ctx, tx, InstanceUpdateMultipleInput{
+		InstanceIDs:               []uuid.UUID{input.InstanceID},
+		InstanceUpdateCommonInput: input.InstanceUpdateCommonInput,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -822,6 +839,7 @@ func (isd InstanceSQLDAO) CreateMultiple(ctx context.Context, tx *db.Tx, inputs 
 			AlwaysBootWithCustomIpxe:               input.AlwaysBootWithCustomIpxe,
 			PhoneHomeEnabled:                       input.PhoneHomeEnabled,
 			UserData:                               input.UserData,
+			AutoNetwork:                            input.AutoNetwork,
 			IsUpdatePending:                        input.IsUpdatePending,
 			InfinityRCRStatus:                      input.InfinityRCRStatus,
 			TpmEkCertificate:                       input.TpmEkCertificate,
@@ -863,34 +881,52 @@ func (isd InstanceSQLDAO) CreateMultiple(ctx context.Context, tx *db.Tx, inputs 
 	return sorted, nil
 }
 
-// UpdateMultiple updates multiple Instances with the given parameters using a single bulk UPDATE query
-// All inputs should update the same set of fields for optimal performance
-// The updated fields are assumed to be set to non-null values
-// since there are 2 operations (UPDATE, SELECT), it is required that
-// this library call happens within a transaction
-func (isd InstanceSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx, inputs []InstanceUpdateInput) ([]Instance, error) {
-	if len(inputs) > db.MaxBatchItems {
-		return nil, fmt.Errorf("batch size %d exceeds maximum allowed %d", len(inputs), db.MaxBatchItems)
+// UpdateMultiple applies a single shared update patch (drawn from the
+// embedded InstanceUpdateCommonInput) to every instance ID in
+// `input.InstanceIDs`, using one bulk UPDATE query.
+//
+// Heterogeneous per-row patches are intentionally not supported. Each
+// nil-pointer field in the patch is treated as "don't update," and the
+// resulting column set is computed once and applied uniformly across
+// all rows. Callers that need different fields for different rows
+// must call this function multiple times.
+//
+// Since there are two operations (UPDATE, SELECT), this call must
+// happen within a transaction.
+func (isd InstanceSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx, input InstanceUpdateMultipleInput) ([]Instance, error) {
+	if len(input.InstanceIDs) > db.MaxBatchItems {
+		return nil, fmt.Errorf("batch size %d exceeds maximum allowed %d", len(input.InstanceIDs), db.MaxBatchItems)
 	}
 
 	// Create a child span and set the attributes for current request
 	ctx, instanceDAOSpan := isd.tracerSpan.CreateChildInCurrentContext(ctx, "InstanceDAO.UpdateMultiple")
 	if instanceDAOSpan != nil {
 		defer instanceDAOSpan.End()
-		isd.tracerSpan.SetAttribute(instanceDAOSpan, "batch_size", len(inputs))
+		isd.tracerSpan.SetAttribute(instanceDAOSpan, "batch_size", len(input.InstanceIDs))
 	}
 
-	if len(inputs) == 0 {
+	if len(input.InstanceIDs) == 0 {
 		return []Instance{}, nil
 	}
 
-	// Build instances and collect columns to update
-	instances := make([]*Instance, 0, len(inputs))
-	ids := make([]uuid.UUID, 0, len(inputs))
-	columnsSet := make(map[string]bool)
+	// Reject duplicate InstanceIDs up front. The post-fetch SELECT
+	// returns one row per unique ID, so a duplicate would cause a
+	// count-mismatch error after writes have already happened.
+	seenIDs := make(map[uuid.UUID]struct{}, len(input.InstanceIDs))
+	for idx, id := range input.InstanceIDs {
+		if _, exists := seenIDs[id]; exists {
+			return nil, fmt.Errorf("UpdateMultiple: duplicate instance id %s at input %d", id, idx)
+		}
+		seenIDs[id] = struct{}{}
+	}
 
-	// Limit per-item tracing to avoid overly-large spans; see db.MaxBatchItemsToTrace for details
-	traceItems := len(inputs)
+	// Build the prototype row once from the shared update patch. The
+	// bulk UPDATE will copy these values into a per-ID Instance below.
+	proto := &Instance{}
+	columns := []string{}
+	c := input.InstanceUpdateCommonInput
+
+	traceItems := len(input.InstanceIDs)
 	if traceItems > db.MaxBatchItemsToTrace {
 		traceItems = db.MaxBatchItemsToTrace
 		if instanceDAOSpan != nil {
@@ -898,224 +934,176 @@ func (isd InstanceSQLDAO) UpdateMultiple(ctx context.Context, tx *db.Tx, inputs 
 		}
 	}
 
-	for idx, input := range inputs {
-		i := &Instance{
-			ID: input.InstanceID,
+	// Set field i. Set column name. Record a trace attribute keyed
+	// to the patch itself (not per-row, since the patch is shared).
+	trace := func(key, value string) {
+		if instanceDAOSpan != nil {
+			isd.tracerSpan.SetAttribute(instanceDAOSpan, "patch."+key, value)
 		}
-		columns := []string{}
-		addTrace := instanceDAOSpan != nil && idx < traceItems
-		prefix := fmt.Sprintf("items.%d.", idx)
+	}
+	if c.Name != nil {
+		proto.Name = *c.Name
+		columns = append(columns, "name")
+		trace("name", *c.Name)
+	}
+	if c.Description != nil {
+		proto.Description = c.Description
+		columns = append(columns, "description")
+		trace("description", *c.Description)
+	}
+	if c.TenantID != nil {
+		proto.TenantID = *c.TenantID
+		columns = append(columns, "tenant_id")
+		trace("tenant_id", c.TenantID.String())
+	}
+	if c.InfrastructureProviderID != nil {
+		proto.InfrastructureProviderID = *c.InfrastructureProviderID
+		columns = append(columns, "infrastructure_provider_id")
+		trace("infrastructure_provider_id", c.InfrastructureProviderID.String())
+	}
+	if c.SiteID != nil {
+		proto.SiteID = *c.SiteID
+		columns = append(columns, "site_id")
+		trace("site_id", c.SiteID.String())
+	}
+	if c.InstanceTypeID != nil {
+		proto.InstanceTypeID = c.InstanceTypeID
+		columns = append(columns, "instance_type_id")
+		trace("instance_type_id", c.InstanceTypeID.String())
+	}
+	if c.NetworkSecurityGroupID != nil {
+		proto.NetworkSecurityGroupID = c.NetworkSecurityGroupID
+		columns = append(columns, "network_security_group_id")
+		trace("network_security_group_id", *c.NetworkSecurityGroupID)
+	}
+	if c.VpcID != nil {
+		proto.VpcID = *c.VpcID
+		columns = append(columns, "vpc_id")
+		trace("vpc_id", c.VpcID.String())
+	}
+	if c.MachineID != nil {
+		proto.MachineID = c.MachineID
+		columns = append(columns, "machine_id")
+		trace("machine_id", *c.MachineID)
+	}
+	if c.ControllerInstanceID != nil {
+		proto.ControllerInstanceID = c.ControllerInstanceID
+		columns = append(columns, "controller_instance_id")
+		trace("controller_instance_id", c.ControllerInstanceID.String())
+	}
+	if c.Hostname != nil {
+		proto.Hostname = c.Hostname
+		columns = append(columns, "hostname")
+		trace("hostname", *c.Hostname)
+	}
+	if c.OperatingSystemID != nil {
+		proto.OperatingSystemID = c.OperatingSystemID
+		columns = append(columns, "operating_system_id")
+		trace("operating_system_id", c.OperatingSystemID.String())
+	}
+	if c.IpxeScript != nil {
+		proto.IpxeScript = c.IpxeScript
+		columns = append(columns, "ipxe_script")
+		trace("ipxe_script", *c.IpxeScript)
+	}
+	if c.AlwaysBootWithCustomIpxe != nil {
+		proto.AlwaysBootWithCustomIpxe = *c.AlwaysBootWithCustomIpxe
+		columns = append(columns, "always_boot_with_custom_ipxe")
+		trace("always_boot_with_custom_ipxe", fmt.Sprintf("%t", *c.AlwaysBootWithCustomIpxe))
+	}
+	if c.PhoneHomeEnabled != nil {
+		proto.PhoneHomeEnabled = *c.PhoneHomeEnabled
+		columns = append(columns, "phone_home_enabled")
+		trace("phone_home_enabled", fmt.Sprintf("%t", *c.PhoneHomeEnabled))
+	}
+	if c.UserData != nil {
+		proto.UserData = c.UserData
+		columns = append(columns, "user_data")
+		trace("user_data", *c.UserData)
+	}
+	if c.AutoNetwork != nil {
+		proto.AutoNetwork = *c.AutoNetwork
+		columns = append(columns, "auto_network")
+		trace("auto_network", fmt.Sprintf("%t", *c.AutoNetwork))
+	}
+	if c.Labels != nil {
+		proto.Labels = c.Labels
+		columns = append(columns, "labels")
+		if instanceDAOSpan != nil {
+			isd.tracerSpan.SetAttribute(instanceDAOSpan, "patch.labels", c.Labels)
+		}
+	}
+	if c.IsUpdatePending != nil {
+		proto.IsUpdatePending = *c.IsUpdatePending
+		columns = append(columns, "is_update_pending")
+		trace("is_update_pending", fmt.Sprintf("%t", *c.IsUpdatePending))
+	}
+	if c.InfinityRCRStatus != nil {
+		proto.InfinityRCRStatus = c.InfinityRCRStatus
+		columns = append(columns, "infinity_rcr_status")
+		trace("infinity_rcr_status", *c.InfinityRCRStatus)
+	}
+	if c.Status != nil {
+		proto.Status = *c.Status
+		columns = append(columns, "status")
+		trace("status", *c.Status)
+	}
+	if c.PowerStatus != nil {
+		proto.PowerStatus = c.PowerStatus
+		columns = append(columns, "power_status")
+		trace("power_status", *c.PowerStatus)
+	}
+	if c.IsMissingOnSite != nil {
+		proto.IsMissingOnSite = *c.IsMissingOnSite
+		columns = append(columns, "is_missing_on_site")
+		trace("is_missing_on_site", fmt.Sprintf("%t", *c.IsMissingOnSite))
+	}
+	if c.NetworkSecurityGroupPropagationDetails != nil {
+		proto.NetworkSecurityGroupPropagationDetails = c.NetworkSecurityGroupPropagationDetails
+		columns = append(columns, "network_security_group_propagation_details")
+		if instanceDAOSpan != nil {
+			isd.tracerSpan.SetAttribute(instanceDAOSpan, "patch.network_security_group_propagation_details", c.NetworkSecurityGroupPropagationDetails)
+		}
+	}
+	if c.TpmEkCertificate != nil {
+		proto.TpmEkCertificate = c.TpmEkCertificate
+		columns = append(columns, "tpm_ek_certificate")
+		trace("tpm_ek_certificate", *c.TpmEkCertificate)
+	}
+	_ = traceItems // retained for future per-row trace decisions if needed
 
-		// Field-level tracing: only trace fields that are actually being updated for this item
-		// This keeps spans focused and avoids recording null/unchanged values
-		if input.Name != nil {
-			i.Name = *input.Name
-			columns = append(columns, "name")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"name", *input.Name)
-			}
-		}
-		if input.Description != nil {
-			i.Description = input.Description
-			columns = append(columns, "description")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"description", *input.Description)
-			}
-		}
-		if input.TenantID != nil {
-			i.TenantID = *input.TenantID
-			columns = append(columns, "tenant_id")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"tenant_id", input.TenantID.String())
-			}
-		}
-		if input.InfrastructureProviderID != nil {
-			i.InfrastructureProviderID = *input.InfrastructureProviderID
-			columns = append(columns, "infrastructure_provider_id")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"infrastructure_provider_id", input.InfrastructureProviderID.String())
-			}
-		}
-		if input.SiteID != nil {
-			i.SiteID = *input.SiteID
-			columns = append(columns, "site_id")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"site_id", input.SiteID.String())
-			}
-		}
-		if input.InstanceTypeID != nil {
-			i.InstanceTypeID = input.InstanceTypeID
-			columns = append(columns, "instance_type_id")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"instance_type_id", input.InstanceTypeID.String())
-			}
-		}
-		if input.NetworkSecurityGroupID != nil {
-			i.NetworkSecurityGroupID = input.NetworkSecurityGroupID
-			columns = append(columns, "network_security_group_id")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"network_security_group_id", *input.NetworkSecurityGroupID)
-			}
-		}
-		if input.VpcID != nil {
-			i.VpcID = *input.VpcID
-			columns = append(columns, "vpc_id")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"vpc_id", input.VpcID.String())
-			}
-		}
-		if input.MachineID != nil {
-			i.MachineID = input.MachineID
-			columns = append(columns, "machine_id")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"machine_id", *input.MachineID)
-			}
-		}
-		if input.ControllerInstanceID != nil {
-			i.ControllerInstanceID = input.ControllerInstanceID
-			columns = append(columns, "controller_instance_id")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"controller_instance_id", input.ControllerInstanceID.String())
-			}
-		}
-		if input.Hostname != nil {
-			i.Hostname = input.Hostname
-			columns = append(columns, "hostname")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"hostname", *input.Hostname)
-			}
-		}
-		if input.OperatingSystemID != nil {
-			i.OperatingSystemID = input.OperatingSystemID
-			columns = append(columns, "operating_system_id")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"operating_system_id", input.OperatingSystemID.String())
-			}
-		}
-		if input.IpxeScript != nil {
-			i.IpxeScript = input.IpxeScript
-			columns = append(columns, "ipxe_script")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"ipxe_script", *input.IpxeScript)
-			}
-		}
-		if input.AlwaysBootWithCustomIpxe != nil {
-			i.AlwaysBootWithCustomIpxe = *input.AlwaysBootWithCustomIpxe
-			columns = append(columns, "always_boot_with_custom_ipxe")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"always_boot_with_custom_ipxe", fmt.Sprintf("%t", *input.AlwaysBootWithCustomIpxe))
-			}
-		}
-		if input.PhoneHomeEnabled != nil {
-			i.PhoneHomeEnabled = *input.PhoneHomeEnabled
-			columns = append(columns, "phone_home_enabled")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"phone_home_enabled", fmt.Sprintf("%t", *input.PhoneHomeEnabled))
-			}
-		}
-		if input.UserData != nil {
-			i.UserData = input.UserData
-			columns = append(columns, "user_data")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"user_data", *input.UserData)
-			}
-		}
-		if input.Labels != nil {
-			i.Labels = input.Labels
-			columns = append(columns, "labels")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"labels", input.Labels)
-			}
-		}
-		if input.IsUpdatePending != nil {
-			i.IsUpdatePending = *input.IsUpdatePending
-			columns = append(columns, "is_update_pending")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"is_update_pending", fmt.Sprintf("%t", *input.IsUpdatePending))
-			}
-		}
-		if input.InfinityRCRStatus != nil {
-			i.InfinityRCRStatus = input.InfinityRCRStatus
-			columns = append(columns, "infinity_rcr_status")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"infinity_rcr_status", *input.InfinityRCRStatus)
-			}
-		}
-		if input.Status != nil {
-			i.Status = *input.Status
-			columns = append(columns, "status")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"status", *input.Status)
-			}
-		}
-		if input.PowerStatus != nil {
-			i.PowerStatus = input.PowerStatus
-			columns = append(columns, "power_status")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"power_status", *input.PowerStatus)
-			}
-		}
-		if input.IsMissingOnSite != nil {
-			i.IsMissingOnSite = *input.IsMissingOnSite
-			columns = append(columns, "is_missing_on_site")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"is_missing_on_site", fmt.Sprintf("%t", *input.IsMissingOnSite))
-			}
-		}
-		if input.NetworkSecurityGroupPropagationDetails != nil {
-			i.NetworkSecurityGroupPropagationDetails = input.NetworkSecurityGroupPropagationDetails
-			columns = append(columns, "network_security_group_propagation_details")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"network_security_group_propagation_details", input.NetworkSecurityGroupPropagationDetails)
-			}
-		}
-		if input.TpmEkCertificate != nil {
-			i.TpmEkCertificate = input.TpmEkCertificate
-			columns = append(columns, "tpm_ek_certificate")
-			if addTrace {
-				isd.tracerSpan.SetAttribute(instanceDAOSpan, prefix+"tpm_ek_certificate", *input.TpmEkCertificate)
-			}
-		}
-
-		instances = append(instances, i)
-		ids = append(ids, input.InstanceID)
-		for _, col := range columns {
-			columnsSet[col] = true
-		}
-
+	// Materialise one Instance per ID, copying the shared prototype.
+	instances := make([]*Instance, 0, len(input.InstanceIDs))
+	for _, id := range input.InstanceIDs {
+		row := *proto
+		row.ID = id
+		instances = append(instances, &row)
 	}
 
-	// Build column list
-	columns := make([]string, 0, len(columnsSet)+1)
-	for col := range columnsSet {
-		columns = append(columns, col)
-	}
+	// "updated" is always rewritten so the row's timestamp advances.
 	columns = append(columns, "updated")
 
-	// Execute bulk update
-	_, err := db.GetIDB(tx, isd.dbSession).NewUpdate().
+	if _, err := db.GetIDB(tx, isd.dbSession).NewUpdate().
 		Model(&instances).
 		Column(columns...).
 		Bulk().
-		Exec(ctx)
-	if err != nil {
+		Exec(ctx); err != nil {
 		return nil, err
 	}
 
 	// Fetch the updated instances
 	var result []Instance
-	err = db.GetIDB(tx, isd.dbSession).NewSelect().Model(&result).Where("i.id IN (?)", bun.In(ids)).Scan(ctx)
-	if err != nil {
+	if err := db.GetIDB(tx, isd.dbSession).NewSelect().Model(&result).Where("i.id IN (?)", bun.In(input.InstanceIDs)).Scan(ctx); err != nil {
 		return nil, err
 	}
 
 	// Sort result to match input order (O(n) direct index placement)
 	// This check should never fail since we just updated these records with the exact ids
-	if len(result) != len(ids) {
-		return nil, fmt.Errorf("unexpected result count: got %d, expected %d", len(result), len(ids))
+	if len(result) != len(input.InstanceIDs) {
+		return nil, fmt.Errorf("unexpected result count: got %d, expected %d", len(result), len(input.InstanceIDs))
 	}
-	idToIndex := make(map[uuid.UUID]int, len(ids))
-	for i, id := range ids {
+	idToIndex := make(map[uuid.UUID]int, len(input.InstanceIDs))
+	for i, id := range input.InstanceIDs {
 		idToIndex[id] = i
 	}
 	sorted := make([]Instance, len(result))

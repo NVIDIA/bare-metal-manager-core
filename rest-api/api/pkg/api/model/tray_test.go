@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -39,9 +25,9 @@ func TestProtoToAPIComponentTypeName(t *testing.T) {
 			want: "Compute",
 		},
 		{
-			name: "nvlswitch type",
-			ct:   flowv1.ComponentType_COMPONENT_TYPE_NVLSWITCH,
-			want: "NVLSwitch",
+			name: "nvswitch type",
+			ct:   flowv1.ComponentType_COMPONENT_TYPE_NVSWITCH,
+			want: "NVSwitch",
 		},
 		{
 			name: "powershelf type",
@@ -128,7 +114,7 @@ func TestNewAPITray(t *testing.T) {
 		{
 			name: "switch tray without optional fields",
 			comp: &flowv1.Component{
-				Type: flowv1.ComponentType_COMPONENT_TYPE_NVLSWITCH,
+				Type: flowv1.ComponentType_COMPONENT_TYPE_NVSWITCH,
 				Info: &flowv1.DeviceInfo{
 					Id:           &flowv1.UUID{Id: "switch-tray-id"},
 					Name:         "switch-tray-1",
@@ -143,7 +129,7 @@ func TestNewAPITray(t *testing.T) {
 			},
 			want: &APITray{
 				ID:              "switch-tray-id",
-				Type:            "NVLSwitch",
+				Type:            "NVSwitch",
 				Name:            "switch-tray-1",
 				Manufacturer:    "NVIDIA",
 				SerialNumber:    "SSN001",
@@ -223,7 +209,7 @@ func TestNewAPITray(t *testing.T) {
 		{
 			name: "tray without position",
 			comp: &flowv1.Component{
-				Type: flowv1.ComponentType_COMPONENT_TYPE_NVLSWITCH,
+				Type: flowv1.ComponentType_COMPONENT_TYPE_NVSWITCH,
 				Info: &flowv1.DeviceInfo{
 					Id:   &flowv1.UUID{Id: "switch-tray-id"},
 					Name: "switch-1",
@@ -231,7 +217,7 @@ func TestNewAPITray(t *testing.T) {
 			},
 			want: &APITray{
 				ID:       "switch-tray-id",
-				Type:     "NVLSwitch",
+				Type:     "NVSwitch",
 				Name:     "switch-1",
 				Position: nil,
 			},
@@ -328,6 +314,7 @@ func TestAPITrayGetAllRequest_Validate(t *testing.T) {
 	validUUID := uuid.New().String()
 	validUUID2 := uuid.New().String()
 	strPtr := func(s string) *string { return &s }
+	int32Ptr := func(v int32) *int32 { return &v }
 
 	tests := []struct {
 		name    string
@@ -366,8 +353,8 @@ func TestAPITrayGetAllRequest_Validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "valid type - NVLSwitch",
-			req:     APITrayGetAllRequest{Type: strPtr("NVLSwitch")},
+			name:    "valid type - NVSwitch",
+			req:     APITrayGetAllRequest{Type: strPtr("NVSwitch")},
 			wantErr: false,
 		},
 		{
@@ -444,6 +431,36 @@ func TestAPITrayGetAllRequest_Validate(t *testing.T) {
 			name:    "rackId with type is valid (rack-level)",
 			req:     APITrayGetAllRequest{RackID: strPtr(validUUID), Type: strPtr("Compute")},
 			wantErr: false,
+		},
+		{
+			name:    "slotId with rackName is valid",
+			req:     APITrayGetAllRequest{RackName: strPtr("Rack-001"), SlotID: int32Ptr(3)},
+			wantErr: false,
+		},
+		{
+			name:    "slotId with rackId is valid",
+			req:     APITrayGetAllRequest{RackID: strPtr(validUUID), SlotID: int32Ptr(3)},
+			wantErr: false,
+		},
+		{
+			name:    "slotId without rack invalid",
+			req:     APITrayGetAllRequest{SlotID: int32Ptr(3)},
+			wantErr: true,
+		},
+		{
+			name:    "slotId with IDs without rack invalid",
+			req:     APITrayGetAllRequest{SlotID: int32Ptr(3), IDs: []string{validUUID}},
+			wantErr: true,
+		},
+		{
+			name:    "slotId with componentIds without rack invalid",
+			req:     APITrayGetAllRequest{SlotID: int32Ptr(3), ComponentIDs: []string{"comp-1"}, Type: strPtr("Compute")},
+			wantErr: true,
+		},
+		{
+			name:    "negative slotId invalid",
+			req:     APITrayGetAllRequest{RackName: strPtr("Rack-001"), SlotID: int32Ptr(-1)},
+			wantErr: true,
 		},
 	}
 
@@ -596,6 +613,187 @@ func TestAPITrayGetAllRequest_ToProto(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestTrayFilter_SlotFilter(t *testing.T) {
+	rackName := "Rack-001"
+	int32Ptr := func(v int32) *int32 { return &v }
+
+	t.Run("nil filter has no slot filter and matches everything", func(t *testing.T) {
+		var f *TrayFilter
+		assert.False(t, f.HasSlotFilter())
+		assert.True(t, f.MatchesSlot(&flowv1.Component{}))
+	})
+
+	t.Run("filter without slot has no slot filter", func(t *testing.T) {
+		f := &TrayFilter{RackName: &rackName}
+		assert.False(t, f.HasSlotFilter())
+		assert.True(t, f.MatchesSlot(&flowv1.Component{
+			Position: &flowv1.RackPosition{SlotId: 99},
+		}))
+	})
+
+	t.Run("slotId matches position.slotId", func(t *testing.T) {
+		f := &TrayFilter{RackName: &rackName, SlotID: int32Ptr(3)}
+		assert.True(t, f.HasSlotFilter())
+		assert.True(t, f.MatchesSlot(&flowv1.Component{
+			Position: &flowv1.RackPosition{SlotId: 3, TrayIdx: 7},
+		}))
+		assert.False(t, f.MatchesSlot(&flowv1.Component{
+			Position: &flowv1.RackPosition{SlotId: 4},
+		}))
+	})
+
+	t.Run("slot filter rejects component with no position", func(t *testing.T) {
+		f := &TrayFilter{RackName: &rackName, SlotID: int32Ptr(3)}
+		assert.False(t, f.MatchesSlot(&flowv1.Component{}))
+	})
+}
+
+func TestRackComponentSlotMatcher(t *testing.T) {
+	int32Ptr := func(v int32) *int32 { return &v }
+
+	t.Run("inactive matcher matches everything", func(t *testing.T) {
+		m := RackComponentSlotMatcher{}
+		assert.False(t, m.Active())
+		assert.True(t, m.Matches(nil))
+	})
+
+	t.Run("active matcher checks slot", func(t *testing.T) {
+		m := RackComponentSlotMatcher{SlotID: int32Ptr(3)}
+		assert.True(t, m.Active())
+		assert.True(t, m.Matches(&flowv1.Component{
+			Position: &flowv1.RackPosition{SlotId: 3},
+		}))
+		assert.False(t, m.Matches(&flowv1.Component{
+			Position: &flowv1.RackPosition{SlotId: 4},
+		}))
+		assert.False(t, m.Matches(nil))
+	})
+}
+
+func TestTrayFilter_Validate_SlotConstraints(t *testing.T) {
+	rackName := "Rack-001"
+	int32Ptr := func(v int32) *int32 { return &v }
+
+	tests := []struct {
+		name    string
+		filter  *TrayFilter
+		wantErr bool
+	}{
+		{
+			name:    "slotId with rackName valid",
+			filter:  &TrayFilter{RackName: &rackName, SlotID: int32Ptr(3)},
+			wantErr: false,
+		},
+		{
+			name:    "slotId without rack invalid",
+			filter:  &TrayFilter{SlotID: int32Ptr(3)},
+			wantErr: true,
+		},
+		{
+			name:    "slotId with ids without rack invalid",
+			filter:  &TrayFilter{SlotID: int32Ptr(3), IDs: []string{uuid.New().String()}},
+			wantErr: true,
+		},
+		{
+			name:    "rackName with ids still invalid (pre-existing rule)",
+			filter:  &TrayFilter{RackName: &rackName, IDs: []string{uuid.New().String()}},
+			wantErr: true,
+		},
+		{
+			name:    "negative slotId invalid",
+			filter:  &TrayFilter{RackName: &rackName, SlotID: int32Ptr(-1)},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.filter.Validate()
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestAPITrayValidateAllRequest_Validate_SlotConstraints(t *testing.T) {
+	validUUID := uuid.New().String()
+	rackName := "Rack-001"
+	int32Ptr := func(v int32) *int32 { return &v }
+
+	tests := []struct {
+		name    string
+		req     APITrayValidateAllRequest
+		wantErr bool
+	}{
+		{
+			name:    "slotId with rackName valid",
+			req:     APITrayValidateAllRequest{SiteID: validUUID, RackName: &rackName, SlotID: int32Ptr(3)},
+			wantErr: false,
+		},
+		{
+			name:    "slotId without rack invalid",
+			req:     APITrayValidateAllRequest{SiteID: validUUID, SlotID: int32Ptr(3)},
+			wantErr: true,
+		},
+		{
+			name:    "negative slotId invalid",
+			req:     APITrayValidateAllRequest{SiteID: validUUID, RackName: &rackName, SlotID: int32Ptr(-1)},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.req.Validate()
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestAPITrayValidateAllRequest_SlotFilter(t *testing.T) {
+	rackName := "Rack-001"
+	siteID := uuid.New().String()
+	int32Ptr := func(v int32) *int32 { return &v }
+
+	t.Run("nil request has no slot filter and matches everything", func(t *testing.T) {
+		var r *APITrayValidateAllRequest
+		assert.False(t, r.HasSlotFilter())
+		assert.True(t, r.MatchesSlot(&flowv1.Component{}))
+	})
+
+	t.Run("request without slot has no slot filter", func(t *testing.T) {
+		r := &APITrayValidateAllRequest{SiteID: siteID, RackName: &rackName}
+		assert.False(t, r.HasSlotFilter())
+		assert.True(t, r.MatchesSlot(&flowv1.Component{
+			Position: &flowv1.RackPosition{SlotId: 99},
+		}))
+	})
+
+	t.Run("slotId matches position.slotId", func(t *testing.T) {
+		r := &APITrayValidateAllRequest{SiteID: siteID, RackName: &rackName, SlotID: int32Ptr(3)}
+		assert.True(t, r.HasSlotFilter())
+		assert.True(t, r.MatchesSlot(&flowv1.Component{
+			Position: &flowv1.RackPosition{SlotId: 3, TrayIdx: 7},
+		}))
+		assert.False(t, r.MatchesSlot(&flowv1.Component{
+			Position: &flowv1.RackPosition{SlotId: 4},
+		}))
+	})
+
+	t.Run("QueryValues includes slotId when set", func(t *testing.T) {
+		r := &APITrayValidateAllRequest{SiteID: siteID, RackName: &rackName, SlotID: int32Ptr(3)}
+		v := r.QueryValues()
+		assert.Equal(t, siteID, v.Get("siteId"))
+		assert.Equal(t, rackName, v.Get("rackName"))
+		assert.Equal(t, "3", v.Get("slotId"))
+	})
 }
 
 func TestGetProtoTrayOrderByFromQueryParam(t *testing.T) {

@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package executor
 
@@ -44,16 +30,25 @@ type Executor interface {
 type ExecutorConfig interface {
 	Validate() error
 	// Build constructs the Executor. updater receives task status transitions
-	// from the execution engine back to the store. It must not be nil.
-	Build(ctx context.Context, updater task.TaskStatusUpdater) (Executor, error)
+	// from the execution engine back to the store and must not be nil.
+	// reportUpdater receives in-flight report snapshots and may be nil; when
+	// nil, activities that need it return an error at invocation time.
+	Build(
+		ctx context.Context,
+		updater task.TaskStatusUpdater,
+		reportUpdater task.TaskReportUpdater,
+	) (Executor, error)
 }
 
 // New validates the config and builds the Executor, wiring updater so the
 // engine can report task status changes without importing store packages.
+// reportUpdater is plumbed through the same call to persist progress
+// snapshots; nil is allowed and disables in-flight reporting.
 func New(
 	ctx context.Context,
 	executorConfig ExecutorConfig,
 	updater task.TaskStatusUpdater,
+	reportUpdater task.TaskReportUpdater,
 ) (Executor, error) {
 	if executorConfig == nil {
 		return nil, fmt.Errorf("executor config is required")
@@ -67,5 +62,5 @@ func New(
 		return nil, fmt.Errorf("task status updater is required")
 	}
 
-	return executorConfig.Build(ctx, updater)
+	return executorConfig.Build(ctx, updater, reportUpdater)
 }

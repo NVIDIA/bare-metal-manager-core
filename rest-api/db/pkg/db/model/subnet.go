@@ -1,29 +1,20 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
+	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
+	cipam "github.com/NVIDIA/infra-controller-rest/ipam"
 	"github.com/google/uuid"
 
 	"github.com/uptrace/bun"
@@ -74,6 +65,7 @@ var (
 		SubnetStatusDeleted:      true,
 		SubnetStatusError:        true,
 	}
+	errSubnetNoIPv4Prefix = errors.New("subnet has no IPv4 prefix")
 )
 
 // Subnet is a network construct for bare-metal machines
@@ -230,6 +222,9 @@ type SubnetDAO interface {
 	Clear(ctx context.Context, tx *db.Tx, input SubnetClearInput) (*Subnet, error)
 	//
 	Delete(ctx context.Context, tx *db.Tx, id uuid.UUID) error
+	//
+	// GetPrefixUsage returns IPv4 interface usage for this subnet (in-memory IPAM simulation).
+	GetPrefixUsage(ctx context.Context, tx *db.Tx, sn *Subnet) (*cipam.Usage, error)
 }
 
 // SubnetSQLDAO is an implementation of the SubnetDAO interface
@@ -676,6 +671,102 @@ func (ssd SubnetSQLDAO) Delete(ctx context.Context, tx *db.Tx, id uuid.UUID) err
 	}
 
 	return nil
+}
+
+// queryEthernetInterfaceIPsForSubnet returns iface row count and, for interfaces with IPs,
+// each interface's assigned addresses. COUNT(*) equals len(rows) for the same join/filter on one SELECT.
+func queryEthernetInterfaceIPsForSubnet(ctx context.Context, idb bun.IDB, subnetID uuid.UUID) (ifaceRows int64, ipStrings [][]string, err error) {
+	type row struct {
+		IPAddresses []string `bun:"ip_addresses,array"`
+	}
+	var rows []row
+	err = idb.NewRaw(
+		`SELECT ifc.ip_addresses FROM "interface" AS ifc INNER JOIN instance AS inst ON inst.id = ifc.instance_id
+		 WHERE ifc.subnet_id = ? AND ifc.deleted IS NULL AND inst.deleted IS NULL`,
+		subnetID,
+	).Scan(ctx, &rows)
+	if err != nil {
+		return 0, nil, err
+	}
+	count := int64(len(rows))
+	ips := make([][]string, 0, len(rows))
+	for _, r := range rows {
+		if len(r.IPAddresses) > 0 {
+			ips = append(ips, r.IPAddresses)
+		}
+	}
+	return count, ips, nil
+}
+
+// GetPrefixUsage derives IPv4 interface usage stats for this Subnet via an in-memory IPAM simulation.
+func (ssd SubnetSQLDAO) GetPrefixUsage(ctx context.Context, tx *db.Tx, sn *Subnet) (*cipam.Usage, error) {
+	if sn == nil {
+		return nil, fmt.Errorf("Failed to calculate usage stats for Subnet: nil argument specified")
+	}
+
+	if sn.IPv4Prefix == nil || *sn.IPv4Prefix == "" {
+		return nil, fmt.Errorf("Failed to calculate usage stats for Subnet %q: %w", sn.ID.String(), errSubnetNoIPv4Prefix)
+	}
+
+	var cidr string
+	if strings.Contains(*sn.IPv4Prefix, "/") {
+		cidr = *sn.IPv4Prefix
+	} else {
+		cidr = fmt.Sprintf("%s/%d", *sn.IPv4Prefix, sn.PrefixLength)
+	}
+
+	idb := db.GetIDB(tx, ssd.dbSession)
+	ifcCount, ips, err := queryEthernetInterfaceIPsForSubnet(ctx, idb, sn.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	ipamer := cipam.New(ctx)
+	ipamPrefix, err := ipamer.NewPrefix(ctx, cidr)
+	if err != nil {
+		return nil, err
+	}
+
+	validatedCidr := ipamPrefix.Cidr
+	netIpPrefix, err := netip.ParsePrefix(validatedCidr)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ipAddresses := range ips {
+		for _, ipStr := range ipAddresses {
+			netIpAddr, ierr := netip.ParseAddr(strings.TrimSpace(ipStr))
+			if ierr != nil || !netIpAddr.Is4() {
+				continue
+			}
+			if !netIpPrefix.Contains(netIpAddr) {
+				continue
+			}
+			_, ierr = ipamer.AcquireSpecificIP(ctx, validatedCidr, netIpAddr.String())
+			if ierr != nil {
+				continue
+			}
+		}
+	}
+
+	ipamPrefix = ipamer.PrefixFrom(ctx, validatedCidr)
+	if ipamPrefix == nil {
+		return nil, fmt.Errorf("Prefix %q was not found in IPAM after loading IPs", validatedCidr)
+	}
+
+	usage := ipamPrefix.Usage()
+
+	acquiredIPs := uint64(ifcCount) + 2
+	if acquiredIPs > usage.AvailableIPs {
+		acquiredIPs = usage.AvailableIPs
+	}
+	return &cipam.Usage{
+		AvailableIPs:              usage.AvailableIPs,
+		AcquiredIPs:               acquiredIPs,
+		AvailableSmallestPrefixes: usage.AvailableSmallestPrefixes,
+		AvailablePrefixes:         usage.AvailablePrefixes,
+		AcquiredPrefixes:          usage.AcquiredPrefixes,
+	}, nil
 }
 
 // NewSubnetDAO returns a new SubnetDAO

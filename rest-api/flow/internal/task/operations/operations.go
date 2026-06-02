@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package operations
 
@@ -215,6 +201,18 @@ type FirmwareControlTaskInfo struct {
 	StartTime     int64             `json:"start_time,omitempty"` // Unix timestamp
 	EndTime       int64             `json:"end_time,omitempty"`   // Unix timestamp
 	RuleID        string            `json:"rule_id,omitempty"`
+	// SubTargets, when non-empty, restricts the upgrade to a subset of
+	// firmware sub-parts within each targeted tray (e.g. ["bmc", "nvos"]
+	// for switch trays, ["bmc", "bios"] for compute trays, ["psu"] for
+	// powershelf trays). Named "SubTargets" (not "Components") to avoid
+	// colliding with the carbide tray-level Component vocabulary used for
+	// OperationTargetSpec / ExecutionInfo.Components, which select tray
+	// INSTANCES rather than sub-parts of a tray.
+	// Names are lowercase and case-sensitive. Empty or nil means "update
+	// everything in the bundle" (the historical default). Mapping from
+	// these strings to component-manager-specific enums is done in each
+	// FirmwareControl implementation (see pkg/common/firmwarecomponents).
+	SubTargets []string `json:"sub_targets,omitempty"`
 }
 
 func (t *FirmwareControlTaskInfo) Validate() error {

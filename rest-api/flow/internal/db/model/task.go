@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
@@ -50,6 +36,7 @@ type Task struct {
 	ExecutionID   string                    `bun:"execution_id,notnull"`
 	Status        taskcommon.TaskStatus     `bun:"status,type:varchar(32),notnull"`
 	Message       string                    `bun:"message,nullzero"`
+	Report        json.RawMessage           `bun:"report,type:jsonb"`
 	AppliedRuleID *uuid.UUID                `bun:"applied_rule_id,type:uuid"` // Which operation rule was applied
 	CreatedAt     time.Time                 `bun:"created_at,nullzero,notnull,default:current_timestamp"`
 	UpdatedAt     time.Time                 `bun:"updated_at,nullzero,notnull,default:current_timestamp"`
@@ -92,17 +79,23 @@ func (t *Task) UpdateScheduledTask(
 }
 
 // UpdateTaskStatus updates the status of the task.
+// report, when non-nil, replaces the stored report column.
 func (t *Task) UpdateTaskStatus(
 	ctx context.Context,
 	idb bun.IDB,
 	status taskcommon.TaskStatus,
 	message string,
+	report json.RawMessage,
 ) error {
 	t.Status = status
 	t.Message = message
 	t.UpdatedAt = time.Now().UTC()
 
 	columns := []string{"status", "message", "updated_at", "finished_at"}
+	if report != nil {
+		t.Report = report
+		columns = append(columns, "report")
+	}
 
 	if status == taskcommon.TaskStatusRunning && t.StartedAt == nil {
 		t.StartedAt = &t.UpdatedAt
@@ -121,6 +114,47 @@ func (t *Task) UpdateTaskStatus(
 		Exec(ctx)
 
 	return err
+}
+
+// UpdateTaskReport updates the structured report without changing status or message.
+func (t *Task) UpdateTaskReport(
+	ctx context.Context,
+	idb bun.IDB,
+	report json.RawMessage,
+) error {
+	t.Report = report
+	t.UpdatedAt = time.Now().UTC()
+
+	_, err := idb.NewUpdate().
+		Model(t).
+		Column("report", "updated_at").
+		Where("id = ?", t.ID).
+		Exec(ctx)
+
+	return err
+}
+
+// taskComponentIDFilter restricts a query to tasks whose attributes
+// reference a specific component UUID. The UUID may live under any bucket
+// of attributes.components_by_type, which rules out a fixed @> check
+// against a known key and forces a jsonpath expression. The predicate is
+// served by the GIN (jsonb_path_ops) index on task.attributes added in
+// migration 20260517000000.
+type taskComponentIDFilter struct {
+	componentID uuid.UUID
+}
+
+func (f taskComponentIDFilter) ApplyTo(q *bun.SelectQuery) *bun.SelectQuery {
+	// bun rewrites '?' in a query string as a placeholder, which collides
+	// both with PG's '@?' operator and with jsonpath's own '?(filter)'
+	// syntax. Build the predicate as raw SQL and inject it via bun.Safe so
+	// bun does not rescan it for '?'. uuid.UUID.String() emits only hex
+	// and hyphens, so it cannot close the SQL string literal or inject.
+	expr := fmt.Sprintf(
+		`attributes @? '$.components_by_type.*[*] ? (@ == "%s")'::jsonpath`,
+		f.componentID.String(),
+	)
+	return q.Where("?", bun.Safe(expr))
 }
 
 func taskListOptionsToFilterable(
@@ -164,10 +198,36 @@ func taskListOptionsToFilterable(
 		})
 	}
 
-	return &dbquery.FilterGroup{
+	group := &dbquery.FilterGroup{
 		Filters:   filters,
 		Connector: dbquery.ConnectorAND,
 	}
+
+	// ComponentID needs a jsonpath expression on attributes, which the
+	// generic Filter type does not express, so combine it with the rest
+	// via a small composite Filterable.
+	if options.ComponentID != uuid.Nil {
+		return taskFilterables{
+			group,
+			taskComponentIDFilter{componentID: options.ComponentID},
+		}
+	}
+
+	return group
+}
+
+// taskFilterables is an AND-combination of several Filterables. Each entry
+// applies its own predicates to the same query, which bun joins with AND.
+type taskFilterables []dbquery.Filterable
+
+func (fs taskFilterables) ApplyTo(q *bun.SelectQuery) *bun.SelectQuery {
+	for _, f := range fs {
+		if f == nil {
+			continue
+		}
+		q = f.ApplyTo(q)
+	}
+	return q
 }
 
 // GetTask retrieves the task by its UUID.

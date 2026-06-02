@@ -1,36 +1,49 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package nico
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
 	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
+	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
 )
+
+func TestConfigDecoderDecodeYAML(t *testing.T) {
+	decoder := ConfigDecoder{}
+
+	decoded, err := decoder.DecodeYAML(yaml.Node{})
+	require.NoError(t, err)
+	config := decoded.(*Config)
+	assert.Equal(t, DefaultComputePowerDelay, config.ComputePowerDelay)
+
+	decoded, err = decoder.DecodeYAML(managerYAMLNode(t, `compute_power_delay: 0s`))
+	require.NoError(t, err)
+	config = decoded.(*Config)
+	assert.Equal(t, 0*time.Second, config.ComputePowerDelay)
+
+	_, err = decoder.DecodeYAML(managerYAMLNode(t, `compute_power_delay: nope`))
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, cmconfig.ErrInvalidManagerConfigField))
+	assertInvalidManagerConfigField(t, err, "compute_power_delay")
+
+	_, err = decoder.DecodeYAML(managerYAMLNode(t, `compute_power_dely: 15s`))
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, cmconfig.ErrInvalidManagerConfig))
+}
 
 func TestInjectExpectation(t *testing.T) {
 	testCases := map[string]struct {
@@ -100,6 +113,57 @@ func mustMarshal(t *testing.T, v any) json.RawMessage {
 		t.Fatalf("failed to marshal: %v", err)
 	}
 	return data
+}
+
+func assertInvalidManagerConfigField(t *testing.T, err error, field string) {
+	t.Helper()
+
+	var fieldErr cmconfig.InvalidManagerConfigFieldError
+	require.True(t, errors.As(err, &fieldErr))
+	assert.Equal(t, ConfigDecoder{}.Identity(), fieldErr.Identity)
+	assert.Equal(t, field, fieldErr.Field)
+}
+
+func managerYAMLNode(t *testing.T, data string) yaml.Node {
+	t.Helper()
+
+	var node yaml.Node
+	require.NoError(t, yaml.Unmarshal([]byte(data), &node))
+	require.NotEmpty(t, node.Content)
+	return *node.Content[0]
+}
+
+// TestFirmwareControl_SubTargetsAccepted verifies that the compute/nico
+// FirmwareControl path tolerates info.SubTargets without erroring. This
+// path goes through SetMachineAutoUpdate + SetFirmwareUpdateTimeWindow,
+// which has no per-sub-target selection in NICo, so the manager only logs
+// a warning and proceeds; we exercise that branch here. The actual
+// per-sub-target dispatch will be added when compute moves to NICo's
+// UpdateComponentFirmware (see comment in nico.go).
+func TestFirmwareControl_SubTargetsAccepted(t *testing.T) {
+	tests := map[string]struct {
+		subTargets []string
+	}{
+		"nil sub_targets (legacy path)":     {subTargets: nil},
+		"empty sub_targets (legacy path)":   {subTargets: []string{}},
+		"non-empty sub_targets (warn path)": {subTargets: []string{"bmc", "bios"}},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			m := New(nicoapi.NewMockClient(), 0)
+			target := common.Target{
+				Type:         devicetypes.ComponentTypeCompute,
+				ComponentIDs: []string{"machine-1"},
+			}
+
+			err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
+				Operation:  operations.FirmwareOperationUpgrade,
+				SubTargets: tc.subTargets,
+			})
+			require.NoError(t, err)
+		})
+	}
 }
 
 // --- Tests for firmware version helper functions ---

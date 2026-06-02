@@ -1,25 +1,10 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -185,130 +170,148 @@ func (cdesh CreateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "DPU Extension Service with this name already exists", nil)
 	}
 
-	// Start a db transaction
-	tx, err := cdb.BeginTx(ctx, cdesh.dbSession, &sql.TxOptions{})
-	if err != nil {
-		logger.Error().Err(err).Msg("unable to start transaction")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create DPU Extension Service, DB transaction error", nil)
-	}
-	txCommitted := false
-	defer common.RollbackTx(ctx, tx, &txCommitted)
-
-	// Create the DPU Extension Service in DB
-	dpuExtensionService, err := desDAO.Create(
-		ctx,
-		tx,
-		cdbm.DpuExtensionServiceCreateInput{
-			Name:        apiRequest.Name,
-			Description: apiRequest.Description,
-			ServiceType: apiRequest.ServiceType,
-			SiteID:      site.ID,
-			TenantID:    tenant.ID,
-			Status:      cdbm.DpuExtensionServiceStatusPending,
-			CreatedBy:   dbUser.ID,
-		},
-	)
-	if err != nil {
-		logger.Error().Err(err).Msg("error creating DPU Extension Service record in DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create DPU Extension Service, DB error", nil)
-	}
-
-	// Create a status detail record for the DPU Extension Service
 	sdDAO := cdbm.NewStatusDetailDAO(cdesh.dbSession)
-	statusDetail, err := sdDAO.CreateFromParams(ctx, tx, dpuExtensionService.ID.String(), cdbm.DpuExtensionServiceStatusPending,
-		cdb.GetStrPtr("Received DPU Extension Service creation request, pending processing"))
-	if err != nil {
-		logger.Error().Err(err).Msg("error creating Status Detail DB entry")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Status Detail for DPU Extension Service", nil)
-	}
 
-	statusDetails := []cdbm.StatusDetail{}
-	if statusDetail != nil {
-		statusDetails = append(statusDetails, *statusDetail)
-	}
-
-	createDpuExtensionServiceRequest := &cwssaws.CreateDpuExtensionServiceRequest{
-		ServiceId:            cdb.GetStrPtr(dpuExtensionService.ID.String()),
-		ServiceName:          apiRequest.Name,
-		Description:          apiRequest.Description,
-		TenantOrganizationId: org,
-		Data:                 apiRequest.Data,
-	}
-
-	if apiRequest.ServiceType == model.DpuExtensionServiceTypeKubernetesPod {
-		createDpuExtensionServiceRequest.ServiceType = cwssaws.DpuExtensionServiceType_KUBERNETES_POD
-	}
-
-	if apiRequest.Credentials != nil {
-		createDpuExtensionServiceRequest.Credential = &cwssaws.DpuExtensionServiceCredential{
-			RegistryUrl: apiRequest.Credentials.RegistryURL,
-			Type: &cwssaws.DpuExtensionServiceCredential_UsernamePassword{
-				UsernamePassword: &cwssaws.UsernamePassword{
-					Username: *apiRequest.Credentials.Username,
-					Password: *apiRequest.Credentials.Password,
-				},
-			},
-		}
-	}
-
-	if apiRequest.Observability != nil {
-		createDpuExtensionServiceRequest.Observability = apiRequest.Observability.ToProto()
-	}
-
-	logger.Info().Msg("triggering DPU Extension Service create workflow on Site")
-
-	// Create workflow options
-	workflowOptions := tclient.StartWorkflowOptions{
-		ID:                       "dpu-extension-service-create-" + dpuExtensionService.ID.String(),
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	// Get the temporal client for the site we are working with
-	stc, err := cdesh.scp.GetClientByID(site.ID)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve workflow client for Site", nil)
-	}
-
-	// Add context deadlines
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	// Trigger Site workflow
-	workflowRun, err := stc.ExecuteWorkflow(ctxWithTimeout, workflowOptions, "CreateDpuExtensionService", createDpuExtensionServiceRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule CreateDpuExtensionService workflow on Site")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule DPU Extension Service creation workflow", nil)
-	}
-
-	workflowID := workflowRun.GetID()
-
-	logger.Info().Str("Workflow ID", workflowID).Msg("executing CreateDpuExtensionService workflow on Site in sync mode")
-
-	// Execute sync workflow on Site
+	// Outer-scope values populated inside the transaction closure that are
+	// needed for the post-commit best-effort update and the response.
+	var dpuExtensionService *cdbm.DpuExtensionService
+	var statusDetails []cdbm.StatusDetail
 	var controllerDpuExtensionService *cwssaws.DpuExtensionService
 
-	err = workflowRun.Get(ctxWithTimeout, &controllerDpuExtensionService)
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) {
-			logger.Error().Err(err).Msg("timed out executing DPU Extension Service creation workflow on Site")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Timed out executing DPU Extension Service creation workflow on Site: %s", err), nil)
+	// timeoutResp lets the closure signal a post-rollback handler — the
+	// TerminateWorkflow call has to run after the closure returns so that
+	// the DB tx unwinds before we make the second remote call. nil means
+	// no timeout occurred and the normal flow continues.
+	var timeoutResp func() error
+
+	err = cdb.WithTx(ctx, cdesh.dbSession, func(tx *cdb.Tx) error {
+		// Create the DPU Extension Service in DB
+		des, derr := desDAO.Create(
+			ctx,
+			tx,
+			cdbm.DpuExtensionServiceCreateInput{
+				Name:        apiRequest.Name,
+				Description: apiRequest.Description,
+				ServiceType: apiRequest.ServiceType,
+				SiteID:      site.ID,
+				TenantID:    tenant.ID,
+				Status:      cdbm.DpuExtensionServiceStatusPending,
+				CreatedBy:   dbUser.ID,
+			},
+		)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error creating DPU Extension Service record in DB")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create DPU Extension Service, DB error", nil)
+		}
+		dpuExtensionService = des
+
+		// Create a status detail record for the DPU Extension Service
+		statusDetail, derr := sdDAO.CreateFromParams(ctx, tx, dpuExtensionService.ID.String(), cdbm.DpuExtensionServiceStatusPending,
+			cdb.GetStrPtr("Received DPU Extension Service creation request, pending processing"))
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error creating Status Detail DB entry")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to create Status Detail for DPU Extension Service", nil)
 		}
 
-		code, uwerr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(uwerr).Msg("failed to execute DPU Extension Service creation workflow on Site")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute DPU Extension Service creation workflow on Site: %s", uwerr), nil)
-	}
+		statusDetails = []cdbm.StatusDetail{}
+		if statusDetail != nil {
+			statusDetails = append(statusDetails, *statusDetail)
+		}
 
-	// Commit transaction
-	err = tx.Commit()
+		createDpuExtensionServiceRequest := &cwssaws.CreateDpuExtensionServiceRequest{
+			ServiceId:            cdb.GetStrPtr(dpuExtensionService.ID.String()),
+			ServiceName:          apiRequest.Name,
+			Description:          apiRequest.Description,
+			TenantOrganizationId: org,
+			Data:                 apiRequest.Data,
+		}
+
+		if apiRequest.ServiceType == model.DpuExtensionServiceTypeKubernetesPod {
+			createDpuExtensionServiceRequest.ServiceType = cwssaws.DpuExtensionServiceType_KUBERNETES_POD
+		}
+
+		if apiRequest.Credentials != nil {
+			createDpuExtensionServiceRequest.Credential = &cwssaws.DpuExtensionServiceCredential{
+				RegistryUrl: apiRequest.Credentials.RegistryURL,
+				Type: &cwssaws.DpuExtensionServiceCredential_UsernamePassword{
+					UsernamePassword: &cwssaws.UsernamePassword{
+						Username: *apiRequest.Credentials.Username,
+						Password: *apiRequest.Credentials.Password,
+					},
+				},
+			}
+		}
+
+		if apiRequest.Observability != nil {
+			createDpuExtensionServiceRequest.Observability = apiRequest.Observability.ToProto()
+		}
+
+		logger.Info().Msg("triggering DPU Extension Service create workflow on Site")
+
+		// Create workflow options
+		workflowOptions := tclient.StartWorkflowOptions{
+			ID:                       "dpu-extension-service-create-" + dpuExtensionService.ID.String(),
+			WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+			TaskQueue:                queue.SiteTaskQueue,
+		}
+
+		// Get the temporal client for the site we are working with
+		stc, derr := cdesh.scp.GetClientByID(site.ID)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("failed to retrieve Temporal client for Site")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve workflow client for Site", nil)
+		}
+
+		// Add context deadlines
+		wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+		defer cancel()
+
+		// Trigger Site workflow
+		we, wferr := stc.ExecuteWorkflow(wfCtx, workflowOptions, "CreateDpuExtensionService", createDpuExtensionServiceRequest)
+		if wferr != nil {
+			logger.Error().Err(wferr).Msg("failed to schedule CreateDpuExtensionService workflow on Site")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to schedule DPU Extension Service creation workflow", nil)
+		}
+
+		wid := we.GetID()
+
+		logger.Info().Str("Workflow ID", wid).Msg("executing CreateDpuExtensionService workflow on Site in sync mode")
+
+		// Execute sync workflow on Site
+		wferr = we.Get(wfCtx, &controllerDpuExtensionService)
+		if wferr != nil {
+			var timeoutErr *tp.TimeoutError
+			if errors.As(wferr, &timeoutErr) || wferr == context.DeadlineExceeded || wfCtx.Err() != nil {
+				logger.Error().Err(wferr).Msg("timed out executing DPU Extension Service creation workflow on Site")
+				timeoutCause := wferr
+				timeoutResp = func() error {
+					return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "DpuExtensionService", "CreateDpuExtensionService")
+				}
+				return cutil.NewAPIError(http.StatusInternalServerError, "DPU Extension Service create workflow timed out", nil)
+			}
+
+			code, uwerr := common.UnwrapWorkflowError(wferr)
+			logger.Error().Err(uwerr).Msg("failed to execute DPU Extension Service creation workflow on Site")
+			return cutil.NewAPIError(code, fmt.Sprintf("Failed to execute DPU Extension Service creation workflow on Site: %s", uwerr), nil)
+		}
+
+		return nil
+	})
+	// Surface real tx-helper errors first so they aren't masked by the
+	// timeout response (commit/rollback failures wrap into something other
+	// than the cutil.APIError marker we returned for the timeout case).
 	if err != nil {
-		logger.Error().Err(err).Msg("error committing DPU Extension Service transaction to DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create DPU Extension Service, DB transaction error", nil)
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) {
+			return common.HandleTxError(c, logger, err, "Failed to create DPU Extension Service, DB transaction error")
+		}
 	}
-	txCommitted = true
+	if timeoutResp != nil {
+		return timeoutResp()
+	}
+	if err != nil {
+		return common.HandleTxError(c, logger, err, "Failed to create DPU Extension Service, DB transaction error")
+	}
 
 	// Best effort to update the DPU Extension Service version and versionInfo from received response
 	updatedDpuExtensionService := dpuExtensionService
@@ -798,121 +801,137 @@ func (udesh UpdateDpuExtensionServiceHandler) Handle(c echo.Context) error {
 		}
 	}
 
-	// Start a db tx
-	tx, err := cdb.BeginTx(ctx, udesh.dbSession, &sql.TxOptions{})
+	// Outer-scope values populated inside the transaction closure that are
+	// needed for the post-commit best-effort update and the response.
+	var updatedDpuExtensionService *cdbm.DpuExtensionService
+	var controllerDpuExtensionService *cwssaws.DpuExtensionService
+
+	// timeoutResp lets the closure signal a post-rollback handler — the
+	// TerminateWorkflow call has to run after the closure returns so that
+	// the DB tx unwinds before we make the second remote call. nil means
+	// no timeout occurred and the normal flow continues.
+	var timeoutResp func() error
+
+	err = cdb.WithTx(ctx, udesh.dbSession, func(tx *cdb.Tx) error {
+		// Update DPU Extension Service in DB
+		var updateInput cdbm.DpuExtensionServiceUpdateInput
+		updateInput.DpuExtensionServiceID = dpuExtensionService.ID
+
+		if apiRequest.Name != nil {
+			updateInput.Name = apiRequest.Name
+		}
+
+		if apiRequest.Description != nil {
+			updateInput.Description = apiRequest.Description
+		}
+
+		udes, derr := desDAO.Update(ctx, tx, updateInput)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("failed to update DPU Extension Service record in DB")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update DPU Extension Service, DB error", nil)
+		}
+		updatedDpuExtensionService = udes
+
+		// Trigger workflow to update DPU Extension Service
+		updateDpuExtensionServiceRequest := &cwssaws.UpdateDpuExtensionServiceRequest{
+			ServiceId:   updatedDpuExtensionService.ID.String(),
+			ServiceName: apiRequest.Name,
+			Description: apiRequest.Description,
+		}
+
+		if apiRequest.Data != nil {
+			updateDpuExtensionServiceRequest.Data = *apiRequest.Data
+		}
+
+		if apiRequest.Credentials != nil {
+			updateDpuExtensionServiceRequest.Credential = &cwssaws.DpuExtensionServiceCredential{
+				RegistryUrl: apiRequest.Credentials.RegistryURL,
+				Type: &cwssaws.DpuExtensionServiceCredential_UsernamePassword{
+					UsernamePassword: &cwssaws.UsernamePassword{
+						Username: *apiRequest.Credentials.Username,
+						Password: *apiRequest.Credentials.Password,
+					},
+				},
+			}
+		}
+
+		if apiRequest.Observability != nil {
+			updateDpuExtensionServiceRequest.Observability = apiRequest.Observability.ToProto()
+		}
+
+		logger.Info().Msg("triggering DPU Extension Service update workflow on Site")
+
+		workflowOptions := tclient.StartWorkflowOptions{
+			ID:                       "dpu-extension-service-update-" + updatedDpuExtensionService.ID.String(),
+			WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+			TaskQueue:                queue.SiteTaskQueue,
+		}
+
+		// Get the temporal client for the site we are working with
+		stc, derr := udesh.scp.GetClientByID(updatedDpuExtensionService.SiteID)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("failed to retrieve Temporal client for Site")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve workflow client for Site", nil)
+		}
+
+		// Add context deadlines
+		wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+		defer cancel()
+
+		// Trigger Site workflow
+		we, wferr := stc.ExecuteWorkflow(wfCtx, workflowOptions, "UpdateDpuExtensionService", updateDpuExtensionServiceRequest)
+		if wferr != nil {
+			logger.Error().Err(wferr).Msg("failed to schedule UpdateDpuExtensionService workflow on Site")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to schedule DPU Extension Service update workflow", nil)
+		}
+
+		wid := we.GetID()
+
+		logger.Info().Str("Workflow ID", wid).Msg("executing UpdateDpuExtensionService workflow on Site in sync mode")
+
+		// Execute sync workflow on Site
+		wferr = we.Get(wfCtx, &controllerDpuExtensionService)
+		if wferr != nil {
+			var timeoutErr *tp.TimeoutError
+			if errors.As(wferr, &timeoutErr) || wferr == context.DeadlineExceeded || wfCtx.Err() != nil {
+				logger.Error().Err(wferr).Msg("timed out executing DPU Extension Service update workflow on Site")
+				timeoutCause := wferr
+				timeoutResp = func() error {
+					return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "DpuExtensionService", "UpdateDpuExtensionService")
+				}
+				return cutil.NewAPIError(http.StatusInternalServerError, "DPU Extension Service update workflow timed out", nil)
+			}
+
+			code, uwerr := common.UnwrapWorkflowError(wferr)
+			logger.Error().Err(uwerr).Msg("failed to execute DPU Extension Service update workflow on Site")
+			return cutil.NewAPIError(code, fmt.Sprintf("Failed to execute DPU Extension Service update workflow on Site: %s", uwerr), nil)
+		}
+
+		return nil
+	})
+	// Surface real tx-helper errors first so they aren't masked by the
+	// timeout response (commit/rollback failures wrap into something other
+	// than the cutil.APIError marker we returned for the timeout case).
 	if err != nil {
-		logger.Error().Err(err).Msg("unable to start transaction")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update DPU Extension Service, DB transaction error", nil)
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) {
+			return common.HandleTxError(c, logger, err, "Failed to update DPU Extension Service, DB transaction error")
+		}
 	}
-	txCommitted := false
-	defer common.RollbackTx(ctx, tx, &txCommitted)
-
-	// Update DPU Extension Service in DB
-	var updateInput cdbm.DpuExtensionServiceUpdateInput
-	updateInput.DpuExtensionServiceID = dpuExtensionService.ID
-
-	if apiRequest.Name != nil {
-		updateInput.Name = apiRequest.Name
+	if timeoutResp != nil {
+		return timeoutResp()
 	}
-
-	if apiRequest.Description != nil {
-		updateInput.Description = apiRequest.Description
-	}
-
-	updatedDpuExtensionService, err := desDAO.Update(ctx, tx, updateInput)
 	if err != nil {
-		logger.Error().Err(err).Msg("failed to update DPU Extension Service record in DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update DPU Extension Service, DB error", nil)
+		return common.HandleTxError(c, logger, err, "Failed to update DPU Extension Service, DB transaction error")
 	}
 
-	// Get updated status details
+	// Get updated status details (post-commit; this read does not need to be in the tx)
 	sdDAO := cdbm.NewStatusDetailDAO(udesh.dbSession)
 	statusDetails, err := sdDAO.GetRecentByEntityIDs(ctx, nil, []string{updatedDpuExtensionService.ID.String()}, common.RECENT_STATUS_DETAIL_COUNT)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving Status Details from DB")
 		// Don't fail the request, just use what we have
 	}
-
-	// Trigger workflow to update DPU Extension Service
-	updateDpuExtensionServiceRequest := &cwssaws.UpdateDpuExtensionServiceRequest{
-		ServiceId:   updatedDpuExtensionService.ID.String(),
-		ServiceName: apiRequest.Name,
-		Description: apiRequest.Description,
-	}
-
-	if apiRequest.Data != nil {
-		updateDpuExtensionServiceRequest.Data = *apiRequest.Data
-	}
-
-	if apiRequest.Credentials != nil {
-		updateDpuExtensionServiceRequest.Credential = &cwssaws.DpuExtensionServiceCredential{
-			RegistryUrl: apiRequest.Credentials.RegistryURL,
-			Type: &cwssaws.DpuExtensionServiceCredential_UsernamePassword{
-				UsernamePassword: &cwssaws.UsernamePassword{
-					Username: *apiRequest.Credentials.Username,
-					Password: *apiRequest.Credentials.Password,
-				},
-			},
-		}
-	}
-
-	if apiRequest.Observability != nil {
-		updateDpuExtensionServiceRequest.Observability = apiRequest.Observability.ToProto()
-	}
-
-	logger.Info().Msg("triggering DPU Extension Service update workflow on Site")
-
-	workflowOptions := tclient.StartWorkflowOptions{
-		ID:                       "dpu-extension-service-update-" + updatedDpuExtensionService.ID.String(),
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	// Get the temporal client for the site we are working with
-	stc, err := udesh.scp.GetClientByID(updatedDpuExtensionService.SiteID)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve workflow client for Site", nil)
-	}
-
-	// Add context deadlines
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
-
-	// Trigger Site workflow
-	workflowRun, err := stc.ExecuteWorkflow(ctxWithTimeout, workflowOptions, "UpdateDpuExtensionService", updateDpuExtensionServiceRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to schedule UpdateDpuExtensionService workflow on Site")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule DPU Extension Service update workflow", nil)
-	}
-
-	workflowID := workflowRun.GetID()
-
-	logger.Info().Str("Workflow ID", workflowID).Msg("executing UpdateDpuExtensionService workflow on Site in sync mode")
-
-	// Execute sync workflow on Site
-	var controllerDpuExtensionService *cwssaws.DpuExtensionService
-
-	err = workflowRun.Get(ctxWithTimeout, &controllerDpuExtensionService)
-	if err != nil {
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) {
-			logger.Error().Err(err).Msg("timed out executing DPU Extension Service update workflow on Site")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Timed out executing DPU Extension Service update workflow on Site: %v", err), nil)
-		}
-
-		code, uwerr := common.UnwrapWorkflowError(err)
-		logger.Error().Err(uwerr).Msg("failed to execute DPU Extension Service update workflow on Site")
-		return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute DPU Extension Service update workflow on Site: %s", uwerr), nil)
-	}
-
-	// Commit transaction
-	err = tx.Commit()
-	if err != nil {
-		logger.Error().Err(err).Msg("error committing DPU Extension Service transaction to DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update DPU Extension Service, DB transaction error", nil)
-	}
-	txCommitted = true
 
 	// Best effort to update the DPU Extension Service version and versionInfo from received response
 	reUpdatedDpuExtensionService := updatedDpuExtensionService
@@ -1054,67 +1073,104 @@ func (ddesh DeleteDpuExtensionServiceHandler) Handle(c echo.Context) error {
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Cannot delete DPU Extension Service with active deployments", nil)
 	}
 
-	// Start a db tx
-	tx, err := cdb.BeginTx(ctx, ddesh.dbSession, &sql.TxOptions{})
+	// timeoutResp lets the closure signal a post-rollback handler — the
+	// TerminateWorkflow call has to run after the closure returns so that
+	// the DB tx unwinds before we make the second remote call. nil means
+	// no timeout occurred and the normal flow continues.
+	var timeoutResp func() error
+
+	err = cdb.WithTx(ctx, ddesh.dbSession, func(tx *cdb.Tx) error {
+		// Update status to Deleting
+		_, derr := desDAO.Update(
+			ctx,
+			tx,
+			cdbm.DpuExtensionServiceUpdateInput{
+				DpuExtensionServiceID: dpuExtensionService.ID,
+				Status:                cdb.GetStrPtr(cdbm.DpuExtensionServiceStatusDeleting),
+			},
+		)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("unable to update DPU Extension Service status to Deleting")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update DPU Extension Service status to Deleting, DB error", nil)
+		}
+
+		// Delete the DPU Extension Service
+		derr = desDAO.Delete(ctx, tx, dpuExtensionService.ID)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("unable to delete DPU Extension Service")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to delete DPU Extension Service, DB error", nil)
+		}
+
+		// Trigger workflow to delete DPU Extension Service
+		deleteDpuExtensionServiceRequest := &cwssaws.DeleteDpuExtensionServiceRequest{
+			ServiceId: dpuExtensionService.ID.String(),
+		}
+
+		// Get the temporal client for the site we are working with
+		stc, derr := ddesh.scp.GetClientByID(dpuExtensionService.SiteID)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("failed to retrieve Temporal client for Site")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve workflow client for Site", nil)
+		}
+
+		workflowOptions := tclient.StartWorkflowOptions{
+			ID:                       "dpu-extension-service-delete-" + dpuExtensionService.ID.String(),
+			WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+			TaskQueue:                queue.SiteTaskQueue,
+		}
+
+		logger.Info().Msg("triggering DPU Extension Service delete workflow on Site")
+
+		// Add context deadlines
+		wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+		defer cancel()
+
+		// Trigger Site workflow
+		we, wferr := stc.ExecuteWorkflow(wfCtx, workflowOptions, "DeleteDpuExtensionService", deleteDpuExtensionServiceRequest)
+		if wferr != nil {
+			logger.Error().Err(wferr).Msg("failed to schedule DeleteDpuExtensionService workflow on Site")
+			return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to schedule DPU Extension Service deletion workflow on Site: %s", wferr), nil)
+		}
+
+		wid := we.GetID()
+
+		logger.Info().Str("Workflow ID", wid).Msg("executing DeleteDpuExtensionService workflow on Site in sync mode")
+
+		// Execute sync workflow on Site
+		wferr = we.Get(wfCtx, nil)
+		if wferr != nil {
+			var timeoutErr *tp.TimeoutError
+			if errors.As(wferr, &timeoutErr) || wferr == context.DeadlineExceeded || wfCtx.Err() != nil {
+				logger.Error().Err(wferr).Msg("timed out executing DPU Extension Service deletion workflow on Site")
+				timeoutCause := wferr
+				timeoutResp = func() error {
+					return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "DpuExtensionService", "DeleteDpuExtensionService")
+				}
+				return cutil.NewAPIError(http.StatusInternalServerError, "DPU Extension Service delete workflow timed out", nil)
+			}
+
+			code, uwerr := common.UnwrapWorkflowError(wferr)
+			logger.Error().Err(uwerr).Msg("failed to execute DPU Extension Service deletion workflow on Site")
+			return cutil.NewAPIError(code, fmt.Sprintf("Failed to execute DPU Extension Service deletion workflow on Site: %s", uwerr), nil)
+		}
+
+		return nil
+	})
+	// Surface real tx-helper errors first so they aren't masked by the
+	// timeout response (commit/rollback failures wrap into something other
+	// than the cutil.APIError marker we returned for the timeout case).
 	if err != nil {
-		logger.Error().Err(err).Msg("unable to start transaction")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to delete DPU Extension Service, DB transaction error", nil)
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) {
+			return common.HandleTxError(c, logger, err, "Failed to delete DPU Extension Service, DB transaction error")
+		}
 	}
-	txCommitted := false
-	defer common.RollbackTx(ctx, tx, &txCommitted)
-
-	// Update status to Deleting
-	_, err = desDAO.Update(
-		ctx,
-		tx,
-		cdbm.DpuExtensionServiceUpdateInput{
-			DpuExtensionServiceID: dpuExtensionService.ID,
-			Status:                cdb.GetStrPtr(cdbm.DpuExtensionServiceStatusDeleting),
-		},
-	)
+	if timeoutResp != nil {
+		return timeoutResp()
+	}
 	if err != nil {
-		logger.Error().Err(err).Msg("unable to update DPU Extension Service status to Deleting")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update DPU Extension Service status to Deleting, DB error", nil)
+		return common.HandleTxError(c, logger, err, "Failed to delete DPU Extension Service, DB transaction error")
 	}
-
-	// Delete the DPU Extension Service
-	err = desDAO.Delete(ctx, tx, dpuExtensionService.ID)
-	if err != nil {
-		logger.Error().Err(err).Msg("unable to delete DPU Extension Service")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to delete DPU Extension Service, DB error", nil)
-	}
-
-	// Trigger workflow to delete DPU Extension Service
-	deleteDpuExtensionServiceRequest := &cwssaws.DeleteDpuExtensionServiceRequest{
-		ServiceId: dpuExtensionService.ID.String(),
-	}
-
-	// Get the temporal client for the site we are working with
-	stc, err := ddesh.scp.GetClientByID(dpuExtensionService.SiteID)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve workflow client for Site", nil)
-	}
-
-	workflowOptions := tclient.StartWorkflowOptions{
-		ID:                       "dpu-extension-service-delete-" + dpuExtensionService.ID.String(),
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	// Trigger Site workflow
-	apiErr := common.ExecuteSyncWorkflow(ctx, logger, stc, "DeleteDpuExtensionService", workflowOptions, deleteDpuExtensionServiceRequest)
-	if apiErr != nil {
-		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
-	}
-
-	// Commit transaction
-	err = tx.Commit()
-	if err != nil {
-		logger.Error().Err(err).Msg("error committing DPU Extension Service delete transaction to DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to delete DPU Extension Service, DB transaction error", nil)
-	}
-	txCommitted = true
 
 	logger.Info().Msg("finishing API handler")
 
@@ -1419,167 +1475,232 @@ func (ddesvh DeleteDpuExtensionServiceVersionHandler) Handle(c echo.Context) err
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Cannot delete version with active deployments", nil)
 	}
 
-	// Start a db tx
-	tx, err := cdb.BeginTx(ctx, ddesvh.dbSession, &sql.TxOptions{})
-	if err != nil {
-		logger.Error().Err(err).Msg("unable to start transaction")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to delete DPU Extension Service version, DB transaction error", nil)
-	}
-	txCommitted := false
-	defer common.RollbackTx(ctx, tx, &txCommitted)
+	// Outer-scope values populated inside the transaction closure that the
+	// post-commit refresh and response handling need. dpuExtensionService and
+	// remainingVersions are derived from a fresh re-read of the entity inside
+	// the tx so destructive decisions don't run on stale pre-flight data.
+	var remainingVersions []string
+	fetchLatestRemainingVersion := false
+	var stc tclient.Client
 
-	remainingVersions := []string{}
-	for _, version := range dpuExtensionService.ActiveVersions {
-		if version != versionID {
+	// timeoutResp lets the closure signal a post-rollback handler — the
+	// TerminateWorkflow call has to run after the closure returns so that
+	// the DB tx unwinds before we make the second remote call. nil means
+	// no timeout occurred and the normal flow continues.
+	var timeoutResp func() error
+
+	err = cdb.WithTx(ctx, ddesvh.dbSession, func(tx *cdb.Tx) error {
+		// Re-read the DPU Extension Service inside the tx so destructive
+		// decisions below (delete vs update, fetchLatestRemainingVersion)
+		// work from an in-transaction snapshot rather than the stale
+		// pre-flight read.
+		freshDpuExtensionService, derr := desDAO.GetByID(ctx, tx, dpuExtensionServiceID, nil)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error re-reading DPU Extension Service inside transaction")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve DPU Extension Service for version deletion, DB error", nil)
+		}
+		dpuExtensionService = freshDpuExtensionService
+
+		// Re-derive remainingVersions from the fresh snapshot and re-confirm
+		// the version is still present — a concurrent request may have
+		// already removed it between the pre-flight check and the tx.
+		versionFound := dpuExtensionService.Version != nil && *dpuExtensionService.Version == versionID
+		remainingVersions = []string{}
+		for _, version := range dpuExtensionService.ActiveVersions {
+			if version == versionID {
+				versionFound = true
+				continue
+			}
 			remainingVersions = append(remainingVersions, version)
 		}
-	}
-
-	fetchLatestRemainingVersion := false
-
-	// Check if this was the last version
-	if len(remainingVersions) == 0 {
-		logger.Info().Msg("since deleted version was the last version, deleting DPU Extension Service from DB")
-		// Delete the DPU Extension Service record from DB
-		err := desDAO.Delete(ctx, tx, dpuExtensionService.ID)
-		if err != nil {
-			logger.Error().Err(err).Msg("error deleting DPU Extension Service from DB")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to delete DPU Extension Service version, error deleting parent DPU Extension Service", nil)
-		}
-	} else if dpuExtensionService.Version != nil {
-		// Update active versions
-		_, err = desDAO.Update(ctx, tx, cdbm.DpuExtensionServiceUpdateInput{
-			DpuExtensionServiceID: dpuExtensionService.ID,
-			ActiveVersions:        remainingVersions,
-			Status:                cdb.GetStrPtr(cdbm.DpuExtensionServiceStatusReady),
-		})
-		if err != nil {
-			logger.Error().Err(err).Msg("error updating DPU Extension Service record in DB after deleting individual version")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to update active versions after DPU Extension Service version deletion, DB error", nil)
+		if !versionFound {
+			return cutil.NewAPIError(http.StatusNotFound, fmt.Sprintf("Version: %s not found for DPU Extension Service: %s", versionID, dpuExtensionServiceID.String()), nil)
 		}
 
-		// If latest version is not equal to the remaining latest version, then fetch the latest remaining version
-		if *dpuExtensionService.Version != remainingVersions[0] {
+		// Check if this was the last version
+		if len(remainingVersions) == 0 {
+			logger.Info().Msg("since deleted version was the last version, deleting DPU Extension Service from DB")
+			// Delete the DPU Extension Service record from DB
+			derr := desDAO.Delete(ctx, tx, dpuExtensionService.ID)
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error deleting DPU Extension Service from DB")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to delete DPU Extension Service version, error deleting parent DPU Extension Service", nil)
+			}
+		} else if dpuExtensionService.Version != nil {
+			// Update active versions
+			_, derr := desDAO.Update(ctx, tx, cdbm.DpuExtensionServiceUpdateInput{
+				DpuExtensionServiceID: dpuExtensionService.ID,
+				ActiveVersions:        remainingVersions,
+				Status:                cdb.GetStrPtr(cdbm.DpuExtensionServiceStatusReady),
+			})
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error updating DPU Extension Service record in DB after deleting individual version")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to update active versions after DPU Extension Service version deletion, DB error", nil)
+			}
+
+			// If latest version is not equal to the remaining latest version, then fetch the latest remaining version
+			if *dpuExtensionService.Version != remainingVersions[0] {
+				fetchLatestRemainingVersion = true
+			}
+		} else {
+			// DPU Extension Service doesn't have version field populated, so we need to fetch the latest remaining version
 			fetchLatestRemainingVersion = true
 		}
-	} else {
-		// DPU Extension Service doesn't have version field populated, so we need to fetch the latest remaining version
-		fetchLatestRemainingVersion = true
-	}
 
-	if fetchLatestRemainingVersion && dpuExtensionService.VersionInfo != nil {
-		// Clear version info since latest version was deleted and latest version info is now incorrect
-		_, err = desDAO.Clear(ctx, tx, cdbm.DpuExtensionServiceClearInput{
-			DpuExtensionServiceID: dpuExtensionService.ID,
-			VersionInfo:           true,
-		})
-		if err != nil {
-			logger.Error().Err(err).Msg("error clearing version info after DPU Extension Service version deletion")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to clear version info for deleted version, DB error", nil)
+		if fetchLatestRemainingVersion && dpuExtensionService.VersionInfo != nil {
+			// Clear version info since latest version was deleted and latest version info is now incorrect
+			_, derr := desDAO.Clear(ctx, tx, cdbm.DpuExtensionServiceClearInput{
+				DpuExtensionServiceID: dpuExtensionService.ID,
+				VersionInfo:           true,
+			})
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error clearing version info after DPU Extension Service version deletion")
+				return cutil.NewAPIError(http.StatusInternalServerError, "Failed to clear version info for deleted version, DB error", nil)
+			}
 		}
-	}
 
-	// Trigger workflow to delete DPU Extension Service version
-	deleteDpuExtensionServiceVersionRequest := &cwssaws.DeleteDpuExtensionServiceRequest{
-		ServiceId: dpuExtensionService.ID.String(),
-		Versions:  []string{versionID},
-	}
+		// Trigger workflow to delete DPU Extension Service version
+		deleteDpuExtensionServiceVersionRequest := &cwssaws.DeleteDpuExtensionServiceRequest{
+			ServiceId: dpuExtensionService.ID.String(),
+			Versions:  []string{versionID},
+		}
 
-	// Get the temporal client for the site we are working with
-	stc, err := ddesvh.scp.GetClientByID(dpuExtensionService.SiteID)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve workflow client for Site", nil)
-	}
+		// Get the temporal client for the site we are working with
+		siteClient, derr := ddesvh.scp.GetClientByID(dpuExtensionService.SiteID)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("failed to retrieve Temporal client for Site")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve workflow client for Site", nil)
+		}
+		stc = siteClient
 
-	workflowOptions := tclient.StartWorkflowOptions{
-		ID:                       "dpu-extension-service-delete-version-" + dpuExtensionService.ID.String() + "-" + versionID,
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
-
-	// Trigger Site workflow
-	apiErr := common.ExecuteSyncWorkflow(ctx, logger, stc, "DeleteDpuExtensionService", workflowOptions, deleteDpuExtensionServiceVersionRequest)
-	if apiErr != nil {
-		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
-	}
-
-	// Commit transaction
-	err = tx.Commit()
-	if err != nil {
-		logger.Error().Err(err).Msg("error committing DPU Extension Service transaction to DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to delete DPU Extension Service version, DB transaction error", nil)
-	}
-	txCommitted = true
-
-	// Best effort to update the DPU Extension Service record in REST layer with the latest remaining version
-	if fetchLatestRemainingVersion {
 		workflowOptions := tclient.StartWorkflowOptions{
-			ID:                       "dpu-extension-service-get-versions-info-" + dpuExtensionService.ID.String() + "-" + remainingVersions[0],
+			ID:                       "dpu-extension-service-delete-version-" + dpuExtensionService.ID.String() + "-" + versionID,
 			WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
 			TaskQueue:                queue.SiteTaskQueue,
 		}
 
-		// Trigger Site workflow
+		logger.Info().Msg("triggering DPU Extension Service delete version workflow on Site")
+
 		// Add context deadlines
-		ctxWithTimeout, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+		wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
 		defer cancel()
 
-		getDpuVersionInfoRequest := &cwssaws.GetDpuExtensionServiceVersionsInfoRequest{
-			ServiceId: dpuExtensionService.ID.String(),
-			Versions:  []string{remainingVersions[0]},
-		}
-
 		// Trigger Site workflow
-		workflowRun, err := stc.ExecuteWorkflow(ctxWithTimeout, workflowOptions, "GetDpuExtensionServiceVersionsInfo", getDpuVersionInfoRequest)
-		if err != nil {
-			logger.Error().Err(err).Msg("failed to schedule DPU Extension Service version info retrieval workflow on Site")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to schedule DPU Extension Service version info retrieval workflow", nil)
+		we, wferr := stc.ExecuteWorkflow(wfCtx, workflowOptions, "DeleteDpuExtensionService", deleteDpuExtensionServiceVersionRequest)
+		if wferr != nil {
+			logger.Error().Err(wferr).Msg("failed to schedule DeleteDpuExtensionService workflow on Site")
+			return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to schedule DPU Extension Service version deletion workflow on Site: %s", wferr), nil)
 		}
 
-		workflowID := workflowRun.GetID()
+		wid := we.GetID()
 
-		logger = logger.With().Str("Workflow ID", workflowID).Logger()
-
-		logger.Info().Msg("executing sync Temporal workflow on Site")
+		logger.Info().Str("Workflow ID", wid).Msg("executing DeleteDpuExtensionService workflow on Site in sync mode")
 
 		// Execute sync workflow on Site
-		var controllerVersionInfos *cwssaws.DpuExtensionServiceVersionInfoList
-		err = workflowRun.Get(ctxWithTimeout, &controllerVersionInfos)
-		if err != nil {
+		wferr = we.Get(wfCtx, nil)
+		if wferr != nil {
 			var timeoutErr *tp.TimeoutError
-			if errors.As(err, &timeoutErr) {
-				logger.Error().Err(err).Msg("timed out executing DPU Extension Service version info retrieval workflow on Site")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Timed out executing DPU Extension Service version info retrieval workflow on Site: %s", err), nil)
+			if errors.As(wferr, &timeoutErr) || wferr == context.DeadlineExceeded || wfCtx.Err() != nil {
+				logger.Error().Err(wferr).Msg("timed out executing DPU Extension Service version deletion workflow on Site")
+				timeoutCause := wferr
+				timeoutResp = func() error {
+					return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "DpuExtensionService", "DeleteDpuExtensionService")
+				}
+				return cutil.NewAPIError(http.StatusInternalServerError, "DPU Extension Service version delete workflow timed out", nil)
 			}
 
-			code, uwerr := common.UnwrapWorkflowError(err)
-			logger.Error().Err(uwerr).Msg("failed to execute DPU Extension Service version info retrieval workflow on Site")
-			return cutil.NewAPIErrorResponse(c, code, fmt.Sprintf("Failed to execute DPU Extension Service version info retrieval workflow on Site: %s", uwerr), nil)
+			code, uwerr := common.UnwrapWorkflowError(wferr)
+			logger.Error().Err(uwerr).Msg("failed to execute DPU Extension Service version deletion workflow on Site")
+			return cutil.NewAPIError(code, fmt.Sprintf("Failed to execute DPU Extension Service version deletion workflow on Site: %s", uwerr), nil)
 		}
 
-		if len(controllerVersionInfos.VersionInfos) == 0 {
-			return cutil.NewAPIErrorResponse(c, http.StatusNotFound, "Could not find latest remaining version details for DPU Extension Service", nil)
+		return nil
+	})
+	// Surface real tx-helper errors first so they aren't masked by the
+	// timeout response (commit/rollback failures wrap into something other
+	// than the cutil.APIError marker we returned for the timeout case).
+	if err != nil {
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) {
+			return common.HandleTxError(c, logger, err, "Failed to delete DPU Extension Service version, DB transaction error")
 		}
+	}
+	if timeoutResp != nil {
+		return timeoutResp()
+	}
+	if err != nil {
+		return common.HandleTxError(c, logger, err, "Failed to delete DPU Extension Service version, DB transaction error")
+	}
 
-		controllerVersionInfo := controllerVersionInfos.VersionInfos[0]
+	// Best-effort post-commit refresh: pull the latest remaining version's
+	// info from the Site and persist it. Any failure here is logged and
+	// swallowed — the delete-version itself has already succeeded.
+	if fetchLatestRemainingVersion {
+		func() {
+			workflowOptions := tclient.StartWorkflowOptions{
+				ID:                       "dpu-extension-service-get-versions-info-" + dpuExtensionService.ID.String() + "-" + remainingVersions[0],
+				WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+				TaskQueue:                queue.SiteTaskQueue,
+			}
 
-		if controllerVersionInfo != nil {
+			ctxWithTimeout, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+			defer cancel()
+
+			getDpuVersionInfoRequest := &cwssaws.GetDpuExtensionServiceVersionsInfoRequest{
+				ServiceId: dpuExtensionService.ID.String(),
+				Versions:  []string{remainingVersions[0]},
+			}
+
+			workflowRun, wferr := stc.ExecuteWorkflow(ctxWithTimeout, workflowOptions, "GetDpuExtensionServiceVersionsInfo", getDpuVersionInfoRequest)
+			if wferr != nil {
+				logger.Error().Err(wferr).Msg("failed to schedule DPU Extension Service version info retrieval workflow on Site (best-effort; ignoring)")
+				return
+			}
+
+			workflowID := workflowRun.GetID()
+			logger := logger.With().Str("Workflow ID", workflowID).Logger()
+
+			logger.Info().Msg("executing sync Temporal workflow on Site")
+
+			var controllerVersionInfos *cwssaws.DpuExtensionServiceVersionInfoList
+			wferr = workflowRun.Get(ctxWithTimeout, &controllerVersionInfos)
+			if wferr != nil {
+				var timeoutErr *tp.TimeoutError
+				if errors.As(wferr, &timeoutErr) {
+					logger.Error().Err(wferr).Msg("timed out executing DPU Extension Service version info retrieval workflow on Site (best-effort; ignoring)")
+					return
+				}
+
+				_, uwerr := common.UnwrapWorkflowError(wferr)
+				logger.Error().Err(uwerr).Msg("failed to execute DPU Extension Service version info retrieval workflow on Site (best-effort; ignoring)")
+				return
+			}
+
+			if len(controllerVersionInfos.VersionInfos) == 0 {
+				logger.Warn().Msg("could not find latest remaining version details for DPU Extension Service (best-effort; ignoring)")
+				return
+			}
+
+			controllerVersionInfo := controllerVersionInfos.VersionInfos[0]
+			if controllerVersionInfo == nil {
+				return
+			}
+
 			versionInfo := &cdbm.DpuExtensionServiceVersionInfo{}
 			versionInfo.FromProto(controllerVersionInfo, dpuExtensionService.Updated)
 			versionInfo.Version = remainingVersions[0]
 
-			_, err = desDAO.Update(ctx, nil, cdbm.DpuExtensionServiceUpdateInput{
+			_, derr := desDAO.Update(ctx, nil, cdbm.DpuExtensionServiceUpdateInput{
 				DpuExtensionServiceID: dpuExtensionService.ID,
 				Version:               &remainingVersions[0],
 				VersionInfo:           versionInfo,
 				ActiveVersions:        remainingVersions,
 				Status:                cdb.GetStrPtr(cdbm.DpuExtensionServiceStatusReady),
 			})
-			if err != nil {
-				logger.Error().Err(err).Msg("error updating DPU Extension Service record in DB after deleting individual version")
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error updating DPU Extension Service record in DB after deleting individual version (best-effort; ignoring)")
 			}
-		}
+		}()
 	}
 
 	logger.Info().Msg("finishing API handler")
