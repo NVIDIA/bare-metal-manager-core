@@ -38,6 +38,7 @@ pub mod resource;
 pub mod secure_boot;
 pub mod sensor;
 pub mod service_root;
+pub mod session_service;
 pub mod software_inventory;
 pub mod storage;
 pub mod task_service;

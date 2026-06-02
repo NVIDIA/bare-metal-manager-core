@@ -1663,7 +1663,7 @@ enum TenantState {
   // Something Wrong happened at nico. Check logs for more info.
   INVALID = 9;
 
-  // The instance is currently getting repaired on the machine.
+  // The instance is currently getting repaired on the machine. 
   // This is a temporary state that is used to indicate that the instance is being repaired on the machine.
   // The instance will return to the READY state when the repair is complete.
   REPAIRING = 10;

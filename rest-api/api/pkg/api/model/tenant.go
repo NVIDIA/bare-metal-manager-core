@@ -109,7 +109,6 @@ func NewAPITenantStats(instancestatsmap map[string]int, vpcstatsmap map[string]i
 			Pending:     instancestatsmap[cdbm.InstanceStatusPending],
 			Terminating: instancestatsmap[cdbm.InstanceStatusTerminating],
 			Ready:       instancestatsmap[cdbm.InstanceStatusReady],
-			Repairing:   instancestatsmap[cdbm.InstanceStatusRepairing],
 			Updating:    instancestatsmap[cdbm.InstanceStatusUpdating],
 			Registering: instancestatsmap[cdbm.InstanceStatusProvisioning],
 			Error:       instancestatsmap[cdbm.InstanceStatusError],

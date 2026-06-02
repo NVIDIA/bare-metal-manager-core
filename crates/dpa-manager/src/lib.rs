@@ -39,9 +39,11 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
-use crate::cfg::file::DpaConfig;
-use crate::{CarbideError, CarbideResult};
+use crate::config::DpaConfig;
+use crate::errors::{DpaManagerError, DpaManagerResult};
 
+pub mod config;
+pub mod errors;
 mod metrics;
 
 pub struct DpaMonitor {
@@ -132,7 +134,7 @@ impl DpaMonitor {
         }
     }
 
-    pub async fn run_single_iteration(&mut self) -> CarbideResult<usize> {
+    pub async fn run_single_iteration(&mut self) -> DpaManagerResult<usize> {
         let mut metrics = DpaMonitorMetrics::new();
         let span_id: String = format!("{:#x}", u64::from_le_bytes(rand::random::<[u8; 8]>()));
         let check_dpa_span = tracing::span!(
@@ -153,7 +155,7 @@ impl DpaMonitor {
     async fn run_single_iteration_inner(
         &mut self,
         metrics: &mut DpaMonitorMetrics,
-    ) -> CarbideResult<usize> {
+    ) -> DpaManagerResult<usize> {
         let _lock = match self
             .work_lock_manager_handle
             .try_acquire_lock(Self::ITERATION_WORK_KEY.into())
@@ -268,7 +270,7 @@ impl DpaMonitor {
         dpa_info: &Arc<DpaInfo>,
         hb_interval: TimeDelta,
         metrics: &mut DpaMonitorMetrics,
-    ) -> CarbideResult<Option<PgTransaction<'a>>> {
+    ) -> DpaManagerResult<Option<PgTransaction<'a>>> {
         let db_services = &self.db_services;
 
         let this_mac = dpa_interface.mac_address;
@@ -294,7 +296,7 @@ impl DpaMonitor {
             tracing::error!(
                 "reconcile_assigned_state: this_nic_configured_attachments length is greater than 1"
             );
-            return Err(CarbideError::InvalidArgument(
+            return Err(DpaManagerError::InvalidArgument(
                 "reconcile_assigned_state this_nic_configured_attachments length is greater than 1"
                     .to_string(),
             ));
@@ -315,7 +317,7 @@ impl DpaMonitor {
             tracing::error!(
                 "reconcile_assigned_state this_nic_observed_attachments length is greater than 1"
             );
-            return Err(CarbideError::InvalidArgument(
+            return Err(DpaManagerError::InvalidArgument(
                 "reconcile_assigned_state this_nic_observed_attachments length is greater than 1"
                     .to_string(),
             ));
@@ -344,7 +346,7 @@ impl DpaMonitor {
                 tracing::error!(
                     "reconcile_assigned_state SPX partition {partition_id} is not found"
                 );
-                return Err(CarbideError::InvalidArgument(format!(
+                return Err(DpaManagerError::InvalidArgument(format!(
                     "SPX partition {partition_id} is not found",
                 )));
             }
@@ -422,7 +424,7 @@ impl DpaMonitor {
         dpa_info: &Arc<DpaInfo>,
         hb_interval: TimeDelta,
         metrics: &mut DpaMonitorMetrics,
-    ) -> CarbideResult<Option<PgTransaction<'a>>> {
+    ) -> DpaManagerResult<Option<PgTransaction<'a>>> {
         let nic_version = dpa_interface.network_config.version;
         let nic_version_str = nic_version.to_string();
 
@@ -447,7 +449,7 @@ impl DpaMonitor {
             tracing::error!(
                 "reconcile_assigned_state this_nic_observed_attachments length is greater than 1"
             );
-            return Err(CarbideError::InvalidArgument(
+            return Err(DpaManagerError::InvalidArgument(
                 "reconcile_assigned_state this_nic_observed_attachments length is greater than 1"
                     .to_string(),
             ));
@@ -508,7 +510,7 @@ impl DpaMonitor {
         mh: &mut ManagedHostStateSnapshot,
         idx: usize,
         metrics: &mut DpaMonitorMetrics,
-    ) -> CarbideResult<HandlerResult> {
+    ) -> DpaManagerResult<HandlerResult> {
         let dpa_interface = &mut mh.dpa_interface_snapshots[idx];
 
         let hb_interval = self.config.hb_interval;
@@ -749,7 +751,7 @@ impl DpaMonitor {
     async fn get_all_snapshots(
         &self,
         txn: &mut PgConnection,
-    ) -> CarbideResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
+    ) -> DpaManagerResult<HashMap<MachineId, ManagedHostStateSnapshot>> {
         let machine_ids = db::machine::find_machine_ids(
             &mut *txn,
             MachineSearchConfig {
@@ -769,13 +771,13 @@ impl DpaMonitor {
             },
         )
         .await
-        .map_err(Into::<CarbideError>::into)?;
+        .map_err(Into::<DpaManagerError>::into)?;
 
         for mh in res.values_mut() {
             let machine_id = mh.host_snapshot.id;
             let dpa_snapshots = db::dpa_interface::find_by_machine_id(&mut *txn, machine_id)
                 .await
-                .map_err(Into::<CarbideError>::into)?;
+                .map_err(Into::<DpaManagerError>::into)?;
             mh.dpa_interface_snapshots = dpa_snapshots;
         }
 
@@ -793,7 +795,7 @@ impl DpaMonitor {
         hb_interval: TimeDelta,
         vni: u32,
         metrics: &mut DpaMonitorMetrics,
-    ) -> CarbideResult<Option<PgTransaction<'a>>> {
+    ) -> DpaManagerResult<Option<PgTransaction<'a>>> {
         // We are in the Ready or Assigned state and we continue to be in the same state.
         // In this state, we will send SetVni command to the DPA if
         //    (1) if the heartbeat interval has elapsed since the heartbeat
@@ -837,7 +839,7 @@ impl DpaMonitor {
         vni: u32,
         heart_beat: bool,
         revision_str: String,
-    ) -> CarbideResult<Option<PgTransaction<'a>>> {
+    ) -> DpaManagerResult<Option<PgTransaction<'a>>> {
         let services = &self.db_services;
 
         // Send a heartbeat command, indicated by the revision string being "NIL".
@@ -892,7 +894,7 @@ impl DpaMonitor {
 /// In both cases, profile_synced=Some(true) is the signal that
 /// the workflow completed successfully, and it's safe to transition
 /// to the next state.
-fn handle_apply_profile(state: &DpaInterface) -> CarbideResult<HandlerResult> {
+fn handle_apply_profile(state: &DpaInterface) -> DpaManagerResult<HandlerResult> {
     let Some(ref cs) = state.card_state else {
         tracing::info!(
             "no profile report, because card_state none for dpa: {:#?}, waiting for retry",

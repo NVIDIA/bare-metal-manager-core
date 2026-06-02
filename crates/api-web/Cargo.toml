@@ -44,7 +44,11 @@ ansi-to-html = { workspace = true }
 askama = { workspace = true, features = ["serde_json"] }
 askama_escape = { workspace = true }
 axum = { workspace = true, features = ["http2"] }
-axum-extra = { workspace = true, features = ["cookie", "cookie-private", "typed-header"] }
+axum-extra = { workspace = true, features = [
+  "cookie",
+  "cookie-private",
+  "typed-header",
+] }
 base64 = { workspace = true }
 chrono = { workspace = true }
 eyre = { workspace = true }
@@ -56,24 +60,31 @@ itertools = { workspace = true }
 lazy_static = { workspace = true }
 mac_address = { workspace = true }
 oauth2 = { workspace = true, default-features = false }
-reqwest = { workspace = true, default-features = false, features = ["rustls", "stream"] }
+reqwest = { workspace = true, default-features = false, features = [
+  "rustls",
+  "stream",
+] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true, features = [
-    "runtime-tokio-rustls",
-    "mac_address",
-    "ipnetwork",
-    "uuid",
-    "postgres",
-    "chrono",
-    "macros",
-    "json",
+  "runtime-tokio-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
 ] }
 thiserror = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
-tower-http = { workspace = true, features = ["add-extension", "auth", "normalize-path"] }
+tower-http = { workspace = true, features = [
+  "add-extension",
+  "auth",
+  "normalize-path",
+] }
 tracing = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 urlencoding = { workspace = true }
@@ -94,5 +105,9 @@ carbide-api-core = { path = "../api-core", features = ["test-support"] }
 carbide-macros = { path = "../macros" }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
 http-body-util = { workspace = true }
-sqlx = { workspace = true, features = ["runtime-tokio-rustls", "postgres", "macros"] }
+sqlx = { workspace = true, features = [
+  "runtime-tokio-rustls",
+  "postgres",
+  "macros",
+] }
 tower = { workspace = true }

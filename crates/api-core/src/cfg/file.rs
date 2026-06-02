@@ -200,6 +200,23 @@ pub struct CarbideConfig {
     /// DPU reboot.
     pub dpu_ipmi_reboot_attempts: Option<u32>,
 
+    /// Number of consecutive HTTP 401/403 responses from a BMC before the
+    /// session-token path stops attempting to log in to that BMC, to avoid
+    /// exhausting the BMC root account's retry budget.
+    /// Default is 3.
+    #[serde(default = "default_bmc_session_lockout_threshold")]
+    pub bmc_session_lockout_threshold: u32,
+
+    /// When `true`, `GetBmcCredentials` may return
+    /// `UsernamePassword` credentials for BMCs whose Redfish ServiceRoot
+    /// does not expose `SessionService`. When `false` (the default), such
+    /// BMCs surface a `NoSessionService` error to the caller and no
+    /// basic-auth fallback is performed. See the "Basic-auth fallback"
+    /// section of `crates/api/src/credentials/bmc_session_manager.rs` for
+    /// the full semantics.
+    #[serde(default)]
+    pub allow_bmc_basic_auth_fallback: bool,
+
     /// Infiniband fabrics managed by the site
     /// Note: At the moment, only a single fabric is supported
     #[serde(default)]
@@ -1469,35 +1486,6 @@ pub struct InitialObjectsConfig {
     pub networks: Option<HashMap<String, NetworkDefinition>>,
 }
 
-impl DpaConfig {
-    pub const fn default_hb_interval() -> chrono::TimeDelta {
-        chrono::TimeDelta::minutes(2)
-    }
-
-    pub const fn default_monitor_run_interval() -> std::time::Duration {
-        std::time::Duration::from_secs(60)
-    }
-
-    pub const fn default_subnet_ip() -> Ipv4Addr {
-        Ipv4Addr::UNSPECIFIED
-    }
-}
-
-impl Default for DpaConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            mqtt_endpoint: default_mqtt_endpoint(),
-            mqtt_broker_port: default_mqtt_broker_port(),
-            subnet_ip: Self::default_subnet_ip(),
-            subnet_mask: 0,
-            hb_interval: Self::default_hb_interval(),
-            monitor_run_interval: Self::default_monitor_run_interval(),
-            auth: MqttAuthConfig::default(),
-        }
-    }
-}
-
 /// TLS certificate and key configuration for securing
 /// gRPC and HTTP connections.
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1558,6 +1546,10 @@ fn default_listen() -> SocketAddr {
 
 fn default_max_database_connections() -> u32 {
     1000
+}
+
+pub const fn default_bmc_session_lockout_threshold() -> u32 {
+    3
 }
 
 /// DpuConfig related internal configuration
@@ -2047,116 +2039,7 @@ fn default_mqtt_broker_port() -> u16 {
     1884
 }
 
-/// MQTT authentication mode.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum MqttAuthMode {
-    /// No authentication.
-    #[default]
-    None,
-    /// Username/password basic authentication.
-    BasicAuth,
-    /// OAuth2 token-based authentication.
-    Oauth2,
-}
-
-/// OAuth2 configuration for MQTT broker authentication.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-pub struct MqttOAuth2Config {
-    /// OAuth2 token endpoint URL.
-    pub token_url: String,
-
-    /// OAuth2 scopes to request when obtaining a token.
-    #[serde(default)]
-    pub scopes: Vec<String>,
-
-    /// HTTP timeout for token endpoint requests.
-    /// Default is 30 seconds.
-    #[serde(
-        default = "MqttOAuth2Config::default_http_timeout",
-        deserialize_with = "deserialize_duration",
-        serialize_with = "as_std_duration"
-    )]
-    pub http_timeout: std::time::Duration,
-
-    /// Username sent with the MQTT CONNECT packet when using
-    /// OAuth2.
-    /// Default is "oauth2token".
-    #[serde(default = "MqttOAuth2Config::default_username")]
-    pub username: String,
-}
-
-impl MqttOAuth2Config {
-    fn default_http_timeout() -> std::time::Duration {
-        std::time::Duration::from_secs(30)
-    }
-
-    fn default_username() -> String {
-        "oauth2token".to_string()
-    }
-}
-
-/// MQTT authentication configuration shared by DPA and
-/// DSX event bus.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
-pub struct MqttAuthConfig {
-    /// Authentication mechanism to use for MQTT
-    /// connections.
-    #[serde(default)]
-    pub auth_mode: MqttAuthMode,
-
-    /// OAuth2 settings, required when `auth_mode` is
-    /// `Oauth2`.
-    pub oauth2: Option<MqttOAuth2Config>,
-}
-
-/// DPA (aka Cluster Interconnect Network) related configuration
-/// Enabled DPA, and specifies basic network settings.
-/// The VNI to be used by DPA will be the same as the parent VPC.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-pub struct DpaConfig {
-    /// Global enable/disable of Cluster Interconnect Network
-    #[serde(default)]
-    pub enabled: bool,
-
-    /// MQTT broker host (name or IP address) used to create client connections
-    #[serde(default = "default_mqtt_endpoint")]
-    pub mqtt_endpoint: String,
-
-    /// MQTT broker port to use to estabilsh client connections
-    #[serde(default = "default_mqtt_broker_port")]
-    pub mqtt_broker_port: u16,
-
-    /// Base IPv4 address of the DPA/Cluster Interconnect
-    /// subnet.
-    #[serde(default = "DpaConfig::default_subnet_ip")]
-    pub subnet_ip: Ipv4Addr,
-
-    /// CIDR prefix length for the DPA subnet.
-    #[serde(default)]
-    pub subnet_mask: i32,
-
-    /// hb_interval is the interval at which we issue heartbeat
-    /// requests to the DPA.
-    /// Defaults to 120 if not specified.
-    #[serde(
-        default = "DpaConfig::default_hb_interval",
-        deserialize_with = "deserialize_duration_chrono",
-        serialize_with = "as_duration"
-    )]
-    pub hb_interval: chrono::TimeDelta,
-
-    /// The interval at which we run the DPA monitor.
-    #[serde(
-        default = "DpaConfig::default_monitor_run_interval",
-        deserialize_with = "deserialize_duration",
-        serialize_with = "as_std_duration"
-    )]
-    pub monitor_run_interval: std::time::Duration,
-
-    #[serde(default)]
-    pub auth: MqttAuthConfig,
-}
+pub use carbide_dpa_manager::config::{DpaConfig, MqttAuthConfig, MqttAuthMode};
 
 /// DSX Exchange Event Bus configuration for publishing state change events via MQTT 3.1.1.
 ///
@@ -2583,6 +2466,15 @@ mod tests {
         assert!(config.pools.is_none());
         assert!(config.ib_config.is_none());
         assert!(config.ib_fabrics.is_empty());
+        assert_eq!(
+            config.bmc_session_lockout_threshold,
+            default_bmc_session_lockout_threshold()
+        );
+        assert!(
+            !config.allow_bmc_basic_auth_fallback,
+            "allow_bmc_basic_auth_fallback must default to false to preserve \
+             the session-token-only contract for existing deployments"
+        );
         assert!(config.vpc_peering_policy.is_none());
         assert!(config.site_explorer.enabled.load(AtomicOrdering::Relaxed));
         // `enable_admin_ui` is unset in the minimal config, so it should default to true.
@@ -2633,6 +2525,7 @@ mod tests {
         assert_eq!(config.asn, 777);
         assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
         assert!(config.route_servers.is_empty());
+        assert_eq!(config.bmc_session_lockout_threshold, 5);
         assert_eq!(config.vpc_peering_policy, Some(VpcPeeringPolicy::Exclusive));
         assert_eq!(config.vpc_peering_policy_on_existing, None);
         assert_eq!(
@@ -2773,6 +2666,7 @@ mod tests {
         assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
         assert_eq!(config.max_database_connections, 1222);
         assert_eq!(config.asn, 123);
+        assert_eq!(config.bmc_session_lockout_threshold, 4);
         assert_eq!(
             config.dhcp_servers,
             vec!["1.2.3.4".to_string(), "5.6.7.8".to_string()]
@@ -3088,6 +2982,7 @@ mod tests {
         assert_eq!(config.database_url, "postgres://a:b@postgresql".to_string());
         assert_eq!(config.max_database_connections, 1333);
         assert_eq!(config.asn, 777);
+        assert_eq!(config.bmc_session_lockout_threshold, 5);
         assert_eq!(config.dhcp_servers, vec!["99.101.102.103".to_string()]);
         assert_eq!(config.route_servers, vec!["9.10.11.12".to_string()]);
         assert_eq!(

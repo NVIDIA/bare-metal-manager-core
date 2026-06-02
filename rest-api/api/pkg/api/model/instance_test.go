@@ -2290,30 +2290,6 @@ func Test_getAggregatedInstanceStatus(t *testing.T) {
 			},
 			want: cdbm.InstancePowerStatusError,
 		},
-		{
-			name: "Repairing overlays Rebooting power status like Ready",
-			args: args{
-				status:      cdbm.InstanceStatusRepairing,
-				powerStatus: cdb.GetStrPtr(cdbm.InstancePowerStatusRebooting),
-			},
-			want: cdbm.InstancePowerStatusRebooting,
-		},
-		{
-			name: "Repairing overlays Error power status like Ready",
-			args: args{
-				status:      cdbm.InstanceStatusRepairing,
-				powerStatus: cdb.GetStrPtr(cdbm.InstancePowerStatusError),
-			},
-			want: cdbm.InstancePowerStatusError,
-		},
-		{
-			name: "non-ready status does not overlay power status during repair-unrelated states",
-			args: args{
-				status:      cdbm.InstanceStatusUpdating,
-				powerStatus: cdb.GetStrPtr(cdbm.InstancePowerStatusRebooting),
-			},
-			want: cdbm.InstanceStatusUpdating,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

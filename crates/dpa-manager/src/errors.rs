@@ -15,17 +15,20 @@
  * limitations under the License.
  */
 
-mod cleanup;
-mod context;
-mod iteration;
-mod spawn;
+use db::{AnnotatedSqlxError, DatabaseError};
 
-pub use context::DiscoveryLoopContext;
-pub use iteration::run_discovery_iteration;
-
-#[derive(Debug, Clone)]
-pub struct DiscoveryIterationStats {
-    pub discovered_endpoints: usize,
-    pub sharded_endpoints: usize,
-    pub active_monitors: usize,
+#[derive(thiserror::Error, Debug)]
+pub enum DpaManagerError {
+    #[error("Database error: {0}")]
+    Database(#[from] DatabaseError),
+    #[error(transparent)]
+    Sqlx(#[from] AnnotatedSqlxError),
+    #[error("Argument is invalid: {0}")]
+    InvalidArgument(String),
+    #[error("Generic error: {0}")]
+    Generic(#[from] eyre::ErrReport),
+    #[error("Internal error: {message}")]
+    Internal { message: String },
 }
+
+pub type DpaManagerResult<T> = Result<T, DpaManagerError>;

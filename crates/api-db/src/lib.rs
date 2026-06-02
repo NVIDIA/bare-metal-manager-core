@@ -21,6 +21,7 @@
 
 pub mod attestation;
 pub mod bmc_metadata;
+pub mod bmc_redfish_session;
 pub mod carbide_version;
 pub mod compute_allocation;
 pub mod db_read;

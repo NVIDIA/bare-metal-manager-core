@@ -15,17 +15,14 @@
  * limitations under the License.
  */
 
-mod cleanup;
-mod context;
-mod iteration;
-mod spawn;
+use mac_address::MacAddress;
+use sqlx::types::chrono::{DateTime, Utc};
 
-pub use context::DiscoveryLoopContext;
-pub use iteration::run_discovery_iteration;
-
-#[derive(Debug, Clone)]
-pub struct DiscoveryIterationStats {
-    pub discovered_endpoints: usize,
-    pub sharded_endpoints: usize,
-    pub active_monitors: usize,
+/// A row in the `bmc_redfish_sessions` table.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct StoredSession {
+    pub spiffe_service_id: String,
+    pub bmc_mac_address: MacAddress,
+    pub session_odata_id: String,
+    pub issued_at: DateTime<Utc>,
 }

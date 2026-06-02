@@ -26,7 +26,6 @@ type InstanceCountByStatus struct {
 	Pending      *int32 `json:"pending,omitempty"`
 	Provisioning *int32 `json:"provisioning,omitempty"`
 	Ready        *int32 `json:"ready,omitempty"`
-	Repairing    *int32 `json:"repairing,omitempty"`
 	Terminating  *int32 `json:"terminating,omitempty"`
 	Error        *int32 `json:"error,omitempty"`
 }
@@ -176,38 +175,6 @@ func (o *InstanceCountByStatus) SetReady(v int32) {
 	o.Ready = &v
 }
 
-// GetRepairing returns the Repairing field value if set, zero value otherwise.
-func (o *InstanceCountByStatus) GetRepairing() int32 {
-	if o == nil || IsNil(o.Repairing) {
-		var ret int32
-		return ret
-	}
-	return *o.Repairing
-}
-
-// GetRepairingOk returns a tuple with the Repairing field value if set, nil otherwise
-// and a boolean to check if the value has been set.
-func (o *InstanceCountByStatus) GetRepairingOk() (*int32, bool) {
-	if o == nil || IsNil(o.Repairing) {
-		return nil, false
-	}
-	return o.Repairing, true
-}
-
-// HasRepairing returns a boolean if a field has been set.
-func (o *InstanceCountByStatus) HasRepairing() bool {
-	if o != nil && !IsNil(o.Repairing) {
-		return true
-	}
-
-	return false
-}
-
-// SetRepairing gets a reference to the given int32 and assigns it to the Repairing field.
-func (o *InstanceCountByStatus) SetRepairing(v int32) {
-	o.Repairing = &v
-}
-
 // GetTerminating returns the Terminating field value if set, zero value otherwise.
 func (o *InstanceCountByStatus) GetTerminating() int32 {
 	if o == nil || IsNil(o.Terminating) {
@@ -293,9 +260,6 @@ func (o InstanceCountByStatus) ToMap() (map[string]interface{}, error) {
 	}
 	if !IsNil(o.Ready) {
 		toSerialize["ready"] = o.Ready
-	}
-	if !IsNil(o.Repairing) {
-		toSerialize["repairing"] = o.Repairing
 	}
 	if !IsNil(o.Terminating) {
 		toSerialize["terminating"] = o.Terminating

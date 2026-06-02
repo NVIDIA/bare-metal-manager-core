@@ -1903,8 +1903,6 @@ type APIInstanceStats struct {
 	Terminating int `json:"terminating"`
 	// Ready is the total number of ready Instances
 	Ready int `json:"ready"`
-	// Repairing is the total number of Instances undergoing online repair
-	Repairing int `json:"repairing"`
 	// Updating is the total number of Instances receiving system updates
 	Updating int `json:"updating"`
 	// Registering is the total number of registering Instances
@@ -1921,9 +1919,7 @@ func getAggregatedInstanceStatus(status string, powerStatus *string) string {
 		return agStatus
 	}
 
-	// Repairing is only stored when the instance is otherwise tenant-ready (same as Ready).
-	// Overlay reboot/error power state for Ready and Repairing; other statuses keep DB status.
-	if status != cdbm.InstanceStatusReady && status != cdbm.InstanceStatusRepairing {
+	if status != cdbm.InstanceStatusReady {
 		return agStatus
 	}
 

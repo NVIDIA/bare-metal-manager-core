@@ -22,6 +22,7 @@ use forge_secrets::credentials::{
 use rpc::forge::forge_server::Forge;
 use rpc::forge::{
     CredentialCreationRequest, CredentialDeletionRequest, CredentialType as RpcCredentialType,
+    GetBmcCredentialsRequest,
 };
 use tonic::Code;
 
@@ -174,6 +175,29 @@ async fn test_create_and_delete_bgp_credential(pool: sqlx::PgPool) {
         .await
         .unwrap();
     assert_eq!(deleted, None);
+}
+
+#[crate::sqlx_test]
+async fn test_get_bmc_credentials_rejects_caller_without_spiffe_service_id(pool: sqlx::PgPool) {
+    let env = create_test_env(pool).await;
+
+    // No `AuthContext` extension attached -> no SPIFFE service identity ->
+    // PermissionDenied. We do not need a real BMC, machine record, or
+    // populated credentials for this assertion because the SPIFFE check
+    // happens before any of those lookups.
+    let mut request = tonic::Request::new(GetBmcCredentialsRequest {
+        mac_addr: "11:22:33:44:55:66".to_string(),
+    });
+    request
+        .extensions_mut()
+        .insert(crate::auth::AuthContext::default());
+
+    let err = env
+        .api
+        .get_bmc_credentials(request)
+        .await
+        .expect_err("caller without SPIFFE service id should be rejected");
+    assert_eq!(err.code(), Code::PermissionDenied);
 }
 
 #[crate::sqlx_test]

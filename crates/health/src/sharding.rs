@@ -61,10 +61,11 @@ mod tests {
     use mac_address::MacAddress;
 
     use super::*;
+    use crate::endpoint::test_support::endpoint_with_creds;
     use crate::endpoint::{BmcAddr, BmcCredentials};
 
-    fn endpoint(mac: &str) -> BmcEndpoint {
-        BmcEndpoint::with_fixed_credentials(
+    fn endpoint(mac: &str, rack: Option<&str>) -> BmcEndpoint {
+        endpoint_with_creds(
             BmcAddr {
                 ip: "10.0.0.1".parse().unwrap(),
                 port: Some(443),
@@ -75,23 +76,7 @@ mod tests {
                 password: None,
             },
             None,
-            None,
-        )
-    }
-
-    fn endpoint_with_rack(mac: &str, rack: &str) -> BmcEndpoint {
-        BmcEndpoint::with_fixed_credentials(
-            BmcAddr {
-                ip: "10.0.0.1".parse().unwrap(),
-                port: Some(443),
-                mac: MacAddress::from_str(mac).unwrap(),
-            },
-            BmcCredentials::UsernamePassword {
-                username: "admin".into(),
-                password: None,
-            },
-            None,
-            Some(RackId::new(rack)),
+            rack.map(RackId::new),
         )
     }
 
@@ -101,13 +86,13 @@ mod tests {
             shard: 0,
             shards_count: 1,
         };
-        assert!(manager.should_monitor(&endpoint("42:9e:b1:bd:9d:dd")));
+        assert!(manager.should_monitor(&endpoint("42:9e:b1:bd:9d:dd", None)));
     }
 
     #[test]
     fn test_consistent_hashing() {
-        let ep1 = endpoint("42:9e:b1:bd:9d:dd");
-        let ep2 = endpoint("42:9e:b2:bd:9d:dd");
+        let ep1 = endpoint("42:9e:b1:bd:9d:dd", None);
+        let ep2 = endpoint("42:9e:b2:bd:9d:dd", None);
 
         let managers: Vec<_> = (0..3)
             .map(|shard| ShardManager {
@@ -154,8 +139,8 @@ mod tests {
 
     #[test]
     fn test_same_rack_id_same_shard() {
-        let ep_a = endpoint_with_rack("42:9e:b1:bd:9d:dd", "rack-7");
-        let ep_b = endpoint_with_rack("42:9e:b2:bd:9d:dd", "rack-7");
+        let ep_a = endpoint("42:9e:b1:bd:9d:dd", Some("rack-7"));
+        let ep_b = endpoint("42:9e:b2:bd:9d:dd", Some("rack-7"));
 
         let managers: Vec<_> = (0..3)
             .map(|shard| ShardManager {

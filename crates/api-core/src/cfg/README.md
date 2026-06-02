@@ -35,6 +35,7 @@ applicable.
 | `networks` | `Option<HashMap<String, NetworkDefinition>>` | — | Networks created at startup. Alternative: `CreateNetworkSegment` gRPC. |
 | `dpu_ipmi_tool_impl` | `Option<String>` | — | IPMI tool implementation for DPU power control (`"prod"` or `"fake"`). |
 | `dpu_ipmi_reboot_attempts` | `Option<u32>` | — | Retry count when IPMI errors during DPU reboot. |
+| `bmc_session_lockout_threshold` | `u32` | `3` | Consecutive BMC HTTP 401/403 responses before session-token login attempts stop for that BMC. |
 | `ib_fabrics` | `HashMap<String, IbFabricDefinition>` | `{}` | InfiniBand fabrics managed by the site. Currently only one fabric is supported. |
 | `initial_domain_name` | `Option<String>` | — | Domain to create if none exist. Most sites use a single domain. |
 | `initial_dpu_agent_upgrade_policy` | `Option<AgentUpgradePolicyChoice>` | — | Policy for nico-dpu-agent upgrades. Also settable via `nico-admin-cli`. |

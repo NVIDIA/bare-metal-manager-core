@@ -32,6 +32,7 @@ carbide-api-model = { path = "../api-model", default-features = false }
 carbide-api-db = { path = "../api-db", default-features = false }
 carbide-authn = { path = "../authn" }
 carbide-dpa = { path = "../dpa" }
+carbide-dpa-manager = { path = "../dpa-manager" }
 carbide-dpf = { path = "../dpf" }
 carbide-firmware = { path = "../firmware" }
 carbide-health-report = { path = "../health-report" }
@@ -109,15 +110,18 @@ libredfish = { workspace = true }
 librms = { workspace = true }
 mac_address = { workspace = true }
 num_cpus = { workspace = true }
+nv-redfish = {workspace = true}
 opentelemetry = { workspace = true, features = ["logs"] }
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
 opentelemetry-prometheus = { workspace = true }
-opentelemetry-semantic-conventions = {  workspace = true, features = ["semconv_experimental"] }
+opentelemetry-semantic-conventions = { workspace = true, features = [
+  "semconv_experimental",
+] }
 opentelemetry_sdk = { workspace = true, features = [
-    "logs",
-    "rt-tokio",
-    "spec_unstable_metrics_views",
-    "testing",
+  "logs",
+  "rt-tokio",
+  "spec_unstable_metrics_views",
+  "testing",
 ] }
 pkcs1 = { workspace = true }
 p256 = { workspace = true }
@@ -127,7 +131,10 @@ prost = { workspace = true, optional = true }
 rand = { workspace = true }
 rcgen = { workspace = true, optional = true }
 regex = { workspace = true }
-reqwest = { workspace = true, default-features = false, features = ["rustls", "stream"]  }
+reqwest = { workspace = true, default-features = false, features = [
+  "rustls",
+  "stream",
+] }
 rsa = { workspace = true }
 rumqttc = { workspace = true }
 rustls = { workspace = true }
@@ -138,15 +145,15 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sha2 = { workspace = true }
 sqlx = { workspace = true, features = [
-    "runtime-tokio-rustls",
-    "mac_address",
-    "ipnetwork",
-    "uuid",
-    "migrate",
-    "postgres",
-    "chrono",
-    "macros",
-    "json",
+  "runtime-tokio-rustls",
+  "mac_address",
+  "ipnetwork",
+  "uuid",
+  "migrate",
+  "postgres",
+  "chrono",
+  "macros",
+  "json",
 ] }
 strum = { workspace = true }
 temp-dir = { workspace = true }
@@ -160,11 +167,18 @@ toml = { workspace = true }
 tonic = { workspace = true }
 tonic-reflection = { workspace = true }
 tower = { workspace = true }
-tower-http = { workspace = true, features = ["add-extension", "auth", "normalize-path"] }
+tower-http = { workspace = true, features = [
+  "add-extension",
+  "auth",
+  "normalize-path",
+] }
 tracing = { workspace = true }
 tracing-log = { workspace = true }
 tracing-opentelemetry = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter", "local-time"] }
+tracing-subscriber = { workspace = true, features = [
+  "env-filter",
+  "local-time",
+] }
 tss-esapi = { workspace = true, optional = true }
 url = { workspace = true, features = ["serde"] }
 uuid = { workspace = true, features = ["v4", "serde"] }
@@ -179,16 +193,16 @@ linux-build = ["tss-esapi"]
 # builds (resolver v2 keeps it out of the production `carbide-api` binary); only `carbide-api-web`'s
 # dev-dependency turns it on.
 test-support = [
-    "dep:carbide-prost-builder",
-    "dep:prost",
-    "dep:rcgen",
-    "carbide-ib-fabric/test-support",
-    "carbide-machine-controller/test-support",
-    "carbide-nvlink-manager/test-support",
-    "carbide-rack/test-support",
-    "carbide-redfish/test-support",
-    "carbide-utils/test-support",
-    "state-controller/test-support",
+  "dep:carbide-prost-builder",
+  "dep:prost",
+  "dep:rcgen",
+  "carbide-ib-fabric/test-support",
+  "carbide-machine-controller/test-support",
+  "carbide-nvlink-manager/test-support",
+  "carbide-rack/test-support",
+  "carbide-redfish/test-support",
+  "carbide-utils/test-support",
+  "state-controller/test-support",
 ]
 
 [build-dependencies]
@@ -197,9 +211,13 @@ carbide-version = { path = "../version" }
 [dev-dependencies]
 # External dependencies. PLEASE KEEP ALPHABETIZED ORDER.
 carbide-ib-fabric = { path = "../ib-fabric", features = ["test-support"] }
-carbide-machine-controller = { path = "../machine-controller", features = ["test-support"] }
+carbide-machine-controller = { path = "../machine-controller", features = [
+  "test-support",
+] }
 carbide-macros = { path = "../macros" }
-carbide-nvlink-manager = { path = "../nvlink-manager", features = ["test-support"] }
+carbide-nvlink-manager = { path = "../nvlink-manager", features = [
+  "test-support",
+] }
 carbide-prost-builder = { path = "../prost-builder" }
 carbide-rack = { path = "../rack", features = ["test-support"] }
 carbide-redfish = { path = "../redfish", features = ["test-support"] }
