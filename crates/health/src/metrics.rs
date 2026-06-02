@@ -137,10 +137,6 @@ impl MetricsManager {
         &self.global_registry
     }
 
-    pub fn telemetry_registry(&self) -> &Registry {
-        &self.telemetry_registry
-    }
-
     pub fn component_metrics(&self) -> Arc<ComponentMetrics> {
         self.component_metrics.clone()
     }
