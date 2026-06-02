@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package workflow
 
@@ -228,8 +214,6 @@ func workflowOrchestrator() error {
 	}
 
 	// Register all manager flows here
-	ManagerAccess.API.NICo.RegisterGRPC()
-
 	// TODO: all RegisterSubscriber calls return an error and we ignore them. Should we?
 	ManagerAccess.API.VPC.RegisterSubscriber()
 	ManagerAccess.API.VPC.RegisterPublisher()
@@ -292,12 +276,14 @@ func workflowOrchestrator() error {
 	ManagerAccess.API.NVLinkLogicalPartition.RegisterSubscriber()
 	ManagerAccess.API.NVLinkLogicalPartition.RegisterPublisher()
 
-	// Flow Rack workflows (only registered if Flow is enabled)
-	if ManagerAccess.Conf.EB.Flow.Enabled {
-		if ManagerAccess.API.Flow != nil {
-			ManagerAccess.API.Flow.RegisterSubscriber()
+	ManagerAccess.API.TenantIdentity.RegisterSubscriber()
+
+	// Flow workflows (only registered if Flow gRPC is enabled)
+	if ManagerAccess.Conf.EB.FlowGrpc.Enabled {
+		if ManagerAccess.API.FlowGrpc != nil {
+			ManagerAccess.API.FlowGrpc.RegisterSubscriber()
 		} else {
-			log.Error().Msg("Flow: Flow is enabled in config but Flow manager is not initialized")
+			log.Error().Msg("FlowGrpc: Flow gRPC is enabled in config but Flow gRPC manager is not initialized")
 		}
 	}
 

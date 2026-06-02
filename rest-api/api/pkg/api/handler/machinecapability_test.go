@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
@@ -66,28 +52,28 @@ func TestGetAllMachineCapabilityHandler_Handle(t *testing.T) {
 	}, ipu)
 
 	m1 := common.TestBuildMachine(t, dbSession, ip, st1, nil, nil, cdbm.MachineStatusReady)
-	common.TestBuildMachineCapability(t, dbSession, &m1.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Xeon 6345", cdb.GetStrPtr("3.8Ghz"), nil, cdb.GetStrPtr("Genuine Intel"), cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m1.ID, nil, cdbm.MachineCapabilityTypeGPU, "Nvidia V100", nil, cdb.GetStrPtr("128GB"), cdb.GetStrPtr("Nvidia"), cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m1.ID, nil, cdbm.MachineCapabilityTypeStorage, "Dell Ent NVMe CM6 RI 1.92TB", nil, nil, nil, cdb.GetIntPtr(3), cdb.GetStrPtr(""), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m1.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Xeon 6345", cdb.GetStrPtr("3.8Ghz"), nil, cdb.GetStrPtr("Genuine Intel"), cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m1.ID, nil, cdbm.MachineCapabilityTypeGPU, "Nvidia V100", nil, cdb.GetStrPtr("128GB"), cdb.GetStrPtr("Nvidia"), cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m1.ID, nil, cdbm.MachineCapabilityTypeStorage, "Dell Ent NVMe CM6 RI 1.92TB", nil, nil, nil, cdb.GetIntPtr(3), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
 
 	m2 := common.TestBuildMachine(t, dbSession, ip, st1, &it.ID, nil, cdbm.MachineStatusReady)
-	common.TestBuildMachineCapability(t, dbSession, &m2.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Xeon 6345", cdb.GetStrPtr("3.8Ghz"), nil, cdb.GetStrPtr("Genuine Intel"), cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m2.ID, nil, cdbm.MachineCapabilityTypeMemory, "DDR4", nil, cdb.GetStrPtr("16GB"), nil, cdb.GetIntPtr(4), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m1.ID, nil, cdbm.MachineCapabilityTypeStorage, "SSDPF2KE016T9L", nil, nil, nil, cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m2.ID, nil, cdbm.MachineCapabilityTypeNetwork, "BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller", nil, nil, nil, cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m2.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Xeon 6345", cdb.GetStrPtr("3.8Ghz"), nil, cdb.GetStrPtr("Genuine Intel"), cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m2.ID, nil, cdbm.MachineCapabilityTypeMemory, "DDR4", nil, cdb.GetStrPtr("16GB"), nil, cdb.GetIntPtr(4), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m1.ID, nil, cdbm.MachineCapabilityTypeStorage, "SSDPF2KE016T9L", nil, nil, nil, cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m2.ID, nil, cdbm.MachineCapabilityTypeNetwork, "BCM57414 NetXtreme-E 10Gb/25Gb RDMA Ethernet Controller", nil, nil, nil, cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
 
 	common.TestBuildMachineInstanceType(t, dbSession, m2, it)
 
 	m3 := common.TestBuildMachine(t, dbSession, ip, st2, nil, nil, cdbm.MachineStatusReady)
-	common.TestBuildMachineCapability(t, dbSession, &m3.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Celeron CX", cdb.GetStrPtr("2.4Ghz"), nil, cdb.GetStrPtr("Genuine Intel"), cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m3.ID, nil, cdbm.MachineCapabilityTypeMemory, "DDR4", nil, cdb.GetStrPtr("16GB"), nil, cdb.GetIntPtr(4), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m3.ID, nil, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-6]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), cdb.GetStrPtr(""), []int{1, 3})
+	common.TestBuildMachineCapability(t, dbSession, &m3.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Celeron CX", cdb.GetStrPtr("2.4Ghz"), nil, cdb.GetStrPtr("Genuine Intel"), cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m3.ID, nil, cdbm.MachineCapabilityTypeMemory, "DDR4", nil, cdb.GetStrPtr("16GB"), nil, cdb.GetIntPtr(4), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m3.ID, nil, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-6]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), []int{1, 3})
 
 	m4 := common.TestBuildMachine(t, dbSession, ip, st2, nil, nil, cdbm.MachineStatusReady)
-	common.TestBuildMachineCapability(t, dbSession, &m4.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Celeron DX", cdb.GetStrPtr("2.4Ghz"), nil, cdb.GetStrPtr("Genuine Intel"), cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m4.ID, nil, cdbm.MachineCapabilityTypeMemory, "DDR4", nil, cdb.GetStrPtr("16GB"), nil, cdb.GetIntPtr(4), cdb.GetStrPtr(""), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m4.ID, nil, cdbm.MachineCapabilityTypeNetwork, "MT43244 BlueField-3 integrated ConnectX-7 network controller", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), cdb.GetStrPtr("DPU"), nil)
-	common.TestBuildMachineCapability(t, dbSession, &m4.ID, nil, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-7]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), cdb.GetStrPtr(""), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m4.ID, nil, cdbm.MachineCapabilityTypeCPU, "Intel Celeron DX", cdb.GetStrPtr("2.4Ghz"), nil, cdb.GetStrPtr("Genuine Intel"), cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m4.ID, nil, cdbm.MachineCapabilityTypeMemory, "DDR4", nil, cdb.GetStrPtr("16GB"), nil, cdb.GetIntPtr(4), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m4.ID, nil, cdbm.MachineCapabilityTypeNetwork, "MT43244 BlueField-3 integrated ConnectX-7 network controller", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU), nil)
+	common.TestBuildMachineCapability(t, dbSession, &m4.ID, nil, cdbm.MachineCapabilityTypeInfiniBand, "MT28908 Family [ConnectX-7]", nil, nil, cdb.GetStrPtr("Mellanox Technologies"), cdb.GetIntPtr(2), cdb.Ptr(cdbm.MachineCapabilityDeviceType("")), nil)
 
 	// OTEL Spanner configuration
 	tracer, _, ctx := common.TestCommonTraceProviderSetup(t, ctx)
@@ -114,13 +100,13 @@ func TestGetAllMachineCapabilityHandler_Handle(t *testing.T) {
 		user                *cdbm.User
 		wantRespCode        int
 		wantRespCount       int
-		wantType            *string
+		wantType            *cdbm.MachineCapabilityType
 		wantName            *string
 		wantFrequency       *string
 		wantCapacity        *string
 		wantVendor          *string
 		wantCount           *int
-		wantDeviceType      *string
+		wantDeviceType      *cdbm.MachineCapabilityDeviceType
 		wantInactiveDevices []int
 	}{
 		{
@@ -138,12 +124,12 @@ func TestGetAllMachineCapabilityHandler_Handle(t *testing.T) {
 			org:  ipOrg,
 			args: args{
 				siteID:         cdb.GetUUIDPtr(st1.ID),
-				capabilityType: cdb.GetStrPtr(string(cdbm.MachineCapabilityTypeStorage)),
+				capabilityType: cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeStorage),
 			},
 			user:          ipu,
 			wantRespCode:  http.StatusOK,
 			wantRespCount: 2,
-			wantType:      cdb.GetStrPtr(string(cdbm.MachineCapabilityTypeStorage)),
+			wantType:      cdb.Ptr(cdbm.MachineCapabilityTypeStorage),
 		},
 		{
 			name: "success retrieving & filtering by Capability type and hasInstanceType set to true",
@@ -151,12 +137,12 @@ func TestGetAllMachineCapabilityHandler_Handle(t *testing.T) {
 			args: args{
 				siteID:          cdb.GetUUIDPtr(st1.ID),
 				hasInstanceType: cdb.GetBoolPtr(true),
-				capabilityType:  cdb.GetStrPtr(string(cdbm.MachineCapabilityTypeMemory)),
+				capabilityType:  cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeMemory),
 			},
 			user:          ipu,
 			wantRespCode:  http.StatusOK,
 			wantRespCount: 1,
-			wantType:      cdb.GetStrPtr(string(cdbm.MachineCapabilityTypeMemory)),
+			wantType:      cdb.Ptr(cdbm.MachineCapabilityTypeMemory),
 		},
 		{
 			name: "success retrieving & filtering by Capability type and hasInstanceType set to true",
@@ -164,7 +150,7 @@ func TestGetAllMachineCapabilityHandler_Handle(t *testing.T) {
 			args: args{
 				siteID:          cdb.GetUUIDPtr(st1.ID),
 				hasInstanceType: cdb.GetBoolPtr(false),
-				capabilityType:  cdb.GetStrPtr(string(cdbm.MachineCapabilityTypeMemory)),
+				capabilityType:  cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeMemory),
 			},
 			user:          ipu,
 			wantRespCode:  http.StatusOK,
@@ -219,7 +205,7 @@ func TestGetAllMachineCapabilityHandler_Handle(t *testing.T) {
 			user:           ipu,
 			wantRespCode:   http.StatusOK,
 			wantRespCount:  1,
-			wantDeviceType: cdb.GetStrPtr("DPU"),
+			wantDeviceType: cdb.Ptr(cdbm.MachineCapabilityDeviceTypeDPU),
 			wantCount:      cdb.GetIntPtr(2),
 		},
 		{

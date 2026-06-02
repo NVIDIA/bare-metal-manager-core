@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package manager
 
@@ -191,7 +177,7 @@ func TestResolveTargetSpecToRacks_SingleRackTarget(t *testing.T) {
 	rackID := uuid.New()
 	testRack := newTestRack(rackID, "rack-1")
 	comp1 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypeCompute, "comp-1")
-	comp2 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypeNVLSwitch, "comp-2")
+	comp2 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypeNVSwitch, "comp-2")
 	testRack.AddComponent(comp1)
 	testRack.AddComponent(comp2)
 	fetcher.addRack(testRack)
@@ -246,7 +232,7 @@ func TestResolveTargetSpecToRacks_RackTargetWithComponentTypeFilter(t *testing.T
 	rackID := uuid.New()
 	testRack := newTestRack(rackID, "rack-1")
 	comp1 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypeCompute, "comp-1")
-	comp2 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypeNVLSwitch, "comp-2")
+	comp2 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypeNVSwitch, "comp-2")
 	comp3 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypeCompute, "comp-3")
 	testRack.AddComponent(comp1)
 	testRack.AddComponent(comp2)
@@ -313,7 +299,7 @@ func TestResolveTargetSpecToRacks_DuplicateRackTargets_MergesComponents(t *testi
 	rackID := uuid.New()
 	testRack := newTestRack(rackID, "rack-1")
 	comp1 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypeCompute, "comp-1")
-	comp2 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypeNVLSwitch, "comp-2")
+	comp2 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypeNVSwitch, "comp-2")
 	testRack.AddComponent(comp1)
 	testRack.AddComponent(comp2)
 	fetcher.addRack(testRack)
@@ -327,7 +313,7 @@ func TestResolveTargetSpecToRacks_DuplicateRackTargets_MergesComponents(t *testi
 			},
 			{
 				Identifier:     identifier.Identifier{ID: rackID},
-				ComponentTypes: []devicetypes.ComponentType{devicetypes.ComponentTypeNVLSwitch},
+				ComponentTypes: []devicetypes.ComponentType{devicetypes.ComponentTypeNVSwitch},
 			},
 		},
 	}
@@ -586,7 +572,7 @@ func TestResolveRackTarget_NoComponentTypeFilter_ReturnsAll(t *testing.T) {
 	rackID := uuid.New()
 	testRack := newTestRack(rackID, "rack-1")
 	comp1 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypeCompute, "comp-1")
-	comp2 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypeNVLSwitch, "comp-2")
+	comp2 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypeNVSwitch, "comp-2")
 	comp3 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypePowerShelf, "comp-3")
 	testRack.AddComponent(comp1)
 	testRack.AddComponent(comp2)
@@ -612,7 +598,7 @@ func TestResolveRackTarget_MultipleComponentTypeFilters(t *testing.T) {
 	rackID := uuid.New()
 	testRack := newTestRack(rackID, "rack-1")
 	comp1 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypeCompute, "comp-1")
-	comp2 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypeNVLSwitch, "comp-2")
+	comp2 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypeNVSwitch, "comp-2")
 	comp3 := newTestComponent(uuid.New(), rackID, devicetypes.ComponentTypePowerShelf, "comp-3")
 	testRack.AddComponent(comp1)
 	testRack.AddComponent(comp2)
@@ -623,7 +609,7 @@ func TestResolveRackTarget_MultipleComponentTypeFilters(t *testing.T) {
 		Identifier: identifier.Identifier{ID: rackID},
 		ComponentTypes: []devicetypes.ComponentType{
 			devicetypes.ComponentTypeCompute,
-			devicetypes.ComponentTypeNVLSwitch,
+			devicetypes.ComponentTypeNVSwitch,
 		},
 	}
 
@@ -634,6 +620,6 @@ func TestResolveRackTarget_MultipleComponentTypeFilters(t *testing.T) {
 
 	// Verify only the requested types are included
 	for _, c := range result.Components {
-		assert.True(t, c.Type == devicetypes.ComponentTypeCompute || c.Type == devicetypes.ComponentTypeNVLSwitch)
+		assert.True(t, c.Type == devicetypes.ComponentTypeCompute || c.Type == devicetypes.ComponentTypeNVSwitch)
 	}
 }

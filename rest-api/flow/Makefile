@@ -1,19 +1,5 @@
-#
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
 
 CURDATE := $(shell date +%s)
 
@@ -30,6 +16,9 @@ gen-nicoapi-pb: ## Generate protobuf files for nico-api access, only needed for 
 	git clone https://github.com/NVIDIA/infra-controller-core.git
 	rm -f internal/nicoapi/nicoproto/*.proto
 	cp infra-controller-core/crates/rpc/proto/*.proto internal/nicoapi/nicoproto/
+	@if [ -f internal/nicoapi/nicoproto/forge.proto ] && [ ! -f internal/nicoapi/nicoproto/nico.proto ]; then \
+		mv internal/nicoapi/nicoproto/forge.proto internal/nicoapi/nicoproto/nico.proto; \
+	fi
 	rm -rf infra-controller-core
 # The protodefs are a bit unclean, and we need to make some tweaks to make them usable.
 	cd internal/nicoapi && ./tweak_protodefs.sh
@@ -84,4 +73,4 @@ test-local:
 	DB_ADDR=localhost DB_PORT=30432 DB_USER=postgres DB_PASSWORD=postgres DB_DATABASE=flow_test go run . db migrate
 	DB_ADDR=localhost DB_PORT=30432 DB_USER=postgres DB_PASSWORD=postgres DB_DATABASE=flow_test go test -v -p 1 ./...
 
-.PHONY: gen-pb gen-psmapi-pb gen-nsmapi-pb gen-doc flow container releasecontainer runcontainer releasetest test test-local
+.PHONY: gen-pb gen-nicoapi-pb gen-psmapi-pb gen-nsmapi-pb gen-doc flow container releasecontainer runcontainer releasetest test test-local

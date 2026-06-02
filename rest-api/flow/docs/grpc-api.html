@@ -1215,7 +1215,7 @@ not returned as a conflict against the proposed replacement operation. </p></td>
                   <td>field_diffs</td>
                   <td><a href="#v1.FieldDiff">FieldDiff</a></td>
                   <td>repeated</td>
-                  <td><p>Populated when type is DRIFT </p></td>
+                  <td><p>Populated when type is MISMATCH </p></td>
                 </tr>
               
                 <tr>
@@ -4563,7 +4563,7 @@ e.g. &#34;Power Reset (forced)&#34; or &#34;Upgrade Firmware to v2.3.1&#34;. </p
                   <td>target_spec</td>
                   <td><a href="#v1.OperationTargetSpec">OperationTargetSpec</a></td>
                   <td>optional</td>
-                  <td><p>Optional: Flexible targeting: rack(s) with optional type filter, or specific components. If not provided, returns all drifts. </p></td>
+                  <td><p>Optional: Flexible targeting: rack(s) with optional type filter, or specific components. If not provided, returns all diffs. </p></td>
                 </tr>
               
                 <tr>
@@ -4635,10 +4635,10 @@ Expected by Flow but not found in the component manager service </p></td>
                 </tr>
               
                 <tr>
-                  <td>drift_count</td>
+                  <td>mismatch_count</td>
                   <td><a href="#int32">int32</a></td>
                   <td></td>
-                  <td><p> </p></td>
+                  <td><p>In both but with field differences </p></td>
                 </tr>
               
                 <tr>
@@ -4796,7 +4796,7 @@ Expected by Flow but not found in the component manager service </p></td>
               </tr>
             
               <tr>
-                <td>COMPONENT_TYPE_NVLSWITCH</td>
+                <td>COMPONENT_TYPE_NVSWITCH</td>
                 <td>2</td>
                 <td><p></p></td>
               </tr>
@@ -4886,7 +4886,7 @@ Wire value 1 preserves backward compatibility with the former bool true (queue).
               </tr>
             
               <tr>
-                <td>DIFF_TYPE_DRIFT</td>
+                <td>DIFF_TYPE_MISMATCH</td>
                 <td>3</td>
                 <td><p>In both but with field differences</p></td>
               </tr>

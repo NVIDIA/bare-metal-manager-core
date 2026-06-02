@@ -1,25 +1,12 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package model
 
 import (
 	"context"
 	"database/sql"
+	"slices"
 	"time"
 
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db"
@@ -30,6 +17,7 @@ import (
 	"github.com/uptrace/bun"
 
 	stracer "github.com/NVIDIA/infra-controller-rest/db/pkg/tracer"
+	cwssaws "github.com/NVIDIA/infra-controller-rest/workflow-schema/schema/site-agent/workflows/v1"
 )
 
 const (
@@ -88,13 +76,124 @@ type InstanceType struct {
 	InfinityResourceTypeID   *uuid.UUID              `bun:"infinity_resource_type_id,type:uuid"`
 	SiteID                   *uuid.UUID              `bun:"site_id,type:uuid"`
 	Site                     *Site                   `bun:"rel:belongs-to,join:site_id=id"`
-	Labels                   map[string]string       `bun:"labels,type:jsonb"`
+	Labels                   Labels                  `bun:"labels,type:jsonb"`
 	Status                   string                  `bun:"status,notnull"`
 	Created                  time.Time               `bun:"created,nullzero,notnull,default:current_timestamp"`
 	Updated                  time.Time               `bun:"updated,nullzero,notnull,default:current_timestamp"`
 	Deleted                  *time.Time              `bun:"deleted,soft_delete"`
 	CreatedBy                uuid.UUID               `bun:"type:uuid,notnull"`
 	Version                  string                  `bun:"version,notnull"`
+
+	// Capabilities is the set of MachineCapability rows that describe this
+	// InstanceType's filter attributes. Populated either via a bun query
+	// with `.Relation("Capabilities")` or by the handler assigning the
+	// loaded slice directly before calling `ToProto`. Ordering matters at
+	// the wire — callers are responsible for sorting by Index before
+	// assigning. Not persisted on InstanceType itself; the relation is
+	// "instance_type has-many machine_capability".
+	Capabilities []*MachineCapability `bun:"rel:has-many,join:id=instance_type_id"`
+}
+
+// AttachCapabilities populates `it.Capabilities` from a DAO-loaded
+// `[]MachineCapability` slice, sorting by `Index` first so the wire
+// ordering matches what NICo expects. Callers (handlers) hand off the
+// raw DAO output and let the entity own the slice-of-values-to-
+// slice-of-pointers shape needed for ToProto.
+func (it *InstanceType) AttachCapabilities(mcs []MachineCapability) {
+	slices.SortFunc(mcs, func(a, b MachineCapability) int {
+		return a.Index - b.Index
+	})
+	it.Capabilities = make([]*MachineCapability, len(mcs))
+	for i := range mcs {
+		it.Capabilities[i] = &mcs[i]
+	}
+}
+
+// ToProto converts this InstanceType into its workflow proto
+// representation. Used as the canonical entity-to-proto conversion;
+// request-shape protos (create / update) are produced by `ToProto`
+// methods on the corresponding API request types in
+// api/pkg/api/model/instancetype.go.
+//
+// Capabilities come from `it.Capabilities` (populated either via a bun
+// `.Relation("Capabilities")` query or by the handler via
+// `AttachCapabilities`). Each MachineCapability does its own
+// `mc.ToProto()` mapping, which is a pure mapper that trusts the
+// request-side `Validate` having already gated the type / device-type
+// / numeric bounds. A nil/empty `Capabilities` slice yields a nil
+// `Attributes.DesiredCapabilities` so the proto round-trips cleanly.
+func (it *InstanceType) ToProto() *cwssaws.InstanceType {
+	var capabilities []*cwssaws.InstanceTypeMachineCapabilityFilterAttributes
+	for _, mc := range it.Capabilities {
+		if mc == nil {
+			continue
+		}
+		capabilities = append(capabilities, mc.ToProto())
+	}
+	md := &cwssaws.Metadata{Name: it.Name, Labels: it.Labels.ToProto()}
+	if it.Description != nil {
+		md.Description = *it.Description
+	}
+	return &cwssaws.InstanceType{
+		Id:       it.ID.String(),
+		Metadata: md,
+		Attributes: &cwssaws.InstanceTypeAttributes{
+			DesiredCapabilities: capabilities,
+		},
+	}
+}
+
+// FromProto populates this InstanceType from its workflow proto
+// representation. A nil proto is a no-op. This is the inverse of
+// `ToProto` and exists for convention symmetry — currently no code
+// path on the cloud side reconstructs a full InstanceType entity from
+// a `cwssaws.InstanceType` (the site is the destination, not the
+// source), but the method is provided so future reconciliation flows
+// have a single canonical entry point.
+//
+// Field-level contract:
+//   - `it.ID` is preserved on a missing or unparseable `proto.Id`,
+//     because callers pre-validate the UUID before calling.
+//   - `Name` is sourced from `proto.Metadata.Name`.
+//   - `Description` is cleared when the proto's Metadata omits it
+//     (empty string), so `FromProto` is a clean reset rather than a
+//     partial merge.
+//   - `Labels` are taken from `proto.Metadata.Labels`; a nil Metadata
+//     clears them.
+//
+// `Attributes` (capabilities) is intentionally NOT mapped onto the
+// receiver because capabilities live in a separate DB table and would
+// require DAO writes the model layer should not perform.
+func (it *InstanceType) FromProto(proto *cwssaws.InstanceType) {
+	if proto == nil {
+		return
+	}
+	if id, err := uuid.Parse(proto.Id); err == nil {
+		it.ID = id
+	}
+	// Reset metadata-derived fields up front so the `clean reset rather
+	// than a partial merge` contract holds when proto.Metadata is nil
+	// or omits a field.
+	it.Name = ""
+	it.Description = nil
+	it.Labels = nil
+	if proto.Metadata != nil {
+		it.Name = proto.Metadata.Name
+		if proto.Metadata.Description != "" {
+			desc := proto.Metadata.Description
+			it.Description = &desc
+		}
+		it.Labels.FromProto(proto.Metadata.GetLabels())
+	}
+}
+
+// ToDeletionRequestProto builds the workflow request that asks a Site
+// to delete this InstanceType. Lives on the entity because the delete
+// handler has no API request body — the entity's ID is the only input.
+func (it *InstanceType) ToDeletionRequestProto() *cwssaws.DeleteInstanceTypeRequest {
+	return &cwssaws.DeleteInstanceTypeRequest{
+		Id: it.ID.String(),
+	}
 }
 
 var _ bun.BeforeAppendModelHook = (*InstanceType)(nil)

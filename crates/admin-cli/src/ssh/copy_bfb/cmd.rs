@@ -46,7 +46,9 @@ pub async fn copy_bfb(api_client: &ApiClient, args: Args) -> CarbideCliResult<()
     };
 
     if is_bf2 {
-        tracing::info!("Detected BlueField-2 DPU; using longer timeout");
+        return Err(CarbideCliError::GenericError(
+            "BlueField-2 DPUs are no longer supported for BFB copy".to_string(),
+        ));
     }
 
     copy_bfb_to_bmc_rshim(
@@ -54,7 +56,6 @@ pub async fn copy_bfb(api_client: &ApiClient, args: Args) -> CarbideCliResult<()
         args.ssh_args.credentials.bmc_username,
         args.ssh_args.credentials.bmc_password,
         args.bfb_path,
-        is_bf2,
     )
     .await
     .map_err(|e| CarbideCliError::GenericError(e.to_string()))?;

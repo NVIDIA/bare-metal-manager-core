@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package operationrules
 
@@ -33,7 +19,7 @@ func TestNewStageIterator(t *testing.T) {
 		ruleDef := &RuleDefinition{
 			Steps: []SequenceStep{
 				{ComponentType: devicetypes.ComponentTypeCompute, Stage: 1, MaxParallel: 1},
-				{ComponentType: devicetypes.ComponentTypeNVLSwitch, Stage: 2, MaxParallel: 2},
+				{ComponentType: devicetypes.ComponentTypeNVSwitch, Stage: 2, MaxParallel: 2},
 				{ComponentType: devicetypes.ComponentTypePowerShelf, Stage: 3, MaxParallel: 1},
 			},
 		}
@@ -50,7 +36,7 @@ func TestNewStageIterator(t *testing.T) {
 		require.NotNil(t, stage2, "expected second stage")
 		assert.Equal(t, 2, stage2.Number)
 		assert.Len(t, stage2.Steps, 1)
-		assert.Equal(t, devicetypes.ComponentTypeNVLSwitch, stage2.Steps[0].ComponentType)
+		assert.Equal(t, devicetypes.ComponentTypeNVSwitch, stage2.Steps[0].ComponentType)
 
 		stage3 := iter.Next()
 		require.NotNil(t, stage3, "expected third stage")
@@ -65,7 +51,7 @@ func TestNewStageIterator(t *testing.T) {
 		ruleDef := &RuleDefinition{
 			Steps: []SequenceStep{
 				{ComponentType: devicetypes.ComponentTypeCompute, Stage: 1, MaxParallel: 1},
-				{ComponentType: devicetypes.ComponentTypeNVLSwitch, Stage: 5, MaxParallel: 2},
+				{ComponentType: devicetypes.ComponentTypeNVSwitch, Stage: 5, MaxParallel: 2},
 			},
 		}
 
@@ -88,7 +74,7 @@ func TestNewStageIterator(t *testing.T) {
 		ruleDef := &RuleDefinition{
 			Steps: []SequenceStep{
 				{ComponentType: devicetypes.ComponentTypeCompute, Stage: 1, MaxParallel: 1},
-				{ComponentType: devicetypes.ComponentTypeNVLSwitch, Stage: 1, MaxParallel: 2},
+				{ComponentType: devicetypes.ComponentTypeNVSwitch, Stage: 1, MaxParallel: 2},
 			},
 		}
 
@@ -116,7 +102,7 @@ func TestStageIterator_HasNext(t *testing.T) {
 	ruleDef := &RuleDefinition{
 		Steps: []SequenceStep{
 			{ComponentType: devicetypes.ComponentTypeCompute, Stage: 1, MaxParallel: 1},
-			{ComponentType: devicetypes.ComponentTypeNVLSwitch, Stage: 2, MaxParallel: 2},
+			{ComponentType: devicetypes.ComponentTypeNVSwitch, Stage: 2, MaxParallel: 2},
 		},
 	}
 
@@ -133,7 +119,7 @@ func TestStageIterator_Reset(t *testing.T) {
 	ruleDef := &RuleDefinition{
 		Steps: []SequenceStep{
 			{ComponentType: devicetypes.ComponentTypeCompute, Stage: 1, MaxParallel: 1},
-			{ComponentType: devicetypes.ComponentTypeNVLSwitch, Stage: 2, MaxParallel: 2},
+			{ComponentType: devicetypes.ComponentTypeNVSwitch, Stage: 2, MaxParallel: 2},
 		},
 	}
 
@@ -153,7 +139,7 @@ func TestStageIterator_StandardLoop(t *testing.T) {
 	ruleDef := &RuleDefinition{
 		Steps: []SequenceStep{
 			{ComponentType: devicetypes.ComponentTypeCompute, Stage: 1, MaxParallel: 1},
-			{ComponentType: devicetypes.ComponentTypeNVLSwitch, Stage: 2, MaxParallel: 2},
+			{ComponentType: devicetypes.ComponentTypeNVSwitch, Stage: 2, MaxParallel: 2},
 			{ComponentType: devicetypes.ComponentTypePowerShelf, Stage: 3, MaxParallel: 1},
 		},
 	}
@@ -266,7 +252,7 @@ func TestSequenceStep_UnmarshalJSON(t *testing.T) {
 
 func TestSequenceStep_MarshalUnmarshal_RoundTrip(t *testing.T) {
 	original := SequenceStep{
-		ComponentType: devicetypes.ComponentTypeNVLSwitch,
+		ComponentType: devicetypes.ComponentTypeNVSwitch,
 		Stage:         2,
 		MaxParallel:   5,
 		DelayAfter:    15 * time.Second,
@@ -537,7 +523,7 @@ func TestRuleDefinition_Validate(t *testing.T) {
 					MainOperation: ActionConfig{Name: ActionPowerControl},
 				},
 				{
-					ComponentType: devicetypes.ComponentTypeNVLSwitch,
+					ComponentType: devicetypes.ComponentTypeNVSwitch,
 					Stage:         2,
 					MaxParallel:   1,
 					MainOperation: ActionConfig{Name: ActionPowerControl},

@@ -1,3 +1,6 @@
+-- SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
 -- Add flexible attributes column for task metadata. New fields can be added
 -- to the Go TaskAttributes struct without further migrations.
 -- component_uuids is dropped: all component targeting is now stored in

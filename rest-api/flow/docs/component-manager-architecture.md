@@ -32,7 +32,7 @@ The Component Manager system uses two main patterns:
 │  │   ├── "nico" → Factory → Manager (uses nico.Provider)  │   │
 │  │   └── "mock"    → Factory → Manager (no provider needed)     │   │
 │  ├─────────────────────────────────────────────────────────────┤   │
-│  │ ComponentType: NVLSwitch                                     │   │
+│  │ ComponentType: NVSwitch                                     │   │
 │  │   ├── "nico" → Factory → Manager                          │   │
 │  │   └── "mock"    → Factory → Manager                          │   │
 │  ├─────────────────────────────────────────────────────────────┤   │
@@ -72,13 +72,52 @@ provider, err := providerapi.GetTyped[*nico.Provider](
 ```go
 type ComponentManager interface {
     Descriptor() cmcatalog.Descriptor
+}
+
+type ExpectationInjector interface {
+    // CapabilityInjectExpectation
     InjectExpectation(ctx, target, info) error
+}
+
+type PowerController interface {
+    // CapabilityPowerControl
     PowerControl(ctx, target, info) error
-    FirmwareControl(ctx, target, info) error
-    GetFirmwareStatus(ctx, target) (map, error)
+}
+
+type PowerStatusReader interface {
+    // CapabilityPowerStatus
     GetPowerStatus(ctx, target) (map, error)
 }
+
+type FirmwareController interface {
+    // CapabilityFirmwareControl
+    FirmwareControl(ctx, target, info) error
+}
+
+type FirmwareStatusReader interface {
+    // CapabilityFirmwareStatus
+    GetFirmwareStatus(ctx, target) (map, error)
+}
+
+type BringUpController interface {
+    // CapabilityBringUpControl
+    BringUpControl(ctx, target) error
+}
+
+type BringUpStatusReader interface {
+    // CapabilityBringUpStatus
+    GetBringUpStatus(ctx, target) (map, error)
+}
+
+type FirmwareConsistencyChecker interface {
+    // CapabilityFirmwareConsistencyCheck
+    VerifyFirmwareConsistency(ctx, target) error
+}
 ```
+
+The base interface only carries descriptor metadata. Operation methods are
+capability-specific interfaces, so implementations only define the operations
+they advertise in `catalog.Descriptor.Capabilities`.
 
 ### ManagerFactory
 
@@ -127,9 +166,9 @@ internal/task/componentmanager/
 ├── compute/
 │   └── nico/
 │       └── nico.go       # NICo-based compute manager
-├── nvlswitch/
+├── nvswitch/
 │   └── nico/
-│       └── nico.go       # NICo-based NVL switch manager
+│       └── nico.go       # NICo-based NVSwitch manager
 └── powershelf/
     └── psm/
         └── psm.go           # PSM-based power shelf manager
@@ -223,6 +262,12 @@ Generic YAML parsing and validation lives in
 `internal/task/componentmanager/config`. That package should not import
 provider implementations directly.
 
+Manager-specific behavior settings use the same pattern, but are keyed by
+descriptor identity instead of provider name. A manager that needs YAML config
+implements `cmconfig.ManagerConfigDecoder`; the decoded config is stored under
+`Config.ManagerConfigs[Descriptor().Identity()]`. Provider configs should stay
+focused on provider/client settings such as timeouts and endpoints.
+
 ### Step 3: Register the Provider Decoder
 
 Update the service-supported provider catalog in
@@ -261,6 +306,7 @@ import (
     "fmt"
 
     "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
+    "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/capability"
     cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
     "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
     myapiprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/myapi"
@@ -299,6 +345,11 @@ func Descriptor() cmcatalog.Descriptor {
         Type:              devicetypes.ComponentTypeCompute,
         Implementation:    ImplementationName,
         RequiredProviders: []string{myapiprovider.ProviderName},
+        Capabilities: capability.CapabilitySet{
+            capability.CapabilityInjectExpectation,
+            capability.CapabilityPowerControl,
+            capability.CapabilityFirmwareControl,
+        },
     }
 }
 
@@ -315,17 +366,17 @@ func (m *Manager) Descriptor() cmcatalog.Descriptor {
     return Descriptor()
 }
 
-// InjectExpectation implements ComponentManager.
+// InjectExpectation implements componentmanager.ExpectationInjector.
 func (m *Manager) InjectExpectation(ctx context.Context, target common.Target, info operations.InjectExpectationTaskInfo) error {
     // Implementation here
 }
 
-// PowerControl implements ComponentManager.
+// PowerControl implements componentmanager.PowerController.
 func (m *Manager) PowerControl(ctx context.Context, target common.Target, info operations.PowerControlTaskInfo) error {
     // Implementation here
 }
 
-// FirmwareControl implements ComponentManager.
+// FirmwareControl implements componentmanager.FirmwareController.
 func (m *Manager) FirmwareControl(ctx context.Context, target common.Target, info operations.FirmwareControlTaskInfo) error {
     // Implementation here — initiate firmware update, return immediately
 }
@@ -353,9 +404,12 @@ func serviceDescriptors() []cmcatalog.Descriptor {
 }
 
 func serviceFactorySpecs(config cmconfig.Config) ([]componentmanager.FactorySpec, error) {
+    // Simplified example: production code should check that the config exists
+    // and has the expected type, returning an error instead of panicking.
+    cfg := config.ManagerConfigs[myimpl.Descriptor().Identity()].(*myimpl.Config)
     factorySpecs := []componentmanager.FactorySpec{
         // ... existing factory specs ...
-        myimpl.FactorySpec(), // Add new implementation
+        myimpl.FactorySpec(cfg), // Add new implementation
     }
     return factorySpecs, nil
 }
@@ -368,8 +422,13 @@ Now you can use the new implementation in YAML config:
 ```yaml
 component_managers:
   compute: myimpl
-  nvlswitch: nico
+  nvswitch: nico
   powershelf: psm
+
+manager_configs:
+  compute:
+    myimpl:
+      behavior_setting: "value"
 
 providers:
   myapi:
@@ -414,6 +473,6 @@ Use the mock implementation in test configuration:
 ```yaml
 component_managers:
   compute: mock
-  nvlswitch: mock
+  nvswitch: mock
   powershelf: mock
 ```

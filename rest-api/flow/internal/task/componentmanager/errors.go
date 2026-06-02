@@ -1,26 +1,14 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package componentmanager
 
 import (
 	"errors"
 	"fmt"
+	"reflect"
 
+	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/capability"
 	cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
 	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
@@ -74,6 +62,22 @@ var (
 	// was configured without an implementation name.
 	ErrComponentManagerImplementationNameEmpty = cmcatalog.ErrComponentManagerImplementationNameEmpty
 
+	// ErrCapabilityNameEmpty reports that a descriptor declared an empty
+	// capability name.
+	ErrCapabilityNameEmpty = capability.ErrNameEmpty
+
+	// ErrUnknownCapability reports that a descriptor declared an unsupported
+	// capability name.
+	ErrUnknownCapability = capability.ErrUnknown
+
+	// ErrUnsupportedCapability reports that the active manager for a component
+	// type does not support the requested operation capability.
+	ErrUnsupportedCapability = errors.New("component manager capability is not supported")
+
+	// ErrCapabilityInterfaceNotImplemented reports that a manager declares a
+	// capability but does not implement the matching operation interface.
+	ErrCapabilityInterfaceNotImplemented = errors.New("component manager capability interface is not implemented")
+
 	// ErrComponentManagersNotConfigured reports that the service config has no
 	// component manager entries.
 	ErrComponentManagersNotConfigured = cmconfig.ErrComponentManagersNotConfigured
@@ -119,6 +123,10 @@ var (
 	// ErrProviderConfigTypeMismatch reports that a provider config has a
 	// different concrete type than the caller expected.
 	ErrProviderConfigTypeMismatch = errors.New("provider config type mismatch")
+
+	// ErrManagerConfigTypeMismatch reports that a manager config has a
+	// different concrete type than the caller expected.
+	ErrManagerConfigTypeMismatch = errors.New("manager config type mismatch")
 )
 
 // ManagerNotConfiguredError includes the component type that has no active
@@ -224,13 +232,15 @@ type ManagerDescriptorMismatchError struct {
 
 func (e ManagerDescriptorMismatchError) Error() string {
 	return fmt.Sprintf(
-		"manager descriptor mismatch: expected %s/%s providers %v, got %s/%s providers %v",
+		"manager descriptor mismatch: expected %s/%s providers %v capabilities %v, got %s/%s providers %v capabilities %v",
 		devicetypes.ComponentTypeToString(e.Expected.Type),
 		e.Expected.Implementation,
 		e.Expected.RequiredProviders,
+		e.Expected.Capabilities.Strings(),
 		devicetypes.ComponentTypeToString(e.Actual.Type),
 		e.Actual.Implementation,
 		e.Actual.RequiredProviders,
+		e.Actual.Capabilities.Strings(),
 	)
 }
 
@@ -244,6 +254,57 @@ type UnknownComponentTypeError = cmcatalog.UnknownComponentTypeError
 // ComponentManagerImplementationNameEmptyError includes the component type
 // whose configured implementation name is empty.
 type ComponentManagerImplementationNameEmptyError = cmcatalog.ComponentManagerImplementationNameEmptyError
+
+// CapabilityNameEmptyError reports an empty capability name in descriptor
+// metadata.
+type CapabilityNameEmptyError = capability.NameEmptyError
+
+// UnknownCapabilityError includes the unsupported capability name.
+type UnknownCapabilityError = capability.UnknownError
+
+// UnsupportedCapabilityError includes the requested capability and the active
+// manager that does not support it.
+type UnsupportedCapabilityError struct {
+	ComponentType  devicetypes.ComponentType
+	Implementation string
+	Capability     capability.Capability
+	Available      capability.CapabilitySet
+}
+
+func (e UnsupportedCapabilityError) Error() string {
+	return fmt.Sprintf(
+		"component manager %s/%s does not support capability %q; available: %v",
+		devicetypes.ComponentTypeToString(e.ComponentType),
+		e.Implementation,
+		e.Capability,
+		e.Available.Strings(),
+	)
+}
+
+func (e UnsupportedCapabilityError) Is(target error) bool {
+	return target == ErrUnsupportedCapability
+}
+
+// CapabilityInterfaceNotImplementedError includes the manager and capability
+// whose descriptor metadata does not match the manager's operation interfaces.
+type CapabilityInterfaceNotImplementedError struct {
+	ComponentType  devicetypes.ComponentType
+	Implementation string
+	Capability     capability.Capability
+}
+
+func (e CapabilityInterfaceNotImplementedError) Error() string {
+	return fmt.Sprintf(
+		"component manager %s/%s declares capability %q but does not implement its operation interface",
+		devicetypes.ComponentTypeToString(e.ComponentType),
+		e.Implementation,
+		e.Capability,
+	)
+}
+
+func (e CapabilityInterfaceNotImplementedError) Is(target error) bool {
+	return target == ErrCapabilityInterfaceNotImplemented
+}
 
 // UnknownProviderError includes the unknown provider name.
 type UnknownProviderError = providerapi.UnknownProviderError
@@ -283,18 +344,58 @@ type RequiredProviderNotConfiguredError = cmconfig.RequiredProviderNotConfigured
 type ProviderConfigTypeMismatchError struct {
 	Name string
 	Got  any
-	Want string
+	Want any
 }
 
 func (e ProviderConfigTypeMismatchError) Error() string {
 	return fmt.Sprintf(
-		"provider %q returned config type %T, want %s",
+		"provider %q returned config type %s, want %s",
 		e.Name,
-		e.Got,
-		e.Want,
+		typeName(e.Got),
+		typeName(e.Want),
 	)
 }
 
 func (e ProviderConfigTypeMismatchError) Is(target error) bool {
 	return target == ErrProviderConfigTypeMismatch
+}
+
+// ManagerConfigTypeMismatchError includes the manager config identity and the
+// type expected by the caller.
+type ManagerConfigTypeMismatchError struct {
+	Identity cmcatalog.DescriptorIdentity
+	Got      any
+	Want     any
+}
+
+func (e ManagerConfigTypeMismatchError) Error() string {
+	return fmt.Sprintf(
+		"manager config %s has type %s, want %s",
+		e.Identity.String(),
+		typeName(e.Got),
+		typeName(e.Want),
+	)
+}
+
+func (e ManagerConfigTypeMismatchError) Is(target error) bool {
+	return target == ErrManagerConfigTypeMismatch
+}
+
+func typeName(v any) string {
+	if v == nil {
+		return "<nil>"
+	}
+
+	t := reflect.TypeOf(v)
+	prefix := ""
+	for t.Kind() == reflect.Pointer {
+		prefix += "*"
+		t = t.Elem()
+	}
+
+	if t.PkgPath() == "" {
+		return prefix + t.String()
+	}
+
+	return prefix + t.PkgPath() + "." + t.Name()
 }

@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package common
 
@@ -414,7 +400,7 @@ func TestBuildMachineInstanceType(t *testing.T, dbSession *cdb.Session, m *cdbm.
 }
 
 // TestBuildMachineCapability creates a test Machine Capability
-func TestBuildMachineCapability(t *testing.T, dbSession *cdb.Session, mID *string, itID *uuid.UUID, capabilityType string, name string, frequency *string, capacity *string, vendor *string, count *int, deviceType *string, inactiveDevices []int) *cdbm.MachineCapability {
+func TestBuildMachineCapability(t *testing.T, dbSession *cdb.Session, mID *string, itID *uuid.UUID, capabilityType cdbm.MachineCapabilityType, name string, frequency *string, capacity *string, vendor *string, count *int, deviceType *cdbm.MachineCapabilityDeviceType, inactiveDevices []int) *cdbm.MachineCapability {
 	mcDAO := cdbm.NewMachineCapabilityDAO(dbSession)
 
 	mc, err := mcDAO.Create(context.Background(), nil, cdbm.MachineCapabilityCreateInput{
@@ -553,7 +539,7 @@ func TestBuildNetworkSecurityGroup(t *testing.T, dbSession *cdb.Session, name st
 }
 
 // TestCommonBuildMachineCapability creates a machine capability
-func TestCommonBuildMachineCapability(t *testing.T, dbSession *cdb.Session, machineID *string, instanceTypeID *uuid.UUID, cptype string, name string, freq *string, cap *string, vendor *string, count *int, deviceType *string, info map[string]interface{}) *cdbm.MachineCapability {
+func TestCommonBuildMachineCapability(t *testing.T, dbSession *cdb.Session, machineID *string, instanceTypeID *uuid.UUID, cptype cdbm.MachineCapabilityType, name string, freq *string, cap *string, vendor *string, count *int, deviceType *cdbm.MachineCapabilityDeviceType, info map[string]interface{}) *cdbm.MachineCapability {
 	mcDAO := cdbm.NewMachineCapabilityDAO(dbSession)
 	mc, err := mcDAO.Create(context.Background(), nil, cdbm.MachineCapabilityCreateInput{MachineID: machineID, InstanceTypeID: instanceTypeID, Type: cptype, Name: name, Frequency: freq, Capacity: cap, Vendor: vendor, Count: count, DeviceType: deviceType, Info: info})
 	assert.Nil(t, err)

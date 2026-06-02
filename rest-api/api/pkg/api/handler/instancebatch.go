@@ -1,25 +1,10 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package handler
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -417,6 +402,14 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	if vpc.ControllerVpcID == nil || vpc.Status != cdbm.VpcStatusReady {
 		logger.Warn().Msg("VPC specified in request data is not ready")
 		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "VPC specified in request data is not ready", nil)
+	}
+
+	// Validate request fields that depend on the resolved VPC (e.g.
+	// `autoNetwork` requires a Flat VPC).
+	verr = apiRequest.ValidateForVpc(vpc)
+	if verr != nil {
+		logger.Warn().Err(verr).Msg("error validating batch Instance creation request against VPC")
+		return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, "Error validating batch Instance creation request data", verr)
 	}
 
 	var defaultNvllpID *uuid.UUID
@@ -858,7 +851,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	// Build all instance names first, then check in a single batch query
 	inDAO := cdbm.NewInstanceDAO(bcih.dbSession)
 	allInstanceNames := make([]string, apiRequest.Count)
-	for i := 0; i < apiRequest.Count; i++ {
+	for i := range apiRequest.Count {
 		allInstanceNames[i] = generateInstanceName(i)
 	}
 
@@ -884,85 +877,12 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	logger.Info().Int("instanceCount", apiRequest.Count).Str("batchSuffix", batchSuffix).
 		Msg("validated instance names - all pre-transaction validations completed successfully")
 
-	// ==================== Step 3: Database Transaction ====================
-
-	// Start a db tx
-	tx, err := cdb.BeginTx(ctx, bcih.dbSession, &sql.TxOptions{})
-	if err != nil {
-		logger.Error().Err(err).Msg("unable to start transaction")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create Instances", nil)
-	}
-	// this variable is used in cleanup actions to indicate if this transaction committed
-	txCommitted := false
-	defer common.RollbackTx(ctx, tx, &txCommitted)
-
-	// ==================== Step 4: Machine Selection ====================
-
-	// Acquire the shared quota lock for this tenant/site/instance-type pool.
-	// This prevents concurrent quota mutations and admissions from racing.
-	err = common.AcquireInstanceTypeQuotaLock(ctx, tx, tenant.ID, instancetype.ID)
-	if err != nil {
-		logger.Error().Err(err).Msg("Failed to acquire advisory lock on Instance Type quota pool")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Error creating Instances, detected multiple parallel requests on Instance Type by Tenant", nil)
-	}
-
-	// Ensure that Tenant has an Allocation with specified Tenant InstanceType Site
-	aDAO := cdbm.NewAllocationDAO(bcih.dbSession)
-	allocationFilter := cdbm.AllocationFilterInput{TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{*instancetype.SiteID}}
-	allocationPage := cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}
-	tnas, _, serr := aDAO.GetAll(ctx, tx, allocationFilter, allocationPage, nil)
-	if serr != nil {
-		logger.Error().Err(serr).Msg("error retrieving allocations for tenant")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Allocation for Tenant", nil)
-	}
-	if len(tnas) == 0 {
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden,
-			"Tenant does not have any Allocations for Site and Instance Type specified in request data", nil)
-	}
-
-	alconstraints, err := common.GetAllocationConstraintsForInstanceType(ctx, tx, bcih.dbSession, tenant.ID, instancetype, tnas)
-	if err != nil {
-		if err == common.ErrAllocationConstraintNotFound {
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "No Allocations for specified Instance Type were found for current Tenant", nil)
-		}
-		logger.Error().Err(err).Msg("error retrieving Allocation Constraints from DB for InstanceType and Allocation")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Allocations for specified Instance Type, DB error", nil)
-	}
-
-	// Getting active instances for the tenant on requested instance type
-	var siteIDs []uuid.UUID
-	if instancetype.SiteID != nil {
-		siteIDs = []uuid.UUID{*instancetype.SiteID}
-	}
-	_, insTotal, err := inDAO.GetAll(ctx, tx, cdbm.InstanceFilterInput{
-		TenantIDs:       []uuid.UUID{tenant.ID},
-		SiteIDs:         siteIDs,
-		InstanceTypeIDs: []uuid.UUID{instancetype.ID},
-	}, cdbp.PageInput{}, nil)
-	if err != nil {
-		logger.Error().Err(err).Msg("error retrieving Active Instances from DB for Tenant and InstanceType")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve active instances for Tenant and Instance Type, DB error", nil)
-	}
-
-	// Calculate the total constraint value across all matching allocations.
-	totalConstraintValue := 0
-	for _, alcs := range alconstraints {
-		totalConstraintValue += alcs.ConstraintValue
-	}
-
-	// Check if we have enough allocation for all requested instances
-	if insTotal+apiRequest.Count > totalConstraintValue {
-		return cutil.NewAPIErrorResponse(c, http.StatusForbidden,
-			fmt.Sprintf("Tenant has reached the maximum number of Instances for Instance Type. Current: %d, Requested: %d, Max: %d", insTotal, apiRequest.Count, totalConstraintValue), nil)
-	}
-
-	// Allocate machines with topology optimization
-	machines, apiErr := allocateMachinesForBatch(ctx, tx, bcih.dbSession, instancetype, apiRequest.Count, topologyOptimized, logger)
-	if apiErr != nil {
-		return cutil.NewAPIErrorResponse(c, apiErr.Code, apiErr.Message, apiErr.Data)
-	}
-
-	// ==================== Step 5: Machine Capability Validation ====================
+	// ==================== Step 3: Machine Capability Validation (Pre-Tx) ====================
+	//
+	// Capability validations are pure reads against relatively static data
+	// (capabilities, partitions, logical partitions) — they do not gate any
+	// write decisions made under the in-tx advisory lock, so they live above
+	// the transaction to avoid pinning a connection while doing validation.
 
 	// Get Machine Capabilities for the InstanceType (shared across all instances)
 	mcDAO := cdbm.NewMachineCapabilityDAO(bcih.dbSession)
@@ -974,9 +894,9 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	// Validate InfiniBand interfaces (shared across all instances)
 	if len(apiRequest.InfiniBandInterfaces) > 0 {
 		// Get InfiniBand capabilities
-		itIbCaps, itIbCapCount, err := mcDAO.GetAll(ctx, nil, nil, []uuid.UUID{apiInstanceTypeID}, cdb.GetStrPtr(cdbm.MachineCapabilityTypeInfiniBand), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-		if err != nil {
-			logger.Error().Err(err).Msg("error retrieving InfiniBand Machine Capabilities from DB for Instance Type")
+		itIbCaps, itIbCapCount, derr := mcDAO.GetAll(ctx, nil, nil, []uuid.UUID{apiInstanceTypeID}, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeInfiniBand), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error retrieving InfiniBand Machine Capabilities from DB for Instance Type")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve InfiniBand Capabilities for Instance Type, DB error", nil)
 		}
 		if itIbCapCount == 0 {
@@ -988,20 +908,20 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		// (1) Parse all InfiniBand Partition IDs first (fail fast on parse errors)
 		ibpIDs := make([]uuid.UUID, 0, len(apiRequest.InfiniBandInterfaces))
 		for _, ibic := range apiRequest.InfiniBandInterfaces {
-			ibpID, err := uuid.Parse(ibic.InfiniBandPartitionID)
-			if err != nil {
-				logger.Warn().Err(err).Msg("error parsing infiniband partition id")
+			ibpID, perr := uuid.Parse(ibic.InfiniBandPartitionID)
+			if perr != nil {
+				logger.Warn().Err(perr).Msg("error parsing infiniband partition id")
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("Partition ID %v is not valid", ibic.InfiniBandPartitionID), nil)
 			}
 			ibpIDs = append(ibpIDs, ibpID)
 		}
 
 		// (2) Batch fetch all InfiniBand Partitions in one query
-		ibpList, _, err := ibpDAO.GetAll(ctx, nil, cdbm.InfiniBandPartitionFilterInput{
+		ibpList, _, derr := ibpDAO.GetAll(ctx, nil, cdbm.InfiniBandPartitionFilterInput{
 			InfiniBandPartitionIDs: ibpIDs,
 		}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
-		if err != nil {
-			logger.Error().Err(err).Msg("error retrieving InfiniBand Partitions from DB")
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error retrieving InfiniBand Partitions from DB")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve Partitions specified in request data, DB error", nil)
 		}
 
@@ -1046,10 +966,10 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		}
 
 		// Validate InfiniBand Interfaces against capabilities (after partition validation, matching single API)
-		err = model.ValidateInfiniBandInterfaces(itIbCaps, apiRequest.InfiniBandInterfaces)
-		if err != nil {
-			logger.Error().Err(err).Msg("InfiniBand interfaces validation failed")
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("InfiniBand interfaces validation failed: %v", err), err)
+		verr := model.ValidateInfiniBandInterfaces(itIbCaps, apiRequest.InfiniBandInterfaces)
+		if verr != nil {
+			logger.Error().Err(verr).Msg("InfiniBand interfaces validation failed")
+			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("InfiniBand interfaces validation failed: %v", verr), verr)
 		}
 		logger.Info().Int("infiniBandInterfaceCount", len(dbibic)).Msg("validated InfiniBand interfaces (shared across all instances)")
 	}
@@ -1057,11 +977,11 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	// Validate DPU interfaces (shared across all instances)
 	if isDeviceInfoPresent {
 		// Get DPU capabilities for validation
-		itDpuCaps, itDpuCapCount, err := mcDAO.GetAll(ctx, nil, nil, []uuid.UUID{apiInstanceTypeID},
-			cdb.GetStrPtr(cdbm.MachineCapabilityTypeNetwork), nil, nil, nil, nil, nil,
-			cdb.GetStrPtr(cdbm.MachineCapabilityDeviceTypeDPU), nil, nil, nil, nil, nil)
-		if err != nil {
-			logger.Error().Err(err).Msg("error retrieving DPU Machine Capabilities")
+		itDpuCaps, itDpuCapCount, derr := mcDAO.GetAll(ctx, nil, nil, []uuid.UUID{apiInstanceTypeID},
+			cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeNetwork), nil, nil, nil, nil, nil,
+			cdb.GetTypedStrPtr(cdbm.MachineCapabilityDeviceTypeDPU), nil, nil, nil, nil, nil)
+		if derr != nil {
+			logger.Error().Err(derr).Msg("error retrieving DPU Machine Capabilities")
 			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError,
 				"Failed to retrieve DPU Capabilities for Instance Type, DB error", nil)
 		}
@@ -1073,18 +993,18 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		}
 
 		// Validate DPU interfaces against capabilities
-		err = model.ValidateMultiEthernetDeviceInterfaces(itDpuCaps, dbInterfaces)
-		if err != nil {
-			logger.Error().Err(err).Msg("DPU interfaces validation failed")
+		verr := model.ValidateMultiEthernetDeviceInterfaces(itDpuCaps, dbInterfaces)
+		if verr != nil {
+			logger.Error().Err(verr).Msg("DPU interfaces validation failed")
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest,
-				fmt.Sprintf("DPU interfaces validation failed: %v", err), err)
+				fmt.Sprintf("DPU interfaces validation failed: %v", verr), verr)
 		}
 		logger.Info().Msg("validated DPU interfaces (shared across all instances)")
 	}
 
 	// Validate NVLink interfaces (shared across all instances)
 	// Get GPU (NVLink) capabilities
-	itNvlCaps, itNvlCapCount, err := mcDAO.GetAll(ctx, nil, nil, []uuid.UUID{apiInstanceTypeID}, cdb.GetStrPtr(cdbm.MachineCapabilityTypeGPU), nil, nil, nil, nil, nil, cdb.GetStrPtr(cdbm.MachineCapabilityDeviceTypeNVLink), nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
+	itNvlCaps, itNvlCapCount, err := mcDAO.GetAll(ctx, nil, nil, []uuid.UUID{apiInstanceTypeID}, cdb.GetTypedStrPtr(cdbm.MachineCapabilityTypeGPU), nil, nil, nil, nil, nil, cdb.GetTypedStrPtr(cdbm.MachineCapabilityDeviceTypeNVLink), nil, nil, nil, cdb.GetIntPtr(cdbp.TotalLimit), nil)
 	if err != nil {
 		logger.Error().Err(err).Msg("error retrieving GPU (NVLink) Machine Capabilities from DB for Instance Type")
 		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve GPU Capabilities for Instance Type, DB error", nil)
@@ -1097,19 +1017,19 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		}
 
 		// Validate NVLink interface configuration against capabilities
-		err = model.ValidateNVLinkInterfaces(itNvlCaps, apiRequest.NVLinkInterfaces)
-		if err != nil {
-			logger.Error().Err(err).Msg("NVLink interfaces validation failed")
-			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("NVLink interfaces validation failed: %v", err), err)
+		verr := model.ValidateNVLinkInterfaces(itNvlCaps, apiRequest.NVLinkInterfaces)
+		if verr != nil {
+			logger.Error().Err(verr).Msg("NVLink interfaces validation failed")
+			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("NVLink interfaces validation failed: %v", verr), verr)
 		}
 
 		// Validate NVLink Logical Partitions: parse IDs, batch fetch from DB, verify VPC ownership
 		// (1) Parse all NVLink Logical Partition IDs first (fail fast on parse errors)
 		nvllpIDs := make([]uuid.UUID, 0, len(apiRequest.NVLinkInterfaces))
 		for _, nvlifc := range apiRequest.NVLinkInterfaces {
-			nvllpID, err := uuid.Parse(nvlifc.NVLinkLogicalPartitionID)
-			if err != nil {
-				logger.Warn().Err(err).Msg("error parsing NVLink Logical Partition id")
+			nvllpID, perr := uuid.Parse(nvlifc.NVLinkLogicalPartitionID)
+			if perr != nil {
+				logger.Warn().Err(perr).Msg("error parsing NVLink Logical Partition id")
 				return cutil.NewAPIErrorResponse(c, http.StatusBadRequest, fmt.Sprintf("NVLink Logical Partition ID %v is not valid", nvlifc.NVLinkLogicalPartitionID), nil)
 			}
 			nvllpIDs = append(nvllpIDs, nvllpID)
@@ -1128,11 +1048,11 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 				}
 			}
 
-			nvllpList, _, err := nvllpDAO.GetAll(ctx, nil, cdbm.NVLinkLogicalPartitionFilterInput{
+			nvllpList, _, derr := nvllpDAO.GetAll(ctx, nil, cdbm.NVLinkLogicalPartitionFilterInput{
 				NVLinkLogicalPartitionIDs: uniqueNvllpIDs,
 			}, cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}, nil)
-			if err != nil {
-				logger.Error().Err(err).Msg("error retrieving NVLink Logical Partitions from DB")
+			if derr != nil {
+				logger.Error().Err(derr).Msg("error retrieving NVLink Logical Partitions from DB")
 				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve NVLink Logical Partitions specified in request data, DB error", nil)
 			}
 
@@ -1188,7 +1108,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		dbnvlic = []cdbm.NVLinkInterface{}
 		for _, nvlCap := range itNvlCaps {
 			if nvlCap.Count != nil {
-				for i := 0; i < *nvlCap.Count; i++ {
+				for i := range *nvlCap.Count {
 					dbnvlic = append(dbnvlic, cdbm.NVLinkInterface{
 						NVLinkLogicalPartitionID: *defaultNvllpID,
 						Device:                   cdb.GetStrPtr(nvlCap.Name),
@@ -1200,9 +1120,7 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		logger.Info().Int("nvlinkInterfaceCount", len(dbnvlic)).Msg("generated default NVLink interfaces (shared across all instances)")
 	}
 
-	logger.Info().Msg("completed machine capability validation (Step 5)")
-
-	// ==================== Step 6: Batch Instance Creation (Optimized with Batch DB Operations) ====================
+	logger.Info().Msg("completed machine capability validation pre-transaction")
 
 	// Build SSH key group IDs for temporal workflow (shared by all instances)
 	instanceSshKeyGroupIds := make([]string, 0, len(sshKeyGroups))
@@ -1213,9 +1131,9 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 	// Pre-parse DPU Extension Service IDs (shared validation, done once)
 	dpuServiceIDs := make([]uuid.UUID, 0, len(apiRequest.DpuExtensionServiceDeployments))
 	for _, adesdr := range apiRequest.DpuExtensionServiceDeployments {
-		desdID, err := uuid.Parse(adesdr.DpuExtensionServiceID)
-		if err != nil {
-			logger.Warn().Err(err).Str("serviceID", adesdr.DpuExtensionServiceID).
+		desdID, derr := uuid.Parse(adesdr.DpuExtensionServiceID)
+		if derr != nil {
+			logger.Warn().Err(derr).Str("serviceID", adesdr.DpuExtensionServiceID).
 				Msg("error parsing DPU Extension Service ID")
 			return cutil.NewAPIErrorResponse(c, http.StatusBadRequest,
 				fmt.Sprintf("Invalid DPU Extension Service ID: %s", adesdr.DpuExtensionServiceID), nil)
@@ -1223,227 +1141,11 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		dpuServiceIDs = append(dpuServiceIDs, desdID)
 	}
 
-	// --- Build all InstanceCreateInputs ---
-	instanceCreateInputs := make([]cdbm.InstanceCreateInput, 0, len(machines))
-	for i, machine := range machines {
-		instanceCreateInputs = append(instanceCreateInputs, cdbm.InstanceCreateInput{
-			Name:                     generateInstanceName(i),
-			Description:              apiRequest.Description,
-			TenantID:                 tenant.ID,
-			InfrastructureProviderID: machine.InfrastructureProviderID,
-			SiteID:                   machine.SiteID,
-			VpcID:                    vpc.ID,
-			MachineID:                cdb.GetStrPtr(machine.ID),
-			OperatingSystemID:        osID,
-			IpxeScript:               apiRequest.IpxeScript,
-			AlwaysBootWithCustomIpxe: *apiRequest.AlwaysBootWithCustomIpxe,
-			PhoneHomeEnabled:         *apiRequest.PhoneHomeEnabled,
-			UserData:                 apiRequest.UserData,
-			NetworkSecurityGroupID:   apiRequest.NetworkSecurityGroupID,
-			Labels:                   apiRequest.Labels,
-			InstanceTypeID:           &apiInstanceTypeID,
-			IsUpdatePending:          false,
-			Status:                   cdbm.InstanceStatusPending,
-			PowerStatus:              cdb.GetStrPtr(cdbm.InstancePowerStatusRebooting),
-			CreatedBy:                dbUser.ID,
-		})
-	}
+	// ==================== Step 3: Database Transaction ====================
 
-	// --- Batch create all instances ---
-	createdInstances, err := inDAO.CreateMultiple(ctx, tx, instanceCreateInputs)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to batch create instance records")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError,
-			fmt.Sprintf("Failed to batch create instances: %v", err), nil)
-	}
-	logger.Info().Int("count", len(createdInstances)).Msg("batch created all instance records")
-
-	// --- Build and batch update ControllerInstanceIDs ---
-	instanceUpdateInputs := make([]cdbm.InstanceUpdateInput, 0, len(createdInstances))
-	for _, inst := range createdInstances {
-		instanceUpdateInputs = append(instanceUpdateInputs, cdbm.InstanceUpdateInput{
-			InstanceID:           inst.ID,
-			ControllerInstanceID: cdb.GetUUIDPtr(inst.ID),
-		})
-	}
-
-	updatedInstances, err := inDAO.UpdateMultiple(ctx, tx, instanceUpdateInputs)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to batch update controller instance IDs")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError,
-			fmt.Sprintf("Failed to batch update instances: %v", err), nil)
-	}
-	logger.Info().Int("count", len(updatedInstances)).Msg("batch updated all controller instance IDs")
-
-	// Build instance map for easy lookup
-	instanceMap := make(map[uuid.UUID]*cdbm.Instance, len(updatedInstances))
-	for i := range updatedInstances {
-		instanceMap[updatedInstances[i].ID] = &updatedInstances[i]
-	}
-
-	// --- Build and batch create SSH Key Group Instance Associations ---
-	skgiaInputs := make([]cdbm.SSHKeyGroupInstanceAssociationCreateInput, 0, len(updatedInstances)*len(sshKeyGroups))
-	for _, inst := range updatedInstances {
-		for _, skg := range sshKeyGroups {
-			skgiaInputs = append(skgiaInputs, cdbm.SSHKeyGroupInstanceAssociationCreateInput{
-				SSHKeyGroupID: skg.ID,
-				SiteID:        site.ID,
-				InstanceID:    inst.ID,
-				CreatedBy:     dbUser.ID,
-			})
-		}
-	}
-
-	if len(skgiaInputs) > 0 {
-		skgiaDAO := cdbm.NewSSHKeyGroupInstanceAssociationDAO(bcih.dbSession)
-		_, err = skgiaDAO.CreateMultiple(ctx, tx, skgiaInputs)
-		if err != nil {
-			logger.Error().Err(err).Msg("failed to batch create SSH key group associations")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError,
-				fmt.Sprintf("Failed to batch create SSH key group associations: %v", err), nil)
-		}
-		logger.Info().Int("count", len(skgiaInputs)).Msg("batch created all SSH key group associations")
-	}
-
-	// --- Build and batch create Interfaces ---
-	ifcInputs := make([]cdbm.InterfaceCreateInput, 0, len(updatedInstances)*len(dbInterfaces))
-	for _, inst := range updatedInstances {
-		for _, dbifc := range dbInterfaces {
-			ifcInputs = append(ifcInputs, cdbm.InterfaceCreateInput{
-				InstanceID:         inst.ID,
-				SubnetID:           dbifc.SubnetID,
-				VpcPrefixID:        dbifc.VpcPrefixID,
-				Device:             dbifc.Device,
-				DeviceInstance:     dbifc.DeviceInstance,
-				VirtualFunctionID:  dbifc.VirtualFunctionID,
-				RequestedIpAddress: dbifc.RequestedIpAddress,
-				IsPhysical:         dbifc.IsPhysical,
-				Status:             cdbm.InterfaceStatusPending,
-				CreatedBy:          dbUser.ID,
-			})
-		}
-	}
-
-	var createdIfcsAll []cdbm.Interface
-	if len(ifcInputs) > 0 {
-		ifcDAO := cdbm.NewInterfaceDAO(bcih.dbSession)
-		createdIfcsAll, err = ifcDAO.CreateMultiple(ctx, tx, ifcInputs)
-		if err != nil {
-			logger.Error().Err(err).Msg("failed to batch create interfaces")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError,
-				fmt.Sprintf("Failed to batch create interfaces: %v", err), nil)
-		}
-		logger.Info().Int("count", len(createdIfcsAll)).Msg("batch created all interfaces")
-	}
-
-	// --- Build and batch create InfiniBand Interfaces ---
-	var createdIbIfcsAll []cdbm.InfiniBandInterface
-	if len(dbibic) > 0 {
-		ibifcInputs := make([]cdbm.InfiniBandInterfaceCreateInput, 0, len(updatedInstances)*len(dbibic))
-		for _, inst := range updatedInstances {
-			for _, ibic := range dbibic {
-				ibifcInputs = append(ibifcInputs, cdbm.InfiniBandInterfaceCreateInput{
-					InstanceID:            inst.ID,
-					SiteID:                site.ID,
-					InfiniBandPartitionID: ibic.InfiniBandPartitionID,
-					Device:                ibic.Device,
-					DeviceInstance:        ibic.DeviceInstance,
-					VirtualFunctionID:     ibic.VirtualFunctionID,
-					IsPhysical:            ibic.IsPhysical,
-					Vendor:                ibic.Vendor,
-					Status:                cdbm.InfiniBandInterfaceStatusPending,
-					CreatedBy:             dbUser.ID,
-				})
-			}
-		}
-
-		ibifcDAO := cdbm.NewInfiniBandInterfaceDAO(bcih.dbSession)
-		createdIbIfcsAll, err = ibifcDAO.CreateMultiple(ctx, tx, ibifcInputs)
-		if err != nil {
-			logger.Error().Err(err).Msg("failed to batch create InfiniBand interfaces")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError,
-				fmt.Sprintf("Failed to batch create InfiniBand interfaces: %v", err), nil)
-		}
-		logger.Info().Int("count", len(createdIbIfcsAll)).Msg("batch created all InfiniBand interfaces")
-	}
-
-	// --- Build and batch create NVLink Interfaces ---
-	var createdNvlIfcsAll []cdbm.NVLinkInterface
-	if len(dbnvlic) > 0 {
-		nvlifcInputs := make([]cdbm.NVLinkInterfaceCreateInput, 0, len(updatedInstances)*len(dbnvlic))
-		for _, inst := range updatedInstances {
-			for _, nvlic := range dbnvlic {
-				nvlifcInputs = append(nvlifcInputs, cdbm.NVLinkInterfaceCreateInput{
-					InstanceID:               inst.ID,
-					SiteID:                   site.ID,
-					NVLinkLogicalPartitionID: nvlic.NVLinkLogicalPartitionID,
-					Device:                   nvlic.Device,
-					DeviceInstance:           nvlic.DeviceInstance,
-					Status:                   cdbm.NVLinkInterfaceStatusPending,
-					CreatedBy:                dbUser.ID,
-				})
-			}
-		}
-
-		nvlifcDAO := cdbm.NewNVLinkInterfaceDAO(bcih.dbSession)
-		createdNvlIfcsAll, err = nvlifcDAO.CreateMultiple(ctx, tx, nvlifcInputs)
-		if err != nil {
-			logger.Error().Err(err).Msg("failed to batch create NVLink interfaces")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError,
-				fmt.Sprintf("Failed to batch create NVLink interfaces: %v", err), nil)
-		}
-		logger.Info().Int("count", len(createdNvlIfcsAll)).Msg("batch created all NVLink interfaces")
-	}
-
-	// --- Build and batch create DPU Extension Service Deployments ---
-	var createdDesdsAll []cdbm.DpuExtensionServiceDeployment
-	if len(apiRequest.DpuExtensionServiceDeployments) > 0 {
-		desdInputs := make([]cdbm.DpuExtensionServiceDeploymentCreateInput, 0, len(updatedInstances)*len(dpuServiceIDs))
-		for _, inst := range updatedInstances {
-			for j, desdID := range dpuServiceIDs {
-				desdInputs = append(desdInputs, cdbm.DpuExtensionServiceDeploymentCreateInput{
-					SiteID:                site.ID,
-					TenantID:              tenant.ID,
-					InstanceID:            inst.ID,
-					DpuExtensionServiceID: desdID,
-					Version:               apiRequest.DpuExtensionServiceDeployments[j].Version,
-					Status:                cdbm.DpuExtensionServiceDeploymentStatusPending,
-					CreatedBy:             dbUser.ID,
-				})
-			}
-		}
-
-		desdDAO := cdbm.NewDpuExtensionServiceDeploymentDAO(bcih.dbSession)
-		createdDesdsAll, err = desdDAO.CreateMultiple(ctx, tx, desdInputs)
-		if err != nil {
-			logger.Error().Err(err).Msg("failed to batch create DPU Extension Service Deployments")
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError,
-				fmt.Sprintf("Failed to batch create DPU Extension Service Deployments: %v", err), nil)
-		}
-		logger.Info().Int("count", len(createdDesdsAll)).Msg("batch created all DPU Extension Service Deployments")
-	}
-
-	// --- Build and batch create Status Details ---
-	sdInputs := make([]cdbm.StatusDetailCreateInput, 0, len(updatedInstances))
-	for _, inst := range updatedInstances {
-		sdInputs = append(sdInputs, cdbm.StatusDetailCreateInput{
-			EntityID: inst.ID.String(),
-			Status:   cdbm.InstanceStatusPending,
-			Message:  cdb.GetStrPtr("received instance creation request, pending"),
-		})
-	}
-
-	sdDAO := cdbm.NewStatusDetailDAO(bcih.dbSession)
-	createdSdsAll, err := sdDAO.CreateMultiple(ctx, tx, sdInputs)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to batch create status details")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError,
-			fmt.Sprintf("Failed to batch create status details: %v", err), nil)
-	}
-	logger.Info().Int("count", len(createdSdsAll)).Msg("batch created all status details")
-
-	// --- Organize created records by instance and build workflow configs ---
-	// Track all created data for building API responses and temporal workflow
+	// instanceData holds all the per-instance rows + workflow configs that
+	// get assembled inside the closure and reused for the HTTP response after
+	// the closure returns.
 	type instanceData struct {
 		instance *cdbm.Instance
 		ifcs     []cdbm.Interface
@@ -1458,274 +1160,574 @@ func (bcih BatchCreateInstanceHandler) Handle(c echo.Context) error {
 		desdConfigs         []*cwssaws.InstanceDpuExtensionServiceConfig
 	}
 
-	createdInstancesData := make([]instanceData, len(updatedInstances))
+	// Values populated inside the transaction closure that are needed for
+	// the HTTP response built after the closure returns.
+	var createdInstancesData []instanceData
+	var createdInstanceCount int
 
-	// Initialize data structures for each instance
-	for i, inst := range updatedInstances {
-		instCopy := inst // Make a copy to avoid loop variable capture
-		createdInstancesData[i] = instanceData{
-			instance:            &instCopy,
-			ifcs:                make([]cdbm.Interface, 0, len(dbInterfaces)),
-			ibifcs:              make([]cdbm.InfiniBandInterface, 0, len(dbibic)),
-			nvlifcs:             make([]cdbm.NVLinkInterface, 0, len(dbnvlic)),
-			desds:               make([]cdbm.DpuExtensionServiceDeployment, 0, len(dpuServiceIDs)),
-			interfaceConfigs:    make([]*cwssaws.InstanceInterfaceConfig, 0, len(dbInterfaces)),
-			ibInterfaceConfigs:  make([]*cwssaws.InstanceIBInterfaceConfig, 0, len(dbibic)),
-			nvlInterfaceConfigs: make([]*cwssaws.InstanceNVLinkGpuConfig, 0, len(dbnvlic)),
-			desdConfigs:         make([]*cwssaws.InstanceDpuExtensionServiceConfig, 0, len(dpuServiceIDs)),
-		}
-	}
+	// timeoutResp lets the closure signal a post-rollback handler — the
+	// TerminateWorkflow call has to run after the closure returns so that
+	// the DB tx unwinds before we make the second remote call. nil means
+	// no timeout occurred and the normal flow continues.
+	var timeoutResp func() error
 
-	// Build instance ID to index map for efficient lookup
-	instanceIDToIdx := make(map[uuid.UUID]int, len(updatedInstances))
-	for i, inst := range updatedInstances {
-		instanceIDToIdx[inst.ID] = i
-	}
+	err = cdb.WithTx(ctx, bcih.dbSession, func(tx *cdb.Tx) error {
+		// ==================== Step 4: Machine Selection ====================
 
-	// Distribute Interfaces and build workflow configs
-	for _, ifc := range createdIfcsAll {
-		idx := instanceIDToIdx[ifc.InstanceID]
-
-		// NewAPIInstance derives SecondaryVpcIDs from prefix-backed interface relations.
-		// Reattach the already-validated VpcPrefix relation here because CreateMultiple
-		// returns interfaces with IDs populated but without related objects preloaded.
-		if ifc.VpcPrefixID != nil {
-			ifc.VpcPrefix = vpcPrefixIDMap[*ifc.VpcPrefixID]
+		// Acquire the shared quota lock for this tenant/site/instance-type pool.
+		// This prevents concurrent quota mutations and admissions from racing.
+		lerr := common.AcquireInstanceTypeQuotaLock(ctx, tx, tenant.ID, instancetype.ID)
+		if lerr != nil {
+			logger.Error().Err(lerr).Msg("Failed to acquire advisory lock on Instance Type quota pool")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Error creating Instances, detected multiple parallel requests on Instance Type by Tenant", nil)
 		}
 
-		createdInstancesData[idx].ifcs = append(createdInstancesData[idx].ifcs, ifc)
-
-		// Build temporal workflow config
-		interfaceConfig := &cwssaws.InstanceInterfaceConfig{
-			FunctionType: cwssaws.InterfaceFunctionType_VIRTUAL_FUNCTION,
+		// Ensure that Tenant has an Allocation with specified Tenant InstanceType Site
+		aDAO := cdbm.NewAllocationDAO(bcih.dbSession)
+		allocationFilter := cdbm.AllocationFilterInput{TenantIDs: []uuid.UUID{tenant.ID}, SiteIDs: []uuid.UUID{*instancetype.SiteID}}
+		allocationPage := cdbp.PageInput{Limit: cdb.GetIntPtr(cdbp.TotalLimit)}
+		tnas, _, serr := aDAO.GetAll(ctx, tx, allocationFilter, allocationPage, nil)
+		if serr != nil {
+			logger.Error().Err(serr).Msg("error retrieving allocations for tenant")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Allocation for Tenant", nil)
 		}
-		if ifc.SubnetID != nil {
-			interfaceConfig.NetworkSegmentId = &cwssaws.NetworkSegmentId{
-				Value: subnetIDMap[*ifc.SubnetID].ControllerNetworkSegmentID.String(),
+		if len(tnas) == 0 {
+			return cutil.NewAPIError(http.StatusForbidden,
+				"Tenant does not have any Allocations for Site and Instance Type specified in request data", nil)
+		}
+
+		alconstraints, acerr := common.GetAllocationConstraintsForInstanceType(ctx, tx, bcih.dbSession, tenant.ID, instancetype, tnas)
+		if acerr != nil {
+			if acerr == common.ErrAllocationConstraintNotFound {
+				return cutil.NewAPIError(http.StatusInternalServerError, "No Allocations for specified Instance Type were found for current Tenant", nil)
 			}
-			interfaceConfig.NetworkDetails = &cwssaws.InstanceInterfaceConfig_SegmentId{
-				SegmentId: &cwssaws.NetworkSegmentId{
+			logger.Error().Err(acerr).Msg("error retrieving Allocation Constraints from DB for InstanceType and Allocation")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve Allocations for specified Instance Type, DB error", nil)
+		}
+
+		// Getting active instances for the tenant on requested instance type
+		var siteIDs []uuid.UUID
+		if instancetype.SiteID != nil {
+			siteIDs = []uuid.UUID{*instancetype.SiteID}
+		}
+		_, insTotal, iderr := inDAO.GetAll(ctx, tx, cdbm.InstanceFilterInput{
+			TenantIDs:       []uuid.UUID{tenant.ID},
+			SiteIDs:         siteIDs,
+			InstanceTypeIDs: []uuid.UUID{instancetype.ID},
+		}, cdbp.PageInput{}, nil)
+		if iderr != nil {
+			logger.Error().Err(iderr).Msg("error retrieving Active Instances from DB for Tenant and InstanceType")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve active instances for Tenant and Instance Type, DB error", nil)
+		}
+
+		// Calculate the total constraint value across all matching allocations.
+		totalConstraintValue := 0
+		for _, alcs := range alconstraints {
+			totalConstraintValue += alcs.ConstraintValue
+		}
+
+		// Check if we have enough allocation for all requested instances
+		if insTotal+apiRequest.Count > totalConstraintValue {
+			return cutil.NewAPIError(http.StatusForbidden,
+				fmt.Sprintf("Tenant has reached the maximum number of Instances for Instance Type. Current: %d, Requested: %d, Max: %d", insTotal, apiRequest.Count, totalConstraintValue), nil)
+		}
+
+		// Allocate machines with topology optimization
+		machines, apiErr := allocateMachinesForBatch(ctx, tx, bcih.dbSession, instancetype, apiRequest.Count, topologyOptimized, logger)
+		if apiErr != nil {
+			return apiErr
+		}
+
+		// ==================== Step 5: Batch Instance Creation (Optimized with Batch DB Operations) ====================
+
+		// --- Build all InstanceCreateInputs ---
+		instanceCreateInputs := make([]cdbm.InstanceCreateInput, 0, len(machines))
+		for i, machine := range machines {
+			instanceCreateInputs = append(instanceCreateInputs, cdbm.InstanceCreateInput{
+				Name:                     generateInstanceName(i),
+				Description:              apiRequest.Description,
+				TenantID:                 tenant.ID,
+				InfrastructureProviderID: machine.InfrastructureProviderID,
+				SiteID:                   machine.SiteID,
+				VpcID:                    vpc.ID,
+				MachineID:                cdb.GetStrPtr(machine.ID),
+				OperatingSystemID:        osID,
+				IpxeScript:               apiRequest.IpxeScript,
+				AlwaysBootWithCustomIpxe: *apiRequest.AlwaysBootWithCustomIpxe,
+				PhoneHomeEnabled:         *apiRequest.PhoneHomeEnabled,
+				UserData:                 apiRequest.UserData,
+				AutoNetwork:              apiRequest.AutoNetwork,
+				NetworkSecurityGroupID:   apiRequest.NetworkSecurityGroupID,
+				Labels:                   apiRequest.Labels,
+				InstanceTypeID:           &apiInstanceTypeID,
+				IsUpdatePending:          false,
+				Status:                   cdbm.InstanceStatusPending,
+				PowerStatus:              cdb.GetStrPtr(cdbm.InstancePowerStatusRebooting),
+				CreatedBy:                dbUser.ID,
+			})
+		}
+
+		// --- Batch create all instances ---
+		createdInstances, cerr := inDAO.CreateMultiple(ctx, tx, instanceCreateInputs)
+		if cerr != nil {
+			logger.Error().Err(cerr).Msg("failed to batch create instance records")
+			return cutil.NewAPIError(http.StatusInternalServerError,
+				fmt.Sprintf("Failed to batch create instances: %v", cerr), nil)
+		}
+		logger.Info().Int("count", len(createdInstances)).Msg("batch created all instance records")
+
+		// --- Set each instance's ControllerInstanceID to its own ID ---
+		//
+		// Each row needs a *different* ControllerInstanceID value (its own
+		// ID), so this doesn't fit `UpdateMultiple`'s shared-mask /
+		// shared-values contract. We issue one single-row Update per
+		// instance inside the existing transaction -- atomic and cheap at
+		// the batch sizes we support (capped at MaxBatchSize, ~18 today).
+		updatedInstances := make([]cdbm.Instance, 0, len(createdInstances))
+		for _, inst := range createdInstances {
+			updated, uerr := inDAO.Update(ctx, tx, cdbm.InstanceUpdateInput{
+				InstanceID: inst.ID,
+				InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{
+					ControllerInstanceID: cdb.GetUUIDPtr(inst.ID),
+				},
+			})
+			if uerr != nil {
+				logger.Error().Err(uerr).Msg("failed to update controller instance ID")
+				return cutil.NewAPIError(http.StatusInternalServerError,
+					fmt.Sprintf("Failed to update Instance: %v", uerr), nil)
+			}
+			updatedInstances = append(updatedInstances, *updated)
+		}
+		logger.Info().Int("count", len(updatedInstances)).Msg("batch updated all controller instance IDs")
+
+		// --- Build and batch create SSH Key Group Instance Associations ---
+		skgiaInputs := make([]cdbm.SSHKeyGroupInstanceAssociationCreateInput, 0, len(updatedInstances)*len(sshKeyGroups))
+		for _, inst := range updatedInstances {
+			for _, skg := range sshKeyGroups {
+				skgiaInputs = append(skgiaInputs, cdbm.SSHKeyGroupInstanceAssociationCreateInput{
+					SSHKeyGroupID: skg.ID,
+					SiteID:        site.ID,
+					InstanceID:    inst.ID,
+					CreatedBy:     dbUser.ID,
+				})
+			}
+		}
+
+		if len(skgiaInputs) > 0 {
+			skgiaDAO := cdbm.NewSSHKeyGroupInstanceAssociationDAO(bcih.dbSession)
+			_, skerr := skgiaDAO.CreateMultiple(ctx, tx, skgiaInputs)
+			if skerr != nil {
+				logger.Error().Err(skerr).Msg("failed to batch create SSH key group associations")
+				return cutil.NewAPIError(http.StatusInternalServerError,
+					fmt.Sprintf("Failed to batch create SSH key group associations: %v", skerr), nil)
+			}
+			logger.Info().Int("count", len(skgiaInputs)).Msg("batch created all SSH key group associations")
+		}
+
+		// --- Build and batch create Interfaces ---
+		ifcInputs := make([]cdbm.InterfaceCreateInput, 0, len(updatedInstances)*len(dbInterfaces))
+		for _, inst := range updatedInstances {
+			for _, dbifc := range dbInterfaces {
+				ifcInputs = append(ifcInputs, cdbm.InterfaceCreateInput{
+					InstanceID:         inst.ID,
+					SubnetID:           dbifc.SubnetID,
+					VpcPrefixID:        dbifc.VpcPrefixID,
+					Device:             dbifc.Device,
+					DeviceInstance:     dbifc.DeviceInstance,
+					VirtualFunctionID:  dbifc.VirtualFunctionID,
+					RequestedIpAddress: dbifc.RequestedIpAddress,
+					IsPhysical:         dbifc.IsPhysical,
+					Status:             cdbm.InterfaceStatusPending,
+					CreatedBy:          dbUser.ID,
+				})
+			}
+		}
+
+		var createdIfcsAll []cdbm.Interface
+		if len(ifcInputs) > 0 {
+			ifcDAO := cdbm.NewInterfaceDAO(bcih.dbSession)
+			ifcsCreated, ierr := ifcDAO.CreateMultiple(ctx, tx, ifcInputs)
+			if ierr != nil {
+				logger.Error().Err(ierr).Msg("failed to batch create interfaces")
+				return cutil.NewAPIError(http.StatusInternalServerError,
+					fmt.Sprintf("Failed to batch create interfaces: %v", ierr), nil)
+			}
+			createdIfcsAll = ifcsCreated
+			logger.Info().Int("count", len(createdIfcsAll)).Msg("batch created all interfaces")
+		}
+
+		// --- Build and batch create InfiniBand Interfaces ---
+		var createdIbIfcsAll []cdbm.InfiniBandInterface
+		if len(dbibic) > 0 {
+			ibifcInputs := make([]cdbm.InfiniBandInterfaceCreateInput, 0, len(updatedInstances)*len(dbibic))
+			for _, inst := range updatedInstances {
+				for _, ibic := range dbibic {
+					ibifcInputs = append(ibifcInputs, cdbm.InfiniBandInterfaceCreateInput{
+						InstanceID:            inst.ID,
+						SiteID:                site.ID,
+						InfiniBandPartitionID: ibic.InfiniBandPartitionID,
+						Device:                ibic.Device,
+						DeviceInstance:        ibic.DeviceInstance,
+						VirtualFunctionID:     ibic.VirtualFunctionID,
+						IsPhysical:            ibic.IsPhysical,
+						Vendor:                ibic.Vendor,
+						Status:                cdbm.InfiniBandInterfaceStatusPending,
+						CreatedBy:             dbUser.ID,
+					})
+				}
+			}
+
+			ibifcDAO := cdbm.NewInfiniBandInterfaceDAO(bcih.dbSession)
+			ibCreated, iberr := ibifcDAO.CreateMultiple(ctx, tx, ibifcInputs)
+			if iberr != nil {
+				logger.Error().Err(iberr).Msg("failed to batch create InfiniBand interfaces")
+				return cutil.NewAPIError(http.StatusInternalServerError,
+					fmt.Sprintf("Failed to batch create InfiniBand interfaces: %v", iberr), nil)
+			}
+			createdIbIfcsAll = ibCreated
+			logger.Info().Int("count", len(createdIbIfcsAll)).Msg("batch created all InfiniBand interfaces")
+		}
+
+		// --- Build and batch create NVLink Interfaces ---
+		var createdNvlIfcsAll []cdbm.NVLinkInterface
+		if len(dbnvlic) > 0 {
+			nvlifcInputs := make([]cdbm.NVLinkInterfaceCreateInput, 0, len(updatedInstances)*len(dbnvlic))
+			for _, inst := range updatedInstances {
+				for _, nvlic := range dbnvlic {
+					nvlifcInputs = append(nvlifcInputs, cdbm.NVLinkInterfaceCreateInput{
+						InstanceID:               inst.ID,
+						SiteID:                   site.ID,
+						NVLinkLogicalPartitionID: nvlic.NVLinkLogicalPartitionID,
+						Device:                   nvlic.Device,
+						DeviceInstance:           nvlic.DeviceInstance,
+						Status:                   cdbm.NVLinkInterfaceStatusPending,
+						CreatedBy:                dbUser.ID,
+					})
+				}
+			}
+
+			nvlifcDAO := cdbm.NewNVLinkInterfaceDAO(bcih.dbSession)
+			nvlCreated, nverr := nvlifcDAO.CreateMultiple(ctx, tx, nvlifcInputs)
+			if nverr != nil {
+				logger.Error().Err(nverr).Msg("failed to batch create NVLink interfaces")
+				return cutil.NewAPIError(http.StatusInternalServerError,
+					fmt.Sprintf("Failed to batch create NVLink interfaces: %v", nverr), nil)
+			}
+			createdNvlIfcsAll = nvlCreated
+			logger.Info().Int("count", len(createdNvlIfcsAll)).Msg("batch created all NVLink interfaces")
+		}
+
+		// --- Build and batch create DPU Extension Service Deployments ---
+		var createdDesdsAll []cdbm.DpuExtensionServiceDeployment
+		if len(apiRequest.DpuExtensionServiceDeployments) > 0 {
+			desdInputs := make([]cdbm.DpuExtensionServiceDeploymentCreateInput, 0, len(updatedInstances)*len(dpuServiceIDs))
+			for _, inst := range updatedInstances {
+				for j, desdID := range dpuServiceIDs {
+					desdInputs = append(desdInputs, cdbm.DpuExtensionServiceDeploymentCreateInput{
+						SiteID:                site.ID,
+						TenantID:              tenant.ID,
+						InstanceID:            inst.ID,
+						DpuExtensionServiceID: desdID,
+						Version:               apiRequest.DpuExtensionServiceDeployments[j].Version,
+						Status:                cdbm.DpuExtensionServiceDeploymentStatusPending,
+						CreatedBy:             dbUser.ID,
+					})
+				}
+			}
+
+			desdDAO := cdbm.NewDpuExtensionServiceDeploymentDAO(bcih.dbSession)
+			desdsCreated, derr := desdDAO.CreateMultiple(ctx, tx, desdInputs)
+			if derr != nil {
+				logger.Error().Err(derr).Msg("failed to batch create DPU Extension Service Deployments")
+				return cutil.NewAPIError(http.StatusInternalServerError,
+					fmt.Sprintf("Failed to batch create DPU Extension Service Deployments: %v", derr), nil)
+			}
+			createdDesdsAll = desdsCreated
+			logger.Info().Int("count", len(createdDesdsAll)).Msg("batch created all DPU Extension Service Deployments")
+		}
+
+		// --- Build and batch create Status Details ---
+		sdInputs := make([]cdbm.StatusDetailCreateInput, 0, len(updatedInstances))
+		for _, inst := range updatedInstances {
+			sdInputs = append(sdInputs, cdbm.StatusDetailCreateInput{
+				EntityID: inst.ID.String(),
+				Status:   cdbm.InstanceStatusPending,
+				Message:  cdb.GetStrPtr("received instance creation request, pending"),
+			})
+		}
+
+		sdDAO := cdbm.NewStatusDetailDAO(bcih.dbSession)
+		createdSdsAll, sderr := sdDAO.CreateMultiple(ctx, tx, sdInputs)
+		if sderr != nil {
+			logger.Error().Err(sderr).Msg("failed to batch create status details")
+			return cutil.NewAPIError(http.StatusInternalServerError,
+				fmt.Sprintf("Failed to batch create status details: %v", sderr), nil)
+		}
+		logger.Info().Int("count", len(createdSdsAll)).Msg("batch created all status details")
+
+		// --- Organize created records by instance and build workflow configs ---
+		// Tracks all created data for the temporal workflow request and for
+		// the post-WithTx HTTP response build.
+		createdInstancesData = make([]instanceData, len(updatedInstances))
+
+		// Initialize data structures for each instance
+		for i, inst := range updatedInstances {
+			instCopy := inst // Make a copy to avoid loop variable capture
+			createdInstancesData[i] = instanceData{
+				instance:            &instCopy,
+				ifcs:                make([]cdbm.Interface, 0, len(dbInterfaces)),
+				ibifcs:              make([]cdbm.InfiniBandInterface, 0, len(dbibic)),
+				nvlifcs:             make([]cdbm.NVLinkInterface, 0, len(dbnvlic)),
+				desds:               make([]cdbm.DpuExtensionServiceDeployment, 0, len(dpuServiceIDs)),
+				interfaceConfigs:    make([]*cwssaws.InstanceInterfaceConfig, 0, len(dbInterfaces)),
+				ibInterfaceConfigs:  make([]*cwssaws.InstanceIBInterfaceConfig, 0, len(dbibic)),
+				nvlInterfaceConfigs: make([]*cwssaws.InstanceNVLinkGpuConfig, 0, len(dbnvlic)),
+				desdConfigs:         make([]*cwssaws.InstanceDpuExtensionServiceConfig, 0, len(dpuServiceIDs)),
+			}
+		}
+
+		// Build instance ID to index map for efficient lookup
+		instanceIDToIdx := make(map[uuid.UUID]int, len(updatedInstances))
+		for i, inst := range updatedInstances {
+			instanceIDToIdx[inst.ID] = i
+		}
+
+		// Distribute Interfaces and build workflow configs
+		for _, ifc := range createdIfcsAll {
+			idx := instanceIDToIdx[ifc.InstanceID]
+
+			// NewAPIInstance derives SecondaryVpcIDs from prefix-backed interface relations.
+			// Reattach the already-validated VpcPrefix relation here because CreateMultiple
+			// returns interfaces with IDs populated but without related objects preloaded.
+			if ifc.VpcPrefixID != nil {
+				ifc.VpcPrefix = vpcPrefixIDMap[*ifc.VpcPrefixID]
+			}
+
+			createdInstancesData[idx].ifcs = append(createdInstancesData[idx].ifcs, ifc)
+
+			// Build temporal workflow config
+			interfaceConfig := &cwssaws.InstanceInterfaceConfig{
+				FunctionType: cwssaws.InterfaceFunctionType_VIRTUAL_FUNCTION,
+			}
+			if ifc.SubnetID != nil {
+				interfaceConfig.NetworkSegmentId = &cwssaws.NetworkSegmentId{
 					Value: subnetIDMap[*ifc.SubnetID].ControllerNetworkSegmentID.String(),
-				},
+				}
+				interfaceConfig.NetworkDetails = &cwssaws.InstanceInterfaceConfig_SegmentId{
+					SegmentId: &cwssaws.NetworkSegmentId{
+						Value: subnetIDMap[*ifc.SubnetID].ControllerNetworkSegmentID.String(),
+					},
+				}
 			}
-		}
-		if ifc.VpcPrefixID != nil {
-			interfaceConfig.NetworkDetails = &cwssaws.InstanceInterfaceConfig_VpcPrefixId{
-				VpcPrefixId: &cwssaws.VpcPrefixId{Value: ifc.VpcPrefixID.String()},
+			if ifc.VpcPrefixID != nil {
+				interfaceConfig.NetworkDetails = &cwssaws.InstanceInterfaceConfig_VpcPrefixId{
+					VpcPrefixId: &cwssaws.VpcPrefixId{Value: ifc.VpcPrefixID.String()},
+				}
 			}
-		}
-		if ifc.IsPhysical {
-			interfaceConfig.FunctionType = cwssaws.InterfaceFunctionType_PHYSICAL_FUNCTION
-		}
-		if ifc.Device != nil && ifc.DeviceInstance != nil {
-			interfaceConfig.Device = ifc.Device
-			interfaceConfig.DeviceInstance = uint32(*ifc.DeviceInstance)
-		}
-		if !ifc.IsPhysical && ifc.VirtualFunctionID != nil {
-			vfID := uint32(*ifc.VirtualFunctionID)
-			interfaceConfig.VirtualFunctionId = &vfID
-		}
-		createdInstancesData[idx].interfaceConfigs = append(createdInstancesData[idx].interfaceConfigs, interfaceConfig)
-	}
-
-	// Distribute InfiniBand Interfaces and build workflow configs
-	for _, ibifc := range createdIbIfcsAll {
-		idx := instanceIDToIdx[ibifc.InstanceID]
-		createdInstancesData[idx].ibifcs = append(createdInstancesData[idx].ibifcs, ibifc)
-
-		// Build temporal workflow config
-		ibInterfaceConfig := &cwssaws.InstanceIBInterfaceConfig{
-			Device:         ibifc.Device,
-			Vendor:         ibifc.Vendor,
-			DeviceInstance: uint32(ibifc.DeviceInstance),
-			FunctionType:   cwssaws.InterfaceFunctionType_PHYSICAL_FUNCTION,
-			IbPartitionId:  &cwssaws.IBPartitionId{Value: ibifc.InfiniBandPartitionID.String()},
-		}
-		if !ibifc.IsPhysical {
-			ibInterfaceConfig.FunctionType = cwssaws.InterfaceFunctionType_VIRTUAL_FUNCTION
-			if ibifc.VirtualFunctionID != nil {
-				vfID := uint32(*ibifc.VirtualFunctionID)
-				ibInterfaceConfig.VirtualFunctionId = &vfID
+			if ifc.IsPhysical {
+				interfaceConfig.FunctionType = cwssaws.InterfaceFunctionType_PHYSICAL_FUNCTION
 			}
-		}
-		createdInstancesData[idx].ibInterfaceConfigs = append(createdInstancesData[idx].ibInterfaceConfigs, ibInterfaceConfig)
-	}
-
-	// Distribute NVLink Interfaces and build workflow configs
-	for _, nvlifc := range createdNvlIfcsAll {
-		idx := instanceIDToIdx[nvlifc.InstanceID]
-		createdInstancesData[idx].nvlifcs = append(createdInstancesData[idx].nvlifcs, nvlifc)
-
-		// Build temporal workflow config
-		nvlInterfaceConfig := &cwssaws.InstanceNVLinkGpuConfig{
-			DeviceInstance:     uint32(nvlifc.DeviceInstance),
-			LogicalPartitionId: &cwssaws.NVLinkLogicalPartitionId{Value: nvlifc.NVLinkLogicalPartitionID.String()},
-		}
-		createdInstancesData[idx].nvlInterfaceConfigs = append(createdInstancesData[idx].nvlInterfaceConfigs, nvlInterfaceConfig)
-	}
-
-	// Distribute DPU Extension Service Deployments and build workflow configs
-	for _, desd := range createdDesdsAll {
-		idx := instanceIDToIdx[desd.InstanceID]
-		createdInstancesData[idx].desds = append(createdInstancesData[idx].desds, desd)
-
-		// Build temporal workflow config
-		desdConfig := &cwssaws.InstanceDpuExtensionServiceConfig{
-			ServiceId: desd.DpuExtensionServiceID.String(),
-			Version:   desd.Version,
-		}
-		createdInstancesData[idx].desdConfigs = append(createdInstancesData[idx].desdConfigs, desdConfig)
-	}
-
-	// Distribute Status Details
-	for i := range createdSdsAll {
-		// Status details are created in the same order as instances
-		createdInstancesData[i].ssd = &createdSdsAll[i]
-	}
-
-	logger.Info().
-		Int("instanceCount", len(createdInstancesData)).
-		Msg("all instance records created using batch operations, now triggering batch Temporal workflow before commit")
-
-	// ==================== Step 7: Workflow Trigger ====================
-
-	// Get Temporal client for the site
-	stc, err := bcih.scp.GetClientByID(site.ID)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to retrieve Temporal client for Site")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
-	}
-
-	// Build batch workflow request using pre-built configs (no DB queries)
-	batchRequest := &cwssaws.BatchInstanceAllocationRequest{
-		InstanceRequests: make([]*cwssaws.InstanceAllocationRequest, 0, len(createdInstancesData)),
-	}
-
-	for _, data := range createdInstancesData {
-		instance := data.instance
-
-		createLabels := util.ProtobufLabelsFromAPILabels(instance.Labels)
-
-		description := ""
-		if instance.Description != nil {
-			description = *instance.Description
+			if ifc.Device != nil && ifc.DeviceInstance != nil {
+				interfaceConfig.Device = ifc.Device
+				interfaceConfig.DeviceInstance = uint32(*ifc.DeviceInstance)
+			}
+			if !ifc.IsPhysical && ifc.VirtualFunctionID != nil {
+				vfID := uint32(*ifc.VirtualFunctionID)
+				interfaceConfig.VirtualFunctionId = &vfID
+			}
+			createdInstancesData[idx].interfaceConfigs = append(createdInstancesData[idx].interfaceConfigs, interfaceConfig)
 		}
 
-		// Build instance allocation request using pre-built configs
-		instanceRequest := &cwssaws.InstanceAllocationRequest{
-			InstanceId: &cwssaws.InstanceId{Value: common.GetSiteInstanceID(instance).String()},
-			MachineId:  &cwssaws.MachineId{Id: *instance.MachineID},
-			Metadata: &cwssaws.Metadata{
-				Name:        instance.Name,
-				Description: description,
-				Labels:      createLabels,
-			},
-			Config: &cwssaws.InstanceConfig{
-				NetworkSecurityGroupId: instance.NetworkSecurityGroupID,
-				Tenant: &cwssaws.TenantConfig{
-					TenantOrganizationId: tenant.Org,
-					TenantKeysetIds:      instanceSshKeyGroupIds,
-				},
-				Os: osConfig,
-				Network: &cwssaws.InstanceNetworkConfig{
-					Interfaces: data.interfaceConfigs,
-				},
-				Infiniband: &cwssaws.InstanceInfinibandConfig{
-					IbInterfaces: data.ibInterfaceConfigs,
-				},
-				DpuExtensionServices: &cwssaws.InstanceDpuExtensionServicesConfig{
-					ServiceConfigs: data.desdConfigs,
-				},
-				Nvlink: &cwssaws.InstanceNVLinkConfig{
-					GpuConfigs: data.nvlInterfaceConfigs,
-				},
-			},
-			AllowUnhealthyMachine: false,
+		// Distribute InfiniBand Interfaces and build workflow configs
+		for _, ibifc := range createdIbIfcsAll {
+			idx := instanceIDToIdx[ibifc.InstanceID]
+			createdInstancesData[idx].ibifcs = append(createdInstancesData[idx].ibifcs, ibifc)
+
+			// Build temporal workflow config
+			ibInterfaceConfig := &cwssaws.InstanceIBInterfaceConfig{
+				Device:         ibifc.Device,
+				Vendor:         ibifc.Vendor,
+				DeviceInstance: uint32(ibifc.DeviceInstance),
+				FunctionType:   cwssaws.InterfaceFunctionType_PHYSICAL_FUNCTION,
+				IbPartitionId:  &cwssaws.IBPartitionId{Value: ibifc.InfiniBandPartitionID.String()},
+			}
+			if !ibifc.IsPhysical {
+				ibInterfaceConfig.FunctionType = cwssaws.InterfaceFunctionType_VIRTUAL_FUNCTION
+				if ibifc.VirtualFunctionID != nil {
+					vfID := uint32(*ibifc.VirtualFunctionID)
+					ibInterfaceConfig.VirtualFunctionId = &vfID
+				}
+			}
+			createdInstancesData[idx].ibInterfaceConfigs = append(createdInstancesData[idx].ibInterfaceConfigs, ibInterfaceConfig)
 		}
 
-		if instance.InstanceTypeID != nil {
-			instanceRequest.InstanceTypeId = cdb.GetStrPtr(instance.InstanceTypeID.String())
+		// Distribute NVLink Interfaces and build workflow configs
+		for _, nvlifc := range createdNvlIfcsAll {
+			idx := instanceIDToIdx[nvlifc.InstanceID]
+			createdInstancesData[idx].nvlifcs = append(createdInstancesData[idx].nvlifcs, nvlifc)
+
+			// Build temporal workflow config
+			nvlInterfaceConfig := &cwssaws.InstanceNVLinkGpuConfig{
+				DeviceInstance:     uint32(nvlifc.DeviceInstance),
+				LogicalPartitionId: &cwssaws.NVLinkLogicalPartitionId{Value: nvlifc.NVLinkLogicalPartitionID.String()},
+			}
+			createdInstancesData[idx].nvlInterfaceConfigs = append(createdInstancesData[idx].nvlInterfaceConfigs, nvlInterfaceConfig)
 		}
 
-		batchRequest.InstanceRequests = append(batchRequest.InstanceRequests, instanceRequest)
-	}
+		// Distribute DPU Extension Service Deployments and build workflow configs
+		for _, desd := range createdDesdsAll {
+			idx := instanceIDToIdx[desd.InstanceID]
+			createdInstancesData[idx].desds = append(createdInstancesData[idx].desds, desd)
 
-	logger.Info().Int("instanceCount", len(createdInstances)).
-		Msg("triggering batch create Instances workflow")
+			// Build temporal workflow config
+			desdConfig := &cwssaws.InstanceDpuExtensionServiceConfig{
+				ServiceId: desd.DpuExtensionServiceID.String(),
+				Version:   desd.Version,
+			}
+			createdInstancesData[idx].desdConfigs = append(createdInstancesData[idx].desdConfigs, desdConfig)
+		}
 
-	// Trigger batch workflow (use batchSuffix for consistency with instance names)
-	workflowID := "instance-batch-create-" + batchSuffix
-	workflowOptions := temporalClient.StartWorkflowOptions{
-		ID: workflowID,
-		// TODO: temporary config, to be tuned
-		WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
-		TaskQueue:                queue.SiteTaskQueue,
-	}
+		// Distribute Status Details
+		for i := range createdSdsAll {
+			// Status details are created in the same order as instances
+			createdInstancesData[i].ssd = &createdSdsAll[i]
+		}
 
-	// Add context timeout
-	workflowCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
-	defer cancel()
+		createdInstanceCount = len(createdInstances)
 
-	// Execute batch workflow with full request
-	we, err := stc.ExecuteWorkflow(workflowCtx, workflowOptions, "CreateInstances", batchRequest)
-	if err != nil {
-		logger.Error().Err(err).Msg("failed to synchronously start Temporal workflow to create batch Instances")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to start sync workflow to create batch Instances on Site: %s", err), nil)
-	}
+		logger.Info().
+			Int("instanceCount", len(createdInstancesData)).
+			Msg("all instance records created using batch operations, now triggering batch Temporal workflow before commit")
 
-	wid := we.GetID()
-	logger.Info().Str("Workflow ID", wid).Msg("executed synchronous batch create Instances workflow")
+		// ==================== Step 6: Workflow Trigger ====================
 
-	// Wait for workflow to complete (synchronous, matching single API error handling)
-	err = we.Get(workflowCtx, nil)
-	if err != nil {
-		// Handle timeout errors specially (matching single API pattern)
-		var timeoutErr *tp.TimeoutError
-		if errors.As(err, &timeoutErr) || err == context.DeadlineExceeded || workflowCtx.Err() != nil {
+		// Get Temporal client for the site
+		stc, scerr := bcih.scp.GetClientByID(site.ID)
+		if scerr != nil {
+			logger.Error().Err(scerr).Msg("failed to retrieve Temporal client for Site")
+			return cutil.NewAPIError(http.StatusInternalServerError, "Failed to retrieve client for Site", nil)
+		}
 
-			logger.Error().Err(err).Str("Workflow ID", wid).
-				Msg("failed to create batch Instances, timeout occurred executing workflow on Site.")
+		// Build batch workflow request using pre-built configs (no DB queries)
+		batchRequest := &cwssaws.BatchInstanceAllocationRequest{
+			InstanceRequests: make([]*cwssaws.InstanceAllocationRequest, 0, len(createdInstancesData)),
+		}
 
-			// Create a new context for termination
-			newctx, newcancel := context.WithTimeout(context.Background(), cutil.WorkflowContextNewAfterTimeout)
-			defer newcancel()
+		for _, data := range createdInstancesData {
+			instance := data.instance
 
-			// Initiate termination workflow
-			serr := stc.TerminateWorkflow(newctx, wid, "", "timeout occurred executing batch create Instances workflow")
-			if serr != nil {
-				logger.Error().Err(serr).Str("Workflow ID", wid).Msg("failed to terminate Temporal workflow for creating batch Instances")
-				return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, fmt.Sprintf("Failed to terminate synchronous batch Instances creation workflow after timeout, Cloud and Site data may be de-synced: %s", serr), nil)
+			createLabels := util.ProtobufLabelsFromAPILabels(instance.Labels)
+
+			description := ""
+			if instance.Description != nil {
+				description = *instance.Description
 			}
 
-			logger.Info().Str("Workflow ID", wid).Msg("initiated terminate synchronous batch create Instances workflow successfully")
+			// Build instance allocation request using pre-built configs
+			instanceRequest := &cwssaws.InstanceAllocationRequest{
+				InstanceId: &cwssaws.InstanceId{Value: common.GetSiteInstanceID(instance).String()},
+				MachineId:  &cwssaws.MachineId{Id: *instance.MachineID},
+				Metadata: &cwssaws.Metadata{
+					Name:        instance.Name,
+					Description: description,
+					Labels:      createLabels,
+				},
+				Config: &cwssaws.InstanceConfig{
+					NetworkSecurityGroupId: instance.NetworkSecurityGroupID,
+					Tenant: &cwssaws.TenantConfig{
+						TenantOrganizationId: tenant.Org,
+						TenantKeysetIds:      instanceSshKeyGroupIds,
+					},
+					Os:      osConfig,
+					Network: buildInstanceNetworkConfig(instance.AutoNetwork, data.interfaceConfigs),
+					Infiniband: &cwssaws.InstanceInfinibandConfig{
+						IbInterfaces: data.ibInterfaceConfigs,
+					},
+					DpuExtensionServices: &cwssaws.InstanceDpuExtensionServicesConfig{
+						ServiceConfigs: data.desdConfigs,
+					},
+					Nvlink: &cwssaws.InstanceNVLinkConfig{
+						GpuConfigs: data.nvlInterfaceConfigs,
+					},
+				},
+				AllowUnhealthyMachine: false,
+			}
 
-			return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError,
-				fmt.Sprintf("Failed to create batch Instances, timeout occurred executing workflow on Site: %s", err), nil)
+			if instance.InstanceTypeID != nil {
+				instanceRequest.InstanceTypeId = cdb.GetStrPtr(instance.InstanceTypeID.String())
+			}
+
+			batchRequest.InstanceRequests = append(batchRequest.InstanceRequests, instanceRequest)
 		}
 
-		// Handle other workflow errors (matching single API pattern)
-		code, err := common.UnwrapWorkflowError(err)
-		logger.Error().Err(err).Str("Workflow ID", wid).Msg("failed to synchronously execute Temporal workflow to create batch Instances")
-		return cutil.NewAPIErrorResponse(c, code,
-			fmt.Sprintf("Failed to execute sync workflow to create batch Instances on Site: %s", err), nil)
-	}
+		logger.Info().Int("instanceCount", createdInstanceCount).
+			Msg("triggering batch create Instances workflow")
 
-	logger.Info().Str("Workflow ID", wid).Int("instanceCount", len(createdInstances)).
-		Msg("completed synchronous batch create Instances workflow")
+		// Trigger batch workflow (use batchSuffix for consistency with instance names)
+		workflowID := "instance-batch-create-" + batchSuffix
+		workflowOptions := temporalClient.StartWorkflowOptions{
+			ID: workflowID,
+			// TODO: temporary config, to be tuned
+			WorkflowExecutionTimeout: cutil.WorkflowExecutionTimeout,
+			TaskQueue:                queue.SiteTaskQueue,
+		}
 
-	// ==================== Step 8: Commit & Response ====================
+		// Add context timeout
+		wfCtx, cancel := context.WithTimeout(ctx, cutil.WorkflowContextTimeout)
+		defer cancel()
 
-	// Commit transaction only after batch workflow succeeds
-	err = tx.Commit()
+		// Execute batch workflow with full request
+		we, wferr := stc.ExecuteWorkflow(wfCtx, workflowOptions, "CreateInstances", batchRequest)
+		if wferr != nil {
+			logger.Error().Err(wferr).Msg("failed to synchronously start Temporal workflow to create batch Instances")
+			return cutil.NewAPIError(http.StatusInternalServerError, fmt.Sprintf("Failed to start sync workflow to create batch Instances on Site: %s", wferr), nil)
+		}
+
+		wid := we.GetID()
+		logger.Info().Str("Workflow ID", wid).Msg("executed synchronous batch create Instances workflow")
+
+		// Wait for workflow to complete (synchronous, matching single API error handling)
+		wferr = we.Get(wfCtx, nil)
+		if wferr != nil {
+			var timeoutErr *tp.TimeoutError
+			if errors.As(wferr, &timeoutErr) || wferr == context.DeadlineExceeded || wfCtx.Err() != nil {
+				logger.Error().Err(wferr).Str("Workflow ID", wid).
+					Msg("failed to create batch Instances, timeout occurred executing workflow on Site.")
+				timeoutCause := wferr // explicit capture; defensive against future refactors
+				timeoutResp = func() error {
+					return common.TerminateWorkflowOnTimeOut(c, logger, stc, wid, timeoutCause, "Instance", "CreateInstances")
+				}
+				return cutil.NewAPIError(http.StatusInternalServerError, "Batch Instance creation workflow timed out", nil)
+			}
+
+			// Handle other workflow errors (matching single API pattern)
+			code, uwerr := common.UnwrapWorkflowError(wferr)
+			logger.Error().Err(uwerr).Str("Workflow ID", wid).Msg("failed to synchronously execute Temporal workflow to create batch Instances")
+			return cutil.NewAPIError(code,
+				fmt.Sprintf("Failed to execute sync workflow to create batch Instances on Site: %s", uwerr), nil)
+		}
+
+		logger.Info().Str("Workflow ID", wid).Int("instanceCount", createdInstanceCount).
+			Msg("completed synchronous batch create Instances workflow")
+
+		return nil
+	})
+	// wrapping if err != nil collapses both branches into one handler
+	// call: real tx-helper errors (non-APIError) bubble out immediately,
+	// while the timeout-case APIError falls through to the timeoutResp call.
 	if err != nil {
-		logger.Error().Err(err).Msg("error committing batch instance transaction to DB")
-		return cutil.NewAPIErrorResponse(c, http.StatusInternalServerError, "Failed to create batch Instances, DB transaction error", nil)
+		var apiErr *cutil.APIError
+		if !errors.As(err, &apiErr) || timeoutResp == nil {
+			return common.HandleTxError(c, logger, err, "Failed to create batch Instances, DB transaction error")
+		}
 	}
-	// Set committed so, deferred cleanup functions will do nothing
-	txCommitted = true
+	if timeoutResp != nil {
+		return timeoutResp()
+	}
 
-	// Build complete API response with relations
-	// All data was collected during the creation loop above
+	// ==================== Step 7: Response ====================
+
+	// Build complete API response with relations from the data collected inside the tx.
 	apiInstances := []model.APIInstance{}
 	for _, data := range createdInstancesData {
 		// Build complete API instance using the same method as Single API
@@ -1770,7 +1772,6 @@ func allocateMachinesForBatch(
 
 	// Get all available Machines for the Instance Type
 	filterInput := cdbm.MachineFilterInput{
-		SiteID:          instancetype.SiteID,
 		InstanceTypeIDs: []uuid.UUID{instancetype.ID},
 		IsAssigned:      cdb.GetBoolPtr(false),
 		Statuses:        []string{cdbm.MachineStatusReady},

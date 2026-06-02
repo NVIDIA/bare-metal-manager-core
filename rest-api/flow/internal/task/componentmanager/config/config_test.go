@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package config
 
@@ -65,16 +51,71 @@ func (d customProviderConfigDecoder) DecodeYAML(raw yaml.Node) (providerapi.Prov
 	return d.DefaultConfig(), nil
 }
 
+type customManagerConfig struct {
+	identity cmcatalog.DescriptorIdentity
+	value    string
+}
+
+func (c customManagerConfig) Validate(expectedIdentity cmcatalog.DescriptorIdentity) error {
+	if c.identity != expectedIdentity {
+		return ManagerConfigIdentityMismatchError{
+			Expected: expectedIdentity,
+			Actual:   c.identity,
+		}
+	}
+	return nil
+}
+
+type customManagerConfigDecoder struct {
+	identity       cmcatalog.DescriptorIdentity
+	configIdentity cmcatalog.DescriptorIdentity
+	defaultValue   string
+}
+
+func (d customManagerConfigDecoder) Identity() cmcatalog.DescriptorIdentity {
+	return d.identity
+}
+
+func (d customManagerConfigDecoder) DefaultConfig() ManagerConfig {
+	return customManagerConfig{
+		identity: d.managerConfigIdentity(),
+		value:    d.defaultValue,
+	}
+}
+
+func (d customManagerConfigDecoder) managerConfigIdentity() cmcatalog.DescriptorIdentity {
+	if d.configIdentity != (cmcatalog.DescriptorIdentity{}) {
+		return d.configIdentity
+	}
+	return d.identity
+}
+
+func (d customManagerConfigDecoder) DecodeYAML(raw yaml.Node) (ManagerConfig, error) {
+	config := d.DefaultConfig().(customManagerConfig)
+	var parsed struct {
+		Value string `yaml:"value"`
+	}
+	if err := DecodeYAMLStrict(raw, &parsed); err != nil {
+		return nil, InvalidManagerConfigError{
+			Identity: d.identity,
+			Err:      err,
+		}
+	}
+	if parsed.Value != "" {
+		config.value = parsed.Value
+	}
+	return config, nil
+}
+
 func TestParseConfigWithExplicitProviders(t *testing.T) {
 	config, err := parseConfigWithBuiltins(t, `
 component_managers:
   compute: nico
-  nvlswitch: nvswitchmanager
+  nvswitch: nvswitchmanager
   powershelf: psm
 providers:
   nico:
     timeout: 45s
-    compute_power_delay: 0s
   psm:
     timeout: 20s
   nvswitchmanager:
@@ -83,13 +124,12 @@ providers:
 	require.NoError(t, err)
 
 	assert.Equal(t, nico.ProviderName, config.ComponentManagers[devicetypes.ComponentTypeCompute])
-	assert.Equal(t, nvswitchmanager.ProviderName, config.ComponentManagers[devicetypes.ComponentTypeNVLSwitch])
+	assert.Equal(t, nvswitchmanager.ProviderName, config.ComponentManagers[devicetypes.ComponentTypeNVSwitch])
 	assert.Equal(t, psm.ProviderName, config.ComponentManagers[devicetypes.ComponentTypePowerShelf])
 
 	nicoConfig, ok := config.ProviderConfigs[nico.ProviderName].(*nico.Config)
 	require.True(t, ok)
 	assert.Equal(t, 45*time.Second, nicoConfig.Timeout)
-	assert.Equal(t, 0*time.Second, nicoConfig.ComputePowerDelay)
 
 	psmConfig, ok := config.ProviderConfigs[psm.ProviderName].(*psm.Config)
 	require.True(t, ok)
@@ -111,7 +151,7 @@ func TestParseConfigDerivesProviders(t *testing.T) {
 			configYAML: `
 component_managers:
   compute: mock
-  nvlswitch: mock
+  nvswitch: mock
   powershelf: mock
 `,
 			wantEnabled: nil,
@@ -136,7 +176,7 @@ component_managers:
 			name: "nvswitchmanager",
 			configYAML: `
 component_managers:
-  nvlswitch: nvswitchmanager
+  nvswitch: nvswitchmanager
 `,
 			wantEnabled: []string{nvswitchmanager.ProviderName},
 		},
@@ -145,7 +185,7 @@ component_managers:
 			configYAML: `
 component_managers:
   compute: nico
-  nvlswitch: nico
+  nvswitch: nico
   powershelf: psm
 `,
 			wantEnabled: []string{nico.ProviderName, psm.ProviderName},
@@ -178,11 +218,6 @@ providers:
 	nicoConfig, ok := config.ProviderConfigs[nico.ProviderName].(*nico.Config)
 	require.True(t, ok)
 	assert.Equal(t, nico.DefaultTimeout, nicoConfig.Timeout)
-	assert.Equal(
-		t,
-		nico.DefaultComputePowerDelay,
-		nicoConfig.ComputePowerDelay,
-	)
 
 	psmConfig, ok := config.ProviderConfigs[psm.ProviderName].(*psm.Config)
 	require.True(t, ok)
@@ -199,7 +234,7 @@ providers: {}
 
 	assert.True(t, config.HasProvider(nico.ProviderName))
 
-	err = config.Validate(serviceProviderConfigDecoderRegistry(t), testCatalog(t))
+	err = config.Validate(serviceProviderConfigDecoderRegistry(t), testCatalog(t), nil)
 	require.NoError(t, err)
 }
 
@@ -341,7 +376,7 @@ component_managers:
   compute: mock
 providers:
   custom: {}
-`), registry, testCatalog(t))
+`), registry, testCatalog(t), nil)
 	require.NoError(t, err)
 
 	assert.True(t, config.HasProvider("custom"))
@@ -355,7 +390,7 @@ func TestParseConfigDerivesProviderForDifferentImplementationName(t *testing.T) 
 	config, err := ParseConfig([]byte(`
 component_managers:
   compute: custom-manager
-`), registry, testCatalog(t))
+`), registry, testCatalog(t), nil)
 	require.NoError(t, err)
 
 	assert.True(t, config.HasProvider("custom"))
@@ -368,21 +403,182 @@ func TestParseConfigDerivesMultipleProvidersForManager(t *testing.T) {
 	config, err := ParseConfig([]byte(`
 component_managers:
   compute: multi-provider
-`), registry, testCatalog(t))
+`), registry, testCatalog(t), nil)
 	require.NoError(t, err)
 
 	assert.True(t, config.HasProvider("custom"))
 	assert.True(t, config.HasProvider(nico.ProviderName))
 }
 
+func TestParseConfigRejectsManagerConfigFieldInProviderConfig(t *testing.T) {
+	_, err := ParseConfig([]byte(`
+component_managers:
+  compute: nico
+providers:
+  nico:
+    compute_power_delay: 0s
+`), serviceProviderConfigDecoderRegistry(t), testCatalog(t), nil)
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, providerapi.ErrInvalidProviderConfig))
+}
+
+func TestParseConfigWithExplicitManagerConfigs(t *testing.T) {
+	identity := testManagerConfigIdentity()
+	managerDecoders := testManagerConfigDecoderRegistry(t, customManagerConfigDecoder{
+		identity:     identity,
+		defaultValue: "default",
+	})
+
+	config, err := ParseConfig([]byte(`
+component_managers:
+  compute: configurable-manager
+manager_configs:
+  compute:
+    configurable-manager:
+      value: configured
+`), serviceProviderConfigDecoderRegistry(t), testCatalog(t), managerDecoders)
+	require.NoError(t, err)
+
+	assert.Equal(
+		t,
+		customManagerConfig{
+			identity: identity,
+			value:    "configured",
+		},
+		config.ManagerConfigs[identity],
+	)
+}
+
+func TestParseConfigRejectsManagerConfigUnknownImplementation(t *testing.T) {
+	_, err := ParseConfig([]byte(`
+component_managers:
+  compute: psm
+manager_configs:
+  compute:
+    psm:
+      value: configured
+`), serviceProviderConfigDecoderRegistry(t), testCatalog(t), NewManagerConfigDecoderRegistry())
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, cmcatalog.ErrUnknownComponentManagerImplementation))
+
+	var implErr cmcatalog.UnknownComponentManagerImplementationError
+	require.True(t, errors.As(err, &implErr))
+	assert.Equal(t, devicetypes.ComponentTypeCompute, implErr.ComponentType)
+	assert.Equal(t, psm.ProviderName, implErr.Implementation)
+	assert.Contains(t, implErr.Available, nico.ProviderName)
+}
+
+func TestParseConfigCompletesDefaultManagerConfigs(t *testing.T) {
+	identity := testManagerConfigIdentity()
+	managerDecoders := testManagerConfigDecoderRegistry(t, customManagerConfigDecoder{
+		identity:     identity,
+		defaultValue: "default",
+	})
+
+	config, err := New(
+		map[devicetypes.ComponentType]string{
+			devicetypes.ComponentTypeCompute: "configurable-manager",
+		},
+		serviceProviderConfigDecoderRegistry(t),
+		testCatalog(t),
+		managerDecoders,
+	)
+	require.NoError(t, err)
+
+	assert.Equal(
+		t,
+		customManagerConfig{
+			identity: identity,
+			value:    "default",
+		},
+		config.ManagerConfigs[identity],
+	)
+}
+
+func TestNewConfigRejectsManagerConfigIdentityMismatch(t *testing.T) {
+	identity := testManagerConfigIdentity()
+	actualIdentity := cmcatalog.DescriptorIdentity{
+		Type:           devicetypes.ComponentTypeCompute,
+		Implementation: "custom-manager",
+	}
+	managerDecoders := testManagerConfigDecoderRegistry(t, customManagerConfigDecoder{
+		identity:       identity,
+		configIdentity: actualIdentity,
+		defaultValue:   "default",
+	})
+
+	_, err := New(
+		map[devicetypes.ComponentType]string{
+			devicetypes.ComponentTypeCompute: "configurable-manager",
+		},
+		serviceProviderConfigDecoderRegistry(t),
+		testCatalog(t),
+		managerDecoders,
+	)
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrManagerConfigIdentityMismatch))
+
+	var mismatch ManagerConfigIdentityMismatchError
+	require.True(t, errors.As(err, &mismatch))
+	assert.Equal(t, identity, mismatch.Expected)
+	assert.Equal(t, actualIdentity, mismatch.Actual)
+}
+
+func TestValidateRejectsUnnormalizedManagerConfigIdentity(t *testing.T) {
+	identity := testManagerConfigIdentity()
+	rawIdentity := cmcatalog.DescriptorIdentity{
+		Type:           identity.Type,
+		Implementation: " configurable-manager ",
+	}
+	config := Config{
+		ComponentManagers: map[devicetypes.ComponentType]string{
+			devicetypes.ComponentTypeCompute: "configurable-manager",
+		},
+		ManagerConfigs: map[cmcatalog.DescriptorIdentity]ManagerConfig{
+			rawIdentity: customManagerConfig{identity: identity},
+		},
+		ProviderConfigs: map[string]providerapi.ProviderConfig{},
+	}
+
+	err := config.Validate(
+		serviceProviderConfigDecoderRegistry(t),
+		testCatalog(t),
+		testManagerConfigDecoderRegistry(t, customManagerConfigDecoder{identity: identity}),
+	)
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrManagerConfigIdentityMismatch))
+
+	var mismatch ManagerConfigIdentityMismatchError
+	require.True(t, errors.As(err, &mismatch))
+	assert.Equal(t, identity, mismatch.Expected)
+	assert.Equal(t, rawIdentity, mismatch.Actual)
+}
+
 func TestParseConfigRequiresDecoderRegistry(t *testing.T) {
-	_, err := ParseConfig([]byte(`component_managers: {}`), nil, cmcatalog.Catalog{})
+	_, err := ParseConfig([]byte(`component_managers: {}`), nil, cmcatalog.Catalog{}, nil)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrProviderConfigDecoderRegistryRequired))
 }
 
+func TestParseConfigRequiresManagerDecoderRegistryForManagerConfigs(t *testing.T) {
+	_, err := ParseConfig([]byte(`
+component_managers:
+  compute: configurable-manager
+manager_configs:
+  compute:
+    configurable-manager:
+      value: configured
+`), serviceProviderConfigDecoderRegistry(t), testCatalog(t), nil)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrManagerConfigDecoderRegistryRequired))
+}
+
 func TestNewConfigRequiresDecoderRegistry(t *testing.T) {
-	_, err := New(map[devicetypes.ComponentType]string{}, nil, cmcatalog.Catalog{})
+	_, err := New(map[devicetypes.ComponentType]string{}, nil, cmcatalog.Catalog{}, nil)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrProviderConfigDecoderRegistryRequired))
 }
@@ -390,7 +586,7 @@ func TestNewConfigRequiresDecoderRegistry(t *testing.T) {
 func TestValidateRequiresConfig(t *testing.T) {
 	var config *Config
 
-	err := config.Validate(serviceProviderConfigDecoderRegistry(t), cmcatalog.Catalog{})
+	err := config.Validate(serviceProviderConfigDecoderRegistry(t), cmcatalog.Catalog{}, nil)
 
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrConfigNotConfigured))
@@ -407,6 +603,7 @@ func TestValidateReportsRequiredProviderManagerIdentity(t *testing.T) {
 	err := config.Validate(
 		serviceProviderConfigDecoderRegistry(t),
 		testCatalog(t),
+		nil,
 	)
 
 	require.Error(t, err)
@@ -474,6 +671,7 @@ func TestNewConfigDerivesDefaultProviderConfigs(t *testing.T) {
 		},
 		serviceProviderConfigDecoderRegistry(t),
 		testCatalog(t),
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -481,11 +679,6 @@ func TestNewConfigDerivesDefaultProviderConfigs(t *testing.T) {
 	nicoConfig, ok := config.ProviderConfigs[nico.ProviderName].(*nico.Config)
 	require.True(t, ok)
 	assert.Equal(t, nico.DefaultTimeout, nicoConfig.Timeout)
-	assert.Equal(
-		t,
-		nico.DefaultComputePowerDelay,
-		nicoConfig.ComputePowerDelay,
-	)
 }
 
 func TestLoadConfig(t *testing.T) {
@@ -500,6 +693,7 @@ component_managers:
 		path,
 		serviceProviderConfigDecoderRegistry(t),
 		testCatalog(t),
+		nil,
 	)
 	require.NoError(t, err)
 	assert.True(t, config.HasProvider(nico.ProviderName))
@@ -519,6 +713,7 @@ func parseConfigWithBuiltins(t *testing.T, data string) (Config, error) {
 		[]byte(data),
 		serviceProviderConfigDecoderRegistry(t),
 		testCatalog(t),
+		nil,
 	)
 }
 
@@ -527,50 +722,76 @@ func testCatalog(t *testing.T) cmcatalog.Catalog {
 
 	catalog, err := cmcatalog.New([]cmcatalog.Descriptor{
 		{
-			Type:           devicetypes.ComponentTypeCompute,
-			Implementation: "mock",
+			DescriptorIdentity: cmcatalog.DescriptorIdentity{
+				Type:           devicetypes.ComponentTypeCompute,
+				Implementation: "mock",
+			},
 		},
 		{
-			Type:           devicetypes.ComponentTypeNVLSwitch,
-			Implementation: "mock",
+			DescriptorIdentity: cmcatalog.DescriptorIdentity{
+				Type:           devicetypes.ComponentTypeNVSwitch,
+				Implementation: "mock",
+			},
 		},
 		{
-			Type:           devicetypes.ComponentTypePowerShelf,
-			Implementation: "mock",
+			DescriptorIdentity: cmcatalog.DescriptorIdentity{
+				Type:           devicetypes.ComponentTypePowerShelf,
+				Implementation: "mock",
+			},
 		},
 		{
-			Type:              devicetypes.ComponentTypeCompute,
-			Implementation:    nico.ProviderName,
+			DescriptorIdentity: cmcatalog.DescriptorIdentity{
+				Type:           devicetypes.ComponentTypeCompute,
+				Implementation: nico.ProviderName,
+			},
 			RequiredProviders: []string{nico.ProviderName},
 		},
 		{
-			Type:              devicetypes.ComponentTypeNVLSwitch,
-			Implementation:    nico.ProviderName,
+			DescriptorIdentity: cmcatalog.DescriptorIdentity{
+				Type:           devicetypes.ComponentTypeNVSwitch,
+				Implementation: nico.ProviderName,
+			},
 			RequiredProviders: []string{nico.ProviderName},
 		},
 		{
-			Type:              devicetypes.ComponentTypePowerShelf,
-			Implementation:    nico.ProviderName,
+			DescriptorIdentity: cmcatalog.DescriptorIdentity{
+				Type:           devicetypes.ComponentTypePowerShelf,
+				Implementation: nico.ProviderName,
+			},
 			RequiredProviders: []string{nico.ProviderName},
 		},
 		{
-			Type:              devicetypes.ComponentTypePowerShelf,
-			Implementation:    psm.ProviderName,
+			DescriptorIdentity: cmcatalog.DescriptorIdentity{
+				Type:           devicetypes.ComponentTypePowerShelf,
+				Implementation: psm.ProviderName,
+			},
 			RequiredProviders: []string{psm.ProviderName},
 		},
 		{
-			Type:              devicetypes.ComponentTypeNVLSwitch,
-			Implementation:    nvswitchmanager.ProviderName,
+			DescriptorIdentity: cmcatalog.DescriptorIdentity{
+				Type:           devicetypes.ComponentTypeNVSwitch,
+				Implementation: nvswitchmanager.ProviderName,
+			},
 			RequiredProviders: []string{nvswitchmanager.ProviderName},
 		},
 		{
-			Type:              devicetypes.ComponentTypeCompute,
-			Implementation:    "custom-manager",
+			DescriptorIdentity: cmcatalog.DescriptorIdentity{
+				Type:           devicetypes.ComponentTypeCompute,
+				Implementation: "custom-manager",
+			},
 			RequiredProviders: []string{"custom"},
 		},
 		{
-			Type:           devicetypes.ComponentTypeCompute,
-			Implementation: "multi-provider",
+			DescriptorIdentity: cmcatalog.DescriptorIdentity{
+				Type:           devicetypes.ComponentTypeCompute,
+				Implementation: "configurable-manager",
+			},
+		},
+		{
+			DescriptorIdentity: cmcatalog.DescriptorIdentity{
+				Type:           devicetypes.ComponentTypeCompute,
+				Implementation: "multi-provider",
+			},
 			RequiredProviders: []string{
 				"custom",
 				nico.ProviderName,
@@ -588,5 +809,24 @@ func serviceProviderConfigDecoderRegistry(t *testing.T) *providerapi.ProviderCon
 	require.NoError(t, registry.Register(nico.ConfigDecoder{}))
 	require.NoError(t, registry.Register(psm.ConfigDecoder{}))
 	require.NoError(t, registry.Register(nvswitchmanager.ConfigDecoder{}))
+	return registry
+}
+
+func testManagerConfigIdentity() cmcatalog.DescriptorIdentity {
+	return cmcatalog.DescriptorIdentity{
+		Type:           devicetypes.ComponentTypeCompute,
+		Implementation: "configurable-manager",
+	}
+}
+
+func testManagerConfigDecoderRegistry(
+	t *testing.T,
+	decoders ...ManagerConfigDecoder,
+) *ManagerConfigDecoderRegistry {
+	t.Helper()
+	registry := NewManagerConfigDecoderRegistry()
+	for _, decoder := range decoders {
+		require.NoError(t, registry.Register(decoder))
+	}
 	return registry
 }

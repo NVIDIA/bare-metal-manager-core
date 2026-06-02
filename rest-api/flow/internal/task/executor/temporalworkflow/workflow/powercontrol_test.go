@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package workflow
 
@@ -47,10 +33,6 @@ func mockPowerControl(
 	info taskcommon.ComponentInfo,
 	pcInfo *operations.PowerControlTaskInfo,
 ) error {
-	return nil
-}
-
-func mockUpdateTaskStatus(ctx context.Context, arg *taskdef.TaskStatusUpdate) error {
 	return nil
 }
 
@@ -110,7 +92,7 @@ func createDefaultPowerRuleDef(op operations.PowerOperation) *operationrules.Rul
 					MainOperation: operationrules.ActionConfig{Name: operationrules.ActionPowerControl},
 				},
 				{
-					ComponentType: devicetypes.ComponentTypeNVLSwitch,
+					ComponentType: devicetypes.ComponentTypeNVSwitch,
 					Stage:         2,
 					MaxParallel:   1,
 					DelayAfter:    15 * time.Second,
@@ -139,7 +121,7 @@ func createDefaultPowerRuleDef(op operations.PowerOperation) *operationrules.Rul
 					MainOperation: operationrules.ActionConfig{Name: operationrules.ActionPowerControl},
 				},
 				{
-					ComponentType: devicetypes.ComponentTypeNVLSwitch,
+					ComponentType: devicetypes.ComponentTypeNVSwitch,
 					Stage:         2,
 					MaxParallel:   1,
 					DelayAfter:    5 * time.Second,
@@ -187,12 +169,12 @@ func TestPowerControlWorkflow(t *testing.T) {
 	computeID1 := uuid.New()
 	computeID2 := uuid.New()
 	powershelfID := uuid.New()
-	nvlswitchID := uuid.New()
+	nvswitchID := uuid.New()
 
-	// Full set of components (PowerShelf, NVLSwitch, Compute)
+	// Full set of components (PowerShelf, NVSwitch, Compute)
 	fullComponents := []*component.Component{
 		newTestComponent(powershelfID, "powershelf-1", "ext-powershelf-1", devicetypes.ComponentTypePowerShelf),
-		newTestComponent(nvlswitchID, "nvlswitch-1", "ext-nvlswitch-1", devicetypes.ComponentTypeNVLSwitch),
+		newTestComponent(nvswitchID, "nvswitch-1", "ext-nvswitch-1", devicetypes.ComponentTypeNVSwitch),
 		newTestComponent(computeID1, "compute-1", "ext-compute-1", devicetypes.ComponentTypeCompute),
 		newTestComponent(computeID2, "compute-2", "ext-compute-2", devicetypes.ComponentTypeCompute),
 	}
@@ -280,11 +262,9 @@ func TestPowerControlWorkflow(t *testing.T) {
 			testSuite := &testsuite.WorkflowTestSuite{}
 			env := testSuite.NewTestWorkflowEnvironment()
 
+			registerTaskUpdateActivities(env)
 			env.RegisterActivityWithOptions(mockPowerControl, activity.RegisterOptions{
 				Name: taskactivity.NamePowerControl,
-			})
-			env.RegisterActivityWithOptions(mockUpdateTaskStatus, activity.RegisterOptions{
-				Name: taskactivity.NameUpdateTaskStatus,
 			})
 			env.RegisterActivityWithOptions(mockGetPowerStatus, activity.RegisterOptions{
 				Name: taskactivity.NameGetPowerStatus,
@@ -293,7 +273,6 @@ func TestPowerControlWorkflow(t *testing.T) {
 			env.RegisterWorkflowWithOptions(genericComponentStepWorkflow, temporalworkflow.RegisterOptions{Name: nameGenericComponentStepWorkflow})
 
 			env.OnActivity(taskactivity.NamePowerControl, mock.Anything, mock.Anything, mock.Anything).Return(tc.activityError)
-			env.OnActivity(taskactivity.NameUpdateTaskStatus, mock.Anything, mock.Anything).Return(nil)
 
 			// Track call count for restart operations which need Off then On
 			callCount := 0
@@ -335,6 +314,8 @@ func TestPowerControlWorkflow(t *testing.T) {
 					return result, nil
 				},
 			)
+
+			expectTaskUpdateActivities(env)
 
 			info := &operations.PowerControlTaskInfo{Operation: tc.op}
 			reqInfo := taskdef.ExecutionInfo{

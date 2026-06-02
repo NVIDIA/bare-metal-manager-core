@@ -481,13 +481,13 @@ kubectl wait --for=condition=complete job/nico-rest-db-migration -n nico-rest --
 
 | File | Contents |
 |---|---|
-| `base/site-manager/site-crd.yaml` | CRD `sites.nico.nvidia.io` — the `Site` custom resource |
+| `base/site-manager/site-crd.yaml` | CRD `sites.forge.nvidia.io` — the `Site` custom resource |
 | `base/site-manager/deployment.yaml` | Deployment `nico-rest-site-manager` |
 | `base/site-manager/certificate.yaml` | cert-manager `Certificate` `site-manager-tls` — TLS cert for the HTTPS server |
 | `base/site-manager/rbac.yaml` | ServiceAccount + Role/RoleBinding + ClusterRole/ClusterRoleBinding |
 | `base/site-manager/service.yaml` | ClusterIP Service on port 8100 — DNS: `nico-rest-site-manager.nico-rest` |
 
-### Site CRD (`sites.nico.nvidia.io`)
+### Site CRD (`sites.forge.nvidia.io`)
 
 ```yaml
 spec:

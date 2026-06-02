@@ -1,30 +1,17 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package managers
 
 import (
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/bootstrap"
+	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/coregrpc"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/dpuextensionservice"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/expectedmachine"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/expectedpowershelf"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/expectedrack"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/expectedswitch"
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/flow"
+	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/flowgrpc"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/infinibandpartition"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/instance"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/instancetype"
@@ -32,13 +19,13 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/machinevalidation"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/managerapi"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/networksecuritygroup"
-	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/nico"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/nvlinklogicalpartition"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/operatingsystem"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/sku"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/sshkeygroup"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/subnet"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/tenant"
+	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/tenantidentity"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/vpc"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/vpcpeering"
 	"github.com/NVIDIA/infra-controller-rest/site-agent/pkg/components/managers/vpcprefix"
@@ -85,8 +72,8 @@ func (m *Manager) VpcPeering() *vpcpeering.API {
 }
 
 // Carbide manager instance here
-func (m *Manager) NICo() *nico.API {
-	return nico.NewNICoManager(m.Data.EB, m.API, m.Conf)
+func (m *Manager) CoreGrpc() *coregrpc.API {
+	return coregrpc.NewCoreGrpcManager(m.Data.EB, m.API, m.Conf)
 }
 
 // Machine - Add Machine manager instance here
@@ -174,7 +161,12 @@ func (m *Manager) NVLinkLogicalPartition() *nvlinklogicalpartition.API {
 	return nvlinklogicalpartition.NewNVLinkLogicalPartitionManager(m.Data.EB, m.API, m.Conf)
 }
 
-// Flow - Add Flow Manager instance here
-func (m *Manager) Flow() *flow.API {
-	return flow.NewFlowManager(m.Data.EB, m.API, m.Conf)
+// FlowGrpc - Add Flow gRPC Manager instance here
+func (m *Manager) FlowGrpc() *flowgrpc.API {
+	return flowgrpc.NewFlowGrpcManager(m.Data.EB, m.API, m.Conf)
+}
+
+// TenantIdentity - Add TenantIdentity Manager instance here
+func (m *Manager) TenantIdentity() *tenantidentity.API {
+	return tenantidentity.NewTenantIdentityManager(m.Data.EB, m.API, m.Conf)
 }

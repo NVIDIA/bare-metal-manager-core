@@ -1,19 +1,5 @@
-/*
- * SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
 
 package activity
 
@@ -31,10 +17,10 @@ import (
 )
 
 func TestManageExpectedSwitchInventory_DiscoverExpectedSwitchInventory(t *testing.T) {
-	mockNICo := cClient.NewMockNICoClient()
+	mockCoreGrpcClient := cClient.NewMockCoreGrpcClient()
 
-	nicoCoreAtomicClient := cClient.NewNICoCoreAtomicClient(&cClient.NICoCoreClientConfig{})
-	nicoCoreAtomicClient.SwapClient(mockNICo)
+	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
+	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	wid := "test-workflow-id"
 	wrun := &tmocks.WorkflowRun{}
@@ -42,7 +28,7 @@ func TestManageExpectedSwitchInventory_DiscoverExpectedSwitchInventory(t *testin
 
 	type fields struct {
 		siteID               uuid.UUID
-		nicoCoreAtomicClient *cClient.NICoCoreAtomicClient
+		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 		temporalPublishQueue string
 		sitePageSize         int
 		cloudPageSize        int
@@ -59,7 +45,7 @@ func TestManageExpectedSwitchInventory_DiscoverExpectedSwitchInventory(t *testin
 			name: "test collecting and publishing expected switch inventory, empty inventory",
 			fields: fields{
 				siteID:               uuid.New(),
-				nicoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 				temporalPublishQueue: "test-queue",
 				sitePageSize:         100,
 				cloudPageSize:        25,
@@ -72,7 +58,7 @@ func TestManageExpectedSwitchInventory_DiscoverExpectedSwitchInventory(t *testin
 			name: "test collecting and publishing expected switch inventory, normal inventory",
 			fields: fields{
 				siteID:               uuid.New(),
-				nicoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 				temporalPublishQueue: "test-queue",
 				sitePageSize:         100,
 				cloudPageSize:        25,
@@ -92,7 +78,7 @@ func TestManageExpectedSwitchInventory_DiscoverExpectedSwitchInventory(t *testin
 
 			manageInstance := NewManageExpectedSwitchInventory(
 				tt.fields.siteID,
-				tt.fields.nicoCoreAtomicClient,
+				tt.fields.coreGrpcAtomicClient,
 				tc,
 				tt.fields.temporalPublishQueue,
 				tt.fields.cloudPageSize,
@@ -135,13 +121,13 @@ func TestManageExpectedSwitchInventory_DiscoverExpectedSwitchInventory(t *testin
 }
 
 func TestManageExpectedSwitch_CreateExpectedSwitchOnSite(t *testing.T) {
-	mockNICo := cClient.NewMockNICoClient()
+	mockCoreGrpcClient := cClient.NewMockCoreGrpcClient()
 
-	nicoCoreAtomicClient := cClient.NewNICoCoreAtomicClient(&cClient.NICoCoreClientConfig{})
-	nicoCoreAtomicClient.SwapClient(mockNICo)
+	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
+	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	type fields struct {
-		NICoCoreAtomicClient *cClient.NICoCoreAtomicClient
+		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 	}
 	type args struct {
 		ctx     context.Context
@@ -156,7 +142,7 @@ func TestManageExpectedSwitch_CreateExpectedSwitchOnSite(t *testing.T) {
 		{
 			name: "test create expected switch success",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -171,7 +157,7 @@ func TestManageExpectedSwitch_CreateExpectedSwitchOnSite(t *testing.T) {
 		{
 			name: "test create expected switch fail on missing MAC address",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -186,7 +172,7 @@ func TestManageExpectedSwitch_CreateExpectedSwitchOnSite(t *testing.T) {
 		{
 			name: "test create expected switch fail on missing serial number",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -201,7 +187,7 @@ func TestManageExpectedSwitch_CreateExpectedSwitchOnSite(t *testing.T) {
 		{
 			name: "test create expected switch fail on missing id",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -216,7 +202,7 @@ func TestManageExpectedSwitch_CreateExpectedSwitchOnSite(t *testing.T) {
 		{
 			name: "test create expected switch fail on missing identifying information",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -231,7 +217,7 @@ func TestManageExpectedSwitch_CreateExpectedSwitchOnSite(t *testing.T) {
 		{
 			name: "test create expected switch fail on missing request",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx:     context.Background(),
@@ -242,7 +228,7 @@ func TestManageExpectedSwitch_CreateExpectedSwitchOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := NewManageExpectedSwitch(tt.fields.NICoCoreAtomicClient, nil)
+			mm := NewManageExpectedSwitch(tt.fields.coreGrpcAtomicClient, nil)
 			err := mm.CreateExpectedSwitchOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -254,13 +240,13 @@ func TestManageExpectedSwitch_CreateExpectedSwitchOnSite(t *testing.T) {
 }
 
 func TestManageExpectedSwitch_UpdateExpectedSwitchOnSite(t *testing.T) {
-	mockNICo := cClient.NewMockNICoClient()
+	mockCoreGrpcClient := cClient.NewMockCoreGrpcClient()
 
-	nicoCoreAtomicClient := cClient.NewNICoCoreAtomicClient(&cClient.NICoCoreClientConfig{})
-	nicoCoreAtomicClient.SwapClient(mockNICo)
+	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
+	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	type fields struct {
-		NICoCoreAtomicClient *cClient.NICoCoreAtomicClient
+		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 	}
 	type args struct {
 		ctx     context.Context
@@ -275,7 +261,7 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchOnSite(t *testing.T) {
 		{
 			name: "test update expected switch success",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -290,7 +276,7 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchOnSite(t *testing.T) {
 		{
 			name: "test update expected switch fail on missing id",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -305,7 +291,7 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchOnSite(t *testing.T) {
 		{
 			name: "test update expected switch fail on missing MAC address",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -320,7 +306,7 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchOnSite(t *testing.T) {
 		{
 			name: "test update expected switch fail on missing serial number",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -335,7 +321,7 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchOnSite(t *testing.T) {
 		{
 			name: "test update expected switch fail on missing both MAC and serial",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -350,7 +336,7 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchOnSite(t *testing.T) {
 		{
 			name: "test update expected switch fail on missing request",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx:     context.Background(),
@@ -361,7 +347,7 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := NewManageExpectedSwitch(tt.fields.NICoCoreAtomicClient, nil)
+			mm := NewManageExpectedSwitch(tt.fields.coreGrpcAtomicClient, nil)
 			err := mm.UpdateExpectedSwitchOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -373,13 +359,13 @@ func TestManageExpectedSwitch_UpdateExpectedSwitchOnSite(t *testing.T) {
 }
 
 func TestManageExpectedSwitch_DeleteExpectedSwitchOnSite(t *testing.T) {
-	mockNICo := cClient.NewMockNICoClient()
+	mockCoreGrpcClient := cClient.NewMockCoreGrpcClient()
 
-	nicoCoreAtomicClient := cClient.NewNICoCoreAtomicClient(&cClient.NICoCoreClientConfig{})
-	nicoCoreAtomicClient.SwapClient(mockNICo)
+	coreGrpcAtomicClient := cClient.NewCoreGrpcAtomicClient(&cClient.CoreGrpcClientConfig{})
+	coreGrpcAtomicClient.SwapClient(mockCoreGrpcClient)
 
 	type fields struct {
-		NICoCoreAtomicClient *cClient.NICoCoreAtomicClient
+		coreGrpcAtomicClient *cClient.CoreGrpcAtomicClient
 	}
 	type args struct {
 		ctx     context.Context
@@ -394,7 +380,7 @@ func TestManageExpectedSwitch_DeleteExpectedSwitchOnSite(t *testing.T) {
 		{
 			name: "test delete expected switch success",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -408,7 +394,7 @@ func TestManageExpectedSwitch_DeleteExpectedSwitchOnSite(t *testing.T) {
 		{
 			name: "test delete expected switch fail on missing id",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -422,7 +408,7 @@ func TestManageExpectedSwitch_DeleteExpectedSwitchOnSite(t *testing.T) {
 		{
 			name: "test delete expected switch success with missing BMC MAC address",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx: context.Background(),
@@ -436,7 +422,7 @@ func TestManageExpectedSwitch_DeleteExpectedSwitchOnSite(t *testing.T) {
 		{
 			name: "test delete expected switch fail on missing request",
 			fields: fields{
-				NICoCoreAtomicClient: nicoCoreAtomicClient,
+				coreGrpcAtomicClient: coreGrpcAtomicClient,
 			},
 			args: args{
 				ctx:     context.Background(),
@@ -447,7 +433,7 @@ func TestManageExpectedSwitch_DeleteExpectedSwitchOnSite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mm := NewManageExpectedSwitch(tt.fields.NICoCoreAtomicClient, nil)
+			mm := NewManageExpectedSwitch(tt.fields.coreGrpcAtomicClient, nil)
 			err := mm.DeleteExpectedSwitchOnSite(tt.args.ctx, tt.args.request)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -460,7 +446,7 @@ func TestManageExpectedSwitch_DeleteExpectedSwitchOnSite(t *testing.T) {
 
 func TestManageExpectedSwitch_CreateExpectedSwitchOnFlow(t *testing.T) {
 	t.Run("nil Flow client skips gracefully", func(t *testing.T) {
-		mm := ManageExpectedSwitch{FlowAtomicClient: nil}
+		mm := ManageExpectedSwitch{flowGrpcAtomicClient: nil}
 		err := mm.CreateExpectedSwitchOnFlow(context.Background(), &cwssaws.ExpectedSwitch{
 			ExpectedSwitchId: &cwssaws.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", SwitchSerialNumber: "SW001",
 		})
@@ -468,7 +454,7 @@ func TestManageExpectedSwitch_CreateExpectedSwitchOnFlow(t *testing.T) {
 	})
 
 	t.Run("nil Flow client connection skips gracefully", func(t *testing.T) {
-		mm := ManageExpectedSwitch{FlowAtomicClient: cClient.NewFlowAtomicClient(&cClient.FlowClientConfig{})}
+		mm := ManageExpectedSwitch{flowGrpcAtomicClient: cClient.NewFlowGrpcAtomicClient(&cClient.FlowGrpcClientConfig{})}
 		err := mm.CreateExpectedSwitchOnFlow(context.Background(), &cwssaws.ExpectedSwitch{
 			ExpectedSwitchId: &cwssaws.UUID{Value: uuid.NewString()}, BmcMacAddress: "00:11:22:33:44:55", SwitchSerialNumber: "SW001",
 		})
@@ -496,7 +482,7 @@ func Test_expectedSwitchToFlowComponent(t *testing.T) {
 			HostId:             int32Ptr(0),
 		}
 		component := expectedSwitchToFlowComponent(es)
-		assert.Equal(t, flowv1.ComponentType_COMPONENT_TYPE_NVLSWITCH, component.Type)
+		assert.Equal(t, flowv1.ComponentType_COMPONENT_TYPE_NVSWITCH, component.Type)
 		assert.Equal(t, "es-001", component.Info.Id.Id)
 		assert.Equal(t, "SW-001", component.Info.SerialNumber)
 		assert.Equal(t, "nvl-switch-1", component.Info.Name)
@@ -521,7 +507,7 @@ func Test_expectedSwitchToFlowComponent(t *testing.T) {
 			SwitchSerialNumber: "SW-002",
 		}
 		component := expectedSwitchToFlowComponent(es)
-		assert.Equal(t, flowv1.ComponentType_COMPONENT_TYPE_NVLSWITCH, component.Type)
+		assert.Equal(t, flowv1.ComponentType_COMPONENT_TYPE_NVSWITCH, component.Type)
 		assert.Empty(t, component.Info.Name)
 		assert.Empty(t, component.Info.Manufacturer)
 		assert.Nil(t, component.Info.Model)
