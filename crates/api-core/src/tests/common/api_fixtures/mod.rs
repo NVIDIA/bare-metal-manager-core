@@ -23,11 +23,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use carbide_ib_fabric::IbFabricMonitor;
-use carbide_ib_fabric::config::IBFabricConfig;
-use carbide_ib_fabric::ib::{self, IBFabricManagerImpl, IBFabricManagerType};
+use carbide_ib_fabric::ib::IBFabricManagerImpl;
 use carbide_ib_partition_controller::context::IBPartitionStateHandlerServices;
 use carbide_ib_partition_controller::handler::IBPartitionStateHandler;
 use carbide_ib_partition_controller::io::IBPartitionStateControllerIO;
@@ -75,13 +73,11 @@ use db::network_security_group::create as create_network_security_group;
 use db::work_lock_manager;
 use dpu::DpuConfig;
 use forge_secrets::credentials::{CompositeCredentialManager, CredentialManager, CredentialReader};
-use forge_secrets::test_support::certificates::TestCertificateProvider;
 use forge_secrets::test_support::credentials::TestCredentialManager;
 use forge_secrets::{ChainedCredentialReader, CredentialSnapshot, UsernamePassword};
 use futures::FutureExt as _;
 use health_report::{HealthReport, HealthReportApplyMode};
 use ipnetwork::IpNetwork;
-use lazy_static::lazy_static;
 use libnmxc::NmxcPool;
 use measured_boot::pcr::PcrRegisterValue;
 use model::attestation::spdm::Verifier;
@@ -111,7 +107,7 @@ use rpc_instance::RpcInstance;
 use site_explorer::new_host_with_machine_validation;
 use sqlx::PgPool;
 use sqlx::postgres::PgConnectOptions;
-use state_controller::controller::{Enqueuer, StateController};
+use state_controller::controller::StateController;
 use state_controller::state_handler::{
     StateHandler, StateHandlerContext, StateHandlerError, StateHandlerOutcome,
 };
@@ -119,25 +115,24 @@ use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 use tokio_util::sync::{CancellationToken, DropGuard};
 use tonic::Request;
-use tracing_subscriber::EnvFilter;
 
 use crate::api::Api;
 use crate::api::metrics::ApiMetricsEmitter;
 use crate::cfg::file::{CarbideConfig, ComputeAllocationEnforcement, FnnConfig};
 use crate::ethernet_virtualization::{EthVirtData, SiteFabricPrefixList};
-use crate::logging::level_filter::ActiveLevel;
-use crate::logging::log_limiter::LogLimiter;
 use crate::measured_boot::convert_vec;
-use crate::scout_stream;
+use crate::test_support::builder::TestApiBuilder;
 use crate::test_support::default_config;
-use crate::tests::common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
-use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
-use crate::tests::common::api_fixtures::network_segment::{
-    FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY, FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS,
-    FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY, create_admin_network_segment,
+use crate::test_support::ib_fabric::ib_fabric_test_manager;
+pub use crate::test_support::network::{FIXTURE_DHCP_RELAY_ADDRESS, TEST_SITE_PREFIXES};
+pub use crate::test_support::network_segment;
+use crate::test_support::network_segment::{
+    FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS, create_admin_network_segment,
     create_static_assignments_segment, create_tenant_network_segment,
     create_underlay_network_segment,
 };
+use crate::tests::common::api_fixtures::endpoint_explorer::MockEndpointExplorer;
+use crate::tests::common::api_fixtures::managed_host::ManagedHostConfig;
 use crate::tests::common::rpc_builder::VpcCreationRequest;
 
 pub mod dpu;
@@ -146,7 +141,6 @@ pub mod host;
 pub mod ib_partition;
 pub mod instance;
 pub mod managed_host;
-pub mod network_segment;
 pub mod nvl_logical_partition;
 pub mod rpc_instance;
 pub mod site_explorer;
@@ -158,85 +152,6 @@ pub mod vpc;
 
 pub type TestMachine = test_machine::TestMachine;
 pub type TestManagedHost = test_managed_host::TestManagedHost;
-
-/// The datacenter-level DHCP relay that is assumed for all DPU discovery
-///
-/// For integration testing this must match a prefix defined in fixtures/create_network_segment.sql
-/// In production the relay IP is a MetalLB VIP so isn't in a network segment.
-pub const FIXTURE_DHCP_RELAY_ADDRESS: &str = "192.0.2.1";
-
-// The site fabric prefixes list that the tests run with. Double check against
-// the test logic before changing it, as at least one test relies on this list
-// _excluding_ certain address space.
-lazy_static! {
-    pub static ref TEST_SITE_PREFIXES: Vec<IpNetwork> = vec![
-        IpNetwork::new(
-            FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.network(),
-            FIXTURE_ADMIN_NETWORK_SEGMENT_GATEWAY.prefix(),
-        )
-        .unwrap(),
-        IpNetwork::new(
-            FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.network(),
-            FIXTURE_UNDERLAY_NETWORK_SEGMENT_GATEWAY.prefix(),
-        )
-        .unwrap(),
-        IpNetwork::new(
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[0].network(),
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[0].prefix(),
-        )
-        .unwrap(),
-        IpNetwork::new(
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[1].network(),
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[1].prefix(),
-        )
-        .unwrap(),
-        IpNetwork::new(
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[2].network(),
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[2].prefix(),
-        )
-        .unwrap(),
-        IpNetwork::new(
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[3].network(),
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[3].prefix(),
-        )
-        .unwrap(),
-        IpNetwork::new(
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[4].network(),
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[4].prefix(),
-        )
-        .unwrap(),
-        IpNetwork::new(
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[5].network(),
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[5].prefix(),
-        )
-        .unwrap(),
-        IpNetwork::new(
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[6].network(),
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[6].prefix(),
-        )
-        .unwrap(),
-        IpNetwork::new(
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[7].network(),
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[7].prefix(),
-        )
-        .unwrap(),
-        IpNetwork::new(
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[8].network(),
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[8].prefix(),
-        )
-        .unwrap(),
-        IpNetwork::new(
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[9].network(),
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[9].prefix(),
-        )
-        .unwrap(),
-        IpNetwork::new(
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[10].network(),
-            FIXTURE_TENANT_NETWORK_SEGMENT_GATEWAYS[10].prefix(),
-        )
-        .unwrap(),
-    ];
-}
 
 #[derive(Clone, Debug, Default)]
 pub struct TestEnvOverrides {
@@ -1181,8 +1096,6 @@ pub async fn create_test_env_with_overrides(
         credential_manager.clone(),
     ));
 
-    let certificate_provider = Arc::new(TestCertificateProvider::new());
-
     let redfish_sim = if let Some(redfish_overrides) = overrides.redfish_overrides {
         Arc::new(RedfishSim::with_test_overrides(RedfishSimTestOverrides {
             no_component_integrities: redfish_overrides.no_component_integrities,
@@ -1236,55 +1149,6 @@ pub async fn create_test_env_with_overrides(
 
     let config = Arc::new(config);
 
-    let ib_config = config.ib_config.clone().unwrap_or_default();
-    let ib_fabric_manager_impl = ib::create_ib_fabric_manager(
-        composite_manager.clone(),
-        ib::IBFabricManagerConfig {
-            allow_insecure_fabric_configuration: ib_config.allow_insecure,
-            endpoints: if ib_config.enabled {
-                config
-                    .ib_fabrics
-                    .iter()
-                    .map(|(fabric_id, fabric_definition)| {
-                        (fabric_id.clone(), fabric_definition.endpoints.clone())
-                    })
-                    .collect()
-            } else {
-                Default::default()
-            },
-            manager_type: if ib_config.enabled {
-                IBFabricManagerType::Mock
-            } else {
-                IBFabricManagerType::Disable
-            },
-            fabric_manager_run_interval: std::time::Duration::from_secs(10),
-            max_partition_per_tenant: IBFabricConfig::default_max_partition_per_tenant(),
-            mtu: ib_config.mtu,
-            rate_limit: ib_config.rate_limit,
-            service_level: ib_config.service_level,
-        },
-    )
-    .unwrap();
-
-    let ib_fabric_manager = Arc::new(ib_fabric_manager_impl);
-    let ib_fabric_monitor = IbFabricMonitor::new(
-        db_pool.clone(),
-        config.ib_fabrics.clone(),
-        test_meter.meter(),
-        ib_fabric_manager.clone(),
-        config.host_health,
-        work_lock_manager_handle.clone(),
-    );
-
-    let nvl_partition_monitor = NvlPartitionMonitor::new(
-        db_pool.clone(),
-        nmxc_sim.clone(),
-        test_meter.meter(),
-        config.nvlink_config.clone().unwrap(),
-        config.host_health,
-        work_lock_manager_handle.clone(),
-    );
-
     let site_fabric_networks = overrides
         .site_prefixes
         .as_ref()
@@ -1314,40 +1178,56 @@ pub async fn create_test_env_with_overrides(
             .await
             .expect("Creating pools should work");
 
-    let dyn_settings = crate::dynamic_settings::DynamicSettings {
-        log_filter: Arc::new(ActiveLevel::new(
-            EnvFilter::builder()
-                .parse(std::env::var("RUST_LOG").unwrap_or("trace".to_string()))
-                .unwrap(),
-            None,
-        )),
-        site_explorer_enabled: config.site_explorer.enabled.clone(),
-        create_machines: config.site_explorer.create_machines.clone(),
-        bmc_proxy: config.site_explorer.bmc_proxy.clone(),
-        tracing_enabled: Arc::new(false.into()),
-        log_stream: Default::default(),
-    };
+    let ib_fabric_manager = ib_fabric_test_manager(&config, composite_manager.clone());
 
-    let bmc_proxy = Arc::new(ArcSwap::new(None.into()));
-    let nv_redfish_pool = carbide_redfish::nv_redfish::new_pool(bmc_proxy);
-    let bmc_session_store: Arc<dyn crate::credentials::BmcSessionStore> =
-        Arc::new(crate::credentials::PgBmcSessionStore::new(db_pool.clone()));
-    let bmc_session_manager = Arc::new(crate::credentials::BmcSessionManager::new(
-        nv_redfish_pool.clone(),
-        composite_manager.clone(),
-        bmc_session_store,
-        config.bmc_session_lockout_threshold,
-        config.allow_bmc_basic_auth_fallback,
-    ));
-    let bmc_explorer = carbide_site_explorer::new_bmc_explorer(
-        redfish_sim.clone(),
-        nv_redfish_pool,
-        carbide_ipmi::test_support(),
-        composite_manager.clone(),
-        Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        // Tests use MockEndpointExplorer. So this doesn't affect anything.
-        SiteExplorerExploreMode::NvRedfish,
+    let rms_sim = Arc::new(RmsSim::default());
+    let mut api_builder = TestApiBuilder::new(
+        db_pool.clone(),
+        common_pools.clone(),
+        work_lock_manager_handle,
+    )
+    .with_credential_manager(composite_manager.clone())
+    .with_runtime_config(config.clone())
+    .with_eth_data(eth_virt_data)
+    .with_nmxc_client_pool(nmxc_sim.clone())
+    .with_metric_emitter(ApiMetricsEmitter::new(&test_meter.meter()))
+    .with_redfish_pool(redfish_sim.clone())
+    .with_ib_fabric_manager(ib_fabric_manager.clone());
+
+    if let Some(rms_client) = rms_sim.as_rms_client() {
+        api_builder = api_builder.with_rms_client(rms_client);
+    }
+
+    if let Some(dpf_sdk) = overrides.dpf_sdk.clone() {
+        api_builder = api_builder.with_dpf_sdk(dpf_sdk);
+    }
+
+    let api = Arc::new(api_builder.build());
+
+    let ib_fabric_monitor = IbFabricMonitor::new(
+        db_pool.clone(),
+        config.ib_fabrics.clone(),
+        test_meter.meter(),
+        api.ib_fabric_manager.clone(),
+        config.host_health,
+        api.work_lock_manager_handle.clone(),
     );
+
+    let nvl_partition_monitor = NvlPartitionMonitor::new(
+        db_pool.clone(),
+        nmxc_sim.clone(),
+        test_meter.meter(),
+        config.nvlink_config.clone().unwrap(),
+        config.host_health,
+        api.work_lock_manager_handle.clone(),
+    );
+
+    let attestation_enabled = config.attestation_enabled;
+    let ipmi_tool = carbide_ipmi::test_support();
+    let mut power_options: PowerOptionConfig = config.power_manager_options.clone().into();
+    if let Some(v) = overrides.power_manager_enabled {
+        power_options.enabled = v;
+    }
 
     let reachability_params = ReachabilityParams {
         dpu_wait_time: Duration::seconds(0),
@@ -1356,42 +1236,6 @@ pub async fn create_test_env_with_overrides(
         scout_reporting_timeout: config.machine_state_controller.scout_reporting_timeout,
         uefi_boot_wait: Duration::seconds(0),
     };
-
-    let rms_sim = Arc::new(RmsSim::default());
-
-    let dpf_sdk = overrides.dpf_sdk;
-    let api_dpf_sdk = dpf_sdk.clone();
-
-    let api = Arc::new(Api {
-        dpf_sdk: api_dpf_sdk,
-        runtime_config: config.clone(),
-        credential_manager: composite_manager,
-        certificate_provider: certificate_provider.clone(),
-        database_connection: db_pool.clone(),
-        redfish_pool: redfish_sim.clone(),
-        bmc_session_manager,
-        eth_data: eth_virt_data.clone(),
-        common_pools: common_pools.clone(),
-        ib_fabric_manager: ib_fabric_manager.clone(),
-        dynamic_settings: dyn_settings,
-        endpoint_explorer: bmc_explorer,
-        dpu_health_log_limiter: LogLimiter::default(),
-        scout_stream_registry: scout_stream::ConnectionRegistry::new(),
-        rms_client: rms_sim.as_rms_client(),
-        nmxc_client_pool: nmxc_sim.clone(),
-        work_lock_manager_handle: work_lock_manager_handle.clone(),
-        machine_state_handler_enqueuer: Enqueuer::new(db_pool.clone()),
-        metric_emitter: ApiMetricsEmitter::new(&test_meter.meter()),
-        component_manager: None,
-        bms_client: std::sync::OnceLock::new(),
-    });
-
-    let attestation_enabled = config.attestation_enabled;
-    let ipmi_tool = carbide_ipmi::test_support();
-    let mut power_options: PowerOptionConfig = config.power_manager_options.clone().into();
-    if let Some(v) = overrides.power_manager_enabled {
-        power_options.enabled = v;
-    }
 
     let machine_swap = SwapHandler {
         inner: Arc::new(Mutex::new(
@@ -1412,7 +1256,7 @@ pub async fn create_test_env_with_overrides(
                     config.machine_updater.instance_autoreboot_period.clone(),
                 )
                 .power_options_config(power_options)
-                .dpf_sdk(dpf_sdk)
+                .dpf_sdk(overrides.dpf_sdk)
                 .build(),
         )),
     };
@@ -1433,7 +1277,7 @@ pub async fn create_test_env_with_overrides(
     let state_controller_id = uuid::Uuid::new_v4().to_string();
 
     let machine_controller = StateController::<MachineStateControllerIO>::builder()
-        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .database(db_pool.clone(), api.work_lock_manager_handle.clone())
         .meter("carbide_machines", test_meter.meter())
         .processor_id(state_controller_id.clone())
         .services(
@@ -1457,7 +1301,7 @@ pub async fn create_test_env_with_overrides(
         .expect("Unable to build state controller");
 
     let spdm_controller = StateController::<SpdmStateControllerIO>::builder()
-        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .database(db_pool.clone(), api.work_lock_manager_handle.clone())
         .meter("spdm", test_meter.meter())
         .processor_id(state_controller_id.clone())
         .services(
@@ -1477,13 +1321,13 @@ pub async fn create_test_env_with_overrides(
     };
 
     let ib_controller = StateController::builder()
-        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .database(db_pool.clone(), api.work_lock_manager_handle.clone())
         .meter("carbide_machines", test_meter.meter())
         .processor_id(state_controller_id.clone())
         .services(
             IBPartitionStateHandlerServices {
                 db_pool: db_pool.clone(),
-                ib_fabric_manager: ib_fabric_manager.clone(),
+                ib_fabric_manager: api.ib_fabric_manager.clone(),
                 ib_pools: common_pools.infiniband.clone(),
             }
             .into(),
@@ -1503,7 +1347,7 @@ pub async fn create_test_env_with_overrides(
     };
 
     let mut network_controller = StateController::builder()
-        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .database(db_pool.clone(), api.work_lock_manager_handle.clone())
         .meter("carbide_machines", test_meter.meter())
         .processor_id(state_controller_id.clone())
         .services(
@@ -1517,7 +1361,7 @@ pub async fn create_test_env_with_overrides(
         .expect("Unable to build state controller");
 
     let power_shelf_controller = StateController::builder()
-        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .database(db_pool.clone(), api.work_lock_manager_handle.clone())
         .meter("carbide_power_shelves", test_meter.meter())
         .processor_id(state_controller_id.clone())
         .services(
@@ -1533,7 +1377,7 @@ pub async fn create_test_env_with_overrides(
         .expect("Unable to build PowerShelfStateController");
 
     let switch_controller = StateController::builder()
-        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .database(db_pool.clone(), api.work_lock_manager_handle.clone())
         .meter("carbide_switches", test_meter.meter())
         .processor_id(state_controller_id.clone())
         .services(
@@ -1549,7 +1393,7 @@ pub async fn create_test_env_with_overrides(
         .expect("Unable to build state controller");
 
     let rack_controller = StateController::builder()
-        .database(db_pool.clone(), work_lock_manager_handle.clone())
+        .database(db_pool.clone(), api.work_lock_manager_handle.clone())
         .meter("carbide_racks", test_meter.meter())
         .processor_id(state_controller_id.clone())
         .services(
@@ -1614,7 +1458,7 @@ pub async fn create_test_env_with_overrides(
         Arc::new(fake_endpoint_explorer.clone()),
         Arc::new(config.get_firmware_config()),
         common_pools.clone(),
-        work_lock_manager_handle.clone(),
+        api.work_lock_manager_handle.clone(),
         rms_sim.as_rms_client(),
         credential_manager.clone(),
     );
