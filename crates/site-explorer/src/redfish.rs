@@ -311,30 +311,32 @@ impl RedfishClient {
             .await
             .map_err(map_redfish_error)?;
         let is_dpu = system.id.to_lowercase().contains("bluefield");
-        let (machine_setup_status, remediation_error) =
-            match fetch_machine_setup_status(client.as_ref(), boot_interface_mac).await {
-                Ok(status) => (Some(status), None),
-                Err(error)
-                    if is_dpu && is_dpu_bios_attributes_not_ready(&error) =>
-                {
-                    tracing::warn!(
-                        %error,
-                        "DPU BMC BIOS attributes not ready while fetching machine setup status; scheduling a force-restart to mitigate the known UEFI POST/BMC race"
-                    );
-                    (
-                        None,
-                        Some(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
-                            details: dpu_bios_attributes_not_ready_message(&error),
-                            response_body: None,
-                            response_code: None,
-                        }),
-                    )
-                }
-                Err(error) => {
-                    tracing::warn!(%error, "Failed to fetch machine setup status.");
-                    (None, None)
-                }
-            };
+        let (machine_setup_status, remediation_error) = match fetch_machine_setup_status(
+            client.as_ref(),
+            boot_interface_mac,
+        )
+        .await
+        {
+            Ok(status) => (Some(status), None),
+            Err(error) if is_dpu && is_dpu_bios_attributes_not_ready(&error) => {
+                tracing::warn!(
+                    %error,
+                    "DPU BMC BIOS attributes not ready while fetching machine setup status; scheduling a force-restart to mitigate the known UEFI POST/BMC race"
+                );
+                (
+                    None,
+                    Some(EndpointExplorationError::InvalidDpuRedfishBiosResponse {
+                        details: dpu_bios_attributes_not_ready_message(&error),
+                        response_body: None,
+                        response_code: None,
+                    }),
+                )
+            }
+            Err(error) => {
+                tracing::warn!(%error, "Failed to fetch machine setup status.");
+                (None, None)
+            }
+        };
 
         let secure_boot_status = fetch_secure_boot_status(client.as_ref())
             .await

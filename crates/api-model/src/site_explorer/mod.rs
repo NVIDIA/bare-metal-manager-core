@@ -1789,6 +1789,7 @@ mod tests {
             compute_tray_index: None,
             revision_id: None,
             topology_id: None,
+            remediation_error: None,
         };
 
         let inventory_map = report.get_inventory_map();
@@ -1858,6 +1859,7 @@ mod tests {
             compute_tray_index: None,
             revision_id: None,
             topology_id: None,
+            remediation_error: None,
         };
         report
             .generate_machine_id(false)

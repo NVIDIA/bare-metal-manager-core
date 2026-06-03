@@ -265,6 +265,7 @@ impl From<DpuConfig> for EndpointExplorationReport {
             physical_slot_number: None,
             revision_id: None,
             topology_id: None,
+            remediation_error: None,
         }
     }
 }
