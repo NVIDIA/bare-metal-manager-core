@@ -132,53 +132,55 @@ nico-dhcp:
   enabled: true
   replicas: 1
 
+  ## kea-dhcp4 configuration — structured shape (chart assembles JSON).
+  ## See helm/charts/nico-dhcp/values.yaml for every supported field and
+  ## the matching kea JSON key. For full per-site override (multiple
+  ## hooks, custom logger destinations, advanced lease backends), set
+  ## `config.keaConfigJsonRaw` to a complete kea_config.json string
+  ## instead — the structured `kea:` block is then ignored.
   config:
     enabled: true
-    keaConfigJson: |
-      {
-        "Dhcp4": {
-          "interfaces-config": {
-            "interfaces": ["eth0"],
-            "dhcp-socket-type": "udp"
-          },
-          "lease-database": {
-            "type": "memfile",
-            "lfc-interval": 3600
-          },
-          "match-client-id": false,
-          "authoritative": true,
-          "renew-timer": 900,
-          "rebind-timer": 1800,
-          "valid-lifetime": 3600,
-          "hooks-libraries": [
-            {
-              "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so",
-              "parameters": {
-                "nico-api-url": "https://nico-api.nico-system.svc.cluster.local:1079",
-                "nico-metrics-endpoint": "[::]:1089",
-                "nico-nameservers": "10.0.0.20",
-                "nico-ntpserver": "10.0.0.30",
-                "nico-provisioning-server-ipv4": "10.0.0.40"
-              }
-            }
-          ],
-          "subnet4": [
-            {
-              "subnet": "10.0.0.0/24",
-              "pools": [
-                {
-                  "pool": "10.0.0.100-10.0.0.200"
-                }
-              ]
-            }
-          ],
-          "loggers": [
-            { "name": "kea-dhcp4", "severity": "INFO", "output_options": [{ "output": "stdout" }] },
-            { "name": "kea-dhcp4.hooks", "severity": "INFO", "output_options": [{ "output": "stdout" }] },
-            { "name": "kea-dhcp4.nico-rust", "severity": "INFO", "output_options": [{ "output": "stdout" }] }
-          ]
-        }
-      }
+    kea:
+      ## libdhcp hook parameters — these are the IPs the DHCP server
+      ## advertises to PXE clients (DPUs / bare-metal hosts).
+      ## CRITICAL: replace each placeholder with a real IP the client
+      ## can reach (typically MetalLB LoadBalancer IPs of nico-dns /
+      ## site NTP / nico-pxe). Leaving 127.0.0.1 breaks DPU pre-ingestion.
+      hookParameters:
+        nameservers: "10.0.0.20"           # EXAMPLE — replace with nico-dns LB IP
+        ntpServer: "10.0.0.30"             # EXAMPLE — replace with site NTP IP(s), comma-separated for multi
+        provisioningServer: "10.0.0.40"    # EXAMPLE — replace with nico-pxe LB IP
+        # nicoApiUrl: ""                   # leave empty to derive https://<apiServiceName>.<ns>.svc.cluster.local:1079
+        # nicoMetricsEndpoint: "[::]:1089" # chart default
+
+      ## Subnets the DHCP server serves leases on.
+      subnet4:
+        - subnet: "10.0.0.0/24"
+          pools:
+            - "10.0.0.100-10.0.0.200"
+
+      ## All other kea-dhcp4 fields below default to sensible values and
+      ## can usually be omitted. Shown here for completeness.
+      # interfacesConfig:
+      #   interfaces: ["eth0"]
+      #   dhcpSocketType: udp
+      # leaseDatabase:
+      #   type: memfile
+      #   lfcInterval: 3600
+      # matchClientId: false
+      # authoritative: true
+      # renewTimer: 900
+      # rebindTimer: 1800
+      # validLifetime: 3600
+      # hookLibraryPath: /usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so
+      # additionalHooksLibraries: []
+      # loggers:
+      #   - name: kea-dhcp4
+      #     severity: INFO
+      #   - name: kea-dhcp4.hooks
+      #     severity: INFO
+      #   - name: kea-dhcp4.nico-rust
+      #     severity: INFO
 
   externalService:
     enabled: true

@@ -60,58 +60,156 @@ env:
   RUST_BACKTRACE: "full"
   RUST_LIB_BACKTRACE: "0"
 
-## ConfigMap created by this chart (config.enabled=true) or external (false)
-## The ConfigMap is mounted at /tmp in the pod, and kea-dhcp4 reads /tmp/kea_config.json.
-## In Kustomize, this comes from configMapGenerator with files/kea_config.json.
+## ConfigMap created by this chart (config.enabled=true) or external (false).
+## The ConfigMap is mounted at /tmp in the pod, and kea-dhcp4 reads
+## /tmp/kea_config.json.
+##
+## The kea_config.json content comes from one of two paths:
+##
+##   1. (DEFAULT) Structured config under `config.kea` — the chart template
+##      assembles the JSON. This is the supported per-site interface;
+##      operators override individual fields (notably the advertised
+##      service IPs under `config.kea.hookParameters`) via the umbrella
+##      values, without having to maintain a parallel copy of the full
+##      kea_config.json blob.
+##
+##   2. (ESCAPE HATCH) Set `config.keaConfigJsonRaw` to a complete kea
+##      DHCPv4 JSON string. When non-empty, the structured `config.kea`
+##      block is ignored entirely. Use this only when the structured
+##      shape can't express what you need — e.g. multiple distinct
+##      hooks-libraries entries, advanced lease-database backends, etc.
+##      Long-term any such case should be added to the structured shape
+##      and this escape hatch removed.
 config:
   enabled: true
-  ## Full Kea DHCPv4 configuration JSON. This must be valid JSON for kea-dhcp4.
-  ## Override per-environment with the correct IPs for nameservers, NTP, PXE, etc.
-  keaConfigJson: |
-    {
-      "Dhcp4": {
-        "interfaces-config": {
-          "interfaces": ["eth0"],
-          "dhcp-socket-type": "udp"
-        },
-        "lease-database": {
-          "type": "memfile",
-          "lfc-interval": 3600
-        },
-        "match-client-id": false,
-        "authoritative": true,
-        "renew-timer": 900,
-        "rebind-timer": 1800,
-        "valid-lifetime": 3600,
-        "hooks-libraries": [
-          {
-            "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so",
-            "parameters": {
-              "nico-api-url": "https://__API_HOST__.__NAMESPACE__.svc.cluster.local:1079",
-              "nico-metrics-endpoint": "[::]:1089",
-              "nico-nameservers": "127.0.0.1",
-              "nico-ntpserver": "127.0.0.1",
-              "nico-provisioning-server-ipv4": "127.0.0.1"
-            }
-          }
-        ],
-        "subnet4": [
-          {
-            "subnet": "0.0.0.0/0",
-            "pools": [
-              {
-                "pool": "0.0.0.0-255.255.255.255"
-              }
-            ]
-          }
-        ],
-        "loggers": [
-          { "name": "kea-dhcp4", "severity": "INFO", "output_options": [{ "output": "stdout" }] },
-          { "name": "kea-dhcp4.hooks", "severity": "INFO", "output_options": [{ "output": "stdout" }] },
-          { "name": "kea-dhcp4.nico-rust", "severity": "INFO", "output_options": [{ "output": "stdout" }] }
-        ]
-      }
-    }
+
+  ## Full kea_config.json string. Empty by default — keep empty to use
+  ## the structured `config.kea` block below.
+  ##
+  ## When non-empty (after trimming whitespace), the configmap template:
+  ##   - SKIPS the structured `config.kea` block entirely — any field set
+  ##     under `kea:` is silently ignored. Don't set both at once; the
+  ##     operator-facing overrides under `helm-prereqs/values/nico-core.yaml`
+  ##     target the structured block, so a raw blob will mask them.
+  ##   - Substitutes `__NAMESPACE__` → release namespace and `__API_HOST__`
+  ##     → `.Values.apiServiceName` (default `nico-api`) so the raw string
+  ##     is portable between the nico-api / carbide-api names the same
+  ##     chart is reused for under dual-deployment (PR #2062).
+  ##
+  ## Note: placeholder substitution applies ONLY to this raw string, NOT
+  ## to values inside `config.kea` below — set those values to fully
+  ## resolved strings (or leave empty to use the helper's derivation).
+  keaConfigJsonRaw: ""
+
+  ## Structured kea-dhcp4 configuration. The configmap template assembles
+  ## these fields into kea_config.json. See the helper definition in
+  ## templates/_helpers.tpl (nico-dhcp.keaConfigJson) for the exact mapping
+  ## from these YAML fields to the kea JSON keys (which are hyphenated).
+  ##
+  ## ⚠ IGNORED when `config.keaConfigJsonRaw` above is set to a non-empty
+  ## (post-trim) string. If you need to override an IP, prefer the
+  ## structured fields below over the raw blob.
+  kea:
+    ## Listening interfaces + socket type (kea: interfaces-config).
+    interfacesConfig:
+      interfaces:
+        - eth0
+      dhcpSocketType: udp
+
+    ## Lease backend. memfile is the common in-cluster choice.
+    leaseDatabase:
+      type: memfile
+      lfcInterval: 3600
+
+    ## Other top-level kea-dhcp4 options.
+    matchClientId: false
+    authoritative: true
+    renewTimer: 900
+    rebindTimer: 1800
+    validLifetime: 3600
+
+    ## libdhcp hook parameters — these become the JSON object at
+    ## Dhcp4.hooks-libraries[0].parameters and are read by the
+    ## NICo-specific kea hook (libdhcp.so).
+    ##
+    ## CRITICAL: nameservers / ntpServer / provisioningServer MUST be
+    ## set to real IPs reachable from the DPU's PXE/management network
+    ## (typically the MetalLB LoadBalancer IPs of nico-dns / your NTP
+    ## service / nico-pxe). Leaving the 127.0.0.1 placeholders causes:
+    ##   - DPU pre-ingestion failing on clock divergence (no NTP)
+    ##   - DPU agent unable to reach the API endpoint (no DNS)
+    ## These are the failure modes the operator-facing site values
+    ## under helm-prereqs/values/nico-core.yaml are supposed to fix.
+    hookParameters:
+      ## NICo API URL. Empty = derive
+      ## `https://<apiServiceName>.<release-namespace>.svc.cluster.local:1079`
+      ## at render time. apiServiceName is the top-level value above
+      ## (default `nico-api`; under the dual-deployment / carbide-named
+      ## install path it can be set to e.g. `carbide-api`). DPUs reach
+      ## this URL via the nameservers IP below.
+      nicoApiUrl: ""
+      ## Where the hook publishes its own Prometheus metrics.
+      nicoMetricsEndpoint: "[::]:1089"
+      ## DNS server IP. PLACEHOLDER — operators must override.
+      ## Set to nico-dns externalService LoadBalancer IP (single string
+      ## or comma-separated for multiple).
+      nameservers: "127.0.0.1"
+      ## NTP server IP(s), comma-separated. PLACEHOLDER — operators
+      ## must override. The helm-prereqs side does NOT ship an
+      ## in-cluster NTP today; provide a site-local NTP service IP.
+      ntpServer: "127.0.0.1"
+      ## PXE / boot-artifact server IP. PLACEHOLDER — operators must
+      ## override. Set to nico-pxe externalService LoadBalancer IP.
+      provisioningServer: "127.0.0.1"
+
+    ## DHCPv4 subnets. Each entry maps to a kea subnet4 entry.
+    ## `pools` entries can be either:
+    ##   - a pool-range string (e.g. "0.0.0.0-255.255.255.255") — the
+    ##     helper wraps it in `{ "pool": "..." }` automatically; or
+    ##   - a full kea pool object (e.g. { pool: "...", option-data: [...] })
+    ##     — passed through verbatim via toJson.
+    ## Any other shape fails at template-render time with a pointer to the
+    ## offending subnet4[i].pools[j] index so the user can fix their value.
+    subnet4:
+      - subnet: "0.0.0.0/0"
+        pools:
+          - "0.0.0.0-255.255.255.255"
+
+    ## Path to the kea libdhcp hook library inside the kea image. Default
+    ## is the x86_64 Debian-derived install location. Override for alt
+    ## arches (aarch64 → /usr/lib/aarch64-linux-gnu/...) or custom images.
+    hookLibraryPath: "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp.so"
+
+    ## Additional hooks-libraries entries appended after the libdhcp entry
+    ## above. Each item is a full kea hooks-libraries object and is
+    ## serialised via toJson. Use this for `ha`, `lease_cmds`, `stat_cmds`,
+    ## or any third-party hook. Leave empty for the libdhcp-only default.
+    ##
+    ## Example:
+    ##   additionalHooksLibraries:
+    ##     - library: /usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_lease_cmds.so
+    ##     - library: /usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_stat_cmds.so
+    additionalHooksLibraries: []
+
+    ## kea-dhcp4 loggers. `outputOptions` is OPTIONAL per logger — when
+    ## omitted, defaults to `[{ output: stdout }]`. Set explicitly to
+    ## redirect to a file, syslog, or to tune kea's per-logger output
+    ## flushing / maxsize / pattern.
+    ##
+    ## Example: ship one logger to a file the sidecar log shipper tails
+    ##   - name: kea-dhcp4
+    ##     severity: INFO
+    ##     outputOptions:
+    ##       - output: /var/log/kea/dhcp4.log
+    ##         maxsize: 10485760
+    ##         maxver: 4
+    loggers:
+      - name: kea-dhcp4
+        severity: INFO
+      - name: kea-dhcp4.hooks
+        severity: INFO
+      - name: kea-dhcp4.nico-rust
+        severity: INFO
 
 serviceMonitor:
   enabled: false
