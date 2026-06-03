@@ -196,22 +196,16 @@ pub(crate) async fn ensure_rack_exists(
 /// Returns `(None, None)` on any failure, logging a warning with `entity_label`.
 pub async fn fetch_slot_and_tray(
     rms_client: &dyn librms::RmsApi,
-    request: librms::protos::rack_manager::BatchGetNodeDeviceInfoRequest,
+    request: librms::protos::rack_manager::GetDeviceInfoByDeviceListRequest,
 ) -> (Option<i32>, Option<i32>) {
-    match rms_client.batch_get_node_device_info(request).await {
+    match rms_client.get_device_info_by_device_list(request).await {
         Ok(info) => {
-            let Some(node_device_details) = info.node_device_details.first() else {
-                return (None, None);
-            };
-
-            let slot_number = node_device_details
-                .slot_number
-                .and_then(|value| i32::try_from(value).ok());
-            let tray_index = node_device_details
-                .tray_index
-                .and_then(|value| i32::try_from(value).ok());
-
-            (slot_number, tray_index)
+            if !info.node_device_info.is_empty() {
+                let node_device_info = info.node_device_info.first().unwrap();
+                (node_device_info.slot_number, node_device_info.tray_index)
+            } else {
+                (None, None)
+            }
         }
         Err(e) => {
             tracing::warn!(

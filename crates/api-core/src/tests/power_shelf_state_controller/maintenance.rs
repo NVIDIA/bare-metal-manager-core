@@ -108,7 +108,7 @@ async fn enter_maintenance(
 
 /// Set the power shelf's BMC MAC and rack association directly. The
 /// `new_power_shelf` site-explorer fixture leaves both as `None`, but the
-/// handler's `batch_set_power_state` path needs both before it
+/// handler's `set_power_state_by_device_list` path needs both before it
 /// will even attempt the BMC IP lookup.
 ///
 /// `power_shelves.bmc_mac_address` is a FK into `expected_power_shelves`,
@@ -226,14 +226,11 @@ async fn power_on_transitions_to_error_when_bmc_ip_unresolvable(
 
     // Queue a success response so we can assert it was *not* consumed.
     env.rms_sim
-        .queue_batch_set_power_state_response(Ok(rms::BatchSetPowerStateResponse {
+        .queue_set_power_state_by_device_list_response(Ok(rms::SetPowerStateByDeviceListResponse {
             response: Some(rms::NodeBatchResponse {
                 status: rms::ReturnCode::Success as i32,
-                stats: Some(rms::NodeOperationStats {
-                    total_nodes: 1,
-                    successful_nodes: 1,
-                    failed_nodes: 0,
-                }),
+                total_nodes: 1,
+                successful_nodes: 1,
                 ..Default::default()
             }),
         }))
@@ -263,7 +260,10 @@ async fn power_on_transitions_to_error_when_bmc_ip_unresolvable(
         "maintenance request should be cleared on error transition"
     );
 
-    let calls = env.rms_sim.submitted_batch_set_power_state_requests().await;
+    let calls = env
+        .rms_sim
+        .submitted_set_power_state_by_device_list_requests()
+        .await;
     assert!(
         calls.is_empty(),
         "RMS should not be invoked when BMC IP cannot be resolved, got: {} calls",
@@ -329,7 +329,10 @@ async fn power_on_transitions_to_error_when_rack_id_missing(
     let transition = commit_and_extract_transition(outcome).await.unwrap();
     assert_error_with_substring(&transition, "no rack association");
 
-    let calls = env.rms_sim.submitted_batch_set_power_state_requests().await;
+    let calls = env
+        .rms_sim
+        .submitted_set_power_state_by_device_list_requests()
+        .await;
     assert!(calls.is_empty(), "RMS must not be called without a rack_id");
 
     Ok(())
@@ -362,7 +365,10 @@ async fn power_on_transitions_to_error_when_bmc_mac_missing(
     let transition = commit_and_extract_transition(outcome).await.unwrap();
     assert_error_with_substring(&transition, "has no BMC MAC address recorded");
 
-    let calls = env.rms_sim.submitted_batch_set_power_state_requests().await;
+    let calls = env
+        .rms_sim
+        .submitted_set_power_state_by_device_list_requests()
+        .await;
     assert!(
         calls.is_empty(),
         "RMS must not be called without a BMC MAC address"
@@ -440,7 +446,10 @@ async fn power_off_transitions_to_error_when_rack_id_missing(
         assert!(cause.contains("PowerOff"));
     }
 
-    let calls = env.rms_sim.submitted_batch_set_power_state_requests().await;
+    let calls = env
+        .rms_sim
+        .submitted_set_power_state_by_device_list_requests()
+        .await;
     assert!(calls.is_empty());
 
     Ok(())
@@ -472,7 +481,10 @@ async fn power_off_transitions_to_error_when_bmc_mac_missing(
     let transition = commit_and_extract_transition(outcome).await.unwrap();
     assert_error_with_substring(&transition, "has no BMC MAC address recorded");
 
-    let calls = env.rms_sim.submitted_batch_set_power_state_requests().await;
+    let calls = env
+        .rms_sim
+        .submitted_set_power_state_by_device_list_requests()
+        .await;
     assert!(calls.is_empty());
 
     Ok(())
@@ -480,7 +492,7 @@ async fn power_off_transitions_to_error_when_bmc_mac_missing(
 
 // ── Sanity: non-Maintenance state never reaches the by-device-list path ────
 
-/// `Ready` should never invoke `batch_set_power_state`. This guards
+/// `Ready` should never invoke `set_power_state_by_device_list`. This guards
 /// against accidentally wiring the maintenance dispatch into other states.
 #[crate::sqlx_test]
 async fn ready_state_does_not_invoke_rms_set_power_state(
@@ -507,10 +519,13 @@ async fn ready_state_does_not_invoke_rms_set_power_state(
     // call was made.
     let _ = commit_and_extract_transition(outcome).await;
 
-    let calls = env.rms_sim.submitted_batch_set_power_state_requests().await;
+    let calls = env
+        .rms_sim
+        .submitted_set_power_state_by_device_list_requests()
+        .await;
     assert!(
         calls.is_empty(),
-        "Ready state must not call batch_set_power_state"
+        "Ready state must not call set_power_state_by_device_list"
     );
 
     Ok(())

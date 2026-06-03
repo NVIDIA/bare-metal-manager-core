@@ -167,25 +167,20 @@ async fn handle_wait_for_os_machine_interface(
     );
     if associated_count >= 1 {
         if let (Some(rack_id), Some(rms_client)) = (&rack_id, &ctx.services.rms_client) {
-            // RMS has always used one host interface for this lookup even though
-            // the previous proto exposed a list, so pick a single interface here.
-            let host_interface = nvos_interfaces
-                .iter()
-                .find(|(_, ip)| ip.is_some())
-                .or_else(|| nvos_interfaces.first())
-                .map(|(mac, ip)| librms::protos::rack_manager::NetworkInterface {
-                    ip_address: ip.as_ref().map(ToString::to_string).unwrap_or_default(),
-                    mac_address: mac.to_string(),
-                });
-
-            let request = librms::protos::rack_manager::BatchGetNodeDeviceInfoRequest {
+            let request = librms::protos::rack_manager::GetDeviceInfoByDeviceListRequest {
                 nodes: Some(librms::protos::rack_manager::NodeSet {
-                    nodes: vec![librms::protos::rack_manager::NodeInfo {
+                    devices: vec![librms::protos::rack_manager::NewNodeInfo {
                         node_id: switch_id.to_string(),
                         rack_id: rack_id.to_string(),
                         r#type: Some(librms::protos::rack_manager::NodeType::Switch as i32),
-                        host_endpoint: Some(librms::protos::rack_manager::Endpoint {
-                            interface: host_interface,
+                        host_endpoint: Some(librms::protos::rack_manager::HostEndpoint {
+                            interfaces: nvos_interfaces
+                                .iter()
+                                .map(|(mac, ip)| librms::protos::rack_manager::NetworkInterface {
+                                    ip_address: ip.map(|a| a.to_string()).unwrap_or_default(),
+                                    mac_address: mac.to_string(),
+                                })
+                                .collect(),
                             port: 0,
                             credentials: nvos_credentials.map(|(username, password)| {
                                 librms::protos::rack_manager::Credentials {
@@ -199,11 +194,11 @@ async fn handle_wait_for_os_machine_interface(
                                     ),
                                 }
                             }),
-                            dangerously_accept_invalid_certs: false,
                         }),
                         ..Default::default()
                     }],
                 }),
+                ..Default::default()
             };
             let (slot_number, tray_index) =
                 carbide_site_explorer::fetch_slot_and_tray(rms_client.as_ref(), request).await;

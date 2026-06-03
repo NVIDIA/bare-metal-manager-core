@@ -33,9 +33,9 @@ use state_controller::state_handler::{
 
 use crate::context::PowerShelfStateHandlerContextObjects;
 
-/// Default BMC HTTPS port used when populating `rms::Endpoint` for power
+/// Default BMC HTTPS port used when populating `rms::BmcEndpoint` for power
 /// shelves. Mirrors the value used by `crate::rack::firmware_update`.
-const POWER_SHELF_BMC_PORT: u32 = 443;
+const POWER_SHELF_BMC_PORT: i32 = 443;
 
 /// Handles the Maintenance state for a power shelf, dispatching on the
 /// requested operation (`PowerOn` / `PowerOff`).
@@ -72,7 +72,7 @@ async fn handle_power_on(
         power_shelf_id,
         state,
         ctx,
-        rms::PowerOperation::On,
+        rms::PowerOperation::PowerOn,
         "PowerOn",
     )
     .await
@@ -91,7 +91,7 @@ async fn handle_power_off(
         power_shelf_id,
         state,
         ctx,
-        rms::PowerOperation::Off,
+        rms::PowerOperation::PowerOff,
         "PowerOff",
     )
     .await
@@ -99,7 +99,7 @@ async fn handle_power_off(
 
 /// Common driver for RMS-backed power maintenance operations. Builds a
 /// caller-supplied `NodeSet` with the power shelf's BMC connection details
-/// and dispatches `BatchSetPowerState` against the configured
+/// and dispatches `SetPowerStateByDeviceList` against the configured
 /// `RmsApi` client. Returns to `Ready` on success or transitions to `Error`
 /// on failure. In both terminal cases the `power_shelf_maintenance_requested`
 /// row is cleared so the controller does not re-enter `Maintenance` on the
@@ -158,25 +158,24 @@ async fn invoke_rms_power_operation(
         }
     };
 
-    let request = rms::BatchSetPowerStateRequest {
+    let request = rms::SetPowerStateByDeviceListRequest {
         nodes: Some(rms::NodeSet {
-            nodes: vec![device],
+            devices: vec![device],
         }),
         operation: operation as i32,
+        ..Default::default()
     };
 
-    match rms_client.batch_set_power_state(request).await {
+    match rms_client.set_power_state_by_device_list(request).await {
         Ok(response) => {
             let batch = response.response.unwrap_or_default();
-            let stats = batch.stats.unwrap_or_default();
-
-            if batch.status == rms::ReturnCode::Success as i32 && stats.failed_nodes == 0 {
+            if batch.status == rms::ReturnCode::Success as i32 && batch.failed_nodes == 0 {
                 tracing::info!(
                     power_shelf_id = %power_shelf_id,
                     rack_id = %rack_id,
                     operation = operation_label,
-                    successful_nodes = stats.successful_nodes,
-                    "RMS BatchSetPowerState succeeded; returning PowerShelf to Ready"
+                    successful_nodes = batch.successful_nodes,
+                    "RMS SetPowerStateByDeviceList succeeded; returning PowerShelf to Ready"
                 );
                 let mut txn = ctx.services.db_pool.begin().await?;
                 db_power_shelf::clear_power_shelf_maintenance_requested(&mut txn, *power_shelf_id)
@@ -207,7 +206,7 @@ async fn invoke_rms_power_operation(
             } else {
                 format!(
                     "batch status {}, failed_nodes {}",
-                    batch.status, stats.failed_nodes,
+                    batch.status, batch.failed_nodes,
                 )
             };
 
@@ -216,21 +215,21 @@ async fn invoke_rms_power_operation(
                 rack_id = %rack_id,
                 operation = operation_label,
                 batch_status = batch.status,
-                successful_nodes = stats.successful_nodes,
-                failed_nodes = stats.failed_nodes,
+                successful_nodes = batch.successful_nodes,
+                failed_nodes = batch.failed_nodes,
                 summary = %summary,
-                "RMS BatchSetPowerState returned a non-success result",
+                "RMS SetPowerStateByDeviceList returned a non-success result",
             );
             let cause = format!(
-                "PowerShelf {} maintenance ({}): RMS BatchSetPowerState failed: {}",
+                "PowerShelf {} maintenance ({}): RMS SetPowerStateByDeviceList failed: {}",
                 power_shelf_id, operation_label, summary
             );
             finish_maintenance_with_error(power_shelf_id, ctx, cause).await
         }
         Err(error) => {
-            let error = rack_manager_error("batch_set_power_state", error);
+            let error = rack_manager_error("set_power_state_by_device_list", error);
             let cause = format!(
-                "PowerShelf {} maintenance ({}): RMS BatchSetPowerState failed: {}",
+                "PowerShelf {} maintenance ({}): RMS SetPowerStateByDeviceList failed: {}",
                 power_shelf_id, operation_label, error
             );
             tracing::warn!(
@@ -238,25 +237,26 @@ async fn invoke_rms_power_operation(
                 rack_id = %rack_id,
                 operation = operation_label,
                 error = %error,
-                "RMS BatchSetPowerState transport error",
+                "RMS SetPowerStateByDeviceList transport error",
             );
             finish_maintenance_with_error(power_shelf_id, ctx, cause).await
         }
     }
 }
 
-/// Build the `rms::NodeInfo` describing this power shelf for inclusion
-/// in caller-supplied `NodeSet` requests from `Maintenance` and `Ready`.
-/// Resolves the BMC IP from the database and BMC credentials via the
-/// credential manager, since these RPCs require the BMC connection details
-/// inline rather than relying on RMS's inventory.
+/// Build the `rms::NewNodeInfo` describing this power shelf for inclusion
+/// in any caller-supplied `NodeSet` request (`SetPowerStateByDeviceList`
+/// from `Maintenance`, `GetDeviceInfoByDeviceList` from `Ready`). Resolves
+/// the BMC IP from the database and BMC credentials via the credential
+/// manager, since these RPCs require the BMC connection details inline
+/// rather than relying on RMS's inventory.
 pub(super) async fn build_power_shelf_node_info(
     power_shelf_id: &PowerShelfId,
     state: &PowerShelf,
     rack_id: String,
     db_pool: &PgPool,
     credential_manager: &dyn CredentialManager,
-) -> Result<rms::NodeInfo, String> {
+) -> Result<rms::NewNodeInfo, String> {
     let bmc_mac = state.bmc_mac_address.ok_or_else(|| {
         format!(
             "power shelf {} has no BMC MAC address recorded",
@@ -267,18 +267,17 @@ pub(super) async fn build_power_shelf_node_info(
     let bmc_ip = lookup_power_shelf_bmc_ip(db_pool, power_shelf_id, bmc_mac).await?;
     let credentials = lookup_bmc_credentials(credential_manager, bmc_mac).await?;
 
-    Ok(rms::NodeInfo {
+    Ok(rms::NewNodeInfo {
         node_id: power_shelf_id.to_string(),
         rack_id,
         r#type: Some(rms::NodeType::Powershelf as i32),
-        bmc_endpoint: Some(rms::Endpoint {
+        bmc_endpoint: Some(rms::BmcEndpoint {
             interface: Some(rms::NetworkInterface {
                 ip_address: bmc_ip,
                 mac_address: bmc_mac.to_string(),
             }),
             port: POWER_SHELF_BMC_PORT,
             credentials: Some(credentials),
-            dangerously_accept_invalid_certs: true,
         }),
         host_endpoint: None,
     })

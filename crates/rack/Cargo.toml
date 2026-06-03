@@ -42,7 +42,6 @@ eyre = { workspace = true }
 librms = { workspace = true }
 mac_address = { workspace = true }
 opentelemetry = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 tracing = { workspace = true }

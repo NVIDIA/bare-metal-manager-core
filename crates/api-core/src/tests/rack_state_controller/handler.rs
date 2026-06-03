@@ -1389,16 +1389,13 @@ async fn test_firmware_upgrade_start_submits_json_and_deletes_access_token(
             response: Some(rms::NodeBatchResponse {
                 status: rms::ReturnCode::Success as i32,
                 message: "accepted".to_string(),
+                total_nodes: 1,
+                successful_nodes: 1,
                 job_id: "parent-job".to_string(),
-                stats: Some(rms::NodeOperationStats {
-                    total_nodes: 1,
-                    successful_nodes: 1,
-                    failed_nodes: 0,
-                }),
                 ..Default::default()
             }),
             object_id: "fw-json".to_string(),
-            jobs: vec![rms::NodeFirmwareJobInfo {
+            node_jobs: vec![rms::NodeFirmwareJobInfo {
                 node_id: switch_id_string.clone(),
                 job_id: "child-job".to_string(),
             }],
@@ -1443,13 +1440,16 @@ async fn test_firmware_upgrade_start_submits_json_and_deletes_access_token(
         "expected FirmwareUpgrade(WaitForComplete), got {:?}",
         std::mem::discriminant(&outcome),
     );
-    let requests = env.rms_sim.submitted_apply_firmware_object_requests().await;
+    let requests = env
+        .rms_sim
+        .submitted_apply_firmware_object_from_json_requests()
+        .await;
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].config_json, r#"{"Id":"fw-json"}"#);
     assert_eq!(requests[0].access_token, "token");
     assert_eq!(requests[0].firmware_type, "prod");
     assert!(requests[0].force_update);
-    assert_eq!(requests[0].nodes.as_ref().unwrap().nodes.len(), 1);
+    assert_eq!(requests[0].nodes.as_ref().unwrap().devices.len(), 1);
 
     let token_after = env
         .test_credential_manager
@@ -1483,7 +1483,7 @@ async fn test_firmware_upgrade_wait_for_complete_waits_while_jobs_running(
         .set_firmware_job_status(librms::protos::rack_manager::GetFirmwareJobStatusResponse {
             status: librms::protos::rack_manager::ReturnCode::Success as i32,
             job_id: "child-job-1".to_string(),
-            job_state: rms::FirmwareJobState::Running as i32,
+            job_state: 1,
             state_description: "running".to_string(),
             node_id: host.host_snapshot.id.to_string(),
             ..Default::default()
@@ -1571,7 +1571,7 @@ async fn test_firmware_upgrade_wait_for_complete_transitions_to_error_on_job_fai
         .set_firmware_job_status(librms::protos::rack_manager::GetFirmwareJobStatusResponse {
             status: librms::protos::rack_manager::ReturnCode::Success as i32,
             job_id: "child-job-1".to_string(),
-            job_state: rms::FirmwareJobState::Failed as i32,
+            job_state: 3,
             state_description: "failed".to_string(),
             node_id: host.host_snapshot.id.to_string(),
             error_message: "upgrade failed".to_string(),
@@ -1674,7 +1674,7 @@ async fn test_firmware_upgrade_wait_for_complete_waits_for_all_nodes_to_be_termi
         .set_firmware_job_status(librms::protos::rack_manager::GetFirmwareJobStatusResponse {
             status: librms::protos::rack_manager::ReturnCode::Success as i32,
             job_id: "child-job-1".to_string(),
-            job_state: rms::FirmwareJobState::Failed as i32,
+            job_state: 3,
             state_description: "failed".to_string(),
             node_id: host_a.host_snapshot.id.to_string(),
             error_message: "upgrade failed".to_string(),
@@ -1685,7 +1685,7 @@ async fn test_firmware_upgrade_wait_for_complete_waits_for_all_nodes_to_be_termi
         .set_firmware_job_status(librms::protos::rack_manager::GetFirmwareJobStatusResponse {
             status: librms::protos::rack_manager::ReturnCode::Success as i32,
             job_id: "child-job-2".to_string(),
-            job_state: rms::FirmwareJobState::Running as i32,
+            job_state: 1,
             state_description: "running".to_string(),
             node_id: host_b.host_snapshot.id.to_string(),
             ..Default::default()
@@ -1783,7 +1783,7 @@ async fn test_firmware_upgrade_wait_for_complete_waits_for_all_nodes_to_be_termi
         .set_firmware_job_status(librms::protos::rack_manager::GetFirmwareJobStatusResponse {
             status: librms::protos::rack_manager::ReturnCode::Success as i32,
             job_id: "child-job-2".to_string(),
-            job_state: rms::FirmwareJobState::Completed as i32,
+            job_state: 2,
             state_description: "completed".to_string(),
             node_id: host_b.host_snapshot.id.to_string(),
             ..Default::default()
@@ -1999,7 +1999,7 @@ async fn test_firmware_upgrade_wait_for_complete_retries_on_transient_poll_error
 
 /// test_nvos_update_start_transitions_to_wait_for_complete verifies that
 /// Maintenance::NVOSUpdate(Start) transitions to WaitForComplete when a
-/// NVOS SOT JSON is available for RMS ApplySwitchSystemImage.
+/// NVOS SOT JSON is available for RMS ApplySwitchSystemImageFromJSON.
 #[crate::sqlx_test]
 async fn test_nvos_update_start_transitions_to_wait_for_complete(
     pool: sqlx::PgPool,
@@ -2086,11 +2086,11 @@ async fn test_nvos_update_start_transitions_to_wait_for_complete(
     );
     let requests = env
         .rms_sim
-        .submitted_apply_switch_system_image_requests()
+        .submitted_apply_switch_system_image_from_json_requests()
         .await;
     assert!(
         !requests.is_empty(),
-        "NVOSUpdate(Start) should submit ApplySwitchSystemImage"
+        "NVOSUpdate(Start) should submit ApplySwitchSystemImageFromJSON"
     );
     assert_eq!(requests[0].config_json, r#"{"Id":"fw-nvos-default"}"#);
     assert_eq!(requests[0].access_token, "token");
@@ -2186,13 +2186,13 @@ async fn test_configure_nmx_cluster_start_advances_to_disable_scale_up_fabric_st
 
     assert!(
         env.rms_sim
-            .submitted_batch_set_scale_up_fabric_state_requests()
+            .submitted_set_scale_up_fabric_state_requests()
             .await
             .is_empty()
     );
     assert!(
         env.rms_sim
-            .submitted_batch_get_node_device_info_requests()
+            .submitted_get_device_info_by_device_list_requests()
             .await
             .is_empty()
     );
@@ -2226,19 +2226,14 @@ async fn test_configure_nmx_cluster_disable_scale_up_fabric_state_runs_on_all_sw
 
     let switch_ids = attach_switches_with_nvos_credentials(&env, &rack_id, 2).await?;
     env.rms_sim
-        .queue_batch_set_scale_up_fabric_state_response(Ok(
-            rms::BatchSetScaleUpFabricStateResponse {
-                response: Some(rms::NodeBatchResponse {
-                    status: rms::ReturnCode::Success as i32,
-                    stats: Some(rms::NodeOperationStats {
-                        total_nodes: switch_ids.len() as u32,
-                        successful_nodes: switch_ids.len() as u32,
-                        failed_nodes: 0,
-                    }),
-                    ..Default::default()
-                }),
-            },
-        ))
+        .queue_set_scale_up_fabric_state_response(Ok(rms::SetScaleUpFabricStateResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Success as i32,
+                successful_nodes: switch_ids.len() as i32,
+                failed_nodes: 0,
+                ..Default::default()
+            }),
+        }))
         .await;
 
     let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
@@ -2286,27 +2281,18 @@ async fn test_configure_nmx_cluster_disable_scale_up_fabric_state_runs_on_all_sw
 
     let requests = env
         .rms_sim
-        .submitted_batch_set_scale_up_fabric_state_requests()
+        .submitted_set_scale_up_fabric_state_requests()
         .await;
     assert_eq!(requests.len(), 1);
     let request = &requests[0];
-    assert!(!request.enabled);
+    assert_eq!(request.enabled, Some(false));
     let devices = request
         .nodes
         .as_ref()
         .expect("disable request should include nodes")
-        .nodes
+        .devices
         .as_slice();
-
     assert_eq!(devices.len(), switch_ids.len());
-    for device in devices {
-        let host_endpoint = device
-            .host_endpoint
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("disable request should include host endpoints"))?;
-
-        assert!(host_endpoint.dangerously_accept_invalid_certs);
-    }
     let node_ids = devices
         .iter()
         .map(|device| device.node_id.clone())
@@ -2316,7 +2302,7 @@ async fn test_configure_nmx_cluster_disable_scale_up_fabric_state_runs_on_all_sw
     }
     assert!(
         env.rms_sim
-            .submitted_batch_get_node_device_info_requests()
+            .submitted_get_device_info_by_device_list_requests()
             .await
             .is_empty()
     );
@@ -2361,9 +2347,9 @@ async fn test_configure_nmx_cluster_configure_selects_persists_and_configures_pr
     let topology_type = RackHardwareTopology::Gb200Nvl72r1C2g4Topology.to_string();
 
     env.rms_sim
-        .queue_batch_get_node_device_info_response(Ok(rms::BatchGetNodeDeviceInfoResponse {
+        .queue_get_device_info_by_device_list_response(Ok(rms::GetDeviceInfoByDeviceListResponse {
             status: rms::ReturnCode::Success as i32,
-            node_device_details: vec![
+            node_device_info: vec![
                 rms::NodeDeviceInfo {
                     node_id: secondary_switch_id.to_string(),
                     tray_index: Some(2),
@@ -2436,21 +2422,21 @@ async fn test_configure_nmx_cluster_configure_selects_persists_and_configures_pr
 
     assert!(
         env.rms_sim
-            .submitted_batch_set_scale_up_fabric_state_requests()
+            .submitted_set_scale_up_fabric_state_requests()
             .await
             .is_empty()
     );
 
     let device_info_requests = env
         .rms_sim
-        .submitted_batch_get_node_device_info_requests()
+        .submitted_get_device_info_by_device_list_requests()
         .await;
     assert_eq!(device_info_requests.len(), 1);
     let device_info_nodes = device_info_requests[0]
         .nodes
         .as_ref()
         .expect("device-info request should include nodes")
-        .nodes
+        .devices
         .as_slice();
     assert_eq!(device_info_nodes.len(), switch_ids.len());
 
@@ -2461,18 +2447,13 @@ async fn test_configure_nmx_cluster_configure_selects_persists_and_configures_pr
     assert_eq!(configure_requests.len(), 1);
     let configure_request = &configure_requests[0];
     assert_eq!(configure_request.topology_type, topology_type);
-    let configure_node = configure_request
-        .node
-        .as_ref()
-        .ok_or_else(|| eyre::eyre!("configure request should include a primary switch"))?;
-
-    assert_eq!(configure_node.node_id, primary_switch_id.to_string());
-    assert!(
-        configure_node
-            .host_endpoint
+    assert_eq!(
+        configure_request
+            .device
             .as_ref()
-            .ok_or_else(|| eyre::eyre!("configure request should include a host endpoint"))?
-            .dangerously_accept_invalid_certs
+            .expect("configure request should include a primary switch")
+            .node_id,
+        primary_switch_id.to_string()
     );
 
     let mut txn = pool.acquire().await?;
@@ -2519,24 +2500,19 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
     let topology_type = RackHardwareTopology::Gb200Nvl72r1C2g4Topology.to_string();
 
     env.rms_sim
-        .queue_batch_set_scale_up_fabric_state_response(Ok(
-            rms::BatchSetScaleUpFabricStateResponse {
-                response: Some(rms::NodeBatchResponse {
-                    status: rms::ReturnCode::Success as i32,
-                    stats: Some(rms::NodeOperationStats {
-                        total_nodes: switch_ids.len() as u32,
-                        successful_nodes: switch_ids.len() as u32,
-                        failed_nodes: 0,
-                    }),
-                    ..Default::default()
-                }),
-            },
-        ))
+        .queue_set_scale_up_fabric_state_response(Ok(rms::SetScaleUpFabricStateResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Success as i32,
+                successful_nodes: switch_ids.len() as i32,
+                failed_nodes: 0,
+                ..Default::default()
+            }),
+        }))
         .await;
     env.rms_sim
-        .queue_batch_get_node_device_info_response(Ok(rms::BatchGetNodeDeviceInfoResponse {
+        .queue_get_device_info_by_device_list_response(Ok(rms::GetDeviceInfoByDeviceListResponse {
             status: rms::ReturnCode::Success as i32,
-            node_device_details: vec![
+            node_device_info: vec![
                 rms::NodeDeviceInfo {
                     node_id: secondary_switch_id.to_string(),
                     tray_index: Some(2),
@@ -2610,13 +2586,13 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
 
     assert!(
         env.rms_sim
-            .submitted_batch_set_scale_up_fabric_state_requests()
+            .submitted_set_scale_up_fabric_state_requests()
             .await
             .is_empty()
     );
     assert!(
         env.rms_sim
-            .submitted_batch_get_node_device_info_requests()
+            .submitted_get_device_info_by_device_list_requests()
             .await
             .is_empty()
     );
@@ -2655,27 +2631,18 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
 
     let disable_requests = env
         .rms_sim
-        .submitted_batch_set_scale_up_fabric_state_requests()
+        .submitted_set_scale_up_fabric_state_requests()
         .await;
     assert_eq!(disable_requests.len(), 1);
     let disable_request = &disable_requests[0];
-    assert!(!disable_request.enabled);
+    assert_eq!(disable_request.enabled, Some(false));
     let disable_devices = disable_request
         .nodes
         .as_ref()
         .expect("disable request should include nodes")
-        .nodes
+        .devices
         .as_slice();
-
     assert_eq!(disable_devices.len(), switch_ids.len());
-    for device in disable_devices {
-        let host_endpoint = device
-            .host_endpoint
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("disable request should include host endpoints"))?;
-
-        assert!(host_endpoint.dangerously_accept_invalid_certs);
-    }
     let disabled_node_ids = disable_devices
         .iter()
         .map(|device| device.node_id.clone())
@@ -2685,7 +2652,7 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
     }
     assert!(
         env.rms_sim
-            .submitted_batch_get_node_device_info_requests()
+            .submitted_get_device_info_by_device_list_requests()
             .await
             .is_empty()
     );
@@ -2723,14 +2690,14 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
 
     let device_info_requests = env
         .rms_sim
-        .submitted_batch_get_node_device_info_requests()
+        .submitted_get_device_info_by_device_list_requests()
         .await;
     assert_eq!(device_info_requests.len(), 1);
     let device_info_devices = device_info_requests[0]
         .nodes
         .as_ref()
         .expect("device-info request should include nodes")
-        .nodes
+        .devices
         .as_slice();
     assert_eq!(device_info_devices.len(), switch_ids.len());
 
@@ -2741,18 +2708,13 @@ async fn test_configure_nmx_cluster_runs_start_disable_configure_to_wait_for_fab
     assert_eq!(configure_requests.len(), 1);
     let configure_request = &configure_requests[0];
     assert_eq!(configure_request.topology_type, topology_type);
-    let configure_node = configure_request
-        .node
-        .as_ref()
-        .ok_or_else(|| eyre::eyre!("configure request should include a primary switch"))?;
-
-    assert_eq!(configure_node.node_id, primary_switch_id.to_string());
-    assert!(
-        configure_node
-            .host_endpoint
+    assert_eq!(
+        configure_request
+            .device
             .as_ref()
-            .ok_or_else(|| eyre::eyre!("configure request should include a host endpoint"))?
-            .dangerously_accept_invalid_certs
+            .expect("configure request should include a primary switch")
+            .node_id,
+        primary_switch_id.to_string()
     );
 
     let mut txn = pool.acquire().await?;
@@ -2788,20 +2750,15 @@ async fn test_configure_nmx_cluster_disable_scale_up_fabric_state_failure_stops_
 
     attach_switches_with_nvos_credentials(&env, &rack_id, 2).await?;
     env.rms_sim
-        .queue_batch_set_scale_up_fabric_state_response(Ok(
-            rms::BatchSetScaleUpFabricStateResponse {
-                response: Some(rms::NodeBatchResponse {
-                    status: rms::ReturnCode::Failure as i32,
-                    message: "disable rejected".to_string(),
-                    stats: Some(rms::NodeOperationStats {
-                        total_nodes: 2,
-                        successful_nodes: 1,
-                        failed_nodes: 1,
-                    }),
-                    ..Default::default()
-                }),
-            },
-        ))
+        .queue_set_scale_up_fabric_state_response(Ok(rms::SetScaleUpFabricStateResponse {
+            response: Some(rms::NodeBatchResponse {
+                status: rms::ReturnCode::Failure as i32,
+                successful_nodes: 1,
+                failed_nodes: 1,
+                message: "disable rejected".to_string(),
+                ..Default::default()
+            }),
+        }))
         .await;
 
     let mut rack = get_db_rack(env.db_reader().as_mut(), &rack_id).await;
@@ -2828,7 +2785,7 @@ async fn test_configure_nmx_cluster_disable_scale_up_fabric_state_failure_stops_
     match outcome {
         StateHandlerOutcome::Transition { next_state, .. } => match next_state {
             RackState::Error { cause } => {
-                assert!(cause.contains("RMS BatchSetScaleUpFabricState failed"));
+                assert!(cause.contains("RMS SetScaleUpFabricState failed"));
                 assert!(cause.contains("disable rejected"));
             }
             other => panic!("Expected Error state, got {:?}", other),
@@ -2841,14 +2798,14 @@ async fn test_configure_nmx_cluster_disable_scale_up_fabric_state_failure_stops_
 
     assert_eq!(
         env.rms_sim
-            .submitted_batch_set_scale_up_fabric_state_requests()
+            .submitted_set_scale_up_fabric_state_requests()
             .await
             .len(),
         1
     );
     assert!(
         env.rms_sim
-            .submitted_batch_get_node_device_info_requests()
+            .submitted_get_device_info_by_device_list_requests()
             .await
             .is_empty()
     );
@@ -2889,9 +2846,9 @@ async fn test_configure_nmx_cluster_configure_selection_failure_stops_before_con
 
     let switch_ids = attach_switches_with_nvos_credentials(&env, &rack_id, 2).await?;
     env.rms_sim
-        .queue_batch_get_node_device_info_response(Ok(rms::BatchGetNodeDeviceInfoResponse {
+        .queue_get_device_info_by_device_list_response(Ok(rms::GetDeviceInfoByDeviceListResponse {
             status: rms::ReturnCode::Success as i32,
-            node_device_details: vec![
+            node_device_info: vec![
                 rms::NodeDeviceInfo {
                     node_id: switch_ids[0].to_string(),
                     tray_index: Some(1),
@@ -2945,13 +2902,13 @@ async fn test_configure_nmx_cluster_configure_selection_failure_stops_before_con
 
     assert!(
         env.rms_sim
-            .submitted_batch_set_scale_up_fabric_state_requests()
+            .submitted_set_scale_up_fabric_state_requests()
             .await
             .is_empty()
     );
     assert_eq!(
         env.rms_sim
-            .submitted_batch_get_node_device_info_requests()
+            .submitted_get_device_info_by_device_list_requests()
             .await
             .len(),
         1
@@ -3004,9 +2961,9 @@ async fn test_configure_nmx_cluster_configure_failure_advances_to_wait_for_fabri
     let topology_type = RackHardwareTopology::Gb200Nvl72r1C2g4Topology.to_string();
 
     env.rms_sim
-        .queue_batch_get_node_device_info_response(Ok(rms::BatchGetNodeDeviceInfoResponse {
+        .queue_get_device_info_by_device_list_response(Ok(rms::GetDeviceInfoByDeviceListResponse {
             status: rms::ReturnCode::Success as i32,
-            node_device_details: vec![
+            node_device_info: vec![
                 rms::NodeDeviceInfo {
                     node_id: primary_switch_id.to_string(),
                     tray_index: Some(1),
@@ -3077,13 +3034,13 @@ async fn test_configure_nmx_cluster_configure_failure_advances_to_wait_for_fabri
 
     assert!(
         env.rms_sim
-            .submitted_batch_set_scale_up_fabric_state_requests()
+            .submitted_set_scale_up_fabric_state_requests()
             .await
             .is_empty()
     );
     assert_eq!(
         env.rms_sim
-            .submitted_batch_get_node_device_info_requests()
+            .submitted_get_device_info_by_device_list_requests()
             .await
             .len(),
         1
@@ -3094,18 +3051,13 @@ async fn test_configure_nmx_cluster_configure_failure_advances_to_wait_for_fabri
         .await;
     assert_eq!(configure_requests.len(), 1);
     assert_eq!(configure_requests[0].topology_type, topology_type);
-    let configure_node = configure_requests[0]
-        .node
-        .as_ref()
-        .ok_or_else(|| eyre::eyre!("configure request should include a primary switch"))?;
-
-    assert_eq!(configure_node.node_id, primary_switch_id.to_string());
-    assert!(
-        configure_node
-            .host_endpoint
+    assert_eq!(
+        configure_requests[0]
+            .device
             .as_ref()
-            .ok_or_else(|| eyre::eyre!("configure request should include a host endpoint"))?
-            .dangerously_accept_invalid_certs
+            .expect("configure request should include a primary switch")
+            .node_id,
+        primary_switch_id.to_string()
     );
 
     let mut txn = pool.acquire().await?;
