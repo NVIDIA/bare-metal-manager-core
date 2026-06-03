@@ -160,6 +160,8 @@ navigation:
               path: manuals/vpc/vpc_peering_management.md
             - page: VPC Network Virtualization
               path: manuals/vpc/vpc_network_virtualization.md
+            - page: Flat VPCs and Zero-DPU Hosts
+              path: manuals/vpc/flat_vpcs_zero_dpu.md
             - page: VNI Resource Pools
               path: manuals/vpc/vni_resource_pools.md
         - section: Metrics
