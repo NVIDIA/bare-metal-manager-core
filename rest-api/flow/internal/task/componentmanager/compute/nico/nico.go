@@ -1,0 +1,528 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+// Package nico is the compute manager implementation that drives compute
+// trays through NICo Core's Component Manager dispatch (the same RPCs
+// already used by nvswitch/nico and powershelf/nico):
+//
+//   - PowerControl     -> ComponentPowerControl with MachineIds target
+//   - GetPowerStatus   -> GetComponentInventory  with MachineIds target
+//   - FirmwareControl  -> UpdateComponentFirmware with ComputeTrays target
+//   - GetFirmwareStatus -> GetComponentFirmwareStatus with MachineIds target
+//
+// It replaces the legacy machine-centric path implemented in
+// compute/nicolegacy. The legacy package routed power and firmware
+// through machine-level RPCs (AdminPowerControl, UpdatePowerOption,
+// SetMachineAutoUpdate, SetFirmwareUpdateTimeWindow). Those RPCs do not
+// flow through Core's Component Manager / state controller pipeline,
+// which is required to share orchestration logic across compute, nvswitch,
+// and powershelf and to enable per-sub-target firmware updates.
+//
+// InjectExpectation, BringUpControl, and GetBringUpStatus do not have
+// Component Manager equivalents in Core; they continue to call the
+// existing machine-level RPCs that the legacy path used.
+//
+// During the migration the embedded service config keeps compute pointed
+// at compute/nicolegacy by default. Operators flip the
+// COMPUTE_TRAY_IMPLEMENTATION environment variable to "nico" once the
+// matching Core configuration (compute_tray_use_state_controller / SoT
+// firmware objects) is in place.
+package nico
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/rs/zerolog/log"
+
+	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
+	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
+	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
+	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/capability"
+	cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
+	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
+	nicoprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nico"
+	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
+	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
+	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
+	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/firmwarecomponents"
+)
+
+// ImplementationName is the name used to identify this implementation in
+// the component manager catalog and in YAML / env configuration.
+const ImplementationName = "nico"
+
+// Manager manages compute trays via NICo Core's Component Manager RPCs.
+type Manager struct {
+	nicoClient nicoapi.Client
+	// assignment guards mutating operations from running while any target
+	// machine still has an instance attached (ManagedHostState::Assigned).
+	// Identical safety contract to compute/nicolegacy: the gate runs in
+	// Flow because Core's Component Manager dispatch does not (yet) check
+	// host assignment state on its own.
+	assignment *nicoprovider.AssignmentChecker
+}
+
+// New creates a new compute Manager that drives Core's Component Manager
+// dispatch.
+func New(nicoClient nicoapi.Client) *Manager {
+	return &Manager{
+		nicoClient: nicoClient,
+		assignment: nicoprovider.NewAssignmentChecker(nicoClient, 0, 0),
+	}
+}
+
+// Factory creates a new Manager from the provided providers.
+func Factory(providerRegistry *providerapi.ProviderRegistry) (componentmanager.ComponentManager, error) {
+	provider, err := providerapi.GetTyped[*nicoprovider.Provider](
+		providerRegistry,
+		nicoprovider.ProviderName,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("compute/nico requires nico provider: %w", err)
+	}
+	return New(provider.Client()), nil
+}
+
+// Descriptor returns the compute/nico manager descriptor.
+func Descriptor() cmcatalog.Descriptor {
+	return cmcatalog.Descriptor{
+		DescriptorIdentity: cmcatalog.DescriptorIdentity{
+			Type:           devicetypes.ComponentTypeCompute,
+			Implementation: ImplementationName,
+		},
+		RequiredProviders: []string{nicoprovider.ProviderName},
+		Capabilities: capability.CapabilitySet{
+			capability.CapabilityBringUpControl,
+			capability.CapabilityBringUpStatus,
+			capability.CapabilityFirmwareControl,
+			capability.CapabilityFirmwareStatus,
+			capability.CapabilityInjectExpectation,
+			capability.CapabilityPowerControl,
+			capability.CapabilityPowerStatus,
+		},
+	}
+}
+
+// FactorySpec returns the compute/nico runtime factory spec.
+func FactorySpec() componentmanager.FactorySpec {
+	return componentmanager.FactorySpec{
+		Descriptor: Descriptor(),
+		Factory:    Factory,
+	}
+}
+
+// Descriptor returns the compute/nico manager descriptor.
+func (m *Manager) Descriptor() cmcatalog.Descriptor {
+	return Descriptor()
+}
+
+func machineIDsProto(ids []string) *pb.MachineIdList {
+	pbIDs := make([]*pb.MachineId, len(ids))
+	for i, id := range ids {
+		pbIDs[i] = &pb.MachineId{Id: id}
+	}
+	return &pb.MachineIdList{MachineIds: pbIDs}
+}
+
+// ensureMachinesOperable is the per-Manager policy gate for disruptive
+// operations on the given machines. The default policy refuses to proceed
+// while any target host is still in Core's Assigned/* lifecycle state.
+//
+// When overrideAssignmentCheck is true the gate is short-circuited and
+// the operation runs unconditionally; the bypass is logged so it remains
+// auditable from the worker log alone.
+func (m *Manager) ensureMachinesOperable(
+	ctx context.Context,
+	machineIDs []string,
+	overrideAssignmentCheck bool,
+) error {
+	if overrideAssignmentCheck {
+		log.Warn().
+			Strs("machine_ids", machineIDs).
+			Msg("Assignment safety check bypassed by override_assignment_check on compute operation")
+		return nil
+	}
+	return m.assignment.WaitForMachinesUnassigned(ctx, machineIDs)
+}
+
+// InjectExpectation registers an expected machine with NICo via
+// AddExpectedMachine. Core does not (yet) expose a Component Manager
+// flavor of this RPC, so the call mirrors compute/nicolegacy.
+func (m *Manager) InjectExpectation(
+	ctx context.Context,
+	target common.Target,
+	info operations.InjectExpectationTaskInfo,
+) error {
+	var req nicoapi.AddExpectedMachineRequest
+	if err := json.Unmarshal(info.Info, &req); err != nil {
+		return fmt.Errorf("failed to unmarshal AddExpectedMachineRequest: %w", err)
+	}
+
+	if m.nicoClient == nil {
+		return fmt.Errorf("nico client is not configured")
+	}
+
+	if err := m.nicoClient.AddExpectedMachine(ctx, req); err != nil {
+		return fmt.Errorf("failed to add expected machine: %w", err)
+	}
+
+	log.Info().
+		Str("bmc_mac", req.BMCMACAddress).
+		Str("chassis_serial", req.ChassisSerialNumber).
+		Msg("Successfully registered expected machine with NICo")
+
+	return nil
+}
+
+// PowerControl performs power operations on compute trays via NICo's
+// ComponentPowerControl RPC. Unlike compute/nicolegacy, this path does
+// not insert per-machine health-report overrides or stagger calls: Core
+// owns the per-component bookkeeping behind ComponentPowerControl.
+func (m *Manager) PowerControl(
+	ctx context.Context,
+	target common.Target,
+	info operations.PowerControlTaskInfo,
+) error {
+	log.Debug().Msgf(
+		"compute power control %s op %s via NICo Component Manager",
+		target.String(),
+		info.Operation.String(),
+	)
+
+	if err := target.Validate(); err != nil {
+		return fmt.Errorf("target is invalid: %w", err)
+	}
+
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+		return fmt.Errorf("refused: %w", err)
+	}
+
+	var action pb.SystemPowerControl
+	switch info.Operation {
+	case operations.PowerOperationPowerOn, operations.PowerOperationForcePowerOn:
+		action = pb.SystemPowerControl_SYSTEM_POWER_CONTROL_ON
+	case operations.PowerOperationPowerOff:
+		action = pb.SystemPowerControl_SYSTEM_POWER_CONTROL_GRACEFUL_SHUTDOWN
+	case operations.PowerOperationForcePowerOff:
+		action = pb.SystemPowerControl_SYSTEM_POWER_CONTROL_FORCE_OFF
+	case operations.PowerOperationRestart, operations.PowerOperationWarmReset:
+		action = pb.SystemPowerControl_SYSTEM_POWER_CONTROL_GRACEFUL_RESTART
+	case operations.PowerOperationForceRestart:
+		action = pb.SystemPowerControl_SYSTEM_POWER_CONTROL_FORCE_RESTART
+	case operations.PowerOperationColdReset:
+		action = pb.SystemPowerControl_SYSTEM_POWER_CONTROL_AC_POWERCYCLE
+	default:
+		return fmt.Errorf("unsupported power operation for compute: %v", info.Operation)
+	}
+
+	req := &pb.ComponentPowerControlRequest{
+		Target: &pb.ComponentPowerControlRequest_MachineIds{
+			MachineIds: machineIDsProto(target.ComponentIDs),
+		},
+		Action: action,
+	}
+
+	resp, err := m.nicoClient.ComponentPowerControl(ctx, req)
+	if err != nil {
+		return fmt.Errorf("ComponentPowerControl failed: %w", err)
+	}
+
+	for _, r := range resp.GetResults() {
+		if r.GetStatus() != pb.ComponentManagerStatusCode_COMPONENT_MANAGER_STATUS_CODE_SUCCESS {
+			return fmt.Errorf("power control failed for %s: %s", r.GetComponentId(), r.GetError())
+		}
+	}
+
+	log.Info().Msgf("compute power control %s on %s completed via NICo Component Manager",
+		info.Operation.String(), target.String())
+	return nil
+}
+
+// GetPowerStatus returns the power state for each compute tray by
+// inspecting Core's per-component exploration reports.
+func (m *Manager) GetPowerStatus(
+	ctx context.Context,
+	target common.Target,
+) (map[string]operations.PowerStatus, error) {
+	if err := target.Validate(); err != nil {
+		return nil, fmt.Errorf("target is invalid: %w", err)
+	}
+
+	req := &pb.GetComponentInventoryRequest{
+		Target: &pb.GetComponentInventoryRequest_MachineIds{
+			MachineIds: machineIDsProto(target.ComponentIDs),
+		},
+	}
+
+	resp, err := m.nicoClient.GetComponentInventory(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("GetComponentInventory failed: %w", err)
+	}
+
+	result := make(map[string]operations.PowerStatus, len(target.ComponentIDs))
+	for _, id := range target.ComponentIDs {
+		result[id] = operations.PowerStatusUnknown
+	}
+
+	for _, entry := range resp.GetEntries() {
+		compID := entry.GetResult().GetComponentId()
+		if ps := nicoprovider.ExtractPowerState(entry.GetReport()); ps != operations.PowerStatusUnknown {
+			result[compID] = ps
+		}
+	}
+
+	return result, nil
+}
+
+// FirmwareControl schedules a firmware update for compute trays via
+// NICo's UpdateComponentFirmware RPC. Sub-targets are translated into
+// the Core ComputeTrayComponent enum so the update can be scoped to
+// e.g. just BMC or BIOS.
+//
+// info.TargetVersion is forwarded verbatim. Unlike compute/nicolegacy
+// this is no longer a JSON object of component versions but the SoT
+// firmware-object identifier interpreted by Core; Flow does not
+// pre-validate it. info.StartTime / info.EndTime are not used by this
+// path (Core does not expose a maintenance-window scheduling parameter
+// on UpdateComponentFirmware) and are logged when set.
+func (m *Manager) FirmwareControl(
+	ctx context.Context,
+	target common.Target,
+	info operations.FirmwareControlTaskInfo,
+) error {
+	log.Debug().
+		Str("components", target.String()).
+		Str("target_version", info.TargetVersion).
+		Strs("sub_targets", info.SubTargets).
+		Msg("Starting firmware update for compute via NICo Component Manager")
+
+	if err := target.Validate(); err != nil {
+		return fmt.Errorf("target is invalid: %w", err)
+	}
+
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+		return fmt.Errorf("refused: %w", err)
+	}
+
+	if info.StartTime != 0 || info.EndTime != 0 {
+		log.Warn().
+			Int64("start_time", info.StartTime).
+			Int64("end_time", info.EndTime).
+			Msg("compute/nico ignores firmware update time window; Core schedules immediately via UpdateComponentFirmware")
+	}
+
+	subComponents, err := firmwarecomponents.ParseNICoComputeTray(info.SubTargets)
+	if err != nil {
+		return err
+	}
+
+	req := &pb.UpdateComponentFirmwareRequest{
+		Target: &pb.UpdateComponentFirmwareRequest_ComputeTrays{
+			ComputeTrays: &pb.UpdateComputeTrayFirmwareTarget{
+				MachineIds: machineIDsProto(target.ComponentIDs),
+				Components: subComponents,
+			},
+		},
+		TargetVersion: info.TargetVersion,
+	}
+
+	resp, err := m.nicoClient.UpdateComponentFirmware(ctx, req)
+	if err != nil {
+		return fmt.Errorf("UpdateComponentFirmware failed: %w", err)
+	}
+
+	for _, r := range resp.GetResults() {
+		if r.GetStatus() != pb.ComponentManagerStatusCode_COMPONENT_MANAGER_STATUS_CODE_SUCCESS {
+			return fmt.Errorf("firmware update failed for %s: %s", r.GetComponentId(), r.GetError())
+		}
+	}
+
+	log.Info().
+		Str("components", target.String()).
+		Str("target_version", info.TargetVersion).
+		Msg("Firmware update started for compute via NICo Component Manager")
+	return nil
+}
+
+// GetFirmwareStatus returns the current firmware update status for each
+// compute tray. Core may report multiple sub-component updates (BMC,
+// BIOS, CEC, NIC, CPLD_*, GPU, CX7, ...) for the same tray, so the
+// per-tray result aggregates them: any failure -> Failed; all completed
+// -> Completed; otherwise still in progress.
+func (m *Manager) GetFirmwareStatus(
+	ctx context.Context,
+	target common.Target,
+) (map[string]operations.FirmwareUpdateStatus, error) {
+	log.Debug().
+		Str("components", target.String()).
+		Msg("GetFirmwareStatus for compute via NICo Component Manager")
+
+	if err := target.Validate(); err != nil {
+		return nil, fmt.Errorf("target is invalid: %w", err)
+	}
+
+	req := &pb.GetComponentFirmwareStatusRequest{
+		Target: &pb.GetComponentFirmwareStatusRequest_MachineIds{
+			MachineIds: machineIDsProto(target.ComponentIDs),
+		},
+	}
+
+	resp, err := m.nicoClient.GetComponentFirmwareStatus(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("GetComponentFirmwareStatus failed: %w", err)
+	}
+
+	grouped := make(map[string][]*pb.FirmwareUpdateStatus)
+	for _, s := range resp.GetStatuses() {
+		compID := s.GetResult().GetComponentId()
+		grouped[compID] = append(grouped[compID], s)
+	}
+
+	result := make(map[string]operations.FirmwareUpdateStatus, len(target.ComponentIDs))
+	for _, compID := range target.ComponentIDs {
+		result[compID] = aggregateNICoStatuses(compID, grouped[compID])
+	}
+
+	return result, nil
+}
+
+// aggregateNICoStatuses collapses the per-sub-component statuses Core
+// returns for a compute tray into a single FirmwareUpdateStatus. The
+// rule mirrors the nvswitch/nico aggregator: any Failed -> Failed; all
+// Completed -> Completed; any unknown sub-status -> Queued (still in
+// progress).
+//
+// TODO: validate that Core returns one status per requested sub-target
+// once the proto carries sub-component identification. Until then, a
+// missing sub-component cannot be distinguished from "no update needed"
+// and is treated as not-yet-completed.
+func aggregateNICoStatuses(compID string, statuses []*pb.FirmwareUpdateStatus) operations.FirmwareUpdateStatus {
+	if len(statuses) == 0 {
+		return operations.FirmwareUpdateStatus{
+			ComponentID: compID,
+			State:       operations.FirmwareUpdateStateUnknown,
+		}
+	}
+
+	allCompleted := true
+	var failures []string
+
+	for _, s := range statuses {
+		mapped := nicoprovider.MapFirmwareState(s.GetState())
+		switch mapped {
+		case operations.FirmwareUpdateStateFailed:
+			errMsg := s.GetResult().GetError()
+			if errMsg == "" {
+				errMsg = s.GetState().String()
+			}
+			failures = append(failures, errMsg)
+		case operations.FirmwareUpdateStateCompleted:
+			// ok
+		default:
+			allCompleted = false
+		}
+	}
+
+	if len(failures) > 0 {
+		return operations.FirmwareUpdateStatus{
+			ComponentID: compID,
+			State:       operations.FirmwareUpdateStateFailed,
+			Error:       fmt.Sprintf("firmware update failed for components: %s", strings.Join(failures, "; ")),
+		}
+	}
+
+	if allCompleted {
+		return operations.FirmwareUpdateStatus{
+			ComponentID: compID,
+			State:       operations.FirmwareUpdateStateCompleted,
+		}
+	}
+
+	return operations.FirmwareUpdateStatus{
+		ComponentID: compID,
+		State:       operations.FirmwareUpdateStateQueued,
+	}
+}
+
+// BringUpControl opens the NICo power-on gate for each compute component.
+// Core does not expose a Component Manager flavor of this operation, so
+// the call mirrors compute/nicolegacy.
+func (m *Manager) BringUpControl(
+	ctx context.Context,
+	target common.Target,
+	info operations.BringUpTaskInfo,
+) error {
+	log.Debug().
+		Str("components", target.String()).
+		Msg("BringUpControl for compute (legacy NICo RPC)")
+
+	if m.nicoClient == nil {
+		return fmt.Errorf("nico client is not configured")
+	}
+
+	if err := target.Validate(); err != nil {
+		return fmt.Errorf("target is invalid: %w", err)
+	}
+
+	if err := m.ensureMachinesOperable(ctx, target.ComponentIDs, info.OverrideAssignmentCheck); err != nil {
+		return fmt.Errorf("refused: %w", err)
+	}
+
+	for _, componentID := range target.ComponentIDs {
+		if err := m.nicoClient.AllowIngestionAndPowerOn(ctx, componentID, ""); err != nil {
+			return fmt.Errorf("BringUpControl failed for %s: %w", componentID, err)
+		}
+		log.Info().
+			Str("component_id", componentID).
+			Msg("BringUpControl succeeded")
+	}
+
+	return nil
+}
+
+// GetBringUpStatus returns the bring-up state for each compute component.
+// Core does not expose a Component Manager flavor of this operation, so
+// the call mirrors compute/nicolegacy.
+func (m *Manager) GetBringUpStatus(
+	ctx context.Context,
+	target common.Target,
+) (map[string]operations.MachineBringUpState, error) {
+	log.Debug().
+		Str("components", target.String()).
+		Msg("GetBringUpStatus for compute (legacy NICo RPC)")
+
+	if m.nicoClient == nil {
+		return nil, fmt.Errorf("nico client is not configured")
+	}
+
+	if err := target.Validate(); err != nil {
+		return nil, fmt.Errorf("target is invalid: %w", err)
+	}
+
+	result := make(map[string]operations.MachineBringUpState, len(target.ComponentIDs))
+	for _, componentID := range target.ComponentIDs {
+		state, err := m.nicoClient.DetermineMachineIngestionState(ctx, componentID, "")
+		if err != nil {
+			return nil, fmt.Errorf("GetBringUpStatus failed for %s: %w", componentID, err)
+		}
+		result[componentID] = nicoToBringUpState(state)
+	}
+
+	return result, nil
+}
+
+func nicoToBringUpState(s nicoapi.BringUpState) operations.MachineBringUpState {
+	switch s {
+	case nicoapi.BringUpStateWaitingForIngestion:
+		return operations.MachineBringUpStateWaitingForIngestion
+	case nicoapi.BringUpStateMachineNotCreated:
+		return operations.MachineBringUpStateMachineNotCreated
+	case nicoapi.BringUpStateMachineCreated:
+		return operations.MachineBringUpStateMachineCreated
+	default:
+		return operations.MachineBringUpStateNotDiscovered
+	}
+}

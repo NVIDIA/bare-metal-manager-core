@@ -17,6 +17,7 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/capability"
 	cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
+	computenico "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/compute/nico"
 	computenicolegacy "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/compute/nicolegacy"
 	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/mock"
@@ -338,7 +339,11 @@ func TestServiceCatalog(t *testing.T) {
 	implementations := catalog.ListImplementations()
 	assert.Equal(
 		t,
-		[]string{mock.ImplementationName, computenicolegacy.ImplementationName},
+		[]string{
+			mock.ImplementationName,
+			computenico.ImplementationName,
+			computenicolegacy.ImplementationName,
+		},
 		implementations[devicetypes.ComponentTypeCompute],
 	)
 	assert.Equal(
@@ -365,6 +370,21 @@ func TestServiceCatalog(t *testing.T) {
 		requiredProviders []string
 		capabilities      capability.CapabilitySet
 	}{
+		{
+			name:              "compute nico",
+			componentType:     devicetypes.ComponentTypeCompute,
+			implementation:    computenico.ImplementationName,
+			requiredProviders: []string{nicoprovider.ProviderName},
+			capabilities: capability.CapabilitySet{
+				capability.CapabilityBringUpControl,
+				capability.CapabilityBringUpStatus,
+				capability.CapabilityFirmwareControl,
+				capability.CapabilityFirmwareStatus,
+				capability.CapabilityInjectExpectation,
+				capability.CapabilityPowerControl,
+				capability.CapabilityPowerStatus,
+			},
+		},
 		{
 			name:              "compute nicolegacy",
 			componentType:     devicetypes.ComponentTypeCompute,

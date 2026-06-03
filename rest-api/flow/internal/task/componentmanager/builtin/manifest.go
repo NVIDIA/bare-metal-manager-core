@@ -6,6 +6,7 @@ package builtin
 import (
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
 	cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
+	computenico "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/compute/nico"
 	computenicolegacy "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/compute/nicolegacy"
 	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/mock"
@@ -55,6 +56,7 @@ func serviceManagerConfigDecoders() []cmconfig.ManagerConfigDecoder {
 // factory specs.
 func serviceDescriptors() []cmcatalog.Descriptor {
 	descriptors := []cmcatalog.Descriptor{
+		computenico.Descriptor(),
 		computenicolegacy.Descriptor(),
 		nvswitchnico.Descriptor(),
 		powershelfnico.Descriptor(),
@@ -78,6 +80,7 @@ func serviceFactorySpecs(
 	}
 
 	factorySpecs := []componentmanager.FactorySpec{
+		computenico.FactorySpec(),
 		computenicolegacy.FactorySpec(computePowerDelay),
 		nvswitchnico.FactorySpec(),
 		powershelfnico.FactorySpec(),
