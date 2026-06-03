@@ -285,6 +285,7 @@ async fn force_delete(
             delete_interfaces: false,
             delete_bmc_interfaces: false,
             delete_bmc_credentials: false,
+            allow_delete_with_orphaned_dpf_crds: false,
         }))
         .await
         .unwrap()
@@ -715,6 +716,7 @@ async fn test_admin_force_delete_with_instance_type(pool: sqlx::PgPool) {
             delete_interfaces: false,
             delete_bmc_interfaces: false,
             delete_bmc_credentials: false,
+            allow_delete_with_orphaned_dpf_crds: false,
         }))
         .await
         .unwrap_err();

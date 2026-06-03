@@ -419,6 +419,21 @@ pub(crate) async fn admin_force_delete_machine(
         response.instance_id = instance_id.to_string();
     }
 
+    if let Some(machine) = &host_machine
+        && machine.dpf.used_for_ingestion
+        && api.dpf_sdk.is_none()
+        && !request.allow_delete_with_orphaned_dpf_crds
+    {
+        return Err(CarbideError::FailedPrecondition(format!(
+            "Failed force-delete host {}: DPF was used for ingestion \
+                    but DPF is not configured. Use \
+                    --allow-delete-with-orphaned-dpf-crds to proceed, \
+                    though this will require manual cleanup of DPF CRDs.",
+            machine.id
+        ))
+        .into());
+    }
+
     // So far we only inspected state - now we start the deletion process
     // TODO: In the new model we might just need to move one Machine to this state
     if let Some(host_machine) = &host_machine {

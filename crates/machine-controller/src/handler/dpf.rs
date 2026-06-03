@@ -400,6 +400,7 @@ fn handle_dpf_device_ready(
 async fn handle_dpf_reprovisioning(
     state: &ManagedHostStateSnapshot,
     dpu_snapshot: &Machine,
+    ctx: &mut StateHandlerContext<'_, MachineStateHandlerContextObjects>,
     dpf_sdk: &dyn DpfOperations,
 ) -> Result<StateHandlerOutcome<ManagedHostState>, StateHandlerError> {
     let node_name = dpu_node_cr_name(&dpf_id(&state.host_snapshot)?);
@@ -419,7 +420,12 @@ async fn handle_dpf_reprovisioning(
             DpfState::WaitingForReady { phase_detail: None },
             state,
         )?;
-        return Ok(StateHandlerOutcome::transition(next));
+
+        let outcome = StateHandlerOutcome::transition(next);
+        let mut txn = ctx.services.db_pool.begin().await?;
+        db::machine::mark_machine_ingestion_done_with_dpf(&mut txn, &state.host_snapshot.id)
+            .await?;
+        return Ok(outcome.with_txn(txn));
     }
 
     tracing::info!("DPF initiate reprovision of DPU {}", dpu_snapshot.id);
@@ -481,7 +487,9 @@ pub async fn handle_dpf_state(
             handle_dpf_waiting_for_ready(state, dpu_snapshot, phase_detail, ctx, dpf_sdk).await
         }
         DpfState::DeviceReady => handle_dpf_device_ready(state),
-        DpfState::Reprovisioning => handle_dpf_reprovisioning(state, dpu_snapshot, dpf_sdk).await,
+        DpfState::Reprovisioning => {
+            handle_dpf_reprovisioning(state, dpu_snapshot, ctx, dpf_sdk).await
+        }
         DpfState::Unknown => {
             tracing::warn!(dpu_id = %dpu_snapshot.id, "unknown DPF state in DB, transitioning to provisioning");
             let next = set_one_dpu_dpf_state(state, &dpu_snapshot.id, DpfState::Provisioning)?;
