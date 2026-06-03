@@ -252,9 +252,11 @@ pub(crate) async fn handle_spdm_attestation_failed_recovery(
     let should_resume_attestation = if !ctx.services.site_config.spdm_enabled {
         true
     } else {
-        let attestation_status =
-            db::attestation::spdm::get_attestation_status_for_machine_id(&mut txn, host_machine_id)
-                .await?;
+        let attestation_status = db::attestation::spdm::list_single_machine_attestation_status(
+            &mut txn,
+            host_machine_id,
+        )
+        .await?;
         attestation_status == SpdmAttestationStatus::InProgress
             || attestation_status == SpdmAttestationStatus::Cancelled
             || attestation_status == SpdmAttestationStatus::Passed
@@ -334,7 +336,7 @@ pub(crate) async fn handle_spdm_poll_state(
 
     // get attestation status for the entire machine
     let attestation_status =
-        db::attestation::spdm::get_attestation_status_for_machine_id(&mut txn, host_machine_id)
+        db::attestation::spdm::list_single_machine_attestation_status(&mut txn, host_machine_id)
             .await?;
 
     // passed or cancelled -> just move to the next state

@@ -16,10 +16,19 @@
  */
 
 use carbide_uuid::machine::MachineId;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
 #[derive(Parser, Debug)]
 pub struct Args {
-    #[clap(help = "Machine ID")]
-    pub machine_id: MachineId,
+    #[clap(long, help = "Machine ID", conflicts_with = "selector")]
+    pub machine_id: Option<MachineId>,
+    #[clap(long, value_enum, help = "Filter attestation machines by selector")]
+    pub selector: Option<Selector>,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+#[clap(rename_all = "kebab_case")]
+pub enum Selector {
+    InProgress,
+    Unsuccessful,
 }

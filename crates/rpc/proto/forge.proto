@@ -771,9 +771,9 @@ service Forge {
   // SPDM attestation APIs start
   rpc TriggerMachineAttestation(SpdmMachineAttestationTriggerRequest) returns (SpdmMachineAttestationTriggerResponse);
   rpc CancelMachineAttestation(common.MachineId) returns (google.protobuf.Empty);
-  rpc FindMachineIdsUnderAttestation(google.protobuf.Empty) returns (common.MachineIdList);
-  rpc ListAttestationsForMachineId(common.MachineId) returns (SpdmListAttestationsResponse);
-  rpc GetMachineAttestationStatus(common.MachineId) returns (SpdmMachineAttestationStatusResponse);
+
+  rpc ListAttestationMachines(SpdmListAttestationMachinesRequest) returns (SpdmListAttestationMachinesResponse);
+  rpc GetAttestationMachine(common.MachineId) returns (SpdmGetAttestationMachineResponse);
   // SPDM attestation APIs end
 
   // SPIFFE Machine Identity APIs
@@ -947,11 +947,7 @@ enum SpdmAttestationStatus{
   SPDM_ATT_FAILED = 3;
 }
 
-message AttestationIdsRequest {
-
-}
-
-message SpdmMachineAttestationStatusResponse {
+message SpdmMachineAttestationStatus {
   common.MachineId machine_id = 1;
   SpdmAttestationStatus attestation_status = 2;
 }
@@ -971,13 +967,29 @@ message SpdmAttestationDetails{
   optional google.protobuf.Timestamp completed_at = 9;
 }
 
-message SpdmListAttestationsResponse {
+message SpdmGetAttestationMachineResponse {
   repeated SpdmAttestationDetails attestations_details = 1;
 }
 
 message SpdmMachineAttestationTriggerRequest {
   common.MachineId machine_id = 1;
   uint32 redfish_timeout_secs = 2;
+}
+
+enum SpdmListAttestationMachinesRequestSelector {
+  SPDM_LIST_IN_PROGRESS = 0;
+  SPDM_LIST_UNSUCCESSFUL = 1;
+}
+
+message SpdmListAttestationMachinesRequest {
+  oneof variant {
+    common.MachineId machine_id = 1;
+    SpdmListAttestationMachinesRequestSelector selector = 2;
+  }
+}
+
+message SpdmListAttestationMachinesResponse {
+  repeated SpdmMachineAttestationStatus statuses = 1;
 }
 
 // Machine Identity - JWT-SVID token signing

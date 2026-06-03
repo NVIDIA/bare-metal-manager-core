@@ -18,14 +18,18 @@ pub mod tests {
 
     use carbide_uuid::machine::MachineId;
     use model::attestation::spdm::{SpdmAttestationState, SpdmObjectId};
-    use rpc::forge::SpdmMachineAttestationTriggerRequest;
     use rpc::forge::forge_server::Forge;
+    use rpc::forge::{
+        SpdmListAttestationMachinesRequest, SpdmListAttestationMachinesRequestSelector,
+        SpdmMachineAttestationStatus, SpdmMachineAttestationTriggerRequest,
+        spdm_list_attestation_machines_request,
+    };
     use sqlx::PgConnection;
     //use sqlx::PgConnection;
     use tonic::Request;
 
     use crate::tests::common::api_fixtures::{
-        RedfishOverrides, TestEnvOverrides, create_managed_host, create_test_env,
+        RedfishOverrides, TestEnv, TestEnvOverrides, create_managed_host, create_test_env,
         create_test_env_with_overrides,
     };
     // A simple test to test basic db functions.
@@ -54,26 +58,16 @@ pub mod tests {
             .await?;
 
         // device attestations should be created now
-        let machine_ids = env
-            .api
-            .find_machine_ids_under_attestation(Request::new(()))
-            .await?
-            .into_inner();
+        let statuses = list_machines_under_attestation(&env).await?;
 
-        assert_eq!(1, machine_ids.machine_ids.len());
+        assert_eq!(1, statuses.len());
 
-        let machine_id = machine_ids.machine_ids[0];
+        let machine_id = statuses[0].machine_id.expect("missing machine id");
 
         // check that attestation's status is InProgress
-        let response = env
-            .api
-            .get_machine_attestation_status(Request::new(machine_id))
-            .await?
-            .into_inner();
-
         assert_eq!(
             rpc::forge::SpdmAttestationStatus::SpdmAttInProgress,
-            response.attestation_status()
+            rpc::forge::SpdmAttestationStatus::try_from(statuses[0].attestation_status)?
         );
 
         // now, look at the state of the attestation and check that it is FetchMetadata
@@ -236,13 +230,9 @@ pub mod tests {
         assert_eq!(0, response.into_inner().devices_under_attestation);
 
         // device attestations should not be created
-        let machine_ids = env
-            .api
-            .find_machine_ids_under_attestation(Request::new(()))
-            .await?
-            .into_inner();
+        let machine_ids = list_machines_under_attestation(&env).await?;
 
-        assert_eq!(0, machine_ids.machine_ids.len());
+        assert_eq!(0, machine_ids.len());
 
         Ok(())
     }
@@ -273,13 +263,9 @@ pub mod tests {
         assert_eq!(3, response.into_inner().devices_under_attestation);
 
         // device attestations should be created
-        let machine_ids = env
-            .api
-            .find_machine_ids_under_attestation(Request::new(()))
-            .await?
-            .into_inner();
+        let machine_ids = list_machines_under_attestation(&env).await?;
 
-        assert_eq!(1, machine_ids.machine_ids.len());
+        assert_eq!(1, machine_ids.len());
 
         // redfish will return an error
         let mut txn = env.pool.begin().await.unwrap();
@@ -334,13 +320,9 @@ pub mod tests {
         assert_eq!(3, response.into_inner().devices_under_attestation);
 
         // device attestations should be created
-        let machine_ids = env
-            .api
-            .find_machine_ids_under_attestation(Request::new(()))
-            .await?
-            .into_inner();
+        let machine_ids = list_machines_under_attestation(&env).await?;
 
-        assert_eq!(1, machine_ids.machine_ids.len());
+        assert_eq!(1, machine_ids.len());
 
         let mut txn = env.pool.begin().await.unwrap();
 
@@ -414,26 +396,16 @@ pub mod tests {
             .await?;
 
         // device attestations should be created now
-        let machine_ids = env
-            .api
-            .find_machine_ids_under_attestation(Request::new(()))
-            .await?
-            .into_inner();
+        let statuses = list_machines_under_attestation(&env).await?;
 
-        assert_eq!(1, machine_ids.machine_ids.len());
+        assert_eq!(1, statuses.len());
 
-        let machine_id = machine_ids.machine_ids[0];
+        let machine_id = statuses[0].machine_id.expect("missing machine id");
 
         // check that attestation's status is InProgress
-        let response = env
-            .api
-            .get_machine_attestation_status(Request::new(machine_id))
-            .await?
-            .into_inner();
-
         assert_eq!(
             rpc::forge::SpdmAttestationStatus::SpdmAttInProgress,
-            response.attestation_status()
+            rpc::forge::SpdmAttestationStatus::try_from(statuses[0].attestation_status)?
         );
 
         // now, look at the state of the attestation and check that it is FetchMetadata
@@ -534,5 +506,18 @@ pub mod tests {
             .fetch_one(txn)
             .await?;
         Ok((query_result.0.0, query_result.1))
+    }
+
+    async fn list_machines_under_attestation(
+        env: &TestEnv,
+    ) -> Result<Vec<SpdmMachineAttestationStatus>, tonic::Status> {
+        env.api
+            .list_attestation_machines(Request::new(SpdmListAttestationMachinesRequest {
+                variant: Some(spdm_list_attestation_machines_request::Variant::Selector(
+                    SpdmListAttestationMachinesRequestSelector::SpdmListInProgress.into(),
+                )),
+            }))
+            .await
+            .map(|response| response.into_inner().statuses)
     }
 }

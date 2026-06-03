@@ -2938,25 +2938,18 @@ impl Forge for Api {
         crate::handlers::attestation::cancel_machine_attestation(self, request).await
     }
 
-    async fn list_attestations_for_machine_id(
+    async fn list_attestation_machines(
         &self,
-        request: tonic::Request<MachineId>,
-    ) -> Result<tonic::Response<rpc::SpdmListAttestationsResponse>, Status> {
-        crate::handlers::attestation::list_attestations_for_machine_id(self, request).await
+        request: tonic::Request<rpc::SpdmListAttestationMachinesRequest>,
+    ) -> Result<Response<rpc::SpdmListAttestationMachinesResponse>, Status> {
+        crate::handlers::attestation::list_attestation_machines(self, request).await
     }
 
-    async fn find_machine_ids_under_attestation(
-        &self,
-        request: tonic::Request<()>,
-    ) -> Result<Response<::rpc::common::MachineIdList>, Status> {
-        crate::handlers::attestation::list_machine_ids_under_attestation(self, request).await
-    }
-
-    async fn get_machine_attestation_status(
+    async fn get_attestation_machine(
         &self,
         request: tonic::Request<MachineId>,
-    ) -> Result<Response<rpc::SpdmMachineAttestationStatusResponse>, Status> {
-        crate::handlers::attestation::get_machine_attestations_status(self, request).await
+    ) -> Result<Response<rpc::SpdmGetAttestationMachineResponse>, Status> {
+        crate::handlers::attestation::get_attestation_machine(self, request).await
     }
 
     async fn sign_machine_identity(
