@@ -26,7 +26,12 @@ use state_controller::state_handler::{
 use crate::context::SwitchStateHandlerContextObjects;
 
 /// Handles the Ready state for a switch.
-/// TODO: Implement Switch monitoring (health checks, status updates, etc.).
+///
+/// If the switch is marked for deletion, transitions to `Deleting`.
+/// If a maintenance request has been posted via `switch_maintenance_requested`,
+/// transitions to `Maintenance` with the requested operation. If rack-level
+/// reprovisioning has been requested, transitions to `ReProvisioning`.
+/// Otherwise idles.
 pub async fn handle_ready(
     _switch_id: &SwitchId,
     state: &mut Switch,
@@ -35,6 +40,19 @@ pub async fn handle_ready(
     if state.is_marked_as_deleted() {
         return Ok(StateHandlerOutcome::transition(
             SwitchControllerState::Deleting,
+        ));
+    }
+
+    if let Some(req) = state.switch_maintenance_requested.as_ref() {
+        tracing::info!(
+            operation = ?req.operation,
+            initiator = %req.initiator,
+            "Switch maintenance requested; transitioning to Maintenance"
+        );
+        return Ok(StateHandlerOutcome::transition(
+            SwitchControllerState::Maintenance {
+                operation: req.operation,
+            },
         ));
     }
 
@@ -64,6 +82,5 @@ pub async fn handle_ready(
         ));
     }
 
-    tracing::info!("Switch is ready");
     Ok(StateHandlerOutcome::do_nothing())
 }

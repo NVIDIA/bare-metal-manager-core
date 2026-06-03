@@ -31,7 +31,7 @@ use tracing::instrument;
 use crate::error::ComponentManagerError;
 use crate::nv_switch_manager::{
     NvSwitchManager, SwitchComponentResult, SwitchEndpoint, SwitchFirmwareUpdateStatus,
-    SwitchSlotAndTrayResult,
+    SwitchPowerStateResult, SwitchSlotAndTrayResult,
 };
 use crate::power_shelf_manager::{
     PowerShelfComponentResult, PowerShelfEndpoint, PowerShelfFirmwareUpdateStatus,
@@ -588,59 +588,19 @@ impl PowerShelfManager for RmsBackend {
             };
 
             let device = build_power_shelf_node_info(ep, identity);
-            let request = rms::GetPowerStateByDeviceListRequest {
-                nodes: Some(rms::NodeSet {
-                    devices: vec![device],
-                }),
-                ..Default::default()
-            };
-
-            match self.client.get_power_state_by_device_list(request).await {
-                Ok(response) => {
-                    let batch = response.response.clone().unwrap_or_default();
-                    if batch.status != rms::ReturnCode::Success as i32 || batch.failed_nodes != 0 {
-                        let summary = if batch.message.is_empty() {
-                            format!(
-                                "batch status {}, failed_nodes {}",
-                                batch.status, batch.failed_nodes
-                            )
-                        } else {
-                            batch.message.clone()
-                        };
-                        results.push(PowerShelfPowerStateResult {
-                            pmc_mac: ep.pmc_mac,
-                            power_state: None,
-                            error: Some(summary),
-                        });
-                        continue;
-                    }
-
-                    let node_id = identity.node_id.clone();
-                    let power_state = response
-                        .node_power_states
-                        .iter()
-                        .find(|node| node.node_id == node_id)
-                        .map(|node| node.pstate.to_lowercase());
-
-                    results.push(PowerShelfPowerStateResult {
-                        pmc_mac: ep.pmc_mac,
-                        power_state,
-                        error: None,
-                    });
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        pmc_mac = %ep.pmc_mac,
-                        error = %error,
-                        "RMS get power state failed for power shelf"
-                    );
-                    results.push(PowerShelfPowerStateResult {
-                        pmc_mac: ep.pmc_mac,
-                        power_state: None,
-                        error: Some(error.to_string()),
-                    });
-                }
-            }
+            let observed = query_rms_power_state(
+                self.client.as_ref(),
+                device,
+                &identity.node_id,
+                ep.pmc_mac,
+                "power shelf",
+            )
+            .await;
+            results.push(PowerShelfPowerStateResult {
+                pmc_mac: ep.pmc_mac,
+                power_state: observed.power_state,
+                error: observed.error,
+            });
         }
 
         Ok(results)
@@ -741,6 +701,70 @@ fn summarize_power_batch(batch: rms::NodeBatchResponse) -> (bool, Option<String>
         .unwrap_or_else(|| "RMS power control failed".to_owned());
 
     (false, Some(error))
+}
+
+#[derive(Debug, Clone)]
+struct RmsObservedPowerState {
+    power_state: Option<String>,
+    error: Option<String>,
+}
+
+async fn query_rms_power_state(
+    client: &dyn RmsApi,
+    device: rms::NewNodeInfo,
+    node_id: &str,
+    device_mac: MacAddress,
+    device_kind: &str,
+) -> RmsObservedPowerState {
+    let request = rms::GetPowerStateByDeviceListRequest {
+        nodes: Some(rms::NodeSet {
+            devices: vec![device],
+        }),
+        ..Default::default()
+    };
+
+    match client.get_power_state_by_device_list(request).await {
+        Ok(response) => {
+            let batch = response.response.clone().unwrap_or_default();
+            if batch.status != rms::ReturnCode::Success as i32 || batch.failed_nodes != 0 {
+                let summary = if batch.message.is_empty() {
+                    format!(
+                        "batch status {}, failed_nodes {}",
+                        batch.status, batch.failed_nodes
+                    )
+                } else {
+                    batch.message
+                };
+                return RmsObservedPowerState {
+                    power_state: None,
+                    error: Some(summary),
+                };
+            }
+
+            let power_state = response
+                .node_power_states
+                .iter()
+                .find(|node| node.node_id == node_id)
+                .map(|node| node.pstate.to_lowercase());
+
+            RmsObservedPowerState {
+                power_state,
+                error: None,
+            }
+        }
+        Err(error) => {
+            tracing::warn!(
+                %device_mac,
+                error = %error,
+                device_kind,
+                "RMS get power state failed"
+            );
+            RmsObservedPowerState {
+                power_state: None,
+                error: Some(error.to_string()),
+            }
+        }
+    }
 }
 
 fn rms_access_token_or_noauth(access_token: Option<&str>) -> String {
@@ -1308,6 +1332,44 @@ impl NvSwitchManager for RmsBackend {
     #[instrument(skip(self), fields(backend = "rms"))]
     async fn list_firmware_bundles(&self) -> Result<Vec<String>, ComponentManagerError> {
         list_firmware_object_ids(self.client.as_ref()).await
+    }
+
+    #[instrument(skip(self), fields(backend = "rms"))]
+    async fn get_power_state(
+        &self,
+        endpoints: &[SwitchEndpoint],
+    ) -> Result<Vec<SwitchPowerStateResult>, ComponentManagerError> {
+        let macs: Vec<MacAddress> = endpoints.iter().map(|ep| ep.bmc_mac).collect();
+        let ids = resolve_switch_identities(&self.db, &macs).await?;
+        let mut results = Vec::with_capacity(endpoints.len());
+
+        for ep in endpoints {
+            let Some(identity) = ids.get(&ep.bmc_mac) else {
+                results.push(SwitchPowerStateResult {
+                    bmc_mac: ep.bmc_mac,
+                    power_state: None,
+                    error: Some("could not resolve RMS identity from database".into()),
+                });
+                continue;
+            };
+
+            let device = build_switch_node_info(ep, identity);
+            let observed = query_rms_power_state(
+                self.client.as_ref(),
+                device,
+                &identity.node_id,
+                ep.bmc_mac,
+                "switch",
+            )
+            .await;
+            results.push(SwitchPowerStateResult {
+                bmc_mac: ep.bmc_mac,
+                power_state: observed.power_state,
+                error: observed.error,
+            });
+        }
+
+        Ok(results)
     }
 
     #[instrument(skip(self), fields(backend = "rms"))]
