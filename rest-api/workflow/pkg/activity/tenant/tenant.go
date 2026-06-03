@@ -194,6 +194,10 @@ func (mt ManageTenant) CreateOrUpdateTenantOnSite(ctx context.Context, siteID uu
 		// Trigger apporpriate workflow on Site
 		updateTenantRequest := tenant.ToUpdateRequestProto()
 
+		// Populate the RoutingProfileType directly from what was sent from the controller
+		// until/unless we start storing this detail in the REST DB.
+		updateTenantRequest.RoutingProfileType = controllerTenant.RoutingProfileType
+
 		we, err := tc.ExecuteWorkflow(ctx, workflowOptions, "UpdateTenant", updateTenantRequest)
 		if err != nil {
 			logger.Error().Err(err).Str("Tenant ID", tenant.ID.String()).Msg("failed to trigger workflow to update Tenant")
