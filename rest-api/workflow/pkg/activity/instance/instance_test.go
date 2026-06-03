@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	cwutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
+	cutil "github.com/NVIDIA/infra-controller-rest/common/pkg/util"
 	cdb "github.com/NVIDIA/infra-controller-rest/db/pkg/db"
 	cdbm "github.com/NVIDIA/infra-controller-rest/db/pkg/db/model"
 	"github.com/NVIDIA/infra-controller-rest/db/pkg/db/paginator"
@@ -82,7 +82,7 @@ func TestManageInstance_deleteInstanceFromDB(t *testing.T) {
 
 	site := util.TestBuildSite(t, dbSession, ip, "testSite", cdbm.SiteStatusPending, nil, ipu)
 	vpc := util.TestBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
-	machine := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, cwutil.GetPtr("mcTypeTest"), cwutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr("mcTypeTest"), cutil.GetPtr(true), cdbm.MachineStatusReady)
 	allocation := util.TestBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	instanceType := util.TestBuildInstanceType(t, dbSession, ip, site, "testInstanceType")
 	_ = util.TestBuildAllocationContraints(t, dbSession, allocation, cdbm.AllocationResourceTypeInstanceType, instanceType.ID, cdbm.AllocationConstraintTypeReserved, 5, ipu)
@@ -94,28 +94,28 @@ func TestManageInstance_deleteInstanceFromDB(t *testing.T) {
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "test1",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine.ID,
-			Hostname:                 cwutil.GetPtr("test.com"),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusTerminating,
-			PowerStatus:              cwutil.GetPtr(cdbm.InstancePowerStatusBootCompleted),
+			PowerStatus:              cutil.GetPtr(cdbm.InstancePowerStatusBootCompleted),
 			CreatedBy:                tnu.ID,
 		},
 	)
 	require.NoError(t, err)
 
 	ibp := util.TestBuildInfiniBandPartition(t, dbSession, "ibpart", site, tenant, nil, cdbm.InfiniBandPartitionStatusReady, false)
-	nvlp := util.TestBuildNVLinkLogicalPartition(t, dbSession, "nvlp", cwutil.GetPtr("nvlp"), site, tenant, cdbm.NVLinkLogicalPartitionStatusReady, false)
+	nvlp := util.TestBuildNVLinkLogicalPartition(t, dbSession, "nvlp", cutil.GetPtr("nvlp"), site, tenant, cdbm.NVLinkLogicalPartitionStatusReady, false)
 
 	ibiDAO := cdbm.NewInfiniBandInterfaceDAO(dbSession)
 	_, err = ibiDAO.Create(ctx, nil, cdbm.InfiniBandInterfaceCreateInput{
@@ -142,12 +142,12 @@ func TestManageInstance_deleteInstanceFromDB(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add SSH Key Group Instance Association
-	skg := util.TestBuildSSHKeyGroup(t, dbSession, "test-ssh-key-group-1", tnOrg, nil, tenant.ID, cwutil.GetPtr("fbc692b61ffef6fbfc38a3833f6b7e7ae508da75"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
-	_ = util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg.ID, site.ID, cwutil.GetPtr("V1-1234567890"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
+	skg := util.TestBuildSSHKeyGroup(t, dbSession, "test-ssh-key-group-1", tnOrg, nil, tenant.ID, cutil.GetPtr("fbc692b61ffef6fbfc38a3833f6b7e7ae508da75"), cdbm.SSHKeyGroupStatusSynced, tnu.ID)
+	_ = util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg.ID, site.ID, cutil.GetPtr("V1-1234567890"), cdbm.SSHKeyGroupSiteAssociationStatusSynced, tnu.ID)
 	_ = util.TestBuildSSHKeyGroupInstanceAssociation(t, dbSession, skg.ID, site.ID, instance.ID, tnu.ID)
 
 	// Add DPU Extension Service Deployment
-	des := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-extension-service-1", site, tenant, cdbm.DpuExtensionServiceServiceTypeKubernetesPod, cwutil.GetPtr("V1-1234567890"),
+	des := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-extension-service-1", site, tenant, cdbm.DpuExtensionServiceServiceTypeKubernetesPod, cutil.GetPtr("V1-1234567890"),
 		&cdbm.DpuExtensionServiceVersionInfo{
 			Version:        "V1-1234567890",
 			Data:           "test-data",
@@ -168,21 +168,21 @@ func TestManageInstance_deleteInstanceFromDB(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
 
-	ibis, _, err := ibiDAO.GetAll(ctx, nil, cdbm.InfiniBandInterfaceFilterInput{InstanceIDs: []uuid.UUID{instance.ID}}, paginator.PageInput{Limit: cwutil.GetPtr(paginator.TotalLimit)}, nil)
+	ibis, _, err := ibiDAO.GetAll(ctx, nil, cdbm.InfiniBandInterfaceFilterInput{InstanceIDs: []uuid.UUID{instance.ID}}, paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}, nil)
 	require.NoError(t, err)
 	require.Empty(t, ibis)
 
-	nvlis, _, err := nvliDAO.GetAll(ctx, nil, cdbm.NVLinkInterfaceFilterInput{InstanceIDs: []uuid.UUID{instance.ID}}, paginator.PageInput{Limit: cwutil.GetPtr(paginator.TotalLimit)}, nil)
+	nvlis, _, err := nvliDAO.GetAll(ctx, nil, cdbm.NVLinkInterfaceFilterInput{InstanceIDs: []uuid.UUID{instance.ID}}, paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}, nil)
 	require.NoError(t, err)
 	require.Empty(t, nvlis)
 
 	skgiaDAO := cdbm.NewSSHKeyGroupInstanceAssociationDAO(dbSession)
-	skgias, _, err := skgiaDAO.GetAll(ctx, nil, nil, nil, []uuid.UUID{instance.ID}, nil, nil, cwutil.GetPtr(paginator.TotalLimit), nil)
+	skgias, _, err := skgiaDAO.GetAll(ctx, nil, nil, nil, []uuid.UUID{instance.ID}, nil, nil, cutil.GetPtr(paginator.TotalLimit), nil)
 	require.NoError(t, err)
 	require.Empty(t, skgias)
 
 	desdDAO := cdbm.NewDpuExtensionServiceDeploymentDAO(dbSession)
-	desds, _, err := desdDAO.GetAll(ctx, nil, cdbm.DpuExtensionServiceDeploymentFilterInput{InstanceIDs: []uuid.UUID{instance.ID}}, paginator.PageInput{Limit: cwutil.GetPtr(paginator.TotalLimit)}, nil)
+	desds, _, err := desdDAO.GetAll(ctx, nil, cdbm.DpuExtensionServiceDeploymentFilterInput{InstanceIDs: []uuid.UUID{instance.ID}}, paginator.PageInput{Limit: cutil.GetPtr(paginator.TotalLimit)}, nil)
 	require.NoError(t, err)
 	require.Empty(t, desds)
 }
@@ -212,33 +212,33 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 
 	site := util.TestBuildSite(t, dbSession, ip, "testSite", cdbm.SiteStatusPending, nil, ipu)
 	vpc := util.TestBuildVpc(t, dbSession, ip, site, tenant, "testVpc")
-	subnet1 := util.TestBuildSubnet(t, dbSession, tenant, vpc, "testSubnet1", cdbm.SubnetStatusPending, cwutil.GetPtr(uuid.New()))
-	subnet2 := util.TestBuildSubnet(t, dbSession, tenant, vpc, "testSubnet2", cdbm.SubnetStatusPending, cwutil.GetPtr(uuid.New()))
+	subnet1 := util.TestBuildSubnet(t, dbSession, tenant, vpc, "testSubnet1", cdbm.SubnetStatusPending, cutil.GetPtr(uuid.New()))
+	subnet2 := util.TestBuildSubnet(t, dbSession, tenant, vpc, "testSubnet2", cdbm.SubnetStatusPending, cutil.GetPtr(uuid.New()))
 	subnet3 := util.TestBuildSubnet(t, dbSession, tenant, vpc, "testSubnet2", cdbm.SubnetStatusPending, nil)
 
 	ipb1 := util.TestBuildBuildIPBlock(t, dbSession, "testipb", site, ip, &tenant.ID, cdbm.IPBlockRoutingTypeDatacenterOnly, "192.168.0.0", 24, cdbm.IPBlockProtocolVersionV4, false, cdbm.IPBlockStatusReady, tnu)
 	assert.NotNil(t, ipb1)
-	vpcPrefix1 := util.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-1", site, tenant, vpc.ID, &ipb1.ID, cwutil.GetPtr("192.168.0.0/24"), cwutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu)
-	vpcPrefix2 := util.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-2", site, tenant, vpc.ID, &ipb1.ID, cwutil.GetPtr("192.172.0.0/24"), cwutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu)
+	vpcPrefix1 := util.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-1", site, tenant, vpc.ID, &ipb1.ID, cutil.GetPtr("192.168.0.0/24"), cutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu)
+	vpcPrefix2 := util.TestBuildVPCPrefix(t, dbSession, "test-vpcprefix-2", site, tenant, vpc.ID, &ipb1.ID, cutil.GetPtr("192.172.0.0/24"), cutil.GetPtr(24), cdbm.VpcPrefixStatusReady, tnu)
 
-	partition1 := util.TestBuildInfiniBandPartition(t, dbSession, "test-partition-1", site, tenant, cwutil.GetPtr(uuid.New()), cdbm.InfiniBandPartitionStatusProvisioning, false)
+	partition1 := util.TestBuildInfiniBandPartition(t, dbSession, "test-partition-1", site, tenant, cutil.GetPtr(uuid.New()), cdbm.InfiniBandPartitionStatusProvisioning, false)
 
 	nvllPartition1 := util.TestBuildNVLinkLogicalPartition(t, dbSession, "test-nvlinklpartition-1", nil, site, tenant, cdbm.NVLinkLogicalPartitionStatusReady, false)
 	assert.NotNil(t, nvllPartition1)
 
-	machine1 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
-	machine2 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
-	machine3 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
-	machine4 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
-	machine5 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
-	machine6 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
-	machine7 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
-	machine8 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
-	machine9 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
-	machine10 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
-	machine11 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
-	machine13 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
-	machine15 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine1 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine2 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine3 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine4 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine5 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine6 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine7 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine8 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine9 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine10 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine11 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine13 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine15 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
 
 	allocation := util.TestBuildAllocation(t, dbSession, ip, tenant, site, "testAllocation")
 	instanceType := util.TestBuildInstanceType(t, dbSession, ip, site, "testInstanceType")
@@ -253,19 +253,19 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "test-instance-1",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine1.ID,
-			ControllerInstanceID:     cwutil.GetPtr(uuid.New()),
-			Hostname:                 cwutil.GetPtr("test.com"),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusProvisioning,
 			CreatedBy:                tnu.ID,
@@ -274,7 +274,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance1.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance1.ID.String())
 	assert.NoError(t, err)
 
 	interface1 := util.TestBuildInterface(t, dbSession, &instance1.ID, &subnet1.ID, nil, true, nil, nil, nil, &tnu.ID, cdbm.InterfaceStatusPending)
@@ -294,24 +294,24 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	assert.NotNil(t, ibInterface3)
 
 	// Make Deleting InfiniBand row old enough to pass IsTimeWithinStaleInventoryThreshold deferral during inventory reconcile
-	_, err = dbSession.DB.Exec("UPDATE infiniband_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), ibInterface3.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE infiniband_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), ibInterface3.ID.String())
 	assert.NoError(t, err)
 
 	// NVLink Interfaces
-	nvlinkInterface1 := util.TestBuildNVLinkInterface(t, dbSession, instance1.ID, site.ID, nvllPartition1.ID, cwutil.GetPtr(""), 0, nil, nil, cdbm.NVLinkInterfaceStatusPending)
+	nvlinkInterface1 := util.TestBuildNVLinkInterface(t, dbSession, instance1.ID, site.ID, nvllPartition1.ID, cutil.GetPtr(""), 0, nil, nil, cdbm.NVLinkInterfaceStatusPending)
 	assert.NotNil(t, nvlinkInterface1)
 
-	nvlinkInterface2 := util.TestBuildNVLinkInterface(t, dbSession, instance1.ID, site.ID, nvllPartition1.ID, cwutil.GetPtr(""), 1, nil, nil, cdbm.NVLinkInterfaceStatusPending)
+	nvlinkInterface2 := util.TestBuildNVLinkInterface(t, dbSession, instance1.ID, site.ID, nvllPartition1.ID, cutil.GetPtr(""), 1, nil, nil, cdbm.NVLinkInterfaceStatusPending)
 	assert.NotNil(t, nvlinkInterface2)
 
-	nvlinkInterface3 := util.TestBuildNVLinkInterface(t, dbSession, instance1.ID, site.ID, nvllPartition1.ID, cwutil.GetPtr(""), 2, cwutil.GetPtr("e1f2a30200d71e9f"), nil, cdbm.NVLinkInterfaceStatusDeleting)
+	nvlinkInterface3 := util.TestBuildNVLinkInterface(t, dbSession, instance1.ID, site.ID, nvllPartition1.ID, cutil.GetPtr(""), 2, cutil.GetPtr("e1f2a30200d71e9f"), nil, cdbm.NVLinkInterfaceStatusDeleting)
 	assert.NotNil(t, nvlinkInterface3)
 
 	// Set updated earlier than the inventory receipt interval for nvlinkInterface3 so it can be deleted
-	_, err = dbSession.DB.Exec("UPDATE nvlink_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), nvlinkInterface3.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE nvlink_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), nvlinkInterface3.ID.String())
 	assert.NoError(t, err)
 
-	nvlinkInterface4 := util.TestBuildNVLinkInterface(t, dbSession, instance1.ID, site.ID, nvllPartition1.ID, cwutil.GetPtr(""), 3, nil, nil, cdbm.NVLinkInterfaceStatusPending)
+	nvlinkInterface4 := util.TestBuildNVLinkInterface(t, dbSession, instance1.ID, site.ID, nvllPartition1.ID, cutil.GetPtr(""), 3, nil, nil, cdbm.NVLinkInterfaceStatusPending)
 	assert.NotNil(t, nvlinkInterface4)
 
 	// Instance 2 is in Terminating state and gets deleted when missing from Site Controller inventory
@@ -319,19 +319,19 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "test-instance-2",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine2.ID,
-			ControllerInstanceID:     cwutil.GetPtr(uuid.New()),
-			Hostname:                 cwutil.GetPtr("test.com"),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusTerminating,
 			CreatedBy:                tnu.ID,
@@ -340,15 +340,15 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance2.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance2.ID.String())
 	assert.NoError(t, err)
 
 	instance2Subnet := util.TestBuildInterface(t, dbSession, &instance2.ID, &subnet1.ID, nil, true, nil, nil, nil, &tnu.ID, cdbm.InterfaceStatusPending)
 	assert.NotNil(t, instance2Subnet)
 
-	skg1 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg, cwutil.GetPtr("test1"), tenant.ID, cwutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSyncing, tnu.ID)
+	skg1 := util.TestBuildSSHKeyGroup(t, dbSession, "test-sshkeygroup-1", tnOrg, cutil.GetPtr("test1"), tenant.ID, cutil.GetPtr("122345"), cdbm.SSHKeyGroupStatusSyncing, tnu.ID)
 	assert.NotNil(t, skg1)
-	skgsa1 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, site.ID, cwutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
+	skgsa1 := util.TestBuildSSHKeyGroupSiteAssociation(t, dbSession, skg1.ID, site.ID, cutil.GetPtr("1134"), cdbm.SSHKeyGroupSiteAssociationStatusSyncing, tnu.ID)
 	assert.NotNil(t, skgsa1)
 	skgia1 := util.TestBuildSSHKeyGroupInstanceAssociation(t, dbSession, skg1.ID, site.ID, instance2.ID, tnu.ID)
 	assert.NotNil(t, skgia1)
@@ -358,19 +358,19 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "Test Instance 3",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine3.ID,
-			ControllerInstanceID:     cwutil.GetPtr(uuid.New()),
-			Hostname:                 cwutil.GetPtr("test.com"),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusProvisioning,
 			CreatedBy:                tnu.ID,
@@ -378,11 +378,11 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	)
 	assert.Nil(t, err)
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)), instance3.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)), instance3.ID.String())
 	assert.NoError(t, err)
 
 	// Set updated earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance3.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance3.ID.String())
 	assert.NoError(t, err)
 
 	instance3Subnet := util.TestBuildInterface(t, dbSession, &instance3.ID, &subnet1.ID, nil, true, nil, nil, nil, &tnu.ID, cdbm.InterfaceStatusPending)
@@ -393,18 +393,18 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "Test Instance 4",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine4.ID,
-			Hostname:                 cwutil.GetPtr("test.com"),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusProvisioning,
 			CreatedBy:                tnu.ID,
@@ -413,7 +413,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Set updated earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance4.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance4.ID.String())
 	assert.NoError(t, err)
 
 	instance4Subnet := util.TestBuildInterface(t, dbSession, &instance4.ID, &subnet1.ID, nil, true, nil, nil, nil, &tnu.ID, cdbm.InterfaceStatusError)
@@ -424,20 +424,20 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "Test Instance 5",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine5.ID,
-			ControllerInstanceID:     cwutil.GetPtr(uuid.New()),
-			Hostname:                 cwutil.GetPtr("test.com"),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
 			PhoneHomeEnabled:         true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusTerminating,
 			CreatedBy:                tnu.ID,
@@ -446,7 +446,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance5.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance5.ID.String())
 	assert.NoError(t, err)
 
 	// Instance 6 is in Error state and gets restored to Ready state from inventory
@@ -454,31 +454,31 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "Test Instance 6",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine6.ID,
-			ControllerInstanceID:     cwutil.GetPtr(uuid.New()),
-			Hostname:                 cwutil.GetPtr("test.com"),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
 			PhoneHomeEnabled:         true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusError,
 			CreatedBy:                tnu.ID,
 		},
 	)
 	assert.Nil(t, err)
-	_, err = instanceDAO.Update(ctx, nil, cdbm.InstanceUpdateInput{InstanceID: instance6.ID, InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{IsMissingOnSite: cwutil.GetPtr(true)}})
+	_, err = instanceDAO.Update(ctx, nil, cdbm.InstanceUpdateInput{InstanceID: instance6.ID, InstanceUpdateCommonInput: cdbm.InstanceUpdateCommonInput{IsMissingOnSite: cutil.GetPtr(true)}})
 	assert.Nil(t, err)
 
 	// Set updated earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance6.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance6.ID.String())
 	assert.NoError(t, err)
 
 	// Instance 7 does not have controller Instance ID set and is present in inventory, and gets controller Instance ID set
@@ -486,18 +486,18 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "Test Instance 7",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine7.ID,
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
 			PhoneHomeEnabled:         true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusProvisioning,
 			CreatedBy:                tnu.ID,
@@ -506,7 +506,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Set updated earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance7.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance7.ID.String())
 	assert.NoError(t, err)
 
 	// Instance 8 is in Terminating state and has no controller ID, gets deleted on inventory update
@@ -514,18 +514,18 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "Test Instance 8",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine8.ID,
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
 			PhoneHomeEnabled:         true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusTerminating,
 			CreatedBy:                tnu.ID,
@@ -534,7 +534,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Set updated earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance8.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance8.ID.String())
 	assert.NoError(t, err)
 
 	// Instance 9 is in Ready state and power status is Rebooting, gets set to BootCompleted
@@ -542,19 +542,19 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "Test Instance 9",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine9.ID,
-			ControllerInstanceID:     cwutil.GetPtr(uuid.New()),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
 			PhoneHomeEnabled:         true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusReady,
 			CreatedBy:                tnu.ID,
@@ -563,7 +563,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Set updated earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance9.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance9.ID.String())
 	assert.NoError(t, err)
 
 	var vfID uint32 = 1
@@ -577,19 +577,19 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "test-instance-10",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine10.ID,
-			ControllerInstanceID:     cwutil.GetPtr(uuid.New()),
-			Hostname:                 cwutil.GetPtr("test.com"),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusError,
 			CreatedBy:                tnu.ID,
@@ -597,15 +597,15 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	// Update creation timestamp to be earlier than inventory processing interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET is_missing_on_site = true, created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance10.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET is_missing_on_site = true, created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance10.ID.String())
 	assert.NoError(t, err)
 
 	// Set updated earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance10.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance10.ID.String())
 	assert.NoError(t, err)
 
 	// Create status detail for instance 10
-	_, err = sdDAO.CreateFromParams(ctx, nil, instance10.ID.String(), instance10.Status, cwutil.GetPtr("Instance is missing on Site"))
+	_, err = sdDAO.CreateFromParams(ctx, nil, instance10.ID.String(), instance10.Status, cutil.GetPtr("Instance is missing on Site"))
 	assert.NoError(t, err)
 
 	// Instance 11 receives updates from Site Controller, namely status update and Instance VPC Prefix status, attribute updates
@@ -613,19 +613,19 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "test-instance-11",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine11.ID,
-			ControllerInstanceID:     cwutil.GetPtr(uuid.New()),
-			Hostname:                 cwutil.GetPtr("test.com"),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusProvisioning,
 			NetworkSecurityGroupPropagationDetails: &cdbm.NetworkSecurityGroupPropagationDetails{
@@ -637,11 +637,11 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance11.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance11.ID.String())
 	assert.NoError(t, err)
 
 	// Replicate the bug fix test
-	ifcvpc0 := util.TestBuildInterface(t, dbSession, &instance11.ID, nil, &vpcPrefix1.ID, true, cwutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"), nil, nil, &tnu.ID, cdbm.InterfaceStatusPending)
+	ifcvpc0 := util.TestBuildInterface(t, dbSession, &instance11.ID, nil, &vpcPrefix1.ID, true, cutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"), nil, nil, &tnu.ID, cdbm.InterfaceStatusPending)
 	assert.NotNil(t, ifcvpc0)
 	_, err = cdbm.NewInterfaceDAO(dbSession).Update(ctx, nil, cdbm.InterfaceUpdateInput{
 		InterfaceID: ifcvpc0.ID,
@@ -651,13 +651,13 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	})
 	assert.Nil(t, err)
 
-	ifcvpc0_1 := util.TestBuildInterface(t, dbSession, &instance11.ID, nil, &vpcPrefix1.ID, false, cwutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"), nil, cwutil.GetPtr(1), &tnu.ID, cdbm.InterfaceStatusPending)
+	ifcvpc0_1 := util.TestBuildInterface(t, dbSession, &instance11.ID, nil, &vpcPrefix1.ID, false, cutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"), nil, cutil.GetPtr(1), &tnu.ID, cdbm.InterfaceStatusPending)
 	assert.NotNil(t, ifcvpc0_1)
 
-	ifcvpc1 := util.TestBuildInterface(t, dbSession, &instance11.ID, nil, &vpcPrefix1.ID, true, cwutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"), cwutil.GetPtr(1), nil, &tnu.ID, cdbm.InterfaceStatusPending)
+	ifcvpc1 := util.TestBuildInterface(t, dbSession, &instance11.ID, nil, &vpcPrefix1.ID, true, cutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"), cutil.GetPtr(1), nil, &tnu.ID, cdbm.InterfaceStatusPending)
 	assert.NotNil(t, ifcvpc1)
 
-	ifcvpc1_1 := util.TestBuildInterface(t, dbSession, &instance11.ID, nil, &vpcPrefix1.ID, false, cwutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"), cwutil.GetPtr(1), cwutil.GetPtr(1), &tnu.ID, cdbm.InterfaceStatusPending)
+	ifcvpc1_1 := util.TestBuildInterface(t, dbSession, &instance11.ID, nil, &vpcPrefix1.ID, false, cutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"), cutil.GetPtr(1), cutil.GetPtr(1), &tnu.ID, cdbm.InterfaceStatusPending)
 	assert.NotNil(t, ifcvpc1_1)
 
 	// Instance 12 is defined below
@@ -667,52 +667,52 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "test-instance-11",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine13.ID,
-			ControllerInstanceID:     cwutil.GetPtr(uuid.New()),
-			Hostname:                 cwutil.GetPtr("test.com"),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusProvisioning,
 			CreatedBy:                tnu.ID,
 		},
 	)
 	assert.Nil(t, err)
-	util.TestBuildStatusDetail(t, dbSession, instance13.ID.String(), cdbm.InstanceStatusProvisioning, cwutil.GetPtr("Instance is being provisioned on Site"))
+	util.TestBuildStatusDetail(t, dbSession, instance13.ID.String(), cdbm.InstanceStatusProvisioning, cutil.GetPtr("Instance is being provisioned on Site"))
 
 	// Instance 14 receives updates from Site Controller, but cloud DB saw an update that was too recent.
 	instance14, err := instanceDAO.Create(
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "test-instance-1",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine1.ID,
-			ControllerInstanceID:     cwutil.GetPtr(uuid.New()),
-			Hostname:                 cwutil.GetPtr("test.com"),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusProvisioning,
 			CreatedBy:                tnu.ID,
 		},
 	)
 	assert.Nil(t, err)
-	util.TestBuildStatusDetail(t, dbSession, instance14.ID.String(), cdbm.InstanceStatusProvisioning, cwutil.GetPtr("Instance is being provisioned on Site"))
+	util.TestBuildStatusDetail(t, dbSession, instance14.ID.String(), cdbm.InstanceStatusProvisioning, cutil.GetPtr("Instance is being provisioned on Site"))
 
 	// Instance 15 is in Configuring state and gets set to Ready
 	// Make sure the interfaces are deleted and pending one is converted to ready
@@ -722,19 +722,19 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "test-instance-15",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine15.ID,
-			ControllerInstanceID:     cwutil.GetPtr(uuid.New()),
-			Hostname:                 cwutil.GetPtr("test.com"),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusConfiguring,
 			CreatedBy:                tnu.ID,
@@ -743,7 +743,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance15.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance15.ID.String())
 	assert.NoError(t, err)
 
 	ifcvpc_deleting := util.TestBuildInterface(t, dbSession, &instance15.ID, nil, &vpcPrefix1.ID, true, nil, nil, nil, &tnu.ID, cdbm.InterfaceStatusDeleting)
@@ -761,56 +761,56 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Instance 16 starts with an initial TPM EK certificate and gets updated with a new certificate value
-	machine16 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine16 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
 	instance16, err := instanceDAO.Create(
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "test-instance-16",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine16.ID,
-			ControllerInstanceID:     cwutil.GetPtr(uuid.New()),
-			Hostname:                 cwutil.GetPtr("test.com"),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusProvisioning,
 			// Start with an initial TPM EK certificate
-			TpmEkCertificate: cwutil.GetPtr("initial-cert-value"),
+			TpmEkCertificate: cutil.GetPtr("initial-cert-value"),
 			CreatedBy:        tnu.ID,
 		},
 	)
 	assert.Nil(t, err)
 
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance16.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance16.ID.String())
 	assert.NoError(t, err)
 
 	// Instance 17 starts with nil TPM EK certificate and gets updated with a certificate value
-	machine17 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine17 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
 	instance17, err := instanceDAO.Create(
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "test-instance-17",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine17.ID,
-			ControllerInstanceID:     cwutil.GetPtr(uuid.New()),
-			Hostname:                 cwutil.GetPtr("test.com"),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusProvisioning,
 			// Start with nil TPM EK certificate
@@ -821,31 +821,31 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance17.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance17.ID.String())
 	assert.NoError(t, err)
 
 	// Sample base64 encoded TPM EK certificate (truncated for brevity but realistic format)
 	tpmEKCertBase64 := "MIICXjCCAUYCFGvJgf1k9b2LqK2F3VzjRkGbXfGGMA0GCSqGSIb3DQEBCwUAMCMxITAfBgNVBAMMGFRQTSBFSyBDZXJ0aWZpY2F0ZSBUZXN0MB4XDTIzMTAwMTA4MDAzNVoXDTMzMDkyODA4MDAzNVowIzEhMB8GA1UEAwwYVFBNIEVLIENlcnRpZmljYXRlIFRlc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC8uKdyQ1P+KqHGfyJLIvJhDzQ3rHnS"
 
 	// Instance 18 receives updates from Site Controller, namely status update and Instance Subnet status, attribute updates
-	machine18 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine18 := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
 	instance18, err := instanceDAO.Create(
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "test-instance-18",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site.ID,
 			InstanceTypeID:           &instanceType.ID,
 			VpcID:                    vpc.ID,
 			MachineID:                &machine18.ID,
-			ControllerInstanceID:     cwutil.GetPtr(uuid.New()),
-			Hostname:                 cwutil.GetPtr("test.com"),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusProvisioning,
 			CreatedBy:                tnu.ID,
@@ -854,7 +854,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Set created earlier than the inventory receipt interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance18.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance18.ID.String())
 	assert.NoError(t, err)
 
 	interface18_1 := util.TestBuildInterface(t, dbSession, &instance18.ID, &subnet1.ID, nil, true, nil, nil, nil, &tnu.ID, cdbm.InterfaceStatusPending)
@@ -874,15 +874,15 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	assert.NotNil(t, ibInterface18_3)
 
 	for _, ibd := range []*cdbm.InfiniBandInterface{ibInterface18_1, ibInterface18_2, ibInterface18_3} {
-		_, err = dbSession.DB.Exec("UPDATE infiniband_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), ibd.ID.String())
+		_, err = dbSession.DB.Exec("UPDATE infiniband_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), ibd.ID.String())
 		assert.NoError(t, err)
 	}
 
 	// Build DPU Extension Services and Deployments for testing
-	dpuExtensionService1 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-ext-service-1", site, tenant, "ovs-offload", cwutil.GetPtr("1"), nil, []string{}, cdbm.DpuExtensionServiceStatusReady, ipu)
+	dpuExtensionService1 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-ext-service-1", site, tenant, "ovs-offload", cutil.GetPtr("1"), nil, []string{}, cdbm.DpuExtensionServiceStatusReady, ipu)
 	assert.NotNil(t, dpuExtensionService1)
 
-	dpuExtensionService2 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-ext-service-2", site, tenant, "ovs-offload", cwutil.GetPtr("1"), nil, []string{}, cdbm.DpuExtensionServiceStatusReady, ipu)
+	dpuExtensionService2 := util.TestBuildDpuExtensionService(t, dbSession, "test-dpu-ext-service-2", site, tenant, "ovs-offload", cutil.GetPtr("1"), nil, []string{}, cdbm.DpuExtensionServiceStatusReady, ipu)
 	assert.NotNil(t, dpuExtensionService2)
 
 	// Create DPU Extension Service Deployment for instance1 - will be updated to Running
@@ -894,7 +894,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	assert.NotNil(t, dpuExtServiceDeployment2)
 
 	// Set updated earlier than the inventory receipt interval for dpuExtServiceDeployment2 so it can be deleted
-	_, err = dbSession.DB.Exec("UPDATE dpu_extension_service_deployment SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), dpuExtServiceDeployment2.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE dpu_extension_service_deployment SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), dpuExtServiceDeployment2.ID.String())
 	assert.NoError(t, err)
 
 	instanceInventory := &cwsv1.InstanceInventory{
@@ -902,7 +902,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 			&cwsv1.NetworkSecurityGroupPropagationObjectStatus{
 				Id:      instance1.ID.String(),
 				Status:  cwsv1.NetworkSecurityGroupPropagationStatus_NSG_PROP_STATUS_FULL,
-				Details: cwutil.GetPtr("nothing to see here"),
+				Details: cutil.GetPtr("nothing to see here"),
 			},
 		},
 		Instances: []*cwsv1.Instance{
@@ -926,14 +926,14 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 						IbInterfaces: []*cwsv1.InstanceIBInterfaceConfig{
 							{
 								Device:         "MT2910 Family [ConnectX-7]",
-								Vendor:         cwutil.GetPtr("Mellanox Technologies"),
+								Vendor:         cutil.GetPtr("Mellanox Technologies"),
 								DeviceInstance: 0,
 								FunctionType:   cwsv1.InterfaceFunctionType_PHYSICAL_FUNCTION,
 								IbPartitionId:  &cwsv1.IBPartitionId{Value: partition1.ControllerIBPartitionID.String()},
 							},
 							{
 								Device:         "MT2910 Family [ConnectX-7]",
-								Vendor:         cwutil.GetPtr("Mellanox Technologies"),
+								Vendor:         cutil.GetPtr("Mellanox Technologies"),
 								DeviceInstance: 1,
 								FunctionType:   cwsv1.InterfaceFunctionType_PHYSICAL_FUNCTION,
 								IbPartitionId:  &cwsv1.IBPartitionId{Value: partition1.ControllerIBPartitionID.String()},
@@ -990,12 +990,12 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 					Infiniband: &cwsv1.InstanceInfinibandStatus{
 						IbInterfaces: []*cwsv1.InstanceIBInterfaceStatus{
 							{
-								PfGuid: cwutil.GetPtr("1070fd0300bd43ad"),
-								Guid:   cwutil.GetPtr("1070fd0300bd43ad"),
+								PfGuid: cutil.GetPtr("1070fd0300bd43ad"),
+								Guid:   cutil.GetPtr("1070fd0300bd43ad"),
 							},
 							{
-								PfGuid: cwutil.GetPtr("c470bd0300ebe2b8"),
-								Guid:   cwutil.GetPtr("c470bd0300ebe2b8"),
+								PfGuid: cutil.GetPtr("c470bd0300ebe2b8"),
+								Guid:   cutil.GetPtr("c470bd0300ebe2b8"),
 							},
 						},
 						ConfigsSynced: cwsv1.SyncState_SYNCED,
@@ -1012,22 +1012,22 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 					Nvlink: &cwsv1.InstanceNVLinkStatus{
 						GpuStatuses: []*cwsv1.InstanceNVLinkGpuStatus{
 							{
-								GpuGuid:            cwutil.GetPtr("a8f4c20500d71e9f"),
+								GpuGuid:            cutil.GetPtr("a8f4c20500d71e9f"),
 								DomainId:           &cwsv1.NVLinkDomainId{Value: uuid.New().String()},
 								LogicalPartitionId: &cwsv1.NVLinkLogicalPartitionId{Value: nvllPartition1.ID.String()},
 							},
 							{
-								GpuGuid:            cwutil.GetPtr("b3e8d70400c52f1a"),
+								GpuGuid:            cutil.GetPtr("b3e8d70400c52f1a"),
 								DomainId:           &cwsv1.NVLinkDomainId{Value: uuid.New().String()},
 								LogicalPartitionId: &cwsv1.NVLinkLogicalPartitionId{Value: nvllPartition1.ID.String()},
 							},
 							{
-								GpuGuid:            cwutil.GetPtr("c470bd0300ebe2b8"),
+								GpuGuid:            cutil.GetPtr("c470bd0300ebe2b8"),
 								DomainId:           &cwsv1.NVLinkDomainId{Value: uuid.New().String()},
 								LogicalPartitionId: &cwsv1.NVLinkLogicalPartitionId{Value: nvllPartition1.ID.String()},
 							},
 							{
-								GpuGuid:            cwutil.GetPtr("d3e7d60400c52f1a"),
+								GpuGuid:            cutil.GetPtr("d3e7d60400c52f1a"),
 								DomainId:           &cwsv1.NVLinkDomainId{Value: uuid.New().String()},
 								LogicalPartitionId: &cwsv1.NVLinkLogicalPartitionId{Value: nvllPartition1.ID.String()},
 							},
@@ -1087,7 +1087,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 								NetworkDetails: &cwsv1.InstanceInterfaceConfig_VpcPrefixId{
 									VpcPrefixId: &cwsv1.VpcPrefixId{Value: vpcPrefix1.ID.String()},
 								},
-								Device:    cwutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
+								Device:    cutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
 								IpAddress: &requestedIpAddress,
 								RoutingProfile: &cwsv1.InstanceInterfaceRoutingProfile{
 									AllowedAnycastPrefixes: []*cwsv1.PrefixFilterPolicyEntry{
@@ -1103,7 +1103,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 								NetworkDetails: &cwsv1.InstanceInterfaceConfig_VpcPrefixId{
 									VpcPrefixId: &cwsv1.VpcPrefixId{Value: vpcPrefix1.ID.String()},
 								},
-								Device:            cwutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
+								Device:            cutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
 								VirtualFunctionId: &vfID,
 							},
 							{
@@ -1113,7 +1113,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 								NetworkDetails: &cwsv1.InstanceInterfaceConfig_VpcPrefixId{
 									VpcPrefixId: &cwsv1.VpcPrefixId{Value: vpcPrefix1.ID.String()},
 								},
-								Device:         cwutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
+								Device:         cutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
 								DeviceInstance: 1,
 							},
 							{
@@ -1123,7 +1123,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 								NetworkDetails: &cwsv1.InstanceInterfaceConfig_VpcPrefixId{
 									VpcPrefixId: &cwsv1.VpcPrefixId{Value: vpcPrefix1.ID.String()},
 								},
-								Device:            cwutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
+								Device:            cutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
 								DeviceInstance:    1,
 								VirtualFunctionId: &vfID,
 							},
@@ -1139,25 +1139,25 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 							{
 								MacAddress: &macAddress,
 								Addresses:  ipAddresses,
-								Device:     cwutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
+								Device:     cutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
 							},
 							{
 								MacAddress:        &macAddress,
 								Addresses:         ipAddresses,
-								Device:            cwutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
+								Device:            cutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
 								VirtualFunctionId: &vfID,
 							},
 							{
 								VirtualFunctionId: nil,
 								MacAddress:        &macAddress,
 								Addresses:         ipAddresses,
-								Device:            cwutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
+								Device:            cutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
 								DeviceInstance:    1,
 							},
 							{
 								MacAddress:        &macAddress,
 								Addresses:         ipAddresses,
-								Device:            cwutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
+								Device:            cutil.GetPtr("MT43244 BlueField-3 integrated ConnectX-7 network controller"),
 								DeviceInstance:    1,
 								VirtualFunctionId: &vfID,
 							},
@@ -1292,7 +1292,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	// Build another 38 Machines for pagination
 	pageMachines := []*cdbm.Machine{}
 	for i := 0; i < 38; i++ {
-		machine := util.TestBuildMachine(t, dbSession, ip.ID, site2.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
+		machine := util.TestBuildMachine(t, dbSession, ip.ID, site2.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
 		pageMachines = append(pageMachines, machine)
 	}
 
@@ -1318,19 +1318,19 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 			ctx, nil,
 			cdbm.InstanceCreateInput{
 				Name:                     fmt.Sprintf("Test Instance %d", i),
-				Description:              cwutil.GetPtr("Test description"),
+				Description:              cutil.GetPtr("Test description"),
 				TenantID:                 tenant.ID,
 				InfrastructureProviderID: ip.ID,
 				SiteID:                   site2.ID,
 				InstanceTypeID:           &instanceType2.ID,
 				VpcID:                    vpc2.ID,
 				MachineID:                &pageMachines[i].ID,
-				ControllerInstanceID:     cwutil.GetPtr(uuid.New()),
-				Hostname:                 cwutil.GetPtr("test.com"),
-				OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-				IpxeScript:               cwutil.GetPtr("ipxe"),
+				ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+				Hostname:                 cutil.GetPtr("test.com"),
+				OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+				IpxeScript:               cutil.GetPtr("ipxe"),
 				AlwaysBootWithCustomIpxe: true,
-				UserData:                 cwutil.GetPtr("userdata"),
+				UserData:                 cutil.GetPtr("userdata"),
 				Labels:                   labels,
 				Status:                   cdbm.InstanceStatusReady,
 				CreatedBy:                tnu.ID,
@@ -1339,11 +1339,11 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 
 		assert.NoError(t, err)
 		// Update creation timestamp to be earlier than inventory processing interval
-		_, err = dbSession.DB.Exec("UPDATE instance SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), ins.ID.String())
+		_, err = dbSession.DB.Exec("UPDATE instance SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), ins.ID.String())
 		assert.NoError(t, err)
 
 		// Update updated timestamp to be earlier than inventory processing interval
-		_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), ins.ID.String())
+		_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), ins.ID.String())
 		assert.NoError(t, err)
 
 		pagedIns = append(pagedIns, ins)
@@ -1369,7 +1369,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 				Labels: []*cwsv1.Label{
 					{
 						Key:   "west1",
-						Value: cwutil.GetPtr("gpu1"),
+						Value: cutil.GetPtr("gpu1"),
 					},
 				},
 			}
@@ -1380,7 +1380,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	site3 := util.TestBuildSite(t, dbSession, ip, "test-site-3", cdbm.SiteStatusRegistered, nil, ipu)
 	vpc3 := util.TestBuildVpc(t, dbSession, ip, site3, tenant, "test-vpc-3")
 
-	machine12 := util.TestBuildMachine(t, dbSession, ip.ID, site2.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
+	machine12 := util.TestBuildMachine(t, dbSession, ip.ID, site2.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
 
 	allocation3 := util.TestBuildAllocation(t, dbSession, ip, tenant, site3, "test-allocation-3")
 	instanceType3 := util.TestBuildInstanceType(t, dbSession, ip, site, "test-instance-type-3")
@@ -1390,19 +1390,19 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 		ctx, nil,
 		cdbm.InstanceCreateInput{
 			Name:                     "test-instance-12",
-			Description:              cwutil.GetPtr("Test description"),
+			Description:              cutil.GetPtr("Test description"),
 			TenantID:                 tenant.ID,
 			InfrastructureProviderID: ip.ID,
 			SiteID:                   site3.ID,
 			InstanceTypeID:           &instanceType3.ID,
 			VpcID:                    vpc3.ID,
 			MachineID:                &machine12.ID,
-			ControllerInstanceID:     cwutil.GetPtr(uuid.New()),
-			Hostname:                 cwutil.GetPtr("test.com"),
-			OperatingSystemID:        cwutil.GetPtr(operatingSystem.ID),
-			IpxeScript:               cwutil.GetPtr("ipxe"),
+			ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+			Hostname:                 cutil.GetPtr("test.com"),
+			OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+			IpxeScript:               cutil.GetPtr("ipxe"),
 			AlwaysBootWithCustomIpxe: true,
-			UserData:                 cwutil.GetPtr("userdata"),
+			UserData:                 cutil.GetPtr("userdata"),
 			Labels:                   map[string]string{},
 			Status:                   cdbm.InstanceStatusTerminating,
 			CreatedBy:                tnu.ID,
@@ -1410,13 +1410,13 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	)
 	assert.NoError(t, err)
 	// Update creation timestamp to be earlier than inventory processing interval
-	_, err = dbSession.DB.Exec("UPDATE instance SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), instance12.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET created = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), instance12.ID.String())
 	assert.NoError(t, err)
 
 	// --- Site 4: NVLink Interface deletion strategy test scenarios ---
 	site4 := util.TestBuildSite(t, dbSession, ip, "test-site-4", cdbm.SiteStatusRegistered, nil, ipu)
 	vpc4 := util.TestBuildVpc(t, dbSession, ip, site4, tenant, "test-vpc-4")
-	subnet4 := util.TestBuildSubnet(t, dbSession, tenant, vpc4, "testSubnet-4", cdbm.SubnetStatusPending, cwutil.GetPtr(uuid.New()))
+	subnet4 := util.TestBuildSubnet(t, dbSession, tenant, vpc4, "testSubnet-4", cdbm.SubnetStatusPending, cutil.GetPtr(uuid.New()))
 
 	nvllPartition4 := util.TestBuildNVLinkLogicalPartition(t, dbSession, "test-nvlinklpartition-4", nil, site4, tenant, cdbm.NVLinkLogicalPartitionStatusReady, false)
 
@@ -1427,96 +1427,96 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 	gpuGuidDel5 := "gpu-guid-nvlink-del-5"
 
 	// Instance A: Deleting NVLink Interface whose GPU GUID/Partition combo is NOT reported in controller status (should be deleted)
-	machineNvlA := util.TestBuildMachine(t, dbSession, ip.ID, site4.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
+	machineNvlA := util.TestBuildMachine(t, dbSession, ip.ID, site4.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
 	nvlinkDelInstA, err := instanceDAO.Create(ctx, nil, cdbm.InstanceCreateInput{
 		Name: "test-instance-nvlink-A", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site4.ID,
-		InstanceTypeID: &instanceType.ID, VpcID: vpc4.ID, MachineID: &machineNvlA.ID, ControllerInstanceID: cwutil.GetPtr(uuid.New()),
-		Hostname: cwutil.GetPtr("test.com"), OperatingSystemID: cwutil.GetPtr(operatingSystem.ID),
+		InstanceTypeID: &instanceType.ID, VpcID: vpc4.ID, MachineID: &machineNvlA.ID, ControllerInstanceID: cutil.GetPtr(uuid.New()),
+		Hostname: cutil.GetPtr("test.com"), OperatingSystemID: cutil.GetPtr(operatingSystem.ID),
 		Labels: map[string]string{}, Status: cdbm.InstanceStatusProvisioning, CreatedBy: tnu.ID,
 	})
 	assert.Nil(t, err)
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), nvlinkDelInstA.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), nvlinkDelInstA.ID.String())
 	assert.NoError(t, err)
 	_ = util.TestBuildInterface(t, dbSession, &nvlinkDelInstA.ID, &subnet4.ID, nil, true, nil, nil, nil, &tnu.ID, cdbm.InterfaceStatusPending)
 
-	nvlifcDelA1 := util.TestBuildNVLinkInterface(t, dbSession, nvlinkDelInstA.ID, site4.ID, nvllPartition4.ID, cwutil.GetPtr(""), 0, cwutil.GetPtr(gpuGuidDel1), nil, cdbm.NVLinkInterfaceStatusDeleting)
-	_, err = dbSession.DB.Exec("UPDATE nvlink_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), nvlifcDelA1.ID.String())
+	nvlifcDelA1 := util.TestBuildNVLinkInterface(t, dbSession, nvlinkDelInstA.ID, site4.ID, nvllPartition4.ID, cutil.GetPtr(""), 0, cutil.GetPtr(gpuGuidDel1), nil, cdbm.NVLinkInterfaceStatusDeleting)
+	_, err = dbSession.DB.Exec("UPDATE nvlink_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), nvlifcDelA1.ID.String())
 	assert.NoError(t, err)
 
-	nvlifcDelA2 := util.TestBuildNVLinkInterface(t, dbSession, nvlinkDelInstA.ID, site4.ID, nvllPartition4.ID, cwutil.GetPtr(""), 1, cwutil.GetPtr(gpuGuidDel2), nil, cdbm.NVLinkInterfaceStatusPending)
+	nvlifcDelA2 := util.TestBuildNVLinkInterface(t, dbSession, nvlinkDelInstA.ID, site4.ID, nvllPartition4.ID, cutil.GetPtr(""), 1, cutil.GetPtr(gpuGuidDel2), nil, cdbm.NVLinkInterfaceStatusPending)
 	assert.NotNil(t, nvlifcDelA2)
 
 	// Instance B: Deleting NVLink Interface combo IS reported AND a Pending duplicate exists (should be deleted)
-	machineNvlB := util.TestBuildMachine(t, dbSession, ip.ID, site4.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
+	machineNvlB := util.TestBuildMachine(t, dbSession, ip.ID, site4.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
 	nvlinkDelInstB, err := instanceDAO.Create(ctx, nil, cdbm.InstanceCreateInput{
 		Name: "test-instance-nvlink-B", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site4.ID,
-		InstanceTypeID: &instanceType.ID, VpcID: vpc4.ID, MachineID: &machineNvlB.ID, ControllerInstanceID: cwutil.GetPtr(uuid.New()),
-		Hostname: cwutil.GetPtr("test.com"), OperatingSystemID: cwutil.GetPtr(operatingSystem.ID),
+		InstanceTypeID: &instanceType.ID, VpcID: vpc4.ID, MachineID: &machineNvlB.ID, ControllerInstanceID: cutil.GetPtr(uuid.New()),
+		Hostname: cutil.GetPtr("test.com"), OperatingSystemID: cutil.GetPtr(operatingSystem.ID),
 		Labels: map[string]string{}, Status: cdbm.InstanceStatusProvisioning, CreatedBy: tnu.ID,
 	})
 	assert.Nil(t, err)
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), nvlinkDelInstB.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), nvlinkDelInstB.ID.String())
 	assert.NoError(t, err)
 	_ = util.TestBuildInterface(t, dbSession, &nvlinkDelInstB.ID, &subnet4.ID, nil, true, nil, nil, nil, &tnu.ID, cdbm.InterfaceStatusPending)
 
-	nvlifcDelB1 := util.TestBuildNVLinkInterface(t, dbSession, nvlinkDelInstB.ID, site4.ID, nvllPartition4.ID, cwutil.GetPtr(""), 0, cwutil.GetPtr(gpuGuidDel3), nil, cdbm.NVLinkInterfaceStatusDeleting)
-	_, err = dbSession.DB.Exec("UPDATE nvlink_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), nvlifcDelB1.ID.String())
+	nvlifcDelB1 := util.TestBuildNVLinkInterface(t, dbSession, nvlinkDelInstB.ID, site4.ID, nvllPartition4.ID, cutil.GetPtr(""), 0, cutil.GetPtr(gpuGuidDel3), nil, cdbm.NVLinkInterfaceStatusDeleting)
+	_, err = dbSession.DB.Exec("UPDATE nvlink_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), nvlifcDelB1.ID.String())
 	assert.NoError(t, err)
 
-	nvlifcDelB2 := util.TestBuildNVLinkInterface(t, dbSession, nvlinkDelInstB.ID, site4.ID, nvllPartition4.ID, cwutil.GetPtr(""), 1, cwutil.GetPtr(gpuGuidDel3), nil, cdbm.NVLinkInterfaceStatusPending)
+	nvlifcDelB2 := util.TestBuildNVLinkInterface(t, dbSession, nvlinkDelInstB.ID, site4.ID, nvllPartition4.ID, cutil.GetPtr(""), 1, cutil.GetPtr(gpuGuidDel3), nil, cdbm.NVLinkInterfaceStatusPending)
 	assert.NotNil(t, nvlifcDelB2)
 
 	// Instance C: Last deleting NVLink Interface, Site won't report GPUConfig or Status, should be deleted
-	machineNvlC := util.TestBuildMachine(t, dbSession, ip.ID, site4.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
+	machineNvlC := util.TestBuildMachine(t, dbSession, ip.ID, site4.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
 	nvlinkDelInstC, err := instanceDAO.Create(ctx, nil, cdbm.InstanceCreateInput{
 		Name: "test-instance-nvlink-C", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site4.ID,
-		InstanceTypeID: &instanceType.ID, VpcID: vpc4.ID, MachineID: &machineNvlC.ID, ControllerInstanceID: cwutil.GetPtr(uuid.New()),
-		Hostname: cwutil.GetPtr("test.com"), OperatingSystemID: cwutil.GetPtr(operatingSystem.ID),
+		InstanceTypeID: &instanceType.ID, VpcID: vpc4.ID, MachineID: &machineNvlC.ID, ControllerInstanceID: cutil.GetPtr(uuid.New()),
+		Hostname: cutil.GetPtr("test.com"), OperatingSystemID: cutil.GetPtr(operatingSystem.ID),
 		Labels: map[string]string{}, Status: cdbm.InstanceStatusProvisioning, CreatedBy: tnu.ID,
 	})
 	assert.Nil(t, err)
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), nvlinkDelInstC.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), nvlinkDelInstC.ID.String())
 	assert.NoError(t, err)
 	_ = util.TestBuildInterface(t, dbSession, &nvlinkDelInstC.ID, &subnet4.ID, nil, true, nil, nil, nil, &tnu.ID, cdbm.InterfaceStatusPending)
 
-	nvlifcDelC1 := util.TestBuildNVLinkInterface(t, dbSession, nvlinkDelInstC.ID, site4.ID, nvllPartition4.ID, cwutil.GetPtr(""), 0, cwutil.GetPtr(gpuGuidDel4), nil, cdbm.NVLinkInterfaceStatusDeleting)
-	_, err = dbSession.DB.Exec("UPDATE nvlink_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), nvlifcDelC1.ID.String())
+	nvlifcDelC1 := util.TestBuildNVLinkInterface(t, dbSession, nvlinkDelInstC.ID, site4.ID, nvllPartition4.ID, cutil.GetPtr(""), 0, cutil.GetPtr(gpuGuidDel4), nil, cdbm.NVLinkInterfaceStatusDeleting)
+	_, err = dbSession.DB.Exec("UPDATE nvlink_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), nvlifcDelC1.ID.String())
 	assert.NoError(t, err)
 	nvlifcDelC1.Instance = nvlinkDelInstC
 
 	// Instance D: Deleting NVLink Interface with stale inventory (recently updated, should NOT be deleted)
-	machineNvlD := util.TestBuildMachine(t, dbSession, ip.ID, site4.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
+	machineNvlD := util.TestBuildMachine(t, dbSession, ip.ID, site4.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
 	nvlinkDelInstD, err := instanceDAO.Create(ctx, nil, cdbm.InstanceCreateInput{
 		Name: "test-instance-nvlink-D", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site4.ID,
-		InstanceTypeID: &instanceType.ID, VpcID: vpc4.ID, MachineID: &machineNvlD.ID, ControllerInstanceID: cwutil.GetPtr(uuid.New()),
-		Hostname: cwutil.GetPtr("test.com"), OperatingSystemID: cwutil.GetPtr(operatingSystem.ID),
+		InstanceTypeID: &instanceType.ID, VpcID: vpc4.ID, MachineID: &machineNvlD.ID, ControllerInstanceID: cutil.GetPtr(uuid.New()),
+		Hostname: cutil.GetPtr("test.com"), OperatingSystemID: cutil.GetPtr(operatingSystem.ID),
 		Labels: map[string]string{}, Status: cdbm.InstanceStatusProvisioning, CreatedBy: tnu.ID,
 	})
 	assert.Nil(t, err)
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), nvlinkDelInstD.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), nvlinkDelInstD.ID.String())
 	assert.NoError(t, err)
 	_ = util.TestBuildInterface(t, dbSession, &nvlinkDelInstD.ID, &subnet4.ID, nil, true, nil, nil, nil, &tnu.ID, cdbm.InterfaceStatusPending)
 
 	// NVLink Interface D1: NOT setting updated to old time - Instance stale guard should block deletion
-	nvlifcDelD1 := util.TestBuildNVLinkInterface(t, dbSession, nvlinkDelInstD.ID, site4.ID, nvllPartition4.ID, cwutil.GetPtr(""), 0, cwutil.GetPtr(gpuGuidDel5), nil, cdbm.NVLinkInterfaceStatusDeleting)
+	nvlifcDelD1 := util.TestBuildNVLinkInterface(t, dbSession, nvlinkDelInstD.ID, site4.ID, nvllPartition4.ID, cutil.GetPtr(""), 0, cutil.GetPtr(gpuGuidDel5), nil, cdbm.NVLinkInterfaceStatusDeleting)
 	assert.NotNil(t, nvlifcDelD1)
 	nvlifcDelD1.Instance = nvlinkDelInstD
 
 	// Instance E: Deleting NVLink Interface when configs are NOT synced (should NOT be deleted)
-	machineNvlE := util.TestBuildMachine(t, dbSession, ip.ID, site4.ID, nil, cwutil.GetPtr(true), cdbm.MachineStatusReady)
+	machineNvlE := util.TestBuildMachine(t, dbSession, ip.ID, site4.ID, nil, cutil.GetPtr(true), cdbm.MachineStatusReady)
 	nvlinkDelInstE, err := instanceDAO.Create(ctx, nil, cdbm.InstanceCreateInput{
 		Name: "test-instance-nvlink-E", TenantID: tenant.ID, InfrastructureProviderID: ip.ID, SiteID: site4.ID,
-		InstanceTypeID: &instanceType.ID, VpcID: vpc4.ID, MachineID: &machineNvlE.ID, ControllerInstanceID: cwutil.GetPtr(uuid.New()),
-		Hostname: cwutil.GetPtr("test.com"), OperatingSystemID: cwutil.GetPtr(operatingSystem.ID),
+		InstanceTypeID: &instanceType.ID, VpcID: vpc4.ID, MachineID: &machineNvlE.ID, ControllerInstanceID: cutil.GetPtr(uuid.New()),
+		Hostname: cutil.GetPtr("test.com"), OperatingSystemID: cutil.GetPtr(operatingSystem.ID),
 		Labels: map[string]string{}, Status: cdbm.InstanceStatusProvisioning, CreatedBy: tnu.ID,
 	})
 	assert.Nil(t, err)
-	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), nvlinkDelInstE.ID.String())
+	_, err = dbSession.DB.Exec("UPDATE instance SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), nvlinkDelInstE.ID.String())
 	assert.NoError(t, err)
 	_ = util.TestBuildInterface(t, dbSession, &nvlinkDelInstE.ID, &subnet4.ID, nil, true, nil, nil, nil, &tnu.ID, cdbm.InterfaceStatusPending)
 
-	nvlifcDelE1 := util.TestBuildNVLinkInterface(t, dbSession, nvlinkDelInstE.ID, site4.ID, nvllPartition4.ID, cwutil.GetPtr(""), 0, cwutil.GetPtr(gpuGuidDel1), nil, cdbm.NVLinkInterfaceStatusDeleting)
-	_, err = dbSession.DB.Exec("UPDATE nvlink_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cwutil.InventoryReceiptInterval)*2), nvlifcDelE1.ID.String())
+	nvlifcDelE1 := util.TestBuildNVLinkInterface(t, dbSession, nvlinkDelInstE.ID, site4.ID, nvllPartition4.ID, cutil.GetPtr(""), 0, cutil.GetPtr(gpuGuidDel1), nil, cdbm.NVLinkInterfaceStatusDeleting)
+	_, err = dbSession.DB.Exec("UPDATE nvlink_interface SET updated = ? WHERE id = ?", time.Now().Add(-time.Duration(cutil.InventoryReceiptInterval)*2), nvlifcDelE1.ID.String())
 	assert.NoError(t, err)
 	nvlifcDelE1.Instance = nvlinkDelInstE
 
@@ -1542,7 +1542,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 					Network: &cwsv1.InstanceNetworkStatus{Interfaces: []*cwsv1.InstanceInterfaceStatus{{MacAddress: &nvlinkDelMacAddress}}, ConfigsSynced: cwsv1.SyncState_SYNCED},
 					Nvlink: &cwsv1.InstanceNVLinkStatus{
 						GpuStatuses: []*cwsv1.InstanceNVLinkGpuStatus{
-							{GpuGuid: cwutil.GetPtr(gpuGuidDel2), LogicalPartitionId: &cwsv1.NVLinkLogicalPartitionId{Value: nvllPartition4.ID.String()}},
+							{GpuGuid: cutil.GetPtr(gpuGuidDel2), LogicalPartitionId: &cwsv1.NVLinkLogicalPartitionId{Value: nvllPartition4.ID.String()}},
 						},
 						ConfigsSynced: cwsv1.SyncState_SYNCED,
 					},
@@ -1567,7 +1567,7 @@ func TestManageInstance_UpdateInstancesInDB(t *testing.T) {
 					Network: &cwsv1.InstanceNetworkStatus{Interfaces: []*cwsv1.InstanceInterfaceStatus{{MacAddress: &nvlinkDelMacAddress}}, ConfigsSynced: cwsv1.SyncState_SYNCED},
 					Nvlink: &cwsv1.InstanceNVLinkStatus{
 						GpuStatuses: []*cwsv1.InstanceNVLinkGpuStatus{
-							{GpuGuid: cwutil.GetPtr(gpuGuidDel3), LogicalPartitionId: &cwsv1.NVLinkLogicalPartitionId{Value: nvllPartition4.ID.String()}},
+							{GpuGuid: cutil.GetPtr(gpuGuidDel3), LogicalPartitionId: &cwsv1.NVLinkLogicalPartitionId{Value: nvllPartition4.ID.String()}},
 						},
 						ConfigsSynced: cwsv1.SyncState_SYNCED,
 					},
@@ -2242,7 +2242,7 @@ func Test_Instance_UpdateInstanceMetadata(t *testing.T) {
 
 	site := util.TestBuildSite(t, dbSession, ip, "testSiteUpdateMetadata", cdbm.SiteStatusPending, nil, ipu)
 	vpc := util.TestBuildVpc(t, dbSession, ip, site, tenant, "testVpcUpdateMetadata")
-	machine := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, cdb.GetStrPtr("mcTypeTest"), cdb.GetBoolPtr(true), cdbm.MachineStatusReady)
+	machine := util.TestBuildMachine(t, dbSession, ip.ID, site.ID, cutil.GetPtr("mcTypeTest"), cutil.GetPtr(true), cdbm.MachineStatusReady)
 	instanceType := util.TestBuildInstanceType(t, dbSession, ip, site, "testInstanceTypeUpdateMetadata")
 	operatingSystem := util.TestBuildOperatingSystem(t, dbSession, "testOSUpdateMetadata")
 
@@ -2257,12 +2257,12 @@ func Test_Instance_UpdateInstanceMetadata(t *testing.T) {
 		InstanceTypeID:           &instanceType.ID,
 		VpcID:                    vpc.ID,
 		MachineID:                &machine.ID,
-		ControllerInstanceID:     cdb.GetUUIDPtr(uuid.New()),
-		Hostname:                 cdb.GetStrPtr("test.com"),
-		OperatingSystemID:        cdb.GetUUIDPtr(operatingSystem.ID),
-		IpxeScript:               cdb.GetStrPtr("ipxe"),
+		ControllerInstanceID:     cutil.GetPtr(uuid.New()),
+		Hostname:                 cutil.GetPtr("test.com"),
+		OperatingSystemID:        cutil.GetPtr(operatingSystem.ID),
+		IpxeScript:               cutil.GetPtr("ipxe"),
 		AlwaysBootWithCustomIpxe: true,
-		UserData:                 cdb.GetStrPtr("userdata"),
+		UserData:                 cutil.GetPtr("userdata"),
 		Labels: map[string]string{
 			"db-label-key-1": "db-label-value-1",
 			"db-label-key-2": "db-label-value-2",
