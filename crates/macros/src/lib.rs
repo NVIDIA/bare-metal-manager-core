@@ -195,18 +195,11 @@ pub fn sqlx_test(args: TokenStream, input: TokenStream) -> TokenStream {
     let input = syn::parse_macro_input!(input as syn::ItemFn);
     match expand(args, input) {
         Ok(ts) => ts,
-        Err(e) => {
-            if let Some(parse_err) = e.downcast_ref::<syn::Error>() {
-                parse_err.to_compile_error().into()
-            } else {
-                let msg = e.to_string();
-                quote!(::std::compile_error!(#msg)).into()
-            }
-        }
+        Err(e) => e.to_compile_error().into(),
     }
 }
 
-fn expand(args: TokenStream, input: syn::ItemFn) -> eyre::Result<TokenStream> {
+fn expand(args: TokenStream, input: syn::ItemFn) -> Result<TokenStream, syn::Error> {
     let ret = &input.sig.output;
     let name = &input.sig.ident;
     let inputs = &input.sig.inputs;

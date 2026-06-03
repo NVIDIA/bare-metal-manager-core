@@ -26,7 +26,6 @@ use ::rpc::forge::{
 use carbide_uuid::machine::MachineId;
 use chrono::Utc;
 use db::{WithTransaction, tenant_identity_config};
-use forge_secrets::key_encryption;
 use model::tenant::{InvalidTenantOrg, TenantIdentityConfig, TenantOrganizationId};
 use serde_json::json;
 use tonic::{Request, Response, Status};
@@ -35,9 +34,9 @@ use crate::CarbideError;
 use crate::api::{Api, log_request_data};
 use crate::auth::AuthContext;
 use crate::machine_identity::{
-    Es256Signer, SignOptions, Signer, decrypt_token_delegation_encrypted_blob,
-    machine_identity_encryption_secret, token_delegation_credentials, token_exchange_http_client,
-    token_exchange_request,
+    Es256Signer, SignOptions, Signer, decrypt_machine_identity_ciphertext,
+    decrypt_token_delegation_encrypted_blob, token_delegation_credentials,
+    token_exchange_http_client, token_exchange_request,
 };
 
 /// Shared gate for APIs that require site `[machine_identity].enabled` (identity admin + discovery).
@@ -72,7 +71,7 @@ async fn load_enabled_identity_for_well_known(
             let org_id = org_id.clone();
             Box::pin(async move {
                 tenant_identity_config::gc_expired_non_active_signing_key(&org_id, txn).await?;
-                tenant_identity_config::find(&org_id, txn).await
+                tenant_identity_config::find(&org_id, txn.as_mut()).await
             })
         })
         .await??;
@@ -186,22 +185,22 @@ pub(crate) async fn sign_machine_identity(
     };
     validate_audiences_in_allowlist(&audiences, allowed)?;
 
-    let aes = machine_identity_encryption_secret(
-        api.credential_manager.as_ref(),
-        &identity_row.encryption_key_id,
-    )
-    .await?;
     let enc_key = identity_row
         .current_encrypted_signing_key()
         .map_err(|e| CarbideError::InvalidArgument(e.to_string()))?;
-    let private_pem = key_encryption::decrypt(enc_key.as_str(), &aes).map_err(|e| {
-        tracing::error!(
-            error = %e,
-            org_id = %identity_row.organization_id.as_str(),
-            "tenant signing key decrypt failed"
-        );
-        CarbideError::internal("stored signing key could not be decrypted".to_string())
-    })?;
+    let private_pem =
+        decrypt_machine_identity_ciphertext(api.credential_manager.as_ref(), enc_key.as_str())
+            .await
+            .inspect_err(|e| {
+                tracing::error!(
+                    org_id = %identity_row.organization_id.as_str(),
+                    message = %e.message(),
+                    "tenant signing key decrypt failed"
+                );
+            })
+            .map_err(|_| {
+                CarbideError::internal("stored signing key could not be decrypted".to_string())
+            })?;
 
     let active_pub = identity_row
         .current_signing_public()
@@ -242,7 +241,6 @@ pub(crate) async fn sign_machine_identity(
 
         let delegation_plain = decrypt_token_delegation_encrypted_blob(
             api.credential_manager.as_ref(),
-            &identity_row.encryption_key_id,
             identity_row.encrypted_auth_method_config.as_ref(),
         )
         .await

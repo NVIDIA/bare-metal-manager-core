@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 
-package nico
+package nicolegacy
 
 import (
 	"time"
@@ -20,7 +20,7 @@ const (
 	DefaultComputePowerDelay = 2 * time.Second
 )
 
-// Config holds manager-specific configuration for compute/nico.
+// Config holds manager-specific configuration for compute/nicolegacy.
 type Config struct {
 	// ComputePowerDelay is the delay inserted between sequential power control
 	// calls when commanding multiple compute trays. 0 means no delay.
@@ -31,7 +31,8 @@ type rawConfig struct {
 	ComputePowerDelay string `yaml:"compute_power_delay"`
 }
 
-// Validate verifies that this config is used with the compute/nico descriptor.
+// Validate verifies that this config is used with the compute/nicolegacy
+// descriptor.
 func (*Config) Validate(expectedIdentity cmcatalog.DescriptorIdentity) error {
 	actualIdentity := ConfigDecoder{}.Identity()
 	if expectedIdentity != actualIdentity {
@@ -43,7 +44,8 @@ func (*Config) Validate(expectedIdentity cmcatalog.DescriptorIdentity) error {
 	return nil
 }
 
-// ConfigDecoder owns compute/nico manager config defaults and YAML decoding.
+// ConfigDecoder owns compute/nicolegacy manager config defaults and YAML
+// decoding.
 type ConfigDecoder struct{}
 
 // Identity returns the descriptor identity handled by this decoder.
@@ -54,14 +56,14 @@ func (ConfigDecoder) Identity() cmcatalog.DescriptorIdentity {
 	}
 }
 
-// DefaultConfig returns the default compute/nico manager config.
+// DefaultConfig returns the default compute/nicolegacy manager config.
 func (ConfigDecoder) DefaultConfig() cmconfig.ManagerConfig {
 	return &Config{
 		ComputePowerDelay: DefaultComputePowerDelay,
 	}
 }
 
-// DecodeYAML decodes compute/nico manager YAML into a typed config.
+// DecodeYAML decodes compute/nicolegacy manager YAML into a typed config.
 func (d ConfigDecoder) DecodeYAML(raw yaml.Node) (cmconfig.ManagerConfig, error) {
 	config := d.DefaultConfig().(*Config)
 

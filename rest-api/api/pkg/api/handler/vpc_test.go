@@ -252,7 +252,7 @@ func testVPCBuildVPCPrefix(t *testing.T, dbSession *cdb.Session, name string, tn
 	return vpcPrefix
 }
 
-func testVPCBuildNVLinkLogicalPartition(t *testing.T, dbSession *cdb.Session, name string, description *string, org string, site *cdbm.Site, tenant *cdbm.Tenant, status string, user *cdbm.User) *cdbm.NVLinkLogicalPartition {
+func testVPCBuildNVLinkLogicalPartition(t *testing.T, dbSession *cdb.Session, name string, description *string, org string, site *cdbm.Site, tenant *cdbm.Tenant, status cdbm.NVLinkLogicalPartitionStatus, user *cdbm.User) *cdbm.NVLinkLogicalPartition {
 	nvllpDAO := cdbm.NewNVLinkLogicalPartitionDAO(dbSession)
 
 	nvllp, err := nvllpDAO.Create(context.Background(), nil, cdbm.NVLinkLogicalPartitionCreateInput{
@@ -372,7 +372,7 @@ func TestCreateVPCHandler_Handle(t *testing.T) {
 	assert.NotNil(t, nsgTenant2Site1)
 
 	// NVLink Logical Partition for tenant 1 on site 1
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st1, tn, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
 
 	existingVPCSt1 := testVPCBuildVPC(t, dbSession, "test-vpc", ip, tn, st1, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdb.GetUUIDPtr(nvllp1.ID), map[string]string{"zone": "west1"}, cdbm.VpcStatusReady, tnu)
@@ -1196,10 +1196,10 @@ func TestUpdateVPCHandler_Handle(t *testing.T) {
 	assert.NotNil(t, al1)
 
 	// NVLink Logical Partition for tenant 1 on site 1
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st, tn, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg, st, tn, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
 
-	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cdb.GetStrPtr("Test NVLink Logical Partition 2"), tnOrg, st, tn, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp2 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-2", cdb.GetStrPtr("Test NVLink Logical Partition 2"), tnOrg, st, tn, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp2)
 
 	vpc := testVPCBuildVPC(t, dbSession, "test-vpc", ip, tn, st, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdb.GetUUIDPtr(nvllp1.ID), map[string]string{"zone": "west1"}, cdbm.VpcStatusReady, tnu)
@@ -3148,7 +3148,7 @@ func TestDeleteVPCHandler_Handle(t *testing.T) {
 	assert.NotNil(t, ipb1)
 
 	// NVLink Logical Partition for tenant 1 on site 1
-	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, st, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp1 := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp-1", cdb.GetStrPtr("Test NVLink Logical Partition"), tnOrg1, st, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp1)
 
 	vpc1 := testVPCBuildVPC(t, dbSession, "test-vpc-1", ip, tn1, st, cdb.GetStrPtr(cdbm.VpcEthernetVirtualizer), cdb.GetUUIDPtr(nvllp1.ID), map[string]string{"zone": "east1"}, cdbm.VpcStatusReady, tnu1)
@@ -3184,7 +3184,7 @@ func TestDeleteVPCHandler_Handle(t *testing.T) {
 	vpcPrefix := testVPCBuildVPCPrefix(t, dbSession, "test-vpc-prefix", tn1, vpc3, db.GetUUIDPtr(ipb1.ID), "10.0.0.0/24", tnu1)
 	assert.NotNil(t, vpcPrefix)
 
-	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp", cdb.GetStrPtr("Test NVLink Logical Partition"), tn1.Org, st, tn1, cdb.GetStrPtr(cdbm.NVLinkLogicalPartitionStatusReady), false)
+	nvllp := testBuildNVLinkLogicalPartition(t, dbSession, "test-nvllp", cdb.GetStrPtr("Test NVLink Logical Partition"), tn1.Org, st, tn1, cdb.Ptr(cdbm.NVLinkLogicalPartitionStatusReady), false)
 	assert.NotNil(t, nvllp)
 
 	e := echo.New()

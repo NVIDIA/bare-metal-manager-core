@@ -6,44 +6,39 @@ package nico
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
 
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi"
 	pb "github.com/NVIDIA/infra-controller-rest/flow/internal/nicoapi/gen"
-	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
+	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/capability"
 	nicoprovider "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providers/nico"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/executor/temporalworkflow/common"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/operations"
 	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
 )
 
-func TestConfigDecoderDecodeYAML(t *testing.T) {
-	decoder := ConfigDecoder{}
+func TestDescriptor(t *testing.T) {
+	d := Descriptor()
 
-	decoded, err := decoder.DecodeYAML(yaml.Node{})
-	require.NoError(t, err)
-	config := decoded.(*Config)
-	assert.Equal(t, DefaultComputePowerDelay, config.ComputePowerDelay)
-
-	decoded, err = decoder.DecodeYAML(managerYAMLNode(t, `compute_power_delay: 0s`))
-	require.NoError(t, err)
-	config = decoded.(*Config)
-	assert.Equal(t, 0*time.Second, config.ComputePowerDelay)
-
-	_, err = decoder.DecodeYAML(managerYAMLNode(t, `compute_power_delay: nope`))
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, cmconfig.ErrInvalidManagerConfigField))
-	assertInvalidManagerConfigField(t, err, "compute_power_delay")
-
-	_, err = decoder.DecodeYAML(managerYAMLNode(t, `compute_power_dely: 15s`))
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, cmconfig.ErrInvalidManagerConfig))
+	assert.Equal(t, devicetypes.ComponentTypeCompute, d.Type)
+	assert.Equal(t, ImplementationName, d.Implementation)
+	assert.ElementsMatch(t, []string{nicoprovider.ProviderName}, d.RequiredProviders)
+	assert.ElementsMatch(t,
+		capability.CapabilitySet{
+			capability.CapabilityBringUpControl,
+			capability.CapabilityBringUpStatus,
+			capability.CapabilityFirmwareControl,
+			capability.CapabilityFirmwareStatus,
+			capability.CapabilityInjectExpectation,
+			capability.CapabilityPowerControl,
+			capability.CapabilityPowerStatus,
+		},
+		d.Capabilities,
+	)
 }
 
 func TestInjectExpectation(t *testing.T) {
@@ -87,7 +82,7 @@ func TestInjectExpectation(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			m := New(tc.client, 0)
+			m := New(tc.client)
 
 			target := common.Target{
 				Type:         devicetypes.ComponentTypeCompute,
@@ -107,431 +102,143 @@ func TestInjectExpectation(t *testing.T) {
 	}
 }
 
-func mustMarshal(t *testing.T, v any) json.RawMessage {
-	t.Helper()
-	data, err := json.Marshal(v)
-	if err != nil {
-		t.Fatalf("failed to marshal: %v", err)
+func TestPowerControl_HappyPath(t *testing.T) {
+	m := New(nicoapi.NewMockClient())
+
+	target := common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{"machine-1", "machine-2"},
 	}
-	return data
+
+	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
+		Operation: operations.PowerOperationPowerOn,
+	})
+	require.NoError(t, err)
 }
 
-func assertInvalidManagerConfigField(t *testing.T, err error, field string) {
-	t.Helper()
+func TestPowerControl_RejectsUnsupportedOperation(t *testing.T) {
+	m := New(nicoapi.NewMockClient())
+	target := common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{"machine-1"},
+	}
 
-	var fieldErr cmconfig.InvalidManagerConfigFieldError
-	require.True(t, errors.As(err, &fieldErr))
-	assert.Equal(t, ConfigDecoder{}.Identity(), fieldErr.Identity)
-	assert.Equal(t, field, fieldErr.Field)
+	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
+		Operation: operations.PowerOperation(0xff),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported power operation")
 }
 
-func managerYAMLNode(t *testing.T, data string) yaml.Node {
-	t.Helper()
+func TestFirmwareControl_HappyPath(t *testing.T) {
+	m := New(nicoapi.NewMockClient())
 
-	var node yaml.Node
-	require.NoError(t, yaml.Unmarshal([]byte(data), &node))
-	require.NotEmpty(t, node.Content)
-	return *node.Content[0]
+	target := common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{"machine-1"},
+	}
+
+	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
+		Operation:     operations.FirmwareOperationUpgrade,
+		TargetVersion: "fw-bundle-id-v1",
+		SubTargets:    []string{"bmc", "bios"},
+	})
+	require.NoError(t, err)
 }
 
-// TestFirmwareControl_SubTargetsAccepted verifies that the compute/nico
-// FirmwareControl path tolerates info.SubTargets without erroring. This
-// path goes through SetMachineAutoUpdate + SetFirmwareUpdateTimeWindow,
-// which has no per-sub-target selection in NICo, so the manager only logs
-// a warning and proceeds; we exercise that branch here. The actual
-// per-sub-target dispatch will be added when compute moves to NICo's
-// UpdateComponentFirmware (see comment in nico.go).
-func TestFirmwareControl_SubTargetsAccepted(t *testing.T) {
+func TestFirmwareControl_RejectsUnknownSubTarget(t *testing.T) {
+	m := New(nicoapi.NewMockClient())
+	target := common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{"machine-1"},
+	}
+
+	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
+		Operation:  operations.FirmwareOperationUpgrade,
+		SubTargets: []string{"made-up"},
+	})
+	require.Error(t, err)
+}
+
+func TestGetFirmwareStatus_HappyPath(t *testing.T) {
+	m := New(nicoapi.NewMockClient())
+
+	target := common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{"machine-1"},
+	}
+
+	statuses, err := m.GetFirmwareStatus(context.Background(), target)
+	require.NoError(t, err)
+	require.NotNil(t, statuses)
+	// Mock returns no statuses, so the requested machine still appears with
+	// Unknown state.
+	require.Contains(t, statuses, "machine-1")
+	assert.Equal(t, operations.FirmwareUpdateStateUnknown, statuses["machine-1"].State)
+}
+
+func TestAggregateNICoStatuses(t *testing.T) {
+	mkStatus := func(compID string, state pb.FirmwareUpdateState, errMsg string) *pb.FirmwareUpdateStatus {
+		return &pb.FirmwareUpdateStatus{
+			Result: &pb.ComponentResult{
+				ComponentId: compID,
+				Error:       errMsg,
+			},
+			State: state,
+		}
+	}
+
 	tests := map[string]struct {
-		subTargets []string
+		statuses      []*pb.FirmwareUpdateStatus
+		expectedState operations.FirmwareUpdateState
+		expectedError string
 	}{
-		"nil sub_targets (legacy path)":     {subTargets: nil},
-		"empty sub_targets (legacy path)":   {subTargets: []string{}},
-		"non-empty sub_targets (warn path)": {subTargets: []string{"bmc", "bios"}},
+		"empty returns unknown": {
+			statuses:      nil,
+			expectedState: operations.FirmwareUpdateStateUnknown,
+		},
+		"all completed": {
+			statuses: []*pb.FirmwareUpdateStatus{
+				mkStatus("machine-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+				mkStatus("machine-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+			},
+			expectedState: operations.FirmwareUpdateStateCompleted,
+		},
+		"any failure marks overall failed": {
+			statuses: []*pb.FirmwareUpdateStatus{
+				mkStatus("machine-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+				mkStatus("machine-1", pb.FirmwareUpdateState_FW_STATE_FAILED, "BIOS update failed"),
+			},
+			expectedState: operations.FirmwareUpdateStateFailed,
+			expectedError: "BIOS update failed",
+		},
+		"still in progress": {
+			statuses: []*pb.FirmwareUpdateStatus{
+				mkStatus("machine-1", pb.FirmwareUpdateState_FW_STATE_COMPLETED, ""),
+				mkStatus("machine-1", pb.FirmwareUpdateState_FW_STATE_IN_PROGRESS, ""),
+			},
+			expectedState: operations.FirmwareUpdateStateQueued,
+		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			m := New(nicoapi.NewMockClient(), 0)
-			target := common.Target{
-				Type:         devicetypes.ComponentTypeCompute,
-				ComponentIDs: []string{"machine-1"},
+			result := aggregateNICoStatuses("machine-1", tc.statuses)
+			require.Equal(t, "machine-1", result.ComponentID)
+			require.Equal(t, tc.expectedState, result.State)
+			if tc.expectedError != "" {
+				assert.Contains(t, result.Error, tc.expectedError)
 			}
-
-			err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
-				Operation:  operations.FirmwareOperationUpgrade,
-				SubTargets: tc.subTargets,
-			})
-			require.NoError(t, err)
-		})
-	}
-}
-
-// --- Tests for firmware version helper functions ---
-
-func desiredEntry(versions map[string]string) *pb.DesiredFirmwareVersionEntry {
-	return &pb.DesiredFirmwareVersionEntry{
-		ComponentVersions: versions,
-	}
-}
-
-func TestVersionsEqual(t *testing.T) {
-	tests := map[string]struct {
-		a, b   map[string]string
-		expect bool
-	}{
-		"equal single key": {
-			a:      map[string]string{"bmc": "1.0"},
-			b:      map[string]string{"bmc": "1.0"},
-			expect: true,
-		},
-		"equal multiple keys": {
-			a:      map[string]string{"bmc": "1.0", "uefi": "2.0"},
-			b:      map[string]string{"bmc": "1.0", "uefi": "2.0"},
-			expect: true,
-		},
-		"different values": {
-			a:      map[string]string{"bmc": "1.0"},
-			b:      map[string]string{"bmc": "2.0"},
-			expect: false,
-		},
-		"different lengths": {
-			a:      map[string]string{"bmc": "1.0"},
-			b:      map[string]string{"bmc": "1.0", "uefi": "2.0"},
-			expect: false,
-		},
-		"both empty": {
-			a:      map[string]string{},
-			b:      map[string]string{},
-			expect: true,
-		},
-		"a nil b empty": {
-			a:      nil,
-			b:      map[string]string{},
-			expect: true,
-		},
-		"both nil": {
-			a:      nil,
-			b:      nil,
-			expect: true,
-		},
-		"missing key in b": {
-			a:      map[string]string{"bmc": "1.0", "uefi": "2.0"},
-			b:      map[string]string{"bmc": "1.0", "cpld": "3.0"},
-			expect: false,
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, tc.expect, versionsEqual(tc.a, tc.b))
-		})
-	}
-}
-
-func TestFirmwareVersionsMatch(t *testing.T) {
-	tests := map[string]struct {
-		desired, actual map[string]string
-		expect          bool
-	}{
-		"exact match": {
-			desired: map[string]string{"bmc": "1.0", "uefi": "2.0"},
-			actual:  map[string]string{"bmc": "1.0", "uefi": "2.0"},
-			expect:  true,
-		},
-		"desired is subset of actual": {
-			desired: map[string]string{"bmc": "1.0"},
-			actual:  map[string]string{"bmc": "1.0", "uefi": "2.0", "cpld": "3.0"},
-			expect:  true,
-		},
-		"version mismatch": {
-			desired: map[string]string{"bmc": "1.0"},
-			actual:  map[string]string{"bmc": "2.0"},
-			expect:  false,
-		},
-		"desired key missing from actual": {
-			desired: map[string]string{"bmc": "1.0", "uefi": "2.0"},
-			actual:  map[string]string{"bmc": "1.0"},
-			expect:  false,
-		},
-		"empty desired returns false": {
-			desired: map[string]string{},
-			actual:  map[string]string{"bmc": "1.0"},
-			expect:  false,
-		},
-		"nil desired returns false": {
-			desired: nil,
-			actual:  map[string]string{"bmc": "1.0"},
-			expect:  false,
-		},
-		"empty actual with non-empty desired returns false": {
-			desired: map[string]string{"bmc": "1.0"},
-			actual:  map[string]string{},
-			expect:  false,
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, tc.expect, firmwareVersionsMatch(tc.desired, tc.actual))
-		})
-	}
-}
-
-func TestMatchesAnyDesired(t *testing.T) {
-	tests := map[string]struct {
-		actual  map[string]string
-		entries []*pb.DesiredFirmwareVersionEntry
-		expect  bool
-	}{
-		"matches first entry": {
-			actual: map[string]string{"bmc": "1.0", "uefi": "2.0"},
-			entries: []*pb.DesiredFirmwareVersionEntry{
-				desiredEntry(map[string]string{"bmc": "1.0"}),
-				desiredEntry(map[string]string{"bmc": "9.0"}),
-			},
-			expect: true,
-		},
-		"matches second entry": {
-			actual: map[string]string{"bmc": "9.0"},
-			entries: []*pb.DesiredFirmwareVersionEntry{
-				desiredEntry(map[string]string{"bmc": "1.0"}),
-				desiredEntry(map[string]string{"bmc": "9.0"}),
-			},
-			expect: true,
-		},
-		"matches none": {
-			actual: map[string]string{"bmc": "5.0"},
-			entries: []*pb.DesiredFirmwareVersionEntry{
-				desiredEntry(map[string]string{"bmc": "1.0"}),
-				desiredEntry(map[string]string{"bmc": "9.0"}),
-			},
-			expect: false,
-		},
-		"empty entries": {
-			actual:  map[string]string{"bmc": "1.0"},
-			entries: nil,
-			expect:  false,
-		},
-		"entry with empty component_versions never matches": {
-			actual: map[string]string{"bmc": "1.0"},
-			entries: []*pb.DesiredFirmwareVersionEntry{
-				desiredEntry(map[string]string{}),
-			},
-			expect: false,
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, tc.expect, matchesAnyDesired(tc.actual, tc.entries))
-		})
-	}
-}
-
-func TestParseTargetVersion(t *testing.T) {
-	tests := map[string]struct {
-		input       string
-		expected    map[string]string
-		expectError bool
-		errContains string
-	}{
-		"valid json object": {
-			input:    `{"bmc":"7.10.30.00","uefi":"2.22.1"}`,
-			expected: map[string]string{"bmc": "7.10.30.00", "uefi": "2.22.1"},
-		},
-		"single key": {
-			input:    `{"bmc":"1.0"}`,
-			expected: map[string]string{"bmc": "1.0"},
-		},
-		"empty object": {
-			input:    `{}`,
-			expected: map[string]string{},
-		},
-		"invalid json": {
-			input:       `{not valid`,
-			expectError: true,
-			errContains: "target_version must be a JSON object",
-		},
-		"json array instead of object": {
-			input:       `["bmc","1.0"]`,
-			expectError: true,
-			errContains: "target_version must be a JSON object",
-		},
-		"json string instead of object": {
-			input:       `"bmc:1.0"`,
-			expectError: true,
-			errContains: "target_version must be a JSON object",
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			result, err := parseTargetVersion(tc.input)
-			if tc.expectError {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tc.errContains)
-			} else {
-				require.NoError(t, err)
-				assert.Equal(t, tc.expected, result)
-			}
-		})
-	}
-}
-
-func TestIsTargetVersionInDesired(t *testing.T) {
-	entries := []*pb.DesiredFirmwareVersionEntry{
-		desiredEntry(map[string]string{"bmc": "7.10.30.00", "uefi": "2.22.1"}),
-		desiredEntry(map[string]string{"bmc": "8.0.0.00", "uefi": "3.0.0"}),
-	}
-
-	tests := map[string]struct {
-		target  map[string]string
-		entries []*pb.DesiredFirmwareVersionEntry
-		expect  bool
-	}{
-		"matches first entry exactly": {
-			target:  map[string]string{"bmc": "7.10.30.00", "uefi": "2.22.1"},
-			entries: entries,
-			expect:  true,
-		},
-		"matches second entry exactly": {
-			target:  map[string]string{"bmc": "8.0.0.00", "uefi": "3.0.0"},
-			entries: entries,
-			expect:  true,
-		},
-		"partial match is not equal": {
-			target:  map[string]string{"bmc": "7.10.30.00"},
-			entries: entries,
-			expect:  false,
-		},
-		"no match": {
-			target:  map[string]string{"bmc": "99.0.0", "uefi": "99.0"},
-			entries: entries,
-			expect:  false,
-		},
-		"empty entries": {
-			target:  map[string]string{"bmc": "1.0"},
-			entries: nil,
-			expect:  false,
-		},
-		"empty target with empty entry": {
-			target:  map[string]string{},
-			entries: []*pb.DesiredFirmwareVersionEntry{desiredEntry(map[string]string{})},
-			expect:  true,
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, tc.expect, isTargetVersionInDesired(tc.target, tc.entries))
-		})
-	}
-}
-
-func TestAllFirmwareUpToDate(t *testing.T) {
-	desiredEntries := []*pb.DesiredFirmwareVersionEntry{
-		desiredEntry(map[string]string{"bmc": "1.0", "uefi": "2.0"}),
-		desiredEntry(map[string]string{"bmc": "3.0", "uefi": "4.0"}),
-	}
-
-	tests := map[string]struct {
-		componentIDs   []string
-		actualFirmware map[string]map[string]string
-		targetFirmware map[string]string
-		desiredEntries []*pb.DesiredFirmwareVersionEntry
-		expect         bool
-	}{
-		"all match target firmware": {
-			componentIDs: []string{"m1", "m2"},
-			actualFirmware: map[string]map[string]string{
-				"m1": {"bmc": "1.0", "uefi": "2.0"},
-				"m2": {"bmc": "1.0", "uefi": "2.0"},
-			},
-			targetFirmware: map[string]string{"bmc": "1.0"},
-			desiredEntries: desiredEntries,
-			expect:         true,
-		},
-		"one machine does not match target": {
-			componentIDs: []string{"m1", "m2"},
-			actualFirmware: map[string]map[string]string{
-				"m1": {"bmc": "1.0", "uefi": "2.0"},
-				"m2": {"bmc": "OLD", "uefi": "2.0"},
-			},
-			targetFirmware: map[string]string{"bmc": "1.0"},
-			desiredEntries: desiredEntries,
-			expect:         false,
-		},
-		"all match desired (no target)": {
-			componentIDs: []string{"m1", "m2"},
-			actualFirmware: map[string]map[string]string{
-				"m1": {"bmc": "1.0", "uefi": "2.0"},
-				"m2": {"bmc": "3.0", "uefi": "4.0"},
-			},
-			targetFirmware: nil,
-			desiredEntries: desiredEntries,
-			expect:         true,
-		},
-		"one machine does not match any desired": {
-			componentIDs: []string{"m1", "m2"},
-			actualFirmware: map[string]map[string]string{
-				"m1": {"bmc": "1.0", "uefi": "2.0"},
-				"m2": {"bmc": "OLD", "uefi": "OLD"},
-			},
-			targetFirmware: nil,
-			desiredEntries: desiredEntries,
-			expect:         false,
-		},
-		"empty actualFirmware": {
-			componentIDs:   []string{"m1"},
-			actualFirmware: map[string]map[string]string{},
-			targetFirmware: nil,
-			desiredEntries: desiredEntries,
-			expect:         false,
-		},
-		"nil actualFirmware": {
-			componentIDs:   []string{"m1"},
-			actualFirmware: nil,
-			targetFirmware: nil,
-			desiredEntries: desiredEntries,
-			expect:         false,
-		},
-		"component missing from actualFirmware": {
-			componentIDs: []string{"m1", "m2"},
-			actualFirmware: map[string]map[string]string{
-				"m1": {"bmc": "1.0", "uefi": "2.0"},
-			},
-			targetFirmware: nil,
-			desiredEntries: desiredEntries,
-			expect:         false,
-		},
-		"component has empty firmware map": {
-			componentIDs: []string{"m1"},
-			actualFirmware: map[string]map[string]string{
-				"m1": {},
-			},
-			targetFirmware: nil,
-			desiredEntries: desiredEntries,
-			expect:         false,
-		},
-	}
-
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, tc.expect, allFirmwareUpToDate(
-				tc.componentIDs, tc.actualFirmware, tc.targetFirmware, tc.desiredEntries,
-			))
 		})
 	}
 }
 
 // newManagerForSafetyTest swaps the long default 30-minute assignment
 // timeout for a tight one so the wait loop actually times out within the
-// test budget. Tests in this file use the same package, so they can reach
-// the unexported assignment field directly.
+// test budget.
 func newManagerForSafetyTest(t *testing.T, client nicoapi.Client) *Manager {
 	t.Helper()
-	m := New(client, 0)
+	m := New(client)
 	m.assignment = nicoprovider.NewAssignmentChecker(client, 50*time.Millisecond, 10*time.Millisecond)
 	return m
 }
@@ -552,7 +259,6 @@ func TestPowerControl_RefusesAssignedMachine(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "refused")
 	assert.Contains(t, err.Error(), "Assigned state")
-	assert.Contains(t, err.Error(), "machine-1")
 }
 
 func TestPowerControl_AllowsUnassignedMachine(t *testing.T) {
@@ -567,6 +273,46 @@ func TestPowerControl_AllowsUnassignedMachine(t *testing.T) {
 
 	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
 		Operation: operations.PowerOperationPowerOn,
+	})
+	require.NoError(t, err)
+}
+
+func TestFirmwareControl_RefusesAssignedMachine(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
+
+	m := newManagerForSafetyTest(t, client)
+	target := common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{"machine-1"},
+	}
+
+	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
+		Operation:     operations.FirmwareOperationUpgrade,
+		TargetVersion: "fw-v1",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refused")
+	assert.Contains(t, err.Error(), "Assigned state")
+}
+
+// TestPowerControl_OverrideBypassesAssignmentCheck verifies that
+// OverrideAssignmentCheck short-circuits the assignment-state gate on
+// PowerControl. The host is in Assigned/* — which would otherwise block
+// the call — yet the operation is expected to proceed past the gate.
+func TestPowerControl_OverrideBypassesAssignmentCheck(t *testing.T) {
+	client := nicoapi.NewMockClient()
+	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
+
+	m := newManagerForSafetyTest(t, client)
+	target := common.Target{
+		Type:         devicetypes.ComponentTypeCompute,
+		ComponentIDs: []string{"machine-1"},
+	}
+
+	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
+		Operation:               operations.PowerOperationPowerOn,
+		OverrideAssignmentCheck: true,
 	})
 	require.NoError(t, err)
 }
@@ -587,50 +333,6 @@ func TestBringUpControl_RefusesAssignedMachine(t *testing.T) {
 	assert.Contains(t, err.Error(), "Assigned state")
 }
 
-func TestFirmwareControl_RefusesAssignedMachine(t *testing.T) {
-	client := nicoapi.NewMockClient()
-	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
-
-	m := newManagerForSafetyTest(t, client)
-	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{"machine-1"},
-	}
-
-	err := m.FirmwareControl(context.Background(), target, operations.FirmwareControlTaskInfo{
-		Operation:     operations.FirmwareOperationUpgrade,
-		TargetVersion: "1.0.0",
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "refused")
-	assert.Contains(t, err.Error(), "Assigned state")
-}
-
-// TestPowerControl_OverrideBypassesAssignmentCheck verifies that the
-// operator-controlled OverrideAssignmentCheck flag short-circuits the
-// assignment-state gate on PowerControl. The target host is in
-// Assigned/* — which would otherwise block the call — yet the operation
-// is expected to proceed past the gate. PowerOperationPowerOn is chosen
-// because the mock client accepts it without additional fixture setup.
-func TestPowerControl_OverrideBypassesAssignmentCheck(t *testing.T) {
-	client := nicoapi.NewMockClient()
-	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
-
-	m := newManagerForSafetyTest(t, client)
-	target := common.Target{
-		Type:         devicetypes.ComponentTypeCompute,
-		ComponentIDs: []string{"machine-1"},
-	}
-
-	err := m.PowerControl(context.Background(), target, operations.PowerControlTaskInfo{
-		Operation:               operations.PowerOperationPowerOn,
-		OverrideAssignmentCheck: true,
-	})
-	require.NoError(t, err)
-}
-
-// TestBringUpControl_OverrideBypassesAssignmentCheck is the BringUp
-// counterpart of TestPowerControl_OverrideBypassesAssignmentCheck.
 func TestBringUpControl_OverrideBypassesAssignmentCheck(t *testing.T) {
 	client := nicoapi.NewMockClient()
 	client.AddMachine(nicoapi.MachineDetail{MachineID: "machine-1", State: "Assigned/Provisioning"})
@@ -645,4 +347,13 @@ func TestBringUpControl_OverrideBypassesAssignmentCheck(t *testing.T) {
 		OverrideAssignmentCheck: true,
 	})
 	require.NoError(t, err)
+}
+
+func mustMarshal(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+	return data
 }

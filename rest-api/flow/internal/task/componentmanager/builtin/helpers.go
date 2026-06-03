@@ -9,7 +9,7 @@ import (
 
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager"
 	cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
-	computenico "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/compute/nico"
+	computenicolegacy "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/compute/nicolegacy"
 	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/providerapi"
 )
@@ -65,25 +65,30 @@ func newCatalog() (cmcatalog.Catalog, error) {
 	return catalog, nil
 }
 
-func nicoComputePowerDelay(config cmconfig.Config) (time.Duration, error) {
-	identity := computenico.Descriptor().Identity()
+// legacyComputePowerDelay extracts the power-delay manager config for the
+// compute/nicolegacy implementation. This setting only applies to the legacy
+// path (which serializes per-machine AdminPowerControl calls); the
+// replacement compute/nico path issues a single bulk ComponentPowerControl
+// and therefore does not need it.
+func legacyComputePowerDelay(config cmconfig.Config) (time.Duration, error) {
+	identity := computenicolegacy.Descriptor().Identity()
 	managerConfig, ok := config.ManagerConfigs[identity]
 	if !ok {
-		return computenico.DefaultComputePowerDelay, nil
+		return computenicolegacy.DefaultComputePowerDelay, nil
 	}
 	if managerConfig == nil {
 		return 0, cmconfig.ManagerConfigNotConfiguredError{Identity: identity}
 	}
 
-	nicoConfig, ok := managerConfig.(*computenico.Config)
+	legacyConfig, ok := managerConfig.(*computenicolegacy.Config)
 	if !ok {
 		return 0, componentmanager.ManagerConfigTypeMismatchError{
 			Identity: identity,
 			Got:      managerConfig,
-			Want:     (*computenico.Config)(nil),
+			Want:     (*computenicolegacy.Config)(nil),
 		}
 	}
-	return nicoConfig.ComputePowerDelay, nil
+	return legacyConfig.ComputePowerDelay, nil
 }
 
 func managerConfigDecoderName(decoder cmconfig.ManagerConfigDecoder) string {

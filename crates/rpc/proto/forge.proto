@@ -793,6 +793,9 @@ service Forge {
   rpc GetTokenDelegation(GetTokenDelegationRequest) returns (TokenDelegationResponse);
   rpc SetTokenDelegation(TokenDelegationRequest) returns (TokenDelegationResponse);
   rpc DeleteTokenDelegation(GetTokenDelegationRequest) returns (google.protobuf.Empty);
+  // Site-operator: re-wrap tenant_identity_config ciphertext with a new master encryption key.
+  rpc ReencryptTenantIdentitySecrets(ReencryptTenantIdentitySecretsRequest)
+      returns (ReencryptTenantIdentitySecretsResponse);
   // Public discovery: JWKS and OpenID provider metadata (intended for unauthenticated fetch via REST gateway).
   rpc GetJWKS(JwksRequest) returns (Jwks);
   rpc GetOpenIDConfiguration(OpenIdConfigRequest) returns (OpenIdConfiguration);
@@ -1089,6 +1092,31 @@ message TokenDelegation {
 message TokenDelegationRequest {
   string organization_id = 1;
   TokenDelegation config = 2;
+}
+
+message ReencryptTenantIdentitySecretsRequest {
+  // If set, only this org; otherwise all rows in tenant_identity_config.
+  optional string organization_id = 1;
+  // Decrypt and validate only; no DB writes.
+  bool dry_run = 2;
+}
+
+message ReencryptTenantIdentityFailure {
+  string organization_id = 1;
+  string field = 2;
+  string error = 3;
+}
+
+message ReencryptTenantIdentitySecretsResponse {
+  uint32 rows_examined = 1;
+  uint32 rows_updated = 2;
+  uint32 rows_skipped_all_on_target = 3;
+  uint32 fields_reencrypted = 4;
+  uint32 fields_skipped_on_target = 5;
+  uint32 rows_failed = 6;
+  repeated ReencryptTenantIdentityFailure failures = 7;
+  // Site [machine_identity].current_encryption_key_id used as the re-wrap target.
+  string current_encryption_key_id = 8;
 }
 
 // Carried JWKS document for GetJWKS. Standard key fields live in `jwks` only (RFC 7517).

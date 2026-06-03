@@ -1583,7 +1583,7 @@ type APIInstanceDeleteRequest struct {
 }
 
 // Validate ensures the values passed in request are acceptable
-func (idr APIInstanceDeleteRequest) Validate() error {
+func (idr *APIInstanceDeleteRequest) Validate() error {
 	if idr.MachineHealthIssue != nil {
 		err := validation.ValidateStruct(idr.MachineHealthIssue,
 			validation.Field(&idr.MachineHealthIssue.Category,
@@ -1604,6 +1604,36 @@ func (idr APIInstanceDeleteRequest) Validate() error {
 	}
 
 	return nil
+}
+
+// ToProto builds the workflow request that asks a Site to release
+// (delete) the given Instance for this API request. `instance` is the
+// loaded DB record; its `ToReleaseRequestProto()` is the source of the
+// canonical wire ID. Optional request-side fields (`MachineHealthIssue`,
+// `IsRepairTenant`) are overlaid on top.
+//
+// The method trusts that the request has already been Validated and
+// that the handler has performed any cross-context checks Validate
+// cannot see. In particular, the `IsRepairTenant` capability gate
+// (TargetedInstanceCreation on the Tenant config) is an authorization
+// check that stays in the handler before this method runs.
+func (idr *APIInstanceDeleteRequest) ToProto(instance *cdbm.Instance) *cwssaws.InstanceReleaseRequest {
+	req := instance.ToReleaseRequestProto()
+	if idr.MachineHealthIssue != nil {
+		req.Issue = &cwssaws.Issue{
+			Category: cwssaws.IssueCategory(MachineIssueCategoriesFromAPIToProtobuf[idr.MachineHealthIssue.Category]),
+		}
+		if idr.MachineHealthIssue.Summary != nil {
+			req.Issue.Summary = *idr.MachineHealthIssue.Summary
+		}
+		if idr.MachineHealthIssue.Details != nil {
+			req.Issue.Details = *idr.MachineHealthIssue.Details
+		}
+	}
+	if idr.IsRepairTenant != nil {
+		req.IsRepairTenant = idr.IsRepairTenant
+	}
+	return req
 }
 
 // SSHKeyGroupsSummaryDeprecated ensures we keep returning empty array until deprecation time even with omitempty

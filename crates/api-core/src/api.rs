@@ -3032,6 +3032,14 @@ impl Forge for Api {
         crate::handlers::tenant_identity_config::delete_token_delegation(self, request).await
     }
 
+    async fn reencrypt_tenant_identity_secrets(
+        &self,
+        request: Request<rpc::ReencryptTenantIdentitySecretsRequest>,
+    ) -> Result<Response<rpc::ReencryptTenantIdentitySecretsResponse>, Status> {
+        crate::handlers::tenant_identity_config::reencrypt_tenant_identity_secrets(self, request)
+            .await
+    }
+
     async fn get_jwks(
         &self,
         request: Request<rpc::JwksRequest>,

@@ -29,62 +29,23 @@ use model::tenant::{
 use sqlx::PgConnection;
 use sqlx::types::Json;
 
+use crate::db_read::DbReader;
 use crate::{DatabaseError, DatabaseResult};
 
-/// Resolve tenant identity config for machine-identity RPCs: one join query, then overlap GC, then
-/// reload by org PK so the row matches the post-GC database state (GC may clear a JWKS slot).
-const TENANT_IDENTITY_FIND_BY_MACHINE_SQL: &str = r"
-SELECT tic.*
-FROM tenant_identity_config tic
-INNER JOIN instances i ON tic.organization_id = i.tenant_org
-WHERE i.machine_id = $1 AND i.deleted IS NULL AND tic.enabled = true";
+/// Explicit column list for [`TenantIdentityConfig`] queries. Avoid `SELECT *` so schema migrations
+/// (e.g. dropped columns) do not invalidate cached prepared statements on live connections.
+const TENANT_IDENTITY_CONFIG_COLUMNS: &str = "\
+    organization_id, issuer, default_audience, allowed_audiences, \
+    token_ttl_sec, subject_prefix, enabled, created_at, updated_at, \
+    encrypted_signing_key_1, encrypted_signing_key_2, \
+    signing_key_public_1, signing_key_public_2, \
+    current_signing_key_slot, non_active_slot_expires_at, \
+    token_endpoint, auth_method, encrypted_auth_method_config, \
+    subject_token_audience, token_delegation_created_at";
 
-const TENANT_IDENTITY_FIND_BY_ORG_SQL: &str =
-    "SELECT * FROM tenant_identity_config WHERE organization_id = $1";
-
-const UPSERT_TENANT_IDENTITY_CONFIG_SQL: &str = r#"
-        INSERT INTO tenant_identity_config (
-            organization_id, issuer, default_audience, allowed_audiences,
-            token_ttl_sec, subject_prefix, enabled, created_at, updated_at,
-            encrypted_signing_key_1, encrypted_signing_key_2,
-            signing_key_public_1, signing_key_public_2,
-            current_signing_key_slot, non_active_slot_expires_at,
-            encryption_key_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), $8, $9, $10, $11, $12, $13, $14)
-        ON CONFLICT (organization_id) DO UPDATE SET
-            issuer = EXCLUDED.issuer,
-            default_audience = EXCLUDED.default_audience,
-            allowed_audiences = EXCLUDED.allowed_audiences,
-            token_ttl_sec = EXCLUDED.token_ttl_sec,
-            subject_prefix = EXCLUDED.subject_prefix,
-            enabled = EXCLUDED.enabled,
-            updated_at = NOW(),
-            encrypted_signing_key_1 = EXCLUDED.encrypted_signing_key_1,
-            encrypted_signing_key_2 = EXCLUDED.encrypted_signing_key_2,
-            signing_key_public_1 = EXCLUDED.signing_key_public_1,
-            signing_key_public_2 = EXCLUDED.signing_key_public_2,
-            current_signing_key_slot = EXCLUDED.current_signing_key_slot,
-            non_active_slot_expires_at = EXCLUDED.non_active_slot_expires_at,
-            encryption_key_id = EXCLUDED.encryption_key_id
-        RETURNING tenant_identity_config.*
-    "#;
-
-const UPDATE_TENANT_IDENTITY_TOKEN_DELEGATION_SQL: &str = r#"
-        UPDATE tenant_identity_config
-        SET token_endpoint = $2, auth_method = $3, encrypted_auth_method_config = $4,
-            subject_token_audience = $5, updated_at = NOW(),
-            token_delegation_created_at = COALESCE(token_delegation_created_at, NOW())
-        WHERE organization_id = $1
-        RETURNING tenant_identity_config.*
-    "#;
-
-const CLEAR_TENANT_IDENTITY_TOKEN_DELEGATION_SQL: &str = r#"
-        UPDATE tenant_identity_config
-        SET token_endpoint = NULL, auth_method = NULL, encrypted_auth_method_config = NULL,
-            subject_token_audience = NULL, token_delegation_created_at = NULL, updated_at = NOW()
-        WHERE organization_id = $1
-        RETURNING tenant_identity_config.*
-    "#;
+fn tenant_identity_config_returning() -> String {
+    format!("RETURNING {TENANT_IDENTITY_CONFIG_COLUMNS}")
+}
 
 /// After `non_active_slot_expires_at`, clears the non-current slot (public + private ciphertext).
 pub async fn gc_expired_non_active_signing_key(
@@ -287,7 +248,33 @@ pub async fn set(
         }
     };
 
-    sqlx::query_as(UPSERT_TENANT_IDENTITY_CONFIG_SQL)
+    let query = format!(
+        r#"
+        INSERT INTO tenant_identity_config (
+            organization_id, issuer, default_audience, allowed_audiences,
+            token_ttl_sec, subject_prefix, enabled, created_at, updated_at,
+            encrypted_signing_key_1, encrypted_signing_key_2,
+            signing_key_public_1, signing_key_public_2,
+            current_signing_key_slot, non_active_slot_expires_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), $8, $9, $10, $11, $12, $13)
+        ON CONFLICT (organization_id) DO UPDATE SET
+            issuer = EXCLUDED.issuer,
+            default_audience = EXCLUDED.default_audience,
+            allowed_audiences = EXCLUDED.allowed_audiences,
+            token_ttl_sec = EXCLUDED.token_ttl_sec,
+            subject_prefix = EXCLUDED.subject_prefix,
+            enabled = EXCLUDED.enabled,
+            updated_at = NOW(),
+            encrypted_signing_key_1 = EXCLUDED.encrypted_signing_key_1,
+            encrypted_signing_key_2 = EXCLUDED.encrypted_signing_key_2,
+            signing_key_public_1 = EXCLUDED.signing_key_public_1,
+            signing_key_public_2 = EXCLUDED.signing_key_public_2,
+            current_signing_key_slot = EXCLUDED.current_signing_key_slot,
+            non_active_slot_expires_at = EXCLUDED.non_active_slot_expires_at
+        {}"#,
+        tenant_identity_config_returning(),
+    );
+    sqlx::query_as(sqlx::AssertSqlSafe(query.as_str()))
         .bind(org_id.as_str())
         .bind(&config.issuer)
         .bind(&config.default_audience)
@@ -301,32 +288,51 @@ pub async fn set(
         .bind(key_rows.pub2)
         .bind(key_rows.current_slot)
         .bind(key_rows.non_active_expires_at)
-        .bind(&config.encryption_key_id)
         .fetch_one(txn)
         .await
-        .map_err(|e| DatabaseError::query(UPSERT_TENANT_IDENTITY_CONFIG_SQL, e))
+        .map_err(|e| DatabaseError::query("UPSERT tenant_identity_config", e))
 }
 
-pub async fn find(
+pub async fn find<DB>(
     org_id: &TenantOrganizationId,
-    txn: &mut PgConnection,
-) -> DatabaseResult<Option<TenantIdentityConfig>> {
-    sqlx::query_as(TENANT_IDENTITY_FIND_BY_ORG_SQL)
+    db: &mut DB,
+) -> DatabaseResult<Option<TenantIdentityConfig>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
+    let query = format!(
+        "SELECT {TENANT_IDENTITY_CONFIG_COLUMNS} FROM tenant_identity_config WHERE organization_id = $1"
+    );
+    sqlx::query_as(sqlx::AssertSqlSafe(query.as_str()))
         .bind(org_id.as_str())
-        .fetch_optional(txn)
+        .fetch_optional(&mut *db)
         .await
-        .map_err(|e| DatabaseError::query(TENANT_IDENTITY_FIND_BY_ORG_SQL, e))
+        .map_err(|e| DatabaseError::query("SELECT tenant_identity_config BY organization_id", e))
 }
 
+/// Resolve tenant identity config for machine-identity RPCs: one join query, then overlap GC, then
+/// reload by org PK so the row matches the post-GC database state (GC may clear a JWKS slot).
 pub async fn find_by_machine_id(
     txn: &mut PgConnection,
     machine_id: &MachineId,
 ) -> DatabaseResult<TenantIdentityConfig> {
-    let row = sqlx::query_as::<_, TenantIdentityConfig>(TENANT_IDENTITY_FIND_BY_MACHINE_SQL)
-        .bind(machine_id)
-        .fetch_optional(&mut *txn)
-        .await
-        .map_err(|e| DatabaseError::query(TENANT_IDENTITY_FIND_BY_MACHINE_SQL, e))?;
+    let row = sqlx::query_as::<_, TenantIdentityConfig>(
+        r"
+        SELECT tic.organization_id, tic.issuer, tic.default_audience, tic.allowed_audiences,
+            tic.token_ttl_sec, tic.subject_prefix, tic.enabled, tic.created_at, tic.updated_at,
+            tic.encrypted_signing_key_1, tic.encrypted_signing_key_2,
+            tic.signing_key_public_1, tic.signing_key_public_2,
+            tic.current_signing_key_slot, tic.non_active_slot_expires_at,
+            tic.token_endpoint, tic.auth_method, tic.encrypted_auth_method_config,
+            tic.subject_token_audience, tic.token_delegation_created_at
+        FROM tenant_identity_config tic
+        INNER JOIN instances i ON tic.organization_id = i.tenant_org
+        WHERE i.machine_id = $1 AND i.deleted IS NULL AND tic.enabled = true",
+    )
+    .bind(machine_id)
+    .fetch_optional(&mut *txn)
+    .await
+    .map_err(|e| DatabaseError::query("SELECT tenant_identity_config BY machine_id", e))?;
     let Some(cfg) = row else {
         return Err(DatabaseError::NotFoundError {
             kind: "machine_identity",
@@ -353,7 +359,17 @@ pub async fn set_token_delegation(
     encrypted_auth_method_config: &EncryptedTokenDelegationAuthConfig,
     txn: &mut PgConnection,
 ) -> DatabaseResult<TenantIdentityConfig> {
-    let row = sqlx::query_as(UPDATE_TENANT_IDENTITY_TOKEN_DELEGATION_SQL)
+    let query = format!(
+        r#"
+        UPDATE tenant_identity_config
+        SET token_endpoint = $2, auth_method = $3, encrypted_auth_method_config = $4,
+            subject_token_audience = $5, updated_at = NOW(),
+            token_delegation_created_at = COALESCE(token_delegation_created_at, NOW())
+        WHERE organization_id = $1
+        {}"#,
+        tenant_identity_config_returning(),
+    );
+    let row = sqlx::query_as(sqlx::AssertSqlSafe(query.as_str()))
         .bind(org_id.as_str())
         .bind(&config.token_endpoint)
         .bind(auth_method)
@@ -361,7 +377,7 @@ pub async fn set_token_delegation(
         .bind(Some(config.subject_token_audience.as_str()))
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(UPDATE_TENANT_IDENTITY_TOKEN_DELEGATION_SQL, e))?;
+        .map_err(|e| DatabaseError::query("UPDATE tenant_identity_config token_delegation", e))?;
     row.ok_or_else(|| DatabaseError::NotFoundError {
         kind: "tenant_identity_config",
         id: org_id.as_str().to_string(),
@@ -383,11 +399,88 @@ pub async fn delete_token_delegation(
     org_id: &TenantOrganizationId,
     txn: &mut PgConnection,
 ) -> DatabaseResult<Option<TenantIdentityConfig>> {
-    sqlx::query_as(CLEAR_TENANT_IDENTITY_TOKEN_DELEGATION_SQL)
+    let query = format!(
+        r#"
+        UPDATE tenant_identity_config
+        SET token_endpoint = NULL, auth_method = NULL, encrypted_auth_method_config = NULL,
+            subject_token_audience = NULL, token_delegation_created_at = NULL, updated_at = NOW()
+        WHERE organization_id = $1
+        {}"#,
+        tenant_identity_config_returning(),
+    );
+    sqlx::query_as(sqlx::AssertSqlSafe(query.as_str()))
         .bind(org_id.as_str())
         .fetch_optional(txn)
         .await
-        .map_err(|e| DatabaseError::query(CLEAR_TENANT_IDENTITY_TOKEN_DELEGATION_SQL, e))
+        .map_err(|e| DatabaseError::query("CLEAR tenant_identity_config token_delegation", e))
+}
+
+/// Organization ids to re-wrap: one org (must exist) or all rows ordered by id.
+pub async fn list_organization_ids_for_reencrypt<DB>(
+    org_filter: Option<&TenantOrganizationId>,
+    db: &mut DB,
+) -> DatabaseResult<Vec<TenantOrganizationId>>
+where
+    for<'db> &'db mut DB: DbReader<'db>,
+{
+    if let Some(org_id) = org_filter {
+        if find(org_id, &mut *db).await?.is_none() {
+            return Err(DatabaseError::NotFoundError {
+                kind: "tenant_identity_config",
+                id: org_id.as_str().to_string(),
+            });
+        }
+        return Ok(vec![org_id.clone()]);
+    }
+    sqlx::query_scalar::<_, TenantOrganizationId>(
+        "SELECT organization_id FROM tenant_identity_config ORDER BY organization_id",
+    )
+    .fetch_all(&mut *db)
+    .await
+    .map_err(|e| DatabaseError::query("LIST tenant_identity_config organization_ids", e))
+}
+
+/// Loads a row for update during master-key re-wrap.
+pub async fn find_for_update(
+    org_id: &TenantOrganizationId,
+    txn: &mut PgConnection,
+) -> DatabaseResult<Option<TenantIdentityConfig>> {
+    let query = format!(
+        "SELECT {TENANT_IDENTITY_CONFIG_COLUMNS} FROM tenant_identity_config WHERE organization_id = $1 FOR UPDATE"
+    );
+    sqlx::query_as(sqlx::AssertSqlSafe(query.as_str()))
+        .bind(org_id.as_str())
+        .fetch_optional(txn)
+        .await
+        .map_err(|e| DatabaseError::query("SELECT tenant_identity_config FOR UPDATE", e))
+}
+
+/// Updates encrypted signing-key and token-delegation ciphertext columns only.
+pub async fn update_encrypted_fields(
+    org_id: &TenantOrganizationId,
+    enc1: Option<EncryptedSigningPrivateKey>,
+    enc2: Option<EncryptedSigningPrivateKey>,
+    delegation: Option<EncryptedTokenDelegationAuthConfig>,
+    txn: &mut PgConnection,
+) -> DatabaseResult<()> {
+    sqlx::query(
+        r#"
+        UPDATE tenant_identity_config
+        SET encrypted_signing_key_1 = $2,
+            encrypted_signing_key_2 = $3,
+            encrypted_auth_method_config = $4,
+            updated_at = NOW()
+        WHERE organization_id = $1
+        "#,
+    )
+    .bind(org_id.as_str())
+    .bind(enc1)
+    .bind(enc2)
+    .bind(delegation)
+    .execute(txn)
+    .await
+    .map_err(|e| DatabaseError::query("UPDATE tenant_identity_config encrypted fields", e))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -522,27 +615,25 @@ ecbC7Qcisdw2/9l8bk/zfF9gvu4kh3hXZzMWgk+vj1e8KSX+NYswYiacQA==
         assert_eq!(cfg.token_ttl_sec, 3600);
         assert_eq!(cfg.subject_prefix, "spiffe://issuer.example.com/org-x");
         assert!(cfg.enabled);
-        assert_eq!(cfg.encryption_key_id.as_str(), "test-master");
         assert_eq!(
             cfg.current_signing_key_slot,
             TenantIdentityCurrentSigningKeySlot::SigningKey1
         );
         assert!(cfg.signing_key_public_1.is_some());
 
-        let found = find(&org_id, &mut txn).await.unwrap().unwrap();
+        let found = find(&org_id, txn.as_mut()).await.unwrap().unwrap();
         assert_eq!(found.issuer, cfg.issuer);
         assert_eq!(found.default_audience, cfg.default_audience);
         assert_eq!(found.allowed_audiences.0, cfg.allowed_audiences.0);
         assert_eq!(found.token_ttl_sec, cfg.token_ttl_sec);
         assert_eq!(found.subject_prefix, cfg.subject_prefix);
         assert_eq!(found.enabled, cfg.enabled);
-        assert_eq!(found.encryption_key_id, cfg.encryption_key_id);
         assert_eq!(found.current_signing_key_slot, cfg.current_signing_key_slot);
 
         let deleted = delete(&org_id, &mut txn).await.unwrap();
         assert!(deleted);
 
-        let not_found = find(&org_id, &mut txn).await.unwrap();
+        let not_found = find(&org_id, txn.as_mut()).await.unwrap();
         assert!(not_found.is_none());
     }
 

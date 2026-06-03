@@ -355,11 +355,12 @@ type ComponentManager interface {
 
 **Implementations**:
 
-| Component Type | Implementation | Provider |
-|----------------|----------------|----------|
-| Compute | `compute/nico/` | NICo |
-| NVSwitch | `nvswitch/nico/` | NICo |
-| PowerShelf | `powershelf/nico/` | NICo |
+| Component Type | Implementation | Provider | Notes |
+|----------------|----------------|----------|-------|
+| Compute | `compute/nicolegacy/` | NICo | Current default. Drives compute trays through machine-centric NICo RPCs (`AdminPowerControl`, `SetFirmwareUpdateTimeWindow`). |
+| Compute | `compute/nico/` | NICo | New, opt-in via `COMPONENT_MANAGER_COMPUTE=nico`. Drives compute trays through Core's Component Manager dispatch (`ComponentPowerControl`, `UpdateComponentFirmware`), the same path as nvswitch and powershelf. |
+| NVSwitch | `nvswitch/nico/` | NICo | |
+| PowerShelf | `powershelf/nico/` | NICo | |
 
 ---
 
@@ -665,13 +666,13 @@ Stores task execution records.
 
 ```yaml
 component_managers:
-  compute: nico
+  compute: nicolegacy
   nvswitch: nico
   powershelf: nico
 
 manager_configs:
   compute:
-    nico:
+    nicolegacy:
       compute_power_delay: "2s"
 
 providers:

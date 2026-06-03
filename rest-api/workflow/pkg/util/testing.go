@@ -272,7 +272,7 @@ func TestBuildSubnet(t *testing.T, dbSession *cdb.Session, tenant *cdbm.Tenant, 
 }
 
 // TestBuildInfiniBandPartition builds and returns an InfiniBandPartition
-func TestBuildInfiniBandPartition(t *testing.T, dbSession *cdb.Session, name string, site *cdbm.Site, tenant *cdbm.Tenant, controllerIBPartitionID *uuid.UUID, status string, isMissingOnSite bool) *cdbm.InfiniBandPartition {
+func TestBuildInfiniBandPartition(t *testing.T, dbSession *cdb.Session, name string, site *cdbm.Site, tenant *cdbm.Tenant, controllerIBPartitionID *uuid.UUID, status cdbm.InfiniBandPartitionStatus, isMissingOnSite bool) *cdbm.InfiniBandPartition {
 	ibp := &cdbm.InfiniBandPartition{
 		ID:                      uuid.New(),
 		Name:                    name,
@@ -291,7 +291,7 @@ func TestBuildInfiniBandPartition(t *testing.T, dbSession *cdb.Session, name str
 }
 
 // TestBuildNVLinkLogicalPartition builds and returns an NVLinkLogicalPartition
-func TestBuildNVLinkLogicalPartition(t *testing.T, dbSession *cdb.Session, name string, description *string, site *cdbm.Site, tenant *cdbm.Tenant, status string, isMissingOnSite bool) *cdbm.NVLinkLogicalPartition {
+func TestBuildNVLinkLogicalPartition(t *testing.T, dbSession *cdb.Session, name string, description *string, site *cdbm.Site, tenant *cdbm.Tenant, status cdbm.NVLinkLogicalPartitionStatus, isMissingOnSite bool) *cdbm.NVLinkLogicalPartition {
 	nvllp := &cdbm.NVLinkLogicalPartition{
 		ID:              uuid.New(),
 		Name:            name,

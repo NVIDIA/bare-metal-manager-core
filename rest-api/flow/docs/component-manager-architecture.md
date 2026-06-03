@@ -29,8 +29,9 @@ The Component Manager system uses two main patterns:
 │                    ComponentManager Registry                        │
 │  ┌─────────────────────────────────────────────────────────────┐   │
 │  │ ComponentType: Compute                                       │   │
-│  │   ├── "nico" → Factory → Manager (uses nico.Provider)        │   │
-│  │   └── "mock" → Factory → Manager (no provider needed)        │   │
+│  │   ├── "nico"       → Factory → Manager (uses nico.Provider)  │   │
+│  │   ├── "nicolegacy" → Factory → Manager (uses nico.Provider)  │   │
+│  │   └── "mock"       → Factory → Manager (no provider needed)  │   │
 │  ├─────────────────────────────────────────────────────────────┤   │
 │  │ ComponentType: NVSwitch                                      │   │
 │  │   ├── "nico" → Factory → Manager (uses nico.Provider)        │   │
@@ -162,8 +163,10 @@ internal/task/componentmanager/
 │   └── nico/
 │       └── provider.go      # NICo API provider
 ├── compute/
-│   └── nico/
-│       └── nico.go          # NICo-based compute manager
+│   ├── nico/
+│   │   └── nico.go          # Compute manager using Core's Component Manager dispatch
+│   └── nicolegacy/
+│       └── nicolegacy.go    # Legacy compute manager via machine-centric NICo RPCs
 ├── nvswitch/
 │   └── nico/
 │       └── nico.go          # NICo-based NVSwitch manager

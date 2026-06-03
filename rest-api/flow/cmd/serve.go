@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -31,6 +32,22 @@ import (
 const (
 	defaultServicePort    = 50051
 	componentMgrCfgEnvVar = "COMPONENT_MANAGER_CONFIG"
+
+	// computeImplEnvVar selects the compute component manager
+	// implementation at deploy time. This override exists for the
+	// migration from the legacy machine-centric NICo RPCs ("nicolegacy")
+	// to Core's Component Manager dispatch ("nico"). The value must be a
+	// compute implementation name registered in the catalog (currently
+	// "nico", "nicolegacy", or "mock"). When the variable is unset or
+	// empty the embedded service config selection is used.
+	//
+	// The name mirrors COMPONENT_MANAGER_CONFIG above: a future per-type
+	// override for nvswitch / powershelf would simply add
+	// COMPONENT_MANAGER_NVSWITCH / COMPONENT_MANAGER_POWERSHELF.
+	//
+	// TODO: remove this override and the compute/nicolegacy package once
+	// every Flow deployment runs on the Component Manager path.
+	computeImplEnvVar = "COMPONENT_MANAGER_COMPUTE"
 )
 
 var (
@@ -87,8 +104,14 @@ func init() {
 //     Used when no config file is provided. The primary production path.
 //     Uses the component manager implementation map defined by builtin.
 //
+// After the base config is selected, COMPONENT_MANAGER_COMPUTE (if
+// set) overrides the compute component manager selection. This narrow
+// override exists so deployments can flip between the legacy and the
+// new Component Manager-based compute implementations without shipping
+// a separate config file. See computeImplEnvVar.
+//
 // The config specifies:
-//   - Which component manager implementations to use (nico, mock)
+//   - Which component manager implementations to use (nico, nicolegacy, mock)
 //   - Provider settings (timeouts, endpoints)
 func loadComponentManagerConfig() (cmconfig.Config, error) {
 	// Priority 1: CLI flag
@@ -99,15 +122,49 @@ func loadComponentManagerConfig() (cmconfig.Config, error) {
 		configPath = os.Getenv(componentMgrCfgEnvVar)
 	}
 
-	// Load from file if a path was specified
+	var (
+		cfg cmconfig.Config
+		err error
+	)
 	if configPath != "" {
 		log.Info().Str("config_path", configPath).Msg("Loading component manager config from file")
-		return cmbuiltin.LoadConfig(configPath)
+		cfg, err = cmbuiltin.LoadConfig(configPath)
+	} else {
+		log.Info().Msg("Using embedded component manager service config")
+		cfg, err = cmbuiltin.LoadConfig("")
+	}
+	if err != nil {
+		return cmconfig.Config{}, err
 	}
 
-	// Priority 3: Embedded service config
-	log.Info().Msg("Using embedded component manager service config")
-	return cmbuiltin.LoadConfig("")
+	applyComputeImplementationOverride(&cfg)
+
+	return cfg, nil
+}
+
+// applyComputeImplementationOverride mutates cfg in place to honour the
+// COMPONENT_MANAGER_COMPUTE env var when it is set to a non-empty
+// value. The catalog still validates the resulting selection during
+// registry construction, so an invalid implementation name surfaces as
+// a normal startup failure rather than being silently ignored.
+func applyComputeImplementationOverride(cfg *cmconfig.Config) {
+	override := strings.TrimSpace(os.Getenv(computeImplEnvVar))
+	if override == "" {
+		return
+	}
+
+	if cfg.ComponentManagers == nil {
+		cfg.ComponentManagers = map[devicetypes.ComponentType]string{}
+	}
+
+	previous := cfg.ComponentManagers[devicetypes.ComponentTypeCompute]
+	cfg.ComponentManagers[devicetypes.ComponentTypeCompute] = override
+
+	log.Info().
+		Str("env_var", computeImplEnvVar).
+		Str("previous_implementation", previous).
+		Str("implementation", override).
+		Msg("Compute component manager implementation overridden by environment")
 }
 
 // doServe is the main entry point for the serve subcommand. It loads all

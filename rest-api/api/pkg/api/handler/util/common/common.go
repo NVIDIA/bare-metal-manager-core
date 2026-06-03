@@ -81,14 +81,6 @@ var (
 	RequestAsTenant = "Tenant"
 )
 
-func GetSiteInstanceID(i *cdbm.Instance) *uuid.UUID {
-	if i.ControllerInstanceID != nil {
-		return i.ControllerInstanceID
-	} else {
-		return &i.ID
-	}
-}
-
 func GetSiteNetworkSegmentID(s *cdbm.Subnet) *uuid.UUID {
 	if s.ControllerNetworkSegmentID != nil {
 		return s.ControllerNetworkSegmentID

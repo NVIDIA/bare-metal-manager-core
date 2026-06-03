@@ -18,6 +18,7 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/capability"
 	cmcatalog "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/catalog"
 	computenico "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/compute/nico"
+	computenicolegacy "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/compute/nicolegacy"
 	cmconfig "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/config"
 	"github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/mock"
 	nvswitchnico "github.com/NVIDIA/infra-controller-rest/flow/internal/task/componentmanager/nvswitch/nico"
@@ -82,14 +83,14 @@ func (c testServiceProviderConfig) NewProvider(context.Context) (providerapi.Pro
 func TestDefaultServiceComponentManagers(t *testing.T) {
 	componentManagers := defaultServiceComponentManagers()
 
-	assert.Equal(t, computenico.ImplementationName, componentManagers[devicetypes.ComponentTypeCompute])
+	assert.Equal(t, computenicolegacy.ImplementationName, componentManagers[devicetypes.ComponentTypeCompute])
 	assert.Equal(t, nvswitchnico.ImplementationName, componentManagers[devicetypes.ComponentTypeNVSwitch])
 	assert.Equal(t, powershelfnico.ImplementationName, componentManagers[devicetypes.ComponentTypePowerShelf])
 
 	componentManagers[devicetypes.ComponentTypeCompute] = "mutated"
 	assert.Equal(
 		t,
-		computenico.ImplementationName,
+		computenicolegacy.ImplementationName,
 		defaultServiceComponentManagers()[devicetypes.ComponentTypeCompute],
 	)
 }
@@ -109,11 +110,11 @@ func TestLoadConfigUsesDefaultsWithoutPath(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, nicoprovider.DefaultTimeout, nicoConfig.Timeout)
 
-	computeConfig, ok := config.ManagerConfigs[computenico.Descriptor().Identity()].(*computenico.Config)
+	computeConfig, ok := config.ManagerConfigs[computenicolegacy.Descriptor().Identity()].(*computenicolegacy.Config)
 	require.True(t, ok)
 	assert.Equal(
 		t,
-		computenico.DefaultComputePowerDelay,
+		computenicolegacy.DefaultComputePowerDelay,
 		computeConfig.ComputePowerDelay,
 	)
 }
@@ -148,24 +149,24 @@ providers: {}
 func TestLoadConfigCompletesMissingProviders(t *testing.T) {
 	path := writeServiceConfig(t, `
 component_managers:
-  compute: nico
+  compute: nicolegacy
 providers: {}
 `)
 
 	config, err := LoadConfig(path)
 
 	require.NoError(t, err)
-	assert.Equal(t, computenico.ImplementationName, config.ComponentManagers[devicetypes.ComponentTypeCompute])
+	assert.Equal(t, computenicolegacy.ImplementationName, config.ComponentManagers[devicetypes.ComponentTypeCompute])
 	assert.True(t, config.HasProvider(nicoprovider.ProviderName))
 }
 
 func TestLoadConfigUsesExplicitManagerConfig(t *testing.T) {
 	path := writeServiceConfig(t, `
 component_managers:
-  compute: nico
+  compute: nicolegacy
 manager_configs:
   compute:
-    nico:
+    nicolegacy:
       compute_power_delay: 0s
 providers: {}
 `)
@@ -173,7 +174,7 @@ providers: {}
 	config, err := LoadConfig(path)
 
 	require.NoError(t, err)
-	computeConfig, ok := config.ManagerConfigs[computenico.Descriptor().Identity()].(*computenico.Config)
+	computeConfig, ok := config.ManagerConfigs[computenicolegacy.Descriptor().Identity()].(*computenicolegacy.Config)
 	require.True(t, ok)
 	assert.Equal(t, 0*time.Second, computeConfig.ComputePowerDelay)
 }
@@ -323,11 +324,11 @@ func TestServiceManagerConfigDecoderRegistry(t *testing.T) {
 
 	assert.Equal(
 		t,
-		[]cmcatalog.DescriptorIdentity{computenico.Descriptor().Identity()},
+		[]cmcatalog.DescriptorIdentity{computenicolegacy.Descriptor().Identity()},
 		registry.List(),
 	)
 
-	assert.NotNil(t, registry.Get(computenico.Descriptor().Identity()))
+	assert.NotNil(t, registry.Get(computenicolegacy.Descriptor().Identity()))
 }
 
 func TestServiceCatalog(t *testing.T) {
@@ -338,7 +339,11 @@ func TestServiceCatalog(t *testing.T) {
 	implementations := catalog.ListImplementations()
 	assert.Equal(
 		t,
-		[]string{mock.ImplementationName, computenico.ImplementationName},
+		[]string{
+			mock.ImplementationName,
+			computenico.ImplementationName,
+			computenicolegacy.ImplementationName,
+		},
 		implementations[devicetypes.ComponentTypeCompute],
 	)
 	assert.Equal(
@@ -369,6 +374,21 @@ func TestServiceCatalog(t *testing.T) {
 			name:              "compute nico",
 			componentType:     devicetypes.ComponentTypeCompute,
 			implementation:    computenico.ImplementationName,
+			requiredProviders: []string{nicoprovider.ProviderName},
+			capabilities: capability.CapabilitySet{
+				capability.CapabilityBringUpControl,
+				capability.CapabilityBringUpStatus,
+				capability.CapabilityFirmwareControl,
+				capability.CapabilityFirmwareStatus,
+				capability.CapabilityInjectExpectation,
+				capability.CapabilityPowerControl,
+				capability.CapabilityPowerStatus,
+			},
+		},
+		{
+			name:              "compute nicolegacy",
+			componentType:     devicetypes.ComponentTypeCompute,
+			implementation:    computenicolegacy.ImplementationName,
 			requiredProviders: []string{nicoprovider.ProviderName},
 			capabilities: capability.CapabilitySet{
 				capability.CapabilityBringUpControl,
@@ -441,37 +461,37 @@ func TestServiceCatalog(t *testing.T) {
 	}
 }
 
-func TestNicoComputePowerDelayUsesManagerConfig(t *testing.T) {
+func TestLegacyComputePowerDelayUsesManagerConfig(t *testing.T) {
 	delay := 7 * time.Second
 	config := cmconfig.Config{
 		ManagerConfigs: map[cmcatalog.DescriptorIdentity]cmconfig.ManagerConfig{
-			computenico.Descriptor().Identity(): &computenico.Config{
+			computenicolegacy.Descriptor().Identity(): &computenicolegacy.Config{
 				ComputePowerDelay: delay,
 			},
 		},
 	}
 
-	got, err := nicoComputePowerDelay(config)
+	got, err := legacyComputePowerDelay(config)
 
 	require.NoError(t, err)
 	assert.Equal(t, delay, got)
 }
 
-func TestNicoComputePowerDelayDefaultsWhenManagerConfigMissing(t *testing.T) {
-	got, err := nicoComputePowerDelay(cmconfig.Config{})
+func TestLegacyComputePowerDelayDefaultsWhenManagerConfigMissing(t *testing.T) {
+	got, err := legacyComputePowerDelay(cmconfig.Config{})
 
 	require.NoError(t, err)
-	assert.Equal(t, computenico.DefaultComputePowerDelay, got)
+	assert.Equal(t, computenicolegacy.DefaultComputePowerDelay, got)
 }
 
-func TestNicoComputePowerDelayRejectsUnexpectedConfigType(t *testing.T) {
+func TestLegacyComputePowerDelayRejectsUnexpectedConfigType(t *testing.T) {
 	config := cmconfig.Config{
 		ManagerConfigs: map[cmcatalog.DescriptorIdentity]cmconfig.ManagerConfig{
-			computenico.Descriptor().Identity(): testManagerConfig{},
+			computenicolegacy.Descriptor().Identity(): testManagerConfig{},
 		},
 	}
 
-	got, err := nicoComputePowerDelay(config)
+	got, err := legacyComputePowerDelay(config)
 
 	assert.Equal(t, time.Duration(0), got)
 	require.Error(t, err)
@@ -479,9 +499,9 @@ func TestNicoComputePowerDelayRejectsUnexpectedConfigType(t *testing.T) {
 
 	var mismatch componentmanager.ManagerConfigTypeMismatchError
 	require.True(t, errors.As(err, &mismatch))
-	assert.Equal(t, computenico.Descriptor().Identity(), mismatch.Identity)
-	assert.IsType(t, (*computenico.Config)(nil), mismatch.Want)
-	assert.Contains(t, err.Error(), "compute/nico.Config")
+	assert.Equal(t, computenicolegacy.Descriptor().Identity(), mismatch.Identity)
+	assert.IsType(t, (*computenicolegacy.Config)(nil), mismatch.Want)
+	assert.Contains(t, err.Error(), "compute/nicolegacy.Config")
 }
 
 func writeServiceConfig(t *testing.T, data string) string {

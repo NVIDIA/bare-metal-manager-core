@@ -270,7 +270,7 @@ func testBuildFabric(t *testing.T, dbSession *db.Session, id *string, org string
 	return fb
 }
 
-func testBuildInfiniBandPartition(t *testing.T, dbSession *db.Session, id *uuid.UUID, name string, description *string, org string, tenantID uuid.UUID, siteID uuid.UUID, controllerIBInfiniBandPartitionID *uuid.UUID, partitionKey *string, partitionName *string, serviceLevel *int, rateLimit *float32, mtu *int, enableSharp *bool, labels map[string]string, status *string, createdBy uuid.UUID) *InfiniBandPartition {
+func testBuildInfiniBandPartition(t *testing.T, dbSession *db.Session, id *uuid.UUID, name string, description *string, org string, tenantID uuid.UUID, siteID uuid.UUID, controllerIBInfiniBandPartitionID *uuid.UUID, partitionKey *string, partitionName *string, serviceLevel *int, rateLimit *float32, mtu *int, enableSharp *bool, labels map[string]string, status *InfiniBandPartitionStatus, createdBy uuid.UUID) *InfiniBandPartition {
 	pid := uuid.New()
 	if id != nil {
 		pid = *id
@@ -336,7 +336,7 @@ func testBuildInfiniBandInterface(t *testing.T, dbSession *db.Session, id *uuid.
 	return ibif
 }
 
-func testBuildNVLinkLogicalPartition(t *testing.T, dbSession *db.Session, id *uuid.UUID, name string, description *string, org string, tenantID uuid.UUID, siteID uuid.UUID, status *string, createdBy uuid.UUID) *NVLinkLogicalPartition {
+func testBuildNVLinkLogicalPartition(t *testing.T, dbSession *db.Session, id *uuid.UUID, name string, description *string, org string, tenantID uuid.UUID, siteID uuid.UUID, status *NVLinkLogicalPartitionStatus, createdBy uuid.UUID) *NVLinkLogicalPartition {
 	pid := uuid.New()
 	if id != nil {
 		pid = *id
