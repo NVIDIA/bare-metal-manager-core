@@ -22,6 +22,15 @@
 
 ARG TRANSCEIVER_VERSION=1.5.0
 
+# Runtime base, matching the other bluefield images (carbide-fmds,
+# forge-dhcp-server, forge-dpu-agent). Declared before the first FROM so the
+# values are in scope for the runtime stage's FROM below.
+ARG CC_VERSION=v3.2.1 # NVIDIA Distroless Container version
+ARG TAG=${CC_VERSION}
+ARG IMG=nvcr.io/nvidia/distroless/cc
+ARG DEBUG_DISTROLESS=true
+ARG DISTROLESS_DEBUG_TAG=${DEBUG_DISTROLESS:+"dev"} # 'dev' provides a busybox shell
+
 # ---------------------------------------------------------------------------
 # Downloader: fetch and extract the release tarball
 # ---------------------------------------------------------------------------
@@ -45,9 +54,10 @@ RUN wget -q --tries=5 --timeout=300 \
     && rm transceiver-exporter.tar.gz
 
 # ---------------------------------------------------------------------------
-# Runtime (arm64)
+# Runtime (arm64) — NVIDIA Distroless Container
 # ---------------------------------------------------------------------------
-FROM debian:12-slim
+# NVIDIA Distroless Container
+FROM --platform=linux/arm64 ${IMG}:${TAG}-${DISTROLESS_DEBUG_TAG}
 
 COPY --from=downloader --chmod=755 /dl/extract/transceiver-exporter /usr/bin/transceiver-exporter
 COPY --from=downloader /dl/extract/LICENSE.md /usr/share/licenses/transceiver-exporter/LICENSE.md
