@@ -24,7 +24,7 @@
 //
 // During the migration the embedded service config keeps compute pointed
 // at compute/nicolegacy by default. Operators flip the
-// COMPUTE_TRAY_IMPLEMENTATION environment variable to "nico" once the
+// COMPONENT_MANAGER_COMPUTE environment variable to "nico" once the
 // matching Core configuration (compute_tray_use_state_controller / SoT
 // firmware objects) is in place.
 package nico

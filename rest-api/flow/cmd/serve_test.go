@@ -12,14 +12,14 @@ import (
 	"github.com/NVIDIA/infra-controller-rest/flow/pkg/common/devicetypes"
 )
 
-// TestApplyComputeTrayImplementationOverride covers the env-var fallback
+// TestApplyComputeImplementationOverride covers the env-var fallback
 // path that exists for migrating compute between nicolegacy and the new
 // Component Manager-based nico implementation. Subsequent catalog
 // validation rejects unknown names, so the override here is intentionally
 // minimal: it only adjusts the config map.
-func TestApplyComputeTrayImplementationOverride(t *testing.T) {
+func TestApplyComputeImplementationOverride(t *testing.T) {
 	t.Run("env unset is a no-op", func(t *testing.T) {
-		t.Setenv(computeTrayImplEnvVar, "")
+		t.Setenv(computeImplEnvVar, "")
 
 		cfg := cmconfig.Config{
 			ComponentManagers: map[devicetypes.ComponentType]string{
@@ -27,13 +27,13 @@ func TestApplyComputeTrayImplementationOverride(t *testing.T) {
 			},
 		}
 
-		applyComputeTrayImplementationOverride(&cfg)
+		applyComputeImplementationOverride(&cfg)
 
 		assert.Equal(t, "nicolegacy", cfg.ComponentManagers[devicetypes.ComponentTypeCompute])
 	})
 
 	t.Run("whitespace value is treated as unset", func(t *testing.T) {
-		t.Setenv(computeTrayImplEnvVar, "   ")
+		t.Setenv(computeImplEnvVar, "   ")
 
 		cfg := cmconfig.Config{
 			ComponentManagers: map[devicetypes.ComponentType]string{
@@ -41,13 +41,13 @@ func TestApplyComputeTrayImplementationOverride(t *testing.T) {
 			},
 		}
 
-		applyComputeTrayImplementationOverride(&cfg)
+		applyComputeImplementationOverride(&cfg)
 
 		assert.Equal(t, "nicolegacy", cfg.ComponentManagers[devicetypes.ComponentTypeCompute])
 	})
 
 	t.Run("override replaces existing compute selection", func(t *testing.T) {
-		t.Setenv(computeTrayImplEnvVar, "nico")
+		t.Setenv(computeImplEnvVar, "nico")
 
 		cfg := cmconfig.Config{
 			ComponentManagers: map[devicetypes.ComponentType]string{
@@ -57,7 +57,7 @@ func TestApplyComputeTrayImplementationOverride(t *testing.T) {
 			},
 		}
 
-		applyComputeTrayImplementationOverride(&cfg)
+		applyComputeImplementationOverride(&cfg)
 
 		assert.Equal(t, "nico", cfg.ComponentManagers[devicetypes.ComponentTypeCompute])
 		// Other component types must be untouched.
@@ -66,7 +66,7 @@ func TestApplyComputeTrayImplementationOverride(t *testing.T) {
 	})
 
 	t.Run("override surrounding whitespace is trimmed", func(t *testing.T) {
-		t.Setenv(computeTrayImplEnvVar, "  nico  ")
+		t.Setenv(computeImplEnvVar, "  nico  ")
 
 		cfg := cmconfig.Config{
 			ComponentManagers: map[devicetypes.ComponentType]string{
@@ -74,17 +74,17 @@ func TestApplyComputeTrayImplementationOverride(t *testing.T) {
 			},
 		}
 
-		applyComputeTrayImplementationOverride(&cfg)
+		applyComputeImplementationOverride(&cfg)
 
 		assert.Equal(t, "nico", cfg.ComponentManagers[devicetypes.ComponentTypeCompute])
 	})
 
 	t.Run("override initialises map when nil", func(t *testing.T) {
-		t.Setenv(computeTrayImplEnvVar, "nico")
+		t.Setenv(computeImplEnvVar, "nico")
 
 		cfg := cmconfig.Config{}
 
-		applyComputeTrayImplementationOverride(&cfg)
+		applyComputeImplementationOverride(&cfg)
 
 		assert.Equal(t, "nico", cfg.ComponentManagers[devicetypes.ComponentTypeCompute])
 	})

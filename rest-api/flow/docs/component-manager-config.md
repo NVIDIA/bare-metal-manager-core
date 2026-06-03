@@ -188,14 +188,14 @@ Compute currently has two NICo-backed implementations:
 
 To flip a deployment from the legacy path to the Component Manager path
 without shipping a separate component manager YAML, set the
-`COMPUTE_TRAY_IMPLEMENTATION` environment variable on the Flow service:
+`COMPONENT_MANAGER_COMPUTE` environment variable on the Flow service:
 
 ```bash
 # Use the new Component Manager-based path
-COMPUTE_TRAY_IMPLEMENTATION=nico
+COMPONENT_MANAGER_COMPUTE=nico
 
 # Use the legacy machine-centric path (same as the embedded default)
-COMPUTE_TRAY_IMPLEMENTATION=nicolegacy
+COMPONENT_MANAGER_COMPUTE=nicolegacy
 ```
 
 The override is consumed by `flow serve` after the base config is

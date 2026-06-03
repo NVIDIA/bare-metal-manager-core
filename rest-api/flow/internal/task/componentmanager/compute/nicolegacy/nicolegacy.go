@@ -9,7 +9,7 @@
 // It is kept side-by-side with the newer compute/nico implementation
 // (which routes through Core's Component Manager) during the migration
 // period and is selected when the operator chooses
-// COMPUTE_TRAY_IMPLEMENTATION=nicolegacy. Once every Flow deployment is
+// COMPONENT_MANAGER_COMPUTE=nicolegacy. Once every Flow deployment is
 // running the new compute/nico path, this package should be removed.
 package nicolegacy
 
