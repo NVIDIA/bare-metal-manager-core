@@ -324,7 +324,7 @@ Missing BMC Data
 	{% for gpu in nvlink_gpus %}
 		<tr>
 			<td>{{ gpu.device_instance}}</td>
-			<td>{{ gpu.domain_uuid }}</td>
+			<td><a href="{{ gpu.domain_health_url }}">{{ gpu.domain_uuid }}</a></td>
 			<td>{{ gpu.guid }}</td>
 			<td>{{ gpu.tray_index }}</td>
 			<td>{{ gpu.slot_id }}</td>

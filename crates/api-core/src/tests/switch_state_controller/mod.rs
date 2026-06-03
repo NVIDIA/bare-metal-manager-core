@@ -22,7 +22,7 @@ use carbide_switch_controller::context::SwitchStateHandlerServices;
 use carbide_switch_controller::handler::SwitchStateHandler;
 use carbide_switch_controller::io::SwitchStateControllerIO;
 use db::switch as db_switch;
-use forge_secrets::credentials::TestCredentialManager;
+use forge_secrets::test_support::credentials::TestCredentialManager;
 use model::switch::{ConfiguringState, SwitchControllerState};
 use rpc::forge::forge_server::Forge;
 use state_controller::config::IterationConfig;

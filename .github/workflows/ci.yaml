@@ -912,6 +912,9 @@ jobs:
       - name: Check bans
         run: cargo make --no-workspace check-bans
 
+      - name: Check isolated package builds
+        run: cargo xtask check-isolated-package-builds
+
   # ============================================================================
   # BUILD STAGE - Helm Chart
   # ============================================================================

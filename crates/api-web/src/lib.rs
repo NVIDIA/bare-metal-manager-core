@@ -651,6 +651,22 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
                 post(health::remove_machine_health_report),
             )
             .route(
+                "/nvlink-domain/{domain_id}",
+                get(health::nvlink_domain_detail),
+            )
+            .route(
+                "/nvlink-domain/{domain_id}/health",
+                get(health::nvlink_domain_health),
+            )
+            .route(
+                "/nvlink-domain/{domain_id}/health/add-report",
+                post(health::add_nvlink_domain_health_report),
+            )
+            .route(
+                "/nvlink-domain/{domain_id}/health/remove-report",
+                post(health::remove_nvlink_domain_health_report),
+            )
+            .route(
                 "/machine/{machine_id}/attestation-results",
                 get(attestation::show_attestation_results),
             )
@@ -719,6 +735,14 @@ pub fn routes(api: Arc<Api>) -> eyre::Result<NormalizePath<Router>> {
             )
             .route("/operating-system/{os_id}", get(operating_system::detail))
             .route("/nmxc-browser", get(nmxc_browser::query))
+            .route(
+                "/nvlink-domain",
+                get(nvlink::show_nvlink_domain_health_html),
+            )
+            .route(
+                "/nvlink-domain.json",
+                get(nvlink::show_nvlink_domain_health_json),
+            )
             .route(
                 "/nvlink-partition",
                 get(nvlink::show_nvlink_logical_partitions_html),

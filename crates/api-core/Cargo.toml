@@ -202,6 +202,7 @@ test-support = [
   "carbide-nvlink-manager/test-support",
   "carbide-rack/test-support",
   "carbide-redfish/test-support",
+  "carbide-secrets/test-support",
   "carbide-utils/test-support",
   "state-controller/test-support",
 ]
@@ -222,6 +223,7 @@ carbide-nvlink-manager = { path = "../nvlink-manager", features = [
 carbide-prost-builder = { path = "../prost-builder" }
 carbide-rack = { path = "../rack", features = ["test-support"] }
 carbide-redfish = { path = "../redfish", features = ["test-support"] }
+carbide-secrets = { path = "../secrets", features = ["test-support"] }
 carbide-sqlx-testing = { path = "../sqlx-testing", default-features = false }
 carbide-utils = { path = "../utils", features = ["test-support"] }
 prometheus-text-parser = { path = "../prometheus-text-parser" }

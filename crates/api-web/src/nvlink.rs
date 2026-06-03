@@ -20,16 +20,17 @@ use std::sync::Arc;
 
 use askama::Template;
 use axum::Json;
-use axum::extract::{Path as AxumPath, State as AxumState};
+use axum::extract::{OriginalUri, Path as AxumPath, Query, State as AxumState};
 use axum::response::{Html, IntoResponse, Response};
 use carbide_api_core::Api;
-use carbide_uuid::nvlink::NvLinkPartitionId;
+use carbide_uuid::nvlink::{NvLinkDomainId, NvLinkPartitionId};
 use hyper::http::StatusCode;
 use rpc::forge as forgerpc;
 use rpc::forge::forge_server::Forge;
 use uuid::Uuid;
 
-use super::Base;
+use super::pagination::{self, PageContext, PaginationParams};
+use super::{Base, health};
 
 #[derive(serde::Serialize, Template)]
 #[template(path = "nvlink_partition_show.html")]
@@ -43,6 +44,29 @@ struct LogicalPartitionRowDisplay {
     name: String,
     state: String,
     physical_partitions: usize,
+}
+
+#[derive(Template)]
+#[template(path = "nvlink_domain_health_show.html")]
+struct NvLinkDomainHealthShow {
+    domains: Vec<NvLinkDomainHealthRow>,
+    json_path: String,
+    search_query: String,
+    page: PageContext,
+}
+
+#[derive(serde::Serialize)]
+struct NvLinkDomainHealthRow {
+    id: String,
+    health_url: String,
+}
+
+#[derive(serde::Deserialize, Debug, Default)]
+pub(super) struct NvLinkDomainHealthParams {
+    #[serde(flatten)]
+    pagination: PaginationParams,
+    #[serde(default)]
+    q: String,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -80,9 +104,21 @@ impl From<ShowLogicalPartition> for LogicalPartitionRowDisplay {
         }
     }
 }
+
+impl From<NvLinkDomainId> for NvLinkDomainHealthRow {
+    fn from(id: NvLinkDomainId) -> Self {
+        Self {
+            id: id.to_string(),
+            health_url: health::nvlink_domain_health_url(&id),
+        }
+    }
+}
+
 #[derive(serde::Serialize, Clone)]
 struct ShowPhysicalPartitionDetail {
     id: String,
+    domain_uuid: String,
+    domain_health_url: String,
     name: String,
     nmx_c_partition_id: String,
     members: Vec<ShowPartitionMember>,
@@ -102,14 +138,24 @@ impl From<ShowLogicalPartition> for LogicalPartitionDetail {
     fn from(show: ShowLogicalPartition) -> Self {
         let mut physical_partitions = Vec::new();
         for s in show.physical_partitions {
+            let domain_uuid = s.partition.domain_uuid;
+            let domain_health_url = domain_uuid
+                .as_ref()
+                .map(health::nvlink_domain_health_url)
+                .unwrap_or_default();
+
             let pp = ShowPhysicalPartitionDetail {
                 id: s.partition.id.map(|i| i.to_string()).unwrap_or_default(),
+                domain_uuid: domain_uuid.map(|id| id.to_string()).unwrap_or_default(),
+                domain_health_url,
                 name: s.partition.name,
                 nmx_c_partition_id: s.partition.nmx_m_id,
                 members: s.members,
             };
+
             physical_partitions.push(pp);
         }
+
         let created = show
             .partition
             .created
@@ -173,6 +219,67 @@ pub async fn show_nvlink_logical_partitions_json(
     (StatusCode::OK, Json(partitions)).into_response()
 }
 
+/// List NVLink domains with health reports.
+pub async fn show_nvlink_domain_health_html(
+    AxumState(state): AxumState<Arc<Api>>,
+    Query(params): Query<NvLinkDomainHealthParams>,
+    uri: OriginalUri,
+) -> Response {
+    let rows = match fetch_nvlink_domain_health_rows(&state).await {
+        Ok(rows) => rows,
+        Err(err) => {
+            tracing::error!(%err, "fetch_nvlink_domain_health_rows");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error loading NVLink domain health",
+            )
+                .into_response();
+        }
+    };
+
+    let search_query = params.q.trim().to_string();
+    let rows = filter_nvlink_domain_health_rows(rows, &search_query);
+    let extra_query_params = domain_health_extra_query_params(&search_query);
+    let (info, domains) = pagination::paginate_vec(rows, &params.pagination);
+    let path = uri.path();
+
+    let tmpl = NvLinkDomainHealthShow {
+        domains,
+        json_path: format!("{path}.json"),
+        search_query,
+        page: PageContext::new(info, path).with_extra_params(extra_query_params),
+    };
+
+    match tmpl.render() {
+        Ok(html) => (StatusCode::OK, Html(html)).into_response(),
+        Err(err) => {
+            tracing::error!(%err, "render_nvlink_domain_health");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Error rendering NVLink domain health",
+            )
+                .into_response()
+        }
+    }
+}
+
+/// List NVLink domains with health reports as JSON.
+pub async fn show_nvlink_domain_health_json(AxumState(state): AxumState<Arc<Api>>) -> Response {
+    let rows = match fetch_nvlink_domain_health_rows(&state).await {
+        Ok(rows) => rows,
+        Err(err) => {
+            tracing::error!(%err, "fetch_nvlink_domain_health_rows");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json("Error loading NVLink domain health".to_string()),
+            )
+                .into_response();
+        }
+    };
+
+    (StatusCode::OK, Json(rows)).into_response()
+}
+
 /// View Logical Partition details
 pub async fn detail(
     AxumState(state): AxumState<Arc<Api>>,
@@ -213,6 +320,40 @@ pub async fn detail(
 
     let tmpl: LogicalPartitionDetail = partitions[0].clone().into();
     (StatusCode::OK, Html(tmpl.render().unwrap())).into_response()
+}
+
+/// Fetches NVLink domain rows from the health-report table.
+async fn fetch_nvlink_domain_health_rows(
+    api: &Api,
+) -> Result<Vec<NvLinkDomainHealthRow>, db::DatabaseError> {
+    let ids = db::nvlink_domain_health_report::list_domain_ids(api.db_reader().as_mut()).await?;
+
+    Ok(ids.into_iter().map(Into::into).collect())
+}
+
+/// Filters NVLink domain rows by case-insensitive domain ID substring.
+fn filter_nvlink_domain_health_rows(
+    rows: Vec<NvLinkDomainHealthRow>,
+    search_query: &str,
+) -> Vec<NvLinkDomainHealthRow> {
+    if search_query.is_empty() {
+        return rows;
+    }
+
+    let search_query = search_query.to_ascii_lowercase();
+
+    rows.into_iter()
+        .filter(|row| row.id.contains(&search_query))
+        .collect()
+}
+
+/// Builds query parameters that pagination links must preserve.
+fn domain_health_extra_query_params(search_query: &str) -> String {
+    if search_query.is_empty() {
+        String::new()
+    } else {
+        format!("&q={}", urlencoding::encode(search_query))
+    }
 }
 
 async fn fetch_logical_partitions(
@@ -383,4 +524,5 @@ async fn fetch_logical_partitions(
 }
 
 impl super::Base for LogicalPartitionShow {}
+impl super::Base for NvLinkDomainHealthShow {}
 impl super::Base for LogicalPartitionDetail {}

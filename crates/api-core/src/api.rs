@@ -653,6 +653,27 @@ impl Forge for Api {
         crate::handlers::power_shelf::remove_power_shelf_health_report(self, request).await
     }
 
+    async fn list_nv_link_domain_health_reports(
+        &self,
+        request: Request<rpc::ListNvLinkDomainHealthReportsRequest>,
+    ) -> Result<Response<rpc::ListHealthReportResponse>, Status> {
+        crate::handlers::nvlink_domain::list_nv_link_domain_health_reports(self, request).await
+    }
+
+    async fn insert_nv_link_domain_health_report(
+        &self,
+        request: Request<rpc::InsertNvLinkDomainHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::nvlink_domain::insert_nv_link_domain_health_report(self, request).await
+    }
+
+    async fn remove_nv_link_domain_health_report(
+        &self,
+        request: Request<rpc::RemoveNvLinkDomainHealthReportRequest>,
+    ) -> Result<Response<()>, Status> {
+        crate::handlers::nvlink_domain::remove_nv_link_domain_health_report(self, request).await
+    }
+
     async fn get_all_domain_metadata(
         &self,
         request: Request<DomainMetadataRequest>,

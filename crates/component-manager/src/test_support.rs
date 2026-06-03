@@ -56,8 +56,7 @@ pub(crate) async fn seed_test_data(
     let sw2 = seed_switch(&mut txn, SW_MAC_2, "SW-002", &rack_id).await;
 
     // Advance the freshly-created rack into Ready so on-demand-maintenance
-    // preflight accepts it. Tests that want to exercise the non-Ready path
-    // override the state after seeding via `set_rack_state`.
+    // preflight accepts it.
     let next_version = rack.controller_state.version.increment();
     let advanced = db::rack::try_update_controller_state(
         &mut txn,
@@ -72,33 +71,6 @@ pub(crate) async fn seed_test_data(
 
     txn.commit().await.unwrap();
     (rack_id, ps1, ps2, sw1, sw2)
-}
-
-/// Forcibly override the rack's controller state. Used by tests that want to
-/// exercise preflight behaviour (e.g. rejecting a request when the rack is
-/// mid-maintenance).
-pub(crate) async fn set_rack_state(pool: &PgPool, rack_id: &RackId, state: RackState) {
-    let mut txn = pool.begin().await.unwrap();
-    let rack = db::rack::find_by(
-        txn.as_mut(),
-        db::ObjectColumnFilter::One(db::rack::IdColumn, rack_id),
-    )
-    .await
-    .expect("find_by")
-    .pop()
-    .expect("rack exists");
-    let next_version = rack.controller_state.version.increment();
-    let advanced = db::rack::try_update_controller_state(
-        &mut txn,
-        rack_id,
-        rack.controller_state.version,
-        next_version,
-        &state,
-    )
-    .await
-    .expect("try_update_controller_state");
-    assert!(advanced, "rack controller_state version mismatch");
-    txn.commit().await.unwrap();
 }
 
 pub(crate) async fn seed_power_shelf(

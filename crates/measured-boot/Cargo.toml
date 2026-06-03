@@ -38,7 +38,7 @@ prettytable-rs = { optional = true, workspace = true }
 clap = { workspace = true, optional = true }
 eyre = { optional = true, workspace = true }
 serde = { workspace = true }
-chrono = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
 
 [lints]
 workspace = true

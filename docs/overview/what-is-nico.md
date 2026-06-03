@@ -35,7 +35,7 @@ NICo's core responsibilities:
 
 ## Architecture overview
 
-![NICo architecture diagram](../static/nico_arch_diagram.png)
+![NICo architecture diagram](../static/nico_arch_diagram.svg)
 
 NICo is deployed as a suite of microservices on a Kubernetes cluster co-located in the datacenter it manages. This suite of microservices forms the control plane, known as the **Site Controller**. The Kubernetes cluster requires a minimum of three nodes for high availability, and all NICo control plane services communicate over mTLS/gRPC.
 

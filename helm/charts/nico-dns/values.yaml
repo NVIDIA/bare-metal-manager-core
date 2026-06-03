@@ -44,6 +44,31 @@ service:
 
 apiServiceName: nico-api
 
+## Pod resource requests/limits for the nico-dns container. Rendered verbatim,
+## so override any field as needed. Defaults: no CPU limit (a hard CPU cap would
+## throttle the latency-sensitive DNS path) and a 256Mi memory limit sized for
+## the negative cache plus allocator high-water under load.
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+## PodMonitor for the Prometheus Operator to scrape the metrics container port
+## (8053) directly off each pod. Disabled by default; requires the Prometheus
+## Operator CRDs (monitoring.coreos.com/v1).
+podMonitor:
+  enabled: false
+  ## Label your Prometheus instance's podMonitorSelector matches to discover it.
+  labels:
+    prometheus: nico-monitoring
+  ## Metrics HTTP path served by nico-dns.
+  path: /metrics
+  ## Optional scrape tuning; left blank, so the operator defaults apply.
+  interval: ""
+  scrapeTimeout: ""
+
 certificate:
   ## serviceName is used to auto-generate dnsNames and SPIFFE URIs based on the release namespace
   serviceName: ""
