@@ -21,8 +21,7 @@ use std::time::Duration;
 use carbide_libmlx_model::device::info::MlxDeviceInfo;
 use prettytable::{Cell, Row, Table};
 use regex::Regex;
-use serde_json;
-use tracing;
+use {serde_json, tracing};
 
 use crate::device::cmd::device::args::DeviceArgs;
 use crate::device::cmd::device::cmds::handle as handle_device;

@@ -22,9 +22,8 @@ mod mock_server;
 use std::collections as stdcol;
 
 use fixtures::*;
-use mock_keystore as mks;
-use mock_server as ms;
 use nras::{DeviceAttestationInfo, NrasError, VerifierClient};
+use {mock_keystore as mks, mock_server as ms};
 
 // --> NrasVerifierClient <--
 #[tokio::test]
